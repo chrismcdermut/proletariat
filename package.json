@@ -1,0 +1,59 @@
+{
+  "name": "proletariat",
+  "version": "2.0.0",
+  "description": "⚒️ Simple Themed Git Worktree Manager - Making git worktrees fun with billionaires, cars, and companies!",
+  "main": "dist/bin/proletariat.js",
+  "bin": {
+    "proletariat": "./dist/bin/proletariat.js",
+    "prlt": "./dist/bin/proletariat.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "pnpm run clean && pnpm run build",
+    "test": "echo \"Workers of the world, unite!\" && exit 0"
+  },
+  "keywords": [
+    "git",
+    "worktree",
+    "development",
+    "themed",
+    "billionaires",
+    "cars",
+    "companies",
+    "cli",
+    "workflow",
+    "parallel-development"
+  ],
+  "author": "The Revolutionary Committee <workers@proletariat.dev>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/proletariat-dev/proletariat.git"
+  },
+  "bugs": {
+    "url": "https://github.com/proletariat-dev/proletariat/issues"
+  },
+  "homepage": "https://github.com/proletariat-dev/proletariat#readme",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "commander": "^11.0.0",
+    "chalk": "^4.1.2",
+    "inquirer": "^8.2.5"
+  },
+  "devDependencies": {
+    "@types/inquirer": "^8.2.6",
+    "@types/node": "^20.0.0",
+    "eslint": "^8.44.0",
+    "typescript": "^5.0.0"
+  },
+  "preferGlobal": true,
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ]
+}
