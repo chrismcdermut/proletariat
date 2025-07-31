@@ -11,7 +11,21 @@
       "Bash(ls:*)",
       "Bash(git worktree:*)",
       "Bash(pnpm install:*)",
-      "Bash(pnpm run:*)"
+      "Bash(pnpm run:*)",
+      "Bash(pnpm setup:*)",
+      "Bash(source:*)",
+      "Bash(npm config delete:*)",
+      "Bash(pnpm link:*)",
+      "Bash(echo $PNPM_HOME)",
+      "Bash(export PNPM_HOME=\"/Users/chrismcdermut/Library/pnpm\")",
+      "Bash(export PATH=\"$PNPM_HOME:$PATH\")",
+      "Bash(/Users/chrismcdermut/Library/pnpm/prlt --version)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(ln:*)",
+      "Bash(cat:*)",
+      "Bash(pnpm unlink:*)",
+      "Bash(npm link:*)"
     ],
     "deny": []
   }
