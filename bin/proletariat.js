@@ -31,7 +31,8 @@ const THEMES = {
       create: 'hire',
       remove: 'fire', 
       list: 'staff',
-      session: 'work'
+      session: 'work',
+      proxy: 'serve'
     },
     messages: {
       create: 'Hiring billionaire workers',
@@ -51,7 +52,8 @@ const THEMES = {
       create: 'drive',
       remove: 'park',
       list: 'garage',
-      session: 'ride'
+      session: 'ride',
+      proxy: 'cruise'
     },
     messages: {
       create: 'Taking cars for a drive',
@@ -71,7 +73,8 @@ const THEMES = {
       create: 'buy',
       remove: 'sell',
       list: 'portfolio',
-      session: 'manage'
+      session: 'manage',
+      proxy: 'host'
     },
     messages: {
       create: 'Acquiring companies',
@@ -422,7 +425,7 @@ function listThemes() {
   Object.values(THEMES).forEach(theme => {
     console.log(`${chalk.green(theme.emoji)} ${chalk.bold(theme.name)}`);
     console.log(`   ${theme.description}`);
-    console.log(`   Commands: ${theme.commands.create}, ${theme.commands.remove}, ${theme.commands.list}, ${theme.commands.session}`);
+    console.log(`   Commands: ${theme.commands.create}, ${theme.commands.remove}, ${theme.commands.list}, ${theme.commands.session}, ${theme.commands.proxy}`);
     console.log(`   Agents: ${theme.agents.slice(0, 4).join(', ')}...`);
     console.log('');
   });
@@ -434,6 +437,119 @@ function checkTmuxAvailable() {
     return true;
   } catch (error) {
     return false;
+  }
+}
+
+function checkCaddyAvailable() {
+  try {
+    execSync('which caddy', { stdio: 'ignore' });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function generateCaddyfile(agents, config, theme) {
+  const projectName = config.projectName;
+  const lines = ['# 🚩 PROLETARIAT - Revolutionary Caddy Configuration', '# Auto-generated proxy rules for agents', ''];
+  
+  agents.forEach(agent => {
+    const agentPath = path.join(config.workspaceDir, agent);
+    if (fs.existsSync(agentPath)) {
+      // Frontend proxy
+      lines.push(`${agent}.${projectName}.test {`);
+      lines.push(`    reverse_proxy localhost:3000  # Assumes standard dev server port`);
+      lines.push(`    log {`);
+      lines.push(`        output file /tmp/caddy-${agent}.log`);
+      lines.push(`    }`);
+      lines.push(`}`);
+      lines.push('');
+      
+      // API proxy (if different port)
+      lines.push(`api.${agent}.${projectName}.test {`);
+      lines.push(`    reverse_proxy localhost:5000  # Assumes standard API port`);
+      lines.push(`}`);
+      lines.push('');
+    }
+  });
+  
+  lines.push('# Add more custom rules here as needed');
+  return lines.join('\\n');
+}
+
+async function setupCaddyProxy(agents) {
+  if (!isInitialized()) {
+    log.error('Proletariat not initialized! Run `prlt init` first.');
+    return;
+  }
+  
+  if (!checkCaddyAvailable()) {
+    log.error('Caddy not found! Please install Caddy first.');
+    log.info('Install with: brew install caddy (macOS) or https://caddyserver.com/docs/install');
+    return;
+  }
+  
+  config = loadConfig();
+  currentTheme = config.theme;
+  
+  if (agents.length === 0) {
+    log.error(`Usage: prlt ${currentTheme.commands.proxy} <agent1> [agent2] ...`);
+    log.info(`Available agents: ${currentTheme.agents.join(', ')}`);
+    return;
+  }
+  
+  showBanner(currentTheme);
+  log.theme(currentTheme, `Setting up Caddy proxy for ${currentTheme.name} agents`);
+  
+  const validAgents = agents.filter(agent => {
+    if (!currentTheme.agents.includes(agent)) {
+      log.warning(`Agent '${agent}' not available in ${currentTheme.name} theme`);
+      return false;
+    }
+    
+    const agentPath = path.join(config.workspaceDir, agent);
+    if (!fs.existsSync(agentPath)) {
+      log.warning(`Agent '${agent}' not deployed. Run 'prlt ${currentTheme.commands.create} ${agent}' first.`);
+      return false;
+    }
+    
+    return true;
+  });
+  
+  if (validAgents.length === 0) {
+    log.error('No valid agents to set up proxy for!');
+    return;
+  }
+  
+  // Generate Caddyfile
+  const caddyfile = generateCaddyfile(validAgents, config, currentTheme);
+  const caddyfilePath = path.join(config.workspaceDir, 'Caddyfile');
+  
+  try {
+    fs.writeFileSync(caddyfilePath, caddyfile);
+    log.success(`Generated Caddyfile: ${caddyfilePath}`);
+    
+    // Show the beautiful domain names
+    console.log('\\n' + chalk.blue('🌐 Your agent domains:'));
+    validAgents.forEach(agent => {
+      log.agent(agent, chalk.green(`https://${agent}.${config.projectName}.test`), currentTheme);
+      console.log(`    ${chalk.dim('API:')} https://api.${agent}.${config.projectName}.test`);
+    });
+    
+    console.log('\\n' + chalk.yellow('🚀 To start Caddy:'));
+    console.log(`  cd ${config.workspaceDir}`);
+    console.log(`  caddy run`);
+    
+    console.log('\\n' + chalk.blue('💡 Setup steps:'));
+    console.log('  1. Make sure your dev servers are running on standard ports');
+    console.log('  2. Add the domains to your /etc/hosts if needed');
+    console.log('  3. Start Caddy in the fleet directory');
+    console.log('  4. Visit your beautiful agent URLs! 🎉');
+    
+    log.theme(currentTheme, `Proxy configuration ready! ${currentTheme.messages.slogan}`);
+    
+  } catch (error) {
+    log.error(`Failed to generate Caddyfile: ${error.message}`);
   }
 }
 
@@ -569,6 +685,11 @@ Object.values(THEMES).forEach(theme => {
     .command(`${theme.commands.session} <agents...>`)
     .description(`${theme.emoji} Start tmux sessions for ${theme.name} agents`)
     .action(startTmuxSession);
+    
+  program
+    .command(`${theme.commands.proxy} <agents...>`)
+    .description(`${theme.emoji} Setup Caddy proxy domains for ${theme.name} agents`)
+    .action(setupCaddyProxy);
 });
 
 program
