@@ -1,7 +1,8 @@
-const chalk = require('chalk');
-const { getAllThemes } = require('../themes');
+import chalk from 'chalk';
+import { getAllThemes } from '../themes/index.js';
+import { ListOptions } from '../../types/index.js';
 
-function listAgents(options) {
+export function listAgents(options: ListOptions): void {
   const themeName = options.theme || 'billionaires';
   const themes = getAllThemes();
   const theme = themes[themeName];
@@ -25,7 +26,7 @@ function listAgents(options) {
   console.log(`  prlt ${theme.commands.list}`);
 }
 
-function listThemes() {
+export function listThemes(): void {
   console.log(chalk.blue('\n🎨 Available Themes:\n'));
   
   const themes = getAllThemes();
@@ -37,8 +38,3 @@ function listThemes() {
     console.log('');
   });
 }
-
-module.exports = {
-  listAgents,
-  listThemes
-};

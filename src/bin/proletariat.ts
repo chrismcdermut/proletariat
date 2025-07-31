@@ -9,16 +9,17 @@
  * Companies: "Time to make some acquisitions!"
  */
 
-const { Command } = require('commander');
-const chalk = require('chalk');
+import { Command } from 'commander';
+import chalk from 'chalk';
 
 // Import modules
-const { getAllThemes } = require('../lib/themes');
-const { initProject, createWorktrees, removeWorktrees, showStatus } = require('../lib/worktree');
-const { startTmuxSession } = require('../lib/tmux');
-const { setupCaddyProxy } = require('../lib/caddy');
-const { listAgents, listThemes } = require('../lib/utils/helpers');
-const { showBanner } = require('../lib/utils/logger');
+import { getAllThemes } from '../lib/themes/index.js';
+import { initProject, createWorktrees, removeWorktrees, showStatus } from '../lib/worktree/index.js';
+import { startTmuxSession } from '../lib/tmux/index.js';
+import { setupCaddyProxy } from '../lib/caddy/index.js';
+import { listAgents, listThemes } from '../lib/utils/helpers.js';
+import { showBanner } from '../lib/utils/logger.js';
+import { InitOptions, ListOptions } from '../types/index.js';
 
 const program = new Command();
 
@@ -35,46 +36,58 @@ program
   .command('init')
   .description('🚩 Initialize themed worktree management')
   .option('-t, --theme <theme>', 'theme (billionaires, cars, companies)')
-  .action(initProject);
+  .action(async (options: InitOptions) => {
+    await initProject(options);
+  });
 
 // Dynamic theme commands
 Object.values(THEMES).forEach(theme => {
   program
     .command(`${theme.commands.create} <agents...>`)
     .description(`${theme.emoji} Create worktrees for ${theme.name} agents`)
-    .action(createWorktrees);
+    .action(async (agents: string[]) => {
+      await createWorktrees(agents);
+    });
     
   program
     .command(`${theme.commands.remove} <agents...>`)
     .description(`${theme.emoji} Remove worktrees for ${theme.name} agents`)
-    .action(removeWorktrees);
+    .action(async (agents: string[]) => {
+      await removeWorktrees(agents);
+    });
     
   program
     .command(theme.commands.list)
     .description(`${theme.emoji} Show active ${theme.name} agents`)
-    .action(showStatus);
+    .action(() => {
+      showStatus();
+    });
     
   program
     .command(`${theme.commands.session} <agents...>`)
     .description(`${theme.emoji} Start tmux sessions for ${theme.name} agents`)
-    .action(startTmuxSession);
+    .action(async (agents: string[]) => {
+      await startTmuxSession(agents);
+    });
     
   program
     .command(`${theme.commands.proxy} <agents...>`)
     .description(`${theme.emoji} Setup Caddy proxy domains for ${theme.name} agents`)
-    .action(setupCaddyProxy);
+    .action(async (agents: string[]) => {
+      await setupCaddyProxy(agents);
+    });
 });
 
 program
   .command('list')
   .description('📋 List available agents for a theme')
   .option('-t, --theme <theme>', 'theme to list agents for')
-  .action(listAgents);
+  .action((options: ListOptions) => listAgents(options));
 
 program
   .command('themes')
   .description('🎨 List available themes')
-  .action(listThemes);
+  .action(() => listThemes());
 
 // Parse command line arguments
 program.parse(process.argv);

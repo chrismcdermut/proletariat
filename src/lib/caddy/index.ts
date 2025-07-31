@@ -1,12 +1,13 @@
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
-const chalk = require('chalk');
-const inquirer = require('inquirer');
-const { isInitialized, loadConfig, saveConfig } = require('../config');
-const { log, showBanner } = require('../utils/logger');
+import * as fs from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
+import chalk from 'chalk';
+import inquirer from 'inquirer';
+import { isInitialized, loadConfig, saveConfig } from '../config/index.js';
+import { log, showBanner } from '../utils/logger.js';
+import { ProjectConfig, Theme, PortConfig } from '../../types/index.js';
 
-function checkCaddyAvailable() {
+export function checkCaddyAvailable(): boolean {
   try {
     execSync('which caddy', { stdio: 'ignore' });
     return true;
@@ -15,7 +16,7 @@ function checkCaddyAvailable() {
   }
 }
 
-function generateCaddyfile(agents, config, theme) {
+export function generateCaddyfile(agents: string[], config: ProjectConfig, theme: Theme): string {
   const projectName = config.projectName;
   const frontendPort = config.ports?.frontend || 3000;
   const backendPort = config.ports?.backend || 5000;
@@ -50,7 +51,7 @@ function generateCaddyfile(agents, config, theme) {
   return lines.join('\n');
 }
 
-async function promptForPorts() {
+export async function promptForPorts(): Promise<PortConfig> {
   console.log(chalk.yellow('\n🔧 Port Configuration Needed:'));
   
   const portAnswers = await inquirer.prompt([
@@ -59,7 +60,7 @@ async function promptForPorts() {
       name: 'frontend',
       message: 'What port does your frontend run on?',
       default: '3000',
-      validate: input => {
+      validate: (input: string) => {
         const port = parseInt(input);
         return (port > 0 && port < 65536) ? true : 'Please enter a valid port number (1-65535)';
       }
@@ -69,7 +70,7 @@ async function promptForPorts() {
       name: 'backend',
       message: 'What port does your backend/API run on?',
       default: '5000',
-      validate: input => {
+      validate: (input: string) => {
         const port = parseInt(input);
         return (port > 0 && port < 65536) ? true : 'Please enter a valid port number (1-65535)';
       }
@@ -82,7 +83,7 @@ async function promptForPorts() {
   };
 }
 
-async function setupCaddyProxy(agents) {
+export async function setupCaddyProxy(agents: string[]): Promise<ProjectConfig | void> {
   if (!isInitialized()) {
     log.error('Proletariat not initialized! Run `prlt init` first.');
     return;
@@ -96,6 +97,11 @@ async function setupCaddyProxy(agents) {
   
   let config = loadConfig();
   const currentTheme = config.theme;
+  
+  if (!currentTheme) {
+    log.error('Theme not found in configuration!');
+    return;
+  }
   
   if (agents.length === 0) {
     log.error(`Usage: prlt ${currentTheme.commands.proxy} <agent1> [agent2] ...`);
@@ -163,15 +169,9 @@ async function setupCaddyProxy(agents) {
     log.theme(currentTheme, `Proxy configuration ready! ${currentTheme.messages.slogan}`);
     
   } catch (error) {
-    log.error(`Failed to generate Caddyfile: ${error.message}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error(`Failed to generate Caddyfile: ${errorMessage}`);
   }
   
   return config;
 }
-
-module.exports = {
-  checkCaddyAvailable,
-  generateCaddyfile,
-  promptForPorts,
-  setupCaddyProxy
-};

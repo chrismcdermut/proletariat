@@ -1,4 +1,6 @@
-const THEMES = {
+import { Theme, ThemeCollection } from '../../types/index.js';
+
+const THEMES: ThemeCollection = {
   billionaires: {
     name: 'billionaires',
     displayName: 'Billionaire Staff',
@@ -64,26 +66,20 @@ const THEMES = {
   }
 };
 
-function getTheme(themeName) {
+export function getTheme(themeName: string): Theme {
   return THEMES[themeName] || THEMES.billionaires;
 }
 
-function getAllThemes() {
+export function getAllThemes(): ThemeCollection {
   return THEMES;
 }
 
-function getThemeNames() {
+export function getThemeNames(): string[] {
   return Object.keys(THEMES);
 }
 
-function isValidTheme(themeName) {
+export function isValidTheme(themeName: string): boolean {
   return themeName in THEMES;
 }
 
-module.exports = {
-  THEMES,
-  getTheme,
-  getAllThemes,
-  getThemeNames,
-  isValidTheme
-};
+export { THEMES };

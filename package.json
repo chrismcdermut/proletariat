@@ -2,14 +2,17 @@
   "name": "proletariat",
   "version": "2.0.0",
   "description": "⚒️ Simple Themed Git Worktree Manager - Making git worktrees fun with billionaires, cars, and companies!",
-  "main": "bin/proletariat.js",
+  "main": "dist/bin/proletariat.js",
   "bin": {
-    "proletariat": "./bin/proletariat.js",
-    "prlt": "./bin/proletariat.js"
+    "proletariat": "./dist/bin/proletariat.js",
+    "prlt": "./dist/bin/proletariat.js"
   },
   "scripts": {
-    "test": "echo \"Workers of the world, unite!\" && exit 0",
-    "prepublishOnly": "echo \"Preparing the revolution for publication...\""
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "pnpm run clean && pnpm run build",
+    "test": "echo \"Workers of the world, unite!\" && exit 0"
   },
   "keywords": [
     "git",
@@ -42,11 +45,14 @@
     "inquirer": "^8.2.5"
   },
   "devDependencies": {
-    "eslint": "^8.44.0"
+    "@types/inquirer": "^8.2.6",
+    "@types/node": "^20.0.0",
+    "eslint": "^8.44.0",
+    "typescript": "^5.0.0"
   },
   "preferGlobal": true,
   "files": [
-    "bin/",
+    "dist/",
     "README.md",
     "LICENSE"
   ]

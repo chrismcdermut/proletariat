@@ -1,9 +1,10 @@
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
-const { getTheme } = require('../themes');
+import * as fs from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
+import { getTheme } from '../themes/index.js';
+import { Theme, ProjectConfig } from '../../types/index.js';
 
-function getProjectRoot() {
+export function getProjectRoot(): string {
   try {
     return execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim();
   } catch (error) {
@@ -11,40 +12,40 @@ function getProjectRoot() {
   }
 }
 
-function getProjectName() {
+export function getProjectName(): string {
   const projectRoot = getProjectRoot();
   return path.basename(projectRoot);
 }
 
-function getConfigPath() {
+export function getConfigPath(): string {
   const projectRoot = getProjectRoot();
   return path.join(projectRoot, '.proletariat', 'config.json');
 }
 
-function getWorkspaceDir(theme) {
+export function getWorkspaceDir(theme: Theme): string {
   const projectRoot = getProjectRoot();
   const projectName = getProjectName();
   return path.join(path.dirname(projectRoot), `${projectName}-${theme.directory}`);
 }
 
-function isInitialized() {
+export function isInitialized(): boolean {
   return fs.existsSync(getConfigPath());
 }
 
-function loadConfig() {
+export function loadConfig(): ProjectConfig {
   if (!isInitialized()) {
     throw new Error('Proletariat not initialized! Run `proletariat init` first.');
   }
   
   const configPath = getConfigPath();
-  const rawConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  const rawConfig = JSON.parse(fs.readFileSync(configPath, 'utf8')) as ProjectConfig;
   return {
     ...rawConfig,
     theme: getTheme(rawConfig.themeName)
   };
 }
 
-function saveConfig(configData) {
+export function saveConfig(configData: ProjectConfig): void {
   const configPath = getConfigPath();
   const configDir = path.dirname(configPath);
   
@@ -54,13 +55,3 @@ function saveConfig(configData) {
   
   fs.writeFileSync(configPath, JSON.stringify(configData, null, 2));
 }
-
-module.exports = {
-  getProjectRoot,
-  getProjectName,
-  getConfigPath,
-  getWorkspaceDir,
-  isInitialized,
-  loadConfig,
-  saveConfig
-};
