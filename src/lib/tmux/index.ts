@@ -1,11 +1,12 @@
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
-const chalk = require('chalk');
-const { isInitialized, loadConfig } = require('../config');
-const { log, showBanner } = require('../utils/logger');
+import * as fs from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
+import chalk from 'chalk';
+import { isInitialized, loadConfig } from '../config/index.js';
+import { log, showBanner } from '../utils/logger.js';
+import { ProjectConfig } from '../../types/index.js';
 
-function checkTmuxAvailable() {
+export function checkTmuxAvailable(): boolean {
   try {
     execSync('which tmux', { stdio: 'ignore' });
     return true;
@@ -14,7 +15,7 @@ function checkTmuxAvailable() {
   }
 }
 
-async function startTmuxSession(agents) {
+export async function startTmuxSession(agents: string[]): Promise<ProjectConfig | void> {
   if (!isInitialized()) {
     log.error('Proletariat not initialized! Run `prlt init` first.');
     return;
@@ -28,6 +29,11 @@ async function startTmuxSession(agents) {
   
   const config = loadConfig();
   const currentTheme = config.theme;
+  
+  if (!currentTheme) {
+    log.error('Theme not found in configuration!');
+    return;
+  }
   
   if (agents.length === 0) {
     log.error(`Usage: prlt ${currentTheme.commands.session} <agent1> [agent2] ...`);
@@ -94,7 +100,8 @@ async function startTmuxSession(agents) {
       execSync(`tmux select-window -t "${sessionName}:editor"`);
       
     } catch (error) {
-      log.error(`Failed to create tmux session for ${agent}: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`Failed to create tmux session for ${agent}: ${errorMessage}`);
     }
   }
   
@@ -114,8 +121,3 @@ async function startTmuxSession(agents) {
   
   return config;
 }
-
-module.exports = {
-  checkTmuxAvailable,
-  startTmuxSession
-};

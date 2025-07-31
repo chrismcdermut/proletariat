@@ -1,25 +1,28 @@
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
-const chalk = require('chalk');
-const inquirer = require('inquirer');
-const { getAllThemes, getThemeNames, isValidTheme } = require('../themes');
-const { 
+import * as fs from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
+import chalk from 'chalk';
+import inquirer from 'inquirer';
+import { getAllThemes, getThemeNames, isValidTheme } from '../themes/index.js';
+import { 
   getProjectName, 
   getWorkspaceDir, 
   isInitialized, 
   loadConfig, 
   saveConfig 
-} = require('../config');
-const { log, showBanner } = require('../utils/logger');
+} from '../config/index.js';
+import { log, showBanner } from '../utils/logger.js';
+import { InitOptions, ProjectConfig, Theme } from '../../types/index.js';
 
-async function initProject(options) {
+export async function initProject(options: InitOptions): Promise<ProjectConfig | void> {
   const projectName = getProjectName();
   
   if (isInitialized()) {
     log.warning(`Proletariat already initialized for ${projectName}!`);
     const config = loadConfig();
-    showBanner(config.theme);
+    if (config.theme) {
+      showBanner(config.theme);
+    }
     return config;
   }
   
@@ -65,7 +68,7 @@ async function initProject(options) {
   }
   
   // Save configuration
-  const configData = {
+  const configData: ProjectConfig = {
     version: '2.0.0',
     projectName,
     themeName: theme.name,
@@ -87,7 +90,7 @@ async function initProject(options) {
   return { ...configData, theme };
 }
 
-async function createWorktrees(agents) {
+export async function createWorktrees(agents: string[]): Promise<ProjectConfig | void> {
   if (!isInitialized()) {
     log.error('Proletariat not initialized! Run `proletariat init` first.');
     return;
@@ -95,6 +98,11 @@ async function createWorktrees(agents) {
   
   const config = loadConfig();
   const currentTheme = config.theme;
+  
+  if (!currentTheme) {
+    log.error('Theme not found in configuration!');
+    return;
+  }
   
   if (agents.length === 0) {
     log.error(`Usage: proletariat ${currentTheme.commands.create} <agent1> [agent2] ...`);
@@ -139,7 +147,8 @@ async function createWorktrees(agents) {
         }
       }
     } catch (error) {
-      log.error(`Failed to create worktree for ${agent}: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`Failed to create worktree for ${agent}: ${errorMessage}`);
     }
   }
   
@@ -155,7 +164,7 @@ async function createWorktrees(agents) {
   return config;
 }
 
-async function removeWorktrees(agents) {
+export async function removeWorktrees(agents: string[]): Promise<ProjectConfig | void> {
   if (!isInitialized()) {
     log.error('Proletariat not initialized! Run `proletariat init` first.');
     return;
@@ -163,6 +172,11 @@ async function removeWorktrees(agents) {
   
   const config = loadConfig();
   const currentTheme = config.theme;
+  
+  if (!currentTheme) {
+    log.error('Theme not found in configuration!');
+    return;
+  }
   
   if (agents.length === 0) {
     log.error(`Usage: proletariat ${currentTheme.commands.remove} <agent1> [agent2] ...`);
@@ -189,7 +203,8 @@ async function removeWorktrees(agents) {
         log.warning(`Agent '${agent}' is not active`);
       }
     } catch (error) {
-      log.error(`Failed to remove worktree for ${agent}: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`Failed to remove worktree for ${agent}: ${errorMessage}`);
     }
   }
   
@@ -204,7 +219,7 @@ async function removeWorktrees(agents) {
   return config;
 }
 
-function showStatus() {
+export function showStatus(): ProjectConfig | void {
   if (!isInitialized()) {
     log.error('Proletariat not initialized! Run `proletariat init` first.');
     return;
@@ -212,6 +227,11 @@ function showStatus() {
   
   const config = loadConfig();
   const currentTheme = config.theme;
+  
+  if (!currentTheme) {
+    log.error('Theme not found in configuration!');
+    return;
+  }
   
   showBanner(currentTheme);
   log.theme(currentTheme, currentTheme.messages.list);
@@ -247,15 +267,9 @@ function showStatus() {
     console.log('\n' + chalk.yellow(`💡 Tip: Use 'prlt ${currentTheme.commands.create} <agent>' to add more agents`));
     console.log(chalk.cyan(currentTheme.messages.slogan));
   } catch (error) {
-    log.error(`Failed to get status: ${error.message}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error(`Failed to get status: ${errorMessage}`);
   }
   
   return config;
 }
-
-module.exports = {
-  initProject,
-  createWorktrees,
-  removeWorktrees,
-  showStatus
-};
