@@ -35,6 +35,9 @@ Each agent is a clean git worktree on branch `[name]-workspace`. That's it!
 ### 📺 **Tmux Integration**
 Start organized tmux sessions per agent with 4 windows: editor, terminal, git, and AI.
 
+### 🌐 **Caddy Proxy Domains**
+Generate beautiful domain names per agent instead of remembering port numbers.
+
 ---
 
 ## 🚀 Quick Start
@@ -56,6 +59,11 @@ prlt buy apple microsoft    # Companies theme
 prlt work bezos musk        # Billionaires theme
 prlt ride tesla prius       # Cars theme
 prlt manage apple microsoft # Companies theme
+
+# Setup beautiful domain names (requires caddy)
+prlt serve bezos musk       # Billionaires theme
+prlt cruise tesla prius     # Cars theme  
+prlt host apple microsoft   # Companies theme
 
 # Check status
 prlt staff                   # Billionaires theme
@@ -142,11 +150,11 @@ prlt portfolio              # Check your holdings
 
 ## 📚 Command Reference
 
-| Theme | Create | Session | Remove | Status | Directory |
-|-------|--------|---------|--------|--------|-----------|
-| **💰 Billionaires** | `hire` | `work` | `fire` | `staff` | `../project-staff/` |
-| **🚗 Cars** | `drive` | `ride` | `park` | `garage` | `../project-garage/` |
-| **🏢 Companies** | `buy` | `manage` | `sell` | `portfolio` | `../project-portfolio/` |
+| Theme | Create | Session | Proxy | Remove | Status | Directory |
+|-------|--------|---------|-------|--------|--------|-----------|
+| **💰 Billionaires** | `hire` | `work` | `serve` | `fire` | `staff` | `../project-staff/` |
+| **🚗 Cars** | `drive` | `ride` | `cruise` | `park` | `garage` | `../project-garage/` |
+| **🏢 Companies** | `buy` | `manage` | `host` | `sell` | `portfolio` | `../project-portfolio/` |
 
 ### Universal Commands
 - `prlt init [--theme=cars]` - Initialize with theme
@@ -199,6 +207,31 @@ tmux attach -t test-project-musk
 
 # Detach: Ctrl+B then D
 # Kill session: tmux kill-session -t test-project-bezos
+```
+
+### 🌐 **Caddy Proxy Setup (Optional)**
+```bash
+# Install Caddy first
+brew install caddy  # macOS
+# or visit https://caddyserver.com/docs/install
+
+# Create agents
+prlt hire bezos musk
+
+# Generate beautiful domain names
+prlt serve bezos musk
+
+# Output shows:
+# 💰 BEZOS: https://bezos.your-project.test
+# 💰 MUSK: https://musk.your-project.test
+
+# Start Caddy proxy server
+cd ../your-project-staff
+caddy run
+
+# Now visit beautiful URLs instead of localhost:3000!
+# https://bezos.your-project.test
+# https://api.bezos.your-project.test
 ```
 
 ---
