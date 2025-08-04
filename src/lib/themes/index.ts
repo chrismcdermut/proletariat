@@ -4,10 +4,10 @@ const THEMES: ThemeCollection = {
   billionaires: {
     name: 'billionaires',
     displayName: 'Billionaire Staff',
-    description: '⚒️ Making billionaires work as your git worktrees!',
+    description: '⚒️ Making billionaires work a part of your staff.',
     emoji: '💰',
     directory: 'staff',
-    agents: ['bezos', 'musk', 'gates', 'buffett', 'zuckerberg', 'cook', 'ellison', 'page'],
+    agents: ['ballmer', 'beni', 'bezos', 'brin', 'buff', 'dell', 'elli', 'gates', 'huang', 'jobs', 'musk', 'page', 'thiel', 'zuck'],
     commands: {
       create: 'hire',
       remove: 'fire', 
@@ -22,13 +22,13 @@ const THEMES: ThemeCollection = {
       slogan: 'Workers of the codebase, unite! ✊'
     }
   },
-  cars: {
-    name: 'cars',
-    displayName: 'Car Garage',
-    description: '🚗 Your development garage with classic rides!',
+  toyotas: {
+    name: 'toyotas',
+    displayName: 'Toyota Garage',
+    description: '🚗 Your development garage with classic Toyotas!',
     emoji: '🚗',
     directory: 'garage',
-    agents: ['tesla', 'prius', 'mustang', 'camry', 'accord', 'civic', 'hdj81', 'landcruiser'],
+    agents: ['4runner', 'camry', 'fj40', 'fj60', 'fj80', 'hdj81', 'hilux', 'pig', 'prius', 'taco', 'tercel', 'troopy'],
     commands: {
       create: 'drive',
       remove: 'park',
@@ -37,16 +37,16 @@ const THEMES: ThemeCollection = {
       proxy: 'cruise'
     },
     messages: {
-      create: 'Taking cars for a drive',
-      remove: 'Parking cars in the garage',
-      list: 'Cars in your garage',
+      create: 'Taking Toyotas for a drive',
+      remove: 'Parking Toyotas in the garage',
+      list: 'Toyotas in your garage',
       slogan: 'Start your engines! 🏁'
     }
   },
   companies: {
     name: 'companies',
     displayName: 'Company Portfolio',
-    description: '🏢 Building your corporate empire, one acquisition at a time!',
+    description: '🏢 Now companies work for you.',
     emoji: '🏢',
     directory: 'portfolio',
     agents: ['apple', 'microsoft', 'google', 'amazon', 'meta', 'tesla', 'nvidia', 'oracle'],

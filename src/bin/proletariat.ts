@@ -89,6 +89,22 @@ program
   .description('🎨 List available themes')
   .action(() => listThemes());
 
+program
+  .command('generate-caddy')
+  .description('🌐 Interactive setup of applications and Caddy configuration')
+  .action(async () => {
+    const { generateCaddyInteractive } = await import('../lib/caddy/interactive.js');
+    await generateCaddyInteractive();
+  });
+
+program
+  .command('add-app <name> <port> <type>')
+  .description('📱 Add a new application to the project')
+  .action(async (name: string, port: string, type: string) => {
+    const { addApplication } = await import('../lib/applications/index.js');
+    await addApplication(name, parseInt(port), type);
+  });
+
 // Parse command line arguments
 program.parse(process.argv);
 
