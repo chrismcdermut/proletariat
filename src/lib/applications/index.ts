@@ -65,7 +65,6 @@ export async function updateAgentPorts(config: any): Promise<void> {
       const appPath = findAppPath(agentPath, app.name);
       if (appPath) {
         await createEnvFile(appPath, agentPort);
-        await updatePackageJsonScript(appPath, agentPort, app.type);
       }
     }
   }
@@ -150,35 +149,3 @@ function findOriginalAppPath(appName: string): string | null {
   return null;
 }
 
-async function updatePackageJsonScript(appPath: string, port: number, appType: string): Promise<void> {
-  const packageJsonPath = path.join(appPath, 'package.json');
-  
-  if (!fs.existsSync(packageJsonPath)) {
-    return;
-  }
-
-  try {
-    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-    
-    // Check if the app has a generate-env script
-    const hasGenerateEnv = fs.existsSync(path.join(appPath, 'scripts', 'generate-env.js'));
-    
-    // Update dev script based on app type
-    if (appType === 'frontend') {
-      packageJson.scripts.dev = `sh -c 'source .env.local && next dev --port $PORT'`;
-    } else if (appType === 'backend') {
-      // If app has generate-env script, use it
-      if (hasGenerateEnv) {
-        // Add pre-scripts to auto-generate .env.local
-        packageJson.scripts.predev = 'node scripts/generate-env.js';
-        packageJson.scripts['prestart:local'] = 'node scripts/generate-env.js';
-      }
-      packageJson.scripts.dev = `sh -c 'source .env.local && node src/index.js'`;
-    }
-    
-    fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
-    log.info(`Updated ${packageJsonPath} dev script`);
-  } catch (error) {
-    log.warning(`Failed to update ${packageJsonPath}: ${error}`);
-  }
-}
