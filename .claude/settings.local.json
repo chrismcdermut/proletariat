@@ -25,7 +25,24 @@
       "Bash(ln:*)",
       "Bash(cat:*)",
       "Bash(pnpm unlink:*)",
-      "Bash(npm link:*)"
+      "Bash(npm link:*)",
+      "Bash(npm audit:*)",
+      "Bash(./dist/bin/proletariat.js --help)",
+      "Bash(/Users/chrismcdermut/Projects/proletariat/dist/bin/proletariat.js init --theme=billionaires)",
+      "Bash(git init:*)",
+      "Bash(git remote add:*)",
+      "Bash(mv:*)",
+      "Bash(git clone:*)",
+      "Bash(/Users/chrismcdermut/Projects/proletariat/dist/bin/proletariat.js hire bezos musk)",
+      "Bash(/Users/chrismcdermut/Projects/proletariat/dist/bin/proletariat.js staff)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(/Users/chrismcdermut/Projects/proletariat/dist/bin/proletariat.js serve bezos musk)",
+      "Bash(pnpm add:*)",
+      "Bash(pnpm list:*)",
+      "Bash(/Users/chrismcdermut/Projects/proletariat/dist/bin/proletariat.js --help)",
+      "Bash(/Users/chrismcdermut/Projects/proletariat/dist/bin/proletariat.js generate-caddy)",
+      "Bash(NODE_ENV=local node dist/apps/careerops-backend/src/index.js)",
+      "Bash(curl:*)"
     ],
     "deny": []
   }

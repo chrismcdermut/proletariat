@@ -28,6 +28,12 @@ export interface ThemeCollection {
   [key: string]: Theme;
 }
 
+export interface Application {
+  name: string;
+  basePort: number;
+  type: 'frontend' | 'backend' | 'dev-server';
+}
+
 export interface ProjectConfig {
   version: string;
   projectName: string;
@@ -40,6 +46,7 @@ export interface ProjectConfig {
     frontend: number;
     backend: number;
   };
+  applications?: Application[];
 }
 
 export interface InitOptions {
