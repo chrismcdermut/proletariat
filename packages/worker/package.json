@@ -1,0 +1,23 @@
+{
+  "name": "@proletariat/worker",
+  "version": "1.0.0",
+  "description": "Worker agent for executing tasks",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@types/node": "^20.0.0",
+    "axios": "^1.5.0",
+    "winston": "^3.10.0",
+    "dotenv": "^16.3.1",
+    "simple-git": "^3.19.1",
+    "execa": "^7.2.0"
+  },
+  "devDependencies": {
+    "tsx": "^3.12.7",
+    "typescript": "^5.0.0"
+  }
+}

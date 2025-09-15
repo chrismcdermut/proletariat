@@ -1,6 +1,10 @@
 {
-  "name": "proletariat",
-  "version": "2.0.0",
+  "name": "@chrismcdermut/proletariat",
+  "version": "2.0.0-beta.1",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "⚒️ Simple Themed Git Worktree Manager - Making git worktrees fun with billionaires, cars, and companies!",
   "main": "dist/bin/proletariat.js",
   "bin": {
@@ -11,8 +15,11 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
-    "prepublishOnly": "pnpm run clean && pnpm run build",
-    "test": "echo \"Workers of the world, unite!\" && exit 0"
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run clean && npm run build",
+    "test": "echo \"Workers of the world, unite!\" && exit 0",
+    "lint": "eslint src/**/*.ts",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "git",

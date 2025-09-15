@@ -1,0 +1,166 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - proletariat
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: proletariat
+      POSTGRES_USER: revolutionary
+      POSTGRES_PASSWORD: workers_unite
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - proletariat
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: packages/orchestrator/Dockerfile
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://revolutionary:workers_unite@postgres:5432/proletariat
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./pmo:/app/pmo
+    networks:
+      - proletariat
+    restart: unless-stopped
+
+  communicator:
+    build:
+      context: .
+      dockerfile: packages/communicator/Dockerfile
+    environment:
+      NODE_ENV: production
+      ORCHESTRATOR_URL: http://orchestrator:3000
+      PORT: 3001
+      # Slack credentials (set in .env)
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
+      # Twilio credentials (set in .env)
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
+      SMS_WHITELIST: ${SMS_WHITELIST}
+    ports:
+      - "3001:3001"
+    depends_on:
+      - orchestrator
+    networks:
+      - proletariat
+    restart: unless-stopped
+
+  # Worker agents - scale as needed
+  worker-bezos:
+    build:
+      context: .
+      dockerfile: packages/worker/Dockerfile
+    environment:
+      NODE_ENV: production
+      WORKER_NAME: bezos
+      WORKER_THEME: billionaires
+      WORKER_SKILLS: backend,infrastructure,scalability
+      WORKER_LANGUAGES: javascript,typescript,python
+      ORCHESTRATOR_URL: http://orchestrator:3000
+    volumes:
+      - ./workspace/bezos:/workspace
+    depends_on:
+      - orchestrator
+    networks:
+      - proletariat
+    restart: unless-stopped
+
+  worker-musk:
+    build:
+      context: .
+      dockerfile: packages/worker/Dockerfile
+    environment:
+      NODE_ENV: production
+      WORKER_NAME: musk
+      WORKER_THEME: billionaires
+      WORKER_SKILLS: frontend,ai,innovation
+      WORKER_LANGUAGES: javascript,typescript,rust
+      ORCHESTRATOR_URL: http://orchestrator:3000
+    volumes:
+      - ./workspace/musk:/workspace
+    depends_on:
+      - orchestrator
+    networks:
+      - proletariat
+    restart: unless-stopped
+
+  worker-gates:
+    build:
+      context: .
+      dockerfile: packages/worker/Dockerfile
+    environment:
+      NODE_ENV: production
+      WORKER_NAME: gates
+      WORKER_THEME: billionaires
+      WORKER_SKILLS: testing,documentation,quality
+      WORKER_LANGUAGES: javascript,typescript,csharp
+      ORCHESTRATOR_URL: http://orchestrator:3000
+    volumes:
+      - ./workspace/gates:/workspace
+    depends_on:
+      - orchestrator
+    networks:
+      - proletariat
+    restart: unless-stopped
+
+  # Monitoring
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: revolution
+      GF_INSTALL_PLUGINS: redis-datasource
+    ports:
+      - "3002:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana:/etc/grafana/provisioning
+    networks:
+      - proletariat
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - proletariat
+    restart: unless-stopped
+
+networks:
+  proletariat:
+    driver: bridge
+
+volumes:
+  redis_data:
+  postgres_data:
+  grafana_data:
+  prometheus_data:
