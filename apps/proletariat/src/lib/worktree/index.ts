@@ -5,16 +5,18 @@ import chalk from 'chalk';
 import inquirer from 'inquirer';
 import { getAllThemes, getThemeNames, isValidTheme } from '../themes/index.js';
 import { 
-  getProjectName, 
-  getWorkspaceDir, 
-  isInitialized, 
-  loadConfig, 
+  getProjectName,
+  getProjectRoot,
+  resolveWorkspace,
+  isInitialized,
+  loadConfig,
   saveConfig 
 } from '../config/index.js';
 import { log, showBanner } from '../utils/logger.js';
 import { InitOptions, ProjectConfig, Theme } from '../../types/index.js';
 
 export async function initProject(options: InitOptions): Promise<ProjectConfig | void> {
+  const projectRoot = getProjectRoot();
   const projectName = getProjectName();
   
   if (isInitialized()) {
@@ -56,43 +58,136 @@ export async function initProject(options: InitOptions): Promise<ProjectConfig |
   
   const themes = getAllThemes();
   const theme = themes[themeName];
-  
-  showBanner(theme);
-  log.theme(theme, `Initializing ${projectName} with ${theme.displayName} theme...`);
-  
-  // Create workspace directory
-  const workspaceDir = getWorkspaceDir(theme);
-  if (!fs.existsSync(workspaceDir)) {
-    fs.mkdirSync(workspaceDir, { recursive: true });
-    log.success(`Created workspace: ${workspaceDir}`);
+
+  const resolvedOptions = { ...options } as InitOptions;
+
+  if (!resolvedOptions.workspaceRoot && !resolvedOptions.umbrella) {
+    const { layoutChoice } = await inquirer.prompt([{
+      type: 'list',
+      name: 'layoutChoice',
+      message: 'Where should agent worktrees live?',
+      choices: [
+        { name: 'Keep them alongside this repo (../project-staff)', value: 'sibling' },
+        { name: 'Create an umbrella directory to hold everything', value: 'umbrella' },
+        { name: 'Use a custom path', value: 'custom' }
+      ]
+    }]);
+
+    if (layoutChoice === 'umbrella') {
+      const { umbrellaName } = await inquirer.prompt([{
+        type: 'input',
+        name: 'umbrellaName',
+        message: 'Umbrella directory name (tip: use your company or product name):',
+        default: `${projectName}-workspace`,
+        validate: (input: string) => input.trim().length ? true : 'Please provide a directory name.'
+      }]);
+      resolvedOptions.umbrella = umbrellaName.trim();
+    } else if (layoutChoice === 'custom') {
+      const { workspaceRoot } = await inquirer.prompt([{
+        type: 'input',
+        name: 'workspaceRoot',
+        message: 'Path for agent worktrees (relative or absolute):',
+        default: `../${projectName}-staff`,
+        validate: (input: string) => input.trim().length ? true : 'Please provide a path.'
+      }]);
+      resolvedOptions.workspaceRoot = workspaceRoot.trim();
+    }
   }
-  
-  // Save configuration
+
+  const { workspaceDir, layout } = resolveWorkspace(theme, resolvedOptions);
+
   const configData: ProjectConfig = {
     version: '2.0.0',
     projectName,
     themeName: theme.name,
     workspaceDir,
     activeAgents: [],
-    initialized: new Date().toISOString()
+    initialized: new Date().toISOString(),
+    layout
   };
-  
+
   saveConfig(configData);
-  
+
+  showBanner(theme);
+  log.theme(theme, `Initializing ${projectName} with ${theme.displayName} theme...`);
+
+  if (layout.mode === 'umbrella' && !fs.existsSync(layout.baseDir)) {
+    fs.mkdirSync(layout.baseDir, { recursive: true });
+    log.success(`Created umbrella directory: ${layout.baseDir}`);
+  }
+
+  if (!fs.existsSync(workspaceDir)) {
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    log.success(`Created workspace: ${workspaceDir}`);
+  } else {
+    log.info(`Using existing workspace: ${workspaceDir}`);
+  }
+
+  if (layout.mode === 'umbrella') {
+    const targetRepoPath = path.join(layout.baseDir, projectName);
+    if (path.resolve(projectRoot) !== path.resolve(targetRepoPath)) {
+      log.info(`💡 Recommended: place this repository inside ${targetRepoPath} so your company workspace contains both the source repo and its agents.`);
+
+      const { moveNow } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'moveNow',
+          message: `Move the current repository into ${targetRepoPath}?`,
+          default: false
+        }
+      ]);
+
+      if (moveNow) {
+        try {
+          const status = execSync('git status --porcelain', { cwd: projectRoot, encoding: 'utf8' }).trim();
+          if (status.length > 0) {
+            log.warning('Cannot move repository: working tree has uncommitted changes. Commit or stash first.');
+          } else {
+            if (!fs.existsSync(layout.baseDir)) {
+              fs.mkdirSync(layout.baseDir, { recursive: true });
+            }
+
+            const repoName = path.basename(projectRoot);
+            const destination = path.join(layout.baseDir, repoName);
+
+            if (fs.existsSync(destination)) {
+              log.error(`Destination ${destination} already exists. Move aborted.`);
+            } else {
+              fs.renameSync(projectRoot, destination);
+              log.success(`Repository moved to ${destination}`);
+              log.success('Proletariat initialized!');
+              log.info('Please open a new shell and run prlt commands from the moved path.');
+              return { ...configData, theme };
+            }
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log.error(`Failed to move repository: ${message}`);
+        }
+      } else {
+        log.info('You can move the repository later; worktrees will still be created in the umbrella directory.');
+      }
+    }
+  }
+
+  if (layout.mode === 'custom') {
+    log.info(`Custom workspace path in use: ${workspaceDir}`);
+  }
+
   log.success('Proletariat initialized!');
   log.info(`Available agents: ${theme.agents.join(', ')}`);
   log.theme(theme, 'Next steps:');
   console.log(`  prlt ${theme.commands.create} ${theme.agents.slice(0, 2).join(' ')}    # Create worktrees`);
-  console.log(`  prlt ${theme.commands.session} ${theme.agents.slice(0, 2).join(' ')}    # Start tmux sessions`);
   console.log(`  prlt ${theme.commands.list}                                   # Show status`);
-  console.log(`\n${chalk.cyan(theme.messages.slogan)}`);
+  console.log(`
+${chalk.cyan(theme.messages.slogan)}`);
   
   return { ...configData, theme };
 }
 
 export async function createWorktrees(agents: string[]): Promise<ProjectConfig | void> {
   if (!isInitialized()) {
-    log.error('Proletariat not initialized! Run `proletariat init` first.');
+    log.error('Proletariat not initialized! Run `prlt init` first.');
     return;
   }
   
@@ -105,7 +200,7 @@ export async function createWorktrees(agents: string[]): Promise<ProjectConfig |
   }
   
   if (agents.length === 0) {
-    log.error(`Usage: proletariat ${currentTheme.commands.create} <agent1> [agent2] ...`);
+    log.error(`Usage: prlt ${currentTheme.commands.create} <agent1> [agent2] ...`);
     log.info(`Available agents: ${currentTheme.agents.join(', ')}`);
     return;
   }
@@ -166,7 +261,7 @@ export async function createWorktrees(agents: string[]): Promise<ProjectConfig |
 
 export async function removeWorktrees(agents: string[]): Promise<ProjectConfig | void> {
   if (!isInitialized()) {
-    log.error('Proletariat not initialized! Run `proletariat init` first.');
+    log.error('Proletariat not initialized! Run `prlt init` first.');
     return;
   }
   
@@ -179,7 +274,7 @@ export async function removeWorktrees(agents: string[]): Promise<ProjectConfig |
   }
   
   if (agents.length === 0) {
-    log.error(`Usage: proletariat ${currentTheme.commands.remove} <agent1> [agent2] ...`);
+    log.error(`Usage: prlt ${currentTheme.commands.remove} <agent1> [agent2] ...`);
     return;
   }
   
@@ -221,7 +316,7 @@ export async function removeWorktrees(agents: string[]): Promise<ProjectConfig |
 
 export function showStatus(): ProjectConfig | void {
   if (!isInitialized()) {
-    log.error('Proletariat not initialized! Run `proletariat init` first.');
+    log.error('Proletariat not initialized! Run `prlt init` first.');
     return;
   }
   

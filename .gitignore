@@ -140,3 +140,4 @@ vite.config.ts.timestamp-*
 
 # Claude settings
 .claude/
+.obsidian/

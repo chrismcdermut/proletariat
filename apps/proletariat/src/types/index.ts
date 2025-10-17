@@ -2,8 +2,6 @@ export interface ThemeCommands {
   create: string;
   remove: string;
   list: string;
-  session: string;
-  proxy: string;
 }
 
 export interface ThemeMessages {
@@ -28,6 +26,12 @@ export interface ThemeCollection {
   [key: string]: Theme;
 }
 
+export interface WorkspaceLayout {
+  mode: 'sibling' | 'umbrella' | 'custom';
+  baseDir: string;
+  umbrellaName?: string;
+}
+
 export interface ProjectConfig {
   version: string;
   projectName: string;
@@ -36,23 +40,17 @@ export interface ProjectConfig {
   activeAgents: string[];
   initialized: string;
   theme?: Theme;
-  ports?: {
-    frontend: number;
-    backend: number;
-  };
+  layout?: WorkspaceLayout;
 }
 
 export interface InitOptions {
   theme?: string;
+  umbrella?: string;
+  workspaceRoot?: string;
 }
 
 export interface ListOptions {
   theme?: string;
-}
-
-export interface PortConfig {
-  frontend: number;
-  backend: number;
 }
 
 export interface Logger {

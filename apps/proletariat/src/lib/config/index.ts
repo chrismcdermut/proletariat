@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { getTheme } from '../themes/index.js';
-import { Theme, ProjectConfig } from '../../types/index.js';
+import { Theme, ProjectConfig, InitOptions, WorkspaceLayout } from '../../types/index.js';
 
 export function getProjectRoot(): string {
   try {
@@ -22,10 +22,38 @@ export function getConfigPath(): string {
   return path.join(projectRoot, '.proletariat', 'config.json');
 }
 
-export function getWorkspaceDir(theme: Theme): string {
+export interface WorkspaceResolution {
+  workspaceDir: string;
+  layout: WorkspaceLayout;
+}
+
+export function resolveWorkspace(theme: Theme, options: InitOptions = {}): WorkspaceResolution {
   const projectRoot = getProjectRoot();
   const projectName = getProjectName();
-  return path.join(path.dirname(projectRoot), `${projectName}-${theme.directory}`);
+  const parentDir = path.dirname(projectRoot);
+
+  let mode: WorkspaceLayout['mode'] = 'sibling';
+  let baseDir = parentDir;
+  let umbrellaName: string | undefined;
+  let workspaceDir: string;
+
+  if (options.workspaceRoot) {
+    workspaceDir = path.resolve(projectRoot, options.workspaceRoot);
+    baseDir = path.dirname(workspaceDir);
+    mode = 'custom';
+  } else if (options.umbrella) {
+    umbrellaName = options.umbrella;
+    baseDir = path.join(parentDir, umbrellaName);
+    workspaceDir = path.join(baseDir, `${projectName}-${theme.directory}`);
+    mode = 'umbrella';
+  } else {
+    workspaceDir = path.join(parentDir, `${projectName}-${theme.directory}`);
+  }
+
+  return {
+    workspaceDir,
+    layout: { mode, baseDir, umbrellaName }
+  };
 }
 
 export function isInitialized(): boolean {
@@ -34,7 +62,7 @@ export function isInitialized(): boolean {
 
 export function loadConfig(): ProjectConfig {
   if (!isInitialized()) {
-    throw new Error('Proletariat not initialized! Run `proletariat init` first.');
+    throw new Error('Proletariat not initialized! Run `prlt init` first.');
   }
   
   const configPath = getConfigPath();

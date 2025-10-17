@@ -15,8 +15,6 @@ import chalk from 'chalk';
 // Import modules
 import { getAllThemes } from '../lib/themes/index.js';
 import { initProject, createWorktrees, removeWorktrees, showStatus } from '../lib/worktree/index.js';
-import { startTmuxSession } from '../lib/tmux/index.js';
-import { setupCaddyProxy } from '../lib/caddy/index.js';
 import { listAgents, listThemes } from '../lib/utils/helpers.js';
 import { showBanner } from '../lib/utils/logger.js';
 import { InitOptions, ListOptions } from '../types/index.js';
@@ -28,14 +26,16 @@ const THEMES = getAllThemes();
 
 // CLI Program setup
 program
-  .name('proletariat')
-  .description('⚒️ Simple Themed Git Worktree Manager (alias: prlt)')
+  .name('prlt')
+  .description('⚒️ Simple Themed Git Worktree Manager')
   .version('2.0.0');
 
 program
   .command('init')
   .description('🚩 Initialize themed worktree management')
   .option('-t, --theme <theme>', 'theme (billionaires, cars, companies)')
+  .option('--umbrella <name>', 'Create an umbrella directory (e.g. acme-project) to hold the repo and agents')
+  .option('--workspace-root <path>', 'Explicit path where agent worktrees should live')
   .action(async (options: InitOptions) => {
     await initProject(options);
   });
@@ -61,20 +61,6 @@ Object.values(THEMES).forEach(theme => {
     .description(`${theme.emoji} Show active ${theme.name} agents`)
     .action(() => {
       showStatus();
-    });
-    
-  program
-    .command(`${theme.commands.session} <agents...>`)
-    .description(`${theme.emoji} Start tmux sessions for ${theme.name} agents`)
-    .action(async (agents: string[]) => {
-      await startTmuxSession(agents);
-    });
-    
-  program
-    .command(`${theme.commands.proxy} <agents...>`)
-    .description(`${theme.emoji} Setup Caddy proxy domains for ${theme.name} agents`)
-    .action(async (agents: string[]) => {
-      await setupCaddyProxy(agents);
     });
 });
 
