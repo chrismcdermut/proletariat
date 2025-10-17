@@ -52,8 +52,8 @@ const THEMES: ThemeCollection = {
       list: 'portfolio'
     },
     messages: {
-      create: 'Signing new acquisitions',
-      remove: 'Spinning off laggards',
+      create: 'Closing fresh acquisitions',
+      remove: 'Cutting underperformers loose',
       list: 'Portfolio under management',
       slogan: 'Now they\re the consumer.'
     }
