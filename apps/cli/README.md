@@ -274,9 +274,9 @@ MIT License - Because even revolutionaries believe in open source!
 
 *The simplest, most fun git worktree manager in existence!*
 
-[![npm version](https://badge.fury.io/js/@proletariat/cli.svg)](https://badge.fury.io/js/@proletariat/cli)
+[![npm version](https://img.shields.io/npm/v/@proletariat/cli.svg)](https://www.npmjs.com/package/@proletariat/cli)
 [![Downloads](https://img.shields.io/npm/dm/@proletariat/cli.svg)](https://npmjs.org/package/@proletariat/cli)
-[![Revolutionary](https://img.shields.io/badge/git--worktree-themed-red.svg)](https://github.com/chrismcdermut/proletariat-cli)
+[![git-worktree](https://img.shields.io/badge/git--worktree-themed-red.svg)](https://github.com/chrismcdermut/proletariat-cli)
 
 **[⭐ Star on GitHub](https://github.com/chrismcdermut/proletariat-cli) • [📦 Install from NPM](https://www.npmjs.com/package/@proletariat/cli) • [🐛 Report Issues](https://github.com/chrismcdermut/proletariat-cli/issues)**
 
