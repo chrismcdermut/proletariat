@@ -1,0 +1,53 @@
+{
+  "name": "@proletariat/cli",
+  "version": "0.1.0",
+  "description": "Multi-agent development CLI - Orchestrate parallel coding agents via git worktrees with memorable themes for distributed development workflows",
+  "main": "dist/bin/prlt.js",
+  "bin": {
+    "prlt": "./dist/bin/prlt.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "pnpm run clean && pnpm run build",
+    "test": "echo \"Workers of the world, unite!\" && exit 0"
+  },
+  "keywords": [
+    "multi-agent",
+    "coding-agents",
+    "parallel-development",
+    "git",
+    "worktree",
+    "development",
+    "orchestration",
+    "distributed",
+    "themed",
+    "cli",
+    "workflow",
+    "automation"
+  ],
+  "author": "Chris McDermut <chris@mcdermut.com>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "commander": "^11.0.0",
+    "chalk": "^4.1.2",
+    "inquirer": "^8.2.5"
+  },
+  "devDependencies": {
+    "@types/inquirer": "^8.2.6",
+    "@types/node": "^20.0.0",
+    "eslint": "^8.44.0",
+    "typescript": "^5.0.0"
+  },
+  "preferGlobal": true,
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "packageManager": "pnpm@10.11.0+sha512.6540583f41cc5f628eb3d9773ecee802f4f9ef9923cc45b69890fb47991d4b092964694ec3a4f738a420c918a333062c8b925d312f42e4f0c263eb603551f977"
+}
