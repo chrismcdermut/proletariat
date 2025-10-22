@@ -34,7 +34,7 @@ program
   .command('init')
   .description('🚩 Initialize themed worktree management')
   .option('-t, --theme <theme>', 'theme (billionaires, cars, companies)')
-  .option('--umbrella <name>', 'Create an umbrella directory (e.g. acme-project) to hold the repo and agents')
+  .option('--workspace <name>', 'Create a workspace directory (e.g. acme-project) to hold the repo and agents')
   .option('--workspace-root <path>', 'Explicit path where agent worktrees should live')
   .action(async (options: InitOptions) => {
     await initProject(options);

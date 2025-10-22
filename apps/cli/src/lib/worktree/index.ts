@@ -61,27 +61,27 @@ export async function initProject(options: InitOptions): Promise<ProjectConfig |
 
   const resolvedOptions = { ...options } as InitOptions;
 
-  if (!resolvedOptions.workspaceRoot && !resolvedOptions.umbrella) {
+  if (!resolvedOptions.workspaceRoot && !resolvedOptions.workspace) {
     const { layoutChoice } = await inquirer.prompt([{
       type: 'list',
       name: 'layoutChoice',
       message: 'Where should agent worktrees live?',
       choices: [
         { name: 'Keep them alongside this repo (../project-staff)', value: 'sibling' },
-        { name: 'Create an umbrella directory to hold everything', value: 'umbrella' },
+        { name: 'Create a workspace directory to hold everything', value: 'workspace' },
         { name: 'Use a custom path', value: 'custom' }
       ]
     }]);
 
-    if (layoutChoice === 'umbrella') {
-      const { umbrellaName } = await inquirer.prompt([{
+    if (layoutChoice === 'workspace') {
+      const { workspaceName } = await inquirer.prompt([{
         type: 'input',
-        name: 'umbrellaName',
-        message: 'Umbrella directory name (tip: use your company or product name):',
+        name: 'workspaceName',
+        message: 'Workspace directory name (tip: use your company or product name):',
         default: `${projectName}-workspace`,
         validate: (input: string) => input.trim().length ? true : 'Please provide a directory name.'
       }]);
-      resolvedOptions.umbrella = umbrellaName.trim();
+      resolvedOptions.workspace = workspaceName.trim();
     } else if (layoutChoice === 'custom') {
       const { workspaceRoot } = await inquirer.prompt([{
         type: 'input',
@@ -111,9 +111,9 @@ export async function initProject(options: InitOptions): Promise<ProjectConfig |
   showBanner(theme);
   log.theme(theme, `Initializing ${projectName} with ${theme.displayName} theme...`);
 
-  if (layout.mode === 'umbrella' && !fs.existsSync(layout.baseDir)) {
+  if (layout.mode === 'workspace' && !fs.existsSync(layout.baseDir)) {
     fs.mkdirSync(layout.baseDir, { recursive: true });
-    log.success(`Created umbrella directory: ${layout.baseDir}`);
+    log.success(`Created workspace directory: ${layout.baseDir}`);
   }
 
   if (!fs.existsSync(workspaceDir)) {
@@ -123,7 +123,7 @@ export async function initProject(options: InitOptions): Promise<ProjectConfig |
     log.info(`Using existing workspace: ${workspaceDir}`);
   }
 
-  if (layout.mode === 'umbrella') {
+  if (layout.mode === 'workspace') {
     const targetRepoPath = path.join(layout.baseDir, projectName);
     if (path.resolve(projectRoot) !== path.resolve(targetRepoPath)) {
       log.info(`💡 Recommended: place this repository inside ${targetRepoPath} so your company workspace contains both the source repo and its agents.`);
@@ -165,7 +165,7 @@ export async function initProject(options: InitOptions): Promise<ProjectConfig |
           log.error(`Failed to move repository: ${message}`);
         }
       } else {
-        log.info('You can move the repository later; worktrees will still be created in the umbrella directory.');
+        log.info('You can move the repository later; worktrees will still be created in the workspace directory.');
       }
     }
   }

@@ -25,7 +25,11 @@
       "Bash(ln:*)",
       "Bash(cat:*)",
       "Bash(pnpm unlink:*)",
-      "Bash(npm link:*)"
+      "Bash(npm link:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm pack:*)",
+      "Bash(npm publish:*)",
+      "Bash(npm deprecate:*)"
     ],
     "deny": []
   }

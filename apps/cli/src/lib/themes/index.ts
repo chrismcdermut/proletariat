@@ -7,7 +7,7 @@ const THEMES: ThemeCollection = {
     description: '⚒️ Put billionaires on payroll duty for your project.',
     emoji: '💰',
     directory: 'staff',
-    agents: ['andreesen', 'altman', 'amodei', 'bezos', 'blakely', 'bloomberg', 'branson', 'brin', 'buffett', 'cook', 'ellison', 'gates', 'horowitz', 'jobs', 'ma', 'munger', 'musk', 'nadella', 'oprah', 'page', 'perkins', 'swift', 'whitney', 'wojcicki', 'zuckerberg'],
+    agents: ['altman', 'amodei', 'andreesen', 'arnault', 'bezos', 'blakely', 'bloomberg', 'branson', 'brin', 'buffett', 'cook', 'ellison', 'gates', 'horowitz', 'jobs', 'ma', 'munger', 'musk', 'nadella', 'oprah', 'page', 'perkins', 'swift', 'whitney', 'wojcicki', 'zuckerberg'],
     commands: {
       create: 'hire',
       remove: 'fire', 
@@ -21,8 +21,8 @@ const THEMES: ThemeCollection = {
     }
   },
   cars: {
-    name: 'cars',
-    displayName: 'Car Garage',
+    name: 'toyotas',
+    displayName: 'Toyota Garage',
     description: '🚗 Manufacturing\'s finest wrenching for your project.',
     emoji: '🚗',
     directory: 'garage',

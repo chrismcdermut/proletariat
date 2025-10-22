@@ -34,25 +34,25 @@ export function resolveWorkspace(theme: Theme, options: InitOptions = {}): Works
 
   let mode: WorkspaceLayout['mode'] = 'sibling';
   let baseDir = parentDir;
-  let umbrellaName: string | undefined;
+  let workspaceName: string | undefined;
   let workspaceDir: string;
 
   if (options.workspaceRoot) {
     workspaceDir = path.resolve(projectRoot, options.workspaceRoot);
     baseDir = path.dirname(workspaceDir);
     mode = 'custom';
-  } else if (options.umbrella) {
-    umbrellaName = options.umbrella;
-    baseDir = path.join(parentDir, umbrellaName);
+  } else if (options.workspace) {
+    workspaceName = options.workspace;
+    baseDir = path.join(parentDir, workspaceName);
     workspaceDir = path.join(baseDir, `${projectName}-${theme.directory}`);
-    mode = 'umbrella';
+    mode = 'workspace';
   } else {
     workspaceDir = path.join(parentDir, `${projectName}-${theme.directory}`);
   }
 
   return {
     workspaceDir,
-    layout: { mode, baseDir, umbrellaName }
+    layout: { mode, baseDir, workspaceName }
   };
 }
 

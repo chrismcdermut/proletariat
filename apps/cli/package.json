@@ -1,7 +1,7 @@
 {
-  "name": "proletariat",
-  "version": "2.0.0",
-  "description": "\u2692\ufe0f Simple Themed Git Worktree Manager - Making git worktrees fun with billionaires, cars, and companies!",
+  "name": "@proletariat/cli",
+  "version": "0.1.0",
+  "description": "Multi-agent development CLI - Orchestrate parallel coding agents via git worktrees with memorable themes for distributed development workflows",
   "main": "dist/bin/prlt.js",
   "bin": {
     "prlt": "./dist/bin/prlt.js"
@@ -14,27 +14,21 @@
     "test": "echo \"Workers of the world, unite!\" && exit 0"
   },
   "keywords": [
+    "multi-agent",
+    "coding-agents",
+    "parallel-development",
     "git",
     "worktree",
     "development",
+    "orchestration",
+    "distributed",
     "themed",
-    "billionaires",
-    "cars",
-    "companies",
     "cli",
     "workflow",
-    "parallel-development"
+    "automation"
   ],
-  "author": "The Revolutionary Committee <workers@proletariat.dev>",
+  "author": "Chris McDermut <chris@mcdermut.com>",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/proletariat-dev/proletariat.git"
-  },
-  "bugs": {
-    "url": "https://github.com/proletariat-dev/proletariat/issues"
-  },
-  "homepage": "https://github.com/proletariat-dev/proletariat#readme",
   "engines": {
     "node": ">=16.0.0"
   },

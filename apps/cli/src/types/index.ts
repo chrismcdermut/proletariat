@@ -27,9 +27,9 @@ export interface ThemeCollection {
 }
 
 export interface WorkspaceLayout {
-  mode: 'sibling' | 'umbrella' | 'custom';
+  mode: 'sibling' | 'workspace' | 'custom';
   baseDir: string;
-  umbrellaName?: string;
+  workspaceName?: string;
 }
 
 export interface ProjectConfig {
@@ -45,7 +45,7 @@ export interface ProjectConfig {
 
 export interface InitOptions {
   theme?: string;
-  umbrella?: string;
+  workspace?: string;
   workspaceRoot?: string;
 }
 
