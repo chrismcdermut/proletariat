@@ -1,6 +1,6 @@
 {
   "name": "@proletariat/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Multi-agent development CLI - Orchestrate parallel coding agents via git worktrees with memorable themes for distributed development workflows",
   "main": "dist/bin/prlt.js",
   "bin": {
