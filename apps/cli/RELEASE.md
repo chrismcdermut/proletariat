@@ -153,7 +153,6 @@ After release:
 
 ## Notes
 
-- We use MIT license for maximum adoption
-- The main monorepo is at `proletariat`
-- The CLI is subtree'd to `proletariat-cli` for cleaner npm publishing
+- MIT license for maximum adoption
 - Config format version is tracked separately from CLI version
+- GitHub releases should be created at https://github.com/chrismcdermut/proletariat-cli
