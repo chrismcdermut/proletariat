@@ -209,9 +209,14 @@ export async function upgradeConfig(): Promise<void> {
               log.success('Updated configuration paths');
             }
             
-            // Use repair to fix all worktree references
-            log.info('Repairing worktree references after directory rename...');
-            process.chdir(newProjectRoot); // Change to new directory for repair to work
+            // After renaming, we need to fix worktree registrations
+            // Git still has them registered at the old paths
+            log.info('Updating worktree registrations after directory rename...');
+            
+            // Change to new directory for commands to work
+            process.chdir(newProjectRoot);
+            
+            // Call repair which will detect the moved worktrees and re-register them
             repairWorktrees();
             
             log.warning(`⚠️  You need to change to the new directory: cd ${newProjectRoot}`);
