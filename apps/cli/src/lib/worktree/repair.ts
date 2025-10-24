@@ -15,19 +15,25 @@ export function repairWorktrees(): void {
   let repoGitDir = path.join(projectRoot, '.git');
   
   // Check if we're in an old -workspace directory that should be -hq
-  const currentPath = projectRoot;
-  const parentDirName = path.basename(path.dirname(currentPath));
+  // Use process.cwd() to check where the user actually is, not where git thinks the repo is
+  const actualCwd = process.cwd();
+  const cwdParentDir = path.dirname(actualCwd);
+  const cwdParentDirName = path.basename(cwdParentDir);
   
-  if (parentDirName.endsWith('-workspace')) {
+  if (cwdParentDirName.endsWith('-workspace') && !projectRoot.includes('-workspace')) {
+    // User is in old -workspace directory but git knows about the new -hq location
+    log.info(`Detected post-upgrade scenario: using git's updated paths`);
+    // Git already knows the right location, so we just use it
+  } else if (cwdParentDirName.endsWith('-workspace')) {
     // We're likely in the old directory after an upgrade
-    const expectedParentName = parentDirName.replace(/-workspace$/, '-hq');
-    const expectedProjectRoot = currentPath.replace(parentDirName, expectedParentName);
+    const expectedParentName = cwdParentDirName.replace(/-workspace$/, '-hq');
+    const expectedProjectRoot = actualCwd.replace(cwdParentDirName, expectedParentName);
     const expectedGitDir = path.join(expectedProjectRoot, '.git');
     
     // Check if the new directory exists
     if (fs.existsSync(expectedProjectRoot) && fs.existsSync(expectedGitDir)) {
       log.info(`Detected post-upgrade scenario: repairing from old location`);
-      log.info(`Old path: ${currentPath}`);
+      log.info(`Old path: ${actualCwd}`);
       log.info(`New path: ${expectedProjectRoot}`);
       
       // Use the new paths for repair
@@ -35,8 +41,8 @@ export function repairWorktrees(): void {
       repoGitDir = expectedGitDir;
       
       // Also update the config workspaceDir to use the new path
-      if (config.workspaceDir && config.workspaceDir.includes(parentDirName)) {
-        config.workspaceDir = config.workspaceDir.replace(parentDirName, expectedParentName);
+      if (config.workspaceDir && config.workspaceDir.includes(cwdParentDirName)) {
+        config.workspaceDir = config.workspaceDir.replace(cwdParentDirName, expectedParentName);
         log.info(`Using updated workspace directory: ${config.workspaceDir}`);
       }
     }
@@ -154,7 +160,8 @@ export function repairWorktrees(): void {
           }
           
           // Also check and fix the gitdir file in .git/worktrees
-          const gitdirFile = path.join(repoGitDir, 'worktrees', agentName, 'gitdir');
+          const worktreeMetaDir = path.join(repoGitDir, 'worktrees', agentName);
+          const gitdirFile = path.join(worktreeMetaDir, 'gitdir');
           if (fs.existsSync(gitdirFile)) {
             const expectedGitdir = `${registeredPath}/.git`;
             const currentGitdir = fs.readFileSync(gitdirFile, 'utf8').trim();
@@ -163,6 +170,14 @@ export function repairWorktrees(): void {
               fs.writeFileSync(gitdirFile, expectedGitdir);
               log.info(`Fixed gitdir reference for: ${agentName}`);
             }
+          }
+          
+          // CRITICAL: Ensure commondir file exists (tells worktree where shared objects are)
+          const commondirFile = path.join(worktreeMetaDir, 'commondir');
+          if (!fs.existsSync(commondirFile)) {
+            fs.writeFileSync(commondirFile, '../..');
+            log.info(`Created missing commondir file for: ${agentName}`);
+            repairedCount++;
           }
         } else {
           log.warning(`Missing .git file: ${agentName}`);
