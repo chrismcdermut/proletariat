@@ -2,9 +2,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import inquirer from 'inquirer';
-import { getProjectRoot, getProjectName, isInitialized, loadConfig } from './index.js';
+import { getProjectRoot, getProjectName, isInitialized, loadConfig, saveConfig } from './index.js';
 import { log } from '../utils/logger.js';
 import { createWorkspace, loadWorkspaceConfig, addRepoToWorkspace } from '../workspace/index.js';
+import { repairWorktrees } from '../worktree/repair.js';
 
 export async function upgradeConfig(): Promise<void> {
   if (!isInitialized()) {
@@ -188,47 +189,14 @@ export async function upgradeConfig(): Promise<void> {
           if (status.length > 0) {
             log.warning('Cannot rename directory: working tree has uncommitted changes. Commit or stash first.');
           } else {
-            // Get list of all worktrees to update
-            const worktreeList = execSync('git worktree list --porcelain', { encoding: 'utf8' });
-            const worktrees = worktreeList.split('\n\n').filter(Boolean);
-            const worktreeInfo: Array<{name: string, path: string}> = [];
-            
-            for (const wtInfo of worktrees) {
-              const lines = wtInfo.split('\n');
-              const wtPath = lines[0].replace('worktree ', '');
-              if (wtPath !== projectRoot && wtPath.startsWith(parentDir)) {
-                worktreeInfo.push({
-                  name: path.basename(wtPath),
-                  path: wtPath
-                });
-              }
-            }
-            
             // Rename the parent directory
             fs.renameSync(parentDir, newParentDir);
             log.success(`Renamed directory from ${parentDirName} to ${newParentDirName}`);
             
-            // Update worktree references
-            const newProjectRoot = path.join(newParentDir, path.basename(projectRoot));
-            
-            for (const wt of worktreeInfo) {
-              const newWtPath = wt.path.replace(parentDir, newParentDir);
-              const gitFile = path.join(newWtPath, '.git');
-              
-              if (fs.existsSync(gitFile)) {
-                const newGitdir = `gitdir: ${newProjectRoot}/.git/worktrees/${wt.name}`;
-                fs.writeFileSync(gitFile, newGitdir);
-              }
-              
-              // Update gitdir file in .git/worktrees
-              const gitdirFile = path.join(newProjectRoot, '.git', 'worktrees', wt.name, 'gitdir');
-              if (fs.existsSync(gitdirFile)) {
-                fs.writeFileSync(gitdirFile, `${newWtPath}/.git`);
-              }
-            }
-            
             // Update config with new paths
+            const newProjectRoot = path.join(newParentDir, path.basename(projectRoot));
             const configPath = path.join(newProjectRoot, '.proletariat', 'repo.json');
+            
             if (fs.existsSync(configPath)) {
               const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
               if (config.layout && config.layout.baseDir) {
@@ -238,9 +206,14 @@ export async function upgradeConfig(): Promise<void> {
                 config.workspaceDir = config.workspaceDir.replace(parentDir, newParentDir);
               }
               fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+              log.success('Updated configuration paths');
             }
             
-            log.success('Updated all worktree references');
+            // Use repair to fix all worktree references
+            log.info('Repairing worktree references after directory rename...');
+            process.chdir(newProjectRoot); // Change to new directory for repair to work
+            repairWorktrees();
+            
             log.warning(`⚠️  You need to change to the new directory: cd ${newProjectRoot}`);
             upgraded = true;
           }
