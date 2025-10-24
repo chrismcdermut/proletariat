@@ -55,8 +55,8 @@ Just `prlt init` and you're ready to go. Zero configuration required.
 
 ### 🎨 **Three Fun Themes** *(Custom themes coming soon!)*
 - **💰 Billionaires**: Hire/fire billionaire workers in `../project-staff/`
-- **🚗 Cars**: Drive/park cars in your `../project-garage/` 
-- **🏢 Companies**: Buy/sell companies in your `../project-portfolio/`
+- **🚗 Cars**: Drive/park cars in `../project-garage/` 
+- **🏢 Companies**: Buy/sell companies in `../project-portfolio/`
 
 ### 🔀 **Multiple Agent Directories in Your Workspace**
 Each agent gets their own clean git worktree on your local filesystem. Run multiple Cursor windows, Claude Code instances, or just keep different features open - each agent in their own directory, no context switching needed.
