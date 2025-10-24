@@ -2,10 +2,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import inquirer from 'inquirer';
-import { getProjectRoot, getProjectName, isInitialized, loadConfig, saveConfig } from './index.js';
+import { getProjectRoot, getProjectName, isInitialized, loadConfig } from './index.js';
 import { log } from '../utils/logger.js';
 import { createWorkspace, loadWorkspaceConfig, addRepoToWorkspace } from '../workspace/index.js';
-import { repairWorktrees } from '../worktree/repair.js';
 
 export async function upgradeConfig(): Promise<void> {
   if (!isInitialized()) {
@@ -209,17 +208,11 @@ export async function upgradeConfig(): Promise<void> {
               log.success('Updated configuration paths');
             }
             
-            // After renaming, we need to fix worktree registrations
-            // Git still has them registered at the old paths
-            log.info('Updating worktree registrations after directory rename...');
-            
-            // Change to new directory for commands to work
-            process.chdir(newProjectRoot);
-            
-            // Call repair which will detect the moved worktrees and re-register them
-            repairWorktrees();
-            
-            log.warning(`⚠️  You need to change to the new directory: cd ${newProjectRoot}`);
+            // After renaming, the user needs to change directory and run repair
+            log.warning(`⚠️  IMPORTANT: Directory renamed successfully!`);
+            log.warning(`⚠️  You need to:`);
+            log.warning(`⚠️  1. Change to the new directory: cd ${newProjectRoot}`);
+            log.warning(`⚠️  2. Run: prlt repair`);
             upgraded = true;
           }
         } catch (error) {
