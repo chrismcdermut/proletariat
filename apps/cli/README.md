@@ -54,9 +54,9 @@ your-company-workspace/  (recommended layout)
 Just `prlt init` and you're ready to go. Zero configuration required.
 
 ### 🎨 **Three Fun Themes** *(Custom themes coming soon!)*
-- **💰 Billionaires**: Hire/fire billionaire workers in `../your-project-staff/`
-- **🚗 Cars**: Drive/park cars in `../your-project-garage/` 
-- **🏢 Companies**: Buy/sell companies in `../your-project-portfolio/`
+- **💰 Billionaires**: Hire/fire billionaire workers in `../your-repo-staff/`
+- **🚗 Cars**: Drive/park cars in `../your-repo-garage/` 
+- **🏢 Companies**: Buy/sell companies in `../your-repo-portfolio/`
 
 ### 🔀 **Multiple Agent Directories in Your Workspace**
 Each agent gets their own clean git worktree on your local filesystem. Run multiple Cursor windows, Claude Code instances, or just keep different features open - each agent in their own directory, no context switching needed.
@@ -157,14 +157,14 @@ $ prlt init
 
 $ prlt hire bezos musk
 💰 Hiring billionaire workers
-💰 BEZOS: Ready to work at ../your-project-staff/bezos
-💰 MUSK: Ready to work at ../your-project-staff/musk
+💰 BEZOS: Ready to work at ../your-repo-staff/bezos
+💰 MUSK: Ready to work at ../your-repo-staff/musk
 
 $ prlt staff
 💰 Current billionaire staff
-💰 BEZOS: ✅ ACTIVE - ../your-project-staff/bezos
+💰 BEZOS: ✅ ACTIVE - ../your-repo-staff/bezos
     📝 Branch: agent/bezos/work
-💰 MUSK: ✅ ACTIVE - ../your-project-staff/musk  
+💰 MUSK: ✅ ACTIVE - ../your-repo-staff/musk  
     📝 Branch: agent/musk/work
 
 Workers of the codebase, unite! ✊
@@ -261,7 +261,7 @@ Now open separate terminal panes/tabs or AI IDE windows (Cursor, Windsurf, etc.)
 
 **Terminal Pane/Tab or AI IDE Window 1: Agent workspace (e.g., bezos)**
 ```bash
-cd ../your-project-staff/bezos
+cd ../your-repo-staff/bezos
 claude-code .  # Claude Code owns this workspace for weeks
 # Monday: Implement login
 # Tuesday: Add OAuth  
@@ -272,7 +272,7 @@ claude-code .  # Claude Code owns this workspace for weeks
 
 **Terminal Pane/Tab or AI IDE Window 2: Agent workspace (e.g., musk)**
 ```bash
-cd ../your-project-staff/musk
+cd ../your-repo-staff/musk
 cursor .  # Cursor lives here, building feature after feature
 # Week 1: User endpoints
 # Week 2: Payment endpoints
@@ -281,7 +281,7 @@ cursor .  # Cursor lives here, building feature after feature
 
 **Terminal Pane/Tab or AI IDE Window 3: Agent workspace (e.g., gates)**
 ```bash
-cd ../your-project-staff/gates
+cd ../your-repo-staff/gates
 # Your manual testing, experiments, debugging
 # No AI needed - just your playground
 ```
@@ -289,11 +289,11 @@ cd ../your-project-staff/gates
 Merge completed work from any workspace:
 ```bash
 # Option 1: GitHub PR (recommended)
-cd ../your-project-staff/bezos
+cd ../your-repo-staff/bezos
 gh pr create --title "Add login feature" --body "Authentication implementation"
 
 # Option 2: Local merge
-cd ../your-project
+cd ../your-repo
 git merge bezos/feature-login
 git merge musk/api-v2
 # Each workspace keeps working independently!
@@ -320,9 +320,9 @@ prlt hire bezos musk gates
 
 # Each workspace ready for AI or manual work
 prlt staff
-# 💰 BEZOS: ✅ Cursor session 1 → ../project-staff/bezos
-# 💰 MUSK: ✅ Claude Code session → ../project-staff/musk  
-# 💰 GATES: ✅ Your manual edits → ../project-staff/gates
+# 💰 BEZOS: ✅ Cursor session 1 → ../your-repo-staff/bezos
+# 💰 MUSK: ✅ Claude Code session → ../your-repo-staff/musk  
+# 💰 GATES: ✅ Your manual edits → ../your-repo-staff/gates
 
 # Three workspaces, three features, all on your machine!
 ```
