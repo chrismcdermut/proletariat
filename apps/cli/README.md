@@ -185,7 +185,7 @@ prlt staff                  # Check your workers
 ```
 
 **Agents**: altman, daramodei, danamodei, andreesen, arnault, benioff, bezos, blakely, bloomberg, branson, brin, buffett, carmack, chesky, cook, dean, dorsey, ellison, gates, horowitz, huang, jobs, kalanick, karpathy, lecun, ma, murati, munger, musk, nadella, ng, oprah, page, perkins, sandberg, sutskever, swift, whitney, wojcicki, zuck  
-**Directory**: `../[project]-staff/`
+**Directory**: `../[your-repo]-staff/`
 
 ### 🚗 Toyotas  
 Manufacturing's finest keeping your fleet humming.
@@ -198,7 +198,7 @@ prlt garage                 # Check your fleet
 ```
 
 **Agents**: 1stgen4runner, 2ndgen4runner, 3rdgen4runner, alltrac, camry, fj40, fj60, fj80, fzj80, hdj80, hdj81, highlander, hilux, ironpig, landcruiser, prius, rav4, sierra, tacoma, tercel, troopy, tundra  
-**Directory**: `../[project]-garage/`
+**Directory**: `../[your-repo]-garage/`
 
 ### 🏢 Companies
 Let the Fortune 500 take orders from you.
@@ -211,7 +211,7 @@ prlt portfolio              # Check your holdings
 ```
 
 **Agents**: adobe, amazon, apple, atlassian, cisco, google, ibm, meta, microsoft, netflix, nvidia, oracle, shopify, snowflake, tesla, zoom  
-**Directory**: `../[project]-portfolio/`
+**Directory**: `../[your-repo]-portfolio/`
 
 ---
 
@@ -219,9 +219,9 @@ prlt portfolio              # Check your holdings
 
 | Theme | Create | Remove | Status | Directory |
 |-------|--------|--------|--------|-----------|
-| **💰 Billionaires** | `hire` | `fire` | `staff` | `../project-staff/` |
-| **🚗 Cars** | `drive` | `park` | `garage` | `../project-garage/` |
-| **🏢 Companies** | `buy` | `sell` | `portfolio` | `../project-portfolio/` |
+| **💰 Billionaires** | `hire` | `fire` | `staff` | `../your-repo-staff/` |
+| **🚗 Cars** | `drive` | `park` | `garage` | `../your-repo-garage/` |
+| **🏢 Companies** | `buy` | `sell` | `portfolio` | `../your-repo-portfolio/` |
 
 ### Universal Commands
 - `prlt init [--theme=cars]` - Initialize with theme
