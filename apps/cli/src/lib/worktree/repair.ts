@@ -11,8 +11,36 @@ export function repairWorktrees(): void {
   }
 
   const config = loadConfig();
-  const projectRoot = getProjectRoot();
-  const repoGitDir = path.join(projectRoot, '.git');
+  let projectRoot = getProjectRoot();
+  let repoGitDir = path.join(projectRoot, '.git');
+  
+  // Check if we're in an old -workspace directory that should be -hq
+  const currentPath = projectRoot;
+  const parentDirName = path.basename(path.dirname(currentPath));
+  
+  if (parentDirName.endsWith('-workspace')) {
+    // We're likely in the old directory after an upgrade
+    const expectedParentName = parentDirName.replace(/-workspace$/, '-hq');
+    const expectedProjectRoot = currentPath.replace(parentDirName, expectedParentName);
+    const expectedGitDir = path.join(expectedProjectRoot, '.git');
+    
+    // Check if the new directory exists
+    if (fs.existsSync(expectedProjectRoot) && fs.existsSync(expectedGitDir)) {
+      log.info(`Detected post-upgrade scenario: repairing from old location`);
+      log.info(`Old path: ${currentPath}`);
+      log.info(`New path: ${expectedProjectRoot}`);
+      
+      // Use the new paths for repair
+      projectRoot = expectedProjectRoot;
+      repoGitDir = expectedGitDir;
+      
+      // Also update the config workspaceDir to use the new path
+      if (config.workspaceDir && config.workspaceDir.includes(parentDirName)) {
+        config.workspaceDir = config.workspaceDir.replace(parentDirName, expectedParentName);
+        log.info(`Using updated workspace directory: ${config.workspaceDir}`);
+      }
+    }
+  }
   
   log.info('Repairing worktree references...');
   

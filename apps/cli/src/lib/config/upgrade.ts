@@ -5,6 +5,7 @@ import inquirer from 'inquirer';
 import { getProjectRoot, getProjectName, isInitialized, loadConfig } from './index.js';
 import { log } from '../utils/logger.js';
 import { createWorkspace, loadWorkspaceConfig, addRepoToWorkspace } from '../workspace/index.js';
+import { repairWorktrees } from '../worktree/repair.js';
 
 export async function upgradeConfig(): Promise<void> {
   if (!isInitialized()) {
@@ -208,11 +209,14 @@ export async function upgradeConfig(): Promise<void> {
               log.success('Updated configuration paths');
             }
             
-            // After renaming, the user needs to change directory and run repair
+            // After renaming, repair can detect the new location and fix paths
+            log.info('Running repair to fix worktree references...');
+            
+            // Repair will detect we're in the old location and use the new paths
+            repairWorktrees();
+            
             log.warning(`⚠️  IMPORTANT: Directory renamed successfully!`);
-            log.warning(`⚠️  You need to:`);
-            log.warning(`⚠️  1. Change to the new directory: cd ${newProjectRoot}`);
-            log.warning(`⚠️  2. Run: prlt repair`);
+            log.warning(`⚠️  You need to change to the new directory: cd ${newProjectRoot}`);
             upgraded = true;
           }
         } catch (error) {
