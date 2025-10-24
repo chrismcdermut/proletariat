@@ -12,12 +12,17 @@
     "clean": "rm -rf dist",
     "prepublishOnly": "pnpm run clean && pnpm run build",
     "test": "echo \"Workers of the world, unite!\" && exit 0",
-    "release": "npm publish --access public"
+    "release": "npm publish --access public",
+    "publish:otp": "./scripts/publish.sh"
   },
   "keywords": [
     "multi-agent",
     "coding-agents",
     "parallel-development",
+    "claude-code",
+    "cursor",
+    "codex",
+    "ai-development",
     "git",
     "worktree",
     "development",
@@ -30,7 +35,7 @@
   ],
   "author": {
     "name": "Chris McDermut",
-    "email": "chris@mcdermut.com",
+    "email": "chrismcdermut@gmail.com",
     "url": "https://github.com/chrismcdermut"
   },
   "license": "MIT",
