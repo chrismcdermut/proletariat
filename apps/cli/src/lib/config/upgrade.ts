@@ -120,14 +120,14 @@ export async function upgradeConfig(): Promise<void> {
         ]);
         
         if (createWorkspaceConfig) {
-          const workspaceName = repoConfig.layout.hqName || repoConfig.layout.workspaceName || path.basename(repoConfig.layout.baseDir);
-          const workspace = createWorkspace(repoConfig.layout.baseDir, workspaceName);
+          const hqName = repoConfig.layout.hqName || path.basename(repoConfig.layout.baseDir);
+          const workspace = createWorkspace(repoConfig.layout.baseDir, hqName);
           
           // Add current repo to workspace
           const projectName = getProjectName();
           addRepoToWorkspace(repoConfig.layout.baseDir, projectName);
           
-          log.success(`✅ Created HQ config for '${workspaceName}'`);
+          log.success(`✅ Created HQ config for '${hqName}'`);
           log.info('💡 Run `prlt upgrade` in other repositories to add them to this HQ');
           upgraded = true;
         }

@@ -63,13 +63,6 @@ export async function initProject(options: InitOptions): Promise<ProjectConfig |
 
   const resolvedOptions = { ...options } as InitOptions;
   
-  // Support legacy workspace flags by mapping to hq
-  if (resolvedOptions.workspace && !resolvedOptions.hq) {
-    resolvedOptions.hq = resolvedOptions.workspace;
-  }
-  if (resolvedOptions.workspaceRoot && !resolvedOptions.hqRoot) {
-    resolvedOptions.hqRoot = resolvedOptions.workspaceRoot;
-  }
 
   if (!resolvedOptions.hqRoot && !resolvedOptions.hq) {
     const { layoutChoice } = await inquirer.prompt([{

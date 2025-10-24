@@ -48,9 +48,9 @@ export function resolveWorkspace(theme: Theme, options: InitOptions = {}): Works
   let hqName: string | undefined;
   let workspaceDir: string;
 
-  // Use HQ options, falling back to legacy workspace options
-  const hqRoot = options.hqRoot || options.workspaceRoot;
-  const hq = options.hq || options.workspace;
+  // Use HQ options
+  const hqRoot = options.hqRoot;
+  const hq = options.hq;
 
   if (hqRoot) {
     workspaceDir = path.resolve(projectRoot, hqRoot);

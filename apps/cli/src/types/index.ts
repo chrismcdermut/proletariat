@@ -30,7 +30,6 @@ export interface WorkspaceLayout {
   mode: 'sibling' | 'hq' | 'custom' | 'workspace';  // workspace kept for backwards compat
   baseDir: string;
   hqName?: string;
-  workspaceName?: string;  // Legacy, will be removed in v1.0
 }
 
 export interface ProjectConfig {
@@ -49,9 +48,6 @@ export interface InitOptions {
   theme?: string;
   hq?: string;
   hqRoot?: string;
-  // Legacy support (will be removed in v1.0)
-  workspace?: string;
-  workspaceRoot?: string;
 }
 
 export interface ListOptions {
