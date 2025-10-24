@@ -27,9 +27,10 @@ export interface ThemeCollection {
 }
 
 export interface WorkspaceLayout {
-  mode: 'sibling' | 'workspace' | 'custom';
+  mode: 'sibling' | 'hq' | 'custom' | 'workspace';  // workspace kept for backwards compat
   baseDir: string;
-  workspaceName?: string;
+  hqName?: string;
+  workspaceName?: string;  // Legacy, will be removed in v1.0
 }
 
 export interface ProjectConfig {

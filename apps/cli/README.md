@@ -9,18 +9,18 @@
 
 ## What Is This?
 
-**PROLETARIAT CLI** implements the design pattern for running multiple AI coding sessions in parallel on a single machine. Each "agent" is a persistent workspace (git worktree) where AI tools or developers can work continuously - not just for single features:
+**PROLETARIAT CLI** implements the design pattern for running multiple AI coding sessions in parallel on a single machine. Each "agent" gets a persistent workspace (a git worktree - but I call them workspaces because it's clearer) where you or your AI tools can work continuously, switching between features as needed:
 
-- 🤖 **Persistent AI workspaces** - Let Claude Code live in the "bezos" workspace for weeks, handling all auth tasks
-- 🔀 **No constant branching** - Each workspace can handle multiple related features over time
-- 🎯 **Domain-focused development** - One workspace for frontend, another for API, another for testing
+- 🤖 **Persistent AI workspaces** - Let one Claude Code instance live in "bezos" while another Claude Code instance works in "musk" - each for weeks at a time
+- 🔀 **Branch without context switching** - Each workspace can switch branches to work on new features while keeping its workspace directory intact
+- 🎯 **Parallel AI work streams** - Multiple AI agents can work simultaneously on different features for the same repo, each in their own branch and workspace
 
 Using memorable themes, you manage your agent workforce:
 - 💰 **Billionaires** become your coding workforce (Bezos, Musk, Gates)
 - 🚗 **Toyotas** drive your development forward (Prius, Tacoma, Tundra)
 - 🏢 **Companies** form your development portfolio (Apple, Google, Microsoft)
 
-Each workspace is a dedicated git worktree on your local machine. Run 3 Cursor instances editing different features, or quickly switch between workspaces without losing context!
+Each workspace is a dedicated git worktree on your local machine. Run as many AI coding sessions as there are agents in your theme (40 billionaires!) - Cursor, Claude Code, Aider, etc. - editing different features, or quickly switch between workspaces without losing context!
 
 ---
 
@@ -53,13 +53,13 @@ your-company-hq/  (recommended layout)
 ### ⚡ **Zero Configuration**
 Just `prlt init` and you're ready to go. Zero configuration required.
 
-### 🎨 **Three Fun Themes** *(Custom themes coming soon!)*
+### 🎨 **Three Fun Themes** *(Custom theme support coming soon!)*
 - **💰 Billionaires**: Hire/fire billionaire workers in `../your-repo-staff/`
 - **🚗 Cars**: Drive/park cars in `../your-repo-garage/` 
 - **🏢 Companies**: Buy/sell companies in `../your-repo-portfolio/`
 
 ### 🔀 **Multiple Agent Workspaces in Your HQ**
-Each agent gets their own clean git worktree workspace on your local filesystem. Run multiple Cursor windows, Claude Code instances, or just keep different features open - each agent in their own workspace, no context switching needed.
+Each agent gets their own clean workspace (`git worktree`) on your local filesystem. Run multiple Cursor windows, Claude Code instances, or just keep different features open - each agent in their own workspace, no context switching needed.
 
 ---
 
@@ -91,18 +91,18 @@ prlt sell nvidia            # Companies theme
 
 ### 🏗️ Flexible Agent Directory Layouts
 
-**HQ Layout (Recommended)** - Group repositories and agent workspaces under one headquarters directory:
+**HQ Layout (Recommended)** - Group original repositories and agent workspaces under one headquarters directory:
 ```bash
 # IMPORTANT: Run prlt init inside EACH repository you want to manage
-cd frontend-repo && prlt init --hq acme-corp
-cd ../backend-repo && prlt init --hq acme-corp  
+cd frontend-repo && prlt init --hq your-company
+cd ../backend-repo && prlt init --hq your-company  
 
 # Each repo needs its own initialization since worktrees are per-repository
 ```
 
 Creates this organized structure to hold multi-repo projects:
 ```
-acme-corp-hq/               # HQ containing all repos and agent workspaces
+your-company-hq/            # HQ containing all repos and agent workspaces
 ├── frontend-repo/          (main frontend repository)
 ├── frontend-repo-staff/    (frontend billionaire agents)
 │   ├── bezos/      (e.g., Claude Code instance 1)
@@ -119,7 +119,7 @@ Each repository maintains its own `.proletariat/config.json` since worktrees are
 
 **Default Layout** - Agents as siblings to your repository:
 ```
-parent-dir/
+some-directory-on-your-machine/
 ├── your-repo/          (main repository)
 └── your-repo-staff/    (billionaire agents)
     ├── bezos/      (e.g., Claude Code instance 1)
@@ -152,7 +152,7 @@ $ prlt init
 ⚒️  PROLETARIAT ⚒️
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 💰 Billionaire Staff 💰
-⚒️ Making billionaires work as your git worktrees!
+⚒️ Creating workspaces for your billionaire staff!
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 $ prlt hire bezos musk
@@ -180,7 +180,7 @@ Make the ultra-wealthy work for YOU!
 ```bash
 prlt init --theme=billionaires
 prlt hire bezos musk gates buffett
-prlt fire zuckerberg        # You're fired!
+prlt fire zuck        # You're fired!
 prlt staff                  # Check your workers
 ```
 
@@ -188,7 +188,7 @@ prlt staff                  # Check your workers
 **Directory**: `../[your-repo]-staff/`
 
 ### 🚗 Toyotas  
-Manufacturing's finest keeping your fleet humming.
+Put manufacturing's finest to work as your development fleet.
 
 ```bash
 prlt init --theme=toyotas
@@ -201,7 +201,7 @@ prlt garage                 # Check your fleet
 **Directory**: `../[your-repo]-garage/`
 
 ### 🏢 Companies
-Let the Fortune 500 take orders from you.
+Now they're the consumer.
 
 ```bash
 prlt init --theme=companies  
@@ -239,8 +239,8 @@ prlt portfolio              # Check your holdings
 ## 🛠️ How It Works
 
 1. **Initialize**: `prlt init` - Choose your theme and HQ layout
-2. **Create agents**: `prlt hire bezos` / `prlt drive camry` / `prlt buy apple` - Creates isolated git worktrees
-3. **Work**: Each worktree is a persistent workspace where agents can work independently - switch AI tools or branches but the workspace persists
+2. **Create agents**: `prlt hire bezos` / `prlt drive camry` / `prlt buy apple` - Creates isolated workspaces (`git worktrees`)
+3. **Work**: Each workspace (git worktree) is a persistent directory where agents can work independently - you can switch AI tools or branches but the workspace persists
 4. **Check status**: `prlt staff` / `prlt garage` / `prlt portfolio` - See your active agents
 5. **Clean up**: `prlt fire bezos` / `prlt park camry` / `prlt sell apple` - Removes worktrees cleanly
 
@@ -292,8 +292,8 @@ Merge completed work from any workspace:
 cd ../your-repo-staff/bezos
 gh pr create --title "Add login feature" --body "Authentication implementation"
 
-# Option 2: Local merge
-cd ../your-repo
+# Option 2: Local merge  
+cd ../your-repo        # (on main or development branch, feature-branch etc)
 git merge bezos/feature-login
 git merge musk/api-v2
 # Each workspace keeps working independently!
@@ -343,13 +343,9 @@ prlt staff
 
 ---
 
-## 🚀 Contributing & Releases
-
-See [RELEASE.md](./RELEASE.md) for the release process.
-
 ## 📜 License
 
-MIT License - Because the revolutions is open source.
+MIT License - Because the revolution is open source.
 
 ---
 

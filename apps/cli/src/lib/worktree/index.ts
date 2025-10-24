@@ -107,7 +107,7 @@ export async function initProject(options: InitOptions): Promise<ProjectConfig |
   const { workspaceDir, layout } = resolveWorkspace(theme, resolvedOptions);
 
   const configData: ProjectConfig = {
-    version: '0.1.4',  // CLI version when repo.json format was introduced
+    version: '0.2.0',  // CLI version when HQ terminology was introduced
     configVersion: 2,   // Config format version (1 = config.json, 2 = repo.json)
     projectName,
     themeName: theme.name,
@@ -122,9 +122,9 @@ export async function initProject(options: InitOptions): Promise<ProjectConfig |
   showBanner(theme);
   log.theme(theme, `Initializing ${projectName} with ${theme.displayName} theme...`);
 
-  if (layout.mode === 'workspace' && !fs.existsSync(layout.baseDir)) {
+  if (layout.mode === 'hq' && !fs.existsSync(layout.baseDir)) {
     fs.mkdirSync(layout.baseDir, { recursive: true });
-    log.success(`Created workspace directory: ${layout.baseDir}`);
+    log.success(`Created HQ directory: ${layout.baseDir}`);
   }
 
   if (!fs.existsSync(workspaceDir)) {
@@ -134,10 +134,10 @@ export async function initProject(options: InitOptions): Promise<ProjectConfig |
     log.info(`Using existing workspace: ${workspaceDir}`);
   }
 
-  if (layout.mode === 'workspace') {
+  if (layout.mode === 'hq') {
     const targetRepoPath = path.join(layout.baseDir, projectName);
     if (path.resolve(projectRoot) !== path.resolve(targetRepoPath)) {
-      log.info(`💡 Recommended: place this repository inside ${targetRepoPath} so your company workspace contains both the source repo and its agents.`);
+      log.info(`💡 Recommended: place this repository inside ${targetRepoPath} so your HQ contains both the source repo and its agent workspaces.`);
 
       const { moveNow } = await inquirer.prompt([
         {
@@ -176,7 +176,7 @@ export async function initProject(options: InitOptions): Promise<ProjectConfig |
           log.error(`Failed to move repository: ${message}`);
         }
       } else {
-        log.info('You can move the repository later; worktrees will still be created in the workspace directory.');
+        log.info('You can move the repository later; agent workspaces will still be created in the HQ directory.');
       }
     }
   }

@@ -45,7 +45,7 @@ export function resolveWorkspace(theme: Theme, options: InitOptions = {}): Works
 
   let mode: WorkspaceLayout['mode'] = 'sibling';
   let baseDir = parentDir;
-  let workspaceName: string | undefined;
+  let hqName: string | undefined;
   let workspaceDir: string;
 
   // Use HQ options, falling back to legacy workspace options
@@ -57,17 +57,17 @@ export function resolveWorkspace(theme: Theme, options: InitOptions = {}): Works
     baseDir = path.dirname(workspaceDir);
     mode = 'custom';
   } else if (hq) {
-    workspaceName = hq;
-    baseDir = path.join(parentDir, workspaceName);
+    hqName = hq;
+    baseDir = path.join(parentDir, hqName);
     workspaceDir = path.join(baseDir, `${projectName}-${theme.directory}`);
-    mode = 'workspace';  // Will rename to 'hq' in config later
+    mode = 'hq';
   } else {
     workspaceDir = path.join(parentDir, `${projectName}-${theme.directory}`);
   }
 
   return {
     workspaceDir,
-    layout: { mode, baseDir, workspaceName }
+    layout: { mode, baseDir, hqName }
   };
 }
 

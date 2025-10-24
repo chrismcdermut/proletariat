@@ -64,6 +64,23 @@ export async function upgradeConfig(): Promise<void> {
         log.info('Removed cached theme data from repo.json');
       }
       
+      // Migrate workspace terminology to HQ (v0.2.0)
+      if (config.layout) {
+        if (config.layout.mode === 'workspace') {
+          config.layout.mode = 'hq';
+          needsUpdate = true;
+          log.info('Updated layout mode from workspace to hq');
+        }
+        
+        // Rename workspaceName to hqName
+        if (config.layout.workspaceName) {
+          config.layout.hqName = config.layout.workspaceName;
+          delete config.layout.workspaceName;
+          needsUpdate = true;
+          log.info('Updated configuration field names for HQ terminology');
+        }
+      }
+      
       // Add any future migrations here
       
       if (needsUpdate) {
@@ -83,33 +100,33 @@ export async function upgradeConfig(): Promise<void> {
   try {
     const repoConfig = loadConfig();
     
-    // If layout mode is workspace, check if workspace config exists
-    if (repoConfig.layout?.mode === 'workspace' && repoConfig.layout?.baseDir) {
+    // If layout mode is HQ (or legacy workspace), check if workspace config exists
+    if ((repoConfig.layout?.mode === 'hq' || repoConfig.layout?.mode === 'workspace') && repoConfig.layout?.baseDir) {
       const workspaceConfigPath = path.join(repoConfig.layout.baseDir, '.proletariat', 'workspace.json');
       
       if (!fs.existsSync(workspaceConfigPath)) {
         // Workspace layout but no workspace config - offer to create one
-        log.info(`Detected workspace layout at: ${repoConfig.layout.baseDir}`);
+        log.info(`Detected HQ layout at: ${repoConfig.layout.baseDir}`);
         
         const { createWorkspaceConfig } = await inquirer.prompt([
           {
             type: 'confirm',
             name: 'createWorkspaceConfig',
-            message: 'Would you like to create a workspace config to track all repositories?',
+            message: 'Would you like to create an HQ config to track all repositories?',
             default: true
           }
         ]);
         
         if (createWorkspaceConfig) {
-          const workspaceName = repoConfig.layout.workspaceName || path.basename(repoConfig.layout.baseDir);
+          const workspaceName = repoConfig.layout.hqName || repoConfig.layout.workspaceName || path.basename(repoConfig.layout.baseDir);
           const workspace = createWorkspace(repoConfig.layout.baseDir, workspaceName);
           
           // Add current repo to workspace
           const projectName = getProjectName();
           addRepoToWorkspace(repoConfig.layout.baseDir, projectName);
           
-          log.success(`✅ Created workspace config for '${workspaceName}'`);
-          log.info('💡 Run `prlt upgrade` in other repositories to add them to this workspace');
+          log.success(`✅ Created HQ config for '${workspaceName}'`);
+          log.info('💡 Run `prlt upgrade` in other repositories to add them to this HQ');
           upgraded = true;
         }
       } else {
@@ -136,7 +153,7 @@ export async function upgradeConfig(): Promise<void> {
           log.info(`Part of workspace: ${workspace.name}`);
         }
       } else {
-        log.info('💡 Tip: Use `prlt init --workspace` to organize multiple repositories');
+        log.info('💡 Tip: Use `prlt init --hq` to organize multiple repositories');
       }
     }
   } catch (error) {

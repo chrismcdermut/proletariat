@@ -4,7 +4,7 @@ const THEMES: ThemeCollection = {
   billionaires: {
     name: 'billionaires',
     displayName: 'Billionaires & Technocrats',
-    description: '⚒️ The ultra-wealthy and tech elite finally work for you.',
+    description: '⚒️ Creating workspaces for your billionaire staff.',
     emoji: '💰',
     directory: 'staff',
     agents: ['altman', 'daramodei', 'danamodei', 'andreesen', 'arnault', 'benioff', 'bezos', 'blakely', 'bloomberg', 'branson', 'brin', 'buffett', 'carmack', 'chesky', 'cook', 'dean', 'dorsey', 'ellison', 'gates', 'horowitz', 'huang', 'jobs', 'kalanick', 'karpathy', 'lecun', 'ma', 'murati', 'munger', 'musk', 'nadella', 'ng', 'oprah', 'page', 'perkins', 'sandberg', 'sutskever', 'swift', 'whitney', 'wojcicki', 'zuck'],
@@ -23,7 +23,7 @@ const THEMES: ThemeCollection = {
   toyotas: {
     name: 'toyotas',
     displayName: 'Toyota Garage',
-    description: '🚗 Manufacturing\'s finest wrenching for your project.',
+    description: '🚗 Creating workspaces for your Toyota garage.',
     emoji: '🚗',
     directory: 'garage',
     agents: ['1stgen4runner', '2ndgen4runner', '3rdgen4runner', 'alltrac', 'camry', 'fj40', 'fj60', 'fj80', 'fzj80', 'hdj80', 'hdj81', 'highlander', 'hilux', 'ironpig', 'landcruiser', 'prius', 'rav4', 'sierra', 'tacoma', 'tercel', 'troopy', 'tundra'],
@@ -42,7 +42,7 @@ const THEMES: ThemeCollection = {
   companies: {
     name: 'companies',
     displayName: 'Company Portfolio',
-    description: '🏢 Own the boardroom: your favorite companies now report to you.',
+    description: '🏢 Creating workspaces for your company portfolio.',
     emoji: '🏢',
     directory: 'portfolio',
     agents: ['adobe', 'amazon', 'apple', 'atlassian', 'cisco', 'google', 'ibm', 'meta', 'microsoft', 'netflix', 'nvidia', 'oracle', 'shopify', 'snowflake', 'tesla', 'zoom'],

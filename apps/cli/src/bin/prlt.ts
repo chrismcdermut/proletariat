@@ -18,7 +18,7 @@ import * as path from 'path';
 import { getAllThemes } from '../lib/themes/index.js';
 import { initProject, createWorktrees, removeWorktrees, showStatus } from '../lib/worktree/index.js';
 import { repairWorktrees, checkWorktreeHealth } from '../lib/worktree/repair.js';
-import { migrateToWorkspace } from '../lib/worktree/migrate.js';
+import { migrateToHQ } from '../lib/worktree/migrate.js';
 import { upgradeConfig } from '../lib/config/upgrade.js';
 import { listAgents, listThemes } from '../lib/utils/helpers.js';
 import { showBanner } from '../lib/utils/logger.js';
@@ -102,9 +102,9 @@ program
   .action(() => checkWorktreeHealth());
 
 program
-  .command('migrate')
+  .command('migrate <hq-name>')
   .description('📦 Migrate repository into HQ folder alongside agent workspaces')
-  .action(() => migrateToWorkspace());
+  .action((hqName: string) => migrateToHQ(hqName));
 
 program
   .command('upgrade')
