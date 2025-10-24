@@ -11,6 +11,8 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Import modules
 import { getAllThemes } from '../lib/themes/index.js';
@@ -24,6 +26,17 @@ import { InitOptions, ListOptions } from '../types/index.js';
 
 const program = new Command();
 
+// Get version from package.json dynamically
+function getVersion(): string {
+  try {
+    const packageJsonPath = path.join(__dirname, '../../package.json');
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+    return packageJson.version;
+  } catch {
+    return '0.0.0'; // Fallback version if package.json can't be read
+  }
+}
+
 // Get themes for CLI setup
 const THEMES = getAllThemes();
 
@@ -31,7 +44,7 @@ const THEMES = getAllThemes();
 program
   .name('prlt')
   .description('⚒️ Simple Themed Git Worktree Manager')
-  .version('2.0.0');
+  .version(getVersion());
 
 program
   .command('init')
