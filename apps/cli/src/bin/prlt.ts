@@ -52,6 +52,8 @@ program
   .option('-t, --theme <theme>', 'theme (billionaires, cars, companies)')
   .option('--hq <name>', 'Create an HQ directory (e.g. acme-corp-hq) to hold repos and agent workspaces')
   .option('--hq-root <path>', 'Explicit path where agent workspaces should live')
+  .option('--workspace <name>', '[DEPRECATED: Use --hq] Legacy option mapped to --hq')
+  .option('--workspace-root <path>', '[DEPRECATED: Use --hq-root] Legacy option mapped to --hq-root')
   .action(async (options: InitOptions) => {
     await initProject(options);
   });
