@@ -236,7 +236,7 @@ prlt portfolio              # Check your holdings
 
 1. **Initialize**: `prlt init` - Choose your theme and workspace layout
 2. **Create agents**: `prlt hire bezos` / `prlt drive camry` / `prlt buy apple` - Creates isolated git worktrees
-3. **Work**: Each agent is a persistent workspace where AI tools or you can work on multiple features
+3. **Work**: Each worktree is a persistent workspace where agents can work independently - switch AI tools or branches but the workspace persists
 4. **Check status**: `prlt staff` / `prlt garage` / `prlt portfolio` - See your active agents
 5. **Clean up**: `prlt fire bezos` / `prlt park camry` / `prlt sell apple` - Removes worktrees cleanly
 
