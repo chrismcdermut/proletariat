@@ -13,6 +13,7 @@ export async function upgradeConfig(): Promise<void> {
   }
 
   const projectRoot = getProjectRoot();
+  const projectName = getProjectName();
   const oldConfigPath = path.join(projectRoot, '.proletariat', 'config.json');
   const newConfigPath = path.join(projectRoot, '.proletariat', 'repo.json');
   
@@ -158,6 +159,97 @@ export async function upgradeConfig(): Promise<void> {
     }
   } catch (error) {
     // Config loading might fail during upgrade
+  }
+  
+  // Check if there's a parent directory with "-workspace" in the name that could be renamed to "-hq"
+  const parentDir = path.dirname(projectRoot);
+  const parentDirName = path.basename(parentDir);
+  
+  if (parentDirName.endsWith('-workspace')) {
+    const newParentDirName = parentDirName.replace(/-workspace$/, '-hq');
+    const newParentDir = path.join(path.dirname(parentDir), newParentDirName);
+    
+    if (!fs.existsSync(newParentDir)) {
+      log.info(`Found workspace directory: ${parentDir}`);
+      
+      const { renameDirectory } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'renameDirectory',
+          message: `Would you like to rename "${parentDirName}" to "${newParentDirName}" to match the new HQ terminology?`,
+          default: false
+        }
+      ]);
+      
+      if (renameDirectory) {
+        try {
+          // Check for uncommitted changes
+          const status = execSync('git status --porcelain', { cwd: projectRoot, encoding: 'utf8' }).trim();
+          if (status.length > 0) {
+            log.warning('Cannot rename directory: working tree has uncommitted changes. Commit or stash first.');
+          } else {
+            // Get list of all worktrees to update
+            const worktreeList = execSync('git worktree list --porcelain', { encoding: 'utf8' });
+            const worktrees = worktreeList.split('\n\n').filter(Boolean);
+            const worktreeInfo: Array<{name: string, path: string}> = [];
+            
+            for (const wtInfo of worktrees) {
+              const lines = wtInfo.split('\n');
+              const wtPath = lines[0].replace('worktree ', '');
+              if (wtPath !== projectRoot && wtPath.startsWith(parentDir)) {
+                worktreeInfo.push({
+                  name: path.basename(wtPath),
+                  path: wtPath
+                });
+              }
+            }
+            
+            // Rename the parent directory
+            fs.renameSync(parentDir, newParentDir);
+            log.success(`Renamed directory from ${parentDirName} to ${newParentDirName}`);
+            
+            // Update worktree references
+            const newProjectRoot = path.join(newParentDir, path.basename(projectRoot));
+            
+            for (const wt of worktreeInfo) {
+              const newWtPath = wt.path.replace(parentDir, newParentDir);
+              const gitFile = path.join(newWtPath, '.git');
+              
+              if (fs.existsSync(gitFile)) {
+                const newGitdir = `gitdir: ${newProjectRoot}/.git/worktrees/${wt.name}`;
+                fs.writeFileSync(gitFile, newGitdir);
+              }
+              
+              // Update gitdir file in .git/worktrees
+              const gitdirFile = path.join(newProjectRoot, '.git', 'worktrees', wt.name, 'gitdir');
+              if (fs.existsSync(gitdirFile)) {
+                fs.writeFileSync(gitdirFile, `${newWtPath}/.git`);
+              }
+            }
+            
+            // Update config with new paths
+            const configPath = path.join(newProjectRoot, '.proletariat', 'repo.json');
+            if (fs.existsSync(configPath)) {
+              const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+              if (config.layout && config.layout.baseDir) {
+                config.layout.baseDir = config.layout.baseDir.replace(parentDir, newParentDir);
+              }
+              if (config.workspaceDir) {
+                config.workspaceDir = config.workspaceDir.replace(parentDir, newParentDir);
+              }
+              fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+            }
+            
+            log.success('Updated all worktree references');
+            log.warning(`⚠️  You need to change to the new directory: cd ${newProjectRoot}`);
+            upgraded = true;
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log.error(`Failed to rename directory: ${message}`);
+        }
+      }
+    }
   }
   
   if (upgraded) {

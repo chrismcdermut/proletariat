@@ -345,7 +345,7 @@ prlt staff
 
 ## 📜 License
 
-MIT License - Because the revolution is open source.
+MIT License - Because the revolutionso is open source.
 
 ---
 
