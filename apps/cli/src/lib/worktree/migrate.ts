@@ -5,7 +5,6 @@ import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { getProjectRoot, getProjectName, loadConfig, saveConfig, isInitialized } from '../config/index.js';
 import { log } from '../utils/logger.js';
-import { repairWorktrees } from './repair.js';
 
 export async function migrateToWorkspace(): Promise<void> {
   if (!isInitialized()) {
@@ -49,13 +48,24 @@ export async function migrateToWorkspace(): Promise<void> {
     return;
   }
   
-  // Check for uncommitted changes
+  // Check for uncommitted changes in main repo
   try {
     const status = execSync('git status --porcelain', { cwd: projectRoot, encoding: 'utf8' }).trim();
     if (status.length > 0) {
-      log.error('Cannot migrate: working tree has uncommitted changes.');
-      log.info('Please commit or stash your changes first.');
-      return;
+      log.warning('Main repository has uncommitted changes.');
+      const { continueWithChanges } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'continueWithChanges',
+          message: 'Continue with uncommitted changes?',
+          default: false
+        }
+      ]);
+      
+      if (!continueWithChanges) {
+        log.info('Migration cancelled. Please commit or stash your changes first.');
+        return;
+      }
     }
   } catch (error) {
     log.error('Failed to check git status');
@@ -63,7 +73,7 @@ export async function migrateToWorkspace(): Promise<void> {
   }
   
   // Get list of current worktrees
-  let worktreeInfo: Array<{name: string, path: string, branch: string}> = [];
+  let worktreeInfo: Array<{name: string, path: string}> = [];
   try {
     const worktreeList = execSync('git worktree list --porcelain', { encoding: 'utf8' });
     const worktrees = worktreeList.split('\n\n').filter(Boolean);
@@ -75,11 +85,9 @@ export async function migrateToWorkspace(): Promise<void> {
       // Skip the main worktree
       if (wtPath === projectRoot) continue;
       
-      const branch = lines.find(l => l.startsWith('branch '))?.replace('branch ', '') || '';
       worktreeInfo.push({
         name: path.basename(wtPath),
-        path: wtPath,
-        branch: branch.replace('refs/heads/', '')
+        path: wtPath
       });
     }
   } catch (error) {
@@ -91,6 +99,7 @@ export async function migrateToWorkspace(): Promise<void> {
   console.log(`  • Move repository from: ${chalk.dim(projectRoot)}`);
   console.log(`  • Move repository to:   ${chalk.green(targetPath)}`);
   console.log(`  • Worktrees to update:  ${chalk.cyan(worktreeInfo.length)}`);
+  console.log(chalk.dim('  Note: All worktrees and their work will be preserved'));
   
   const { confirmMigrate } = await inquirer.prompt([
     {
@@ -108,60 +117,51 @@ export async function migrateToWorkspace(): Promise<void> {
   
   log.info('Starting migration...');
   
-  // Step 1: Remove all worktrees
-  log.info('Step 1/4: Removing worktrees temporarily...');
-  for (const wt of worktreeInfo) {
-    try {
-      execSync(`git worktree remove "${wt.path}"`, { cwd: projectRoot });
-      log.success(`Removed worktree: ${wt.name}`);
-    } catch (error) {
-      log.warning(`Could not remove ${wt.name}, will try to continue...`);
-    }
-  }
-  
-  // Step 2: Create target directory if needed
-  log.info('Step 2/4: Preparing target directory...');
+  // Step 1: Create target directory if needed
+  log.info('Step 1/3: Preparing target directory...');
   const targetParent = path.dirname(targetPath);
   if (!fs.existsSync(targetParent)) {
     fs.mkdirSync(targetParent, { recursive: true });
     log.success(`Created directory: ${targetParent}`);
   }
   
-  // Step 3: Move the repository
-  log.info('Step 3/4: Moving repository...');
+  // Step 2: Move the repository
+  log.info('Step 2/3: Moving repository...');
   try {
     fs.renameSync(projectRoot, targetPath);
     log.success(`Moved repository to: ${targetPath}`);
   } catch (error) {
     log.error(`Failed to move repository: ${error}`);
-    
-    // Try to restore worktrees
-    log.info('Attempting to restore worktrees...');
-    for (const wt of worktreeInfo) {
-      try {
-        execSync(`git worktree add -b "${wt.branch}" "${wt.path}" "${wt.branch}"`, { cwd: projectRoot });
-      } catch {}
-    }
     return;
   }
   
-  // Step 4: Recreate worktrees from new location
-  log.info('Step 4/4: Recreating worktrees...');
+  // Step 3: Update worktree references
+  log.info('Step 3/3: Updating worktree references...');
+  
+  // Update the .git files in each worktree to point to the new location
   for (const wt of worktreeInfo) {
-    try {
-      // Check if branch exists
-      const branches = execSync('git branch -a', { cwd: targetPath, encoding: 'utf8' });
-      
-      if (branches.includes(wt.branch)) {
-        // Branch exists, just add worktree
-        execSync(`git worktree add "${wt.path}" "${wt.branch}"`, { cwd: targetPath });
-      } else {
-        // Create new branch
-        execSync(`git worktree add -b "${wt.branch}" "${wt.path}" main`, { cwd: targetPath });
+    const gitFile = path.join(wt.path, '.git');
+    if (fs.existsSync(gitFile)) {
+      const newGitdir = `gitdir: ${targetPath}/.git/worktrees/${wt.name}`;
+      fs.writeFileSync(gitFile, newGitdir);
+      log.success(`Updated reference: ${wt.name}`);
+    }
+  }
+  
+  // Update the gitdir files in .git/worktrees/* to point back to worktrees
+  const worktreesDir = path.join(targetPath, '.git', 'worktrees');
+  if (fs.existsSync(worktreesDir)) {
+    const worktreeDirs = fs.readdirSync(worktreesDir);
+    for (const wtName of worktreeDirs) {
+      const gitdirFile = path.join(worktreesDir, wtName, 'gitdir');
+      if (fs.existsSync(gitdirFile)) {
+        // Find the corresponding worktree path
+        const wt = worktreeInfo.find(w => w.name === wtName);
+        if (wt) {
+          fs.writeFileSync(gitdirFile, `${wt.path}/.git`);
+          log.success(`Updated internal reference: ${wtName}`);
+        }
       }
-      log.success(`Recreated worktree: ${wt.name}`);
-    } catch (error) {
-      log.warning(`Could not recreate ${wt.name}: ${error}`);
     }
   }
   
@@ -173,7 +173,14 @@ export async function migrateToWorkspace(): Promise<void> {
       baseDir: targetParent,
       workspaceName: workspaceName
     };
-    saveConfig(config);
+    
+    // Save config to new location
+    const configPath = path.join(targetPath, '.proletariat', 'config.json');
+    const configDir = path.dirname(configPath);
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true });
+    }
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
     log.success('Updated configuration for workspace layout');
   }
   
@@ -181,4 +188,5 @@ export async function migrateToWorkspace(): Promise<void> {
   console.log('\n' + chalk.yellow('⚠️  Important: You need to change to the new directory:'));
   console.log(chalk.cyan(`  cd ${targetPath}`));
   console.log('\nThen you can continue using prlt commands from there.');
+  console.log('All your worktrees and uncommitted work have been preserved.');
 }
