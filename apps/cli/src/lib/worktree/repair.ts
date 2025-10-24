@@ -106,7 +106,6 @@ export function checkWorktreeHealth(): void {
       }
     }
     
-    console.log('');
     log.info(`Summary: ${healthyCount} healthy, ${brokenCount} broken`);
     
     if (brokenCount > 0) {
