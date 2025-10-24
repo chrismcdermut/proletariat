@@ -282,16 +282,16 @@ cd ../your-project-staff/gates
 # No AI needed - just your playground
 ```
 
-Merge completed work from any workspace (locally or via PR on GitHub - recommended):
+Merge completed work from any workspace:
 ```bash
-# Option 1: Local merge
+# Option 1: GitHub PR (recommended)
+cd ../your-project-staff/bezos
+gh pr create --title "Add login feature" --body "Authentication implementation"
+
+# Option 2: Local merge
 cd ../your-project
 git merge bezos/feature-login
 git merge musk/api-v2
-
-# Option 2: GitHub PR (recommended)
-cd ../your-project-staff/bezos
-gh pr create --title "Add login feature" --body "Authentication implementation"
 # Each workspace keeps working independently!
 ```
 
