@@ -43,6 +43,9 @@ your-company-workspace/  (recommended layout)
 
 **Result:** One developer, 5 agent directories, 0 conflicts. Work on multiple features simultaneously or let AI agents handle different tasks!
 
+![Multi-Agent Development in Action](https://github.com/chrismcdermut/proletariat-cli/raw/main/assets/multi-agent-workspace.png)
+*Three Claude Code instances working in parallel: `andreesen` on Feature A, `jobs` on Feature B, and `zuck` fixing a reported bug (no musk, he was fired)* 
+
 ---
 
 ## 🎯 Core Features
@@ -50,13 +53,13 @@ your-company-workspace/  (recommended layout)
 ### ⚡ **Zero Configuration**
 Just `prlt init` and you're ready to go. Zero configuration required.
 
-### 🎨 **Three Fun Themes**
+### 🎨 **Three Fun Themes** *(Custom themes coming soon!)*
 - **💰 Billionaires**: Hire/fire billionaire workers in `../project-staff/`
 - **🚗 Cars**: Drive/park cars in your `../project-garage/` 
 - **🏢 Companies**: Buy/sell companies in your `../project-portfolio/`
 
-### 🔀 **Multiple Workspaces on One Machine**
-Each workspace is a clean git worktree on your local filesystem. Run multiple Cursor windows, Claude Code instances, or just keep different features open - each in their own workspace, no context switching needed.
+### 🔀 **Multiple Agent Directories in Your Workspace**
+Each agent gets their own clean git worktree on your local filesystem. Run multiple Cursor windows, Claude Code instances, or just keep different features open - each agent in their own directory, no context switching needed.
 
 ---
 
@@ -88,26 +91,6 @@ prlt sell nvidia            # Companies theme
 
 ### 🏗️ Flexible Agent Workspace Layouts
 
-**Default Layout** - Agents as siblings to your repository:
-```
-parent-dir/
-├── your-repo/          (main repository)
-└── your-repo-staff/    (billionaire agents)
-    ├── bezos/      (e.g., Claude Code instance 1)
-    ├── musk/       (e.g., Claude Code instance 2)
-    └── gates/      (e.g., Cursor)
-    OR
-└── your-repo-garage/   (toyota agents)
-    ├── camry/      (e.g., Codex CLI 1)
-    ├── prius/      (e.g., Codex CLI 2)
-    └── tacoma/     (e.g., Cursor)
-    OR
-└── your-repo-portfolio/ (company agents)
-    ├── apple/      (e.g., Claude Code)
-    ├── google/     (e.g., Cursor instance 1)
-    └── microsoft/  (e.g., Cursor instance 2)
-```
-
 **Workspace Layout (Recommended)** - Group repositories and agents under one parent directory:
 ```bash
 # IMPORTANT: Run prlt init inside EACH repository you want to manage
@@ -133,6 +116,26 @@ acme-corp-workspace/        # Workspace containing all repos and agents
 ```
 
 Each repository maintains its own `.proletariat/config.json` since worktrees are per-repository.
+
+**Default Layout** - Agents as siblings to your repository:
+```
+parent-dir/
+├── your-repo/          (main repository)
+└── your-repo-staff/    (billionaire agents)
+    ├── bezos/      (e.g., Claude Code instance 1)
+    ├── musk/       (e.g., Claude Code instance 2)
+    └── gates/      (e.g., Cursor)
+    OR
+└── your-repo-garage/   (toyota agents)
+    ├── camry/      (e.g., Codex CLI 1)
+    ├── prius/      (e.g., Codex CLI 2)
+    └── tacoma/     (e.g., Cursor)
+    OR
+└── your-repo-portfolio/ (company agents)
+    ├── apple/      (e.g., Claude Code)
+    ├── google/     (e.g., Cursor instance 1)
+    └── microsoft/  (e.g., Cursor instance 2)
+```
 
 **Custom Location** - Point agents anywhere you want:
 ```bash

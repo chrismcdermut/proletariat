@@ -3,11 +3,11 @@ import { Theme, ThemeCollection } from '../../types/index.js';
 const THEMES: ThemeCollection = {
   billionaires: {
     name: 'billionaires',
-    displayName: 'Billionaire Staff',
-    description: '⚒️ Put billionaires on payroll duty for your project.',
+    displayName: 'Billionaires & Technocrats',
+    description: '⚒️ The ultra-wealthy and tech elite finally work for you.',
     emoji: '💰',
     directory: 'staff',
-    agents: ['altman', 'amodei', 'andreesen', 'arnault', 'benioff', 'bezos', 'blakely', 'bloomberg', 'branson', 'brin', 'buffett', 'cook', 'gates', 'horowitz', 'jobs', 'larry', 'ma', 'munger', 'musk', 'oprah', 'page', 'perkins', 'sandberg', 'satya', 'swift', 'whitney', 'wojcicki', 'zuck'],
+    agents: ['altman', 'daramodei', 'danamodei', 'andreesen', 'arnault', 'benioff', 'bezos', 'blakely', 'bloomberg', 'branson', 'brin', 'buffett', 'carmack', 'chesky', 'cook', 'dean', 'dorsey', 'ellison', 'gates', 'horowitz', 'huang', 'jobs', 'kalanick', 'karpathy', 'lecun', 'ma', 'murati', 'munger', 'musk', 'nadella', 'ng', 'oprah', 'page', 'perkins', 'sandberg', 'sutskever', 'swift', 'whitney', 'wojcicki', 'zuck'],
     commands: {
       create: 'hire',
       remove: 'fire', 
@@ -26,7 +26,7 @@ const THEMES: ThemeCollection = {
     description: '🚗 Manufacturing\'s finest wrenching for your project.',
     emoji: '🚗',
     directory: 'garage',
-    agents: ['4runner', 'camry', 'fj40', 'highlander', 'hilux', 'ironpig', 'landcruiser', 'prius', 'sierra', 'tacoma', 'tercel', 'troopy', 'tundra'],
+    agents: ['1stgen4runner', '2ndgen4runner', '3rdgen4runner', 'alltrac', 'camry', 'fj40', 'fj60', 'fj80', 'fzj80', 'hdj80', 'hdj81', 'highlander', 'hilux', 'ironpig', 'landcruiser', 'prius', 'rav4', 'sierra', 'tacoma', 'tercel', 'troopy', 'tundra'],
     commands: {
       create: 'drive',
       remove: 'park',
