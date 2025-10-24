@@ -19,6 +19,7 @@ export function repairWorktrees(): void {
   let repairedCount = 0;
   let failedCount = 0;
   let removedCount = 0;
+  let discoveredCount = 0;
   
   // Get list of worktrees from git
   try {
@@ -52,15 +53,54 @@ export function repairWorktrees(): void {
             execSync('git worktree prune', { encoding: 'utf8' });
           }
           
+          // Fix the .git file in the moved directory first
+          const gitFile = path.join(expectedPath, '.git');
+          const expectedGitContent = `gitdir: ${repoGitDir}/worktrees/${agentName}`;
+          
+          try {
+            fs.writeFileSync(gitFile, expectedGitContent);
+            log.info(`Fixed .git file for: ${agentName}`);
+          } catch (e) {
+            log.warning(`Could not fix .git file for ${agentName}`);
+          }
+          
           // Re-add with correct path
           const branchName = `${agentName}-workspace`;
           try {
-            execSync(`git worktree add "${expectedPath}" "${branchName}"`, { encoding: 'utf8' });
+            // Try to add it back - if it already exists with correct .git, this should work
+            execSync(`git worktree add "${expectedPath}" "${branchName}"`, { encoding: 'utf8', stdio: 'pipe' });
             log.success(`Re-registered worktree: ${agentName} at ${expectedPath}`);
             repairedCount++;
           } catch (e) {
-            log.warning(`Could not re-add ${agentName} - branch may not exist`);
-            failedCount++;
+            // If the directory exists but can't be added, try to repair it differently
+            const errorMsg = e instanceof Error ? e.message : String(e);
+            if (errorMsg.includes('already exists')) {
+              // Directory exists, just needs to be registered
+              try {
+                // Create the worktree metadata directory
+                const worktreeMetaDir = path.join(repoGitDir, 'worktrees', agentName);
+                if (!fs.existsSync(worktreeMetaDir)) {
+                  fs.mkdirSync(worktreeMetaDir, { recursive: true });
+                }
+                
+                // Write the gitdir file
+                const gitdirFile = path.join(worktreeMetaDir, 'gitdir');
+                fs.writeFileSync(gitdirFile, `${expectedPath}/.git`);
+                
+                // Write the HEAD file
+                const headFile = path.join(worktreeMetaDir, 'HEAD');
+                fs.writeFileSync(headFile, `ref: refs/heads/${branchName}`);
+                
+                log.success(`Manually re-registered worktree: ${agentName}`);
+                repairedCount++;
+              } catch (manualError) {
+                log.warning(`Could not manually register ${agentName}: ${manualError}`);
+                failedCount++;
+              }
+            } else {
+              log.warning(`Could not re-add ${agentName}: ${errorMsg}`);
+              failedCount++;
+            }
           }
         } else {
           log.warning(`Worktree path missing and not found in expected location: ${agentName}`);
@@ -103,8 +143,69 @@ export function repairWorktrees(): void {
       }
     }
     
+    // Now check for orphaned directories that need to be registered
+    // These are directories that exist but aren't registered with git
+    if (config.workspaceDir && fs.existsSync(config.workspaceDir)) {
+      log.info('Checking for unregistered worktree directories...');
+      
+      const entries = fs.readdirSync(config.workspaceDir);
+      for (const entry of entries) {
+        const dirPath = path.join(config.workspaceDir, entry);
+        
+        // Check if it's a directory
+        if (!fs.statSync(dirPath).isDirectory()) continue;
+        
+        // Check if it's already registered
+        const currentWorktrees = execSync('git worktree list --porcelain', { encoding: 'utf8' });
+        if (currentWorktrees.includes(dirPath)) continue;
+        
+        // Check if it has a .git file (indicating it was a worktree)
+        const gitFile = path.join(dirPath, '.git');
+        if (fs.existsSync(gitFile)) {
+          // This is an orphaned worktree directory
+          log.info(`Found unregistered worktree directory: ${entry}`);
+          
+          // Check if the branch exists
+          const branchName = `${entry}-workspace`;
+          try {
+            execSync(`git show-ref --verify --quiet refs/heads/${branchName}`, { encoding: 'utf8' });
+            
+            // Branch exists, fix the .git file and register the worktree
+            const expectedGitContent = `gitdir: ${repoGitDir}/worktrees/${entry}`;
+            fs.writeFileSync(gitFile, expectedGitContent);
+            
+            // Create the worktree metadata
+            const worktreeMetaDir = path.join(repoGitDir, 'worktrees', entry);
+            if (!fs.existsSync(worktreeMetaDir)) {
+              fs.mkdirSync(worktreeMetaDir, { recursive: true });
+            }
+            
+            // Write the gitdir file
+            const gitdirFile = path.join(worktreeMetaDir, 'gitdir');
+            fs.writeFileSync(gitdirFile, `${dirPath}/.git`);
+            
+            // Write the HEAD file
+            const headFile = path.join(worktreeMetaDir, 'HEAD');
+            fs.writeFileSync(headFile, `ref: refs/heads/${branchName}`);
+            
+            // Write the commondir file
+            const commondirFile = path.join(worktreeMetaDir, 'commondir');
+            fs.writeFileSync(commondirFile, '../..');
+            
+            log.success(`Registered orphaned worktree: ${entry}`);
+            discoveredCount++;
+          } catch (e) {
+            log.warning(`Could not register ${entry} - branch ${branchName} may not exist`);
+          }
+        }
+      }
+    }
+    
     if (removedCount > 0) {
       log.info(`Removed ${removedCount} outdated registration(s)`);
+    }
+    if (discoveredCount > 0) {
+      log.success(`✅ Discovered and registered ${discoveredCount} orphaned worktree(s)`);
     }
     if (repairedCount > 0) {
       log.success(`✅ Repaired ${repairedCount} worktree reference(s)`);
@@ -112,7 +213,7 @@ export function repairWorktrees(): void {
     if (failedCount > 0) {
       log.warning(`⚠️  ${failedCount} worktree(s) could not be repaired`);
     }
-    if (repairedCount === 0 && failedCount === 0 && removedCount === 0) {
+    if (repairedCount === 0 && failedCount === 0 && removedCount === 0 && discoveredCount === 0) {
       log.success('All worktrees are already correctly configured!');
     }
     
