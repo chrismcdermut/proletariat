@@ -48,15 +48,19 @@ export function resolveWorkspace(theme: Theme, options: InitOptions = {}): Works
   let workspaceName: string | undefined;
   let workspaceDir: string;
 
-  if (options.workspaceRoot) {
-    workspaceDir = path.resolve(projectRoot, options.workspaceRoot);
+  // Use HQ options, falling back to legacy workspace options
+  const hqRoot = options.hqRoot || options.workspaceRoot;
+  const hq = options.hq || options.workspace;
+
+  if (hqRoot) {
+    workspaceDir = path.resolve(projectRoot, hqRoot);
     baseDir = path.dirname(workspaceDir);
     mode = 'custom';
-  } else if (options.workspace) {
-    workspaceName = options.workspace;
+  } else if (hq) {
+    workspaceName = hq;
     baseDir = path.join(parentDir, workspaceName);
     workspaceDir = path.join(baseDir, `${projectName}-${theme.directory}`);
-    mode = 'workspace';
+    mode = 'workspace';  // Will rename to 'hq' in config later
   } else {
     workspaceDir = path.join(parentDir, `${projectName}-${theme.directory}`);
   }

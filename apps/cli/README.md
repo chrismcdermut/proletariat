@@ -28,10 +28,10 @@ Each workspace is a dedicated git worktree on your local machine. Run 3 Cursor i
 
 **Problem:** AI coding tools work in a single directory. Want to work on multiple features? You're stuck with stashing, branching, and context switching.
 
-**Solution:** PROLETARIAT creates isolated agent directories on your machine where you can run multiple AI sessions:
+**Solution:** PROLETARIAT creates isolated agent workspaces on your machine where you can run multiple AI sessions:
 
 ```
-your-company-workspace/  (recommended layout)
+your-company-hq/  (recommended layout)
 ├── your-repo/              # Your original repo
 ├── your-repo-staff/
 │   ├── bezos/    → Claude Code 1: Building authentication
@@ -58,8 +58,8 @@ Just `prlt init` and you're ready to go. Zero configuration required.
 - **🚗 Cars**: Drive/park cars in `../your-repo-garage/` 
 - **🏢 Companies**: Buy/sell companies in `../your-repo-portfolio/`
 
-### 🔀 **Multiple Agent Directories in Your Workspace**
-Each agent gets their own clean git worktree on your local filesystem. Run multiple Cursor windows, Claude Code instances, or just keep different features open - each agent in their own directory, no context switching needed.
+### 🔀 **Multiple Agent Workspaces in Your HQ**
+Each agent gets their own clean git worktree workspace on your local filesystem. Run multiple Cursor windows, Claude Code instances, or just keep different features open - each agent in their own workspace, no context switching needed.
 
 ---
 
@@ -89,20 +89,20 @@ prlt park honda             # Cars theme
 prlt sell nvidia            # Companies theme
 ```
 
-### 🏗️ Flexible Agent Workspace Layouts
+### 🏗️ Flexible Agent Directory Layouts
 
-**Workspace Layout (Recommended)** - Group repositories and agents under one parent directory:
+**HQ Layout (Recommended)** - Group repositories and agent workspaces under one headquarters directory:
 ```bash
 # IMPORTANT: Run prlt init inside EACH repository you want to manage
-cd frontend-repo && prlt init --workspace acme-corp
-cd ../backend-repo && prlt init --workspace acme-corp  
+cd frontend-repo && prlt init --hq acme-corp
+cd ../backend-repo && prlt init --hq acme-corp  
 
 # Each repo needs its own initialization since worktrees are per-repository
 ```
 
 Creates this organized structure to hold multi-repo projects:
 ```
-acme-corp-workspace/        # Workspace containing all repos and agents
+acme-corp-hq/               # HQ containing all repos and agent workspaces
 ├── frontend-repo/          (main frontend repository)
 ├── frontend-repo-staff/    (frontend billionaire agents)
 │   ├── bezos/      (e.g., Claude Code instance 1)
@@ -225,12 +225,12 @@ prlt portfolio              # Check your holdings
 
 ### Universal Commands
 - `prlt init [--theme=cars]` - Initialize with theme
-- `prlt init --workspace <name>` - Optional workspace layout
-- `prlt init --workspace-root <path>` - Use a custom agent directory
+- `prlt init --hq <name>` - Create/join an HQ directory
+- `prlt init --hq-root <path>` - Use a custom agent directory
 - `prlt list [--theme=cars]` - List available agents
 - `prlt themes` - Show all themes
 - `prlt repair` - Fix broken worktree references after repo moves
-- `prlt migrate <workspace-name>` - Move your repo into a workspace folder
+- `prlt migrate <hq-name>` - Move your repo into an HQ folder
 - `prlt upgrade` - Upgrade config to latest format (backwards compatible)
 - `prlt health` - Check worktree health status
 
@@ -238,7 +238,7 @@ prlt portfolio              # Check your holdings
 
 ## 🛠️ How It Works
 
-1. **Initialize**: `prlt init` - Choose your theme and workspace layout
+1. **Initialize**: `prlt init` - Choose your theme and HQ layout
 2. **Create agents**: `prlt hire bezos` / `prlt drive camry` / `prlt buy apple` - Creates isolated git worktrees
 3. **Work**: Each worktree is a persistent workspace where agents can work independently - switch AI tools or branches but the workspace persists
 4. **Check status**: `prlt staff` / `prlt garage` / `prlt portfolio` - See your active agents

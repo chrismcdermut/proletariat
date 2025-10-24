@@ -46,6 +46,9 @@ export interface ProjectConfig {
 
 export interface InitOptions {
   theme?: string;
+  hq?: string;
+  hqRoot?: string;
+  // Legacy support (will be removed in v1.0)
   workspace?: string;
   workspaceRoot?: string;
 }

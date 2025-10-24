@@ -62,37 +62,45 @@ export async function initProject(options: InitOptions): Promise<ProjectConfig |
   const theme = themes[themeName];
 
   const resolvedOptions = { ...options } as InitOptions;
+  
+  // Support legacy workspace flags by mapping to hq
+  if (resolvedOptions.workspace && !resolvedOptions.hq) {
+    resolvedOptions.hq = resolvedOptions.workspace;
+  }
+  if (resolvedOptions.workspaceRoot && !resolvedOptions.hqRoot) {
+    resolvedOptions.hqRoot = resolvedOptions.workspaceRoot;
+  }
 
-  if (!resolvedOptions.workspaceRoot && !resolvedOptions.workspace) {
+  if (!resolvedOptions.hqRoot && !resolvedOptions.hq) {
     const { layoutChoice } = await inquirer.prompt([{
       type: 'list',
       name: 'layoutChoice',
-      message: 'Where should agent worktrees live?',
+      message: 'Where should agent workspaces live?',
       choices: [
         { name: 'Keep them alongside this repo (../project-staff)', value: 'sibling' },
-        { name: 'Create a workspace directory to hold everything', value: 'workspace' },
+        { name: 'Create an HQ directory to hold everything', value: 'hq' },
         { name: 'Use a custom path', value: 'custom' }
       ]
     }]);
 
-    if (layoutChoice === 'workspace') {
-      const { workspaceName } = await inquirer.prompt([{
+    if (layoutChoice === 'hq') {
+      const { hqName } = await inquirer.prompt([{
         type: 'input',
-        name: 'workspaceName',
-        message: 'Workspace directory name (tip: use your company or product name):',
-        default: `${projectName}-workspace`,
+        name: 'hqName',
+        message: 'HQ directory name (tip: use your company or product name):',
+        default: `${projectName}-hq`,
         validate: (input: string) => input.trim().length ? true : 'Please provide a directory name.'
       }]);
-      resolvedOptions.workspace = workspaceName.trim();
+      resolvedOptions.hq = hqName.trim();
     } else if (layoutChoice === 'custom') {
-      const { workspaceRoot } = await inquirer.prompt([{
+      const { hqRoot } = await inquirer.prompt([{
         type: 'input',
-        name: 'workspaceRoot',
-        message: 'Path for agent worktrees (relative or absolute):',
+        name: 'hqRoot',
+        message: 'Path for agent workspaces (relative or absolute):',
         default: `../${projectName}-staff`,
         validate: (input: string) => input.trim().length ? true : 'Please provide a path.'
       }]);
-      resolvedOptions.workspaceRoot = workspaceRoot.trim();
+      resolvedOptions.hqRoot = hqRoot.trim();
     }
   }
 

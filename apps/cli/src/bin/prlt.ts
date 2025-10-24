@@ -50,8 +50,8 @@ program
   .command('init')
   .description('🚩 Initialize themed worktree management')
   .option('-t, --theme <theme>', 'theme (billionaires, cars, companies)')
-  .option('--workspace <name>', 'Create a workspace directory (e.g. acme-project) to hold the repo and agents')
-  .option('--workspace-root <path>', 'Explicit path where agent worktrees should live')
+  .option('--hq <name>', 'Create an HQ directory (e.g. acme-corp-hq) to hold repos and agent workspaces')
+  .option('--hq-root <path>', 'Explicit path where agent workspaces should live')
   .action(async (options: InitOptions) => {
     await initProject(options);
   });
@@ -103,7 +103,7 @@ program
 
 program
   .command('migrate')
-  .description('📦 Migrate repository into workspace folder alongside worktrees')
+  .description('📦 Migrate repository into HQ folder alongside agent workspaces')
   .action(() => migrateToWorkspace());
 
 program
