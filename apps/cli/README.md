@@ -234,15 +234,15 @@ prlt portfolio              # Check your holdings
 
 ## 🛠️ How It Works
 
-1. **Initialize**: Choose your theme, creates `../project-[directory]/`
+1. **Initialize**: Choose your theme, creates `../project-staff/`, `../project-garage/`, or `../project-portfolio/`
 2. **Create**: `git worktree add -b "agent/[name]/work" ../project-[directory]/[name]`
-3. **Track**: Saves active agents in `.proletariat/config.json`
+3. **Track**: Saves active agents in `.proletariat/repo.json`
 4. **Work**: Each agent is a persistent workspace - a complete copy of your repo where you can switch between any feature branches
 5. **Remove**: `git worktree remove` and clean up tracking
 
 **That's it!** Simple and clean.
 
-If you chose a workspace or custom location, the layout details are stored in `.proletariat/config.json` so future commands know where to work.
+If you chose a workspace or custom location, the layout details are stored in `.proletariat/repo.json` (or `.proletariat/config.json` for backwards compatibility).
 
 ---
 
