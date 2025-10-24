@@ -15,6 +15,8 @@ import {
 import { log, showBanner } from '../utils/logger.js';
 import { InitOptions, ProjectConfig, Theme } from '../../types/index.js';
 
+export { repairWorktrees, checkWorktreeHealth } from './repair.js';
+
 export async function initProject(options: InitOptions): Promise<ProjectConfig | void> {
   const projectRoot = getProjectRoot();
   const projectName = getProjectName();

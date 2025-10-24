@@ -28,7 +28,11 @@
     "workflow",
     "automation"
   ],
-  "author": "Chris McDermut <chris@mcdermut.com>",
+  "author": {
+    "name": "Chris McDermut",
+    "email": "chris@mcdermut.com",
+    "url": "https://github.com/chrismcdermut"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",

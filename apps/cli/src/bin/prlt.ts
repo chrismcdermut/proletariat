@@ -15,6 +15,8 @@ import chalk from 'chalk';
 // Import modules
 import { getAllThemes } from '../lib/themes/index.js';
 import { initProject, createWorktrees, removeWorktrees, showStatus } from '../lib/worktree/index.js';
+import { repairWorktrees, checkWorktreeHealth } from '../lib/worktree/repair.js';
+import { migrateToWorkspace } from '../lib/worktree/migrate.js';
 import { listAgents, listThemes } from '../lib/utils/helpers.js';
 import { showBanner } from '../lib/utils/logger.js';
 import { InitOptions, ListOptions } from '../types/index.js';
@@ -74,6 +76,21 @@ program
   .command('themes')
   .description('🎨 List available themes')
   .action(() => listThemes());
+
+program
+  .command('repair')
+  .description('🔧 Repair broken worktree references (e.g., after moving the repository)')
+  .action(() => repairWorktrees());
+
+program
+  .command('health')
+  .description('🏥 Check health of all worktrees')
+  .action(() => checkWorktreeHealth());
+
+program
+  .command('migrate')
+  .description('📦 Migrate repository into workspace folder alongside worktrees')
+  .action(() => migrateToWorkspace());
 
 // Parse command line arguments
 program.parse(process.argv);

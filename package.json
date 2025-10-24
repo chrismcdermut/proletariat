@@ -12,6 +12,7 @@
     "build:cli": "pnpm --filter @proletariat/cli build",
     "pack:cli": "pnpm --filter @proletariat/cli pack",
     "push:cli": "git subtree push --prefix=apps/cli cli-public main",
-    "push:cli:force": "git push cli-public `git subtree split --prefix=apps/cli HEAD`:main --force"
+    "push:cli:force": "git push cli-public `git subtree split --prefix=apps/cli HEAD`:main --force",
+    "pull:cli": "git subtree pull --prefix=apps/cli cli-public main --squash"
   }
 }
