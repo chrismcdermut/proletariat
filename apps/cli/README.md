@@ -255,7 +255,7 @@ prlt hire bezos musk gates
 
 Now open separate terminal panes/tabs or AI IDE windows (Cursor, Windsurf, etc.):
 
-**Terminal Pane/Tab or AI IDE Window 1: Agent workspace (bezos)**
+**Terminal Pane/Tab or AI IDE Window 1: Agent workspace (eg, bezos)**
 ```bash
 cd ../your-project-staff/bezos
 claude-code .  # Claude Code owns this workspace for weeks
@@ -282,11 +282,16 @@ cd ../your-project-staff/gates
 # No AI needed - just your playground
 ```
 
-Merge completed work from any workspace:
+Merge completed work from any workspace (locally or via PR on GitHub - recommended):
 ```bash
+# Option 1: Local merge
 cd ../your-project
 git merge bezos/feature-login
 git merge musk/api-v2
+
+# Option 2: GitHub PR (recommended)
+cd ../your-project-staff/bezos
+gh pr create --title "Add login feature" --body "Authentication implementation"
 # Each workspace keeps working independently!
 ```
 
