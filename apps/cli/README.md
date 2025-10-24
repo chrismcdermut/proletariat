@@ -70,7 +70,7 @@ Each agent gets their own clean git worktree on your local filesystem. Run multi
 npm install -g @proletariat/cli
 
 # Initialize with interactive theme selection
-cd your-project
+cd your-repo
 prlt init  # Prompts you to choose: billionaires, toyotas, or companies
 
 # Create worktrees with themed commands
