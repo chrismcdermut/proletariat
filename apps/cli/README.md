@@ -255,7 +255,7 @@ prlt hire bezos musk gates
 
 Now open separate terminal panes/tabs or AI IDE windows (Cursor, Windsurf, etc.):
 
-**Terminal Pane/Tab or AI IDE Window 1: Authentication specialist**
+**Terminal Pane/Tab or AI IDE Window 1: Agent workspace (bezos)**
 ```bash
 cd ../your-project-staff/bezos
 claude-code .  # Claude Code owns this workspace for weeks
@@ -266,7 +266,7 @@ claude-code .  # Claude Code owns this workspace for weeks
 # All in the same workspace, different branches as needed
 ```
 
-**Terminal Pane/Tab or AI IDE Window 2: API developer**
+**Terminal Pane/Tab or AI IDE Window 2: Agent workspace (musk)**
 ```bash
 cd ../your-project-staff/musk
 cursor .  # Cursor lives here, building feature after feature
@@ -275,7 +275,7 @@ cursor .  # Cursor lives here, building feature after feature
 # Week 3: Analytics endpoints
 ```
 
-**Terminal Pane/Tab or AI IDE Window 3: Testing ground**
+**Terminal Pane/Tab or AI IDE Window 3: Agent workspace (gates)**
 ```bash
 cd ../your-project-staff/gates
 # Your manual testing, experiments, debugging
