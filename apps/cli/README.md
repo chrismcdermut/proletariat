@@ -184,7 +184,7 @@ prlt fire zuckerberg        # You're fired!
 prlt staff                  # Check your workers
 ```
 
-**Agents**: altman, amodei, andreesen, arnault, bezos, blakely, bloomberg, branson, brin, buffett, cook, ellison, gates, horowitz, jobs, ma, munger, musk, nadella, oprah, page, perkins, swift, whitney, wojcicki, zuckerberg  
+**Agents**: altman, daramodei, danamodei, andreesen, arnault, benioff, bezos, blakely, bloomberg, branson, brin, buffett, carmack, chesky, cook, dean, dorsey, ellison, gates, horowitz, huang, jobs, kalanick, karpathy, lecun, ma, murati, munger, musk, nadella, ng, oprah, page, perkins, sandberg, sutskever, swift, whitney, wojcicki, zuck  
 **Directory**: `../[project]-staff/`
 
 ### 🚗 Toyotas  
@@ -197,7 +197,7 @@ prlt park 4runner           # Back to the bay
 prlt garage                 # Check your fleet
 ```
 
-**Agents**: 4runner, camry, fj40, highlander, hilux, ironpig, landcruiser, prius, sierra, tacoma, tercel, troopy, tundra  
+**Agents**: 1stgen4runner, 2ndgen4runner, 3rdgen4runner, alltrac, camry, fj40, fj60, fj80, fzj80, hdj80, hdj81, highlander, hilux, ironpig, landcruiser, prius, rav4, sierra, tacoma, tercel, troopy, tundra  
 **Directory**: `../[project]-garage/`
 
 ### 🏢 Companies
