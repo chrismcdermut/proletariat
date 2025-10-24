@@ -1,26 +1,47 @@
 # ⚒️ PROLETARIAT CLI
 
-> **Multi-Agent Development Orchestrator**  
-> *Orchestrate parallel coding agents through git worktrees - each agent works independently on features, bugs, or experiments*
+> **Workspace Manager for Parallel AI Development**  
+> *Run multiple Cursor sessions, Claude Code instances, or CLI agents simultaneously on one machine - each working on different features without conflicts*
 
-🚩 **Transform your development workflow with autonomous coding agents working in parallel!** 🚩
+**Scale your solo development: Multiple AI sessions, parallel workspaces, all on your local machine!** 
 
 ---
 
-## 💰 What Is This?
+## What Is This?
 
-**PROLETARIAT CLI** orchestrates multiple coding agents working in parallel on your codebase. Each agent is an independent git worktree that can:
+**PROLETARIAT CLI** implements the design pattern for running multiple AI coding sessions in parallel on a single machine. Each "agent" is a persistent workspace (git worktree) where AI tools or developers can work continuously - not just for single features:
 
-- 🤖 **Work autonomously** on different features, bugs, or experiments simultaneously
-- 🔀 **Operate in isolation** without conflicts between agents
-- 🎯 **Focus on specific tasks** while maintaining clean separation of concerns
+- 🤖 **Persistent AI workspaces** - Let Claude Code live in the "bezos" workspace for weeks, handling all auth tasks
+- 🔀 **No constant branching** - Each workspace can handle multiple related features over time
+- 🎯 **Domain-focused development** - One workspace for frontend, another for API, another for testing
 
 Using memorable themes, you manage your agent workforce:
 - 💰 **Billionaires** become your coding workforce (Bezos, Musk, Gates)
 - 🚗 **Toyotas** drive your development forward (Prius, Tacoma, Tundra)
 - 🏢 **Companies** form your development portfolio (Apple, Google, Microsoft)
 
-Each agent operates independently via git worktrees, enabling true parallel development workflows!
+Each workspace is a dedicated git worktree on your local machine. Run 3 Cursor instances editing different features, or quickly switch between workspaces without losing context!
+
+---
+
+## 💡 The Design Pattern
+
+**Problem:** AI coding tools work in a single directory. Want to work on multiple features? You're stuck with stashing, branching, and context switching.
+
+**Solution:** PROLETARIAT creates isolated agent directories on your machine where you can run multiple AI sessions:
+
+```
+your-company-workspace/  (recommended layout)
+├── your-repo/              # Your original repo
+├── your-repo-staff/
+│   ├── bezos/    → Claude Code 1: Building authentication
+│   ├── musk/     → Claude Code 2: Implementing AI features  
+│   ├── gates/    → Cursor: Refactoring database
+│   ├── jobs/     → Codex CLI 1: Writing test suite
+│   └── cook/     → Codex CLI 2: Fixing security issues
+```
+
+**Result:** One developer, 5 agent directories, 0 conflicts. Work on multiple features simultaneously or let AI agents handle different tasks!
 
 ---
 
@@ -34,8 +55,8 @@ Just `prlt init` and you're ready to go. Zero configuration required.
 - **🚗 Cars**: Drive/park cars in your `../project-garage/` 
 - **🏢 Companies**: Buy/sell companies in your `../project-portfolio/`
 
-### 🔀 **Agent-Based Development**
-Each coding agent is a clean git worktree on its own branch, working independently and in parallel with other agents.
+### 🔀 **Multiple Workspaces on One Machine**
+Each workspace is a clean git worktree on your local filesystem. Run multiple Cursor windows, Claude Code instances, or just keep different features open - each in their own workspace, no context switching needed.
 
 ---
 
@@ -51,7 +72,7 @@ prlt init  # Prompts you to choose: billionaires, toyotas, or companies
 
 # Create worktrees with themed commands
 prlt hire bezos musk        # Billionaires theme
-prlt drive tesla prius      # Cars theme  
+prlt drive 4runner prius      # Cars theme  
 prlt buy apple microsoft    # Companies theme
 
 # Check status
@@ -67,21 +88,51 @@ prlt sell nvidia            # Companies theme
 
 ### 🏗️ Flexible Agent Workspace Layouts
 
-**Default Layout** - Agents as siblings to your project:
+**Default Layout** - Agents as siblings to your repository:
 ```
 parent-dir/
-├── your-project/          (main codebase)
-├── your-project-staff/    (billionaire agents)
-├── your-project-garage/   (toyota agents)
-└── your-project-portfolio/ (company agents)
+├── your-repo/          (main repository)
+└── your-repo-staff/    (billionaire agents)
+    ├── bezos/      (e.g., Claude Code instance 1)
+    ├── musk/       (e.g., Claude Code instance 2)
+    └── gates/      (e.g., Cursor)
+    OR
+└── your-repo-garage/   (toyota agents)
+    ├── camry/      (e.g., Codex CLI 1)
+    ├── prius/      (e.g., Codex CLI 2)
+    └── tacoma/     (e.g., Cursor)
+    OR
+└── your-repo-portfolio/ (company agents)
+    ├── apple/      (e.g., Claude Code)
+    ├── google/     (e.g., Cursor instance 1)
+    └── microsoft/  (e.g., Cursor instance 2)
 ```
 
-**Workspace Layout** - Group project and agents under one parent directory:
+**Workspace Layout (Recommended)** - Group repositories and agents under one parent directory:
 ```bash
-prlt init --workspace my-platform
-# Creates: ../my-platform/project-name-staff/
-# Optionally offers to move your repo to: ../my-platform/project-name/
+# IMPORTANT: Run prlt init inside EACH repository you want to manage
+cd frontend-repo && prlt init --workspace acme-corp
+cd ../backend-repo && prlt init --workspace acme-corp  
+
+# Each repo needs its own initialization since worktrees are per-repository
 ```
+
+Creates this organized structure to hold multi-repo projects:
+```
+acme-corp-workspace/        # Workspace containing all repos and agents
+├── frontend-repo/          (main frontend repository)
+├── frontend-repo-staff/    (frontend billionaire agents)
+│   ├── bezos/      (e.g., Claude Code instance 1)
+│   ├── musk/       (e.g., Claude Code instance 2)
+│   └── gates/      (e.g., Cursor)
+├── backend-repo/           (main backend repository)  
+└── backend-repo-staff/     (backend billionaire agents)
+    ├── cook/       (e.g., Codex CLI 1)
+    ├── jobs/       (e.g., Codex CLI 2)
+    └── buffett/    (e.g., Claude Code instance 2)
+```
+
+Each repository maintains its own `.proletariat/config.json` since worktrees are per-repository.
 
 **Custom Location** - Point agents anywhere you want:
 ```bash
@@ -192,85 +243,99 @@ If you chose a workspace or custom location, the layout details are stored in `.
 
 ---
 
-## 🎯 Multi-Agent Workflow
+## 🎯 Parallel AI Development in Action
 
 ```bash
-# Deploy multiple agents to work on different tasks
+# Set up persistent workspaces
 prlt hire bezos musk gates
 
-# Agent 1: Bezos tackles the checkout feature
+# Each workspace is a long-lived environment, not just for one feature!
+
+# Workspace 1: "bezos" handles all authentication work
 cd ../your-project-staff/bezos
-git checkout -b feat/checkout-flow
-# ... autonomous development
+claude-code .  # Claude Code owns this workspace for weeks
+# Monday: Implement login
+# Tuesday: Add OAuth  
+# Wednesday: Fix auth bugs
+# Thursday: Add 2FA
+# All in the same workspace, different branches as needed
 
-# Agent 2: Musk implements AI search
+# Workspace 2: "musk" handles all API development  
 cd ../your-project-staff/musk
-git checkout -b feat/ai-search
-# ... parallel development
+cursor .  # Cursor lives here, building feature after feature
+# Week 1: User endpoints
+# Week 2: Payment endpoints
+# Week 3: Analytics endpoints
 
-# Agent 3: Gates fixes security issues
+# Workspace 3: "gates" is your testing ground
 cd ../your-project-staff/gates
-git checkout -b fix/security-patches
-# ... independent work
+# Your manual testing, experiments, debugging
+# No AI needed - just your playground
 
-# Orchestrate: Merge all agent work
+# Merge completed work as it's ready
 cd ../your-project
-git merge feat/checkout-flow    # Integrate Bezos's work
-git merge feat/ai-search        # Integrate Musk's work
-git merge fix/security-patches  # Integrate Gates's work
+git merge bezos/feature-login
+git merge musk/api-v2
+# Each workspace keeps working on the next task!
 ```
 
 ---
 
-## 🌟 Why Multi-Agent Development?
+## 🌟 Why This Design Pattern?
 
-### ❌ **Traditional Single-Thread Development**
+### ❌ **Traditional Single Workspace**
 ```bash
-# Work on one thing at a time
+# One directory, constant context switching
 git checkout -b feature-1
-# ... work ...
-git checkout main
-git checkout -b feature-2
-# Context switching, stashing, conflicts...
+# Work on feature 1...
+git stash  # Have to stash to switch
+git checkout -b feature-2  
+# Lost context, files changed, AI confused...
 ```
 
-### ✅ **Multi-Agent Parallel Development**  
+### ✅ **Multiple Workspaces, One Machine**  
 ```bash
-# Deploy agents to work simultaneously
+# Set up workspaces on your local machine
 prlt hire bezos musk gates
 
-# Three agents, three features, zero conflicts
+# Each workspace ready for AI or manual work
 prlt staff
-# 💰 BEZOS: ✅ Working on checkout-flow
-# 💰 MUSK: ✅ Building AI search
-# 💰 GATES: ✅ Fixing security issues
+# 💰 BEZOS: ✅ Cursor session 1 → ../project-staff/bezos
+# 💰 MUSK: ✅ Claude Code session → ../project-staff/musk  
+# 💰 GATES: ✅ Your manual edits → ../project-staff/gates
+
+# Three workspaces, three features, all on your machine!
 ```
 
-**True parallel development with memorable agent management!** 🎉
+**Scale your solo development: Multiple workspaces, parallel progress, zero stashing!** 🎉
 
 ---
 
 
 ## 🏆 Perfect For
 
-- **Parallel Feature Development** - Multiple agents work on different features simultaneously
-- **AI-Assisted Coding** - Each agent can be powered by different AI tools or prompts
-- **Distributed Bug Fixing** - Deploy agents to tackle multiple bugs in parallel
-- **Experimentation** - Agents explore different solutions independently
-- **Code Reviews** - Each agent's work is isolated and easy to review
-- **Team Collaboration** - Assign real team members to specific agents
+- **Running Multiple Cursor Sessions** - Open 3+ Cursor windows, each editing a different workspace/feature
+- **Parallel Claude Code Instances** - Launch multiple Claude Code sessions working on separate tasks
+- **Concurrent CLI Agents** - Run Codex, Aider, or other CLI agents simultaneously in different workspaces
+- **Mixed AI Tools** - Cursor in one workspace, Claude Code in another, Copilot in a third
+- **Scaling Solo Development** - One developer running multiple AI sessions on their machine
+- **Rapid Prototyping** - Each workspace explores different approaches without affecting others
 
 ---
 
+## 🚀 Contributing & Releases
+
+See [RELEASE.md](./RELEASE.md) for the release process.
+
 ## 📜 License
 
-MIT License - Because even revolutionaries believe in open source!
+MIT License - Because the revolutions is open source.
 
 ---
 
 <div align="center">
 
-**🚩 WORKERS OF THE CODEBASE, UNITE! ✊**
+**✊ WORKERS OF THE CODEBASE, UNITE! ✊**
 
 *The simplest, most fun git worktree manager in existence!*
 

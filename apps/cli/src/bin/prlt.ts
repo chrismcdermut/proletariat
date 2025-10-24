@@ -17,6 +17,7 @@ import { getAllThemes } from '../lib/themes/index.js';
 import { initProject, createWorktrees, removeWorktrees, showStatus } from '../lib/worktree/index.js';
 import { repairWorktrees, checkWorktreeHealth } from '../lib/worktree/repair.js';
 import { migrateToWorkspace } from '../lib/worktree/migrate.js';
+import { upgradeConfig } from '../lib/config/upgrade.js';
 import { listAgents, listThemes } from '../lib/utils/helpers.js';
 import { showBanner } from '../lib/utils/logger.js';
 import { InitOptions, ListOptions } from '../types/index.js';
@@ -91,6 +92,11 @@ program
   .command('migrate')
   .description('📦 Migrate repository into workspace folder alongside worktrees')
   .action(() => migrateToWorkspace());
+
+program
+  .command('upgrade')
+  .description('⬆️  Upgrade configuration to latest format')
+  .action(() => upgradeConfig());
 
 // Parse command line arguments
 program.parse(process.argv);

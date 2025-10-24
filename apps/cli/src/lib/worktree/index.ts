@@ -99,7 +99,8 @@ export async function initProject(options: InitOptions): Promise<ProjectConfig |
   const { workspaceDir, layout } = resolveWorkspace(theme, resolvedOptions);
 
   const configData: ProjectConfig = {
-    version: '2.0.0',
+    version: '0.1.4',  // CLI version when repo.json format was introduced
+    configVersion: 2,   // Config format version (1 = config.json, 2 = repo.json)
     projectName,
     themeName: theme.name,
     workspaceDir,
@@ -159,7 +160,7 @@ export async function initProject(options: InitOptions): Promise<ProjectConfig |
               log.success(`Repository moved to ${destination}`);
               log.success('Proletariat initialized!');
               log.info('Please open a new shell and run prlt commands from the moved path.');
-              return { ...configData, theme };
+              return configData;
             }
           }
         } catch (error) {
@@ -184,7 +185,7 @@ export async function initProject(options: InitOptions): Promise<ProjectConfig |
   console.log(`
 ${chalk.cyan(theme.messages.slogan)}`);
   
-  return { ...configData, theme };
+  return configData;
 }
 
 export async function createWorktrees(agents: string[]): Promise<ProjectConfig | void> {
