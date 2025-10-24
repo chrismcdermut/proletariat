@@ -251,10 +251,12 @@ Configuration is stored in `.proletariat/repo.json` (or `.proletariat/config.jso
 ```bash
 # Set up persistent workspaces
 prlt hire bezos musk gates
+```
 
-# Each workspace is a long-lived environment, not just for one feature!
+Now open separate terminals, Cursor windows, or Claude Code instances:
 
-# Workspace 1: "bezos" handles all authentication work
+**Terminal/Window 1: Authentication specialist**
+```bash
 cd ../your-project-staff/bezos
 claude-code .  # Claude Code owns this workspace for weeks
 # Monday: Implement login
@@ -262,24 +264,30 @@ claude-code .  # Claude Code owns this workspace for weeks
 # Wednesday: Fix auth bugs
 # Thursday: Add 2FA
 # All in the same workspace, different branches as needed
+```
 
-# Workspace 2: "musk" handles all API development  
+**Terminal/Window 2: API developer**
+```bash
 cd ../your-project-staff/musk
 cursor .  # Cursor lives here, building feature after feature
 # Week 1: User endpoints
 # Week 2: Payment endpoints
 # Week 3: Analytics endpoints
+```
 
-# Workspace 3: "gates" is your testing ground
+**Terminal/Window 3: Testing ground**
+```bash
 cd ../your-project-staff/gates
 # Your manual testing, experiments, debugging
 # No AI needed - just your playground
+```
 
-# Merge completed work as it's ready
+Merge completed work from any workspace:
+```bash
 cd ../your-project
 git merge bezos/feature-login
 git merge musk/api-v2
-# Each workspace keeps working on the next task!
+# Each workspace keeps working independently!
 ```
 
 ---
