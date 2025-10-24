@@ -6,7 +6,7 @@ import chalk from 'chalk';
 import { getProjectRoot, getProjectName, loadConfig, saveConfig, isInitialized } from '../config/index.js';
 import { log } from '../utils/logger.js';
 
-export async function migrateToWorkspace(): Promise<void> {
+export async function migrateToHQ(hqName?: string): Promise<void> {
   if (!isInitialized()) {
     log.error('Proletariat not initialized! Run `prlt init` first.');
     return;
@@ -16,29 +16,32 @@ export async function migrateToWorkspace(): Promise<void> {
   const projectRoot = getProjectRoot();
   const projectName = getProjectName();
   
-  // Check if already in workspace
-  if (config.layout?.mode === 'workspace') {
+  // Check if already in HQ
+  if (config.layout?.mode === 'hq' || config.layout?.mode === 'workspace') {
     const expectedPath = path.join(config.layout.baseDir, projectName);
     if (path.resolve(projectRoot) === path.resolve(expectedPath)) {
-      log.success('Repository is already in the workspace directory!');
+      log.success('Repository is already in the HQ directory!');
       return;
     }
   }
   
-  log.info('This will move your repository into the workspace directory alongside your worktrees.');
+  log.info('This will move your repository into an HQ directory for better organization.');
   
   // Determine target path
   let targetPath: string;
-  if (config.layout?.mode === 'workspace' && config.layout.baseDir) {
-    targetPath = path.join(config.layout.baseDir, projectName);
+  let hqDir: string;
+  
+  if ((config.layout?.mode === 'hq' || config.layout?.mode === 'workspace') && config.layout.baseDir) {
+    hqDir = config.layout.baseDir;
+    targetPath = path.join(hqDir, projectName);
   } else {
-    // If not workspace mode, create a workspace structure
+    // If not HQ mode, create an HQ structure
     const parentDir = path.dirname(projectRoot);
-    const workspaceName = `${projectName}-workspace`;
-    const workspaceDir = path.join(parentDir, workspaceName);
-    targetPath = path.join(workspaceDir, projectName);
+    const hqNameToUse = hqName || `${projectName}-hq`;
+    hqDir = path.join(parentDir, hqNameToUse);
+    targetPath = path.join(hqDir, projectName);
     
-    log.info(`Will create workspace: ${workspaceDir}`);
+    log.info(`Will create HQ directory: ${hqDir}`);
   }
   
   // Check if target exists
@@ -166,22 +169,22 @@ export async function migrateToWorkspace(): Promise<void> {
   }
   
   // Update config if needed
-  if (config.layout?.mode !== 'workspace') {
-    const workspaceName = path.basename(targetParent);
+  if (config.layout?.mode !== 'hq' && config.layout?.mode !== 'workspace') {
+    const hqNameFromPath = path.basename(targetParent);
     config.layout = {
-      mode: 'workspace',
+      mode: 'hq',
       baseDir: targetParent,
-      workspaceName: workspaceName
+      hqName: hqNameFromPath
     };
     
     // Save config to new location
-    const configPath = path.join(targetPath, '.proletariat', 'config.json');
+    const configPath = path.join(targetPath, '.proletariat', 'repo.json');
     const configDir = path.dirname(configPath);
     if (!fs.existsSync(configDir)) {
       fs.mkdirSync(configDir, { recursive: true });
     }
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-    log.success('Updated configuration for workspace layout');
+    log.success('Updated configuration for HQ layout');
   }
   
   log.success('✨ Migration complete!');

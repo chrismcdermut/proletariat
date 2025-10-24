@@ -45,25 +45,29 @@ export function resolveWorkspace(theme: Theme, options: InitOptions = {}): Works
 
   let mode: WorkspaceLayout['mode'] = 'sibling';
   let baseDir = parentDir;
-  let workspaceName: string | undefined;
+  let hqName: string | undefined;
   let workspaceDir: string;
 
-  if (options.workspaceRoot) {
-    workspaceDir = path.resolve(projectRoot, options.workspaceRoot);
+  // Use HQ options
+  const hqRoot = options.hqRoot;
+  const hq = options.hq;
+
+  if (hqRoot) {
+    workspaceDir = path.resolve(projectRoot, hqRoot);
     baseDir = path.dirname(workspaceDir);
     mode = 'custom';
-  } else if (options.workspace) {
-    workspaceName = options.workspace;
-    baseDir = path.join(parentDir, workspaceName);
+  } else if (hq) {
+    hqName = hq;
+    baseDir = path.join(parentDir, hqName);
     workspaceDir = path.join(baseDir, `${projectName}-${theme.directory}`);
-    mode = 'workspace';
+    mode = 'hq';
   } else {
     workspaceDir = path.join(parentDir, `${projectName}-${theme.directory}`);
   }
 
   return {
     workspaceDir,
-    layout: { mode, baseDir, workspaceName }
+    layout: { mode, baseDir, hqName }
   };
 }
 

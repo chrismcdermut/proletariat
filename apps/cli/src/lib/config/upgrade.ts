@@ -5,6 +5,7 @@ import inquirer from 'inquirer';
 import { getProjectRoot, getProjectName, isInitialized, loadConfig } from './index.js';
 import { log } from '../utils/logger.js';
 import { createWorkspace, loadWorkspaceConfig, addRepoToWorkspace } from '../workspace/index.js';
+import { repairWorktrees } from '../worktree/repair.js';
 
 export async function upgradeConfig(): Promise<void> {
   if (!isInitialized()) {
@@ -13,6 +14,7 @@ export async function upgradeConfig(): Promise<void> {
   }
 
   const projectRoot = getProjectRoot();
+  const projectName = getProjectName();
   const oldConfigPath = path.join(projectRoot, '.proletariat', 'config.json');
   const newConfigPath = path.join(projectRoot, '.proletariat', 'repo.json');
   
@@ -64,6 +66,23 @@ export async function upgradeConfig(): Promise<void> {
         log.info('Removed cached theme data from repo.json');
       }
       
+      // Migrate workspace terminology to HQ (v0.2.0)
+      if (config.layout) {
+        if (config.layout.mode === 'workspace') {
+          config.layout.mode = 'hq';
+          needsUpdate = true;
+          log.info('Updated layout mode from workspace to hq');
+        }
+        
+        // Rename workspaceName to hqName
+        if (config.layout.workspaceName) {
+          config.layout.hqName = config.layout.workspaceName;
+          delete config.layout.workspaceName;
+          needsUpdate = true;
+          log.info('Updated configuration field names for HQ terminology');
+        }
+      }
+      
       // Add any future migrations here
       
       if (needsUpdate) {
@@ -83,33 +102,33 @@ export async function upgradeConfig(): Promise<void> {
   try {
     const repoConfig = loadConfig();
     
-    // If layout mode is workspace, check if workspace config exists
-    if (repoConfig.layout?.mode === 'workspace' && repoConfig.layout?.baseDir) {
+    // If layout mode is HQ (or legacy workspace), check if workspace config exists
+    if ((repoConfig.layout?.mode === 'hq' || repoConfig.layout?.mode === 'workspace') && repoConfig.layout?.baseDir) {
       const workspaceConfigPath = path.join(repoConfig.layout.baseDir, '.proletariat', 'workspace.json');
       
       if (!fs.existsSync(workspaceConfigPath)) {
         // Workspace layout but no workspace config - offer to create one
-        log.info(`Detected workspace layout at: ${repoConfig.layout.baseDir}`);
+        log.info(`Detected HQ layout at: ${repoConfig.layout.baseDir}`);
         
         const { createWorkspaceConfig } = await inquirer.prompt([
           {
             type: 'confirm',
             name: 'createWorkspaceConfig',
-            message: 'Would you like to create a workspace config to track all repositories?',
+            message: 'Would you like to create an HQ config to track all repositories?',
             default: true
           }
         ]);
         
         if (createWorkspaceConfig) {
-          const workspaceName = repoConfig.layout.workspaceName || path.basename(repoConfig.layout.baseDir);
-          const workspace = createWorkspace(repoConfig.layout.baseDir, workspaceName);
+          const hqName = repoConfig.layout.hqName || path.basename(repoConfig.layout.baseDir);
+          const workspace = createWorkspace(repoConfig.layout.baseDir, hqName);
           
           // Add current repo to workspace
           const projectName = getProjectName();
           addRepoToWorkspace(repoConfig.layout.baseDir, projectName);
           
-          log.success(`✅ Created workspace config for '${workspaceName}'`);
-          log.info('💡 Run `prlt upgrade` in other repositories to add them to this workspace');
+          log.success(`✅ Created HQ config for '${hqName}'`);
+          log.info('💡 Run `prlt upgrade` in other repositories to add them to this HQ');
           upgraded = true;
         }
       } else {
@@ -136,11 +155,76 @@ export async function upgradeConfig(): Promise<void> {
           log.info(`Part of workspace: ${workspace.name}`);
         }
       } else {
-        log.info('💡 Tip: Use `prlt init --workspace` to organize multiple repositories');
+        log.info('💡 Tip: Use `prlt init --hq` to organize multiple repositories');
       }
     }
   } catch (error) {
     // Config loading might fail during upgrade
+  }
+  
+  // Check if there's a parent directory with "-workspace" in the name that could be renamed to "-hq"
+  const parentDir = path.dirname(projectRoot);
+  const parentDirName = path.basename(parentDir);
+  
+  if (parentDirName.endsWith('-workspace')) {
+    const newParentDirName = parentDirName.replace(/-workspace$/, '-hq');
+    const newParentDir = path.join(path.dirname(parentDir), newParentDirName);
+    
+    if (!fs.existsSync(newParentDir)) {
+      log.info(`Found workspace directory: ${parentDir}`);
+      
+      const { renameDirectory } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'renameDirectory',
+          message: `Would you like to rename "${parentDirName}" to "${newParentDirName}" to match the new HQ terminology?`,
+          default: false
+        }
+      ]);
+      
+      if (renameDirectory) {
+        try {
+          // Check for uncommitted changes
+          const status = execSync('git status --porcelain', { cwd: projectRoot, encoding: 'utf8' }).trim();
+          if (status.length > 0) {
+            log.warning('Cannot rename directory: working tree has uncommitted changes. Commit or stash first.');
+          } else {
+            // Rename the parent directory
+            fs.renameSync(parentDir, newParentDir);
+            log.success(`Renamed directory from ${parentDirName} to ${newParentDirName}`);
+            
+            // Update config with new paths
+            const newProjectRoot = path.join(newParentDir, path.basename(projectRoot));
+            const configPath = path.join(newProjectRoot, '.proletariat', 'repo.json');
+            
+            if (fs.existsSync(configPath)) {
+              const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+              if (config.layout && config.layout.baseDir) {
+                config.layout.baseDir = config.layout.baseDir.replace(parentDir, newParentDir);
+              }
+              if (config.workspaceDir) {
+                config.workspaceDir = config.workspaceDir.replace(parentDir, newParentDir);
+              }
+              fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+              log.success('Updated configuration paths');
+            }
+            
+            // After renaming, repair can detect the new location and fix paths
+            log.info('Running repair to fix worktree references...');
+            
+            // Repair will detect we're in the old location and use the new paths
+            repairWorktrees();
+            
+            log.warning(`⚠️  IMPORTANT: Directory renamed successfully!`);
+            log.warning(`⚠️  You need to change to the new directory: cd ${newProjectRoot}`);
+            upgraded = true;
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log.error(`Failed to rename directory: ${message}`);
+        }
+      }
+    }
   }
   
   if (upgraded) {

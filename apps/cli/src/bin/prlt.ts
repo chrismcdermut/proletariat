@@ -18,7 +18,7 @@ import * as path from 'path';
 import { getAllThemes } from '../lib/themes/index.js';
 import { initProject, createWorktrees, removeWorktrees, showStatus } from '../lib/worktree/index.js';
 import { repairWorktrees, checkWorktreeHealth } from '../lib/worktree/repair.js';
-import { migrateToWorkspace } from '../lib/worktree/migrate.js';
+import { migrateToHQ } from '../lib/worktree/migrate.js';
 import { upgradeConfig } from '../lib/config/upgrade.js';
 import { listAgents, listThemes } from '../lib/utils/helpers.js';
 import { showBanner } from '../lib/utils/logger.js';
@@ -50,8 +50,8 @@ program
   .command('init')
   .description('🚩 Initialize themed worktree management')
   .option('-t, --theme <theme>', 'theme (billionaires, cars, companies)')
-  .option('--workspace <name>', 'Create a workspace directory (e.g. acme-project) to hold the repo and agents')
-  .option('--workspace-root <path>', 'Explicit path where agent worktrees should live')
+  .option('--hq <name>', 'Create an HQ directory (e.g. your-company-hq) to hold repos and agent workspaces')
+  .option('--hq-root <path>', 'Explicit path where agent workspaces should live')
   .action(async (options: InitOptions) => {
     await initProject(options);
   });
@@ -102,9 +102,9 @@ program
   .action(() => checkWorktreeHealth());
 
 program
-  .command('migrate')
-  .description('📦 Migrate repository into workspace folder alongside worktrees')
-  .action(() => migrateToWorkspace());
+  .command('migrate <hq-name>')
+  .description('📦 Migrate repository into HQ folder alongside agent workspaces')
+  .action((hqName: string) => migrateToHQ(hqName));
 
 program
   .command('upgrade')
