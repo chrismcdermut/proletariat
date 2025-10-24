@@ -44,7 +44,7 @@ your-company-workspace/  (recommended layout)
 **Result:** One developer, 5 agent directories, 0 conflicts. Work on multiple features simultaneously or let AI agents handle different tasks!
 
 ![Multi-Agent Development in Action](https://github.com/chrismcdermut/proletariat-cli/raw/main/assets/multi-agent-workspace.png)
-*Two Claude Code instances (bottom left: `andreesen` on Feature A, bottom right: `jobs` on Feature B) and a Codex CLI agent (top center: `zuck` fixing a reported bug) working in parallel. No musk, he was fired!* 
+*Three AI sessions working in parallel: `andreesen` (left panes) on Feature A, `zuck` (center panes) fixing a reported bug, and `jobs` (right two panes) on Feature B. No musk, he was fired!* 
 
 ---
 
