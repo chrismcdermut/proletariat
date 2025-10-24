@@ -1,0 +1,38 @@
+# Development files
+src/
+.github/
+scripts/
+*.test.ts
+*.spec.ts
+
+# Documentation
+RELEASE.md
+CONTRIBUTING.md
+
+# Config files
+tsconfig.json
+.eslintrc
+.prettierrc
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Build artifacts
+*.log
+node_modules/
+.env*
+
+# IDE
+.vscode/
+.idea/
+
+# Test files
+test/
+tests/
+coverage/
+
+# Assets (keep README images though)
+assets/*.psd
+assets/*.ai
