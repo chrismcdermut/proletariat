@@ -229,6 +229,10 @@ prlt portfolio              # Check your holdings
 - `prlt init --workspace-root <path>` - Use a custom agent directory
 - `prlt list [--theme=cars]` - List available agents
 - `prlt themes` - Show all themes
+- `prlt repair` - Fix broken worktree references after repo moves
+- `prlt migrate <workspace-name>` - Move your repo into a workspace folder
+- `prlt upgrade` - Upgrade config to latest format (backwards compatible)
+- `prlt health` - Check worktree health status
 
 ---
 
