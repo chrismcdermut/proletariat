@@ -6,7 +6,9 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  apps/cli:
     dependencies:
       chalk:
         specifier: ^4.1.2
@@ -17,10 +19,16 @@ importers:
       inquirer:
         specifier: ^8.2.5
         version: 8.2.6
+      js-yaml:
+        specifier: ^4.1.0
+        version: 4.1.0
     devDependencies:
       '@types/inquirer':
         specifier: ^8.2.6
         version: 8.2.11
+      '@types/js-yaml':
+        specifier: ^4.0.5
+        version: 4.0.9
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.9
@@ -78,6 +86,9 @@ packages:
 
   '@types/inquirer@8.2.11':
     resolution: {integrity: sha512-15UboTvxb9SOaPG7CcXZ9dkv8lNqfiAwuh/5WxJDLjmElBt9tbx1/FDsEnJddUBKvN4mlPKvr8FyO1rAmBanzg==}
+
+  '@types/js-yaml@4.0.9':
+    resolution: {integrity: sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg==}
 
   '@types/node@20.19.9':
     resolution: {integrity: sha512-cuVNgarYWZqxRJDQHEB58GEONhOK79QVR/qYx4S7kcUObQvUwvFnYxJuuHUKm2aieN9X3yZB4LZsuYNU1Qphsw==}
@@ -640,6 +651,8 @@ snapshots:
     dependencies:
       '@types/through': 0.0.33
       rxjs: 7.8.2
+
+  '@types/js-yaml@4.0.9': {}
 
   '@types/node@20.19.9':
     dependencies:

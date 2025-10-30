@@ -43,10 +43,12 @@
   "dependencies": {
     "commander": "^11.0.0",
     "chalk": "^4.1.2",
-    "inquirer": "^8.2.5"
+    "inquirer": "^8.2.5",
+    "js-yaml": "^4.1.0"
   },
   "devDependencies": {
     "@types/inquirer": "^8.2.6",
+    "@types/js-yaml": "^4.0.5",
     "@types/node": "^20.0.0",
     "eslint": "^8.44.0",
     "typescript": "^5.0.0"

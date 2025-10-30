@@ -1,115 +1,47 @@
-# PMO (Project Management Office) System
+# Project Management Office (PMO)
 
-## Overview
-This is a markdown-based Kanban project management system designed for both human readability and AI agent compatibility. It integrates with Obsidian's Kanban plugin while maintaining a clear file-based workflow.
+This directory contains the project management state following the "company as code" philosophy.
 
-## Directory Structure
-```
-/pmo/
-├── kanban.md                    # Main kanban board (Obsidian-compatible)
-├── active-work/                 # Currently active specifications
-├── completed-work/              # Completed specifications  
-├── future-work/                 # Future/backlog specifications
-├── engineering-learnings.md     # Project retrospectives
-├── SPEC_TEMPLATE.md            # Template for new specifications
-└── README.md                   # This file
-```
+## Structure
 
-## Quick Start
+- `kanban.md` - Main project kanban board (Obsidian compatible)
+- `specs/` - Feature specifications
+  - `active/` - Currently being worked on
+  - `completed/` - Finished specifications
+  - `backlog/` - Future work
+- `learnings.md` - Engineering learnings and retrospectives
+- `config.yml` - PMO configuration
 
-### Creating a New Task
-1. Copy `SPEC_TEMPLATE.md` to the appropriate directory:
-   - `active-work/` for immediate work
-   - `future-work/` for backlog items
-2. Fill out the specification
-3. Add the task to `kanban.md` in the appropriate column
+## Philosophy
 
-### Moving Tasks Through Workflow
-1. **Backlog → In Progress**: Move spec to `active-work/` if not already there
-2. **In Progress → Done**: Move spec from `active-work/` to `completed-work/`
-3. **Done → Released**: Update kanban.md, spec stays in `completed-work/`
+This PMO is:
+- **Version controlled** - All project management state is tracked in git
+- **AI-agent friendly** - Markdown files easily readable/writable by AI
+- **Team synchronized** - Everyone sees the same state
+- **Tool agnostic** - Works with Obsidian, VSCode, or any text editor
 
-## Kanban Board Features
+## Workflow
 
-### Task Format
-```markdown
-- [ ] [[task-name]]
-      **Priority:** [URGENT/IMPORTANT/LOW]
-      **Category:** [BUILD/Tech Debt/GROW/LEARN]
-      ***
-      Brief description
-      - [ ] Subtask 1
-      - [ ] Subtask 2
-      [Spec](active-work/task-name.md)
-```
+1. Create feature branches with both code AND kanban updates
+2. Move cards across columns as work progresses
+3. Specs evolve from backlog → active → completed
+4. Learnings are documented continuously
 
-### Categories
-- **BUILD**: Feature development
-- **Tech Debt**: Refactoring, optimization, cleanup
-- **GROW**: Documentation, processes, tooling
-- **LEARN**: Research, experimentation, prototypes
+## Viewing
 
-### Priority Levels
-- **URGENT**: Blocking issues, critical path items
-- **IMPORTANT**: Significant features or improvements
-- **LOW**: Nice-to-have, non-critical tasks
+- **Obsidian**: Install Kanban plugin for visual board
+- **VSCode**: Markdown preview for reading
+- **CLI**: `prlt pmo status` for terminal view
 
-## Obsidian Integration
+## Commands
 
-### Setup
-1. Install Obsidian Kanban plugin
-2. Open `pmo/kanban.md` in Obsidian
-3. The file will automatically render as a kanban board
-
-### Features
-- Drag and drop tasks between columns
-- Click [[task-name]] to navigate to specifications
-- Use backlinks to see all references to a task
-
-## Agent/CLI Usage
-
-### Common Operations
 ```bash
-# List active work
-ls pmo/active-work/
+# Initialize PMO in current repo
+prlt pmo init
 
-# View kanban status
-cat pmo/kanban.md
+# Show project status
+prlt pmo status
 
-# Create new task from template
-cp pmo/SPEC_TEMPLATE.md pmo/future-work/new-task.md
-
-# Move task to active
-mv pmo/future-work/task.md pmo/active-work/
-
-# Complete a task
-mv pmo/active-work/task.md pmo/completed-work/
+# Sync kanban from multiple repos (in org-level PMO)
+prlt pmo sync
 ```
-
-## Best Practices
-
-1. **One task, one file**: Each task should have its own specification file
-2. **Update location and kanban together**: When moving files, update kanban.md
-3. **Document learnings**: Add retrospectives to completed specs
-4. **Regular cleanup**: Archive old completed tasks periodically
-5. **Keep specs updated**: Specifications are living documents
-
-## Workflow Example
-
-```
-1. Idea/Request → Create spec in future-work/
-2. Planning → Move spec to active-work/, add to kanban Backlog
-3. Start work → Move task to In Progress column
-4. Complete → Move spec to completed-work/, update kanban
-5. Deploy → Move to Released column
-6. Retrospective → Update engineering-learnings.md
-```
-
-## Tips for AI Agents
-
-When working with this system:
-- Always check file location to understand task status
-- Update both the file location and kanban.md when changing status
-- Use the template for consistency
-- Add meaningful commit messages when updating PMO files
-- Link related tasks using [[wiki-links]] for Obsidian compatibility

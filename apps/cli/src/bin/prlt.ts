@@ -18,6 +18,7 @@ import { initProject, createWorktrees, removeWorktrees, showStatus } from '../li
 import { listAgents, listThemes } from '../lib/utils/helpers.js';
 import { showBanner } from '../lib/utils/logger.js';
 import { InitOptions, ListOptions } from '../types/index.js';
+import { pmoCommand } from '../commands/pmo/index.js';
 
 const program = new Command();
 
@@ -74,6 +75,9 @@ program
   .command('themes')
   .description('🎨 List available themes')
   .action(() => listThemes());
+
+// Add PMO command
+program.addCommand(pmoCommand);
 
 // Parse command line arguments
 program.parse(process.argv);

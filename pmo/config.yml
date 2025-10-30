@@ -1,0 +1,52 @@
+# PMO Configuration
+
+# Type of PMO setup
+type: embedded  # embedded | consolidated | hybrid
+
+# For consolidated PMO, list repos to track
+repos:
+  # - name: project-a
+  #   path: ../project-a
+  #   kanban: pmo/kanban.md
+  # - name: project-b  
+  #   path: ../project-b
+  #   kanban: pmo/kanban.md
+
+# Sync settings
+sync:
+  # Auto-sync on commit
+  auto: false
+  # Sync interval in minutes (if running daemon)
+  interval: 30
+
+# Kanban settings
+kanban:
+  # Default columns for new boards
+  columns:
+    - Backlog
+    - In Progress
+    - In Review
+    - Complete
+    - Archived
+  
+  # Card template
+  card_template: |
+    - [ ] [[{{slug}}]]
+      **Priority:** {{priority}}
+      **Category:** {{category}}
+      ***
+      {{description}}
+
+# Integration settings
+integrations:
+  # Obsidian compatibility
+  obsidian:
+    enabled: true
+    kanban_plugin: true
+  
+  # GitHub integration
+  github:
+    # Auto-create cards from issues
+    sync_issues: false
+    # Update PR descriptions with card status
+    update_prs: false
