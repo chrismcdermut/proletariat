@@ -176,6 +176,15 @@ prlt portfolio              # Check your holdings
 - `prlt list [--theme=cars]` - List available agents
 - `prlt themes` - Show all themes
 
+## 🗂️ PMO Utilities
+
+Keep your project operations alongside your codebase and roll everything up for leadership reviews.
+
+- `prlt pmo init [--path ./custom-pmo --force]` scaffolds a PMO workspace (README, kanban board, templates, and active/future/completed directories). By default it creates `./pmo` relative to the current repo root.
+- `prlt pmo rollup [--root ../ --output hq/pmo-rollup.md --max-depth 4]` walks sibling repos, finds every `pmo/kanban.md`, annotates each task with its project, and emits an Obsidian-compatible board. Provide `--output` to write the aggregation to disk; otherwise the board prints to stdout so agents can post-process it.
+
+Opinionated defaults ensure every repo ships with a committed `pmo/` folder so humans and agents always share the same operational state.
+
 ---
 
 ## 🛠️ How It Works

@@ -15,9 +15,10 @@ import chalk from 'chalk';
 // Import modules
 import { getAllThemes } from '../lib/themes/index.js';
 import { initProject, createWorktrees, removeWorktrees, showStatus } from '../lib/worktree/index.js';
+import { initPmoStructure, rollupPmoBoards } from '../lib/pmo/index.js';
 import { listAgents, listThemes } from '../lib/utils/helpers.js';
 import { showBanner } from '../lib/utils/logger.js';
-import { InitOptions, ListOptions } from '../types/index.js';
+import { InitOptions, ListOptions, PmoInitCommandOptions, PmoRollupCommandOptions } from '../types/index.js';
 
 const program = new Command();
 
@@ -74,6 +75,36 @@ program
   .command('themes')
   .description('🎨 List available themes')
   .action(() => listThemes());
+
+const pmoCommand = program
+  .command('pmo')
+  .description('📊 Manage PMO scaffolding and rollups');
+
+pmoCommand
+  .command('init')
+  .description('🧱 Scaffold a PMO workspace inside the current repo')
+  .option('--path <path>', 'Relative or absolute path for the PMO directory (defaults to ./pmo)')
+  .option('--force', 'Overwrite existing PMO files')
+  .action((options: PmoInitCommandOptions) => {
+    initPmoStructure({
+      targetPath: options.path,
+      force: options.force
+    });
+  });
+
+pmoCommand
+  .command('rollup')
+  .description('🗂️ Aggregate kanban boards from multiple PMO folders')
+  .option('--root <path>', 'Root directory to search for PMO boards (defaults to the parent of the current repo)')
+  .option('--output <file>', 'Write the aggregated board to a file')
+  .option('--max-depth <depth>', 'How deep to search for PMO folders (default: 3)', (value: string) => parseInt(value, 10))
+  .action((options: PmoRollupCommandOptions) => {
+    rollupPmoBoards({
+      root: options.root,
+      output: options.output,
+      maxDepth: options.maxDepth
+    });
+  });
 
 // Parse command line arguments
 program.parse(process.argv);

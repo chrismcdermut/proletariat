@@ -61,3 +61,14 @@ export interface Logger {
   info: (msg: string) => void;
   agent: (agent: string, msg: string, theme: Theme) => void;
 }
+
+export interface PmoInitCommandOptions {
+  path?: string;
+  force?: boolean;
+}
+
+export interface PmoRollupCommandOptions {
+  root?: string;
+  output?: string;
+  maxDepth?: number;
+}
