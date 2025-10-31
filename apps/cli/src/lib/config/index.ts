@@ -19,7 +19,18 @@ export function getProjectName(): string {
 
 export function getConfigPath(): string {
   const projectRoot = getProjectRoot();
-  return path.join(projectRoot, '.proletariat', 'config.json');
+  const newPath = path.join(projectRoot, '.proletariat', 'repo.json');
+  const oldPath = path.join(projectRoot, '.proletariat', 'config.json');
+  
+  // Check for new repo.json first, then fall back to config.json
+  if (fs.existsSync(newPath)) {
+    return newPath;
+  } else if (fs.existsSync(oldPath)) {
+    return oldPath;
+  }
+  
+  // For new installations, use repo.json
+  return newPath;
 }
 
 export interface WorkspaceResolution {
@@ -34,30 +45,53 @@ export function resolveWorkspace(theme: Theme, options: InitOptions = {}): Works
 
   let mode: WorkspaceLayout['mode'] = 'sibling';
   let baseDir = parentDir;
-  let workspaceName: string | undefined;
+  let hqName: string | undefined;
   let workspaceDir: string;
 
-  if (options.workspaceRoot) {
-    workspaceDir = path.resolve(projectRoot, options.workspaceRoot);
+  // Use HQ options
+  const hqRoot = options.hqRoot;
+  const hq = options.hq;
+
+  if (hqRoot) {
+    workspaceDir = path.resolve(projectRoot, hqRoot);
     baseDir = path.dirname(workspaceDir);
     mode = 'custom';
-  } else if (options.workspace) {
-    workspaceName = options.workspace;
-    baseDir = path.join(parentDir, workspaceName);
+  } else if (hq) {
+    hqName = hq;
+    baseDir = path.join(parentDir, hqName);
     workspaceDir = path.join(baseDir, `${projectName}-${theme.directory}`);
-    mode = 'workspace';
+    mode = 'hq';
   } else {
     workspaceDir = path.join(parentDir, `${projectName}-${theme.directory}`);
   }
 
   return {
     workspaceDir,
-    layout: { mode, baseDir, workspaceName }
+    layout: { mode, baseDir, hqName }
   };
 }
 
 export function isInitialized(): boolean {
-  return fs.existsSync(getConfigPath());
+  const projectRoot = getProjectRoot();
+  const newPath = path.join(projectRoot, '.proletariat', 'repo.json');
+  const oldPath = path.join(projectRoot, '.proletariat', 'config.json');
+  
+  return fs.existsSync(newPath) || fs.existsSync(oldPath);
+}
+
+export function migrateConfigIfNeeded(): boolean {
+  const projectRoot = getProjectRoot();
+  const newPath = path.join(projectRoot, '.proletariat', 'repo.json');
+  const oldPath = path.join(projectRoot, '.proletariat', 'config.json');
+  
+  // If old config exists but new doesn't, copy to new location
+  if (fs.existsSync(oldPath) && !fs.existsSync(newPath)) {
+    const config = JSON.parse(fs.readFileSync(oldPath, 'utf8'));
+    fs.writeFileSync(newPath, JSON.stringify(config, null, 2));
+    // Keep old file for now to ensure compatibility
+    return true;
+  }
+  return false;
 }
 
 export function loadConfig(): ProjectConfig {

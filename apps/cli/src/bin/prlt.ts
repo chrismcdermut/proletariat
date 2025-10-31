@@ -11,16 +11,32 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Import modules
 import { getAllThemes } from '../lib/themes/index.js';
 import { initProject, createWorktrees, removeWorktrees, showStatus } from '../lib/worktree/index.js';
 import { initPmoStructure, rollupPmoBoards } from '../lib/pmo/index.js';
+import { repairWorktrees, checkWorktreeHealth } from '../lib/worktree/repair.js';
+import { migrateToHQ } from '../lib/worktree/migrate.js';
+import { upgradeConfig } from '../lib/config/upgrade.js';
 import { listAgents, listThemes } from '../lib/utils/helpers.js';
 import { showBanner } from '../lib/utils/logger.js';
 import { InitOptions, ListOptions, PmoInitCommandOptions, PmoRollupCommandOptions } from '../types/index.js';
 
 const program = new Command();
+
+// Get version from package.json dynamically
+function getVersion(): string {
+  try {
+    const packageJsonPath = path.join(__dirname, '../../package.json');
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+    return packageJson.version;
+  } catch {
+    return '0.0.0'; // Fallback version if package.json can't be read
+  }
+}
 
 // Get themes for CLI setup
 const THEMES = getAllThemes();
@@ -29,14 +45,14 @@ const THEMES = getAllThemes();
 program
   .name('prlt')
   .description('⚒️ Simple Themed Git Worktree Manager')
-  .version('2.0.0');
+  .version(getVersion());
 
 program
   .command('init')
   .description('🚩 Initialize themed worktree management')
   .option('-t, --theme <theme>', 'theme (billionaires, cars, companies)')
-  .option('--workspace <name>', 'Create a workspace directory (e.g. acme-project) to hold the repo and agents')
-  .option('--workspace-root <path>', 'Explicit path where agent worktrees should live')
+  .option('--hq <name>', 'Create an HQ directory (e.g. your-company-hq) to hold repos and agent workspaces')
+  .option('--hq-root <path>', 'Explicit path where agent workspaces should live')
   .action(async (options: InitOptions) => {
     await initProject(options);
   });
@@ -105,6 +121,26 @@ pmoCommand
       maxDepth: options.maxDepth
     });
   });
+
+program
+  .command('repair')
+  .description('🔧 Repair broken worktree references (e.g., after moving the repository)')
+  .action(() => repairWorktrees());
+
+program
+  .command('health')
+  .description('🏥 Check health of all worktrees')
+  .action(() => checkWorktreeHealth());
+
+program
+  .command('migrate <hq-name>')
+  .description('📦 Migrate repository into HQ folder alongside agent workspaces')
+  .action((hqName: string) => migrateToHQ(hqName));
+
+program
+  .command('upgrade')
+  .description('⬆️  Upgrade configuration to latest format')
+  .action(() => upgradeConfig());
 
 // Parse command line arguments
 program.parse(process.argv);

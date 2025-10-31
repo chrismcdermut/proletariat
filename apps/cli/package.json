@@ -1,6 +1,6 @@
 {
   "name": "@proletariat/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Multi-agent development CLI - Orchestrate parallel coding agents via git worktrees with memorable themes for distributed development workflows",
   "main": "dist/bin/prlt.js",
   "bin": {
@@ -11,12 +11,18 @@
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
     "prepublishOnly": "pnpm run clean && pnpm run build",
-    "test": "echo \"Workers of the world, unite!\" && exit 0"
+    "test": "echo \"Workers of the world, unite!\" && exit 0",
+    "release": "npm publish --access public",
+    "publish:otp": "./scripts/publish.sh"
   },
   "keywords": [
     "multi-agent",
     "coding-agents",
     "parallel-development",
+    "claude-code",
+    "cursor",
+    "codex",
+    "ai-development",
     "git",
     "worktree",
     "development",
@@ -27,7 +33,11 @@
     "workflow",
     "automation"
   ],
-  "author": "Chris McDermut <chris@mcdermut.com>",
+  "author": {
+    "name": "Chris McDermut",
+    "email": "chrismcdermut@gmail.com",
+    "url": "https://github.com/chrismcdermut"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",

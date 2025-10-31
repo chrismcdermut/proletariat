@@ -27,13 +27,14 @@ export interface ThemeCollection {
 }
 
 export interface WorkspaceLayout {
-  mode: 'sibling' | 'workspace' | 'custom';
+  mode: 'sibling' | 'hq' | 'custom' | 'workspace';  // workspace kept for backwards compat
   baseDir: string;
-  workspaceName?: string;
+  hqName?: string;
 }
 
 export interface ProjectConfig {
-  version: string;
+  version: string;          // CLI version when created
+  configVersion?: number;    // Config format version (1=old, 2=repo.json)
   projectName: string;
   themeName: string;
   workspaceDir: string;
@@ -45,8 +46,8 @@ export interface ProjectConfig {
 
 export interface InitOptions {
   theme?: string;
-  workspace?: string;
-  workspaceRoot?: string;
+  hq?: string;
+  hqRoot?: string;
 }
 
 export interface ListOptions {
