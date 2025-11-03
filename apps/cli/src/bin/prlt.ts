@@ -23,6 +23,7 @@ import { upgradeConfig } from '../lib/config/upgrade.js';
 import { listAgents, listThemes } from '../lib/utils/helpers.js';
 import { showBanner } from '../lib/utils/logger.js';
 import { InitOptions, ListOptions } from '../types/index.js';
+import { initPMO, createTicket, claimTicket } from '../lib/pmo/index.js';
 
 const program = new Command();
 
@@ -110,6 +111,51 @@ program
   .command('upgrade')
   .description('⬆️  Upgrade configuration to latest format')
   .action(() => upgradeConfig());
+
+// PMO Commands
+program
+  .command('pmo:init')
+  .description('🎯 Initialize Project Management Office (PMO)')
+  .action(async () => {
+    await initPMO();
+  });
+
+program
+  .command('add')
+  .alias('create')
+  .description('📝 Create a new ticket in the PMO')
+  .action(async () => {
+    await createTicket();
+  });
+
+program
+  .command('claim [ticketId]')
+  .description('🎯 Claim a ticket and launch Claude with context')
+  .action(async (ticketId?: string) => {
+    await claimTicket(ticketId);
+  });
+
+program
+  .command('go <agent>')
+  .alias('switch')
+  .description('🚀 Switch to an agent workspace')
+  .action((agent: string) => {
+    try {
+      const configPath = path.join(process.cwd(), '.proletariat', 'repo.json');
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      const worktreePath = path.join('..', '.proletariat', 'worktrees', agent);
+      
+      if (fs.existsSync(worktreePath)) {
+        console.log(chalk.green(`📍 Switching to ${agent} workspace at: ${worktreePath}`));
+        console.log(chalk.cyan(`Run: cd ${worktreePath}`));
+      } else {
+        console.log(chalk.red(`Agent workspace not found: ${agent}`));
+        console.log(chalk.yellow(`Available agents: ${config.agents?.join(', ') || 'none'}`));
+      }
+    } catch (error) {
+      console.log(chalk.red('No Proletariat config found. Run `prlt init` first.'));
+    }
+  });
 
 // Parse command line arguments
 program.parse(process.argv);
