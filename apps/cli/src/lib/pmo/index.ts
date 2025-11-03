@@ -25,10 +25,17 @@ export interface Ticket {
 }
 
 export async function initPMO() {
-  const config = loadConfig();
+  // PMO can work independently of main config
+  let pmoDir = './pmo';
   
-  // Determine PMO location
-  const pmoDir = config.pmo?.location || './pmo';
+  try {
+    const config = loadConfig();
+    // Use project-specific PMO location if available
+    pmoDir = path.join(path.dirname(config.workspaceDir), 'pmo');
+  } catch {
+    // If no main config, use current directory
+    pmoDir = './pmo';
+  }
   
   log.info('🎯 Initializing PMO...');
   
@@ -94,8 +101,14 @@ kanban-plugin: board
 }
 
 export async function createTicket() {
-  const config = loadConfig();
-  const pmoDir = config.pmo?.location || './pmo';
+  let pmoDir = './pmo';
+  
+  try {
+    const config = loadConfig();
+    pmoDir = path.join(path.dirname(config.workspaceDir), 'pmo');
+  } catch {
+    pmoDir = './pmo';
+  }
   
   log.info('📝 Creating new ticket...');
   
@@ -210,8 +223,16 @@ _To be added during implementation_
 }
 
 export async function claimTicket(ticketId?: string) {
-  const config = loadConfig();
-  const pmoDir = config.pmo?.location || './pmo';
+  let pmoDir = './pmo';
+  let agents: string[] = [];
+  
+  try {
+    const config = loadConfig();
+    pmoDir = path.join(path.dirname(config.workspaceDir), 'pmo');
+    agents = config.activeAgents || [];
+  } catch {
+    pmoDir = './pmo';
+  }
   
   // Get current agent from git branch or prompt
   let agent: string;
@@ -225,7 +246,7 @@ export async function claimTicket(ticketId?: string) {
           type: 'input',
           name: 'agent',
           message: 'Agent name:',
-          default: config.agents?.active[0]
+          default: agents[0] || 'agent'
         }
       ]);
       agent = answer.agent;
@@ -236,7 +257,7 @@ export async function claimTicket(ticketId?: string) {
         type: 'input',
         name: 'agent',
         message: 'Agent name:',
-        default: config.agents?.active[0]
+        default: agents[0] || 'agent'
       }
     ]);
     agent = answer.agent;
