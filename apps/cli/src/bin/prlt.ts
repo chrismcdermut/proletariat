@@ -17,13 +17,18 @@ import * as path from 'path';
 // Import modules
 import { getAllThemes } from '../lib/themes/index.js';
 import { initProject, createWorktrees, removeWorktrees, showStatus } from '../lib/worktree/index.js';
+import { hireAgents, fireAgents, showAgentStatus } from '../lib/agents/index.js';
+import { manageAccess } from '../lib/agents/access.js';
+import { addRepo } from '../lib/repos/index.js';
 import { repairWorktrees, checkWorktreeHealth } from '../lib/worktree/repair.js';
 import { migrateToHQ } from '../lib/worktree/migrate.js';
 import { upgradeConfig } from '../lib/config/upgrade.js';
 import { listAgents, listThemes } from '../lib/utils/helpers.js';
-import { showBanner } from '../lib/utils/logger.js';
+import { showBanner, log } from '../lib/utils/logger.js';
 import { InitOptions, ListOptions } from '../types/index.js';
 import { initPMO, createTicket, claimTicket } from '../lib/pmo/index.js';
+import { getManagers, findHQRoot } from '../lib/managers/index.js';
+import inquirer from 'inquirer';
 
 const program = new Command();
 
@@ -36,6 +41,34 @@ function getVersion(): string {
   } catch {
     return '0.0.0'; // Fallback version if package.json can't be read
   }
+}
+
+// Check if we're in HQ mode and get the theme
+function getActiveTheme(): string | null {
+  try {
+    // Check for HQ config in parent directories
+    let currentDir = process.cwd();
+    for (let i = 0; i < 5; i++) {
+      const hqConfigPath = path.join(currentDir, '.proletariat', 'config.json');
+      if (fs.existsSync(hqConfigPath)) {
+        const hqConfig = JSON.parse(fs.readFileSync(hqConfigPath, 'utf-8'));
+        if (hqConfig.type === 'hq' && hqConfig.theme) {
+          return hqConfig.theme;
+        }
+      }
+      currentDir = path.dirname(currentDir);
+    }
+    
+    // Check for repo config
+    const repoConfigPath = path.join(process.cwd(), '.proletariat', 'repo.json');
+    if (fs.existsSync(repoConfigPath)) {
+      const repoConfig = JSON.parse(fs.readFileSync(repoConfigPath, 'utf-8'));
+      return repoConfig.themeName || null;
+    }
+  } catch {
+    // Ignore errors
+  }
+  return null;
 }
 
 // Get themes for CLI setup
@@ -57,27 +90,50 @@ program
     await initProject(options);
   });
 
-// Dynamic theme commands
-Object.values(THEMES).forEach(theme => {
+// Theme-specific command aliases that map to standard commands
+const activeThemeName = getActiveTheme();
+const themesToRegister = activeThemeName 
+  ? [THEMES[activeThemeName]].filter(Boolean)  // Only active theme
+  : Object.values(THEMES);  // All themes for backwards compatibility
+
+themesToRegister.forEach(theme => {
+  if (!theme) return;
+  
+  const managers = getManagers();
+  const isHQMode = managers !== null;
+  
+  // Theme aliases for agent commands
   program
-    .command(`${theme.commands.create} <agents...>`)
-    .description(`${theme.emoji} Create worktrees for ${theme.name} agents`)
+    .command(`${theme.commands.create} [agents...]`)
+    .description(`${theme.emoji} ${isHQMode ? 'Hire' : 'Create worktrees for'} ${theme.displayName} agents`)
     .action(async (agents: string[]) => {
-      await createWorktrees(agents);
+      if (isHQMode) {
+        await managers!.agent.add(agents.length > 0 ? agents : undefined);
+      } else {
+        await createWorktrees(agents);
+      }
     });
     
   program
-    .command(`${theme.commands.remove} <agents...>`)
-    .description(`${theme.emoji} Remove worktrees for ${theme.name} agents`)
+    .command(`${theme.commands.remove} [agents...]`)
+    .description(`${theme.emoji} ${isHQMode ? 'Fire' : 'Remove worktrees for'} ${theme.displayName} agents`)
     .action(async (agents: string[]) => {
-      await removeWorktrees(agents);
+      if (isHQMode) {
+        await managers!.agent.remove(agents.length > 0 ? agents : undefined);
+      } else {
+        await removeWorktrees(agents);
+      }
     });
     
   program
     .command(theme.commands.list)
-    .description(`${theme.emoji} Show active ${theme.name} agents`)
-    .action(() => {
-      showStatus();
+    .description(`${theme.emoji} Show active ${theme.displayName}`)
+    .action(async () => {
+      if (isHQMode) {
+        await managers!.agent.list();
+      } else {
+        showStatus();
+      }
     });
 });
 
@@ -120,19 +176,203 @@ program
     await initPMO();
   });
 
+// Ticket command aliases for backwards compatibility
 program
-  .command('add')
-  .alias('create')
+  .command('add-ticket')
+  .alias('create-ticket')
   .description('📝 Create a new ticket in the PMO')
   .action(async () => {
-    await createTicket();
+    const managers = getManagers();
+    if (!managers) {
+      log.error('Not in an HQ directory! Run `prlt init --hq <name>` first.');
+      return;
+    }
+    await managers.ticket.create();
   });
 
 program
   .command('claim [ticketId]')
   .description('🎯 Claim a ticket and launch Claude with context')
   .action(async (ticketId?: string) => {
-    await claimTicket(ticketId);
+    const managers = getManagers();
+    if (!managers) {
+      log.error('Not in an HQ directory! Run `prlt init --hq <name>` first.');
+      return;
+    }
+    await managers.ticket.claim(ticketId);
+  });
+
+// Standard commands using managers
+program
+  .command('agent [action] [name]')
+  .description('🧑‍💼 Manage agents (add/remove/list)')
+  .action(async (action?: string, name?: string) => {
+    const managers = getManagers();
+    if (!managers) {
+      log.error('Not in an HQ directory! Run `prlt init --hq <name>` first.');
+      return;
+    }
+    
+    // Interactive mode if no action provided
+    if (!action) {
+      const { selectedAction } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selectedAction',
+          message: 'What would you like to do?',
+          choices: [
+            { name: 'Add agents', value: 'add' },
+            { name: 'Remove agents', value: 'remove' },
+            { name: 'List agents', value: 'list' },
+            { name: 'Grant access', value: 'grant' },
+            { name: 'Revoke access', value: 'revoke' },
+            { name: 'Switch to agent', value: 'switch' }
+          ]
+        }
+      ]);
+      action = selectedAction;
+    }
+    
+    switch(action) {
+      case 'add':
+        await managers.agent.add(name ? [name] : undefined);
+        break;
+      case 'remove':
+        await managers.agent.remove(name ? [name] : undefined);
+        break;
+      case 'list':
+        await managers.agent.list();
+        break;
+      case 'grant':
+        await managers.agent.grant();
+        break;
+      case 'revoke':
+        await managers.agent.revoke();
+        break;
+      case 'switch':
+        if (name) {
+          managers.agent.switch(name);
+        } else {
+          log.error('Agent name required for switch');
+        }
+        break;
+      default:
+        log.error(`Unknown action: ${action}`);
+        log.info('Available actions: add, remove, list, grant, revoke, switch');
+    }
+  });
+
+program
+  .command('repo [action] [path]')
+  .alias('add')
+  .description('📦 Manage repositories')
+  .action(async (action?: string, path?: string) => {
+    const managers = getManagers();
+    if (!managers) {
+      log.error('Not in an HQ directory! Run `prlt init --hq <name>` first.');
+      return;
+    }
+    
+    // For backwards compatibility, 'prlt add' defaults to 'add' action
+    if (!action || (action && !['add', 'remove', 'list'].includes(action))) {
+      path = action; // First arg might be the path
+      action = 'add';
+    }
+    
+    switch(action) {
+      case 'add':
+        await managers.repo.add(path);
+        break;
+      case 'remove':
+        await managers.repo.remove(path);
+        break;
+      case 'list':
+        await managers.repo.list();
+        break;
+      default:
+        log.error(`Unknown action: ${action}`);
+        log.info('Available actions: add, remove, list');
+    }
+  });
+
+program
+  .command('ticket [action] [id]')
+  .description('🎯 Manage tickets')
+  .action(async (action?: string, id?: string) => {
+    const managers = getManagers();
+    if (!managers) {
+      log.error('Not in an HQ directory! Run `prlt init --hq <name>` first.');
+      return;
+    }
+    
+    // Interactive mode if no action provided
+    if (!action) {
+      const { selectedAction } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selectedAction',
+          message: 'What would you like to do?',
+          choices: [
+            { name: 'Create ticket', value: 'create' },
+            { name: 'Claim ticket', value: 'claim' },
+            { name: 'Complete ticket', value: 'complete' },
+            { name: 'List tickets', value: 'list' }
+          ]
+        }
+      ]);
+      action = selectedAction;
+    }
+    
+    switch(action) {
+      case 'create':
+        await managers.ticket.create();
+        break;
+      case 'claim':
+        await managers.ticket.claim(id);
+        break;
+      case 'complete':
+        if (id) {
+          await managers.ticket.complete(id);
+        } else {
+          log.error('Ticket ID required for complete');
+        }
+        break;
+      case 'list':
+        await managers.ticket.list();
+        break;
+      default:
+        log.error(`Unknown action: ${action}`);
+        log.info('Available actions: create, claim, complete, list');
+    }
+  });
+
+program
+  .command('access')
+  .description('🔑 Manage agent repository access')
+  .action(async () => {
+    const managers = getManagers();
+    if (!managers) {
+      log.error('Not in an HQ directory! Run `prlt init --hq <name>` first.');
+      return;
+    }
+    
+    const { action } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'action',
+        message: 'What would you like to do?',
+        choices: [
+          { name: 'Grant access', value: 'grant' },
+          { name: 'Revoke access', value: 'revoke' }
+        ]
+      }
+    ]);
+    
+    if (action === 'grant') {
+      await managers.agent.grant();
+    } else {
+      await managers.agent.revoke();
+    }
   });
 
 program
@@ -140,20 +380,27 @@ program
   .alias('switch')
   .description('🚀 Switch to an agent workspace')
   .action((agent: string) => {
-    try {
-      const configPath = path.join(process.cwd(), '.proletariat', 'repo.json');
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      const worktreePath = path.join('..', '.proletariat', 'worktrees', agent);
-      
-      if (fs.existsSync(worktreePath)) {
-        console.log(chalk.green(`📍 Switching to ${agent} workspace at: ${worktreePath}`));
-        console.log(chalk.cyan(`Run: cd ${worktreePath}`));
-      } else {
-        console.log(chalk.red(`Agent workspace not found: ${agent}`));
-        console.log(chalk.yellow(`Available agents: ${config.agents?.join(', ') || 'none'}`));
+    const managers = getManagers();
+    if (managers) {
+      // HQ mode - use manager
+      managers.agent.switch(agent);
+    } else {
+      // Simple mode - use direct path
+      try {
+        const configPath = path.join(process.cwd(), '.proletariat', 'repo.json');
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        const worktreePath = path.join('..', '.proletariat', 'worktrees', agent);
+        
+        if (fs.existsSync(worktreePath)) {
+          console.log(chalk.green(`📍 Switching to ${agent} workspace at: ${worktreePath}`));
+          console.log(chalk.cyan(`Run: cd ${worktreePath}`));
+        } else {
+          console.log(chalk.red(`Agent workspace not found: ${agent}`));
+          console.log(chalk.yellow(`Available agents: ${config.agents?.join(', ') || 'none'}`));
+        }
+      } catch (error) {
+        console.log(chalk.red('No Proletariat config found. Run `prlt init` first.'));
       }
-    } catch (error) {
-      console.log(chalk.red('No Proletariat config found. Run `prlt init` first.'));
     }
   });
 

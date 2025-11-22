@@ -24,6 +24,70 @@ export interface Ticket {
   acceptanceCriteria?: string[];
 }
 
+export async function initPMOForHQ(hqDir: string) {
+  const pmoDir = path.join(hqDir, 'pmo');
+  
+  // Create PMO structure
+  const dirs = [
+    path.join(pmoDir, 'specs', 'backlog'),
+    path.join(pmoDir, 'specs', 'active'),
+    path.join(pmoDir, 'specs', 'completed')
+  ];
+  
+  dirs.forEach(dir => {
+    fs.mkdirSync(dir, { recursive: true });
+  });
+  
+  // Create kanban board
+  const kanbanPath = path.join(pmoDir, 'kanban.md');
+  if (!fs.existsSync(kanbanPath)) {
+    // Load template from file
+    const templatePath = path.join(__dirname, '../../../templates/pmo/kanban-template.md');
+    let kanbanContent: string;
+    
+    try {
+      kanbanContent = fs.readFileSync(templatePath, 'utf-8');
+    } catch {
+      // Fallback to inline template if file not found
+      kanbanContent = `---
+kanban-plugin: board
+---
+
+## 📥 Triage
+
+## 🏗️ Build Queue
+
+## 📈 Grow Queue
+
+## 🛟 Support Queue
+
+## ⚙️ BizOps Queue
+
+## 🎯 Strategy Queue
+
+## 🚀 In Progress
+
+## 🔄 PR/Review
+
+## ✅ Done
+`;
+    }
+    
+    fs.writeFileSync(kanbanPath, kanbanContent);
+  }
+  
+  // Initialize as git repo if not already
+  if (!fs.existsSync(path.join(pmoDir, '.git'))) {
+    try {
+      execSync('git init', { cwd: pmoDir, stdio: 'ignore' });
+      execSync('git add .', { cwd: pmoDir, stdio: 'ignore' });
+      execSync('git commit -m "Initial PMO setup"', { cwd: pmoDir, stdio: 'ignore' });
+    } catch {
+      // Git init is optional, ignore errors
+    }
+  }
+}
+
 export async function initPMO() {
   // PMO can work independently of main config
   let pmoDir = './pmo';
@@ -53,7 +117,15 @@ export async function initPMO() {
   // Create kanban board
   const kanbanPath = path.join(pmoDir, 'kanban.md');
   if (!fs.existsSync(kanbanPath)) {
-    const kanbanContent = `---
+    // Load template from file
+    const templatePath = path.join(__dirname, '../../../templates/pmo/kanban-template.md');
+    let kanbanContent: string;
+    
+    try {
+      kanbanContent = fs.readFileSync(templatePath, 'utf-8');
+    } catch {
+      // Fallback to inline template if file not found
+      kanbanContent = `---
 kanban-plugin: board
 ---
 
@@ -75,6 +147,8 @@ kanban-plugin: board
 
 ## ✅ Done
 `;
+    }
+    
     fs.writeFileSync(kanbanPath, kanbanContent);
   }
   
@@ -142,9 +216,10 @@ export async function createTicket() {
       ]
     },
     {
-      type: 'editor',
+      type: 'input',
       name: 'description',
-      message: 'Description (will open editor):'
+      message: 'Description (brief summary):',
+      validate: (input) => input ? true : 'Description is required'
     },
     {
       type: 'list',
@@ -179,9 +254,40 @@ export async function createTicket() {
     }
   ]);
   
+  // Ensure backlog directory exists
+  const backlogDir = path.join(pmoDir, 'specs', 'backlog');
+  if (!fs.existsSync(backlogDir)) {
+    fs.mkdirSync(backlogDir, { recursive: true });
+  }
+  
   // Create spec file
   const specPath = path.join(pmoDir, 'specs', 'backlog', `${answers.id}.md`);
-  const specContent = `# ${answers.title}
+  
+  // Load template and substitute values
+  const templatePath = path.join(__dirname, '../../../templates/pmo/ticket-template.md');
+  let specContent: string;
+  
+  try {
+    const template = fs.readFileSync(templatePath, 'utf-8');
+    specContent = template
+      .replace(/\{\{TITLE\}\}/g, answers.title)
+      .replace(/\{\{ID\}\}/g, answers.id)
+      .replace(/\{\{STATUS\}\}/g, 'Backlog')
+      .replace(/\{\{QUEUE\}\}/g, answers.queue)
+      .replace(/\{\{POINTS\}\}/g, answers.points.toString())
+      .replace(/\{\{PRIORITY\}\}/g, answers.priority)
+      .replace(/\{\{URGENCY\}\}/g, answers.urgency)
+      .replace(/\{\{CREATED_DATE\}\}/g, new Date().toISOString().split('T')[0])
+      .replace(/\{\{DESCRIPTION\}\}/g, answers.description)
+      .replace(/\{\{AGENT\}\}/g, '_Not assigned_')
+      .replace(/\{\{CLAIMED_DATE\}\}/g, '_Not claimed_')
+      .replace(/\{\{CRITERIA_1\}\}/g, 'TODO: Define acceptance criteria')
+      .replace(/\{\{CRITERIA_2\}\}/g, 'TODO: Add more criteria as needed')
+      .replace(/\{\{CRITERIA_3\}\}/g, 'TODO: Include edge cases')
+      .replace(/\{\{TECHNICAL_NOTES\}\}/g, '_To be added during implementation_');
+  } catch {
+    // Fallback to inline template
+    specContent = `# ${answers.title}
 
 **ID**: ${answers.id}
 **Status**: Backlog
@@ -203,6 +309,7 @@ ${answers.description}
 
 _To be added during implementation_
 `;
+  }
   
   fs.writeFileSync(specPath, specContent);
   

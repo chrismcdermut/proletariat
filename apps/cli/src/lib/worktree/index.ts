@@ -4,6 +4,7 @@ import { execSync } from 'child_process';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import { getAllThemes, getThemeNames, isValidTheme } from '../themes/index.js';
+import { initPMOForHQ } from '../pmo/index.js';
 import { 
   getProjectName,
   getProjectRoot,
@@ -68,11 +69,10 @@ export async function initProject(options: InitOptions): Promise<ProjectConfig |
     const { layoutChoice } = await inquirer.prompt([{
       type: 'list',
       name: 'layoutChoice',
-      message: 'Where should agent workspaces live?',
+      message: 'How should we organize your workspace?',
       choices: [
-        { name: 'Keep them alongside this repo (../project-staff)', value: 'sibling' },
-        { name: 'Create an HQ directory to hold everything', value: 'hq' },
-        { name: 'Use a custom path', value: 'custom' }
+        { name: 'Create an HQ to manage multiple projects (recommended)', value: 'hq' },
+        { name: 'Keep it simple - just this repo', value: 'sibling' }
       ]
     }]);
 
@@ -80,113 +80,171 @@ export async function initProject(options: InitOptions): Promise<ProjectConfig |
       const { hqName } = await inquirer.prompt([{
         type: 'input',
         name: 'hqName',
-        message: 'HQ directory name (tip: use your company or product name):',
+        message: 'What should we call your HQ?',
         default: `${projectName}-hq`,
-        validate: (input: string) => input.trim().length ? true : 'Please provide a directory name.'
+        validate: (input: string) => input.trim().length ? true : 'Please provide a name.'
       }]);
       resolvedOptions.hq = hqName.trim();
-    } else if (layoutChoice === 'custom') {
-      const { hqRoot } = await inquirer.prompt([{
-        type: 'input',
-        name: 'hqRoot',
-        message: 'Path for agent workspaces (relative or absolute):',
-        default: `../${projectName}-staff`,
-        validate: (input: string) => input.trim().length ? true : 'Please provide a path.'
-      }]);
-      resolvedOptions.hqRoot = hqRoot.trim();
     }
   }
 
   const { workspaceDir, layout } = resolveWorkspace(theme, resolvedOptions);
 
-  const configData: ProjectConfig = {
-    version: '0.2.0',  // CLI version when HQ terminology was introduced
-    configVersion: 2,   // Config format version (1 = config.json, 2 = repo.json)
-    projectName,
-    themeName: theme.name,
-    workspaceDir,
-    activeAgents: [],
-    initialized: new Date().toISOString(),
-    layout
-  };
-
-  saveConfig(configData);
-
   showBanner(theme);
   log.theme(theme, `Initializing ${projectName} with ${theme.displayName} theme...`);
 
-  if (layout.mode === 'hq' && !fs.existsSync(layout.baseDir)) {
-    fs.mkdirSync(layout.baseDir, { recursive: true });
-    log.success(`Created HQ directory: ${layout.baseDir}`);
-  }
-
-  if (!fs.existsSync(workspaceDir)) {
-    fs.mkdirSync(workspaceDir, { recursive: true });
-    log.success(`Created workspace: ${workspaceDir}`);
-  } else {
-    log.info(`Using existing workspace: ${workspaceDir}`);
-  }
-
   if (layout.mode === 'hq') {
-    const targetRepoPath = path.join(layout.baseDir, projectName);
-    if (path.resolve(projectRoot) !== path.resolve(targetRepoPath)) {
-      log.info(`💡 Recommended: place this repository inside ${targetRepoPath} so your HQ contains both the source repo and its agent workspaces.`);
-
-      const { moveNow } = await inquirer.prompt([
-        {
-          type: 'confirm',
-          name: 'moveNow',
-          message: `Move the current repository into ${targetRepoPath}?`,
-          default: false
-        }
-      ]);
-
-      if (moveNow) {
-        try {
-          const status = execSync('git status --porcelain', { cwd: projectRoot, encoding: 'utf8' }).trim();
-          if (status.length > 0) {
-            log.warning('Cannot move repository: working tree has uncommitted changes. Commit or stash first.');
-          } else {
-            if (!fs.existsSync(layout.baseDir)) {
-              fs.mkdirSync(layout.baseDir, { recursive: true });
-            }
-
-            const repoName = path.basename(projectRoot);
-            const destination = path.join(layout.baseDir, repoName);
-
-            if (fs.existsSync(destination)) {
-              log.error(`Destination ${destination} already exists. Move aborted.`);
-            } else {
-              fs.renameSync(projectRoot, destination);
-              log.success(`Repository moved to ${destination}`);
-              log.success('Proletariat initialized!');
-              log.info('Please open a new shell and run prlt commands from the moved path.');
-              return configData;
-            }
-          }
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          log.error(`Failed to move repository: ${message}`);
-        }
-      } else {
-        log.info('You can move the repository later; agent workspaces will still be created in the HQ directory.');
+    // Create HQ structure
+    const hqConfigDir = path.join(layout.baseDir, '.proletariat');
+    const agentsDir = path.join(hqConfigDir, 'agents', theme.directory);
+    const reposDir = path.join(layout.baseDir, 'repos');
+    
+    // Create all HQ directories
+    [hqConfigDir, agentsDir, reposDir].forEach(dir => {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
       }
+    });
+    
+    // Create HQ config
+    const hqConfig = {
+      version: '3.0.0',
+      type: 'hq',
+      name: layout.hqName || path.basename(layout.baseDir),
+      theme: themeName,
+      themeDirectory: theme.directory,
+      agents: [],
+      repos: [],
+      agentRepoMode: 'ask',
+      initialized: new Date().toISOString()
+    };
+    
+    const hqConfigPath = path.join(hqConfigDir, 'config.json');
+    if (!fs.existsSync(hqConfigPath)) {
+      fs.writeFileSync(hqConfigPath, JSON.stringify(hqConfig, null, 2));
+      log.success(`✅ Created HQ at ${layout.baseDir}`);
+    }
+    
+    // Initialize PMO
+    await initPMOForHQ(layout.baseDir);
+    log.success(`✅ Initialized PMO at ${path.join(layout.baseDir, 'pmo')}`);
+    
+    // Don't create repo.json in HQ mode - HQ config is the source of truth
+  } else {
+    // Simple mode - create repo.json and workspace alongside repo
+    const configData: ProjectConfig = {
+      version: '0.2.0',
+      configVersion: 2,
+      projectName,
+      themeName: theme.name,
+      workspaceDir,
+      activeAgents: [],
+      initialized: new Date().toISOString(),
+      layout
+    };
+    
+    saveConfig(configData);
+    
+    if (!fs.existsSync(workspaceDir)) {
+      fs.mkdirSync(workspaceDir, { recursive: true });
+      log.success(`Created workspace: ${workspaceDir}`);
+    } else {
+      log.info(`Using existing workspace: ${workspaceDir}`);
     }
   }
 
-  if (layout.mode === 'custom') {
-    log.info(`Custom workspace path in use: ${workspaceDir}`);
+  // Offer to clone the current repo into HQ
+  if (layout.mode === 'hq') {
+    try {
+      // Check if we're in a git repo
+      execSync('git rev-parse --git-dir', { cwd: projectRoot, stdio: 'ignore' });
+      
+      const { shouldClone } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'shouldClone',
+          message: `Add '${projectName}' to the HQ? (will clone into repos/)`,
+          default: true
+        }
+      ]);
+      
+      if (shouldClone) {
+        const repoPath = path.join(layout.baseDir, 'repos', projectName);
+        
+        if (!fs.existsSync(repoPath)) {
+          // Get the remote URL
+          try {
+            const remoteUrl = execSync('git config --get remote.origin.url', { 
+              cwd: projectRoot, 
+              encoding: 'utf8' 
+            }).trim();
+            
+            if (remoteUrl) {
+              log.info(`Cloning ${projectName} into HQ...`);
+              execSync(`git clone "${remoteUrl}" "${repoPath}"`, { 
+                stdio: 'inherit' 
+              });
+              
+              // Update HQ config to track this repo
+              const hqConfigPath = path.join(layout.baseDir, '.proletariat', 'config.json');
+              const hqConfig = JSON.parse(fs.readFileSync(hqConfigPath, 'utf8'));
+              hqConfig.repos.push(projectName);
+              fs.writeFileSync(hqConfigPath, JSON.stringify(hqConfig, null, 2));
+              
+              log.success(`✅ Added ${projectName} to HQ`);
+              log.info(`💡 Agents will work on the HQ copy. Pull their changes to your local repo when ready.`);
+            } else {
+              log.warning('No git remote found. Add a remote and run: prlt add');
+            }
+          } catch (error) {
+            log.warning('Could not clone repository. Run "prlt add" later to add it.');
+          }
+        } else {
+          log.info(`Repository ${projectName} already exists in HQ`);
+        }
+      } else {
+        log.info(`💡 To add this repo later, run: prlt add`);
+      }
+    } catch {
+      // Not a git repo, skip cloning offer
+      log.info(`💡 To add repositories to the HQ, run: prlt add`);
+    }
   }
 
-  log.success('Proletariat initialized!');
-  log.info(`Available agents: ${theme.agents.join(', ')}`);
-  log.theme(theme, 'Next steps:');
-  console.log(`  prlt ${theme.commands.create} ${theme.agents.slice(0, 2).join(' ')}    # Create worktrees`);
-  console.log(`  prlt ${theme.commands.list}                                   # Show status`);
-  console.log(`
-${chalk.cyan(theme.messages.slogan)}`);
+  log.success('✅ Proletariat initialized!');
   
-  return configData;
+  if (layout.mode === 'hq') {
+    log.theme(theme, 'Next steps:');
+    console.log(chalk.yellow('• Run: prlt hire        # Create your first agents'));
+    console.log(chalk.yellow('• Run: prlt add-ticket  # Create work for agents'));
+  } else {
+    log.info(`Available agents: ${theme.agents.slice(0, 5).join(', ')}...`);
+    log.theme(theme, 'Next steps:');
+    console.log(`  prlt ${theme.commands.create} ${theme.agents.slice(0, 2).join(' ')}    # Create worktrees`);
+    console.log(`  prlt ${theme.commands.list}                                   # Show status`);
+  }
+  
+  console.log(`\n${chalk.cyan(theme.messages.slogan)}`);
+  console.log('');
+  
+  // Return appropriate config based on mode
+  if (layout.mode === 'hq') {
+    // For HQ mode, return a minimal config representing the HQ
+    return {
+      version: '0.2.0',
+      configVersion: 3,
+      projectName: layout.hqName || path.basename(layout.baseDir),
+      themeName: theme.name,
+      workspaceDir: path.join(layout.baseDir, '.proletariat', 'agents', theme.directory),
+      activeAgents: [],
+      initialized: new Date().toISOString(),
+      layout,
+      theme
+    };
+  } else {
+    // For simple mode, return the saved config
+    return loadConfig();
+  }
 }
 
 export async function createWorktrees(agents: string[]): Promise<ProjectConfig | void> {

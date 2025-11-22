@@ -11,7 +11,9 @@
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
     "prepublishOnly": "pnpm run clean && pnpm run build",
-    "test": "echo \"Workers of the world, unite!\" && exit 0",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "release": "npm publish --access public",
     "publish:otp": "./scripts/publish.sh"
   },
@@ -51,14 +53,17 @@
     "node": ">=16.0.0"
   },
   "dependencies": {
-    "commander": "^11.0.0",
     "chalk": "^4.1.2",
+    "commander": "^11.0.0",
     "inquirer": "^8.2.5"
   },
   "devDependencies": {
     "@types/inquirer": "^8.2.6",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
     "eslint": "^8.44.0",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.5",
     "typescript": "^5.0.0"
   },
   "preferGlobal": true,

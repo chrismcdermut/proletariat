@@ -42,6 +42,7 @@ export interface ProjectConfig {
   initialized: string;
   theme?: Theme;
   layout?: WorkspaceLayout;
+  hqPath?: string;          // Path to HQ if using HQ mode
 }
 
 export interface InitOptions {
