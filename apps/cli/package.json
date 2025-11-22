@@ -14,9 +14,9 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "test:integration": "pnpm run build && jest --config jest.integration.config.js",
-    "test:integration:watch": "jest --config jest.integration.config.js --watch",
-    "test:integration:coverage": "jest --config jest.integration.config.js --coverage",
+    "test:integration": "pnpm run build && jest --config test/config/jest.integration.js",
+    "test:integration:watch": "jest --config test/config/jest.integration.js --watch",
+    "test:integration:coverage": "jest --config test/config/jest.integration.js --coverage",
     "test:all": "pnpm run test && pnpm run test:integration",
     "release": "npm publish --access public",
     "publish:otp": "./scripts/publish.sh"
