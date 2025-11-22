@@ -50,7 +50,8 @@ export interface IRepoManager {
   list(): Promise<void>;
 }
 
-export interface ITicketManager {
+export interface IPMOManager {
+  init(): Promise<void>;
   create(): Promise<void>;
   claim(ticketId?: string): Promise<void>;
   complete(ticketId: string): Promise<void>;

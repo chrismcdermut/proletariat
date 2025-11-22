@@ -4,7 +4,7 @@ import { execSync } from 'child_process';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import { getAllThemes, getThemeNames, isValidTheme } from '../themes/index.js';
-import { initPMOForHQ } from '../pmo/index.js';
+import { PMOManager } from '../managers/PMOManager.js';
 import { 
   getProjectName,
   getProjectRoot,
@@ -126,7 +126,7 @@ export async function initProject(options: InitOptions): Promise<ProjectConfig |
     }
     
     // Initialize PMO
-    await initPMOForHQ(layout.baseDir);
+    await PMOManager.initForHQ(layout.baseDir);
     log.success(`✅ Initialized PMO at ${path.join(layout.baseDir, 'pmo')}`);
     
     // Don't create repo.json in HQ mode - HQ config is the source of truth

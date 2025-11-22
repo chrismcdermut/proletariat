@@ -7,13 +7,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AgentManager } from './AgentManager.js';
 import { RepoManager } from './RepoManager.js';
-import { TicketManager } from './TicketManager.js';
+import { PMOManager } from './PMOManager.js';
 import { HQConfig } from './types.js';
 
 export * from './types.js';
 export { AgentManager } from './AgentManager.js';
 export { RepoManager } from './RepoManager.js';
-export { TicketManager } from './TicketManager.js';
+export { PMOManager } from './PMOManager.js';
 
 /**
  * Find HQ root directory by searching up the tree
@@ -67,7 +67,7 @@ export function loadHQConfig(hqRoot: string): HQConfig | null {
 export interface Managers {
   agent: AgentManager;
   repo: RepoManager;
-  ticket: TicketManager;
+  pmo: PMOManager;
   config: HQConfig;
   hqRoot: string;
 }
@@ -94,7 +94,7 @@ export function getManagers(hqRoot?: string): Managers | null {
   return {
     agent: new AgentManager(root, config),
     repo: new RepoManager(root, config),
-    ticket: new TicketManager(root, config),
+    pmo: new PMOManager(root, config),
     config,
     hqRoot: root
   };

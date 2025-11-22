@@ -26,8 +26,10 @@ jest.mock('../../utils/logger', () => ({
   },
   showBanner: jest.fn(),
 }));
-jest.mock('../../pmo/index', () => ({
-  initPMOForHQ: jest.fn(),
+jest.mock('../../managers/PMOManager', () => ({
+  PMOManager: {
+    initForHQ: jest.fn(),
+  },
 }));
 
 describe('initProject', () => {
@@ -138,7 +140,7 @@ describe('initProject', () => {
 
     it('should initialize PMO in HQ', async () => {
       const inquirer = require('inquirer');
-      const { initPMOForHQ } = require('../../pmo/index');
+      const { PMOManager } = require('../../managers/PMOManager');
       
       inquirer.prompt.mockResolvedValueOnce({ theme: 'billionaires' })
         .mockResolvedValueOnce({ layoutChoice: 'hq' })
@@ -147,7 +149,7 @@ describe('initProject', () => {
 
       await initProject({});
 
-      expect(initPMOForHQ).toHaveBeenCalledWith(
+      expect(PMOManager.initForHQ).toHaveBeenCalledWith(
         expect.stringContaining('test-hq')
       );
     });
@@ -200,8 +202,8 @@ describe('initProject', () => {
       );
       
       // Verify PMO was NOT initialized (only for HQ mode)
-      const { initPMOForHQ } = require('../../pmo/index');
-      expect(initPMOForHQ).not.toHaveBeenCalled();
+      const { PMOManager } = require('../../managers/PMOManager');
+      expect(PMOManager.initForHQ).not.toHaveBeenCalled();
     });
   });
 

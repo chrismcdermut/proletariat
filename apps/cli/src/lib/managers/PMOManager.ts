@@ -1,6 +1,6 @@
 /**
- * Ticket management class for PMO
- * Handles creating, claiming, and managing tickets
+ * PMO (Project Management Office) Manager
+ * Handles tickets, kanban boards, and PMO initialization
  */
 
 import * as fs from 'fs';
@@ -9,7 +9,7 @@ import { execSync } from 'child_process';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import { log } from '../utils/logger.js';
-import { HQConfig, ITicketManager } from './types.js';
+import { HQConfig, IPMOManager } from './types.js';
 
 interface Ticket {
   id: string;
@@ -23,7 +23,7 @@ interface Ticket {
   updated: string;
 }
 
-export class TicketManager implements ITicketManager {
+export class PMOManager implements IPMOManager {
   private pmoDir: string;
   private ticketsFile: string;
   private kanbanFile: string;
@@ -35,6 +35,178 @@ export class TicketManager implements ITicketManager {
     this.pmoDir = path.join(hqRoot, 'pmo');
     this.ticketsFile = path.join(this.pmoDir, 'tickets.json');
     this.kanbanFile = path.join(this.pmoDir, 'kanban.md');
+  }
+
+  /**
+   * Initialize PMO for HQ during setup (static method)
+   */
+  static async initForHQ(hqDir: string): Promise<void> {
+    const pmoDir = path.join(hqDir, 'pmo');
+    
+    // Create PMO structure
+    const dirs = [
+      path.join(pmoDir, 'specs', 'backlog'),
+      path.join(pmoDir, 'specs', 'active'),
+      path.join(pmoDir, 'specs', 'completed')
+    ];
+    
+    dirs.forEach(dir => {
+      fs.mkdirSync(dir, { recursive: true });
+    });
+    
+    // Create kanban board
+    const kanbanPath = path.join(pmoDir, 'kanban.md');
+    if (!fs.existsSync(kanbanPath)) {
+      // Load template from file
+      const templatePath = path.join(__dirname, '../../../templates/boards/kanban-pmo.md');
+      let kanbanContent: string;
+      
+      try {
+        kanbanContent = fs.readFileSync(templatePath, 'utf-8');
+      } catch {
+        // Fallback to inline template if file not found
+        kanbanContent = `# PMO Kanban Board
+
+## 📥 Triage
+
+## 🔨 Build Queue
+<!-- BUILD_TODO -->
+<!-- BUILD_DOING -->
+<!-- BUILD_DONE -->
+
+## 📈 Grow Queue
+<!-- GROW_TODO -->
+<!-- GROW_DOING -->
+<!-- GROW_DONE -->
+
+## 🛠️ Support Queue
+<!-- SUPPORT_TODO -->
+<!-- SUPPORT_DOING -->
+<!-- SUPPORT_DONE -->
+
+## 📊 BizOps Queue
+<!-- BIZOPS_TODO -->
+<!-- BIZOPS_DOING -->
+<!-- BIZOPS_DONE -->
+
+## 🎯 Strategy Queue
+<!-- STRATEGY_TODO -->
+<!-- STRATEGY_DOING -->
+<!-- STRATEGY_DONE -->
+`;
+      }
+      
+      fs.writeFileSync(kanbanPath, kanbanContent);
+    }
+    
+    // Initialize tickets file
+    const ticketsPath = path.join(pmoDir, 'tickets.json');
+    if (!fs.existsSync(ticketsPath)) {
+      fs.writeFileSync(ticketsPath, '[]');
+    }
+    
+    // Initialize as git repo if not already
+    if (!fs.existsSync(path.join(pmoDir, '.git'))) {
+      try {
+        execSync('git init', { cwd: pmoDir, stdio: 'ignore' });
+        execSync('git add .', { cwd: pmoDir, stdio: 'ignore' });
+        execSync('git commit -m "Initial PMO setup"', { cwd: pmoDir, stdio: 'ignore' });
+      } catch {
+        // Git init is optional, ignore errors
+      }
+    }
+  }
+
+  /**
+   * Initialize PMO structure
+   */
+  async init(): Promise<void> {
+    log.info('🎯 Initializing PMO...');
+    
+    // Create PMO structure
+    const dirs = [
+      path.join(this.pmoDir, 'specs', 'backlog'),
+      path.join(this.pmoDir, 'specs', 'active'),
+      path.join(this.pmoDir, 'specs', 'completed')
+    ];
+    
+    dirs.forEach(dir => {
+      fs.mkdirSync(dir, { recursive: true });
+    });
+    
+    // Create kanban board
+    if (!fs.existsSync(this.kanbanFile)) {
+      // Load template from file
+      const templatePath = path.join(__dirname, '../../../templates/boards/kanban-pmo.md');
+      let kanbanContent: string;
+      
+      try {
+        kanbanContent = fs.readFileSync(templatePath, 'utf-8');
+      } catch {
+        // Fallback to inline template if file not found
+        kanbanContent = `# PMO Kanban Board
+
+## 📥 Triage
+
+## 🔨 Build Queue
+<!-- BUILD_TODO -->
+<!-- BUILD_DOING -->
+<!-- BUILD_DONE -->
+
+## 📈 Grow Queue
+<!-- GROW_TODO -->
+<!-- GROW_DOING -->
+<!-- GROW_DONE -->
+
+## 🛠️ Support Queue
+<!-- SUPPORT_TODO -->
+<!-- SUPPORT_DOING -->
+<!-- SUPPORT_DONE -->
+
+## 📊 BizOps Queue
+<!-- BIZOPS_TODO -->
+<!-- BIZOPS_DOING -->
+<!-- BIZOPS_DONE -->
+
+## 🎯 Strategy Queue
+<!-- STRATEGY_TODO -->
+<!-- STRATEGY_DOING -->
+<!-- STRATEGY_DONE -->
+`;
+      }
+      
+      fs.writeFileSync(this.kanbanFile, kanbanContent);
+    }
+    
+    // Initialize tickets file
+    if (!fs.existsSync(this.ticketsFile)) {
+      fs.writeFileSync(this.ticketsFile, '[]');
+    }
+    
+    // Initialize as git repo if not already
+    if (!fs.existsSync(path.join(this.pmoDir, '.git'))) {
+      const { initGit } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'initGit',
+          message: 'Initialize PMO as a git repository?',
+          default: true
+        }
+      ]);
+      
+      if (initGit) {
+        try {
+          execSync('git init', { cwd: this.pmoDir, stdio: 'ignore' });
+          execSync('git add .', { cwd: this.pmoDir, stdio: 'ignore' });
+          execSync('git commit -m "Initial PMO setup"', { cwd: this.pmoDir, stdio: 'ignore' });
+          log.success('✅ PMO initialized as git repository');
+        } catch {
+          // Git init is optional, ignore errors
+        }
+      }
+    }
+    
+    log.success(`✅ PMO initialized at ${this.pmoDir}`);
   }
 
   /**

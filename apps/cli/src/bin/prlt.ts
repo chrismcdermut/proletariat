@@ -23,7 +23,6 @@ import { upgradeConfig } from '../lib/config/upgrade.js';
 import { listAgents, listThemes } from '../lib/utils/helpers.js';
 import { showBanner, log } from '../lib/utils/logger.js';
 import { InitOptions, ListOptions } from '../types/index.js';
-import { initPMO, createTicket, claimTicket } from '../lib/pmo/index.js';
 import { getManagers, findHQRoot } from '../lib/managers/index.js';
 import inquirer from 'inquirer';
 
@@ -170,7 +169,12 @@ program
   .command('pmo:init')
   .description('🎯 Initialize Project Management Office (PMO)')
   .action(async () => {
-    await initPMO();
+    const managers = getManagers();
+    if (!managers) {
+      log.error('PMO requires HQ mode! Run `prlt init --hq` first.');
+      return;
+    }
+    await managers.pmo.init();
   });
 
 // Ticket command aliases for backwards compatibility
@@ -184,7 +188,7 @@ program
       log.error('Not in an HQ directory! Run `prlt init --hq <name>` first.');
       return;
     }
-    await managers.ticket.create();
+    await managers.pmo.create();
   });
 
 program
@@ -196,7 +200,7 @@ program
       log.error('Not in an HQ directory! Run `prlt init --hq <name>` first.');
       return;
     }
-    await managers.ticket.claim(ticketId);
+    await managers.pmo.claim(ticketId);
   });
 
 // Standard commands using managers
@@ -322,20 +326,20 @@ program
     
     switch(action) {
       case 'create':
-        await managers.ticket.create();
+        await managers.pmo.create();
         break;
       case 'claim':
-        await managers.ticket.claim(id);
+        await managers.pmo.claim(id);
         break;
       case 'complete':
         if (id) {
-          await managers.ticket.complete(id);
+          await managers.pmo.complete(id);
         } else {
           log.error('Ticket ID required for complete');
         }
         break;
       case 'list':
-        await managers.ticket.list();
+        await managers.pmo.list();
         break;
       default:
         log.error(`Unknown action: ${action}`);
