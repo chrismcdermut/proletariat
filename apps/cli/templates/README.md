@@ -1,33 +1,42 @@
 # Proletariat PMO Templates
 
-This directory contains all the templates used by the Proletariat PMO system.
+Organized template system for the Proletariat PMO (Project Management Office) feature.
 
-## Template Files
+## Directory Structure
 
-### `kanban-template.md`
+```
+templates/
+├── boards/                    # Kanban board templates
+│   ├── kanban-template.md     # Basic kanban board template
+│   ├── kanban-pmo.md          # PMO-specific kanban template
+│   └── examples/              # Board examples
+│       └── example-board.md   # Fully populated board example
+│
+└── tickets/                   # Ticket templates
+    ├── ticket-template.md     # Basic ticket template
+    ├── ticket-pmo.md          # PMO-specific ticket template
+    └── examples/              # Ticket examples
+        └── example-ticket.md  # Complete ticket example
+```
+
+## Board Templates
+
+### `boards/kanban-template.md`
 **Purpose**: Base template for creating new kanban boards
 **Used by**: `prlt pmo:init` command
 **Features**:
-- 5-tool-founder queue structure
-- Build, Grow, Support, BizOps, Strategy queues
 - Standard workflow columns (Triage → In Progress → Done)
 - Obsidian kanban plugin configuration
+- Clean starting point
 
-### `ticket-template.md`
-**Purpose**: Template structure for ticket specifications
-**Used by**: `prlt add` command
-**Variables**:
-- `{{TITLE}}` - Ticket title
-- `{{ID}}` - Unique ticket identifier
-- `{{STATUS}}` - Current status (Backlog, In Progress, etc.)
-- `{{QUEUE}}` - 5-tool-founder queue assignment
-- `{{POINTS}}` - Fibonacci story points
-- `{{PRIORITY}}` - P0-P3 priority level
-- `{{URGENCY}}` - U0-U3 urgency level
-- `{{DESCRIPTION}}` - Detailed description
-- `{{AGENT}}` - Assigned agent name
+### `boards/kanban-pmo.md`
+**Purpose**: PMO-specific kanban with 5-tool-founder queues
+**Features**:
+- Build, Grow, Support, BizOps, Strategy queues
+- Pre-configured for PMO workflow
+- Eisenhower matrix integration
 
-### `example-board.md`
+### `boards/examples/example-board.md`
 **Purpose**: Example kanban board with sample tickets
 **Shows**:
 - Real ticket examples across all queues
@@ -36,7 +45,27 @@ This directory contains all the templates used by the Proletariat PMO system.
 - Agent assignments
 - Ticket progression through workflow
 
-### `example-ticket.md`
+## Ticket Templates
+
+### `tickets/ticket-template.md`
+**Purpose**: Basic ticket structure
+**Variables**:
+- `{{TITLE}}` - Ticket title
+- `{{ID}}` - Unique ticket identifier
+- `{{STATUS}}` - Current status
+- `{{DESCRIPTION}}` - Detailed description
+
+### `tickets/ticket-pmo.md`
+**Purpose**: Full PMO ticket specification
+**Variables**:
+- `{{QUEUE}}` - 5-tool-founder queue assignment
+- `{{POINTS}}` - Fibonacci story points
+- `{{PRIORITY}}` - P0-P3 priority level
+- `{{URGENCY}}` - U0-U3 urgency level
+- `{{AGENT}}` - Assigned agent name
+- Plus all basic ticket fields
+
+### `tickets/examples/example-ticket.md`
 **Purpose**: Complete example of a ticket specification
 **Demonstrates**:
 - Full ticket lifecycle from creation to completion
@@ -46,16 +75,7 @@ This directory contains all the templates used by the Proletariat PMO system.
 - Resource tracking
 - Definition of done checklist
 
-## Customization
-
-You can modify these templates to fit your team's workflow:
-
-1. **Add custom queues**: Modify the kanban template queues
-2. **Change ticket fields**: Add/remove metadata fields in ticket template
-3. **Update workflows**: Modify the kanban columns
-4. **Customize validation**: Update acceptance criteria format
-
-## Queue Descriptions
+## Queue System (5-Tool-Founder)
 
 - **🏗️ Build**: Product features & engineering work
 - **📈 Grow**: Growth, marketing & user acquisition
@@ -79,19 +99,46 @@ You can modify these templates to fit your team's workflow:
 
 ## Story Points (Fibonacci)
 
-- 1: Trivial change
-- 2: Small feature
-- 3: Medium feature
-- 5: Large feature
-- 8: Epic feature
-- 13: Major project
-- 21: Massive initiative
+- 1: Trivial change (< 1 hour)
+- 2: Small feature (2-4 hours)
+- 3: Medium feature (1 day)
+- 5: Large feature (2-3 days)
+- 8: Epic feature (1 week)
+- 13: Major project (2 weeks)
+- 21: Massive initiative (1 month+)
 
-## Template Usage in Code
+## Usage in CLI
 
-Currently templates are embedded in the TypeScript code. Future versions will load from these template files for easier customization.
+```bash
+# Initialize PMO with templates
+prlt pmo:init
 
-## Related Files
+# Create new ticket (uses ticket template)
+prlt ticket create
+
+# Initialize HQ with PMO templates
+prlt init --hq MyCompany
+```
+
+## Customization
+
+You can modify these templates to fit your workflow:
+
+1. **Custom queues**: Edit kanban-pmo.md to add/remove queues
+2. **Ticket fields**: Modify ticket templates for your metadata
+3. **Workflow columns**: Change kanban column structure
+4. **Examples**: Add more examples for your use cases
+
+## Implementation Files
 
 - `src/lib/pmo/index.ts` - PMO implementation
+- `src/lib/managers/TicketManager.ts` - Ticket management
 - `src/bin/prlt.ts` - CLI command definitions
+
+## Future Enhancements
+
+- [ ] Dynamic template loading (currently embedded in code)
+- [ ] Custom template directories
+- [ ] Template validation
+- [ ] Template variables expansion
+- [ ] Multi-language templates

@@ -309,7 +309,7 @@ export class TicketManager implements ITicketManager {
 
   private updateKanban(tickets: Ticket[]): void {
     const kanbanTemplate = fs.readFileSync(
-      path.join(__dirname, '../../../templates/pmo/kanban-template.md'),
+      path.join(__dirname, '../../../templates/boards/kanban-pmo.md'),
       'utf-8'
     );
 

@@ -42,7 +42,7 @@ export async function initPMOForHQ(hqDir: string) {
   const kanbanPath = path.join(pmoDir, 'kanban.md');
   if (!fs.existsSync(kanbanPath)) {
     // Load template from file
-    const templatePath = path.join(__dirname, '../../../templates/pmo/kanban-template.md');
+    const templatePath = path.join(__dirname, '../../../templates/boards/kanban-pmo.md');
     let kanbanContent: string;
     
     try {
@@ -118,7 +118,7 @@ export async function initPMO() {
   const kanbanPath = path.join(pmoDir, 'kanban.md');
   if (!fs.existsSync(kanbanPath)) {
     // Load template from file
-    const templatePath = path.join(__dirname, '../../../templates/pmo/kanban-template.md');
+    const templatePath = path.join(__dirname, '../../../templates/boards/kanban-pmo.md');
     let kanbanContent: string;
     
     try {
@@ -264,7 +264,7 @@ export async function createTicket() {
   const specPath = path.join(pmoDir, 'specs', 'backlog', `${answers.id}.md`);
   
   // Load template and substitute values
-  const templatePath = path.join(__dirname, '../../../templates/pmo/ticket-template.md');
+  const templatePath = path.join(__dirname, '../../../templates/tickets/ticket-pmo.md');
   let specContent: string;
   
   try {
