@@ -17,9 +17,6 @@ import * as path from 'path';
 // Import modules
 import { getAllThemes } from '../lib/themes/index.js';
 import { initProject, createWorktrees, removeWorktrees, showStatus } from '../lib/worktree/index.js';
-import { hireAgents, fireAgents, showAgentStatus } from '../lib/agents/index.js';
-import { manageAccess } from '../lib/agents/access.js';
-import { addRepo } from '../lib/repos/index.js';
 import { repairWorktrees, checkWorktreeHealth } from '../lib/worktree/repair.js';
 import { migrateToHQ } from '../lib/worktree/migrate.js';
 import { upgradeConfig } from '../lib/config/upgrade.js';
