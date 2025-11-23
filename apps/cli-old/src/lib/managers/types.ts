@@ -55,5 +55,8 @@ export interface IPMOManager {
   create(): Promise<void>;
   claim(ticketId?: string): Promise<void>;
   complete(ticketId: string): Promise<void>;
+  assign(ticketId?: string, agentName?: string): Promise<void>;
+  reassign(ticketId?: string, agentName?: string): Promise<void>;
+  unassign(ticketId?: string): Promise<void>;
   list(): Promise<void>;
 }

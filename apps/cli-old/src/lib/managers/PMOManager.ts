@@ -416,13 +416,260 @@ export class PMOManager implements IPMOManager {
   }
 
   /**
+   * Assign a ticket to an agent
+   */
+  async assign(ticketId?: string, agentName?: string): Promise<void> {
+    const tickets = this.loadTickets();
+    
+    // If no ticket ID provided, show interactive selection
+    if (!ticketId) {
+      const unassignedTickets = tickets.filter(t => !t.assignee && t.status !== 'done');
+      
+      if (unassignedTickets.length === 0) {
+        log.info('No unassigned tickets available!');
+        return;
+      }
+      
+      const { selectedTicket } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selectedTicket',
+          message: 'Select a ticket to assign:',
+          choices: unassignedTickets.map(t => ({
+            name: `${t.id} - ${t.title} (${t.queue}, ${t.priority})`,
+            value: t.id
+          }))
+        }
+      ]);
+      ticketId = selectedTicket;
+    }
+    
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) {
+      log.error(`Ticket ${ticketId} not found`);
+      return;
+    }
+    
+    if (ticket.status === 'done') {
+      log.warning(`Ticket ${ticketId} is already completed`);
+      return;
+    }
+    
+    // Use provided agent name or prompt for selection
+    let assignee: string | undefined;
+    
+    if (agentName) {
+      // Agent name provided directly
+      assignee = agentName;
+    } else if (this.config.agents.length > 0) {
+      // No agent specified, show selection
+      const { selectedAgent } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selectedAgent',
+          message: `Assign ${ticketId} to:`,
+          choices: this.config.agents.map(a => ({ name: a, value: a }))
+        }
+      ]);
+      assignee = selectedAgent;
+    } else {
+      // No agents configured, ask for name
+      const { inputAgentName } = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'inputAgentName',
+          message: `Assign ${ticketId} to (agent name):`,
+          validate: (input) => input.length > 0 || 'Agent name is required'
+        }
+      ]);
+      assignee = inputAgentName;
+    }
+    
+    // Update ticket
+    ticket.assignee = assignee;
+    ticket.updated = new Date().toISOString();
+    
+    this.saveTickets(tickets);
+    this.updateKanban(tickets);
+    
+    log.success(`✅ Assigned ticket ${chalk.bold(ticketId)} to ${chalk.cyan(assignee)}`);
+  }
+
+  /**
+   * Reassign a ticket to a different agent
+   */
+  async reassign(ticketId?: string, agentName?: string): Promise<void> {
+    const tickets = this.loadTickets();
+    
+    // If no ticket ID provided, show interactive selection of assigned tickets
+    if (!ticketId) {
+      const assignedTickets = tickets.filter(t => t.assignee && t.status !== 'done');
+      
+      if (assignedTickets.length === 0) {
+        log.info('No assigned tickets to reassign!');
+        return;
+      }
+      
+      const { selectedTicket } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selectedTicket',
+          message: 'Select a ticket to reassign:',
+          choices: assignedTickets.map(t => ({
+            name: `${t.id} - ${t.title} (currently: ${t.assignee})`,
+            value: t.id
+          }))
+        }
+      ]);
+      ticketId = selectedTicket;
+    }
+    
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) {
+      log.error(`Ticket ${ticketId} not found`);
+      return;
+    }
+    
+    if (ticket.status === 'done') {
+      log.warning(`Ticket ${ticketId} is already completed`);
+      return;
+    }
+    
+    const currentAssignee = ticket.assignee;
+    if (!currentAssignee) {
+      log.info(`Ticket ${ticketId} is not assigned. Use 'assign' instead.`);
+      return;
+    }
+    
+    // Use provided agent name or prompt for selection
+    let newAssignee: string | undefined;
+    
+    if (agentName) {
+      // Agent name provided directly
+      if (agentName === currentAssignee) {
+        log.warning(`Ticket ${ticketId} is already assigned to ${agentName}`);
+        return;
+      }
+      newAssignee = agentName;
+    } else if (this.config.agents.length > 1) {
+      // No agent specified, show selection (exclude current)
+      const availableAgents = this.config.agents.filter(a => a !== currentAssignee);
+      
+      if (availableAgents.length === 0) {
+        log.warning('No other agents available for reassignment');
+        return;
+      }
+      
+      const { selectedAgent } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selectedAgent',
+          message: `Reassign ${ticketId} from ${currentAssignee} to:`,
+          choices: availableAgents.map(a => ({ name: a, value: a }))
+        }
+      ]);
+      newAssignee = selectedAgent;
+    } else {
+      // Manual input for new agent
+      const { inputAgentName } = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'inputAgentName',
+          message: `Reassign ${ticketId} from ${currentAssignee} to:`,
+          validate: (input) => {
+            if (!input) return 'Agent name is required';
+            if (input === currentAssignee) return 'Cannot reassign to the same agent';
+            return true;
+          }
+        }
+      ]);
+      newAssignee = inputAgentName;
+    }
+    
+    // Update ticket
+    ticket.assignee = newAssignee;
+    ticket.updated = new Date().toISOString();
+    
+    this.saveTickets(tickets);
+    this.updateKanban(tickets);
+    
+    log.success(`✅ Reassigned ticket ${chalk.bold(ticketId)} from ${chalk.cyan(currentAssignee)} to ${chalk.cyan(newAssignee)}`);
+  }
+
+  /**
+   * Unassign a ticket (remove agent assignment)
+   */
+  async unassign(ticketId?: string): Promise<void> {
+    const tickets = this.loadTickets();
+    
+    // If no ticket ID provided, show interactive selection
+    if (!ticketId) {
+      const assignedTickets = tickets.filter(t => t.assignee && t.status !== 'done');
+      
+      if (assignedTickets.length === 0) {
+        log.info('No assigned tickets to unassign!');
+        return;
+      }
+      
+      const { selectedTicket } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selectedTicket',
+          message: 'Select a ticket to unassign:',
+          choices: assignedTickets.map(t => ({
+            name: `${t.id} - ${t.title} (assigned to: ${t.assignee})`,
+            value: t.id
+          }))
+        }
+      ]);
+      ticketId = selectedTicket;
+    }
+    
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) {
+      log.error(`Ticket ${ticketId} not found`);
+      return;
+    }
+    
+    if (!ticket.assignee) {
+      log.warning(`Ticket ${ticketId} is not assigned to anyone`);
+      return;
+    }
+    
+    const previousAssignee = ticket.assignee;
+    
+    // Confirm unassignment
+    const { confirmUnassign } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'confirmUnassign',
+        message: `Remove ${previousAssignee} from ticket ${ticketId}?`,
+        default: true
+      }
+    ]);
+    
+    if (!confirmUnassign) {
+      return;
+    }
+    
+    // Update ticket
+    delete ticket.assignee;
+    ticket.updated = new Date().toISOString();
+    
+    this.saveTickets(tickets);
+    this.updateKanban(tickets);
+    
+    log.success(`✅ Unassigned ${chalk.cyan(previousAssignee)} from ticket ${chalk.bold(ticketId)}`);
+  }
+
+  /**
    * List all tickets
    */
   async list(): Promise<void> {
     const tickets = this.loadTickets();
 
     if (tickets.length === 0) {
-      log.info('No tickets yet! Create one with `prlt add-ticket`');
+      log.info('No tickets yet! Create one with `prlt ticket create`');
       return;
     }
 

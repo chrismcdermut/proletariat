@@ -177,32 +177,6 @@ program
     await managers.pmo.init();
   });
 
-// Ticket command aliases for backwards compatibility
-program
-  .command('add-ticket')
-  .alias('create-ticket')
-  .description('📝 Create a new ticket in the PMO')
-  .action(async () => {
-    const managers = getManagers();
-    if (!managers) {
-      log.error('Not in an HQ directory! Run `prlt init --hq <name>` first.');
-      return;
-    }
-    await managers.pmo.create();
-  });
-
-program
-  .command('claim [ticketId]')
-  .description('🎯 Claim a ticket and launch Claude with context')
-  .action(async (ticketId?: string) => {
-    const managers = getManagers();
-    if (!managers) {
-      log.error('Not in an HQ directory! Run `prlt init --hq <name>` first.');
-      return;
-    }
-    await managers.pmo.claim(ticketId);
-  });
-
 // Standard commands using managers
 program
   .command('agent [action] [name]')
@@ -297,9 +271,9 @@ program
   });
 
 program
-  .command('ticket [action] [id]')
+  .command('ticket [action] [ticketId] [agentName]')
   .description('🎯 Manage tickets')
-  .action(async (action?: string, id?: string) => {
+  .action(async (action?: string, ticketId?: string, agentName?: string) => {
     const managers = getManagers();
     if (!managers) {
       log.error('Not in an HQ directory! Run `prlt init --hq <name>` first.');
@@ -316,6 +290,9 @@ program
           choices: [
             { name: 'Create ticket', value: 'create' },
             { name: 'Claim ticket', value: 'claim' },
+            { name: 'Assign ticket', value: 'assign' },
+            { name: 'Reassign ticket', value: 'reassign' },
+            { name: 'Unassign ticket', value: 'unassign' },
             { name: 'Complete ticket', value: 'complete' },
             { name: 'List tickets', value: 'list' }
           ]
@@ -329,11 +306,20 @@ program
         await managers.pmo.create();
         break;
       case 'claim':
-        await managers.pmo.claim(id);
+        await managers.pmo.claim(ticketId);
+        break;
+      case 'assign':
+        await managers.pmo.assign(ticketId, agentName);
+        break;
+      case 'reassign':
+        await managers.pmo.reassign(ticketId, agentName);
+        break;
+      case 'unassign':
+        await managers.pmo.unassign(ticketId);
         break;
       case 'complete':
-        if (id) {
-          await managers.pmo.complete(id);
+        if (ticketId) {
+          await managers.pmo.complete(ticketId);
         } else {
           log.error('Ticket ID required for complete');
         }
@@ -343,7 +329,7 @@ program
         break;
       default:
         log.error(`Unknown action: ${action}`);
-        log.info('Available actions: create, claim, complete, list');
+        log.info('Available actions: create, claim, assign, reassign, unassign, complete, list');
     }
   });
 
