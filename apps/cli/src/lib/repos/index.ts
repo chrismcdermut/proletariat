@@ -69,9 +69,13 @@ export async function promptForRepositories(
     // Check if this repo is already added
     if (!existingRepos.includes(currentRepoName)) {
       const { addCurrent } = await inquirer.prompt([{
-        type: 'confirm',
+        type: 'list',
         name: 'addCurrent',
         message: `Add current repository (${currentRepoName}) to repos/?`,
+        choices: [
+          { name: 'Yes', value: true },
+          { name: 'No', value: false }
+        ],
         default: true,
       }]);
       
@@ -268,9 +272,13 @@ async function createNewRepository(): Promise<RepoToAdd | null> {
       }
     },
     {
-      type: 'confirm',
+      type: 'list',
       name: 'initWithReadme',
       message: 'Initialize with README.md?',
+      choices: [
+        { name: 'Yes', value: true },
+        { name: 'No', value: false }
+      ],
       default: true
     }
   ]);

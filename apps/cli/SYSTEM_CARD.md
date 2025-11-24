@@ -47,15 +47,15 @@ This is the authoritative list of commands that MUST exist in the CLI.
 
 #### Agent Commands
 
-| Command | 📝 | ✅ | 🧪 | 🧑‍💻 | ✔️ | Description |
-|---------|----|----|----|----|----|----|
-| `prlt agent` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Interactive agent menu |
-| `prlt agent add [names...]` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Add new agents |
-| `prlt agent list` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | List all agents with status |
-| `prlt agent remove [names...]` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Remove agents |
-| `prlt agent grant` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Grant repo access to agents |
-| `prlt agent revoke` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Revoke repo access |
-| `prlt agent switch <name>` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Switch to agent's worktree |
+| Command                        | 📝  | ✅   | 🧪  | 🧑‍💻 | ✔️  | Description                 |
+| ------------------------------ | --- | --- | --- | ----- | --- | --------------------------- |
+| `prlt agent`                   | ⬜   | ⬜   | ⬜   | ⬜     | ⬜   | Interactive agent menu      |
+| `prlt agent add [names...]`    | ⬜   | ⬜   | ⬜   | ⬜     | ⬜   | Add new agents              |
+| `prlt agent list`              | ⬜   | ⬜   | ⬜   | ⬜     | ⬜   | List all agents with status |
+| `prlt agent remove [names...]` | ⬜   | ⬜   | ⬜   | ⬜     | ⬜   | Remove agents               |
+| `prlt agent grant`             | ⬜   | ⬜   | ⬜   | ⬜     | ⬜   | Grant repo access to agents |
+| `prlt agent revoke`            | ⬜   | ⬜   | ⬜   | ⬜     | ⬜   | Revoke repo access          |
+| `prlt agent switch <name>`     | ⬜   | ⬜   | ⬜   | ⬜     | ⬜   | Switch to agent's worktree  |
 
 #### PMO Commands
 

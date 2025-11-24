@@ -46,7 +46,7 @@ export default class Init extends Command {
 
       // Show next steps
       const options = { workspaceType, theme, selectedAgents };
-      showNextSteps(options, workspacePath);
+      await showNextSteps(options, workspacePath);
 
     } else {
       // Full HQ flow
@@ -90,7 +90,7 @@ export default class Init extends Command {
       await initializeHQ(options);
 
       // Show next steps
-      showNextSteps(options);
+      await showNextSteps(options);
     }
   }
 }

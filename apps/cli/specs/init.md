@@ -80,18 +80,17 @@ my-project-hq/
 ```
 parent-dir/
 ├── my-project/          # Original repository
-└── agents/              # Agent management directory (sibling)
-    └── garage/          # Agent workspace
+└── my-project-garage/   # Workspace (clearly linked to repo)
+    ├── .proletariat/
+    │   └── config.json  # type: "workspace", mainRepo, agents
+    ├── camry/           # Agent directory
+    │   ├── .proletariat/
+    │   │   └── config.json
+    │   └── my-project/  # Git worktree for agent camry
+    └── tacoma/          # Agent directory
         ├── .proletariat/
-        │   └── config.json  # type: "workspace", mainRepo, agents
-        ├── camry/       # Agent directory
-        │   ├── .proletariat/
-        │   │   └── config.json
-        │   └── my-project/  # Git worktree for agent camry
-        └── tacoma/      # Agent directory
-            ├── .proletariat/
-            │   └── config.json
-            └── my-project/  # Git worktree for agent tacoma
+        │   └── config.json
+        └── my-project/  # Git worktree for agent tacoma
 ```
 
 
@@ -104,9 +103,9 @@ parent-dir/
     - 🔧 Agent workspace only - Just create agent workspace next to current repo
 
 ### HQ Flow Prompts
-1. **HQ Name**: "Company/organization name for HQ (umbrella for all repos & boards):"
-2. **HQ Suffix**: "Add \"-hq\" suffix to folder name? (Y/n)"
-3. **Location**: "Where to create HQ: [../name-hq]"
+1. **HQ Name**: "Workspace name (company, project, or team name recommended):"
+2. **HQ Suffix**: "Add \"-hq\" suffix to folder name?" (arrow key selection)
+3. **Location**: "Where to create HQ [press Enter for ../name-hq]:"
 4. **Theme**: "Choose agent naming theme:" (billionaires/toyotas/companies)
 5. **Agents**: "Add agents now? (y/N)" → Select from theme list
 6. **Repositories**: Interactive repo addition (current + others)
@@ -114,7 +113,7 @@ parent-dir/
 
 ### Workspace-Only Flow Prompts  
 1. **Theme**: "Choose agent naming theme:" (billionaires/toyotas/companies)
-2. **Location**: "Where to create garage workspace: [../garage]"
+2. **Location**: "Where to create workspace [press Enter for ../repo-garage]:"
 3. **Agents**: "Add agents now? (y/N)" → Select from theme list
 
 ## Error Cases

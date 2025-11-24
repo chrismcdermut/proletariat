@@ -4,6 +4,7 @@ import { execSync } from 'child_process';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { THEMES } from '../themes.js';
+import { getWorkspaceRepositories } from '../database/index.js';
 
 export interface HQConfig {
   type: 'hq';
@@ -16,17 +17,23 @@ export interface HQConfig {
 }
 
 /**
- * Find the HQ root directory by looking for .proletariat/config.json
+ * Find the HQ root directory by looking for .proletariat/workspace.db
  */
 export function findHQRoot(startDir: string = process.cwd()): string | null {
   let currentDir = startDir;
   
   while (currentDir !== '/') {
-    const configPath = path.join(currentDir, '.proletariat', 'config.json');
-    if (fs.existsSync(configPath)) {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      if (config.type === 'hq') {
-        return currentDir;
+    const dbPath = path.join(currentDir, '.proletariat', 'workspace.db');
+    if (fs.existsSync(dbPath)) {
+      // Check if it's an HQ workspace by querying the database
+      try {
+        const { getWorkspaceConfig } = require('../database/index.js');
+        const config = getWorkspaceConfig(currentDir);
+        if (config && config.type === 'hq') {
+          return currentDir;
+        }
+      } catch (error) {
+        // Ignore database errors and continue searching
       }
     }
     currentDir = path.dirname(currentDir);
@@ -75,10 +82,11 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
   if (hqPath) {
     // HQ mode - create worktrees for all repos in repos/ directory
     const reposDir = path.join(hqPath, 'repos');
-    const configPath = path.join(hqPath, '.proletariat', 'config.json');
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as HQConfig;
     
-    if (config.repos.length > 0) {
+    // Get repositories from database instead of JSON config
+    const repos = getWorkspaceRepositories(hqPath);
+    
+    if (repos.length > 0) {
       // Create worktrees for each agent across all repositories
       for (const agent of agents) {
         const agentDir = path.join(workspacePath, agent);
@@ -89,12 +97,12 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
           fs.mkdirSync(agentDir, { recursive: true });
 
           // Create worktrees for all repositories
-          for (const repoName of config.repos) {
-            const sourceRepo = path.join(reposDir, repoName);
-            const worktreeDir = path.join(agentDir, repoName);
+          for (const repo of repos) {
+            const sourceRepo = path.join(reposDir, repo.name);
+            const worktreeDir = path.join(agentDir, repo.name);
             
             if (fs.existsSync(sourceRepo)) {
-              console.log(chalk.gray(`  Creating worktree for ${repoName}...`));
+              console.log(chalk.gray(`  Creating worktree for ${repo.name}...`));
               
               // Create git worktree for the agent
               execSync(`git worktree add ${worktreeDir} -b agent-${agent}`, {
@@ -113,7 +121,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
             agentName: agent,
             created: new Date().toISOString(),
             workspacePath: path.relative(agentDir, hqPath),
-            repos: config.repos,
+            repos: repos.map(r => r.name),
             branch: `agent-${agent}`
           };
           
@@ -122,7 +130,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
             JSON.stringify(agentConfig, null, 2)
           );
 
-          console.log(chalk.green(`✅ Agent ${agent} created with ${config.repos.length} worktree(s)`));
+          console.log(chalk.green(`✅ Agent ${agent} created with ${repos.length} worktree(s)`));
         } catch (error) {
           console.log(chalk.red(`Failed to create agent ${agent}: ${error}`));
         }
@@ -214,13 +222,16 @@ export async function addAgentsToHQ(
   agents: string[],
   theme: string
 ): Promise<void> {
-  // Update HQ config
-  const configPath = path.join(hqPath, '.proletariat', 'config.json');
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as HQConfig;
+  // Import database functions for getting/adding agents
+  const { getWorkspaceAgents, addAgentsToDatabase } = await import('../database/index.js');
+  
+  // Get existing agents from database
+  const existingAgents = getWorkspaceAgents(hqPath);
+  const existingAgentNames = existingAgents.map(a => a.name);
   
   // Filter out already existing agents
   const newAgents = agents.filter(name => {
-    if (config.agents.includes(name)) {
+    if (existingAgentNames.includes(name)) {
       console.log(chalk.yellow(`Agent ${name} already exists`));
       return false;
     }
@@ -233,11 +244,12 @@ export async function addAgentsToHQ(
   }
 
   // Create worktrees
-  await createAgentWorktrees(hqPath, newAgents, theme);
+  const themeConfig = THEMES[theme];
+  const workspacePath = path.join(hqPath, 'agents', themeConfig.workspaceDir);
+  await createAgentWorktrees(workspacePath, newAgents, hqPath);
 
-  // Update config with new agents
-  config.agents.push(...newAgents);
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  // Add agents to database
+  addAgentsToDatabase(hqPath, newAgents, theme);
   
   console.log(chalk.green(`\n🎉 Added ${newAgents.length} agent(s) successfully!`));
 }
