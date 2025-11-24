@@ -105,10 +105,37 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
               console.log(chalk.gray(`  Creating worktree for ${repo.name}...`));
               
               // Create git worktree for the agent
-              execSync(`git worktree add ${worktreeDir} -b agent-${agent}`, {
-                cwd: sourceRepo,
-                stdio: 'inherit'
-              });
+              const branchName = `agent-${agent}`;
+              try {
+                execSync(`git worktree add ${worktreeDir} -b ${branchName}`, {
+                  cwd: sourceRepo,
+                  stdio: 'inherit'
+                });
+              } catch (error) {
+                // Branch might already exist, try to use it or clean up
+                console.log(chalk.yellow(`  Branch ${branchName} already exists, attempting to reuse or clean up...`));
+                try {
+                  // Try without creating a new branch (use existing)
+                  execSync(`git worktree add ${worktreeDir} ${branchName}`, {
+                    cwd: sourceRepo,
+                    stdio: 'inherit'
+                  });
+                } catch (secondError) {
+                  // If that fails too, clean up the orphaned branch and try again
+                  try {
+                    execSync(`git branch -D ${branchName}`, {
+                      cwd: sourceRepo,
+                      stdio: 'pipe'
+                    });
+                    execSync(`git worktree add ${worktreeDir} -b ${branchName}`, {
+                      cwd: sourceRepo,
+                      stdio: 'inherit'
+                    });
+                  } catch (finalError) {
+                    throw new Error(`Failed to create worktree after cleanup: ${finalError}`);
+                  }
+                }
+              }
             }
           }
 
@@ -160,10 +187,37 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
         fs.mkdirSync(agentDir, { recursive: true });
         
         // Create git worktree for the agent
-        execSync(`git worktree add ${worktreeDir} -b agent-${agent}`, {
-          cwd: sourceRepo,
-          stdio: 'inherit'
-        });
+        const branchName = `agent-${agent}`;
+        try {
+          execSync(`git worktree add ${worktreeDir} -b ${branchName}`, {
+            cwd: sourceRepo,
+            stdio: 'inherit'
+          });
+        } catch (error) {
+          // Branch might already exist, try to use it or clean up
+          console.log(chalk.yellow(`  Branch ${branchName} already exists, attempting to reuse or clean up...`));
+          try {
+            // Try without creating a new branch (use existing)
+            execSync(`git worktree add ${worktreeDir} ${branchName}`, {
+              cwd: sourceRepo,
+              stdio: 'inherit'
+            });
+          } catch (secondError) {
+            // If that fails too, clean up the orphaned branch and try again
+            try {
+              execSync(`git branch -D ${branchName}`, {
+                cwd: sourceRepo,
+                stdio: 'pipe'
+              });
+              execSync(`git worktree add ${worktreeDir} -b ${branchName}`, {
+                cwd: sourceRepo,
+                stdio: 'inherit'
+              });
+            } catch (finalError) {
+              throw new Error(`Failed to create worktree after cleanup: ${finalError}`);
+            }
+          }
+        }
 
         // Create agent config in the agent directory (not the worktree)
         const agentConfigDir = path.join(agentDir, '.proletariat');

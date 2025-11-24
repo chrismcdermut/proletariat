@@ -54,7 +54,8 @@ describe('prlt init', () => {
 
       // Since we can't easily mock inquirer in integration tests,
       // let's test the underlying functions directly
-      const { createHQStructure, createHQConfig } = await import('../../src/lib/init/index.js');
+      const { createHQStructure } = await import('../../src/lib/init/index.js');
+      const { createWorkspaceDatabase, getWorkspaceConfig } = await import('../../src/lib/database/index.js');
       const { THEMES } = await import('../../src/lib/themes.js');
       
       const hqPath = path.join(testDir, 'test-company-hq');
@@ -63,35 +64,29 @@ describe('prlt init', () => {
       // Create HQ structure
       createHQStructure(hqPath, theme);
 
-      // Verify directory structure
+      // Create database
+      const db = createWorkspaceDatabase(hqPath, 'hq', theme, THEMES[theme].workspaceDir, false);
+      db.close();
+
+      // Verify directory structure was created
       expect(fs.existsSync(hqPath)).to.be.true;
       expect(fs.existsSync(path.join(hqPath, '.proletariat'))).to.be.true;
       expect(fs.existsSync(path.join(hqPath, 'repos'))).to.be.true;
-      expect(fs.existsSync(path.join(hqPath, THEMES[theme].workspaceDir))).to.be.true;
+      expect(fs.existsSync(path.join(hqPath, 'agents', THEMES[theme].workspaceDir))).to.be.true;
 
-      // Create and verify config
-      const options = {
-        workspaceType: 'hq' as const,
-        hqPath,
-        theme,
-        selectedAgents: [],
-        repos: [],
-        includePMO: false,
-        boardTemplate: 'default'
-      };
-
-      createHQConfig(hqPath, options);
-
+      // Verify config files exist
       const configPath = path.join(hqPath, '.proletariat', 'config.json');
+      const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
       expect(fs.existsSync(configPath)).to.be.true;
+      expect(fs.existsSync(dbPath)).to.be.true;
 
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      expect(config.type).to.equal('hq');
-      expect(config.theme).to.equal('toyotas');
-      expect(config.workspaceName).to.equal('garage');
-      expect(config.hasPMO).to.be.false;
-      expect(config.agents).to.be.an('array').that.is.empty;
-      expect(config.repos).to.be.an('array').that.is.empty;
+      // Check SQLite database content
+      const config = getWorkspaceConfig(hqPath);
+      expect(config).to.not.be.null;
+      expect(config!.type).to.equal('hq');
+      expect(config!.theme).to.equal(theme);
+      expect(config!.workspace_name).to.equal(THEMES[theme].workspaceDir);
+      expect(config!.has_pmo).to.be.false;
     });
 
     it('should validate HQ location is not inside git repo', async () => {
@@ -124,6 +119,7 @@ describe('prlt init', () => {
       execSync('git commit -m "Initial commit"', { cwd: testDir });
 
       const { createWorkspaceOnly } = await import('../../src/lib/init/index.js');
+      const { getWorkspaceConfig } = await import('../../src/lib/database/index.js');
       
       const workspacePath = path.join(path.dirname(testDir), 'garage');
       const theme = 'toyotas';
@@ -135,15 +131,17 @@ describe('prlt init', () => {
       expect(fs.existsSync(workspacePath)).to.be.true;
       expect(fs.existsSync(path.join(workspacePath, '.proletariat'))).to.be.true;
 
-      // Verify config
+      // Verify config files exist
       const configPath = path.join(workspacePath, '.proletariat', 'config.json');
+      const dbPath = path.join(workspacePath, '.proletariat', 'workspace.db');
       expect(fs.existsSync(configPath)).to.be.true;
+      expect(fs.existsSync(dbPath)).to.be.true;
 
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      expect(config.type).to.equal('workspace');
-      expect(config.theme).to.equal('toyotas');
-      expect(fs.realpathSync(config.mainRepo)).to.equal(fs.realpathSync(testDir));
-      expect(config.agents).to.be.an('array').that.is.empty;
+      // Check SQLite database content
+      const config = getWorkspaceConfig(workspacePath);
+      expect(config).to.not.be.null;
+      expect(config!.type).to.equal('workspace');
+      expect(config!.theme).to.equal('toyotas');
     });
   });
 
@@ -201,7 +199,7 @@ describe('prlt init', () => {
         
         createHQStructure(hqPath, themeName);
         
-        expect(fs.existsSync(path.join(hqPath, themeConfig.workspaceDir))).to.be.true;
+        expect(fs.existsSync(path.join(hqPath, 'agents', themeConfig.workspaceDir))).to.be.true;
       }
     });
 

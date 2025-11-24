@@ -1,378 +1,368 @@
 # `prlt agent` Specification
 
 ## Purpose
-Manage AI agents (workers) within HQ and workspace-only environments. Agents are isolated development environments using git worktrees for parallel work on the same codebase.
+Individual agent operations focused on single-agent workflows. Provides detailed management and navigation for specific agents.
 
 ## Core Concepts
-- **Agent**: Named worker with dedicated git worktree and configuration
-- **Worktree**: Separate working directory allowing parallel work on different branches
-- **Theme Integration**: Agent names follow theme patterns (billionaires/toyotas/companies)
-- **Dual Mode Support**: Works in both HQ and workspace-only setups
+- **Individual Focus**: Operations on single agents
+- **Interactive Selection**: Choose specific agent when not specified
+- **Detailed Information**: In-depth status and configuration details
+- **Navigation Support**: Directory switching and agent visiting
 
-## Architecture
+## Command Overview
 
-### HQ Mode Structure
-```
-my-project-hq/
-├── agents/
-│   └── garage/              # Theme workspace directory
-│       ├── camry/           # Agent directory
-│       │   ├── .proletariat/
-│       │   │   └── config.json
-│       │   ├── my-project/  # Git worktree (repo 1)
-│       │   └── other-repo/  # Git worktree (repo 2)
-│       └── tacoma/          # Another agent
-│           ├── .proletariat/
-│           └── my-project/
-```
+| Command                      | Purpose                                | Category    | Status        |
+| ---------------------------- | -------------------------------------- | ----------- | ------------- |
+| `prlt agent`                 | Interactive individual operations menu | Menu        | ✅ Implemented |
+| `prlt agent status [name]`   | Show detailed status for specific agent| Status     | ✅ Implemented |
+| `prlt agent visit [name]`    | Navigate to agent directory            | Navigation  | ✅ Implemented |
+| `prlt agent add`             | Add single agent (redirects to bulk)  | Creation    | ✅ Implemented |
+| `prlt agent remove [name]`   | Remove specific agent                  | Management  | ✅ Implemented |
 
-### Workspace-Only Mode Structure
+## Interactive Menu Structure
+
+### `prlt agent`
+**Purpose**: Display interactive menu for individual agent operations
+
+**Menu Options**:
 ```
-parent-dir/
-├── my-project/              # Original repository
-└── my-project-garage/       # Workspace
-    ├── camry/               # Agent directory
-    │   ├── .proletariat/
-    │   └── my-project/      # Git worktree
-    └── tacoma/
-        ├── .proletariat/
-        └── my-project/
+🤖 Individual Agent Operations
+
+? What would you like to do?
+❯ 📊 Show agent status
+  📁 Visit agent directory
+  ➕ Add new agent
+  🗑️  Remove agent
+  ──────────────
+  ❌ Cancel
 ```
 
-## Commands Overview
+**Behavior**:
+- Shows interactive arrow-key navigation
+- Executes selected command directly (no subprocess)
+- Preserves workspace context across operations
+- Uses centralized color scheme for readability
 
-| Command                           | Purpose                      | Category    | Status            |
-| --------------------------------- | ---------------------------- | ----------- | ----------------- |
-| `prlt agent`                      | Show agent command help      | Help        | ✅ Implemented     |
-| `prlt agent add [names...]`       | Create new agents            | CRUD        | ✅ Implemented     |
-| `prlt agent list`                 | List all agents (overview)   | CRUD        | 🔄 Needs fixes    |
-| `prlt agent remove [names...]`    | Delete agents                | CRUD        | 🔄 Needs fixes    |
-| `prlt agent visit <name>`         | Navigate to agent directory  | Navigation  | ✅ Implemented     |
-| `prlt agent status [name]`        | Show detailed agent status   | Status      | ❌ Not implemented |
-| `prlt agent grant [permissions]`  | Grant repo/tool permissions  | Permissions | ⏳ Future          |
-| `prlt agent revoke [permissions]` | Revoke repo/tool permissions | Permissions | ⏳ Future          |
-
-## Proposed Command Changes
-
-**Rename**: `switch` → `visit` (more descriptive for navigation)
-**Add**: `status [name]` for detailed individual agent info
-**Clarify**: `list` for overview, `status` for details
-**Future**: `grant`/`revoke` for repo access, tool permissions, promote/demote
+---
 
 ## Command Specifications
 
-### `prlt agent`
-**Purpose**: Display help and available commands
-
-**Behavior**:
-- Shows list of available agent commands
-- Provides usage examples
-- No arguments or flags
-
-**Output**:
-```
-🤖 Agent Management
-
-Available commands:
-  prlt agent add [names...]     Add new agents
-  prlt agent list               List all agents  
-  prlt agent remove [names...]  Remove agents
-  prlt agent switch <name>      Switch to agent directory
-
-Run "prlt agent <command> --help" for more details
-```
-
----
-
-### `prlt agent add [names...]`
-**Purpose**: Add new agents to the workspace
+### `prlt agent status [name]`
+**Purpose**: Show detailed status for a specific agent
 
 **Arguments**:
-- `names` (optional): Space-separated agent names from theme
+- `name` (optional): Agent name for detailed status. If omitted, shows interactive selection.
 
-**Behavior**:
-1. Detect workspace type (HQ vs workspace-only)
-2. If no names provided, show theme-based agent selection
-3. Filter out existing agents
-4. Create git worktrees for each repository
-5. Create agent configuration files
-6. Update workspace config
-
-**Examples**:
-```bash
-# Add specific agents
-prlt agent add camry tacoma
-
-# Interactive mode - shows theme agents
-prlt agent add
-
-# HQ mode: creates agents/garage/camry/, agents/garage/tacoma/
-# Workspace mode: creates my-project-garage/camry/, my-project-garage/tacoma/
+**Interactive Selection** (when no name provided):
+```
+? Select agent to view status:
+❯ bezos
+  gates  
+  huang
+  zuck
+  ──────────────
+  ❌ Cancel
 ```
 
-**Theme Integration**:
-- Toyota theme: camry, tacoma, fj40, landcruiser...
-- Billionaire theme: musk, bezos, gates, altman...
-- Company theme: apple, google, meta, nvidia...
+**Detailed Output**:
+```
+🤖 Agent: bezos
 
-**Error Cases**:
-- Not in HQ/workspace directory
-- Agent name already exists
-- Invalid agent name for theme
-- Git worktree creation fails
+🟢 Status: Active
+📍 Location: /path/to/agents/staff/bezos
+🌿 Branch: agent-bezos
+
+📁 Repositories:
+   • clevertap-react-native (clean)
+   • integrated-ventures-infra (clean)  
+   • tech-thought-portfolio (clean) 2 commits ahead
+   • atlassian-cloud-for-gmail (clean)
+   • new-repo-test (clean)
+
+🎫 Tickets:
+   No tickets assigned
+
+⚡ Activity:
+   Last activity: 1 hours ago
+```
+
+**Behavior**:
+- Shows comprehensive agent information
+- Lists all repository statuses with commit information
+- Displays ticket assignments (if PMO enabled)
+- Shows last activity timestamp
+- Handles missing/inactive agents gracefully
 
 ---
 
-### `prlt agent list`
-**Purpose**: List all agents with status and activity info
-
-**Behavior**:
-1. Find workspace root and load config
-2. Check each agent's directory exists
-3. Show git branch info
-4. Display last activity timestamp
-5. Show ticket assignments (if PMO enabled)
-
-**Output Format**:
-```
-👥 Active Agents:
-
-🟢 camry - Active
-   Branch: agent-camry
-   Current tickets: #123, #124
-   Working on: Fix authentication bug
-   Last active: 2 hours ago
-
-🔴 tacoma - Missing
-   Worktree not found at: /path/to/tacoma
-   Run "prlt agent add tacoma" to recreate
-
-📊 Summary:
-   Total agents: 2
-   Active: 1
-   Inactive: 1
-   Tickets assigned: 2
-```
-
----
-
-### `prlt agent remove [names...]`
-**Purpose**: Remove agents and clean up their worktrees
+### `prlt agent visit [name]`
+**Purpose**: Navigate to agent directory for development work
 
 **Arguments**:
-- `names` (optional): Space-separated agent names to remove
+- `name` (optional): Agent name to visit. If omitted, shows interactive selection.
 
-**Behavior**:
-1. If no names, show interactive selection
-2. Confirm removal (destructive operation)
-3. Remove git worktrees using `git worktree remove`
-4. Clean up agent directories
-5. Update workspace configuration
-6. Run `git worktree prune` for cleanup
-
-**Examples**:
-```bash
-# Remove specific agents
-prlt agent remove camry tacoma
-
-# Interactive mode
-prlt agent remove
+**Interactive Selection** (when no name provided):
 ```
-
-**Confirmation**:
-```
-? Select agents to remove: (Use arrow keys, SPACE to select)
-❯ ◯ camry
-  ◯ tacoma
-
-? Are you sure you want to remove 1 agent(s)? This will delete their worktrees. (y/N)
-```
-
----
-
-### `prlt agent visit <name>`
-**Purpose**: Navigate to agent directory (renamed from switch)
-
-**Arguments**:
-- `name` (optional): Agent name to visit
-
-**Behavior**:
-1. If no name, show interactive agent selection
-2. Validate agent exists and directory is accessible  
-3. Calculate relative path from current location
-4. Display `cd` command for user to run
-
-**Examples**:
-```bash
-# Visit specific agent
-prlt agent visit camry
-
-# Interactive mode  
-prlt agent visit
+? Select agent to visit:
+❯ bezos
+  gates
+  huang  
+  zuck
+  ──────────────
+  ❌ Cancel
 ```
 
 **Output**:
 ```
-🤖 Visiting agent: camry
-  cd ../agents/garage/camry
+🤖 Visiting agent: bezos
+  cd ../../../agents/staff/bezos
 
 Note: Due to shell limitations, you need to run this command manually.
 ```
 
+**Behavior**:
+- Calculates relative path from current directory
+- Validates agent exists before providing navigation
+- Provides clear instructions for manual execution
+- Shows full path context for user orientation
+
 ---
 
-### `prlt agent status [name]`
-**Purpose**: Show detailed status for specific agent or all agents
+### `prlt agent add`
+**Purpose**: Add single agent (redirects to bulk add for consistency)
+
+**Behavior**:
+- Redirects to `agents add` command for unified experience
+- Maintains consistency with bulk operations
+- Allows selection of single or multiple agents
+- Preserves workspace context during redirect
+
+**Implementation**:
+```typescript
+case 'add': {
+  const { default: AddCommand } = await import('./agents/add.js');
+  const cmd = new AddCommand([], this.config);
+  await cmd.run();
+  break;
+}
+```
+
+---
+
+### `prlt agent remove [name]`
+**Purpose**: Remove a specific agent from the workspace
 
 **Arguments**:
-- `name` (optional): Specific agent name. If omitted, shows overview of all agents
+- `name` (optional): Agent name to remove. If omitted, shows interactive selection.
+
+**Interactive Selection** (when no name provided):
+```
+? Select agent to remove:
+❯ bezos
+  gates
+  huang
+  zuck
+  ──────────────
+  ❌ Cancel
+```
+
+**Confirmation Flow**:
+```
+? Are you sure you want to remove agent "bezos"? This will delete its worktree.
+❯ ❌ No, cancel
+  ⚠️  Yes, remove agent
+```
+
+**Success Output**:
+```
+Removing agent "bezos"...
+✅ Agent bezos removed
+```
 
 **Behavior**:
-- **With agent name**: Detailed view of single agent
-- **Without name**: Summary status of all agents (similar to current `list`)
-
-**Examples**:
-```bash
-# Detailed status for one agent
-prlt agent status camry
-
-# Overview status for all agents
-prlt agent status
-```
-
-**Single Agent Output**:
-```
-🤖 Agent: camry
-
-📍 Location: /path/to/agents/garage/camry
-🌿 Branch: agent-camry
-📁 Repositories:
-   • my-project (active, 3 commits ahead)
-   • other-repo (clean)
-
-🎫 Tickets:
-   • #123: Fix authentication bug (in-progress)
-   • #124: Add user settings (todo)
-
-⚡ Activity:
-   Last commit: 2 hours ago
-   Last file change: 30 minutes ago
-   
-🔑 Permissions:
-   • my-project: write
-   • other-repo: read
-```
-
-**All Agents Overview**:
-```
-📊 Agent Status Overview:
-
-🟢 camry    - Active    - 2 tickets - 2h ago
-🟢 tacoma   - Active    - 1 ticket  - 1d ago  
-🔴 fj40     - Inactive  - 0 tickets - 1w ago
-
-Summary: 3 agents (2 active, 1 inactive)
-```
+- Focuses on single agent removal
+- Provides clear cancel option in selection
+- Uses interactive confirmation for destructive operation
+- Shows detailed progress and results
 
 ---
 
-### `prlt agent grant` *(Future Feature)*
-**Purpose**: Grant permissions or repository access to agents
+## Design Principles
 
-**Behavior**:
-- Assign agent to specific repositories
-- Set permission levels (read/write/admin)
-- Store permissions in agent config
-- Support bulk operations
+### Individual-Focused UX
+- **Single Selection**: Use list prompts for choosing one item
+- **Detailed Information**: Provide comprehensive status details
+- **Interactive Fallback**: Always offer selection when argument missing
+- **Clear Navigation**: Support directory switching workflows
+
+### Development-Oriented Features
+- **Status Detail**: Show repository states, commits, branches
+- **Navigation Support**: Easy directory switching for development
+- **Activity Tracking**: Last activity and work context
+- **Integration Awareness**: Show tickets and assignments
+
+### Consistent Interaction Patterns  
+- **Optional Arguments**: All commands work with or without agent names
+- **Interactive Selection**: Consistent selection UI across commands
+- **Cancel Options**: Always available with clear visual separation
+- **Status Validation**: Check agent existence before operations
 
 ---
 
-### `prlt agent revoke` *(Future Feature)*
-**Purpose**: Revoke permissions or repository access from agents
+## Architecture Integration
 
-**Behavior**:
-- Remove repository access
-- Clear permission levels
-- Update agent configuration
-- Support revoking all permissions
-
-## Configuration Files
-
-### Agent Config (`agents/garage/camry/.proletariat/config.json`)
-```json
-{
-  "type": "agent",
-  "agentName": "camry",
-  "created": "2024-01-01T00:00:00Z",
-  "workspacePath": "../../../",
-  "repos": ["my-project", "other-repo"],
-  "branch": "agent-camry",
-  "permissions": {
-    "repos": {
-      "my-project": "write",
-      "other-repo": "read"
+### Workspace Detection
+```typescript
+// Traverse upward to find workspace
+export function getWorkspaceInfo(): WorkspaceInfo {
+  let currentDir = process.cwd();
+  
+  while (currentDir !== '/') {
+    const dbPath = path.join(currentDir, '.proletariat', 'workspace.db');
+    if (fs.existsSync(dbPath)) {
+      // Found workspace, return configuration
     }
-  },
-  "lastPermissionUpdate": "2024-01-01T00:00:00Z"
+    currentDir = path.dirname(currentDir);
+  }
+  
+  throw new Error('Not in an HQ or workspace directory. Run "prlt init" first.');
 }
 ```
 
-### Workspace Config Updates
-```json
-{
-  "type": "hq",
-  "agents": ["camry", "tacoma", "fj40"],
-  "repos": ["my-project", "other-repo"],
-  "theme": "toyotas"
+### Agent Status Detection
+```typescript
+export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string): AgentStatus {
+  const agentDir = path.join(workspaceInfo.agentsPath, agentName);
+  const dirExists = fs.existsSync(agentDir);
+  
+  // Comprehensive validation of agent state
+  const hasValidWorktrees = workspaceInfo.repositories.every(repo => {
+    const repoWorktreePath = path.join(agentDir, repo.name);
+    const gitFile = path.join(repoWorktreePath, '.git');
+    return fs.existsSync(repoWorktreePath) && fs.existsSync(gitFile);
+  });
+  
+  return {
+    name: agentName,
+    exists: dirExists && hasValidWorktrees,
+    repositories: getRepositoryStatus(agentDir, workspaceInfo.repositories),
+    assignedTickets: getAssignedTickets(workspaceInfo, agentName),
+    lastActivity: getLastActivity(agentDir)
+  };
 }
 ```
+
+### Interactive Selection Pattern
+```typescript
+// Consistent selection with cancel option
+const choices = [
+  ...workspaceInfo.agents.map(agent => ({ 
+    name: agent.name, 
+    value: agent.name 
+  })),
+  new inquirer.Separator(),
+  { name: '❌ Cancel', value: 'cancel' }
+];
+
+const { selected } = await inquirer.prompt([{
+  type: 'list',
+  name: 'selected', 
+  message: 'Select agent to visit:',
+  choices
+}]);
+
+if (selected === 'cancel') {
+  this.log(colors.textMuted('Operation cancelled.'));
+  return;
+}
+```
+
+---
 
 ## Error Handling
 
-### Common Error Cases
-1. **Not in workspace**: "Not in an HQ or workspace directory. Run 'prlt init' first."
-2. **No agents**: "No agents found. Add agents with 'prlt agent add'"
-3. **Agent not found**: "Agent 'camry' not found. Available: tacoma, fj40"
-4. **Git errors**: Handle worktree creation/removal failures gracefully
-5. **Permission errors**: Handle file system permission issues
+### Validation Scenarios
+- **Agent Not Found**: Clear error with available alternatives
+- **Missing Worktrees**: Detect and report incomplete agent setups
+- **Permission Issues**: Handle file system access problems
+- **Git State Issues**: Detect corrupted worktree states
 
-### Recovery Scenarios
-- Missing agent directories → Suggest `prlt agent add` to recreate
-- Corrupted config files → Provide manual repair instructions
-- Git worktree issues → Offer `git worktree prune` and recreation
+### Recovery Guidance
+```typescript
+// Example error with recovery suggestion
+if (!agent) {
+  this.error(`Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map(a => a.name).join(', ')}`);
+}
 
-## Implementation Priority
+// Missing directory guidance
+if (!agentStatus.exists) {
+  this.log(colors.error('   Agent directory not found'));
+  this.log(colors.textSecondary('   Run "prlt agents add" to recreate'));
+  return;
+}
+```
 
-### Phase 1: Core Functionality ✅
-- [x] `prlt agent` base command
-- [x] `prlt agent add` with theme integration
-- [x] `prlt agent switch` for navigation
+### Graceful Degradation
+- **No Agents**: Guide to creation workflow
+- **Inactive Agents**: Show status but suggest recreation
+- **Partial Functionality**: Work with available information
+- **Workspace Issues**: Clear diagnostic information
 
-### Phase 2: Management ⏳
-- [ ] Fix `prlt agent list` to align with new structure
-- [ ] Fix `prlt agent remove` to align with new structure  
-- [ ] Add comprehensive error handling
+---
 
-### Phase 3: Advanced Features ⏳
-- [ ] `prlt agent grant` for permission management
-- [ ] `prlt agent revoke` for access control
-- [ ] Integration with PMO ticket system
+## Configuration and State
+
+### Agent Directory Structure
+```
+agents/staff/bezos/
+├── .proletariat/
+│   └── config.json         # Agent-specific configuration
+├── clevertap-react-native/ # Git worktree for repo 1
+├── tech-thought-portfolio/ # Git worktree for repo 2
+└── ...                     # Additional repository worktrees
+```
+
+### SQLite Integration
+The agent commands integrate with the workspace SQLite database:
+
+**Agent Data**:
+```sql
+SELECT name, theme, status, created_at, last_activity 
+FROM agents 
+WHERE name = ?
+```
+
+**Worktree Information**:
+```sql
+SELECT repo_name, worktree_path, branch, commits_ahead, is_clean
+FROM agent_worktrees 
+WHERE agent_name = ?
+```
+
+---
 
 ## Testing Strategy
 
-### Unit Tests
-- Agent creation and configuration
-- Theme-based name validation
-- Config file management
-- Path resolution for dual modes
+### Individual Operations
+- Test single agent status, visit, and remove
+- Verify interactive selection for all commands
+- Test argument handling (with/without agent names)
+- Validate cancellation flows
 
-### Integration Tests  
-- Full workflow: init → add agents → list → remove
-- Error scenarios and recovery
-- HQ vs workspace-only mode differences
+### Status Accuracy
+- Test repository status detection
+- Verify commit ahead/behind calculations
+- Test activity timestamp accuracy
+- Validate PMO ticket integration
 
-### Manual Testing
-- Test in real HQ and workspace environments
-- Verify git worktree operations
-- Confirm theme integration works
-- Test navigation and directory switching
+### Navigation Support
+- Test path calculation from various directories
+- Verify relative path accuracy
+- Test with different workspace structures
+- Validate cross-platform path handling
+
+### Error Recovery
+- Test missing agent scenarios
+- Verify corrupted worktree detection
+- Test permission handling
+- Validate workspace traversal edge cases

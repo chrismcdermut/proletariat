@@ -2,18 +2,18 @@ import { Command } from '@oclif/core';
 import inquirer from 'inquirer';
 import { colors } from '../lib/colors.js';
 
-export default class Agent extends Command {
-  static description = 'Individual agent operations';
+export default class Agents extends Command {
+  static description = 'Manage agents in bulk (overview and batch operations)';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> status camry',
-    '<%= config.bin %> <%= command.id %> visit tacoma',
+    '<%= config.bin %> <%= command.id %> list',
+    '<%= config.bin %> <%= command.id %> status',
     '<%= config.bin %> <%= command.id %> add',
-    '<%= config.bin %> <%= command.id %> remove camry',
+    '<%= config.bin %> <%= command.id %> remove',
   ];
 
   async run(): Promise<void> {
-    this.log(colors.primary('🤖 Individual Agent Operations'));
+    this.log(colors.primary('👥 Agents Management (Bulk Operations)'));
     this.log('');
 
     const { action } = await inquirer.prompt([{
@@ -21,10 +21,10 @@ export default class Agent extends Command {
       name: 'action',
       message: 'What would you like to do?',
       choices: [
-        { name: '📊 Show agent status', value: 'status' },
-        { name: '📁 Visit agent directory', value: 'visit' },
-        { name: '➕ Add new agent', value: 'add' },
-        { name: '🗑️  Remove agent', value: 'remove' },
+        { name: '📋 List all agents', value: 'list' },
+        { name: '📊 Show status overview', value: 'status' },
+        { name: '➕ Add agents (bulk)', value: 'add' },
+        { name: '➖ Remove agents (bulk)', value: 'remove' },
         new inquirer.Separator(),
         { name: '❌ Cancel', value: 'cancel' }
       ]
@@ -37,18 +37,18 @@ export default class Agent extends Command {
 
     // Execute the selected command directly (no subprocess)
     try {
-      this.log(colors.primary(`\nExecuting: agent ${action}`));
+      this.log(colors.primary(`\nExecuting: agents ${action}`));
       
       switch (action) {
-        case 'status': {
-          const { default: StatusCommand } = await import('./agent/status.js');
-          const cmd = new StatusCommand([], this.config);
+        case 'list': {
+          const { default: ListCommand } = await import('./agents/list.js');
+          const cmd = new ListCommand([], this.config);
           await cmd.run();
           break;
         }
-        case 'visit': {
-          const { default: VisitCommand } = await import('./agent/visit.js');
-          const cmd = new VisitCommand([], this.config);
+        case 'status': {
+          const { default: StatusCommand } = await import('./agents/status.js');
+          const cmd = new StatusCommand([], this.config);
           await cmd.run();
           break;
         }
@@ -59,7 +59,7 @@ export default class Agent extends Command {
           break;
         }
         case 'remove': {
-          const { default: RemoveCommand } = await import('./agent/remove.js');
+          const { default: RemoveCommand } = await import('./agents/remove.js');
           const cmd = new RemoveCommand([], this.config);
           await cmd.run();
           break;
@@ -68,7 +68,7 @@ export default class Agent extends Command {
           this.error(`Unknown action: ${action}`);
       }
     } catch (error) {
-      this.error(`Failed to execute agent ${action}: ${error instanceof Error ? error.message : String(error)}`);
+      this.error(`Failed to execute agents ${action}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }

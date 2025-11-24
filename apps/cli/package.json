@@ -26,6 +26,7 @@
     "@types/chai": "^4",
     "@types/ink-spinner": "^3.0.5",
     "@types/inquirer": "^8.2.6",
+    "@types/jest": "^30.0.0",
     "@types/mocha": "^10",
     "@types/node": "^20",
     "@types/react": "^18",

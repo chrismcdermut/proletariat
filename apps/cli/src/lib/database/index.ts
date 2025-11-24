@@ -170,8 +170,8 @@ export function createWorkspaceDatabase(
   
   // Insert workspace data (convert boolean to number for SQLite)
   db.prepare(`
-    INSERT INTO workspace (type, theme, workspace_name, has_pmo, created_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO workspace (id, type, theme, workspace_name, has_pmo, created_at)
+    VALUES (1, ?, ?, ?, ?, ?)
   `).run(type, theme, workspaceName, hasPMO ? 1 : 0, new Date().toISOString());
   
   // Insert theme data

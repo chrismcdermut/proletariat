@@ -11,10 +11,14 @@ Multi-agent development orchestration system for managing distributed AI-powered
 - Theme-based agent naming (cars, billionaires, companies, custom)
 
 ### 2. Agent Management
-- Add/remove agents as git worktrees
-- List agents with current status and assignments
-- Track agent activity and completed work
-- Each agent has isolated workspace in ../garage/
+- **Dual Command Structure**: `prlt agent` (individual) and `prlt agents` (bulk)
+- **Individual Operations**: Focus on single agent workflows (status, visit, remove)
+- **Bulk Operations**: Multi-agent management with checkbox selection
+- **Git Worktree Integration**: Each agent has isolated workspace with proper cleanup
+- **Interactive Menus**: Arrow-key navigation with cancel options
+- **Status Tracking**: Repository states, commits, activity, and ticket assignments
+- **Navigation Support**: Directory switching and path calculation
+- **Theme Integration**: Billionaires, cars, companies, or custom agent names
 
 ### 3. Ticket Management (PMO)
 - Create tickets with priority and queue assignment
@@ -45,17 +49,27 @@ This is the authoritative list of commands that MUST exist in the CLI.
 | `prlt help [command]` | ⬜   | ⬜   | ⬜   | ⬜   | ⬜   | Show help for commands      | -                          |
 | `prlt --version`      | ⬜   | ⬜   | ⬜   | ⬜   | ⬜   | Show CLI version            | -                          |
 
-#### Agent Commands
+#### Agent Commands (Individual Operations)
 
-| Command                        | 📝  | ✅   | 🧪  | 🧑‍💻 | ✔️  | Description                 |
-| ------------------------------ | --- | --- | --- | ----- | --- | --------------------------- |
-| `prlt agent`                   | ⬜   | ⬜   | ⬜   | ⬜     | ⬜   | Interactive agent menu      |
-| `prlt agent add [names...]`    | ⬜   | ⬜   | ⬜   | ⬜     | ⬜   | Add new agents              |
-| `prlt agent list`              | ⬜   | ⬜   | ⬜   | ⬜     | ⬜   | List all agents with status |
-| `prlt agent remove [names...]` | ⬜   | ⬜   | ⬜   | ⬜     | ⬜   | Remove agents               |
-| `prlt agent grant`             | ⬜   | ⬜   | ⬜   | ⬜     | ⬜   | Grant repo access to agents |
-| `prlt agent revoke`            | ⬜   | ⬜   | ⬜   | ⬜     | ⬜   | Revoke repo access          |
-| `prlt agent switch <name>`     | ⬜   | ⬜   | ⬜   | ⬜     | ⬜   | Switch to agent's worktree  |
+| Command                    | 📝  | ✅   | 🧪  | 🧑‍💻 | ✔️  | Description                    | Spec                         |
+| -------------------------- | --- | --- | --- | ----- | --- | ------------------------------ | ---------------------------- |
+| `prlt agent`               | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Interactive individual menu    | [agent.md](./specs/agent.md) |
+| `prlt agent status [name]` | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Show detailed agent status     | [agent.md](./specs/agent.md) |
+| `prlt agent visit [name]`  | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Navigate to agent directory    | [agent.md](./specs/agent.md) |
+| `prlt agent add`           | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Add agent (redirects to bulk)  | [agent.md](./specs/agent.md) |
+| `prlt agent remove [name]` | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Remove specific agent          | [agent.md](./specs/agent.md) |
+| `prlt agent grant`         | ✅   | ⬜   | ⬜   | ⬜     | ⬜   | Grant repo access to agents    | [agent.md](./specs/agent.md) |
+| `prlt agent revoke`        | ✅   | ⬜   | ⬜   | ⬜     | ⬜   | Revoke repo access             | [agent.md](./specs/agent.md) |
+
+#### Agents Commands (Bulk Operations)
+
+| Command                   | 📝  | ✅   | 🧪  | 🧑‍💻 | ✔️  | Description                     | Spec                           |
+| ------------------------- | --- | --- | --- | ----- | --- | ------------------------------- | ------------------------------ |
+| `prlt agents`             | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Interactive bulk operations menu | [agents.md](./specs/agents.md) |
+| `prlt agents list`        | ✅   | ✅   | ⬜   | ⬜    | ⬜   | List all agents with overview   | [agents.md](./specs/agents.md) |
+| `prlt agents status`      | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Status overview for all agents  | [agents.md](./specs/agents.md) |
+| `prlt agents add`         | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Add multiple agents (bulk)      | [agents.md](./specs/agents.md) |
+| `prlt agents remove`      | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Remove multiple agents (bulk)   | [agents.md](./specs/agents.md) |
 
 #### PMO Commands
 
@@ -109,27 +123,50 @@ This is the authoritative list of commands that MUST exist in the CLI.
 
 ### 4.2 Implementation Summary
 
-**Completed (Implemented with Ink UI):**
-- ✅ `prlt init` - Initialize HQ
+**Completed (Implemented with SQLite & DRY Architecture):**
+
+**Core Workspace:**
+- ✅ `prlt init` - Initialize HQ with SQLite database
+
+**PMO System:**
 - ✅ `prlt pmo init` - Initialize PMO structure
 - ✅ `prlt pmo board` - View/edit/open board
 - ✅ `prlt ticket create` - Create tickets with Ink UI
 - ✅ `prlt ticket claim` - Claim tickets with Ink UI
 - ✅ `prlt ticket status` - Update ticket status
 - ✅ `prlt ticket complete` - Mark tickets complete
-- ✅ `prlt agent add` - Add agents
-- ✅ `prlt agent list` - List agents
-- ✅ `prlt agent remove` - Remove agents
+
+**Individual Agent Operations:**
+- ✅ `prlt agent` - Interactive menu for individual operations
+- ✅ `prlt agent status [name]` - Detailed status for specific agent
+- ✅ `prlt agent visit [name]` - Navigate to agent directory
+- ✅ `prlt agent add` - Add agent (redirects to bulk operations)
+- ✅ `prlt agent remove [name]` - Remove specific agent
+
+**Bulk Agent Operations:**
+- ✅ `prlt agents` - Interactive menu for bulk operations
+- ✅ `prlt agents list` - List all agents with overview status
+- ✅ `prlt agents status` - Status overview for all agents
+- ✅ `prlt agents add` - Add multiple agents with theme integration
+- ✅ `prlt agents remove` - Remove multiple agents with confirmation
+
+**Key Features:**
+- ✅ SQLite database for concurrent access and data integrity
+- ✅ Interactive menus with arrow-key navigation
+- ✅ Centralized color scheme for dark terminal readability
+- ✅ Workspace traversal (works from any subdirectory)
+- ✅ Git worktree management with comprehensive cleanup
+- ✅ Theme-based agent naming and validation
+- ✅ PMO integration for ticket assignments
+- ✅ Direct command execution (no subprocess issues)
 
 **Priority 1 - Critical (needed for basic functionality):**
-- ⬜ `prlt agent` - Interactive menu
 - ⬜ `prlt ticket` - Interactive menu  
 - ⬜ `prlt ticket assign` - Direct assignment
 - ⬜ `prlt ticket reassign` - Change assignment
 - ⬜ `prlt ticket unassign` - Remove assignment
 
 **Priority 2 - Important (enhance usability):**
-- ⬜ `prlt agent switch` - Quick navigation
 - ⬜ `prlt pmo` - Interactive PMO menu
 - ⬜ `prlt ticket list` - List all tickets
 
@@ -153,6 +190,41 @@ Examples:
 - Billionaires theme: `prlt hire elon` (alias for agent add)
 
 ## Architecture Decisions
+
+### SQLite Database Migration (v2.0)
+
+**Major architectural improvement:** Migrated from JSON config files to SQLite database for better team coordination and data consistency.
+
+**Benefits:**
+- **Concurrent Access**: Multiple team members can safely read/write workspace data
+- **ACID Transactions**: Data integrity for agent and repository operations
+- **Structured Queries**: Efficient filtering and reporting of agent status
+- **Schema Evolution**: Database migrations for future feature additions
+- **Performance**: Fast lookups for large workspaces with many agents
+
+**Database Schema:**
+```sql
+-- Core workspace metadata
+workspace (id, type, theme, workspace_name, has_pmo, created_at)
+
+-- Agent instances  
+agents (name, theme, status, current_task, created_at, last_activity)
+
+-- Agent-owned worktrees
+agent_worktrees (agent_name, repo_name, worktree_path, branch, created_at, commits_ahead, is_clean)
+
+-- Repository management
+repositories (name, path, type, source_url, action, added_at)
+
+-- Theme configurations
+themes (name, workspace_dir, add_command, remove_command, agents)
+```
+
+**DRY Architecture:**
+- Shared utilities in `lib/agents/commands.ts`
+- Single source of truth for workspace detection
+- Unified status and validation logic
+- Eliminating code duplication across commands
 
 ### Why Oclif?
 - **Auto-documentation**: Commands self-document from code

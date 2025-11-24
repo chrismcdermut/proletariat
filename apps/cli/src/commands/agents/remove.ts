@@ -8,24 +8,26 @@ import {
 } from '../../lib/agents/commands.js';
 
 export default class Remove extends Command {
-  static description = 'Remove a specific agent from the workspace';
+  static description = 'Remove agents from the workspace';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> camry',
+    '<%= config.bin %> <%= command.id %> camry tacoma',
     '<%= config.bin %> <%= command.id %>',
   ];
 
   static args = {
-    name: Args.string({
-      description: 'Agent name to remove',
+    agents: Args.string({
+      description: 'Agent names to remove (space-separated)',
       required: false,
     }),
   };
 
   static flags = {};
 
+  static strict = false; // Allow multiple agent names
+
   async run(): Promise<void> {
-    const { args } = await this.parse(Remove);
+    const { argv } = await this.parse(Remove);
     
     try {
       // Get workspace information
@@ -36,53 +38,49 @@ export default class Remove extends Command {
         return;
       }
 
-      let agentName = args.name;
+      let agentNames = argv as string[];
 
-      // Interactive mode if no agent specified
-      if (!agentName) {
-        const choices = [
-          ...workspaceInfo.agents.map((agent: any) => ({ 
-            name: agent.name, 
-            value: agent.name 
-          })),
-          new inquirer.Separator(),
-          { name: '❌ Cancel', value: 'cancel' }
-        ];
-
-        const { selected } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selected',
-            message: 'Select agent to remove:',
-            choices
-          }
-        ]);
+      // Interactive mode if no agents specified
+      if (agentNames.length === 0) {
+        const { selected } = await inquirer.prompt([{
+          type: 'checkbox',
+          name: 'selected',
+          message: 'Select agents to remove (or press Enter to cancel):',
+          choices: workspaceInfo.agents.map(agent => ({ name: agent.name, value: agent.name }))
+        }]);
         
-        if (selected === 'cancel') {
-          this.log(colors.textMuted('Operation cancelled.'));
+        if (selected.length === 0) {
+          this.log(colors.textMuted('No agents selected. Operation cancelled.'));
           return;
         }
         
-        agentName = selected;
+        agentNames = selected;
       }
 
-      // Validate agent exists
-      const agent = workspaceInfo.agents.find((a: any) => a.name === agentName);
-      if (!agent) {
-        this.error(`Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map((a: any) => a.name).join(', ')}`);
-      }
+      // Filter to only existing agents
+      const existingAgentNames = workspaceInfo.agents.map(a => a.name);
+      const agentsToRemove = agentNames.filter(name => {
+        if (!existingAgentNames.includes(name)) {
+          this.log(colors.warning(`Agent ${name} not found`));
+          return false;
+        }
+        return true;
+      });
 
-      const agentsToRemove = [agentName!];
+      if (agentsToRemove.length === 0) {
+        this.log(colors.warning('No valid agents to remove.'));
+        return;
+      }
 
       // Confirm removal
       const { confirm } = await inquirer.prompt([
         {
           type: 'list',
           name: 'confirm',
-          message: `Are you sure you want to remove agent "${agentName!}"? This will delete its worktree.`,
+          message: `Are you sure you want to remove ${agentsToRemove.length} agent(s)? This will delete their worktrees.`,
           choices: [
             { name: '❌ No, cancel', value: false },
-            { name: '⚠️  Yes, remove agent', value: true }
+            { name: '⚠️  Yes, remove agents', value: true }
           ],
           default: 0 // Default to "No, cancel"
         }
@@ -94,7 +92,7 @@ export default class Remove extends Command {
       }
 
       // Remove agents
-      this.log(colors.primary(`Removing agent "${agentName!}"...`));
+      this.log(colors.primary(`Removing ${agentsToRemove.length} agent(s)...`));
       
       const { removed, failed } = await removeAgentsFromWorkspace(workspaceInfo, agentsToRemove);
 
