@@ -25,7 +25,7 @@ Multi-agent development orchestration system for managing distributed AI-powered
 - Assign tickets to specific agents
 - Agents can claim tickets from their worktree
 - Track ticket lifecycle (todo → in-progress → done)
-- Multiple kanban boards with filtering (see [BOARD_SPEC.md](./BOARD_SPEC.md))
+- Obsidian-compatible kanban boards (see [PMO spec](pmo.md))
 
 ### 4. Command Specification
 
@@ -45,7 +45,7 @@ This is the authoritative list of commands that MUST exist in the CLI.
 
 | Command               | 📝  | ✅   | 🧪  | 🧑‍💻  | ✔️  | Description                 | Spec                       |
 | --------------------- | --- | --- | --- | --- | --- | --------------------------- | -------------------------- |
-| `prlt init <hq-name>` | ✅   | ✅   | ✅   | ✅   | ✅   | Initialize new HQ workspace | [init.md](./specs/init.md) |
+| `prlt init <hq-name>` | ✅   | ✅   | ✅   | ✅   | ✅   | Initialize new HQ workspace | [init.md](init.md) |
 | `prlt help [command]` | ⬜   | ⬜   | ⬜   | ⬜   | ⬜   | Show help for commands      | -                          |
 | `prlt --version`      | ⬜   | ⬜   | ⬜   | ⬜   | ⬜   | Show CLI version            | -                          |
 
@@ -53,51 +53,51 @@ This is the authoritative list of commands that MUST exist in the CLI.
 
 | Command                    | 📝  | ✅   | 🧪  | 🧑‍💻 | ✔️  | Description                    | Spec                         |
 | -------------------------- | --- | --- | --- | ----- | --- | ------------------------------ | ---------------------------- |
-| `prlt agent`               | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Interactive individual menu    | [agent.md](./specs/agent.md) |
-| `prlt agent status [name]` | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Show detailed agent status     | [agent.md](./specs/agent.md) |
-| `prlt agent visit [name]`  | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Navigate to agent directory    | [agent.md](./specs/agent.md) |
-| `prlt agent add`           | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Add agent (redirects to bulk)  | [agent.md](./specs/agent.md) |
-| `prlt agent remove [name]` | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Remove specific agent          | [agent.md](./specs/agent.md) |
-| `prlt agent grant`         | ✅   | ⬜   | ⬜   | ⬜     | ⬜   | Grant repo access to agents    | [agent.md](./specs/agent.md) |
-| `prlt agent revoke`        | ✅   | ⬜   | ⬜   | ⬜     | ⬜   | Revoke repo access             | [agent.md](./specs/agent.md) |
+| `prlt agent`               | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Interactive individual menu    | [agent.md](agent.md) |
+| `prlt agent status [name]` | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Show detailed agent status     | [agent.md](agent.md) |
+| `prlt agent visit [name]`  | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Navigate to agent directory    | [agent.md](agent.md) |
+| `prlt agent add`           | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Add agent (redirects to bulk)  | [agent.md](agent.md) |
+| `prlt agent remove [name]` | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Remove specific agent          | [agent.md](agent.md) |
+| `prlt agent grant`         | ✅   | ⬜   | ⬜   | ⬜     | ⬜   | Grant repo access to agents    | [agent.md](agent.md) |
+| `prlt agent revoke`        | ✅   | ⬜   | ⬜   | ⬜     | ⬜   | Revoke repo access             | [agent.md](agent.md) |
 
 #### Agents Commands (Bulk Operations)
 
 | Command                   | 📝  | ✅   | 🧪  | 🧑‍💻 | ✔️  | Description                     | Spec                           |
 | ------------------------- | --- | --- | --- | ----- | --- | ------------------------------- | ------------------------------ |
-| `prlt agents`             | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Interactive bulk operations menu | [agents.md](./specs/agents.md) |
-| `prlt agents list`        | ✅   | ✅   | ⬜   | ⬜    | ⬜   | List all agents with overview   | [agents.md](./specs/agents.md) |
-| `prlt agents status`      | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Status overview for all agents  | [agents.md](./specs/agents.md) |
-| `prlt agents add`         | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Add multiple agents (bulk)      | [agents.md](./specs/agents.md) |
-| `prlt agents remove`      | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Remove multiple agents (bulk)   | [agents.md](./specs/agents.md) |
+| `prlt agents`             | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Interactive bulk operations menu | [agents.md](agents.md) |
+| `prlt agents list`        | ✅   | ✅   | ⬜   | ⬜    | ⬜   | List all agents with overview   | [agents.md](agents.md) |
+| `prlt agents status`      | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Status overview for all agents  | [agents.md](agents.md) |
+| `prlt agents add`         | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Add multiple agents (bulk)      | [agents.md](agents.md) |
+| `prlt agents remove`      | ✅   | ✅   | ⬜   | ⬜    | ⬜   | Remove multiple agents (bulk)   | [agents.md](agents.md) |
 
 #### PMO Commands
 
-| Command | 📝 | ✅ | 🧪 | 🧑‍💻 | ✔️ | Description |
-|---------|----|----|----|----|----|----|
-| `prlt pmo` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Interactive PMO menu |
-| `prlt pmo init` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Initialize PMO structure |
-| `prlt pmo board` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Interactive board menu (view/edit/open) |
-| `prlt pmo board list` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | List all boards |
-| `prlt pmo board create <name>` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Create new board |
-| `prlt pmo board view [name]` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | View board (default: main) |
-| `prlt pmo board edit [name]` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Edit board in editor |
-| `prlt pmo board delete <name>` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Delete a board |
-| `prlt pmo board set-default <name>` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Set default board |
+| Command | 📝 | ✅ | 🧪 | 🧑‍💻 | ✔️ | Description | Spec |
+|---------|----|----|----|----|----|----|----|
+| `prlt pmo` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | Interactive PMO menu | [pmo.md](pmo.md) |
+| `prlt pmo init` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | Initialize PMO structure | [pmo.md](pmo.md) |
+| `prlt pmo board [action]` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | View/edit/open kanban board | [pmo.md](pmo.md) |
+| `prlt pmo board list` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | List all boards | [pmo.md](pmo.md) |
+| `prlt pmo board create <name>` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | Create new board | [pmo.md](pmo.md) |
+| `prlt pmo board view [name]` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | View board (default: main) | [pmo.md](pmo.md) |
+| `prlt pmo board edit [name]` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | Edit board in editor | [pmo.md](pmo.md) |
+| `prlt pmo board delete <name>` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | Delete a board | [pmo.md](pmo.md) |
+| `prlt pmo board set-default <name>` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | Set default board | [pmo.md](pmo.md) |
 
 #### Ticket Commands
 
-| Command | 📝 | ✅ | 🧪 | 🧑‍💻 | ✔️ | Description |
-|---------|----|----|----|----|----|----|
-| `prlt ticket` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Interactive ticket menu |
-| `prlt ticket create` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Create new ticket (Ink UI) |
-| `prlt ticket list` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | List all tickets |
-| `prlt ticket status [id] [status]` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Update ticket status |
-| `prlt ticket claim [id]` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Claim ticket (Ink UI) |
-| `prlt ticket complete [id]` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Mark ticket as complete |
-| `prlt ticket assign [id] [agent]` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Assign ticket to agent |
-| `prlt ticket reassign [id] [agent]` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Reassign to different agent |
-| `prlt ticket unassign [id]` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Remove assignment |
+| Command | 📝 | ✅ | 🧪 | 🧑‍💻 | ✔️ | Description | Spec |
+|---------|----|----|----|----|----|----|----| 
+| `prlt ticket` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | Interactive ticket menu | [pmo.md](pmo.md) |
+| `prlt ticket create [title]` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | Create new ticket (Ink UI) | [pmo.md](pmo.md) |
+| `prlt ticket list` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | List all tickets | [pmo.md](pmo.md) |
+| `prlt ticket status [id] [status]` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | Update ticket status | [pmo.md](pmo.md) |
+| `prlt ticket claim [id]` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | Claim ticket (Ink UI) | [pmo.md](pmo.md) |
+| `prlt ticket complete [id]` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | Mark ticket as complete | [pmo.md](pmo.md) |
+| `prlt ticket assign [id] [agent]` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | Assign ticket to agent | [pmo.md](pmo.md) |
+| `prlt ticket reassign [id] [agent]` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | Reassign to different agent | [pmo.md](pmo.md) |
+| `prlt ticket unassign [id]` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | Remove assignment | [pmo.md](pmo.md) |
 
 #### Maintenance Commands
 

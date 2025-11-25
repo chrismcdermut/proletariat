@@ -43,7 +43,7 @@ Individual agent operations focused on single-agent workflows. Provides detailed
 - Preserves workspace context across operations
 - Uses centralized color scheme for readability
 
----
+---s
 
 ## Command Specifications
 
