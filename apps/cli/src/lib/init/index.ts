@@ -6,7 +6,7 @@ import chalk from 'chalk';
 import { THEMES } from '../themes.js';
 import { addAgentsToHQ, createAgentWorktrees } from '../agents/index.js';
 import { addRepositoriesToHQ, updateHQRepos, isInGitRepo } from '../repos/index.js';
-import { createPMO, updateHQConfigWithPMO } from '../pmo/index.js';
+import { createPMO, updateHQConfigWithPMO, PMOStorageType } from '../pmo/index.js';
 import { 
   createWorkspaceDatabase, 
   addRepositoriesToDatabase, 
@@ -37,6 +37,7 @@ export interface InitOptions {
   repos?: Array<{ path: string; action: 'move' | 'clone' }>;
   includePMO?: boolean;
   boardTemplate?: string;
+  pmoStorageType?: PMOStorageType;
 }
 
 /**
@@ -227,13 +228,14 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
     throw new Error('initializeHQ should only be called for HQ workspace type');
   }
 
-  const { 
-    hqPath, 
-    theme, 
-    selectedAgents, 
-    repos, 
-    includePMO, 
-    boardTemplate 
+  const {
+    hqPath,
+    theme,
+    selectedAgents,
+    repos,
+    includePMO,
+    boardTemplate,
+    pmoStorageType
   } = options;
 
   // All these fields are required for HQ type
@@ -249,7 +251,7 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
 
   // Create PMO if requested
   if (includePMO) {
-    await createPMO(hqPath, boardTemplate);
+    await createPMO(hqPath, boardTemplate, pmoStorageType || 'sqlite');
     // Note: PMO is tracked in workspace.has_pmo, no need for updateHQConfigWithPMO
   }
 

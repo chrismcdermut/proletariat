@@ -71,7 +71,7 @@ export default class Init extends Command {
       const repos = await promptForRepositories(process.cwd(), []);
 
       // Step 8: PMO setup
-      const { includePMO, boardTemplate } = await promptForPMOSetup();
+      const { includePMO, boardTemplate, storageType } = await promptForPMOSetup();
 
       // Create the options object
       const options = {
@@ -83,7 +83,8 @@ export default class Init extends Command {
         selectedAgents,
         repos,
         includePMO,
-        boardTemplate
+        boardTemplate,
+        pmoStorageType: storageType
       };
 
       // Initialize the HQ

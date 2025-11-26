@@ -1,172 +1,276 @@
-import { Command, Args } from '@oclif/core';
+import { Command, Flags } from '@oclif/core';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
 import chalk from 'chalk';
-import * as React from 'react';
-import { render } from 'ink';
-import { CreateTicketUI } from '../../lib/ui/CreateTicketUI.js';
+import inquirer from 'inquirer';
+import {
+  getStorageWithAutoSync,
+  autoExportToBoard,
+} from '../../lib/pmo/index.js';
+
+interface PMOConfigFile {
+  storage: 'sqlite' | 'git';
+  template: string;
+  boardName: string;
+  columns: string[];
+  created: string;
+  gitRemote?: string;
+  autoSync?: boolean;
+}
 
 export default class TicketCreate extends Command {
-  static description = 'Create a new ticket with spec and add to kanban board';
+  static description = 'Create a new ticket on the PMO board';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> "Fix login bug"',
+    '<%= config.bin %> <%= command.id %> --title "Fix login bug" --column Backlog',
+    '<%= config.bin %> <%= command.id %> -t "Add feature" -c "In Progress" -p HIGH',
   ];
 
-  static args = {
-    title: Args.string({
+  static flags = {
+    title: Flags.string({
+      char: 't',
       description: 'Ticket title',
-      required: false,
+    }),
+    column: Flags.string({
+      char: 'c',
+      description: 'Column to place the ticket in',
+    }),
+    priority: Flags.string({
+      char: 'p',
+      description: 'Ticket priority',
+      options: ['URGENT', 'HIGH', 'MEDIUM', 'LOW'],
+    }),
+    category: Flags.string({
+      description: 'Ticket category (e.g., bug, feature, refactor)',
+    }),
+    description: Flags.string({
+      char: 'd',
+      description: 'Ticket description',
+    }),
+    id: Flags.string({
+      description: 'Custom ticket ID (auto-generated if not provided)',
+    }),
+    interactive: Flags.boolean({
+      char: 'i',
+      description: 'Interactive mode',
+      default: false,
     }),
   };
 
   async run(): Promise<void> {
-    const { args } = await this.parse(TicketCreate);
-    
+    const { flags } = await this.parse(TicketCreate);
+
     // Find PMO directory
     const pmoPath = this.findPMO();
     if (!pmoPath) {
       this.error('PMO not found. Run "prlt pmo init" first.');
     }
 
-    // Pull latest
-    try {
-      execSync('git pull', { cwd: pmoPath, stdio: 'pipe' });
-    } catch {
-      // Ignore if no remote
+    // Load PMO config
+    const configPath = path.join(pmoPath, 'config.json');
+    if (!fs.existsSync(configPath)) {
+      this.error('PMO config not found. Run "prlt pmo init" first.');
     }
 
-    // Load config to get next ticket ID
-    const configPath = path.join(pmoPath, 'config.json');
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    const ticketNumber = config.lastTicketId + 1;
-    const ticketId = `T${String(ticketNumber).padStart(4, '0')}`;
+    const config: PMOConfigFile = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
-    // Use Ink UI for ticket creation
-    const ticketData = await new Promise<{
+    // Get ticket data (interactive or from flags)
+    let ticketData: {
       title: string;
-      priority: 'high' | 'medium' | 'low';
-      queue: string;
-      description: string;
-    }>((resolve) => {
-      render(
-        React.createElement(CreateTicketUI, {
-          initialTitle: args.title,
-          queues: config.queues || ['feature', 'bug', 'refactor'],
-          onComplete: resolve
-        })
-      );
-    });
+      column: string;
+      priority?: string;
+      category?: string;
+      description?: string;
+      id?: string;
+    };
 
-    const { title, priority, queue, description } = ticketData;
+    if (flags.interactive || !flags.title) {
+      ticketData = await this.promptTicketData(config.columns, flags);
+    } else {
+      if (!flags.title) {
+        this.error('Title is required. Use --title or -t flag, or use --interactive mode.');
+      }
+      ticketData = {
+        title: flags.title,
+        column: flags.column || config.columns[0],
+        priority: flags.priority,
+        category: flags.category,
+        description: flags.description,
+        id: flags.id,
+      };
+    }
 
-    // Create safe filename from title
-    const safeTitle = title.toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .substring(0, 50);
+    // Validate column
+    if (!config.columns.includes(ticketData.column)) {
+      this.error(`Invalid column "${ticketData.column}". Available columns: ${config.columns.join(', ')}`);
+    }
 
-    const specFileName = `${ticketId}-${safeTitle}.md`;
-
-    // Create spec file
-    const specPath = path.join(pmoPath, 'specs', 'backlog', specFileName);
-    const specContent = `# ${ticketId}: ${title}
-
-**Priority:** ${priority}
-**Queue:** ${queue}
-**Created:** ${new Date().toISOString()}
-**Status:** Backlog
-
-## Description
-${description}
-
-## Work Log
-- Created: ${new Date().toISOString()}
-`;
-
-    fs.writeFileSync(specPath, specContent);
-
-    // Add to kanban board
-    const boardPath = path.join(pmoPath, 'board.md');
-    let board = fs.readFileSync(boardPath, 'utf-8');
-    
-    // Create the kanban card
-    const card = `- [ ] [[specs/backlog/${specFileName}|${ticketId}]] ${title} #${priority} +${queue} @unassigned`;
-    
-    // Add to backlog section
-    board = board.replace(
-      /## 📥 Backlog\n/,
-      `## 📥 Backlog\n${card}\n`
+    // Get storage with auto-sync from board.md
+    const storage = getStorageWithAutoSync(
+      pmoPath,
+      config.storage,
+      (msg) => this.log(chalk.gray(msg))
     );
 
-    fs.writeFileSync(boardPath, board);
-
-    // Update config with new ticket ID
-    config.lastTicketId = ticketNumber;
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-
-    // Commit changes
     try {
-      execSync(`git add .`, { cwd: pmoPath, stdio: 'pipe' });
-      execSync(`git commit -m "Create ticket ${ticketId}: ${title}"`, { cwd: pmoPath, stdio: 'pipe' });
-      execSync('git push', { cwd: pmoPath, stdio: 'pipe' });
-    } catch (error) {
-      this.log(chalk.yellow('Warning: Could not commit changes. You may need to commit manually.'));
-    }
+      const ticket = await storage.createTicket({
+        id: ticketData.id,
+        title: ticketData.title,
+        column: ticketData.column,
+        priority: ticketData.priority,
+        category: ticketData.category,
+        description: ticketData.description,
+      });
 
-    this.log(chalk.green(`\n✅ Created ticket ${chalk.bold(ticketId)}`));
-    this.log(chalk.gray(`   Title: ${title}`));
-    this.log(chalk.gray(`   Priority: ${priority}`));
-    this.log(chalk.gray(`   Queue: ${queue}`));
-    this.log(chalk.gray(`   Spec: ${specPath}`));
-    this.log(chalk.gray(`\n   View board: prlt pmo board`));
+      // Auto-export to board.md after write
+      await autoExportToBoard(pmoPath, storage, (msg) => this.log(chalk.gray(msg)));
+
+      await storage.close();
+
+      this.log(chalk.green(`\n✅ Created ticket ${chalk.bold(ticket.id)}`));
+      this.log(chalk.gray(`   Title: ${ticket.title}`));
+      this.log(chalk.gray(`   Column: ${ticket.column}`));
+      if (ticket.priority) {
+        this.log(chalk.gray(`   Priority: ${ticket.priority}`));
+      }
+      if (ticket.category) {
+        this.log(chalk.gray(`   Category: ${ticket.category}`));
+      }
+      this.log(chalk.gray(`\n   View board: prlt pmo board view`));
+      this.log(chalk.gray(`   List tickets: prlt ticket list`));
+    } catch (error) {
+      await storage.close();
+      throw error;
+    }
+  }
+
+  private async promptTicketData(
+    columns: string[],
+    flags: {
+      title?: string;
+      column?: string;
+      priority?: string;
+      category?: string;
+      description?: string;
+      id?: string;
+    }
+  ): Promise<{
+    title: string;
+    column: string;
+    priority?: string;
+    category?: string;
+    description?: string;
+    id?: string;
+  }> {
+    const answers = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'title',
+        message: 'Ticket title:',
+        default: flags.title,
+        validate: (input: string) => input.length > 0 || 'Title is required',
+      },
+      {
+        type: 'list',
+        name: 'column',
+        message: 'Column:',
+        choices: columns,
+        default: flags.column || columns[0],
+      },
+      {
+        type: 'list',
+        name: 'priority',
+        message: 'Priority:',
+        choices: [
+          { name: 'None', value: undefined },
+          { name: 'URGENT', value: 'URGENT' },
+          { name: 'HIGH', value: 'HIGH' },
+          { name: 'MEDIUM', value: 'MEDIUM' },
+          { name: 'LOW', value: 'LOW' },
+        ],
+        default: flags.priority,
+      },
+      {
+        type: 'input',
+        name: 'category',
+        message: 'Category (optional, e.g., bug, feature, refactor):',
+        default: flags.category,
+      },
+      {
+        type: 'input',
+        name: 'description',
+        message: 'Description (optional):',
+        default: flags.description,
+      },
+    ]);
+
+    return {
+      title: answers.title,
+      column: answers.column,
+      priority: answers.priority || undefined,
+      category: answers.category || undefined,
+      description: answers.description || undefined,
+      id: flags.id,
+    };
   }
 
   private findPMO(): string | null {
-    // Look for PMO in current directory structure
     let currentDir = process.cwd();
-    
+
     while (currentDir !== '/') {
-      // Check for .proletariat config
+      // Check for .proletariat config (HQ)
       const configPath = path.join(currentDir, '.proletariat', 'config.json');
       if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        
-        // If this is HQ, PMO is in ./pmo
-        if (config.type === 'hq') {
-          const pmoPath = path.join(currentDir, 'pmo');
-          if (fs.existsSync(pmoPath)) return pmoPath;
-        }
-        
-        // If config has pmoPath
-        if (config.pmoPath) {
-          const absolutePath = path.isAbsolute(config.pmoPath) 
-            ? config.pmoPath 
-            : path.join(currentDir, config.pmoPath);
-          if (fs.existsSync(absolutePath)) return absolutePath;
+        try {
+          const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+          if (config.type === 'hq') {
+            const pmoPath = path.join(currentDir, 'pmo');
+            if (fs.existsSync(path.join(pmoPath, 'config.json'))) {
+              return pmoPath;
+            }
+          }
+          if (config.pmoPath) {
+            const absolutePath = path.isAbsolute(config.pmoPath)
+              ? config.pmoPath
+              : path.join(currentDir, config.pmoPath);
+            if (fs.existsSync(path.join(absolutePath, 'config.json'))) {
+              return absolutePath;
+            }
+          }
+        } catch {
+          // Ignore parse errors
         }
       }
-      
-      // Check for direct pmo folder
+
+      // Check for direct .pmo folder
+      const dotPmoPath = path.join(currentDir, '.pmo');
+      if (fs.existsSync(path.join(dotPmoPath, 'config.json'))) {
+        return dotPmoPath;
+      }
+
+      // Check for pmo folder with board.md (legacy)
       const pmoPath = path.join(currentDir, 'pmo');
-      if (fs.existsSync(path.join(pmoPath, 'board.md'))) {
+      if (fs.existsSync(path.join(pmoPath, 'config.json'))) {
         return pmoPath;
       }
-      
+
       currentDir = path.dirname(currentDir);
     }
-    
+
     // Check global config
     const globalConfigPath = path.join(process.env.HOME || '', '.proletariat', 'config.json');
     if (fs.existsSync(globalConfigPath)) {
-      const config = JSON.parse(fs.readFileSync(globalConfigPath, 'utf-8'));
-      if (config.defaultPMO && fs.existsSync(config.defaultPMO)) {
-        return config.defaultPMO;
+      try {
+        const config = JSON.parse(fs.readFileSync(globalConfigPath, 'utf-8'));
+        if (config.defaultPMO && fs.existsSync(path.join(config.defaultPMO, 'config.json'))) {
+          return config.defaultPMO;
+        }
+      } catch {
+        // Ignore parse errors
       }
     }
-    
+
     return null;
   }
 }
