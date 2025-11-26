@@ -31,7 +31,9 @@ import { slugify } from './utils.js'
 // =============================================================================
 
 const T = {
-  board: 'pmo_board',
+  projects: 'pmo_projects',
+  initiatives: 'pmo_initiatives',
+  epics: 'pmo_epics',
   columns: 'pmo_columns',
   tickets: 'pmo_tickets',
   subtasks: 'pmo_subtasks',
@@ -50,9 +52,11 @@ export class SQLiteStorage implements PMOStorage {
   readonly type = 'sqlite' as const
   private db: Database.Database
   private dbPath: string
+  private currentProjectId: string
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, projectId: string = 'default') {
     this.dbPath = dbPath
+    this.currentProjectId = projectId
 
     if (!fs.existsSync(dbPath)) {
       throw new Error(`Database not found: ${dbPath}. Run 'prlt init' first.`)
@@ -64,6 +68,23 @@ export class SQLiteStorage implements PMOStorage {
 
     // Ensure PMO tables exist (migration for older workspaces)
     this.ensurePMOTables()
+
+    // Run migration for multi-project support
+    this.migrateToMultiProject()
+  }
+
+  /**
+   * Set the current project context for operations
+   */
+  setCurrentProject(projectId: string): void {
+    this.currentProjectId = projectId
+  }
+
+  /**
+   * Get the current project ID
+   */
+  getCurrentProjectId(): string {
+    return this.currentProjectId
   }
 
   /**
@@ -72,33 +93,62 @@ export class SQLiteStorage implements PMOStorage {
    */
   private ensurePMOTables(): void {
     this.db.exec(`
-      -- Board metadata
-      CREATE TABLE IF NOT EXISTS ${T.board} (
-        id TEXT PRIMARY KEY DEFAULT 'default',
+      -- Projects (replaces pmo_board for multi-project support)
+      CREATE TABLE IF NOT EXISTS ${T.projects} (
+        id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         template TEXT,
+        description TEXT,
+        initiative_id TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
-      -- Columns (kanban lanes)
-      CREATE TABLE IF NOT EXISTS ${T.columns} (
+      -- Initiatives (optional OKR-level grouping)
+      CREATE TABLE IF NOT EXISTS ${T.initiatives} (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
-        position INTEGER NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        objective TEXT,
+        key_results TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
-      -- Tickets (kanban cards)
+      -- Columns (kanban lanes) - now per-project
+      CREATE TABLE IF NOT EXISTS ${T.columns} (
+        id TEXT NOT NULL,
+        project_id TEXT NOT NULL DEFAULT 'default',
+        name TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (project_id, id)
+      );
+
+      -- Tickets (kanban cards) - now per-project
       CREATE TABLE IF NOT EXISTS ${T.tickets} (
         id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL DEFAULT 'default',
         title TEXT NOT NULL,
-        column_id TEXT NOT NULL REFERENCES ${T.columns}(id) ON DELETE CASCADE,
+        column_id TEXT NOT NULL,
         position INTEGER NOT NULL,
         priority TEXT,
         category TEXT,
         description TEXT,
+        epic_id TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id, column_id) REFERENCES ${T.columns}(project_id, id) ON DELETE CASCADE
+      );
+
+      -- Epics (optional grouping within a project)
+      CREATE TABLE IF NOT EXISTS ${T.epics} (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES ${T.projects}(id) ON DELETE CASCADE
       );
 
       -- Subtasks
@@ -151,61 +201,215 @@ export class SQLiteStorage implements PMOStorage {
       );
 
       -- Indexes
+      CREATE INDEX IF NOT EXISTS idx_pmo_columns_project ON ${T.columns}(project_id);
+      CREATE INDEX IF NOT EXISTS idx_pmo_tickets_project ON ${T.tickets}(project_id);
       CREATE INDEX IF NOT EXISTS idx_pmo_tickets_column ON ${T.tickets}(column_id);
       CREATE INDEX IF NOT EXISTS idx_pmo_tickets_priority ON ${T.tickets}(priority);
       CREATE INDEX IF NOT EXISTS idx_pmo_tickets_category ON ${T.tickets}(category);
+      CREATE INDEX IF NOT EXISTS idx_pmo_tickets_epic ON ${T.tickets}(epic_id);
       CREATE INDEX IF NOT EXISTS idx_pmo_subtasks_ticket ON ${T.subtasks}(ticket_id);
       CREATE INDEX IF NOT EXISTS idx_pmo_ticket_specs_spec ON ${T.ticket_specs}(spec_id);
       CREATE INDEX IF NOT EXISTS idx_pmo_assignments_agent ON ${T.ticket_assignments}(agent_name);
+      CREATE INDEX IF NOT EXISTS idx_pmo_epics_project ON ${T.epics}(project_id);
+      CREATE INDEX IF NOT EXISTS idx_pmo_projects_initiative ON ${T.projects}(initiative_id);
     `)
   }
 
-  // ===========================================================================
-  // Board Operations
-  // ===========================================================================
+  /**
+   * Migrate existing data to multi-project schema.
+   * This handles upgrading workspaces from the old single-board schema.
+   */
+  private migrateToMultiProject(): void {
+    // Check if pmo_board table exists (old schema)
+    const hasOldBoardTable = this.db.prepare(`
+      SELECT COUNT(*) as count FROM sqlite_master
+      WHERE type = 'table' AND name = 'pmo_board'
+    `).get() as { count: number }
 
-  async init(config: BoardConfig): Promise<Board> {
-    const boardId = 'default'
-    const boardName = config.name || 'Project Board'
-    const columns = config.columns || ['Backlog', 'In Progress', 'Review', 'Done']
-
-    // Create board
-    this.db
-      .prepare(
-        `
-      INSERT OR REPLACE INTO ${T.board} (id, name, updated_at)
-      VALUES (?, ?, ?)
-    `
-      )
-      .run(boardId, boardName, new Date().toISOString())
-
-    // Create columns
-    const insertColumn = this.db.prepare(`
-      INSERT OR REPLACE INTO ${T.columns} (id, name, position, created_at)
-      VALUES (?, ?, ?, ?)
-    `)
-
-    const now = new Date().toISOString()
-    columns.forEach((name, position) => {
-      insertColumn.run(slugify(name), name, position, now)
-    })
-
-    return this.getBoard()
-  }
-
-  async getBoard(): Promise<Board> {
-    // Get board metadata
-    const boardRow = this.db.prepare(`SELECT * FROM ${T.board} WHERE id = ?`).get('default') as
-      | { id: string; name: string; updated_at: string }
-      | undefined
-
-    if (!boardRow) {
-      throw new PMOError('NOT_FOUND', 'Board not initialized. Run init() first.')
+    if (hasOldBoardTable.count === 0) {
+      // No old schema, ensure default project exists
+      this.ensureDefaultProject()
+      return
     }
 
-    // Get columns with tickets
-    const columnRows = this.db.prepare(`SELECT * FROM ${T.columns} ORDER BY position`).all() as Array<{
+    // Check if columns already have project_id (already migrated)
+    const columnsInfo = this.db.prepare(`PRAGMA table_info(${T.columns})`).all() as Array<{ name: string }>
+    const hasProjectIdInColumns = columnsInfo.some(col => col.name === 'project_id')
+
+    if (hasProjectIdInColumns) {
+      // Already migrated, just ensure default project exists
+      this.ensureDefaultProject()
+      return
+    }
+
+    // Perform migration
+    this.db.transaction(() => {
+      // Get existing board data
+      const existingBoard = this.db.prepare(`SELECT * FROM pmo_board WHERE id = 'default'`).get() as
+        | { id: string; name: string; template: string | null; updated_at: string }
+        | undefined
+
+      // Create default project from existing board
+      if (existingBoard) {
+        this.db.prepare(`
+          INSERT OR IGNORE INTO ${T.projects} (id, name, template, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?)
+        `).run('default', existingBoard.name, existingBoard.template, existingBoard.updated_at, existingBoard.updated_at)
+      } else {
+        this.ensureDefaultProject()
+      }
+
+      // Recreate columns table with project_id
+      // First, save existing columns
+      const existingColumns = this.db.prepare(`SELECT * FROM ${T.columns}`).all() as Array<{
+        id: string
+        name: string
+        position: number
+        created_at: string
+      }>
+
+      // Save existing tickets
+      const existingTickets = this.db.prepare(`SELECT * FROM ${T.tickets}`).all() as Array<{
+        id: string
+        title: string
+        column_id: string
+        position: number
+        priority: string | null
+        category: string | null
+        description: string | null
+        created_at: string
+        updated_at: string
+      }>
+
+      // Drop old table and recreate with new schema
+      this.db.exec(`
+        DROP TABLE IF EXISTS ${T.tickets};
+        DROP TABLE IF EXISTS ${T.columns};
+
+        CREATE TABLE ${T.columns} (
+          id TEXT NOT NULL,
+          project_id TEXT NOT NULL DEFAULT 'default',
+          name TEXT NOT NULL,
+          position INTEGER NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (project_id, id)
+        );
+
+        CREATE TABLE ${T.tickets} (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL DEFAULT 'default',
+          title TEXT NOT NULL,
+          column_id TEXT NOT NULL,
+          position INTEGER NOT NULL,
+          priority TEXT,
+          category TEXT,
+          description TEXT,
+          epic_id TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (project_id, column_id) REFERENCES ${T.columns}(project_id, id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX idx_pmo_columns_project ON ${T.columns}(project_id);
+        CREATE INDEX idx_pmo_tickets_project ON ${T.tickets}(project_id);
+        CREATE INDEX idx_pmo_tickets_column ON ${T.tickets}(column_id);
+      `)
+
+      // Re-insert columns with project_id = 'default'
+      const insertColumn = this.db.prepare(`
+        INSERT INTO ${T.columns} (id, project_id, name, position, created_at)
+        VALUES (?, 'default', ?, ?, ?)
+      `)
+      for (const col of existingColumns) {
+        insertColumn.run(col.id, col.name, col.position, col.created_at)
+      }
+
+      // Re-insert tickets with project_id = 'default'
+      const insertTicket = this.db.prepare(`
+        INSERT INTO ${T.tickets} (id, project_id, title, column_id, position, priority, category, description, created_at, updated_at)
+        VALUES (?, 'default', ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      for (const ticket of existingTickets) {
+        insertTicket.run(
+          ticket.id,
+          ticket.title,
+          ticket.column_id,
+          ticket.position,
+          ticket.priority,
+          ticket.category,
+          ticket.description,
+          ticket.created_at,
+          ticket.updated_at
+        )
+      }
+
+      // Drop old pmo_board table
+      this.db.exec(`DROP TABLE IF EXISTS pmo_board`)
+    })()
+  }
+
+  /**
+   * Ensure the default project exists
+   */
+  private ensureDefaultProject(): void {
+    const exists = this.db.prepare(`SELECT id FROM ${T.projects} WHERE id = 'default'`).get()
+    if (!exists) {
+      this.db.prepare(`
+        INSERT INTO ${T.projects} (id, name, template, created_at, updated_at)
+        VALUES ('default', 'Main Project', 'kanban', datetime('now'), datetime('now'))
+      `).run()
+    }
+  }
+
+  // ===========================================================================
+  // Project Operations
+  // ===========================================================================
+
+  async createProject(project: { id?: string; name: string; template?: string; description?: string }): Promise<Board> {
+    const id = project.id || slugify(project.name)
+    const now = new Date().toISOString()
+
+    this.db.prepare(`
+      INSERT INTO ${T.projects} (id, name, template, description, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, project.name, project.template || 'kanban', project.description || null, now, now)
+
+    // Create default columns for the project
+    const defaultColumns = ['Backlog', 'In Progress', 'Review', 'Done']
+    const insertColumn = this.db.prepare(`
+      INSERT INTO ${T.columns} (id, project_id, name, position, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `)
+
+    defaultColumns.forEach((name, position) => {
+      insertColumn.run(slugify(name), id, name, position, now)
+    })
+
+    // Switch context to new project and return it
+    const oldProjectId = this.currentProjectId
+    this.currentProjectId = id
+    const result = await this.getBoard()
+    this.currentProjectId = oldProjectId
+    return result
+  }
+
+  async getProject(projectId: string): Promise<Board | null> {
+    const projectRow = this.db.prepare(`SELECT * FROM ${T.projects} WHERE id = ?`).get(projectId) as
+      | { id: string; name: string; template: string | null; description: string | null; updated_at: string }
+      | undefined
+
+    if (!projectRow) {
+      return null
+    }
+
+    // Get columns with tickets for this project
+    const columnRows = this.db.prepare(`
+      SELECT * FROM ${T.columns}
+      WHERE project_id = ?
+      ORDER BY position
+    `).all(projectId) as Array<{
       id: string
+      project_id: string
       name: string
       position: number
     }>
@@ -215,15 +419,124 @@ export class SQLiteStorage implements PMOStorage {
         id: col.id,
         name: col.name,
         position: col.position,
-        tickets: await this.getTicketsForColumn(col.id),
+        tickets: await this.getTicketsForColumn(col.id, projectId),
       }))
     )
 
     return {
-      id: boardRow.id,
-      name: boardRow.name,
+      id: projectRow.id,
+      name: projectRow.name,
       columns,
-      updatedAt: new Date(boardRow.updated_at),
+      updatedAt: new Date(projectRow.updated_at),
+    }
+  }
+
+  async listProjects(): Promise<Array<{ id: string; name: string; template: string | null; description: string | null; ticketCount: number }>> {
+    const projects = this.db.prepare(`
+      SELECT p.*, COUNT(t.id) as ticket_count
+      FROM ${T.projects} p
+      LEFT JOIN ${T.tickets} t ON p.id = t.project_id
+      GROUP BY p.id
+      ORDER BY p.created_at
+    `).all() as Array<{
+      id: string
+      name: string
+      template: string | null
+      description: string | null
+      ticket_count: number
+    }>
+
+    return projects.map(p => ({
+      id: p.id,
+      name: p.name,
+      template: p.template,
+      description: p.description,
+      ticketCount: p.ticket_count,
+    }))
+  }
+
+  async deleteProject(projectId: string): Promise<void> {
+    if (projectId === 'default') {
+      throw new PMOError('INVALID', 'Cannot delete the default project')
+    }
+
+    const result = this.db.prepare(`DELETE FROM ${T.projects} WHERE id = ?`).run(projectId)
+
+    if (result.changes === 0) {
+      throw new PMOError('NOT_FOUND', `Project not found: ${projectId}`)
+    }
+
+    // Columns and tickets are deleted via CASCADE
+  }
+
+  // ===========================================================================
+  // Board Operations (operates on current project)
+  // ===========================================================================
+
+  async init(config: BoardConfig): Promise<Board> {
+    const projectId = this.currentProjectId
+    const projectName = config.name || 'Project Board'
+    const columns = config.columns || ['Backlog', 'In Progress', 'Review', 'Done']
+    const now = new Date().toISOString()
+
+    // Create or update project
+    this.db.prepare(`
+      INSERT OR REPLACE INTO ${T.projects} (id, name, template, updated_at)
+      VALUES (?, ?, ?, ?)
+    `).run(projectId, projectName, 'kanban', now)
+
+    // Delete existing columns for this project
+    this.db.prepare(`DELETE FROM ${T.columns} WHERE project_id = ?`).run(projectId)
+
+    // Create columns
+    const insertColumn = this.db.prepare(`
+      INSERT INTO ${T.columns} (id, project_id, name, position, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `)
+
+    columns.forEach((name, position) => {
+      insertColumn.run(slugify(name), projectId, name, position, now)
+    })
+
+    return this.getBoard()
+  }
+
+  async getBoard(): Promise<Board> {
+    // Get project metadata
+    const projectRow = this.db.prepare(`SELECT * FROM ${T.projects} WHERE id = ?`).get(this.currentProjectId) as
+      | { id: string; name: string; updated_at: string }
+      | undefined
+
+    if (!projectRow) {
+      throw new PMOError('NOT_FOUND', `Project not found: ${this.currentProjectId}. Run init() first.`)
+    }
+
+    // Get columns with tickets for current project
+    const columnRows = this.db.prepare(`
+      SELECT * FROM ${T.columns}
+      WHERE project_id = ?
+      ORDER BY position
+    `).all(this.currentProjectId) as Array<{
+      id: string
+      project_id: string
+      name: string
+      position: number
+    }>
+
+    const columns: Column[] = await Promise.all(
+      columnRows.map(async (col) => ({
+        id: col.id,
+        name: col.name,
+        position: col.position,
+        tickets: await this.getTicketsForColumn(col.id, this.currentProjectId),
+      }))
+    )
+
+    return {
+      id: projectRow.id,
+      name: projectRow.name,
+      columns,
+      updatedAt: new Date(projectRow.updated_at),
     }
   }
 
@@ -238,21 +551,22 @@ export class SQLiteStorage implements PMOStorage {
 
   async createColumn(name: string, position?: number): Promise<Column> {
     const id = slugify(name)
+    const projectId = this.currentProjectId
     const pos = position ?? this.getMaxColumnPosition() + 1
 
     // Shift existing columns if inserting at specific position
     if (position !== undefined) {
-      this.db.prepare(`UPDATE ${T.columns} SET position = position + 1 WHERE position >= ?`).run(pos)
+      this.db.prepare(`
+        UPDATE ${T.columns}
+        SET position = position + 1
+        WHERE project_id = ? AND position >= ?
+      `).run(projectId, pos)
     }
 
-    this.db
-      .prepare(
-        `
-      INSERT INTO ${T.columns} (id, name, position, created_at)
-      VALUES (?, ?, ?, ?)
-    `
-      )
-      .run(id, name, pos, new Date().toISOString())
+    this.db.prepare(`
+      INSERT INTO ${T.columns} (id, project_id, name, position, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(id, projectId, name, pos, new Date().toISOString())
 
     this.updateBoardTimestamp()
 
@@ -265,7 +579,12 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   async renameColumn(id: string, name: string): Promise<Column> {
-    const result = this.db.prepare(`UPDATE ${T.columns} SET name = ? WHERE id = ?`).run(name, id)
+    const projectId = this.currentProjectId
+    const result = this.db.prepare(`
+      UPDATE ${T.columns}
+      SET name = ?
+      WHERE project_id = ? AND id = ?
+    `).run(name, projectId, id)
 
     if (result.changes === 0) {
       throw new PMOError('NOT_FOUND', `Column not found: ${id}`)
@@ -273,8 +592,12 @@ export class SQLiteStorage implements PMOStorage {
 
     this.updateBoardTimestamp()
 
-    const row = this.db.prepare(`SELECT * FROM ${T.columns} WHERE id = ?`).get(id) as {
+    const row = this.db.prepare(`
+      SELECT * FROM ${T.columns}
+      WHERE project_id = ? AND id = ?
+    `).get(projectId, id) as {
       id: string
+      project_id: string
       name: string
       position: number
     }
@@ -283,14 +606,16 @@ export class SQLiteStorage implements PMOStorage {
       id: row.id,
       name: row.name,
       position: row.position,
-      tickets: await this.getTicketsForColumn(id),
+      tickets: await this.getTicketsForColumn(id, projectId),
     }
   }
 
   async moveColumn(id: string, position: number): Promise<Column> {
-    const current = this.db.prepare(`SELECT position FROM ${T.columns} WHERE id = ?`).get(id) as
-      | { position: number }
-      | undefined
+    const projectId = this.currentProjectId
+    const current = this.db.prepare(`
+      SELECT position FROM ${T.columns}
+      WHERE project_id = ? AND id = ?
+    `).get(projectId, id) as { position: number } | undefined
 
     if (!current) {
       throw new PMOError('NOT_FOUND', `Column not found: ${id}`)
@@ -298,21 +623,33 @@ export class SQLiteStorage implements PMOStorage {
 
     // Shift columns between old and new position
     if (position < current.position) {
-      this.db
-        .prepare(`UPDATE ${T.columns} SET position = position + 1 WHERE position >= ? AND position < ?`)
-        .run(position, current.position)
+      this.db.prepare(`
+        UPDATE ${T.columns}
+        SET position = position + 1
+        WHERE project_id = ? AND position >= ? AND position < ?
+      `).run(projectId, position, current.position)
     } else {
-      this.db
-        .prepare(`UPDATE ${T.columns} SET position = position - 1 WHERE position > ? AND position <= ?`)
-        .run(current.position, position)
+      this.db.prepare(`
+        UPDATE ${T.columns}
+        SET position = position - 1
+        WHERE project_id = ? AND position > ? AND position <= ?
+      `).run(projectId, current.position, position)
     }
 
-    this.db.prepare(`UPDATE ${T.columns} SET position = ? WHERE id = ?`).run(position, id)
+    this.db.prepare(`
+      UPDATE ${T.columns}
+      SET position = ?
+      WHERE project_id = ? AND id = ?
+    `).run(position, projectId, id)
 
     this.updateBoardTimestamp()
 
-    const row = this.db.prepare(`SELECT * FROM ${T.columns} WHERE id = ?`).get(id) as {
+    const row = this.db.prepare(`
+      SELECT * FROM ${T.columns}
+      WHERE project_id = ? AND id = ?
+    `).get(projectId, id) as {
       id: string
+      project_id: string
       name: string
       position: number
     }
@@ -321,20 +658,25 @@ export class SQLiteStorage implements PMOStorage {
       id: row.id,
       name: row.name,
       position: row.position,
-      tickets: await this.getTicketsForColumn(id),
+      tickets: await this.getTicketsForColumn(id, projectId),
     }
   }
 
   async deleteColumn(id: string, cascade = false): Promise<void> {
-    const ticketCount = this.db
-      .prepare(`SELECT COUNT(*) as count FROM ${T.tickets} WHERE column_id = ?`)
-      .get(id) as { count: number }
+    const projectId = this.currentProjectId
+    const ticketCount = this.db.prepare(`
+      SELECT COUNT(*) as count FROM ${T.tickets}
+      WHERE project_id = ? AND column_id = ?
+    `).get(projectId, id) as { count: number }
 
     if (ticketCount.count > 0 && !cascade) {
       throw new PMOError('INVALID', `Column has ${ticketCount.count} tickets. Use cascade=true to delete.`)
     }
 
-    const result = this.db.prepare(`DELETE FROM ${T.columns} WHERE id = ?`).run(id)
+    const result = this.db.prepare(`
+      DELETE FROM ${T.columns}
+      WHERE project_id = ? AND id = ?
+    `).run(projectId, id)
 
     if (result.changes === 0) {
       throw new PMOError('NOT_FOUND', `Column not found: ${id}`)
@@ -350,23 +692,27 @@ export class SQLiteStorage implements PMOStorage {
   async createTicket(ticket: Partial<Ticket>): Promise<Ticket> {
     const id = ticket.id || slugify(ticket.title || 'untitled')
     const title = ticket.title || id
+    const projectId = this.currentProjectId
 
     // Get column (default to first column)
     let columnId = ticket.column
     if (!columnId) {
-      const firstColumn = this.db.prepare(`SELECT id FROM ${T.columns} ORDER BY position LIMIT 1`).get() as
-        | { id: string }
-        | undefined
+      const firstColumn = this.db.prepare(`
+        SELECT id FROM ${T.columns}
+        WHERE project_id = ?
+        ORDER BY position LIMIT 1
+      `).get(projectId) as { id: string } | undefined
       if (!firstColumn) {
         throw new PMOError('NOT_FOUND', 'No columns exist. Initialize board first.')
       }
       columnId = firstColumn.id
     }
 
-    // Verify column exists
-    const column = this.db.prepare(`SELECT id FROM ${T.columns} WHERE id = ? OR name = ?`).get(columnId, columnId) as
-      | { id: string }
-      | undefined
+    // Verify column exists in current project
+    const column = this.db.prepare(`
+      SELECT id FROM ${T.columns}
+      WHERE project_id = ? AND (id = ? OR name = ?)
+    `).get(projectId, columnId, columnId) as { id: string } | undefined
     if (!column) {
       throw new PMOError('NOT_FOUND', `Column not found: ${columnId}`)
     }
@@ -378,14 +724,10 @@ export class SQLiteStorage implements PMOStorage {
     const now = new Date().toISOString()
 
     // Insert ticket
-    this.db
-      .prepare(
-        `
-      INSERT INTO ${T.tickets} (id, title, column_id, position, priority, category, description, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `
-      )
-      .run(id, title, columnId, position, ticket.priority || null, ticket.category || null, ticket.description || null, now, now)
+    this.db.prepare(`
+      INSERT INTO ${T.tickets} (id, project_id, title, column_id, position, priority, category, description, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, projectId, title, columnId, position, ticket.priority || null, ticket.category || null, ticket.description || null, now, now)
 
     // Insert subtasks
     if (ticket.subtasks && ticket.subtasks.length > 0) {
@@ -505,15 +847,17 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   async moveTicket(id: string, column: string, position?: number): Promise<Ticket> {
+    const projectId = this.currentProjectId
     const existing = await this.getTicketById(id)
     if (!existing) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
     }
 
-    // Verify target column exists
-    const targetColumn = this.db.prepare(`SELECT id FROM ${T.columns} WHERE id = ? OR name = ?`).get(column, column) as
-      | { id: string }
-      | undefined
+    // Verify target column exists in current project
+    const targetColumn = this.db.prepare(`
+      SELECT id FROM ${T.columns}
+      WHERE project_id = ? AND (id = ? OR name = ?)
+    `).get(projectId, column, column) as { id: string } | undefined
     if (!targetColumn) {
       throw new PMOError('NOT_FOUND', `Column not found: ${column}`)
     }
@@ -524,28 +868,32 @@ export class SQLiteStorage implements PMOStorage {
     // If moving within same column, adjust positions
     if (existing.column === targetColumnId) {
       if (pos < existing.position) {
-        this.db
-          .prepare(
-            `UPDATE ${T.tickets} SET position = position + 1 WHERE column_id = ? AND position >= ? AND position < ?`
-          )
-          .run(targetColumnId, pos, existing.position)
+        this.db.prepare(`
+          UPDATE ${T.tickets}
+          SET position = position + 1
+          WHERE project_id = ? AND column_id = ? AND position >= ? AND position < ?
+        `).run(projectId, targetColumnId, pos, existing.position)
       } else if (pos > existing.position) {
-        this.db
-          .prepare(
-            `UPDATE ${T.tickets} SET position = position - 1 WHERE column_id = ? AND position > ? AND position <= ?`
-          )
-          .run(targetColumnId, existing.position, pos)
+        this.db.prepare(`
+          UPDATE ${T.tickets}
+          SET position = position - 1
+          WHERE project_id = ? AND column_id = ? AND position > ? AND position <= ?
+        `).run(projectId, targetColumnId, existing.position, pos)
       }
     } else {
       // Moving to different column
       // Shift positions in old column
-      this.db
-        .prepare(`UPDATE ${T.tickets} SET position = position - 1 WHERE column_id = ? AND position > ?`)
-        .run(existing.column, existing.position)
+      this.db.prepare(`
+        UPDATE ${T.tickets}
+        SET position = position - 1
+        WHERE project_id = ? AND column_id = ? AND position > ?
+      `).run(projectId, existing.column, existing.position)
       // Shift positions in new column
-      this.db
-        .prepare(`UPDATE ${T.tickets} SET position = position + 1 WHERE column_id = ? AND position >= ?`)
-        .run(targetColumnId, pos)
+      this.db.prepare(`
+        UPDATE ${T.tickets}
+        SET position = position + 1
+        WHERE project_id = ? AND column_id = ? AND position >= ?
+      `).run(projectId, targetColumnId, pos)
     }
 
     this.db
@@ -558,33 +906,40 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   async deleteTicket(id: string): Promise<void> {
+    const projectId = this.currentProjectId
     const existing = await this.getTicketById(id)
     if (!existing) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
     }
 
-    const result = this.db.prepare(`DELETE FROM ${T.tickets} WHERE id = ?`).run(id)
+    const result = this.db.prepare(`
+      DELETE FROM ${T.tickets}
+      WHERE project_id = ? AND id = ?
+    `).run(projectId, id)
 
     if (result.changes === 0) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
     }
 
     // Shift positions of remaining tickets
-    this.db
-      .prepare(`UPDATE ${T.tickets} SET position = position - 1 WHERE column_id = ? AND position > ?`)
-      .run(existing.column, existing.position)
+    this.db.prepare(`
+      UPDATE ${T.tickets}
+      SET position = position - 1
+      WHERE project_id = ? AND column_id = ? AND position > ?
+    `).run(projectId, existing.column, existing.position)
 
     this.updateBoardTimestamp()
   }
 
   async listTickets(filter?: TicketFilter): Promise<Ticket[]> {
+    const projectId = this.currentProjectId
     let query = `
       SELECT t.*, c.name as column_name
       FROM ${T.tickets} t
-      JOIN ${T.columns} c ON t.column_id = c.id
-      WHERE 1=1
+      JOIN ${T.columns} c ON t.project_id = c.project_id AND t.column_id = c.id
+      WHERE t.project_id = ?
     `
-    const params: unknown[] = []
+    const params: unknown[] = [projectId]
 
     if (filter?.column) {
       query += ' AND (c.id = ? OR c.name = ?)'
@@ -611,6 +966,7 @@ export class SQLiteStorage implements PMOStorage {
 
     const rows = this.db.prepare(query).all(...params) as Array<{
       id: string
+      project_id: string
       title: string
       column_id: string
       column_name: string
@@ -960,31 +1316,29 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   rebuildFromBoard(board: Board): void {
-    // Clear existing data
-    this.db.exec(`
-      DELETE FROM ${T.ticket_specs};
-      DELETE FROM ${T.ticket_metadata};
-      DELETE FROM ${T.subtasks};
-      DELETE FROM ${T.tickets};
-      DELETE FROM ${T.columns};
-      DELETE FROM ${T.board};
-    `)
+    const projectId = this.currentProjectId
+
+    // Clear existing data for current project only
+    this.db.prepare(`DELETE FROM ${T.tickets} WHERE project_id = ?`).run(projectId)
+    this.db.prepare(`DELETE FROM ${T.columns} WHERE project_id = ?`).run(projectId)
 
     // Rebuild
     const now = new Date().toISOString()
 
-    // Insert board (always use 'default' as id for single-board storage)
-    this.db
-      .prepare(`INSERT INTO ${T.board} (id, name, updated_at) VALUES (?, ?, ?)`)
-      .run('default', board.name, now)
+    // Update or insert project
+    this.db.prepare(`
+      INSERT OR REPLACE INTO ${T.projects} (id, name, updated_at)
+      VALUES (?, ?, ?)
+    `).run(projectId, board.name, now)
 
     // Insert columns and tickets
-    const insertColumn = this.db.prepare(
-      `INSERT INTO ${T.columns} (id, name, position, created_at) VALUES (?, ?, ?, ?)`
-    )
+    const insertColumn = this.db.prepare(`
+      INSERT INTO ${T.columns} (id, project_id, name, position, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `)
     const insertTicket = this.db.prepare(`
-      INSERT INTO ${T.tickets} (id, title, column_id, position, priority, category, description, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO ${T.tickets} (id, project_id, title, column_id, position, priority, category, description, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     const insertSubtask = this.db.prepare(`
       INSERT INTO ${T.subtasks} (id, ticket_id, title, done, position)
@@ -1000,11 +1354,12 @@ export class SQLiteStorage implements PMOStorage {
     `)
 
     for (const column of board.columns) {
-      insertColumn.run(column.id, column.name, column.position, now)
+      insertColumn.run(column.id, projectId, column.name, column.position, now)
 
       for (const ticket of column.tickets) {
         insertTicket.run(
           ticket.id,
+          projectId,
           ticket.title,
           column.id,
           ticket.position,
@@ -1037,19 +1392,17 @@ export class SQLiteStorage implements PMOStorage {
   // Private Helpers
   // ===========================================================================
 
-  private async getTicketsForColumn(columnId: string): Promise<Ticket[]> {
-    const rows = this.db
-      .prepare(
-        `
+  private async getTicketsForColumn(columnId: string, projectId?: string): Promise<Ticket[]> {
+    const pid = projectId ?? this.currentProjectId
+    const rows = this.db.prepare(`
       SELECT t.*, c.name as column_name
       FROM ${T.tickets} t
-      JOIN ${T.columns} c ON t.column_id = c.id
-      WHERE t.column_id = ?
+      JOIN ${T.columns} c ON t.project_id = c.project_id AND t.column_id = c.id
+      WHERE t.project_id = ? AND t.column_id = ?
       ORDER BY t.position
-    `
-      )
-      .all(columnId) as Array<{
+    `).all(pid, columnId) as Array<{
       id: string
+      project_id: string
       title: string
       column_id: string
       column_name: string
@@ -1065,18 +1418,16 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   private async getTicketById(id: string): Promise<Ticket | null> {
-    const row = this.db
-      .prepare(
-        `
+    const projectId = this.currentProjectId
+    const row = this.db.prepare(`
       SELECT t.*, c.name as column_name
       FROM ${T.tickets} t
-      JOIN ${T.columns} c ON t.column_id = c.id
-      WHERE t.id = ?
-    `
-      )
-      .get(id) as
+      JOIN ${T.columns} c ON t.project_id = c.project_id AND t.column_id = c.id
+      WHERE t.project_id = ? AND t.id = ?
+    `).get(projectId, id) as
       | {
           id: string
+          project_id: string
           title: string
           column_id: string
           column_name: string
@@ -1150,18 +1501,28 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   private getMaxColumnPosition(): number {
-    const result = this.db.prepare(`SELECT MAX(position) as max FROM ${T.columns}`).get() as { max: number | null }
+    const projectId = this.currentProjectId
+    const result = this.db.prepare(`
+      SELECT MAX(position) as max FROM ${T.columns}
+      WHERE project_id = ?
+    `).get(projectId) as { max: number | null }
     return result.max ?? -1
   }
 
   private getMaxTicketPosition(columnId: string): number {
-    const result = this.db.prepare(`SELECT MAX(position) as max FROM ${T.tickets} WHERE column_id = ?`).get(columnId) as {
-      max: number | null
-    }
+    const projectId = this.currentProjectId
+    const result = this.db.prepare(`
+      SELECT MAX(position) as max FROM ${T.tickets}
+      WHERE project_id = ? AND column_id = ?
+    `).get(projectId, columnId) as { max: number | null }
     return result.max ?? -1
   }
 
   private updateBoardTimestamp(): void {
-    this.db.prepare(`UPDATE ${T.board} SET updated_at = ? WHERE id = ?`).run(new Date().toISOString(), 'default')
+    this.db.prepare(`
+      UPDATE ${T.projects}
+      SET updated_at = ?
+      WHERE id = ?
+    `).run(new Date().toISOString(), this.currentProjectId)
   }
 }

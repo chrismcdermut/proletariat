@@ -25,9 +25,14 @@ export default class TicketCreate extends Command {
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --title "Fix login bug" --column Backlog',
     '<%= config.bin %> <%= command.id %> -t "Add feature" -c "In Progress" -p HIGH',
+    '<%= config.bin %> <%= command.id %> --project mobile-app -t "New feature"',
   ];
 
   static flags = {
+    project: Flags.string({
+      char: 'P',
+      description: 'Project ID (default: "default")',
+    }),
     title: Flags.string({
       char: 't',
       description: 'Ticket title',
@@ -106,11 +111,15 @@ export default class TicketCreate extends Command {
       this.error(`Invalid column "${ticketData.column}". Available columns: ${config.columns.join(', ')}`);
     }
 
+    // Resolve project ID
+    const projectId = flags.project || 'default';
+
     // Get storage with auto-sync from board.md
     const storage = getStorageWithAutoSync(
       pmoPath,
       config.storage,
-      (msg) => this.log(styles.muted(msg))
+      (msg) => this.log(styles.muted(msg)),
+      projectId
     );
 
     try {

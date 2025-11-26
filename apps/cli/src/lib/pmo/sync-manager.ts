@@ -10,6 +10,10 @@
  * 2. If mtime changed, compare content - if same, just update stored mtime
  * 3. If content differs, perform full sync
  *
+ * Multi-project support:
+ * - Default project: pmo/board.md
+ * - Other projects: pmo/board-{projectId}.md
+ *
  * Clock source: Uses filesystem mtime which comes from the OS system clock
  * (computer/VM clock depending on where the filesystem resides)
  */
@@ -20,6 +24,17 @@ import * as crypto from 'crypto';
 import { SQLiteStorage } from './storage-sqlite.js';
 import { parseBoard, generateBoardMarkdown } from './markdown.js';
 import { Board } from './types.js';
+
+/**
+ * Get the board.md path for a project
+ * Default project uses board.md, others use board-{projectId}.md
+ */
+export function getBoardPath(pmoPath: string, projectId: string = 'default'): string {
+  if (projectId === 'default') {
+    return path.join(pmoPath, 'board.md');
+  }
+  return path.join(pmoPath, `board-${projectId}.md`);
+}
 
 export interface SyncMetadata {
   lastSyncAt: number;      // When we last synced (either direction)
@@ -74,8 +89,8 @@ export function updateSyncMetadata(
 /**
  * Check if board.md mtime has changed (fast check)
  */
-export function boardMtimeChanged(pmoPath: string, storage: SQLiteStorage): boolean {
-  const boardPath = path.join(pmoPath, 'board.md');
+export function boardMtimeChanged(pmoPath: string, storage: SQLiteStorage, projectId: string = 'default'): boolean {
+  const boardPath = getBoardPath(pmoPath, projectId);
 
   if (!fs.existsSync(boardPath)) {
     return false;
@@ -121,21 +136,22 @@ export function boardContentChanged(
  * 3. If content same -> just update mtime, skip sync
  * 4. If content different -> perform sync
  *
- * Returns: 'synced' | 'mtime-only' | 'skipped'
+ * Returns: true if sync performed, false otherwise
  */
 export function autoSyncFromBoard(
   pmoPath: string,
   storage: SQLiteStorage,
-  logger?: (msg: string) => void
+  logger?: (msg: string) => void,
+  projectId: string = 'default'
 ): boolean {
-  const boardPath = path.join(pmoPath, 'board.md');
+  const boardPath = getBoardPath(pmoPath, projectId);
 
   if (!fs.existsSync(boardPath)) {
     return false;
   }
 
   // Fast path: mtime unchanged
-  if (!boardMtimeChanged(pmoPath, storage)) {
+  if (!boardMtimeChanged(pmoPath, storage, projectId)) {
     return false;
   }
 
@@ -149,20 +165,20 @@ export function autoSyncFromBoard(
     // Content same, just update mtime (file was touched but not modified)
     updateSyncMetadata(storage, stats.mtimeMs, contentHash);
     if (logger) {
-      logger('📋 board.md touched but unchanged, updated mtime');
+      logger(`📋 ${path.basename(boardPath)} touched but unchanged, updated mtime`);
     }
     return false;
   }
 
   // Content changed - perform full sync
-  const board = parseBoard(markdown);
+  const board = parseBoard(markdown, projectId);
   storage.rebuildFromBoard(board);
 
   // Update sync metadata with new mtime and hash
   updateSyncMetadata(storage, stats.mtimeMs, contentHash);
 
   if (logger) {
-    logger('📥 Auto-synced from board.md');
+    logger(`📥 Auto-synced from ${path.basename(boardPath)}`);
   }
 
   return true;
@@ -174,9 +190,11 @@ export function autoSyncFromBoard(
 export async function autoExportToBoard(
   pmoPath: string,
   storage: SQLiteStorage,
-  logger?: (msg: string) => void
+  logger?: (msg: string) => void,
+  projectId?: string
 ): Promise<void> {
-  const boardPath = path.join(pmoPath, 'board.md');
+  const pid = projectId ?? storage.getCurrentProjectId();
+  const boardPath = getBoardPath(pmoPath, pid);
 
   // Generate markdown from current database state
   const markdown = await storage.getBoardMarkdown();
@@ -190,7 +208,7 @@ export async function autoExportToBoard(
   updateSyncMetadata(storage, stats.mtimeMs, contentHash);
 
   if (logger) {
-    logger('📤 Auto-exported to board.md');
+    logger(`📤 Auto-exported to ${path.basename(boardPath)}`);
   }
 }
 
@@ -213,7 +231,8 @@ export function getWorkspaceDbPath(pmoPath: string): string {
 export function getStorageWithAutoSync(
   pmoPath: string,
   storageType: 'sqlite' | 'git',
-  logger?: (msg: string) => void
+  logger?: (msg: string) => void,
+  projectId: string = 'default'
 ): SQLiteStorage {
   // All storage types now use workspace.db (PMO tables are unified)
   const dbPath = getWorkspaceDbPath(pmoPath);
@@ -222,10 +241,10 @@ export function getStorageWithAutoSync(
     throw new Error(`Database not found at ${dbPath}. Run 'prlt init' first.`);
   }
 
-  const storage = new SQLiteStorage(dbPath);
+  const storage = new SQLiteStorage(dbPath, projectId);
 
   // Auto-sync if board.md has changes
-  autoSyncFromBoard(pmoPath, storage, logger);
+  autoSyncFromBoard(pmoPath, storage, logger, projectId);
 
   return storage;
 }

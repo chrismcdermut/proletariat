@@ -20,6 +20,7 @@ export {
   autoExportToBoard,
   withAutoExport,
   autoSyncFromBoard,
+  getBoardPath,
 } from './sync-manager.js';
 export {
   startWatcher,

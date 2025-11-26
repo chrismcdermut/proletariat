@@ -13,11 +13,13 @@ import { slugify } from './utils.js'
 
 /**
  * Parse an Obsidian Kanban markdown board into a Board object
+ * @param markdown The markdown content
+ * @param projectId The project ID to use (defaults to 'default')
  */
-export function parseBoard(markdown: string): Board {
+export function parseBoard(markdown: string, projectId: string = 'default'): Board {
   const lines = markdown.split('\n')
   const board: Board = {
-    id: 'default',
+    id: projectId,
     name: 'Board',
     columns: [],
     updatedAt: new Date(),

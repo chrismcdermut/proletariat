@@ -3,12 +3,51 @@
  *
  * Canonical interface for the Project Management Orchestration system.
  * All storage backends must implement the PMOStorage interface.
+ *
+ * Hierarchy:
+ * - Initiative (optional) - OKR-level grouping
+ * - Project - Discrete effort with its own board + specs
+ * - Epic (optional) - Large body of work within a project
+ * - Ticket - Individual work item
+ * - Subtask - Smallest actionable piece
  */
 
 // =============================================================================
 // Core Data Types
 // =============================================================================
 
+export interface Initiative {
+  id: string
+  name: string
+  objective?: string
+  keyResults?: string[]
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface Project {
+  id: string
+  name: string
+  template?: string
+  description?: string
+  initiativeId?: string
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface Epic {
+  id: string
+  projectId: string
+  name: string
+  description?: string
+  createdAt: Date
+  updatedAt: Date
+}
+
+/**
+ * Board represents a project's kanban board view.
+ * This is what gets rendered to board.md and displayed in the UI.
+ */
 export interface Board {
   id: string
   name: string
@@ -31,6 +70,7 @@ export interface Ticket {
   priority?: string
   category?: string
   description?: string
+  epicId?: string
   specs: string[]
   subtasks: Subtask[]
   metadata: Record<string, string>

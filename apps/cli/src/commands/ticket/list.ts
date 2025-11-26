@@ -28,9 +28,14 @@ export default class TicketList extends Command {
     '<%= config.bin %> <%= command.id %> --priority URGENT',
     '<%= config.bin %> <%= command.id %> --category bug',
     '<%= config.bin %> <%= command.id %> --search "login"',
+    '<%= config.bin %> <%= command.id %> --project mobile-app',
   ];
 
   static flags = {
+    project: Flags.string({
+      char: 'P',
+      description: 'Project ID (default: "default")',
+    }),
     column: Flags.string({
       char: 'c',
       description: 'Filter by column',
@@ -77,11 +82,15 @@ export default class TicketList extends Command {
 
     const config: PMOConfigFile = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
+    // Resolve project ID
+    const projectId = flags.project || 'default';
+
     // Get storage with auto-sync from board.md (read-only, no export needed)
     const storage = getStorageWithAutoSync(
       pmoPath,
       config.storage,
-      (msg) => this.log(styles.muted(msg))
+      (msg) => this.log(styles.muted(msg)),
+      projectId
     );
 
     try {
