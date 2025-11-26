@@ -15,7 +15,7 @@ export const colors = {
   text: chalk.white,
   textBold: chalk.bold.white,
   textSecondary: chalk.cyan,
-  textMuted: chalk.gray.dim,
+  textMuted: chalk.dim,
   
   // Status indicators
   active: chalk.green,
@@ -45,11 +45,11 @@ export const colors = {
   // Interactive elements
   selected: chalk.bold.cyan,
   unselected: chalk.white,
-  disabled: chalk.gray,
-  
+  disabled: chalk.dim,
+
   // Icons and decorations
   icon: chalk.white,
-  separator: chalk.gray,
+  separator: chalk.dim,
   
   // Background highlights
   highlight: chalk.bgBlue.white,

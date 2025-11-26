@@ -6,6 +6,7 @@ import chalk from 'chalk';
 import * as React from 'react';
 import { render } from 'ink';
 import { ClaimTicketUI } from '../../lib/ui/ClaimTicketUI.js';
+import { styles } from '../../lib/styles.js';
 
 export default class TicketClaim extends Command {
   static description = 'Claim a ticket (move from backlog to in-progress)';
@@ -128,9 +129,9 @@ export default class TicketClaim extends Command {
       this.log(chalk.yellow('Warning: Could not push changes. You may need to push manually.'));
     }
 
-    this.log(chalk.green(`✅ Ticket ${ticketId} claimed by ${agentName}`));
-    this.log(chalk.gray(`   Moved to In Progress`));
-    this.log(chalk.gray(`   Spec moved to active/`));
+    this.log(styles.success(`✅ Ticket ${ticketId} claimed by ${agentName}`));
+    this.log(styles.muted(`   Moved to In Progress`));
+    this.log(styles.muted(`   Spec moved to active/`));
   }
 
   private async getAgentName(): Promise<string> {

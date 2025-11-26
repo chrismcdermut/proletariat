@@ -9,6 +9,7 @@ import {
   getColumnsForTemplate,
   createBoardContent,
 } from '../../lib/pmo/index.js';
+import { styles } from '../../lib/styles.js';
 
 type StorageType = 'sqlite' | 'git';
 
@@ -229,10 +230,10 @@ export default class PMOInit extends Command {
     // Create README
     this.createReadme(pmoPath, storage, template);
 
-    this.log(chalk.gray(`  Created: ${pmoPath}`));
-    this.log(chalk.gray(`  Storage: ${storage}`));
-    this.log(chalk.gray(`  Template: ${template}`));
-    this.log(chalk.gray(`  Columns: ${columns.join(', ')}`));
+    this.log(styles.muted(`  Created: ${pmoPath}`));
+    this.log(styles.muted(`  Storage: ${storage}`));
+    this.log(styles.muted(`  Template: ${template}`));
+    this.log(styles.muted(`  Columns: ${columns.join(', ')}`));
   }
 
   private async setupSQLiteStorage(
@@ -378,13 +379,13 @@ ${storage === 'git' ? `## Obsidian Setup
   }
 
   private logNextSteps(storage: StorageType): void {
-    this.log(chalk.gray('\nNext steps:'));
-    this.log(chalk.gray('  1. Create your first ticket: prlt ticket create'));
-    this.log(chalk.gray('  2. View the board: prlt board view'));
+    this.log(styles.muted('\nNext steps:'));
+    this.log(styles.muted('  1. Create your first ticket: prlt ticket create'));
+    this.log(styles.muted('  2. View the board: prlt board view'));
 
     if (storage === 'git') {
-      this.log(chalk.gray('  3. Open in Obsidian for visual kanban'));
-      this.log(chalk.gray('  4. Push to remote: prlt board push'));
+      this.log(styles.muted('  3. Open in Obsidian for visual kanban'));
+      this.log(styles.muted('  4. Push to remote: prlt board push'));
     }
   }
 }

@@ -3,6 +3,7 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
+import { styles } from '../styles.js';
 
 export interface RepoToAdd {
   path: string;
@@ -81,7 +82,7 @@ export async function promptForRepositories(
       
       if (addCurrent) {
         // Can only clone (not move) the current repo since we're inside it
-        console.log(chalk.gray('Note: Current repository will be cloned (cannot move while inside it)'));
+        console.log(styles.muted('Note: Current repository will be cloned (cannot move while inside it)'));
         repos.push({ path: currentDir, action: 'clone' });
       }
     }
@@ -158,7 +159,7 @@ export async function promptForRepositories(
         trimmedPath.startsWith('git@')) {
       // Git URL - always clone
       repos.push({ path: trimmedPath, action: 'clone' });
-      console.log(chalk.gray(`Will clone: ${trimmedPath}`));
+      console.log(styles.muted(`Will clone: ${trimmedPath}`));
     } else {
       // Local path - ask move or clone
       const resolvedPath = path.resolve(trimmedPath);
@@ -217,12 +218,12 @@ export async function addRepositoriesToHQ(
     try {
       if (repo.action === 'move') {
         // Move the repository
-        console.log(chalk.gray(`Moving ${repo.path} to repos/${repoName}...`));
+        console.log(styles.muted(`Moving ${repo.path} to repos/${repoName}...`));
         fs.renameSync(repo.path, targetPath);
       } else {
         // Clone the repository
-        console.log(chalk.gray(`Cloning ${repo.path} to repos/${repoName}...`));
-        execSync(`git clone ${repo.path} ${targetPath}`, { 
+        console.log(styles.muted(`Cloning ${repo.path} to repos/${repoName}...`));
+        execSync(`git clone ${repo.path} ${targetPath}`, {
           stdio: 'inherit'
         });
       }
@@ -347,7 +348,7 @@ async function searchForRepositories(): Promise<RepoToAdd[]> {
       }
     } catch (error) {
       // Skip directories we can't access
-      console.log(chalk.gray(`Skipped ${searchPath} (no access)`));
+      console.log(styles.muted(`Skipped ${searchPath} (no access)`));
     }
   }
 

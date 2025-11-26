@@ -4,6 +4,7 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
+import { styles } from '../../lib/styles.js';
 
 export default class TicketComplete extends Command {
   static description = 'Mark a ticket as complete (move to done)';
@@ -176,12 +177,12 @@ export default class TicketComplete extends Command {
       this.log(chalk.yellow('Warning: Could not push changes. You may need to push manually.'));
     }
 
-    this.log(chalk.green(`✅ Ticket ${ticketId} marked as complete!`));
-    
+    this.log(styles.success(`✅ Ticket ${ticketId} marked as complete!`));
+
     // Show progress
     const doneCount = (board.match(/- \[x\]/g) || []).length;
     const totalCount = (board.match(/- \[[ x]\]/g) || []).length;
-    this.log(chalk.gray(`Progress: ${doneCount}/${totalCount} tickets completed`));
+    this.log(styles.muted(`Progress: ${doneCount}/${totalCount} tickets completed`));
   }
 
   private async getAgentName(): Promise<string> {

@@ -291,13 +291,13 @@ export default class PMOBoard extends Command {
         for (const { old: oldTicket, new: newTicket } of modified) {
           this.log(chalk.yellow(`    ~ ${newTicket.id}: ${newTicket.title}`));
           if (oldTicket.column !== newTicket.column) {
-            this.log(chalk.gray(`        column: ${oldTicket.column} → ${newTicket.column}`));
+            this.log(styles.muted(`        column: ${oldTicket.column} → ${newTicket.column}`));
           }
           if (oldTicket.priority !== newTicket.priority) {
-            this.log(chalk.gray(`        priority: ${oldTicket.priority || '(none)'} → ${newTicket.priority || '(none)'}`));
+            this.log(styles.muted(`        priority: ${oldTicket.priority || '(none)'} → ${newTicket.priority || '(none)'}`));
           }
           if (oldTicket.title !== newTicket.title) {
-            this.log(chalk.gray(`        title: ${oldTicket.title} → ${newTicket.title}`));
+            this.log(styles.muted(`        title: ${oldTicket.title} → ${newTicket.title}`));
           }
         }
       }
@@ -306,7 +306,7 @@ export default class PMOBoard extends Command {
 
       // Dry run - just show changes
       if (flags['dry-run']) {
-        this.log(chalk.gray('Dry run - no changes applied.'));
+        this.log(styles.muted('Dry run - no changes applied.'));
         await storage.close();
         return;
       }
@@ -366,10 +366,10 @@ export default class PMOBoard extends Command {
       } else if (platform === 'win32') {
         execSync(`start "" "obsidian://open?path=${encodeURIComponent(pmoPath)}"`);
       }
-      this.log(chalk.green('✅ Opened PMO in Obsidian'));
+      this.log(styles.success('✅ Opened PMO in Obsidian'));
     } catch {
-      this.log(chalk.yellow('Could not open Obsidian. Make sure it is installed.'));
-      this.log(chalk.gray(`PMO location: ${pmoPath}`));
+      this.log(styles.warning('Could not open Obsidian. Make sure it is installed.'));
+      this.log(styles.muted(`PMO location: ${pmoPath}`));
     }
   }
 

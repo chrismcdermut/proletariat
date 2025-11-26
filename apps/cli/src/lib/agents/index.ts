@@ -5,6 +5,7 @@ import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { THEMES } from '../themes.js';
 import { getWorkspaceRepositories } from '../database/index.js';
+import { styles } from '../styles.js';
 
 export interface HQConfig {
   type: 'hq';
@@ -102,7 +103,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
             const worktreeDir = path.join(agentDir, repo.name);
             
             if (fs.existsSync(sourceRepo)) {
-              console.log(chalk.gray(`  Creating worktree for ${repo.name}...`));
+              console.log(styles.muted(`  Creating worktree for ${repo.name}...`));
               
               // Create git worktree for the agent
               const branchName = `agent-${agent}`;

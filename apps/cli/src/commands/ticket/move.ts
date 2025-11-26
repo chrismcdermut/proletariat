@@ -1,12 +1,12 @@
 import { Command, Args, Flags } from '@oclif/core';
 import * as fs from 'fs';
 import * as path from 'path';
-import chalk from 'chalk';
 import inquirer from 'inquirer';
 import {
   getStorageWithAutoSync,
   autoExportToBoard,
 } from '../../lib/pmo/index.js';
+import { styles } from '../../lib/styles.js';
 
 interface PMOConfigFile {
   storage: 'sqlite' | 'git';
@@ -68,7 +68,7 @@ export default class TicketMove extends Command {
     const storage = getStorageWithAutoSync(
       pmoPath,
       config.storage,
-      (msg) => this.log(chalk.gray(msg))
+      (msg) => this.log(styles.muted(msg))
     );
 
     try {
@@ -105,7 +105,7 @@ export default class TicketMove extends Command {
       // Check if actually moving
       if (targetColumn === ticket.column && flags.position === undefined) {
         await storage.close();
-        this.log(chalk.yellow(`Ticket "${args.ticketId}" is already in "${targetColumn}".`));
+        this.log(styles.warning(`Ticket "${args.ticketId}" is already in "${targetColumn}".`));
         return;
       }
 
@@ -113,17 +113,17 @@ export default class TicketMove extends Command {
       const moved = await storage.moveTicket(args.ticketId, targetColumn!, flags.position);
 
       // Auto-export to board.md after write
-      await autoExportToBoard(pmoPath, storage, (msg) => this.log(chalk.gray(msg)));
+      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
 
       await storage.close();
 
-      this.log(chalk.green(`\n✅ Moved ticket ${chalk.bold(moved.id)}`));
+      this.log(styles.success(`\n✅ Moved ticket ${styles.emphasis(moved.id)}`));
       if (targetColumn !== ticket.column) {
-        this.log(chalk.gray(`   From: ${ticket.column}`));
-        this.log(chalk.gray(`   To: ${moved.column}`));
+        this.log(styles.muted(`   From: ${ticket.column}`));
+        this.log(styles.muted(`   To: ${moved.column}`));
       }
       if (flags.position !== undefined) {
-        this.log(chalk.gray(`   Position: ${flags.position}`));
+        this.log(styles.muted(`   Position: ${flags.position}`));
       }
     } catch (error) {
       await storage.close();

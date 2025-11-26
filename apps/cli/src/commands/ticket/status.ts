@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import chalk from 'chalk';
+import { styles } from '../../lib/styles.js';
 
 export default class TicketStatus extends Command {
   static description = 'Update ticket status (move between board columns)';
@@ -155,9 +156,9 @@ export default class TicketStatus extends Command {
       this.log(chalk.yellow('Warning: Could not push changes. You may need to push manually.'));
     }
 
-    this.log(chalk.green(`✅ Updated ${ticketId} status to ${status}`));
+    this.log(styles.success(`✅ Updated ${ticketId} status to ${status}`));
     if (reason) {
-      this.log(chalk.gray(`   Reason: ${reason}`));
+      this.log(styles.muted(`   Reason: ${reason}`));
     }
   }
 

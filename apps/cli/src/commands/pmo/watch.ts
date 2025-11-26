@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
 import { runWatcherForeground } from '../../lib/pmo/index.js';
+import { styles } from '../../lib/styles.js';
 
 interface PMOConfigFile {
   storage: 'sqlite' | 'git';
@@ -46,17 +47,17 @@ export default class PMOWatch extends Command {
     const config: PMOConfigFile = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
     // Header
-    this.log(chalk.bold.cyan('\n🔄 PMO Board Watcher'));
-    this.log(chalk.gray(`Storage: ${config.storage} | Debounce: ${flags.debounce}ms`));
-    this.log(chalk.gray(`Path: ${pmoPath}`));
-    this.log(chalk.gray('Press Ctrl+C to stop\n'));
+    this.log(styles.title('\n🔄 PMO Board Watcher'));
+    this.log(styles.muted(`Storage: ${config.storage} | Debounce: ${flags.debounce}ms`));
+    this.log(styles.muted(`Path: ${pmoPath}`));
+    this.log(styles.muted('Press Ctrl+C to stop\n'));
 
     // Run watcher (blocks until SIGINT/SIGTERM)
     await runWatcherForeground(pmoPath, config.storage, {
       debounceMs: flags.debounce,
       logger: (msg) => {
         const timestamp = new Date().toLocaleTimeString();
-        this.log(chalk.gray(`[${timestamp}]`) + ' ' + msg);
+        this.log(styles.muted(`[${timestamp}]`) + ' ' + msg);
       },
       onSync: (stats) => {
         // Already logged by logger

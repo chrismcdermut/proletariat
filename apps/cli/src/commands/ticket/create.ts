@@ -1,12 +1,12 @@
 import { Command, Flags } from '@oclif/core';
 import * as fs from 'fs';
 import * as path from 'path';
-import chalk from 'chalk';
 import inquirer from 'inquirer';
 import {
   getStorageWithAutoSync,
   autoExportToBoard,
 } from '../../lib/pmo/index.js';
+import { styles } from '../../lib/styles.js';
 
 interface PMOConfigFile {
   storage: 'sqlite' | 'git';
@@ -110,7 +110,7 @@ export default class TicketCreate extends Command {
     const storage = getStorageWithAutoSync(
       pmoPath,
       config.storage,
-      (msg) => this.log(chalk.gray(msg))
+      (msg) => this.log(styles.muted(msg))
     );
 
     try {
@@ -124,21 +124,21 @@ export default class TicketCreate extends Command {
       });
 
       // Auto-export to board.md after write
-      await autoExportToBoard(pmoPath, storage, (msg) => this.log(chalk.gray(msg)));
+      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
 
       await storage.close();
 
-      this.log(chalk.green(`\n✅ Created ticket ${chalk.bold(ticket.id)}`));
-      this.log(chalk.gray(`   Title: ${ticket.title}`));
-      this.log(chalk.gray(`   Column: ${ticket.column}`));
+      this.log(styles.success(`\n✅ Created ticket ${styles.emphasis(ticket.id)}`));
+      this.log(styles.muted(`   Title: ${ticket.title}`));
+      this.log(styles.muted(`   Column: ${ticket.column}`));
       if (ticket.priority) {
-        this.log(chalk.gray(`   Priority: ${ticket.priority}`));
+        this.log(styles.muted(`   Priority: ${ticket.priority}`));
       }
       if (ticket.category) {
-        this.log(chalk.gray(`   Category: ${ticket.category}`));
+        this.log(styles.muted(`   Category: ${ticket.category}`));
       }
-      this.log(chalk.gray(`\n   View board: prlt pmo board view`));
-      this.log(chalk.gray(`   List tickets: prlt ticket list`));
+      this.log(styles.muted(`\n   View board: prlt pmo board view`));
+      this.log(styles.muted(`   List tickets: prlt ticket list`));
     } catch (error) {
       await storage.close();
       throw error;
@@ -163,7 +163,14 @@ export default class TicketCreate extends Command {
     description?: string;
     id?: string;
   }> {
-    const answers = await inquirer.prompt([
+    const answers = await inquirer.prompt<{
+      title: string;
+      column: string;
+      priority?: string;
+      categoryChoice: string;
+      customCategory?: string;
+      description?: string;
+    }>([
       {
         type: 'input',
         name: 'title',
@@ -192,10 +199,27 @@ export default class TicketCreate extends Command {
         default: flags.priority,
       },
       {
+        type: 'list',
+        name: 'categoryChoice',
+        message: 'Category:',
+        choices: [
+          { name: 'Skip (none)', value: '' },
+          { name: 'feature', value: 'feature' },
+          { name: 'bug', value: 'bug' },
+          { name: 'refactor', value: 'refactor' },
+          { name: 'docs', value: 'docs' },
+          { name: 'test', value: 'test' },
+          { name: 'chore', value: 'chore' },
+          { name: 'Custom...', value: '__custom__' },
+        ],
+        default: flags.category || '',
+      },
+      {
         type: 'input',
-        name: 'category',
-        message: 'Category (optional, e.g., bug, feature, refactor):',
-        default: flags.category,
+        name: 'customCategory',
+        message: 'Enter custom category:',
+        when: (answers: { categoryChoice: string }) => answers.categoryChoice === '__custom__',
+        validate: (input: string) => input.length > 0 || 'Category is required when choosing custom',
       },
       {
         type: 'input',
@@ -205,11 +229,16 @@ export default class TicketCreate extends Command {
       },
     ]);
 
+    // Resolve category from choice or custom input
+    const category = answers.categoryChoice === '__custom__'
+      ? answers.customCategory
+      : answers.categoryChoice || undefined;
+
     return {
       title: answers.title,
       column: answers.column,
       priority: answers.priority || undefined,
-      category: answers.category || undefined,
+      category,
       description: answers.description || undefined,
       id: flags.id,
     };
