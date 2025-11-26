@@ -195,20 +195,31 @@ export async function autoExportToBoard(
 }
 
 /**
+ * Get the workspace.db path from a PMO path
+ * PMO is at <workspace>/pmo, workspace.db is at <workspace>/.proletariat/workspace.db
+ */
+export function getWorkspaceDbPath(pmoPath: string): string {
+  // PMO is typically at <workspace>/pmo
+  const workspacePath = path.dirname(pmoPath);
+  return path.join(workspacePath, '.proletariat', 'workspace.db');
+}
+
+/**
  * Get storage with auto-sync from board.md (for read operations)
  * Use this when you need to READ from the database
+ *
+ * Now uses the unified workspace.db instead of separate board.db
  */
 export function getStorageWithAutoSync(
   pmoPath: string,
   storageType: 'sqlite' | 'git',
   logger?: (msg: string) => void
 ): SQLiteStorage {
-  const dbPath = storageType === 'sqlite'
-    ? path.join(pmoPath, 'board.db')
-    : path.join(pmoPath, '.cache.db');
+  // All storage types now use workspace.db (PMO tables are unified)
+  const dbPath = getWorkspaceDbPath(pmoPath);
 
   if (!fs.existsSync(dbPath)) {
-    throw new Error(`Database not found at ${dbPath}. PMO may need to be reinitialized.`);
+    throw new Error(`Database not found at ${dbPath}. Run 'prlt init' first.`);
   }
 
   const storage = new SQLiteStorage(dbPath);

@@ -174,6 +174,9 @@ interface PMOConfigFile {
 
 /**
  * Create PMO structure in HQ
+ *
+ * PMO data is stored in the unified workspace.db (pmo_* tables)
+ * This allows foreign key relationships between agents and tickets
  */
 export async function createPMO(
   hqPath: string,
@@ -209,48 +212,27 @@ export async function createPMO(
   fs.writeFileSync(path.join(pmoPath, 'board.md'), boardContent);
   console.log(chalk.green('  ✓ board.md created'));
 
-  // Storage-specific setup
-  if (storageType === 'sqlite') {
-    // Create SQLite database (source of truth)
-    const dbPath = path.join(pmoPath, 'board.db');
-    const storage = new SQLiteStorage(dbPath);
-    await storage.init({
-      name: boardName,
-      columns,
-    });
-    await storage.close();
-    console.log(chalk.green('  ✓ SQLite database created'));
-  } else if (storageType === 'git') {
-    // board.md is source of truth for git mode
-
-    // Create SQLite cache
-    const cachePath = path.join(pmoPath, '.cache.db');
-    const cache = new SQLiteStorage(cachePath);
-    await cache.init({
-      name: boardName,
-      columns,
-    });
-    await cache.close();
-    console.log(chalk.green('  ✓ SQLite cache created'));
-
-    // Create .gitignore for cache
-    const gitignore = `.cache.db
-.cache.db-journal
-.DS_Store
-`;
-    fs.writeFileSync(path.join(pmoPath, '.gitignore'), gitignore);
+  // Initialize PMO tables in workspace.db
+  // workspace.db is created by init and already has pmo_* tables from schema
+  const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
+  if (!fs.existsSync(dbPath)) {
+    throw new Error(`workspace.db not found. Run 'prlt init' first.`);
   }
 
+  const storage = new SQLiteStorage(dbPath);
+  await storage.init({
+    name: boardName,
+    columns,
+  });
+  await storage.close();
+  console.log(chalk.green('  ✓ PMO tables initialized in workspace.db'));
+
   // Create README for PMO
-  const storageDesc = storageType === 'sqlite'
-    ? `- **config.json** - PMO configuration
-- **board.db** - SQLite database (source of truth)
-- **board.md** - Kanban board (Obsidian compatible, use \`prlt pmo board export\` to update)
-- **specs/** - Detailed specifications for tickets`
-    : `- **config.json** - PMO configuration
-- **board.md** - Kanban board (source of truth, Obsidian compatible)
-- **.cache.db** - Local SQLite cache (gitignored)
-- **specs/** - Detailed specifications for tickets`;
+  // Note: PMO data is now stored in workspace.db, not a separate board.db
+  const storageDesc = `- **config.json** - PMO configuration
+- **board.md** - Kanban board (Obsidian compatible, auto-synced with database)
+- **specs/** - Detailed specifications for tickets
+- Data stored in \`../.proletariat/workspace.db\` (pmo_* tables)`;
 
   const syncCommands = storageType === 'git'
     ? `

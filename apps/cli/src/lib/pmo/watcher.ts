@@ -51,6 +51,14 @@ function computeHash(content: string): string {
 }
 
 /**
+ * Get the workspace.db path from a PMO path
+ */
+function getWorkspaceDbPath(pmoPath: string): string {
+  const workspacePath = path.dirname(pmoPath);
+  return path.join(workspacePath, '.proletariat', 'workspace.db');
+}
+
+/**
  * Start watching board.md for changes
  */
 export function startWatcher(
@@ -66,16 +74,15 @@ export function startWatcher(
   } = options;
 
   const boardPath = path.join(pmoPath, 'board.md');
-  const dbPath = storageType === 'sqlite'
-    ? path.join(pmoPath, 'board.db')
-    : path.join(pmoPath, '.cache.db');
+  // All storage types now use unified workspace.db
+  const dbPath = getWorkspaceDbPath(pmoPath);
 
   // Validate paths exist
   if (!fs.existsSync(boardPath)) {
     throw new Error(`board.md not found at ${boardPath}`);
   }
   if (!fs.existsSync(dbPath)) {
-    throw new Error(`Database not found at ${dbPath}`);
+    throw new Error(`Database not found at ${dbPath}. Run 'prlt init' first.`);
   }
 
   let watcher: FSWatcher | null = null;

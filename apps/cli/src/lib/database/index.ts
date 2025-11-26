@@ -99,11 +99,105 @@ CREATE TABLE IF NOT EXISTS agent_worktrees (
   FOREIGN KEY (repo_name) REFERENCES repositories(name) ON DELETE CASCADE
 );
 
--- Indexes for common queries
+-- =============================================================================
+-- PMO (Project Management Office) Tables
+-- =============================================================================
+
+-- Board metadata
+CREATE TABLE IF NOT EXISTS pmo_board (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  name TEXT NOT NULL,
+  template TEXT,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Columns (kanban lanes)
+CREATE TABLE IF NOT EXISTS pmo_columns (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tickets (kanban cards)
+CREATE TABLE IF NOT EXISTS pmo_tickets (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  column_id TEXT NOT NULL REFERENCES pmo_columns(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  priority TEXT,
+  category TEXT,
+  description TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Subtasks
+CREATE TABLE IF NOT EXISTS pmo_subtasks (
+  id TEXT NOT NULL,
+  ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  done INTEGER DEFAULT 0,
+  position INTEGER NOT NULL,
+  PRIMARY KEY (ticket_id, id)
+);
+
+-- Custom metadata fields for tickets
+CREATE TABLE IF NOT EXISTS pmo_ticket_metadata (
+  ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  value TEXT,
+  PRIMARY KEY (ticket_id, key)
+);
+
+-- Specs (specification documents)
+CREATE TABLE IF NOT EXISTS pmo_specs (
+  id TEXT PRIMARY KEY,
+  path TEXT NOT NULL,
+  title TEXT,
+  status TEXT DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Ticket-Spec relationship (many-to-many)
+CREATE TABLE IF NOT EXISTS pmo_ticket_specs (
+  ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
+  spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
+  PRIMARY KEY (ticket_id, spec_id)
+);
+
+-- Agent-Ticket assignments (many-to-many)
+CREATE TABLE IF NOT EXISTS pmo_ticket_assignments (
+  ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
+  agent_name TEXT NOT NULL REFERENCES agents(name) ON DELETE CASCADE,
+  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (ticket_id, agent_name)
+);
+
+-- Cache metadata (for board.md sync)
+CREATE TABLE IF NOT EXISTS pmo_cache_metadata (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+-- =============================================================================
+-- Indexes
+-- =============================================================================
+
+-- Agent indexes
 CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
 CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme);
 CREATE INDEX IF NOT EXISTS idx_worktrees_agent ON agent_worktrees(agent_name);
 CREATE INDEX IF NOT EXISTS idx_worktrees_repo ON agent_worktrees(repo_name);
+
+-- PMO indexes
+CREATE INDEX IF NOT EXISTS idx_pmo_tickets_column ON pmo_tickets(column_id);
+CREATE INDEX IF NOT EXISTS idx_pmo_tickets_priority ON pmo_tickets(priority);
+CREATE INDEX IF NOT EXISTS idx_pmo_tickets_category ON pmo_tickets(category);
+CREATE INDEX IF NOT EXISTS idx_pmo_subtasks_ticket ON pmo_subtasks(ticket_id);
+CREATE INDEX IF NOT EXISTS idx_pmo_ticket_specs_spec ON pmo_ticket_specs(spec_id);
+CREATE INDEX IF NOT EXISTS idx_pmo_assignments_agent ON pmo_ticket_assignments(agent_name);
 `;
 
 /**

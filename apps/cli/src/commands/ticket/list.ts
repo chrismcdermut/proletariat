@@ -1,8 +1,15 @@
 import { Command, Flags } from '@oclif/core';
 import * as fs from 'fs';
 import * as path from 'path';
-import chalk from 'chalk';
 import { Ticket, getStorageWithAutoSync } from '../../lib/pmo/index.js';
+import {
+  styles,
+  formatPriority,
+  formatCategory,
+  getColumnStyle,
+  getColumnEmoji,
+  divider,
+} from '../../lib/styles.js';
 
 interface PMOConfigFile {
   storage: 'sqlite' | 'git';
@@ -74,7 +81,7 @@ export default class TicketList extends Command {
     const storage = getStorageWithAutoSync(
       pmoPath,
       config.storage,
-      (msg) => this.log(chalk.gray(msg))
+      (msg) => this.log(styles.muted(msg))
     );
 
     try {
@@ -103,7 +110,7 @@ export default class TicketList extends Command {
       await storage.close();
 
       if (tickets.length === 0) {
-        this.log(chalk.yellow('No tickets found.'));
+        this.log(styles.warning('No tickets found.'));
         return;
       }
 
@@ -137,22 +144,17 @@ export default class TicketList extends Command {
       byColumn[ticket.column].push(ticket);
     }
 
-    // Display each column with tickets
+    // Display ALL columns
     for (const col of columns) {
       const colTickets = byColumn[col];
 
-      // Skip Done column unless --all flag
-      if (col === 'Done' && !showAll && colTickets.length === 0) {
-        continue;
-      }
-
       // Column header with color
-      const headerColor = this.getColumnColor(col);
-      this.log(headerColor(`\n${this.getColumnEmoji(col)} ${col} (${colTickets.length})`));
-      this.log(chalk.gray('─'.repeat(50)));
+      const headerColor = getColumnStyle(col);
+      this.log(headerColor(`\n${getColumnEmoji(col)} ${col} (${colTickets.length})`));
+      this.log(divider(50));
 
       if (colTickets.length === 0) {
-        this.log(chalk.gray('  (empty)'));
+        this.log(styles.muted('  (empty)'));
         continue;
       }
 
@@ -160,26 +162,26 @@ export default class TicketList extends Command {
       colTickets.sort((a, b) => a.position - b.position);
 
       for (const ticket of colTickets) {
-        const priorityBadge = this.formatPriority(ticket.priority);
-        const categoryBadge = ticket.category ? chalk.cyan(`[${ticket.category}]`) : '';
+        const priorityBadge = formatPriority(ticket.priority);
+        const categoryBadge = formatCategory(ticket.category);
 
-        this.log(`  ${chalk.bold(ticket.id)} ${ticket.title} ${priorityBadge} ${categoryBadge}`);
+        this.log(`  ${styles.code(ticket.id)} ${ticket.title} ${priorityBadge} ${categoryBadge}`);
 
         if (ticket.description) {
           const shortDesc = ticket.description.split('\n')[0].substring(0, 60);
-          this.log(chalk.gray(`     ${shortDesc}${ticket.description.length > 60 ? '...' : ''}`));
+          this.log(styles.muted(`     ${shortDesc}${ticket.description.length > 60 ? '...' : ''}`));
         }
 
         if (ticket.subtasks.length > 0) {
           const done = ticket.subtasks.filter(s => s.done).length;
-          this.log(chalk.gray(`     Subtasks: ${done}/${ticket.subtasks.length}`));
+          this.log(styles.muted(`     Subtasks: ${done}/${ticket.subtasks.length}`));
         }
       }
     }
 
     // Summary
-    this.log(chalk.gray('\n─'.repeat(50)));
-    this.log(chalk.bold(`Total: ${tickets.length} ticket${tickets.length === 1 ? '' : 's'}`));
+    this.log('\n' + divider(50));
+    this.log(styles.emphasis(`Total: ${tickets.length} ticket${tickets.length === 1 ? '' : 's'}`));
   }
 
   private outputCompact(tickets: Ticket[], columns: string[], showAll: boolean): void {
@@ -198,90 +200,22 @@ export default class TicketList extends Command {
     for (const col of columns) {
       const colTickets = byColumn[col];
 
-      if (col === 'Done' && !showAll && colTickets.length === 0) {
+      // Show all columns
+      const headerColor = getColumnStyle(col);
+      this.log(headerColor(`${getColumnEmoji(col)} ${col} (${colTickets.length}):`));
+
+      if (colTickets.length === 0) {
+        this.log(styles.muted('  (empty)'));
         continue;
       }
-
-      if (colTickets.length === 0) continue;
-
-      const headerColor = this.getColumnColor(col);
-      this.log(headerColor(`${col}:`));
 
       colTickets.sort((a, b) => a.position - b.position);
 
       for (const ticket of colTickets) {
-        const priority = ticket.priority ? chalk.yellow(`[${ticket.priority}]`) : '';
-        this.log(`  ${ticket.id}: ${ticket.title} ${priority}`);
+        const priority = formatPriority(ticket.priority);
+        this.log(`  ${styles.code(ticket.id)}: ${ticket.title} ${priority}`);
       }
     }
-  }
-
-  private formatPriority(priority?: string): string {
-    if (!priority) return '';
-
-    switch (priority) {
-      case 'URGENT':
-        return chalk.red.bold(`[${priority}]`);
-      case 'HIGH':
-        return chalk.red(`[${priority}]`);
-      case 'MEDIUM':
-        return chalk.yellow(`[${priority}]`);
-      case 'LOW':
-        return chalk.gray(`[${priority}]`);
-      default:
-        return chalk.gray(`[${priority}]`);
-    }
-  }
-
-  private getColumnColor(column: string): chalk.Chalk {
-    if (column.includes('BL')) {
-      // Backlog columns
-      if (column.includes('BUILD')) return chalk.magenta;
-      if (column.includes('GROW')) return chalk.green;
-      if (column.includes('SUPPORT')) return chalk.yellow;
-      if (column.includes('BIZOPS')) return chalk.blue;
-      if (column.includes('STRATEGY')) return chalk.cyan;
-    }
-
-    switch (column) {
-      case 'Backlog':
-      case 'Ready':
-        return chalk.blue;
-      case 'In Progress':
-        return chalk.yellow;
-      case 'In Review':
-        return chalk.magenta;
-      case 'Blocked':
-        return chalk.red;
-      case 'Done':
-      case 'Merged':
-      case 'Published':
-        return chalk.green;
-      case 'Dropped':
-        return chalk.gray;
-      default:
-        return chalk.white;
-    }
-  }
-
-  private getColumnEmoji(column: string): string {
-    const emojis: Record<string, string> = {
-      'Backlog': '📥',
-      'In Progress': '🚀',
-      'In Review': '👀',
-      'Blocked': '🚧',
-      'Done': '✅',
-      'BUILD BL': '🔨',
-      'GROW BL': '📈',
-      'SUPPORT BL': '🛟',
-      'BIZOPS BL': '⚙️',
-      'STRATEGY BL': '🎯',
-      'Ready': '📥',
-      'Merged': '🔀',
-      'Published': '🚀',
-      'Dropped': '🗑️',
-    };
-    return emojis[column] || '📋';
   }
 
   private findPMO(): string | null {

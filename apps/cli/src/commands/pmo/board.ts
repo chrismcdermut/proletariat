@@ -14,6 +14,14 @@ import {
   findModifiedTickets,
   getStorageWithAutoSync,
 } from '../../lib/pmo/index.js';
+import {
+  styles,
+  formatPriority,
+  formatCategory,
+  getColumnStyle,
+  getColumnEmoji,
+  divider,
+} from '../../lib/styles.js';
 
 interface PMOConfigFile {
   storage: 'sqlite' | 'git';
@@ -89,15 +97,15 @@ export default class PMOBoard extends Command {
         break;
 
       case 'markdown':
-        await this.showMarkdown(pmoPath, config);
+        await this.showMarkdown(pmoPath);
         break;
 
       case 'export':
-        await this.exportMarkdown(pmoPath, config);
+        await this.exportMarkdown(pmoPath);
         break;
 
       case 'sync':
-        await this.syncFromMarkdown(pmoPath, config, flags);
+        await this.syncFromMarkdown(pmoPath, flags);
         break;
     }
   }
@@ -111,7 +119,7 @@ export default class PMOBoard extends Command {
     const storage = getStorageWithAutoSync(
       pmoPath,
       config.storage,
-      (msg) => this.log(chalk.gray(msg))
+      (msg) => this.log(styles.muted(msg))
     );
 
     try {
@@ -119,25 +127,20 @@ export default class PMOBoard extends Command {
       await storage.close();
 
       // Header
-      this.log(chalk.bold.cyan(`\n${board.name}`));
-      this.log(chalk.gray(`Template: ${config.template} | Storage: ${config.storage}`));
-      this.log(chalk.gray('═'.repeat(60)));
+      this.log(styles.title(`\n${board.name}`));
+      this.log(styles.muted(`Template: ${config.template} | Storage: ${config.storage}`));
+      this.log(styles.muted('═'.repeat(60)));
 
-      // Display each column
+      // Display ALL columns (always show empty ones too)
       for (const column of board.columns) {
-        // Skip empty columns unless --all flag
-        if (!flags.all && column.tickets.length === 0) {
-          continue;
-        }
-
-        const headerColor = this.getColumnColor(column.name);
-        const emoji = this.getColumnEmoji(column.name);
+        const headerColor = getColumnStyle(column.name);
+        const emoji = getColumnEmoji(column.name);
 
         this.log(headerColor(`\n${emoji} ${column.name} (${column.tickets.length})`));
-        this.log(chalk.gray('─'.repeat(50)));
+        this.log(divider(50));
 
         if (column.tickets.length === 0) {
-          this.log(chalk.gray('  (empty)'));
+          this.log(styles.muted('  (empty)'));
           continue;
         }
 
@@ -155,22 +158,22 @@ export default class PMOBoard extends Command {
 
       // Summary
       const totalTickets = board.columns.reduce((sum, col) => sum + col.tickets.length, 0);
-      this.log(chalk.gray('\n═'.repeat(60)));
-      this.log(chalk.bold(`Total: ${totalTickets} ticket${totalTickets === 1 ? '' : 's'}`));
+      this.log(styles.muted('\n' + '═'.repeat(60)));
+      this.log(styles.emphasis(`Total: ${totalTickets} ticket${totalTickets === 1 ? '' : 's'}`));
 
-      // Per-column summary
+      // Per-column summary (only non-empty)
       const summary = board.columns
         .filter(col => col.tickets.length > 0)
         .map(col => `${col.name}: ${col.tickets.length}`)
         .join(' | ');
       if (summary) {
-        this.log(chalk.gray(summary));
+        this.log(styles.primary(summary));
       }
 
-      this.log(chalk.gray('\nCommands:'));
-      this.log(chalk.gray('  prlt ticket create     Create a new ticket'));
-      this.log(chalk.gray('  prlt ticket list       List all tickets'));
-      this.log(chalk.gray('  prlt ticket move <id>  Move a ticket'));
+      this.log(styles.muted('\nCommands:'));
+      this.log(styles.primary('  prlt ticket create     ') + styles.muted('Create a new ticket'));
+      this.log(styles.primary('  prlt ticket list       ') + styles.muted('List all tickets'));
+      this.log(styles.primary('  prlt ticket move <id>  ') + styles.muted('Move a ticket'));
     } catch (error) {
       await storage.close();
       throw error;
@@ -178,102 +181,35 @@ export default class PMOBoard extends Command {
   }
 
   private outputTicketCompact(ticket: Ticket): void {
-    const priority = this.formatPriority(ticket.priority);
-    this.log(`  ${chalk.bold(ticket.id)}: ${ticket.title} ${priority}`);
+    const priority = formatPriority(ticket.priority);
+    this.log(`  ${styles.code(ticket.id)}: ${ticket.title} ${priority}`);
   }
 
   private outputTicketFull(ticket: Ticket): void {
-    const priority = this.formatPriority(ticket.priority);
-    const category = ticket.category ? chalk.cyan(`[${ticket.category}]`) : '';
+    const priority = formatPriority(ticket.priority);
+    const category = formatCategory(ticket.category);
 
-    this.log(`  ${chalk.bold(ticket.id)} ${ticket.title} ${priority} ${category}`);
+    this.log(`  ${styles.code(ticket.id)} ${ticket.title} ${priority} ${category}`);
 
     if (ticket.description) {
       const shortDesc = ticket.description.split('\n')[0].substring(0, 55);
-      this.log(chalk.gray(`     ${shortDesc}${ticket.description.length > 55 ? '...' : ''}`));
+      this.log(styles.muted(`     ${shortDesc}${ticket.description.length > 55 ? '...' : ''}`));
     }
 
     if (ticket.subtasks.length > 0) {
       const done = ticket.subtasks.filter(s => s.done).length;
       const total = ticket.subtasks.length;
       const progress = Math.round((done / total) * 100);
-      this.log(chalk.gray(`     Subtasks: ${done}/${total} (${progress}%)`));
+      this.log(styles.muted(`     Subtasks: ${done}/${total} (${progress}%)`));
     }
 
     if (ticket.specs.length > 0) {
-      this.log(chalk.gray(`     Specs: ${ticket.specs.join(', ')}`));
+      this.log(styles.muted(`     Specs: ${ticket.specs.join(', ')}`));
     }
   }
 
-  private formatPriority(priority?: string): string {
-    if (!priority) return '';
-
-    switch (priority) {
-      case 'URGENT':
-        return chalk.red.bold(`[${priority}]`);
-      case 'HIGH':
-        return chalk.red(`[${priority}]`);
-      case 'MEDIUM':
-        return chalk.yellow(`[${priority}]`);
-      case 'LOW':
-        return chalk.gray(`[${priority}]`);
-      default:
-        return chalk.gray(`[${priority}]`);
-    }
-  }
-
-  private getColumnColor(column: string): chalk.Chalk {
-    if (column.includes('BL')) {
-      if (column.includes('BUILD')) return chalk.magenta;
-      if (column.includes('GROW')) return chalk.green;
-      if (column.includes('SUPPORT')) return chalk.yellow;
-      if (column.includes('BIZOPS')) return chalk.blue;
-      if (column.includes('STRATEGY')) return chalk.cyan;
-    }
-
-    switch (column) {
-      case 'Backlog':
-      case 'Ready':
-        return chalk.blue;
-      case 'In Progress':
-        return chalk.yellow;
-      case 'In Review':
-        return chalk.magenta;
-      case 'Blocked':
-        return chalk.red;
-      case 'Done':
-      case 'Merged':
-      case 'Published':
-        return chalk.green;
-      case 'Dropped':
-        return chalk.gray;
-      default:
-        return chalk.white;
-    }
-  }
-
-  private getColumnEmoji(column: string): string {
-    const emojis: Record<string, string> = {
-      'Backlog': '📥',
-      'In Progress': '🚀',
-      'In Review': '👀',
-      'Blocked': '🚧',
-      'Done': '✅',
-      'BUILD BL': '🔨',
-      'GROW BL': '📈',
-      'SUPPORT BL': '🛟',
-      'BIZOPS BL': '⚙️',
-      'STRATEGY BL': '🎯',
-      'Ready': '📥',
-      'Merged': '🔀',
-      'Published': '🚀',
-      'Dropped': '🗑️',
-    };
-    return emojis[column] || '📋';
-  }
-
-  private async showMarkdown(pmoPath: string, config: PMOConfigFile): Promise<void> {
-    const storage = await this.getStorage(pmoPath, config);
+  private async showMarkdown(pmoPath: string): Promise<void> {
+    const storage = await this.getStorage(pmoPath);
 
     try {
       const markdown = await storage.getBoardMarkdown();
@@ -285,8 +221,8 @@ export default class PMOBoard extends Command {
     }
   }
 
-  private async exportMarkdown(pmoPath: string, config: PMOConfigFile): Promise<void> {
-    const storage = await this.getStorage(pmoPath, config);
+  private async exportMarkdown(pmoPath: string): Promise<void> {
+    const storage = await this.getStorage(pmoPath);
 
     try {
       const markdown = await storage.getBoardMarkdown();
@@ -304,7 +240,6 @@ export default class PMOBoard extends Command {
 
   private async syncFromMarkdown(
     pmoPath: string,
-    config: PMOConfigFile,
     flags: { force: boolean; 'dry-run': boolean }
   ): Promise<void> {
     const boardPath = path.join(pmoPath, 'board.md');
@@ -317,7 +252,7 @@ export default class PMOBoard extends Command {
     const markdownBoard = parseBoard(markdown);
 
     // Get current SQLite/cache state
-    const storage = await this.getStorage(pmoPath, config);
+    const storage = await this.getStorage(pmoPath);
 
     try {
       const sqliteBoard = await storage.getBoard();
@@ -335,8 +270,7 @@ export default class PMOBoard extends Command {
       }
 
       // Display changes
-      const dbType = config.storage === 'git' ? 'cache' : 'database';
-      this.log(chalk.bold.cyan(`\n📊 Changes detected in board.md (to sync to ${dbType}):\n`));
+      this.log(chalk.bold.cyan(`\n📊 Changes detected in board.md (to sync to database):\n`));
 
       if (added.length > 0) {
         this.log(chalk.green.bold(`  + ${added.length} ticket(s) to add:`));
@@ -377,47 +311,13 @@ export default class PMOBoard extends Command {
         return;
       }
 
-      // For git mode, we can just rebuild the cache entirely (faster and simpler)
-      if (config.storage === 'git') {
-        if (!flags.force) {
-          const { confirm } = await inquirer.prompt([{
-            type: 'confirm',
-            name: 'confirm',
-            message: 'Rebuild cache from board.md?',
-            default: true,
-          }]);
-
-          if (!confirm) {
-            this.log(chalk.yellow('Sync cancelled.'));
-            await storage.close();
-            return;
-          }
-        }
-
-        this.log(chalk.blue('\nRebuilding cache from board.md...'));
-
-        // Rebuild entire cache from markdown
-        storage.rebuildFromBoard(markdownBoard);
-
-        // Update cache metadata with file mtime
-        const stats = fs.statSync(boardPath);
-        storage.setCacheMetadata({
-          boardMtime: stats.mtimeMs,
-          cacheBuiltAt: Date.now(),
-        });
-
-        await storage.close();
-        this.log(chalk.green('\n✅ Cache rebuilt from board.md!'));
-        return;
-      }
-
-      // For SQLite mode, apply incremental changes
+      // Confirm before applying
       if (!flags.force) {
         const { confirm } = await inquirer.prompt([{
           type: 'confirm',
           name: 'confirm',
           message: 'Apply these changes to the database?',
-          default: false,
+          default: true,
         }]);
 
         if (!confirm) {
@@ -427,46 +327,20 @@ export default class PMOBoard extends Command {
         }
       }
 
-      // Apply changes
-      this.log(chalk.blue('\nApplying changes...'));
+      this.log(chalk.blue('\nSyncing from board.md...'));
 
-      // Remove deleted tickets
-      for (const ticket of removed) {
-        await storage.deleteTicket(ticket.id);
-        this.log(chalk.red(`  Deleted: ${ticket.id}`));
-      }
+      // Rebuild database from markdown (cleaner than incremental updates)
+      storage.rebuildFromBoard(markdownBoard);
 
-      // Add new tickets
-      for (const ticket of added) {
-        await storage.createTicket(ticket);
-        this.log(chalk.green(`  Added: ${ticket.id}`));
-      }
-
-      // Update modified tickets
-      for (const { new: newTicket } of modified) {
-        // If column changed, move first
-        const existing = await storage.getTicket(newTicket.id);
-        if (existing && existing.column !== newTicket.column) {
-          await storage.moveTicket(newTicket.id, newTicket.column, newTicket.position);
-        }
-        // Then update other fields
-        await storage.updateTicket(newTicket.id, {
-          title: newTicket.title,
-          priority: newTicket.priority,
-          category: newTicket.category,
-          description: newTicket.description,
-          subtasks: newTicket.subtasks,
-          metadata: newTicket.metadata,
-          specs: newTicket.specs,
-        });
-        this.log(chalk.yellow(`  Updated: ${newTicket.id}`));
-      }
+      // Update cache metadata with file mtime
+      const stats = fs.statSync(boardPath);
+      storage.setCacheMetadata({
+        boardMtime: stats.mtimeMs,
+        cacheBuiltAt: Date.now(),
+      });
 
       await storage.close();
-
-      this.log(chalk.green('\n✅ Sync complete!'));
-      this.log(chalk.gray(`  Added: ${added.length} | Removed: ${removed.length} | Updated: ${modified.length}`));
-
+      this.log(chalk.green('\n✅ Database synced from board.md!'));
     } catch (error) {
       await storage.close();
       throw error;
@@ -499,19 +373,13 @@ export default class PMOBoard extends Command {
     }
   }
 
-  private async getStorage(pmoPath: string, config: PMOConfigFile): Promise<SQLiteStorage> {
-    let dbPath: string;
-
-    if (config.storage === 'sqlite') {
-      dbPath = path.join(pmoPath, 'board.db');
-    } else if (config.storage === 'git') {
-      dbPath = path.join(pmoPath, '.cache.db');
-    } else {
-      this.error(`Unsupported storage type: ${config.storage}`);
-    }
+  private async getStorage(pmoPath: string): Promise<SQLiteStorage> {
+    // All PMO data is now in workspace.db
+    const workspacePath = path.dirname(pmoPath);
+    const dbPath = path.join(workspacePath, '.proletariat', 'workspace.db');
 
     if (!fs.existsSync(dbPath)) {
-      this.error(`Database not found at ${dbPath}. PMO may need to be reinitialized.`);
+      this.error(`Database not found at ${dbPath}. Run 'prlt init' first.`);
     }
 
     return new SQLiteStorage(dbPath);

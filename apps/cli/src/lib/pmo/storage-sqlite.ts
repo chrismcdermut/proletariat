@@ -1,8 +1,8 @@
 /**
  * SQLite Storage Implementation for PMO
  *
- * Local SQLite database for PMO boards. This is the simplest storage option
- * and also serves as the cache layer for git-based storage.
+ * Uses the unified workspace.db database with pmo_ prefixed tables.
+ * This enables foreign key relationships between PMO tickets and agents.
  */
 
 import Database from 'better-sqlite3'
@@ -27,86 +27,20 @@ import { generateBoardMarkdown } from './markdown.js'
 import { slugify } from './utils.js'
 
 // =============================================================================
-// Schema
+// Table name constants (all PMO tables use pmo_ prefix in workspace.db)
 // =============================================================================
 
-const CREATE_TABLES_SQL = `
--- Board metadata
-CREATE TABLE IF NOT EXISTS board (
-  id TEXT PRIMARY KEY DEFAULT 'default',
-  name TEXT NOT NULL,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Columns (kanban lanes)
-CREATE TABLE IF NOT EXISTS columns (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  position INTEGER NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Tickets (kanban cards)
-CREATE TABLE IF NOT EXISTS tickets (
-  id TEXT PRIMARY KEY,
-  title TEXT NOT NULL,
-  column_id TEXT NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
-  position INTEGER NOT NULL,
-  priority TEXT,
-  category TEXT,
-  description TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Subtasks
-CREATE TABLE IF NOT EXISTS subtasks (
-  id TEXT NOT NULL,
-  ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  done INTEGER DEFAULT 0,
-  position INTEGER NOT NULL,
-  PRIMARY KEY (ticket_id, id)
-);
-
--- Custom metadata fields
-CREATE TABLE IF NOT EXISTS ticket_metadata (
-  ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
-  key TEXT NOT NULL,
-  value TEXT,
-  PRIMARY KEY (ticket_id, key)
-);
-
--- Specs
-CREATE TABLE IF NOT EXISTS specs (
-  id TEXT PRIMARY KEY,
-  path TEXT NOT NULL,
-  title TEXT,
-  status TEXT DEFAULT 'active',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Ticket-Spec relationship (many-to-many)
-CREATE TABLE IF NOT EXISTS ticket_specs (
-  ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
-  spec_id TEXT NOT NULL REFERENCES specs(id) ON DELETE CASCADE,
-  PRIMARY KEY (ticket_id, spec_id)
-);
-
--- Cache metadata (for git storage cache)
-CREATE TABLE IF NOT EXISTS cache_metadata (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS idx_tickets_column ON tickets(column_id);
-CREATE INDEX IF NOT EXISTS idx_tickets_priority ON tickets(priority);
-CREATE INDEX IF NOT EXISTS idx_tickets_category ON tickets(category);
-CREATE INDEX IF NOT EXISTS idx_subtasks_ticket ON subtasks(ticket_id);
-CREATE INDEX IF NOT EXISTS idx_ticket_specs_spec ON ticket_specs(spec_id);
-`
+const T = {
+  board: 'pmo_board',
+  columns: 'pmo_columns',
+  tickets: 'pmo_tickets',
+  subtasks: 'pmo_subtasks',
+  ticket_metadata: 'pmo_ticket_metadata',
+  specs: 'pmo_specs',
+  ticket_specs: 'pmo_ticket_specs',
+  ticket_assignments: 'pmo_ticket_assignments',
+  cache_metadata: 'pmo_cache_metadata',
+} as const
 
 // =============================================================================
 // SQLite Storage Class
@@ -120,18 +54,13 @@ export class SQLiteStorage implements PMOStorage {
   constructor(dbPath: string) {
     this.dbPath = dbPath
 
-    // Ensure directory exists
-    const dir = path.dirname(dbPath)
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
+    if (!fs.existsSync(dbPath)) {
+      throw new Error(`Database not found: ${dbPath}. Run 'prlt init' first.`)
     }
 
     // Open database
     this.db = new Database(dbPath)
     this.db.pragma('foreign_keys = ON')
-
-    // Create tables if they don't exist
-    this.db.exec(CREATE_TABLES_SQL)
   }
 
   // ===========================================================================
@@ -147,7 +76,7 @@ export class SQLiteStorage implements PMOStorage {
     this.db
       .prepare(
         `
-      INSERT OR REPLACE INTO board (id, name, updated_at)
+      INSERT OR REPLACE INTO ${T.board} (id, name, updated_at)
       VALUES (?, ?, ?)
     `
       )
@@ -155,7 +84,7 @@ export class SQLiteStorage implements PMOStorage {
 
     // Create columns
     const insertColumn = this.db.prepare(`
-      INSERT OR REPLACE INTO columns (id, name, position, created_at)
+      INSERT OR REPLACE INTO ${T.columns} (id, name, position, created_at)
       VALUES (?, ?, ?, ?)
     `)
 
@@ -169,7 +98,7 @@ export class SQLiteStorage implements PMOStorage {
 
   async getBoard(): Promise<Board> {
     // Get board metadata
-    const boardRow = this.db.prepare('SELECT * FROM board WHERE id = ?').get('default') as
+    const boardRow = this.db.prepare(`SELECT * FROM ${T.board} WHERE id = ?`).get('default') as
       | { id: string; name: string; updated_at: string }
       | undefined
 
@@ -178,7 +107,7 @@ export class SQLiteStorage implements PMOStorage {
     }
 
     // Get columns with tickets
-    const columnRows = this.db.prepare('SELECT * FROM columns ORDER BY position').all() as Array<{
+    const columnRows = this.db.prepare(`SELECT * FROM ${T.columns} ORDER BY position`).all() as Array<{
       id: string
       name: string
       position: number
@@ -216,13 +145,13 @@ export class SQLiteStorage implements PMOStorage {
 
     // Shift existing columns if inserting at specific position
     if (position !== undefined) {
-      this.db.prepare('UPDATE columns SET position = position + 1 WHERE position >= ?').run(pos)
+      this.db.prepare('UPDATE ${T.columns} SET position = position + 1 WHERE position >= ?').run(pos)
     }
 
     this.db
       .prepare(
         `
-      INSERT INTO columns (id, name, position, created_at)
+      INSERT INTO ${T.columns} (id, name, position, created_at)
       VALUES (?, ?, ?, ?)
     `
       )
@@ -239,7 +168,7 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   async renameColumn(id: string, name: string): Promise<Column> {
-    const result = this.db.prepare('UPDATE columns SET name = ? WHERE id = ?').run(name, id)
+    const result = this.db.prepare('UPDATE ${T.columns} SET name = ? WHERE id = ?').run(name, id)
 
     if (result.changes === 0) {
       throw new PMOError('NOT_FOUND', `Column not found: ${id}`)
@@ -247,7 +176,7 @@ export class SQLiteStorage implements PMOStorage {
 
     this.updateBoardTimestamp()
 
-    const row = this.db.prepare('SELECT * FROM columns WHERE id = ?').get(id) as {
+    const row = this.db.prepare('SELECT * FROM ${T.columns} WHERE id = ?').get(id) as {
       id: string
       name: string
       position: number
@@ -262,7 +191,7 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   async moveColumn(id: string, position: number): Promise<Column> {
-    const current = this.db.prepare('SELECT position FROM columns WHERE id = ?').get(id) as
+    const current = this.db.prepare('SELECT position FROM ${T.columns} WHERE id = ?').get(id) as
       | { position: number }
       | undefined
 
@@ -273,19 +202,19 @@ export class SQLiteStorage implements PMOStorage {
     // Shift columns between old and new position
     if (position < current.position) {
       this.db
-        .prepare('UPDATE columns SET position = position + 1 WHERE position >= ? AND position < ?')
+        .prepare('UPDATE ${T.columns} SET position = position + 1 WHERE position >= ? AND position < ?')
         .run(position, current.position)
     } else {
       this.db
-        .prepare('UPDATE columns SET position = position - 1 WHERE position > ? AND position <= ?')
+        .prepare('UPDATE ${T.columns} SET position = position - 1 WHERE position > ? AND position <= ?')
         .run(current.position, position)
     }
 
-    this.db.prepare('UPDATE columns SET position = ? WHERE id = ?').run(position, id)
+    this.db.prepare('UPDATE ${T.columns} SET position = ? WHERE id = ?').run(position, id)
 
     this.updateBoardTimestamp()
 
-    const row = this.db.prepare('SELECT * FROM columns WHERE id = ?').get(id) as {
+    const row = this.db.prepare('SELECT * FROM ${T.columns} WHERE id = ?').get(id) as {
       id: string
       name: string
       position: number
@@ -301,14 +230,14 @@ export class SQLiteStorage implements PMOStorage {
 
   async deleteColumn(id: string, cascade = false): Promise<void> {
     const ticketCount = this.db
-      .prepare('SELECT COUNT(*) as count FROM tickets WHERE column_id = ?')
+      .prepare('SELECT COUNT(*) as count FROM ${T.tickets} WHERE column_id = ?')
       .get(id) as { count: number }
 
     if (ticketCount.count > 0 && !cascade) {
       throw new PMOError('INVALID', `Column has ${ticketCount.count} tickets. Use cascade=true to delete.`)
     }
 
-    const result = this.db.prepare('DELETE FROM columns WHERE id = ?').run(id)
+    const result = this.db.prepare('DELETE FROM ${T.columns} WHERE id = ?').run(id)
 
     if (result.changes === 0) {
       throw new PMOError('NOT_FOUND', `Column not found: ${id}`)
@@ -328,7 +257,7 @@ export class SQLiteStorage implements PMOStorage {
     // Get column (default to first column)
     let columnId = ticket.column
     if (!columnId) {
-      const firstColumn = this.db.prepare('SELECT id FROM columns ORDER BY position LIMIT 1').get() as
+      const firstColumn = this.db.prepare('SELECT id FROM ${T.columns} ORDER BY position LIMIT 1').get() as
         | { id: string }
         | undefined
       if (!firstColumn) {
@@ -338,7 +267,7 @@ export class SQLiteStorage implements PMOStorage {
     }
 
     // Verify column exists
-    const column = this.db.prepare('SELECT id FROM columns WHERE id = ? OR name = ?').get(columnId, columnId) as
+    const column = this.db.prepare('SELECT id FROM ${T.columns} WHERE id = ? OR name = ?').get(columnId, columnId) as
       | { id: string }
       | undefined
     if (!column) {
@@ -355,7 +284,7 @@ export class SQLiteStorage implements PMOStorage {
     this.db
       .prepare(
         `
-      INSERT INTO tickets (id, title, column_id, position, priority, category, description, created_at, updated_at)
+      INSERT INTO ${T.tickets} (id, title, column_id, position, priority, category, description, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
       )
@@ -364,7 +293,7 @@ export class SQLiteStorage implements PMOStorage {
     // Insert subtasks
     if (ticket.subtasks && ticket.subtasks.length > 0) {
       const insertSubtask = this.db.prepare(`
-        INSERT INTO subtasks (id, ticket_id, title, done, position)
+        INSERT INTO ${T.subtasks} (id, ticket_id, title, done, position)
         VALUES (?, ?, ?, ?, ?)
       `)
       ticket.subtasks.forEach((st, idx) => {
@@ -375,7 +304,7 @@ export class SQLiteStorage implements PMOStorage {
     // Insert metadata
     if (ticket.metadata) {
       const insertMeta = this.db.prepare(`
-        INSERT INTO ticket_metadata (ticket_id, key, value)
+        INSERT INTO ${T.ticket_metadata} (ticket_id, key, value)
         VALUES (?, ?, ?)
       `)
       for (const [key, value] of Object.entries(ticket.metadata)) {
@@ -386,7 +315,7 @@ export class SQLiteStorage implements PMOStorage {
     // Insert spec links
     if (ticket.specs && ticket.specs.length > 0) {
       const insertSpec = this.db.prepare(`
-        INSERT OR IGNORE INTO ticket_specs (ticket_id, spec_id)
+        INSERT OR IGNORE INTO ${T.ticket_specs} (ticket_id, spec_id)
         VALUES (?, ?)
       `)
       ticket.specs.forEach((specId) => {
@@ -434,14 +363,14 @@ export class SQLiteStorage implements PMOStorage {
       params.push(new Date().toISOString())
       params.push(id)
 
-      this.db.prepare(`UPDATE tickets SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+      this.db.prepare(`UPDATE ${T.tickets} SET ${updates.join(', ')} WHERE id = ?`).run(...params)
     }
 
     // Update subtasks if provided
     if (changes.subtasks !== undefined) {
-      this.db.prepare('DELETE FROM subtasks WHERE ticket_id = ?').run(id)
+      this.db.prepare('DELETE FROM ${T.subtasks} WHERE ticket_id = ?').run(id)
       const insertSubtask = this.db.prepare(`
-        INSERT INTO subtasks (id, ticket_id, title, done, position)
+        INSERT INTO ${T.subtasks} (id, ticket_id, title, done, position)
         VALUES (?, ?, ?, ?, ?)
       `)
       changes.subtasks.forEach((st, idx) => {
@@ -451,9 +380,9 @@ export class SQLiteStorage implements PMOStorage {
 
     // Update metadata if provided
     if (changes.metadata !== undefined) {
-      this.db.prepare('DELETE FROM ticket_metadata WHERE ticket_id = ?').run(id)
+      this.db.prepare('DELETE FROM ${T.ticket_metadata} WHERE ticket_id = ?').run(id)
       const insertMeta = this.db.prepare(`
-        INSERT INTO ticket_metadata (ticket_id, key, value)
+        INSERT INTO ${T.ticket_metadata} (ticket_id, key, value)
         VALUES (?, ?, ?)
       `)
       for (const [key, value] of Object.entries(changes.metadata)) {
@@ -463,9 +392,9 @@ export class SQLiteStorage implements PMOStorage {
 
     // Update specs if provided
     if (changes.specs !== undefined) {
-      this.db.prepare('DELETE FROM ticket_specs WHERE ticket_id = ?').run(id)
+      this.db.prepare('DELETE FROM ${T.ticket_specs} WHERE ticket_id = ?').run(id)
       const insertSpec = this.db.prepare(`
-        INSERT OR IGNORE INTO ticket_specs (ticket_id, spec_id)
+        INSERT OR IGNORE INTO ${T.ticket_specs} (ticket_id, spec_id)
         VALUES (?, ?)
       `)
       changes.specs.forEach((specId) => {
@@ -485,7 +414,7 @@ export class SQLiteStorage implements PMOStorage {
     }
 
     // Verify target column exists
-    const targetColumn = this.db.prepare('SELECT id FROM columns WHERE id = ? OR name = ?').get(column, column) as
+    const targetColumn = this.db.prepare('SELECT id FROM ${T.columns} WHERE id = ? OR name = ?').get(column, column) as
       | { id: string }
       | undefined
     if (!targetColumn) {
@@ -500,13 +429,13 @@ export class SQLiteStorage implements PMOStorage {
       if (pos < existing.position) {
         this.db
           .prepare(
-            'UPDATE tickets SET position = position + 1 WHERE column_id = ? AND position >= ? AND position < ?'
+            'UPDATE ${T.tickets} SET position = position + 1 WHERE column_id = ? AND position >= ? AND position < ?'
           )
           .run(targetColumnId, pos, existing.position)
       } else if (pos > existing.position) {
         this.db
           .prepare(
-            'UPDATE tickets SET position = position - 1 WHERE column_id = ? AND position > ? AND position <= ?'
+            'UPDATE ${T.tickets} SET position = position - 1 WHERE column_id = ? AND position > ? AND position <= ?'
           )
           .run(targetColumnId, existing.position, pos)
       }
@@ -514,16 +443,16 @@ export class SQLiteStorage implements PMOStorage {
       // Moving to different column
       // Shift positions in old column
       this.db
-        .prepare('UPDATE tickets SET position = position - 1 WHERE column_id = ? AND position > ?')
+        .prepare('UPDATE ${T.tickets} SET position = position - 1 WHERE column_id = ? AND position > ?')
         .run(existing.column, existing.position)
       // Shift positions in new column
       this.db
-        .prepare('UPDATE tickets SET position = position + 1 WHERE column_id = ? AND position >= ?')
+        .prepare('UPDATE ${T.tickets} SET position = position + 1 WHERE column_id = ? AND position >= ?')
         .run(targetColumnId, pos)
     }
 
     this.db
-      .prepare('UPDATE tickets SET column_id = ?, position = ?, updated_at = ? WHERE id = ?')
+      .prepare('UPDATE ${T.tickets} SET column_id = ?, position = ?, updated_at = ? WHERE id = ?')
       .run(targetColumnId, pos, new Date().toISOString(), id)
 
     this.updateBoardTimestamp()
@@ -537,7 +466,7 @@ export class SQLiteStorage implements PMOStorage {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
     }
 
-    const result = this.db.prepare('DELETE FROM tickets WHERE id = ?').run(id)
+    const result = this.db.prepare('DELETE FROM ${T.tickets} WHERE id = ?').run(id)
 
     if (result.changes === 0) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
@@ -545,7 +474,7 @@ export class SQLiteStorage implements PMOStorage {
 
     // Shift positions of remaining tickets
     this.db
-      .prepare('UPDATE tickets SET position = position - 1 WHERE column_id = ? AND position > ?')
+      .prepare('UPDATE ${T.tickets} SET position = position - 1 WHERE column_id = ? AND position > ?')
       .run(existing.column, existing.position)
 
     this.updateBoardTimestamp()
@@ -554,8 +483,8 @@ export class SQLiteStorage implements PMOStorage {
   async listTickets(filter?: TicketFilter): Promise<Ticket[]> {
     let query = `
       SELECT t.*, c.name as column_name
-      FROM tickets t
-      JOIN columns c ON t.column_id = c.id
+      FROM ${T.tickets} t
+      JOIN ${T.columns} c ON t.column_id = c.id
       WHERE 1=1
     `
     const params: unknown[] = []
@@ -577,7 +506,7 @@ export class SQLiteStorage implements PMOStorage {
       params.push(`%${filter.search}%`, `%${filter.search}%`)
     }
     if (filter?.spec) {
-      query += ' AND EXISTS (SELECT 1 FROM ticket_specs ts WHERE ts.ticket_id = t.id AND ts.spec_id = ?)'
+      query += ' AND EXISTS (SELECT 1 FROM ${T.ticket_specs} ts WHERE ts.ticket_id = t.id AND ts.spec_id = ?)'
       params.push(filter.spec)
     }
 
@@ -615,13 +544,13 @@ export class SQLiteStorage implements PMOStorage {
     this.db
       .prepare(
         `
-      INSERT INTO subtasks (id, ticket_id, title, done, position)
+      INSERT INTO ${T.subtasks} (id, ticket_id, title, done, position)
       VALUES (?, ?, ?, 0, ?)
     `
       )
       .run(id, ticketId, title, position)
 
-    this.db.prepare('UPDATE tickets SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), ticketId)
+    this.db.prepare('UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), ticketId)
 
     this.updateBoardTimestamp()
 
@@ -630,7 +559,7 @@ export class SQLiteStorage implements PMOStorage {
 
   async toggleSubtask(ticketId: string, subtaskId: string): Promise<Subtask> {
     const subtask = this.db
-      .prepare('SELECT * FROM subtasks WHERE ticket_id = ? AND id = ?')
+      .prepare('SELECT * FROM ${T.subtasks} WHERE ticket_id = ? AND id = ?')
       .get(ticketId, subtaskId) as { id: string; title: string; done: number } | undefined
 
     if (!subtask) {
@@ -638,9 +567,9 @@ export class SQLiteStorage implements PMOStorage {
     }
 
     const newDone = subtask.done ? 0 : 1
-    this.db.prepare('UPDATE subtasks SET done = ? WHERE ticket_id = ? AND id = ?').run(newDone, ticketId, subtaskId)
+    this.db.prepare('UPDATE ${T.subtasks} SET done = ? WHERE ticket_id = ? AND id = ?').run(newDone, ticketId, subtaskId)
 
-    this.db.prepare('UPDATE tickets SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), ticketId)
+    this.db.prepare('UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), ticketId)
 
     this.updateBoardTimestamp()
 
@@ -653,14 +582,14 @@ export class SQLiteStorage implements PMOStorage {
 
   async removeSubtask(ticketId: string, subtaskId: string): Promise<void> {
     const result = this.db
-      .prepare('DELETE FROM subtasks WHERE ticket_id = ? AND id = ?')
+      .prepare('DELETE FROM ${T.subtasks} WHERE ticket_id = ? AND id = ?')
       .run(ticketId, subtaskId)
 
     if (result.changes === 0) {
       throw new PMOError('NOT_FOUND', `Subtask not found: ${subtaskId}`)
     }
 
-    this.db.prepare('UPDATE tickets SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), ticketId)
+    this.db.prepare('UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), ticketId)
 
     this.updateBoardTimestamp()
   }
@@ -677,7 +606,7 @@ export class SQLiteStorage implements PMOStorage {
     this.db
       .prepare(
         `
-      INSERT INTO specs (id, path, title, status, created_at, updated_at)
+      INSERT INTO ${T.specs} (id, path, title, status, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `
       )
@@ -694,7 +623,7 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   async getSpec(id: string): Promise<Spec | null> {
-    const row = this.db.prepare('SELECT * FROM specs WHERE id = ?').get(id) as
+    const row = this.db.prepare('SELECT * FROM ${T.specs} WHERE id = ?').get(id) as
       | {
           id: string
           path: string
@@ -718,7 +647,7 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   async listSpecs(filter?: SpecFilter): Promise<Spec[]> {
-    let query = 'SELECT * FROM specs WHERE 1=1'
+    let query = 'SELECT * FROM ${T.specs} WHERE 1=1'
     const params: unknown[] = []
 
     if (filter?.status) {
@@ -778,7 +707,7 @@ export class SQLiteStorage implements PMOStorage {
       params.push(new Date().toISOString())
       params.push(id)
 
-      this.db.prepare(`UPDATE specs SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+      this.db.prepare(`UPDATE ${T.specs} SET ${updates.join(', ')} WHERE id = ?`).run(...params)
     }
 
     return this.getSpec(id) as Promise<Spec>
@@ -799,21 +728,21 @@ export class SQLiteStorage implements PMOStorage {
     this.db
       .prepare(
         `
-      INSERT OR IGNORE INTO ticket_specs (ticket_id, spec_id)
+      INSERT OR IGNORE INTO ${T.ticket_specs} (ticket_id, spec_id)
       VALUES (?, ?)
     `
       )
       .run(ticketId, specId)
 
-    this.db.prepare('UPDATE tickets SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), ticketId)
+    this.db.prepare('UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), ticketId)
 
     this.updateBoardTimestamp()
   }
 
   async unlinkTicketFromSpec(ticketId: string, specId: string): Promise<void> {
-    this.db.prepare('DELETE FROM ticket_specs WHERE ticket_id = ? AND spec_id = ?').run(ticketId, specId)
+    this.db.prepare('DELETE FROM ${T.ticket_specs} WHERE ticket_id = ? AND spec_id = ?').run(ticketId, specId)
 
-    this.db.prepare('UPDATE tickets SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), ticketId)
+    this.db.prepare('UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), ticketId)
 
     this.updateBoardTimestamp()
   }
@@ -826,8 +755,8 @@ export class SQLiteStorage implements PMOStorage {
     const rows = this.db
       .prepare(
         `
-      SELECT s.* FROM specs s
-      JOIN ticket_specs ts ON s.id = ts.spec_id
+      SELECT s.* FROM ${T.specs} s
+      JOIN ${T.ticket_specs} ts ON s.id = ts.spec_id
       WHERE ts.ticket_id = ?
       ORDER BY s.id
     `
@@ -883,13 +812,13 @@ export class SQLiteStorage implements PMOStorage {
   // ===========================================================================
 
   getCacheMetadata(): { boardMtime: number; cacheBuiltAt: number; contentHash?: string } | null {
-    const mtime = this.db.prepare("SELECT value FROM cache_metadata WHERE key = 'boardMtime'").get() as
+    const mtime = this.db.prepare("SELECT value FROM ${T.cache_metadata} WHERE key = 'boardMtime'").get() as
       | { value: string }
       | undefined
-    const builtAt = this.db.prepare("SELECT value FROM cache_metadata WHERE key = 'cacheBuiltAt'").get() as
+    const builtAt = this.db.prepare("SELECT value FROM ${T.cache_metadata} WHERE key = 'cacheBuiltAt'").get() as
       | { value: string }
       | undefined
-    const hash = this.db.prepare("SELECT value FROM cache_metadata WHERE key = 'contentHash'").get() as
+    const hash = this.db.prepare("SELECT value FROM ${T.cache_metadata} WHERE key = 'contentHash'").get() as
       | { value: string }
       | undefined
 
@@ -906,7 +835,7 @@ export class SQLiteStorage implements PMOStorage {
     this.db
       .prepare(
         `
-      INSERT OR REPLACE INTO cache_metadata (key, value)
+      INSERT OR REPLACE INTO ${T.cache_metadata} (key, value)
       VALUES ('boardMtime', ?)
     `
       )
@@ -915,7 +844,7 @@ export class SQLiteStorage implements PMOStorage {
     this.db
       .prepare(
         `
-      INSERT OR REPLACE INTO cache_metadata (key, value)
+      INSERT OR REPLACE INTO ${T.cache_metadata} (key, value)
       VALUES ('cacheBuiltAt', ?)
     `
       )
@@ -925,7 +854,7 @@ export class SQLiteStorage implements PMOStorage {
       this.db
         .prepare(
           `
-        INSERT OR REPLACE INTO cache_metadata (key, value)
+        INSERT OR REPLACE INTO ${T.cache_metadata} (key, value)
         VALUES ('contentHash', ?)
       `
         )
@@ -936,12 +865,12 @@ export class SQLiteStorage implements PMOStorage {
   rebuildFromBoard(board: Board): void {
     // Clear existing data
     this.db.exec(`
-      DELETE FROM ticket_specs;
-      DELETE FROM ticket_metadata;
-      DELETE FROM subtasks;
-      DELETE FROM tickets;
-      DELETE FROM columns;
-      DELETE FROM board;
+      DELETE FROM ${T.ticket_specs};
+      DELETE FROM ${T.ticket_metadata};
+      DELETE FROM ${T.subtasks};
+      DELETE FROM ${T.tickets};
+      DELETE FROM ${T.columns};
+      DELETE FROM ${T.board};
     `)
 
     // Rebuild
@@ -949,27 +878,27 @@ export class SQLiteStorage implements PMOStorage {
 
     // Insert board (always use 'default' as id for single-board storage)
     this.db
-      .prepare('INSERT INTO board (id, name, updated_at) VALUES (?, ?, ?)')
+      .prepare(`INSERT INTO ${T.board} (id, name, updated_at) VALUES (?, ?, ?)`)
       .run('default', board.name, now)
 
     // Insert columns and tickets
     const insertColumn = this.db.prepare(
-      'INSERT INTO columns (id, name, position, created_at) VALUES (?, ?, ?, ?)'
+      `INSERT INTO ${T.columns} (id, name, position, created_at) VALUES (?, ?, ?, ?)`
     )
     const insertTicket = this.db.prepare(`
-      INSERT INTO tickets (id, title, column_id, position, priority, category, description, created_at, updated_at)
+      INSERT INTO ${T.tickets} (id, title, column_id, position, priority, category, description, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     const insertSubtask = this.db.prepare(`
-      INSERT INTO subtasks (id, ticket_id, title, done, position)
+      INSERT INTO ${T.subtasks} (id, ticket_id, title, done, position)
       VALUES (?, ?, ?, ?, ?)
     `)
     const insertMeta = this.db.prepare(`
-      INSERT INTO ticket_metadata (ticket_id, key, value)
+      INSERT INTO ${T.ticket_metadata} (ticket_id, key, value)
       VALUES (?, ?, ?)
     `)
     const insertSpec = this.db.prepare(`
-      INSERT OR IGNORE INTO ticket_specs (ticket_id, spec_id)
+      INSERT OR IGNORE INTO ${T.ticket_specs} (ticket_id, spec_id)
       VALUES (?, ?)
     `)
 
@@ -1016,8 +945,8 @@ export class SQLiteStorage implements PMOStorage {
       .prepare(
         `
       SELECT t.*, c.name as column_name
-      FROM tickets t
-      JOIN columns c ON t.column_id = c.id
+      FROM ${T.tickets} t
+      JOIN ${T.columns} c ON t.column_id = c.id
       WHERE t.column_id = ?
       ORDER BY t.position
     `
@@ -1043,8 +972,8 @@ export class SQLiteStorage implements PMOStorage {
       .prepare(
         `
       SELECT t.*, c.name as column_name
-      FROM tickets t
-      JOIN columns c ON t.column_id = c.id
+      FROM ${T.tickets} t
+      JOIN ${T.columns} c ON t.column_id = c.id
       WHERE t.id = ?
     `
       )
@@ -1082,7 +1011,7 @@ export class SQLiteStorage implements PMOStorage {
   }): Promise<Ticket> {
     // Get subtasks
     const subtasks = this.db
-      .prepare('SELECT * FROM subtasks WHERE ticket_id = ? ORDER BY position')
+      .prepare('SELECT * FROM ${T.subtasks} WHERE ticket_id = ? ORDER BY position')
       .all(row.id) as Array<{
       id: string
       title: string
@@ -1091,7 +1020,7 @@ export class SQLiteStorage implements PMOStorage {
 
     // Get metadata
     const metaRows = this.db
-      .prepare('SELECT key, value FROM ticket_metadata WHERE ticket_id = ?')
+      .prepare('SELECT key, value FROM ${T.ticket_metadata} WHERE ticket_id = ?')
       .all(row.id) as Array<{ key: string; value: string }>
     const metadata: Record<string, string> = {}
     for (const m of metaRows) {
@@ -1100,7 +1029,7 @@ export class SQLiteStorage implements PMOStorage {
 
     // Get specs
     const specRows = this.db
-      .prepare('SELECT spec_id FROM ticket_specs WHERE ticket_id = ?')
+      .prepare('SELECT spec_id FROM ${T.ticket_specs} WHERE ticket_id = ?')
       .all(row.id) as Array<{ spec_id: string }>
 
     return {
@@ -1124,18 +1053,18 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   private getMaxColumnPosition(): number {
-    const result = this.db.prepare('SELECT MAX(position) as max FROM columns').get() as { max: number | null }
+    const result = this.db.prepare('SELECT MAX(position) as max FROM ${T.columns}').get() as { max: number | null }
     return result.max ?? -1
   }
 
   private getMaxTicketPosition(columnId: string): number {
-    const result = this.db.prepare('SELECT MAX(position) as max FROM tickets WHERE column_id = ?').get(columnId) as {
+    const result = this.db.prepare('SELECT MAX(position) as max FROM ${T.tickets} WHERE column_id = ?').get(columnId) as {
       max: number | null
     }
     return result.max ?? -1
   }
 
   private updateBoardTimestamp(): void {
-    this.db.prepare('UPDATE board SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), 'default')
+    this.db.prepare(`UPDATE ${T.board} SET updated_at = ? WHERE id = ?`).run(new Date().toISOString(), 'default')
   }
 }
