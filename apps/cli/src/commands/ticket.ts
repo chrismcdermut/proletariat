@@ -2,7 +2,6 @@ import { Command } from '@oclif/core';
 import * as fs from 'fs';
 import * as path from 'path';
 import inquirer from 'inquirer';
-import { styles } from '../lib/styles.js';
 
 interface PMOConfigFile {
   storage: 'sqlite' | 'git';
@@ -59,8 +58,7 @@ export default class Ticket extends Command {
         await this.config.runCommand('ticket:create', []);
         break;
       case 'list':
-        this.log(styles.info('Ticket list command not yet implemented.'));
-        this.log(styles.muted('Run: prlt board view'));
+        await this.config.runCommand('ticket:list', []);
         break;
       case 'view':
         await this.config.runCommand('ticket:view', []);

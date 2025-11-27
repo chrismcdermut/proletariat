@@ -1,263 +1,175 @@
 import { Command, Args } from '@oclif/core';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
-import chalk from 'chalk';
 import inquirer from 'inquirer';
+import {
+  getStorageWithAutoSync,
+  autoExportToBoard,
+} from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
+interface PMOConfigFile {
+  storage: 'sqlite' | 'git';
+  template: string;
+  boardName: string;
+  columns: string[];
+  created: string;
+}
+
 export default class TicketComplete extends Command {
-  static description = 'Mark a ticket as complete (move to done)';
+  static description = 'Mark a ticket as complete (move to Done column)';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> T0001',
     '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> TICK-001',
   ];
 
   static args = {
     ticketId: Args.string({
-      description: 'Ticket ID to complete',
+      description: 'Ticket ID - prompts with dropdown if not provided',
       required: false,
     }),
   };
 
   async run(): Promise<void> {
     const { args } = await this.parse(TicketComplete);
-    
-    // Find PMO
+
+    // Find PMO directory
     const pmoPath = this.findPMO();
     if (!pmoPath) {
       this.error('PMO not found. Run "prlt pmo init" first.');
     }
 
-    // Get agent name for filtering
-    const agentName = await this.getAgentName();
-
-    // Pull latest
-    try {
-      execSync('git pull', { cwd: pmoPath, stdio: 'pipe' });
-    } catch {
-      // Ignore if no remote
+    // Load PMO config
+    const configPath = path.join(pmoPath, 'config.json');
+    if (!fs.existsSync(configPath)) {
+      this.error('PMO config not found. Run "prlt pmo init" first.');
     }
 
-    const boardPath = path.join(pmoPath, 'board.md');
-    let board = fs.readFileSync(boardPath, 'utf-8');
-    let ticketId = args.ticketId;
+    const config: PMOConfigFile = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
-    if (!ticketId) {
-      // Find tickets in progress or review (not in done or backlog)
-      const inProgressSection = board.match(/## 🚀 In Progress[\s\S]*?(?=##|$)/)?.[0] || '';
-      const inReviewSection = board.match(/## 👀 In Review[\s\S]*?(?=##|$)/)?.[0] || '';
-      const blockedSection = board.match(/## 🚧 Blocked[\s\S]*?(?=##|$)/)?.[0] || '';
-      
-      const allSections = inProgressSection + inReviewSection + blockedSection;
-      const tickets = [...allSections.matchAll(/- \[ \] \[\[specs\/[^\]]+\|(T\d+)\]\] ([^#\n]+).*?@(\w+)/g)];
-      
-      // Filter by agent if in worktree
-      const agentTickets = tickets.filter(match => match[3] === agentName);
-      const availableTickets = agentTickets.length > 0 ? agentTickets : tickets;
-      
-      if (availableTickets.length === 0) {
-        this.log(chalk.yellow('No tickets available to complete.'));
-        return;
-      }
-
-      const { selected } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'selected',
-          message: 'Select ticket to complete:',
-          choices: availableTickets.map(match => ({
-            name: `${match[1]} - ${match[2].trim()} (@${match[3]})`,
-            value: match[1]
-          }))
-        }
-      ]);
-      ticketId = selected;
-    }
-
-    // Find the ticket line
-    const ticketRegex = new RegExp(`(- \\[ \\] \\[\\[specs\\/[^\\]]+\\|${ticketId}\\]\\][^\\n]+)`, 'g');
-    const ticketMatch = board.match(ticketRegex);
-    
-    if (!ticketMatch) {
-      // Check if already done
-      const doneRegex = new RegExp(`- \\[x\\] \\[\\[specs\\/[^\\]]+\\|${ticketId}\\]\\]`, 'g');
-      if (board.match(doneRegex)) {
-        this.log(chalk.yellow(`Ticket ${ticketId} is already completed.`));
-        return;
-      }
-      this.error(`Ticket ${ticketId} not found on board.`);
-    }
-
-    const ticketLine = ticketMatch[0];
-    
-    // Mark as complete
-    let completedLine = ticketLine.replace('- [ ]', '- [x]');
-    
-    // Remove any blocked indicators
-    completedLine = completedLine.replace(/⚠️[^#@\n]*/g, '').trim();
-    
-    // Move spec file to completed
-    const specMatch = ticketLine.match(/\[\[specs\/([^\/]+)\/([^\]]+)\]/);
-    if (specMatch) {
-      const currentFolder = specMatch[1];
-      const specFileName = specMatch[2];
-      const oldPath = path.join(pmoPath, 'specs', currentFolder, specFileName);
-      const newPath = path.join(pmoPath, 'specs', 'completed', specFileName);
-      
-      if (fs.existsSync(oldPath)) {
-        fs.renameSync(oldPath, newPath);
-        completedLine = completedLine.replace(`specs/${currentFolder}/`, 'specs/completed/');
-        
-        // Update spec with completion info
-        let specContent = fs.readFileSync(newPath, 'utf-8');
-        specContent = specContent.replace(/\*\*Status:\*\* .+/, '**Status:** Completed');
-        specContent += `\n- Completed: ${new Date().toISOString()}`;
-        fs.writeFileSync(newPath, specContent);
-      }
-    }
-
-    // Remove from current location
-    board = board.replace(ticketLine, '');
-    
-    // Add to done section
-    board = board.replace(
-      /## ✅ Done\n/,
-      `## ✅ Done\n${completedLine}\n`
+    // Get storage with auto-sync from board.md
+    const storage = getStorageWithAutoSync(
+      pmoPath,
+      config.storage,
+      (msg) => this.log(styles.muted(msg))
     );
 
-    // Clean up double newlines
-    board = board.replace(/\n\n+/g, '\n\n');
-
-    // Write updated board
-    fs.writeFileSync(boardPath, board);
-
-    // Optional: Ask for completion notes
-    const { addNotes } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'addNotes',
-        message: 'Add completion notes?',
-        choices: [
-          { name: 'No', value: false },
-          { name: 'Yes', value: true },
-        ],
-        default: 0,
-      }
-    ]);
-
-    let notes = '';
-    if (addNotes) {
-      const { completionNotes } = await inquirer.prompt([
-        {
-          type: 'editor',
-          name: 'completionNotes',
-          message: 'Completion notes:'
-        }
-      ]);
-      notes = completionNotes;
-      
-      // Add notes to spec if exists
-      if (specMatch) {
-        const specPath = path.join(pmoPath, 'specs', 'completed', specMatch[2]);
-        if (fs.existsSync(specPath)) {
-          let specContent = fs.readFileSync(specPath, 'utf-8');
-          specContent += `\n## Completion Notes\n${notes}\n`;
-          fs.writeFileSync(specPath, specContent);
-        }
-      }
-    }
-
-    // Commit changes
     try {
-      execSync('git add .', { cwd: pmoPath, stdio: 'pipe' });
-      const commitMessage = notes 
-        ? `Complete ${ticketId}: ${notes.split('\n')[0].substring(0, 50)}`
-        : `Complete ${ticketId}`;
-      execSync(`git commit -m "${commitMessage}"`, { cwd: pmoPath, stdio: 'pipe' });
-      execSync('git push', { cwd: pmoPath, stdio: 'pipe' });
-    } catch {
-      this.log(chalk.yellow('Warning: Could not push changes. You may need to push manually.'));
-    }
+      // Get ticketId - prompt if not provided
+      let ticketId = args.ticketId;
 
-    this.log(styles.success(`✅ Ticket ${ticketId} marked as complete!`));
+      if (!ticketId) {
+        // Get all incomplete tickets for selection
+        const allTickets = await storage.listTickets();
+        const incompleteTickets = allTickets.filter((t: { column: string }) =>
+          !t.column.toLowerCase().includes('done')
+        );
 
-    // Show progress
-    const doneCount = (board.match(/- \[x\]/g) || []).length;
-    const totalCount = (board.match(/- \[[ x]\]/g) || []).length;
-    this.log(styles.muted(`Progress: ${doneCount}/${totalCount} tickets completed`));
-  }
-
-  private async getAgentName(): Promise<string> {
-    // Try to get from worktree config
-    const worktreeRoot = this.findWorktreeRoot();
-    if (worktreeRoot) {
-      const configPath = path.join(worktreeRoot, '.proletariat', 'config.json');
-      if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        if (config.agentName) {
-          return config.agentName;
+        if (incompleteTickets.length === 0) {
+          await storage.close();
+          this.log(styles.info('No incomplete tickets found. All tickets are done!'));
+          return;
         }
-      }
-    }
 
-    // Return empty if not found (not required for complete)
-    return '';
+        const { selectedTicketId } = await inquirer.prompt([{
+          type: 'list',
+          name: 'selectedTicketId',
+          message: 'Select ticket to complete:',
+          choices: incompleteTickets.map((t: { id: string; title: string; column: string }) => ({
+            name: `${t.id} - ${t.title} (${t.column})`,
+            value: t.id,
+          })),
+        }]);
+        ticketId = selectedTicketId;
+      }
+
+      // Get ticket
+      const ticket = await storage.getTicket(ticketId!);
+      if (!ticket) {
+        await storage.close();
+        this.error(`Ticket "${ticketId}" not found.`);
+      }
+
+      // Find the "Done" column (case-insensitive)
+      const doneColumn = config.columns.find((col: string) =>
+        col.toLowerCase().includes('done')
+      );
+
+      if (!doneColumn) {
+        await storage.close();
+        this.error('No "Done" column found in board configuration.');
+      }
+
+      // Move to Done column
+      await storage.moveTicket(ticketId!, doneColumn);
+
+      // Auto-export to board.md if configured
+      await autoExportToBoard(pmoPath, storage);
+
+      await storage.close();
+
+      this.log(styles.success(`✅ Completed ${ticketId}`));
+      this.log(styles.muted(`   Title: ${ticket.title}`));
+      this.log(styles.muted(`   Moved to: ${doneColumn}`));
+    } catch (error) {
+      await storage.close();
+      throw error;
+    }
   }
 
   private findPMO(): string | null {
     let currentDir = process.cwd();
-    
+
     while (currentDir !== '/') {
       const configPath = path.join(currentDir, '.proletariat', 'config.json');
       if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        if (config.type === 'hq') {
-          const pmoPath = path.join(currentDir, 'pmo');
-          if (fs.existsSync(pmoPath)) return pmoPath;
-        }
-        if (config.pmoPath) {
-          const absolutePath = path.isAbsolute(config.pmoPath) 
-            ? config.pmoPath 
-            : path.join(currentDir, config.pmoPath);
-          if (fs.existsSync(absolutePath)) return absolutePath;
+        try {
+          const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+          if (config.type === 'hq') {
+            const pmoPath = path.join(currentDir, 'pmo');
+            if (fs.existsSync(path.join(pmoPath, 'config.json'))) {
+              return pmoPath;
+            }
+          }
+          if (config.pmoPath) {
+            const absolutePath = path.isAbsolute(config.pmoPath)
+              ? config.pmoPath
+              : path.join(currentDir, config.pmoPath);
+            if (fs.existsSync(path.join(absolutePath, 'config.json'))) {
+              return absolutePath;
+            }
+          }
+        } catch {
+          // Ignore parse errors
         }
       }
-      
+
+      const dotPmoPath = path.join(currentDir, '.pmo');
+      if (fs.existsSync(path.join(dotPmoPath, 'config.json'))) {
+        return dotPmoPath;
+      }
+
       const pmoPath = path.join(currentDir, 'pmo');
-      if (fs.existsSync(path.join(pmoPath, 'board.md'))) {
+      if (fs.existsSync(path.join(pmoPath, 'config.json'))) {
         return pmoPath;
       }
-      
+
       currentDir = path.dirname(currentDir);
     }
-    
+
     const globalConfigPath = path.join(process.env.HOME || '', '.proletariat', 'config.json');
     if (fs.existsSync(globalConfigPath)) {
-      const config = JSON.parse(fs.readFileSync(globalConfigPath, 'utf-8'));
-      if (config.defaultPMO && fs.existsSync(config.defaultPMO)) {
-        return config.defaultPMO;
-      }
-    }
-    
-    return null;
-  }
-
-  private findWorktreeRoot(): string | null {
-    let currentDir = process.cwd();
-    
-    while (currentDir !== '/') {
-      const configPath = path.join(currentDir, '.proletariat', 'config.json');
-      if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        if (config.type === 'worktree') {
-          return currentDir;
+      try {
+        const config = JSON.parse(fs.readFileSync(globalConfigPath, 'utf-8'));
+        if (config.defaultPMO && fs.existsSync(path.join(config.defaultPMO, 'config.json'))) {
+          return config.defaultPMO;
         }
+      } catch {
+        // Ignore parse errors
       }
-      currentDir = path.dirname(currentDir);
     }
-    
+
     return null;
   }
 }

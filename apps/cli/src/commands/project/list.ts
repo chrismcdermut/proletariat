@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { SQLiteStorage } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import { findPMO } from '../../lib/find-pmo.js';
 
 export default class ProjectList extends Command {
   static description = 'List all projects in the PMO';
@@ -12,7 +13,7 @@ export default class ProjectList extends Command {
   ];
 
   async run(): Promise<void> {
-    const pmoPath = this.findPMO();
+    const pmoPath = findPMO();
     if (!pmoPath) {
       this.error('PMO not found. Run "prlt pmo init" first.');
     }
@@ -54,29 +55,5 @@ export default class ProjectList extends Command {
       await storage.close();
       throw error;
     }
-  }
-
-  private findPMO(): string | null {
-    let currentDir = process.cwd();
-
-    while (currentDir !== '/') {
-      const configPath = path.join(currentDir, '.proletariat', 'config.json');
-      if (fs.existsSync(configPath)) {
-        try {
-          const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-          if (config.type === 'hq') {
-            const pmoPath = path.join(currentDir, 'pmo');
-            if (fs.existsSync(path.join(pmoPath, 'config.json'))) {
-              return pmoPath;
-            }
-          }
-        } catch {
-          // Ignore parse errors
-        }
-      }
-      currentDir = path.dirname(currentDir);
-    }
-
-    return null;
   }
 }
