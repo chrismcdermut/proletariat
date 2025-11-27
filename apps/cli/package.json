@@ -1,71 +1,104 @@
 {
-  "name": "@proletariat/cli",
-  "version": "0.2.0",
-  "description": "Multi-agent development CLI - Orchestrate parallel coding agents via git worktrees with memorable themes for distributed development workflows",
-  "main": "dist/bin/prlt.js",
+  "name": "@proletariat/cli-v2",
+  "description": "Proletariat CLI v2 - Multi-agent development orchestration",
+  "version": "2.0.0-alpha.1",
+  "author": "Chris McDermut",
   "bin": {
-    "prlt": "./dist/bin/prlt.js"
+    "prlt": "./bin/run.js"
   },
-  "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
-    "clean": "rm -rf dist",
-    "prepublishOnly": "pnpm run clean && pnpm run build",
-    "test": "echo \"Workers of the world, unite!\" && exit 0",
-    "release": "npm publish --access public",
-    "publish:otp": "./scripts/publish.sh"
-  },
-  "keywords": [
-    "multi-agent",
-    "coding-agents",
-    "parallel-development",
-    "claude-code",
-    "cursor",
-    "codex",
-    "ai-development",
-    "git",
-    "worktree",
-    "development",
-    "orchestration",
-    "distributed",
-    "themed",
-    "cli",
-    "workflow",
-    "automation"
-  ],
-  "author": {
-    "name": "Chris McDermut",
-    "email": "chrismcdermut@gmail.com",
-    "url": "https://github.com/chrismcdermut"
-  },
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/chrismcdermut/proletariat-cli.git"
-  },
-  "bugs": {
-    "url": "https://github.com/chrismcdermut/proletariat-cli/issues"
-  },
-  "homepage": "https://github.com/chrismcdermut/proletariat-cli#readme",
-  "engines": {
-    "node": ">=16.0.0"
-  },
+  "bugs": "https://github.com/chrismcdermut/proletariat-cli/issues",
   "dependencies": {
-    "commander": "^11.0.0",
+    "@inkjs/ui": "^2.0.0",
+    "@oclif/core": "^4",
+    "@oclif/plugin-autocomplete": "^3",
+    "@oclif/plugin-commands": "^4",
+    "@oclif/plugin-help": "^6",
+    "@oclif/plugin-plugins": "^5",
+    "better-sqlite3": "^9.2.2",
     "chalk": "^4.1.2",
-    "inquirer": "^8.2.5"
+    "chokidar": "^5.0.0",
+    "ink": "^5.0.1",
+    "ink-select-input": "^6.0.0",
+    "inquirer": "^8.2.5",
+    "react": "^18.0.0"
   },
   "devDependencies": {
+    "@oclif/prettier-config": "^0.2.1",
+    "@oclif/test": "^4",
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/chai": "^4",
+    "@types/ink-spinner": "^3.0.5",
     "@types/inquirer": "^8.2.6",
-    "@types/node": "^20.0.0",
-    "eslint": "^8.44.0",
-    "typescript": "^5.0.0"
+    "@types/jest": "^30.0.0",
+    "@types/mocha": "^10",
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "chai": "^4",
+    "eslint": "^9",
+    "eslint-config-prettier": "^10",
+    "mocha": "^10",
+    "oclif": "^4",
+    "shx": "^0.3.3",
+    "ts-node": "^10",
+    "typescript": "^5"
   },
-  "preferGlobal": true,
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "files": [
-    "dist/",
-    "README.md",
-    "LICENSE"
+    "./bin",
+    "./dist",
+    "./oclif.manifest.json"
   ],
-  "packageManager": "pnpm@10.11.0+sha512.6540583f41cc5f628eb3d9773ecee802f4f9ef9923cc45b69890fb47991d4b092964694ec3a4f738a420c918a333062c8b925d312f42e4f0c263eb603551f977"
+  "homepage": "https://github.com/chrismcdermut/proletariat-cli",
+  "keywords": [
+    "multi-agent",
+    "development",
+    "ai",
+    "claude",
+    "cursor",
+    "oclif"
+  ],
+  "license": "MIT",
+  "main": "dist/index.js",
+  "type": "module",
+  "oclif": {
+    "bin": "prlt",
+    "dirname": "proletariat",
+    "commands": "./dist/commands",
+    "plugins": [
+      "@oclif/plugin-autocomplete",
+      "@oclif/plugin-commands",
+      "@oclif/plugin-help",
+      "@oclif/plugin-plugins"
+    ],
+    "topicSeparator": " ",
+    "topics": {
+      "agent": {
+        "description": "Manage agents (workers)"
+      },
+      "ticket": {
+        "description": "Manage PMO tickets"
+      },
+      "repo": {
+        "description": "Manage repositories"
+      }
+    },
+    "hooks": {
+      "init": "./dist/hooks/init"
+    }
+  },
+  "repository": "chrismcdermut/proletariat-cli",
+  "scripts": {
+    "build": "shx rm -rf dist && tsc -b",
+    "clean": "shx rm -rf dist",
+    "dev": "tsc --watch",
+    "lint": "eslint",
+    "postpack": "shx rm -f oclif.manifest.json",
+    "posttest": "pnpm run lint",
+    "prepack": "oclif manifest && oclif readme",
+    "test": "mocha --forbid-only \"test/**/*.test.ts\"",
+    "version": "oclif readme && git add README.md"
+  },
+  "types": "dist/index.d.ts"
 }

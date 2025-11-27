@@ -1,0 +1,241 @@
+/**
+ * PMO Interface Types
+ *
+ * Canonical interface for the Project Management Orchestration system.
+ * All storage backends must implement the PMOStorage interface.
+ *
+ * Hierarchy:
+ * - Initiative (optional) - OKR-level grouping
+ * - Project - Discrete effort with its own board + specs
+ * - Epic (optional) - Large body of work within a project
+ * - Ticket - Individual work item
+ * - Subtask - Smallest actionable piece
+ */
+
+// =============================================================================
+// Core Data Types
+// =============================================================================
+
+export interface Initiative {
+  id: string
+  name: string
+  objective?: string
+  keyResults?: string[]
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface Project {
+  id: string
+  name: string
+  template?: string
+  description?: string
+  initiativeId?: string
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface Epic {
+  id: string
+  projectId: string
+  name: string
+  description?: string
+  createdAt: Date
+  updatedAt: Date
+}
+
+/**
+ * Board represents a project's kanban board view.
+ * This is what gets rendered to board.md and displayed in the UI.
+ */
+export interface Board {
+  id: string
+  name: string
+  columns: Column[]
+  updatedAt: Date
+}
+
+export interface Column {
+  id: string
+  name: string
+  position: number
+  tickets: Ticket[]
+}
+
+export interface Ticket {
+  id: string
+  title: string
+  column: string
+  position: number
+  priority?: string
+  category?: string
+  description?: string
+  epicId?: string
+  specs: string[]
+  subtasks: Subtask[]
+  metadata: Record<string, string>
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface Subtask {
+  id: string
+  title: string
+  done: boolean
+}
+
+export interface Spec {
+  id: string
+  path: string
+  title?: string
+  status: 'draft' | 'active' | 'deprecated'
+  createdAt: Date
+  updatedAt: Date
+}
+
+// =============================================================================
+// Configuration Types
+// =============================================================================
+
+export interface BoardConfig {
+  name?: string
+  columns?: string[]
+  mode?: 'in-repo' | 'separate-repo'
+  repo?: string
+  branch?: string
+  path?: string
+}
+
+export interface SyncConfig {
+  autoPull: boolean
+  autoPush: boolean
+  conflictStrategy: 'manual' | 'theirs' | 'ours'
+}
+
+export interface PMOConfig {
+  version: number
+  storage: {
+    type: 'sqlite' | 'git' | 'cloud' | 'adapter'
+    mode?: 'in-repo' | 'separate-repo'
+    repo?: string
+    branch?: string
+    path?: string
+    connection?: string
+  }
+  board: BoardConfig
+  sync: SyncConfig
+}
+
+// =============================================================================
+// Filter Types
+// =============================================================================
+
+export interface TicketFilter {
+  column?: string
+  priority?: string
+  category?: string
+  search?: string
+  spec?: string
+}
+
+export interface SpecFilter {
+  status?: 'draft' | 'active' | 'deprecated'
+  search?: string
+}
+
+// =============================================================================
+// Result Types
+// =============================================================================
+
+export interface SyncResult {
+  success: boolean
+  changes: number
+  conflicts?: Conflict[]
+}
+
+export interface SyncStatus {
+  ahead: number
+  behind: number
+  conflicts: boolean
+}
+
+export interface Conflict {
+  type: string
+  ticketId?: string
+  description?: string
+  message?: string
+}
+
+// =============================================================================
+// Error Types
+// =============================================================================
+
+export type PMOErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'INVALID' | 'SYNC_FAILED'
+
+export class PMOError extends Error {
+  constructor(
+    public code: PMOErrorCode,
+    message: string,
+    public ticketId?: string
+  ) {
+    super(message)
+    this.name = 'PMOError'
+  }
+}
+
+// =============================================================================
+// Storage Interface
+// =============================================================================
+
+export interface PMOStorage {
+  readonly type: 'sqlite' | 'git' | 'cloud' | 'adapter'
+
+  // Board Operations
+  init(config: BoardConfig): Promise<Board>
+  getBoard(): Promise<Board>
+  getBoardMarkdown(): Promise<string>
+
+  // Column Operations
+  createColumn(name: string, position?: number): Promise<Column>
+  renameColumn(id: string, name: string): Promise<Column>
+  moveColumn(id: string, position: number): Promise<Column>
+  deleteColumn(id: string, cascade?: boolean): Promise<void>
+
+  // Ticket Operations
+  createTicket(ticket: Partial<Ticket>): Promise<Ticket>
+  getTicket(id: string): Promise<Ticket | null>
+  updateTicket(id: string, changes: Partial<Ticket>): Promise<Ticket>
+  moveTicket(id: string, column: string, position?: number): Promise<Ticket>
+  deleteTicket(id: string): Promise<void>
+  listTickets(filter?: TicketFilter): Promise<Ticket[]>
+
+  // Subtask Operations
+  addSubtask(ticketId: string, title: string): Promise<Subtask>
+  toggleSubtask(ticketId: string, subtaskId: string): Promise<Subtask>
+  removeSubtask(ticketId: string, subtaskId: string): Promise<void>
+
+  // Spec Operations
+  createSpec(spec: Partial<Spec>): Promise<Spec>
+  getSpec(id: string): Promise<Spec | null>
+  listSpecs(filter?: SpecFilter): Promise<Spec[]>
+  updateSpec(id: string, changes: Partial<Spec>): Promise<Spec>
+  linkTicketToSpec(ticketId: string, specId: string): Promise<void>
+  unlinkTicketFromSpec(ticketId: string, specId: string): Promise<void>
+  getTicketsForSpec(specId: string): Promise<Ticket[]>
+  getSpecsForTicket(ticketId: string): Promise<Spec[]>
+
+  // Sync Operations
+  pull(): Promise<SyncResult>
+  push(): Promise<SyncResult>
+  status(): Promise<SyncStatus>
+
+  // Lifecycle
+  close(): Promise<void>
+}
+
+// =============================================================================
+// Utility Types
+// =============================================================================
+
+export type CreateTicketInput = Omit<Partial<Ticket>, 'createdAt' | 'updatedAt'>
+export type UpdateTicketInput = Omit<Partial<Ticket>, 'id' | 'createdAt' | 'updatedAt'>

@@ -1,0 +1,435 @@
+import { Command, Args, Flags } from '@oclif/core';
+import * as fs from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
+import chalk from 'chalk';
+import inquirer from 'inquirer';
+import {
+  SQLiteStorage,
+  Ticket,
+  parseBoard,
+  findAddedTickets,
+  findRemovedTickets,
+  findModifiedTickets,
+  getStorageWithAutoSync,
+} from '../lib/pmo/index.js';
+import {
+  styles,
+  formatPriority,
+  formatCategory,
+  getColumnStyle,
+  getColumnEmoji,
+  divider,
+} from '../lib/styles.js';
+
+interface PMOConfigFile {
+  storage: 'sqlite' | 'git';
+  template: string;
+  boardName: string;
+  columns: string[];
+  created: string;
+}
+
+export default class Board extends Command {
+  static description = 'Interactive menu for board operations';
+
+  static examples = [
+    '<%= config.bin %> <%= command.id %>',
+  ];
+
+  async run(): Promise<void> {
+    const pmoPath = this.findPMO();
+    if (!pmoPath) {
+      this.error('PMO not found. Run "prlt pmo init" first.');
+    }
+
+    // Load PMO config
+    const configPath = path.join(pmoPath, 'config.json');
+    if (!fs.existsSync(configPath)) {
+      this.error('PMO config not found. Run "prlt pmo init" first.');
+    }
+
+    const config: PMOConfigFile = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+    // Show interactive menu
+    const { action } = await inquirer.prompt([{
+      type: 'list',
+      name: 'action',
+      message: '📋 Board Operations - What would you like to do?',
+      choices: [
+        { name: 'View board in terminal', value: 'view' },
+        { name: 'Open board in Obsidian', value: 'open' },
+        { name: 'Show as markdown', value: 'markdown' },
+        { name: 'Export board', value: 'export' },
+        { name: 'Sync board', value: 'sync' },
+        { name: 'Watch for changes', value: 'watch' },
+        new inquirer.Separator(),
+        { name: 'Cancel', value: 'cancel' },
+      ],
+    }]);
+
+    if (action === 'cancel') {
+      return;
+    }
+
+    switch (action) {
+      case 'view':
+        await this.viewBoard(pmoPath, config, { all: false, compact: false });
+        break;
+
+      case 'open':
+        this.openInObsidian(pmoPath, config);
+        break;
+
+      case 'markdown':
+        await this.showMarkdown(pmoPath);
+        break;
+
+      case 'export':
+        await this.exportMarkdown(pmoPath);
+        break;
+
+      case 'sync':
+        await this.syncFromMarkdown(pmoPath, { force: false, 'dry-run': false });
+        break;
+
+      case 'watch':
+        this.log(styles.info('To watch for changes, run: prlt board watch'));
+        break;
+    }
+  }
+
+  private async viewBoard(
+    pmoPath: string,
+    config: PMOConfigFile,
+    flags: { all: boolean; compact: boolean }
+  ): Promise<void> {
+    // Use auto-sync storage for read operations
+    const storage = getStorageWithAutoSync(
+      pmoPath,
+      config.storage,
+      (msg) => this.log(styles.muted(msg))
+    );
+
+    try {
+      const board = await storage.getBoard();
+      await storage.close();
+
+      // Header
+      this.log(styles.title(`\n${board.name}`));
+      this.log(styles.muted(`Template: ${config.template} | Storage: ${config.storage}`));
+      this.log(styles.muted('═'.repeat(60)));
+
+      // Display ALL columns (always show empty ones too)
+      for (const column of board.columns) {
+        const headerColor = getColumnStyle(column.name);
+        const emoji = getColumnEmoji(column.name);
+
+        this.log(headerColor(`\n${emoji} ${column.name} (${column.tickets.length})`));
+        this.log(divider(50));
+
+        if (column.tickets.length === 0) {
+          this.log(styles.muted('  (empty)'));
+          continue;
+        }
+
+        // Sort tickets by position
+        const sortedTickets = [...column.tickets].sort((a, b) => a.position - b.position);
+
+        for (const ticket of sortedTickets) {
+          if (flags.compact) {
+            this.outputTicketCompact(ticket);
+          } else {
+            this.outputTicketFull(ticket);
+          }
+        }
+      }
+
+      // Summary
+      const totalTickets = board.columns.reduce((sum, col) => sum + col.tickets.length, 0);
+      this.log(styles.muted('\n' + '═'.repeat(60)));
+      this.log(styles.emphasis(`Total: ${totalTickets} ticket${totalTickets === 1 ? '' : 's'}`));
+
+      // Per-column summary (only non-empty)
+      const summary = board.columns
+        .filter(col => col.tickets.length > 0)
+        .map(col => `${col.name}: ${col.tickets.length}`)
+        .join(' | ');
+      if (summary) {
+        this.log(styles.primary(summary));
+      }
+
+      this.log(styles.muted('\nCommands:'));
+      this.log(styles.primary('  prlt ticket create     ') + styles.muted('Create a new ticket'));
+      this.log(styles.primary('  prlt ticket list       ') + styles.muted('List all tickets'));
+      this.log(styles.primary('  prlt ticket move <id>  ') + styles.muted('Move a ticket'));
+    } catch (error) {
+      await storage.close();
+      throw error;
+    }
+  }
+
+  private outputTicketCompact(ticket: Ticket): void {
+    const priority = formatPriority(ticket.priority);
+    this.log(`  ${styles.code(ticket.id)}: ${ticket.title} ${priority}`);
+  }
+
+  private outputTicketFull(ticket: Ticket): void {
+    const priority = formatPriority(ticket.priority);
+    const category = formatCategory(ticket.category);
+
+    this.log(`  ${styles.code(ticket.id)} ${ticket.title} ${priority} ${category}`);
+
+    if (ticket.description) {
+      const shortDesc = ticket.description.split('\n')[0].substring(0, 55);
+      this.log(styles.muted(`     ${shortDesc}${ticket.description.length > 55 ? '...' : ''}`));
+    }
+
+    if (ticket.subtasks.length > 0) {
+      const done = ticket.subtasks.filter(s => s.done).length;
+      const total = ticket.subtasks.length;
+      const progress = Math.round((done / total) * 100);
+      this.log(styles.muted(`     Subtasks: ${done}/${total} (${progress}%)`));
+    }
+
+    if (ticket.specs.length > 0) {
+      this.log(styles.muted(`     Specs: ${ticket.specs.join(', ')}`));
+    }
+  }
+
+  private async showMarkdown(pmoPath: string): Promise<void> {
+    const storage = await this.getStorage(pmoPath);
+
+    try {
+      const markdown = await storage.getBoardMarkdown();
+      await storage.close();
+      this.log(markdown);
+    } catch (error) {
+      await storage.close();
+      throw error;
+    }
+  }
+
+  private async exportMarkdown(pmoPath: string): Promise<void> {
+    const storage = await this.getStorage(pmoPath);
+
+    try {
+      const markdown = await storage.getBoardMarkdown();
+      await storage.close();
+
+      const boardPath = path.join(pmoPath, 'board.md');
+      fs.writeFileSync(boardPath, markdown);
+
+      this.log(chalk.green(`✅ Exported board to ${boardPath}`));
+    } catch (error) {
+      await storage.close();
+      throw error;
+    }
+  }
+
+  private async syncFromMarkdown(
+    pmoPath: string,
+    flags: { force: boolean; 'dry-run': boolean }
+  ): Promise<void> {
+    const boardPath = path.join(pmoPath, 'board.md');
+    if (!fs.existsSync(boardPath)) {
+      this.error('board.md not found. Run "prlt board export" first to create it.');
+    }
+
+    // Parse markdown file
+    const markdown = fs.readFileSync(boardPath, 'utf-8');
+    const markdownBoard = parseBoard(markdown);
+
+    // Get current SQLite/cache state
+    const storage = await this.getStorage(pmoPath);
+
+    try {
+      const sqliteBoard = await storage.getBoard();
+
+      // Find differences
+      const added = findAddedTickets(sqliteBoard, markdownBoard);
+      const removed = findRemovedTickets(sqliteBoard, markdownBoard);
+      const modified = findModifiedTickets(sqliteBoard, markdownBoard);
+
+      // Check if anything changed
+      if (added.length === 0 && removed.length === 0 && modified.length === 0) {
+        this.log(chalk.green('✅ Database is already in sync with board.md'));
+        await storage.close();
+        return;
+      }
+
+      // Display changes
+      this.log(chalk.bold.cyan(`\n📊 Changes detected in board.md (to sync to database):\n`));
+
+      if (added.length > 0) {
+        this.log(chalk.green.bold(`  + ${added.length} ticket(s) to add:`));
+        for (const ticket of added) {
+          this.log(chalk.green(`    + ${ticket.id}: ${ticket.title} (${ticket.column})`));
+        }
+      }
+
+      if (removed.length > 0) {
+        this.log(chalk.red.bold(`  - ${removed.length} ticket(s) to remove:`));
+        for (const ticket of removed) {
+          this.log(chalk.red(`    - ${ticket.id}: ${ticket.title}`));
+        }
+      }
+
+      if (modified.length > 0) {
+        this.log(chalk.yellow.bold(`  ~ ${modified.length} ticket(s) to update:`));
+        for (const { old: oldTicket, new: newTicket } of modified) {
+          this.log(chalk.yellow(`    ~ ${newTicket.id}: ${newTicket.title}`));
+          if (oldTicket.column !== newTicket.column) {
+            this.log(styles.muted(`        column: ${oldTicket.column} → ${newTicket.column}`));
+          }
+          if (oldTicket.priority !== newTicket.priority) {
+            this.log(styles.muted(`        priority: ${oldTicket.priority || '(none)'} → ${newTicket.priority || '(none)'}`));
+          }
+          if (oldTicket.title !== newTicket.title) {
+            this.log(styles.muted(`        title: ${oldTicket.title} → ${newTicket.title}`));
+          }
+        }
+      }
+
+      this.log('');
+
+      // Dry run - just show changes
+      if (flags['dry-run']) {
+        this.log(styles.muted('Dry run - no changes applied.'));
+        await storage.close();
+        return;
+      }
+
+      // Confirm before applying
+      if (!flags.force) {
+        const { confirm } = await inquirer.prompt([{
+          type: 'list',
+          name: 'confirm',
+          message: 'Apply these changes to the database?',
+          choices: [
+            { name: 'Yes, apply changes', value: true },
+            { name: 'No, cancel', value: false },
+          ],
+          default: 0,
+        }]);
+
+        if (!confirm) {
+          this.log(chalk.yellow('Sync cancelled.'));
+          await storage.close();
+          return;
+        }
+      }
+
+      this.log(chalk.blue('\nSyncing from board.md...'));
+
+      // Rebuild database from markdown (cleaner than incremental updates)
+      storage.rebuildFromBoard(markdownBoard);
+
+      // Update cache metadata with file mtime
+      const stats = fs.statSync(boardPath);
+      storage.setCacheMetadata({
+        boardMtime: stats.mtimeMs,
+        cacheBuiltAt: Date.now(),
+      });
+
+      await storage.close();
+      this.log(chalk.green('\n✅ Database synced from board.md!'));
+    } catch (error) {
+      await storage.close();
+      throw error;
+    }
+  }
+
+  private openInObsidian(pmoPath: string, config: PMOConfigFile): void {
+    // For git storage, open the board.md
+    if (config.storage === 'git') {
+      const boardPath = path.join(pmoPath, 'board.md');
+      if (!fs.existsSync(boardPath)) {
+        this.error('board.md not found. PMO may need to be reinitialized.');
+      }
+    }
+
+    const platform = process.platform;
+
+    try {
+      if (platform === 'darwin') {
+        execSync(`open "obsidian://open?path=${encodeURIComponent(pmoPath)}"`);
+      } else if (platform === 'linux') {
+        execSync(`xdg-open "obsidian://open?path=${encodeURIComponent(pmoPath)}"`);
+      } else if (platform === 'win32') {
+        execSync(`start "" "obsidian://open?path=${encodeURIComponent(pmoPath)}"`);
+      }
+      this.log(styles.success('✅ Opened PMO in Obsidian'));
+    } catch {
+      this.log(styles.warning('Could not open Obsidian. Make sure it is installed.'));
+      this.log(styles.muted(`PMO location: ${pmoPath}`));
+    }
+  }
+
+  private async getStorage(pmoPath: string): Promise<SQLiteStorage> {
+    // All PMO data is now in workspace.db
+    const workspacePath = path.dirname(pmoPath);
+    const dbPath = path.join(workspacePath, '.proletariat', 'workspace.db');
+
+    if (!fs.existsSync(dbPath)) {
+      this.error(`Database not found at ${dbPath}. Run 'prlt init' first.`);
+    }
+
+    return new SQLiteStorage(dbPath);
+  }
+
+  private findPMO(): string | null {
+    let currentDir = process.cwd();
+
+    while (currentDir !== '/') {
+      const configPath = path.join(currentDir, '.proletariat', 'config.json');
+      if (fs.existsSync(configPath)) {
+        try {
+          const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+          if (config.type === 'hq') {
+            const pmoPath = path.join(currentDir, 'pmo');
+            if (fs.existsSync(path.join(pmoPath, 'config.json'))) {
+              return pmoPath;
+            }
+          }
+          if (config.pmoPath) {
+            const absolutePath = path.isAbsolute(config.pmoPath)
+              ? config.pmoPath
+              : path.join(currentDir, config.pmoPath);
+            if (fs.existsSync(path.join(absolutePath, 'config.json'))) {
+              return absolutePath;
+            }
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      }
+
+      const dotPmoPath = path.join(currentDir, '.pmo');
+      if (fs.existsSync(path.join(dotPmoPath, 'config.json'))) {
+        return dotPmoPath;
+      }
+
+      const pmoPath = path.join(currentDir, 'pmo');
+      if (fs.existsSync(path.join(pmoPath, 'config.json'))) {
+        return pmoPath;
+      }
+
+      currentDir = path.dirname(currentDir);
+    }
+
+    const globalConfigPath = path.join(process.env.HOME || '', '.proletariat', 'config.json');
+    if (fs.existsSync(globalConfigPath)) {
+      try {
+        const config = JSON.parse(fs.readFileSync(globalConfigPath, 'utf-8'));
+        if (config.defaultPMO && fs.existsSync(path.join(config.defaultPMO, 'config.json'))) {
+          return config.defaultPMO;
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+
+    return null;
+  }
+}
