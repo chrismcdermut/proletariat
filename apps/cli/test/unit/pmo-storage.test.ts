@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import Database from 'better-sqlite3';
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js';
 
 describe('PMO SQLite Storage', () => {
@@ -11,6 +12,11 @@ describe('PMO SQLite Storage', () => {
   beforeEach(async () => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmo-test-'));
     const dbPath = path.join(testDir, 'pmo.db');
+
+    // Create empty database file first (SQLiteStorage now requires it to exist)
+    const db = new Database(dbPath);
+    db.close();
+
     storage = new SQLiteStorage(dbPath);
 
     // Initialize board with columns
@@ -338,6 +344,9 @@ describe('PMO SQLite Storage', () => {
     it('rebuilds database from board object', async () => {
       // Create a new storage instance
       const newDbPath = path.join(testDir, 'rebuild.db');
+      // Create empty database file first
+      const tempDb = new Database(newDbPath);
+      tempDb.close();
       const newStorage = new SQLiteStorage(newDbPath);
 
       const board = {

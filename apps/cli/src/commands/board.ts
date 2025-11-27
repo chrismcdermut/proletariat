@@ -6,14 +6,13 @@ import chalk from 'chalk';
 import inquirer from 'inquirer';
 import {
   SQLiteStorage,
-  Board,
   Ticket,
   parseBoard,
   findAddedTickets,
   findRemovedTickets,
   findModifiedTickets,
   getStorageWithAutoSync,
-} from '../../lib/pmo/index.js';
+} from '../lib/pmo/index.js';
 import {
   styles,
   formatPriority,
@@ -21,7 +20,7 @@ import {
   getColumnStyle,
   getColumnEmoji,
   divider,
-} from '../../lib/styles.js';
+} from '../lib/styles.js';
 
 interface PMOConfigFile {
   storage: 'sqlite' | 'git';
@@ -31,13 +30,14 @@ interface PMOConfigFile {
   created: string;
 }
 
-export default class PMOBoard extends Command {
+export default class Board extends Command {
   static description = 'View or interact with the kanban board';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> view',
     '<%= config.bin %> <%= command.id %> open',
+    '<%= config.bin %> <%= command.id %> sync --dry-run',
   ];
 
   static args = {
@@ -72,7 +72,7 @@ export default class PMOBoard extends Command {
   };
 
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(PMOBoard);
+    const { args, flags } = await this.parse(Board);
 
     const pmoPath = this.findPMO();
     if (!pmoPath) {
@@ -244,7 +244,7 @@ export default class PMOBoard extends Command {
   ): Promise<void> {
     const boardPath = path.join(pmoPath, 'board.md');
     if (!fs.existsSync(boardPath)) {
-      this.error('board.md not found. Run "prlt pmo board export" first to create it.');
+      this.error('board.md not found. Run "prlt board export" first to create it.');
     }
 
     // Parse markdown file

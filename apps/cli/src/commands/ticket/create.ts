@@ -146,7 +146,7 @@ export default class TicketCreate extends Command {
       if (ticket.category) {
         this.log(styles.muted(`   Category: ${ticket.category}`));
       }
-      this.log(styles.muted(`\n   View board: prlt pmo board view`));
+      this.log(styles.muted(`\n   View board: prlt board`));
       this.log(styles.muted(`   List tickets: prlt ticket list`));
     } catch (error) {
       await storage.close();

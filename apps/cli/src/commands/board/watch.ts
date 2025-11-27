@@ -13,7 +13,7 @@ interface PMOConfigFile {
   created: string;
 }
 
-export default class PMOWatch extends Command {
+export default class BoardWatch extends Command {
   static description = 'Watch board.md for changes and auto-sync to SQLite';
 
   static examples = [
@@ -30,7 +30,7 @@ export default class PMOWatch extends Command {
   };
 
   async run(): Promise<void> {
-    const { flags } = await this.parse(PMOWatch);
+    const { flags } = await this.parse(BoardWatch);
 
     // Find PMO directory
     const pmoPath = this.findPMO();
@@ -47,7 +47,7 @@ export default class PMOWatch extends Command {
     const config: PMOConfigFile = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
     // Header
-    this.log(styles.title('\n🔄 PMO Board Watcher'));
+    this.log(styles.title('\n🔄 Board Watcher'));
     this.log(styles.muted(`Storage: ${config.storage} | Debounce: ${flags.debounce}ms`));
     this.log(styles.muted(`Path: ${pmoPath}`));
     this.log(styles.muted('Press Ctrl+C to stop\n'));
@@ -59,7 +59,7 @@ export default class PMOWatch extends Command {
         const timestamp = new Date().toLocaleTimeString();
         this.log(styles.muted(`[${timestamp}]`) + ' ' + msg);
       },
-      onSync: (stats) => {
+      onSync: () => {
         // Already logged by logger
       },
       onError: (error) => {

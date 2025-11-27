@@ -116,7 +116,7 @@ export default class ProjectCreate extends Command {
       this.log(styles.muted(`  Board: ${path.relative(process.cwd(), boardPath)}`));
       this.log(styles.muted(`\nSwitch to this project:`));
       this.log(styles.muted(`  prlt ticket list --project ${project.id}`));
-      this.log(styles.muted(`  prlt pmo board view --project ${project.id}`));
+      this.log(styles.muted(`  prlt project view ${project.id}`));
     } catch (error) {
       await storage.close();
       throw error;

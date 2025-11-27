@@ -73,31 +73,43 @@ This is the authoritative list of commands that MUST exist in the CLI.
 
 #### PMO Commands
 
-| Command | 📝 | ✅ | 🧪 | 🧑‍💻 | ✔️ | Description | Spec |
-|---------|----|----|----|----|----|----|----|
-| `prlt pmo` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | Interactive PMO menu | [pmo.md](pmo.md) |
-| `prlt pmo init` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | Initialize PMO structure | [pmo.md](pmo.md) |
-| `prlt pmo board [action]` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | View/edit/open kanban board | [pmo.md](pmo.md) |
-| `prlt pmo board list` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | List all boards | [pmo.md](pmo.md) |
-| `prlt pmo board create <name>` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | Create new board | [pmo.md](pmo.md) |
-| `prlt pmo board view [name]` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | View board (default: main) | [pmo.md](pmo.md) |
-| `prlt pmo board edit [name]` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | Edit board in editor | [pmo.md](pmo.md) |
-| `prlt pmo board delete <name>` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | Delete a board | [pmo.md](pmo.md) |
-| `prlt pmo board set-default <name>` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | Set default board | [pmo.md](pmo.md) |
+| Command | 📝 | ✅ | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️ | Description | Spec |
+|---------|----|----|--------|----------|----------|-------------|----------|-------------|----------|-------------|----|----|------|
+| `prlt pmo init` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Initialize PMO system (one-time) | [pmo-commands.md](specs/active/pmo-commands.md) |
+
+#### Project Commands
+
+| Command | 📝 | ✅ | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️ | Description | Spec |
+|---------|----|----|--------|----------|----------|-------------|----------|-------------|----------|-------------|----|----|------|
+| `prlt project create` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Create new project | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt project list` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | List all projects | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt project view [id]` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | View project details | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt project delete [id]` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Delete project | [pmo-commands.md](specs/active/pmo-commands.md) |
+
+#### Board Commands
+
+| Command               | 📝  | ✅   | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️  | Description                                 | Spec                                            |
+| --------------------- | --- | --- | ------ | --------- | -------- | ----------- | -------- | ----------- | -------- | ----------- | --- | ------------------------------------------- | ----------------------------------------------- |
+| `prlt board` | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Interactive board menu | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt board view`     | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | View board in terminal                      | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt board open`     | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Open board in Obsidian                      | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt board markdown` | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Show board as markdown                      | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt board export`   | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Export board to file                        | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt board sync`     | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Sync between SQLite and board.md            | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt board watch`    | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Watch board.md for changes                  | [pmo-commands.md](specs/active/pmo-commands.md) |
 
 #### Ticket Commands
 
-| Command | 📝 | ✅ | 🧪 | 🧑‍💻 | ✔️ | Description | Spec |
-|---------|----|----|----|----|----|----|----| 
-| `prlt ticket` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | Interactive ticket menu | [pmo.md](pmo.md) |
-| `prlt ticket create [title]` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | Create new ticket (Ink UI) | [pmo.md](pmo.md) |
-| `prlt ticket list` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | List all tickets | [pmo.md](pmo.md) |
-| `prlt ticket status [id] [status]` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | Update ticket status | [pmo.md](pmo.md) |
-| `prlt ticket claim [id]` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | Claim ticket (Ink UI) | [pmo.md](pmo.md) |
-| `prlt ticket complete [id]` | ✅ | ✅ | ⬜ | ⬜ | ⬜ | Mark ticket as complete | [pmo.md](pmo.md) |
-| `prlt ticket assign [id] [agent]` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | Assign ticket to agent | [pmo.md](pmo.md) |
-| `prlt ticket reassign [id] [agent]` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | Reassign to different agent | [pmo.md](pmo.md) |
-| `prlt ticket unassign [id]` | ✅ | ⬜ | ⬜ | ⬜ | ⬜ | Remove assignment | [pmo.md](pmo.md) |
+| Command                           | 📝  | ✅   | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️  | Description                | Spec                                            |
+| --------------------------------- | --- | --- | ------ | --------- | -------- | ----------- | -------- | ----------- | -------- | ----------- | --- | -------------------------- | ----------------------------------------------- |
+| `prlt ticket`                     | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Interactive ticket menu    | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt ticket create [title]`      | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Create new ticket          | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt ticket list`                | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | List all tickets           | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt ticket view [id]`           | ✅   | ⬜   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | View ticket details        | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt ticket move [id] [column]`  | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Move ticket to column      | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt ticket assign [id] [agent]` | ✅   | ⬜   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Assign ticket to agent     | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt ticket claim [id]`          | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Claim ticket (self-assign) | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt ticket delete [id]`         | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Delete ticket              | [pmo-commands.md](specs/active/pmo-commands.md) |
 
 #### Maintenance Commands
 
@@ -120,63 +132,6 @@ This is the authoritative list of commands that MUST exist in the CLI.
 | `prlt plugins link <path>` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Link local plugin |
 | `prlt plugins reset` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Remove all user plugins |
 | `prlt plugins inspect <plugin>` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | Show plugin details |
-
-### 4.2 Implementation Summary
-
-**Completed (Implemented with SQLite & DRY Architecture):**
-
-**Core Workspace:**
-- ✅ `prlt init` - Initialize HQ with SQLite database
-
-**PMO System:**
-- ✅ `prlt pmo init` - Initialize PMO structure
-- ✅ `prlt pmo board` - View/edit/open board
-- ✅ `prlt ticket create` - Create tickets with Ink UI
-- ✅ `prlt ticket claim` - Claim tickets with Ink UI
-- ✅ `prlt ticket status` - Update ticket status
-- ✅ `prlt ticket complete` - Mark tickets complete
-
-**Individual Agent Operations:**
-- ✅ `prlt agent` - Interactive menu for individual operations
-- ✅ `prlt agent status [name]` - Detailed status for specific agent
-- ✅ `prlt agent visit [name]` - Navigate to agent directory
-- ✅ `prlt agent add` - Add agent (redirects to bulk operations)
-- ✅ `prlt agent remove [name]` - Remove specific agent
-
-**Bulk Agent Operations:**
-- ✅ `prlt agents` - Interactive menu for bulk operations
-- ✅ `prlt agents list` - List all agents with overview status
-- ✅ `prlt agents status` - Status overview for all agents
-- ✅ `prlt agents add` - Add multiple agents with theme integration
-- ✅ `prlt agents remove` - Remove multiple agents with confirmation
-
-**Key Features:**
-- ✅ SQLite database for concurrent access and data integrity
-- ✅ Interactive menus with arrow-key navigation
-- ✅ Centralized color scheme for dark terminal readability
-- ✅ Workspace traversal (works from any subdirectory)
-- ✅ Git worktree management with comprehensive cleanup
-- ✅ Theme-based agent naming and validation
-- ✅ PMO integration for ticket assignments
-- ✅ Direct command execution (no subprocess issues)
-
-**Priority 1 - Critical (needed for basic functionality):**
-- ⬜ `prlt ticket` - Interactive menu  
-- ⬜ `prlt ticket assign` - Direct assignment
-- ⬜ `prlt ticket reassign` - Change assignment
-- ⬜ `prlt ticket unassign` - Remove assignment
-
-**Priority 2 - Important (enhance usability):**
-- ⬜ `prlt pmo` - Interactive PMO menu
-- ⬜ `prlt ticket list` - List all tickets
-
-**Priority 3 - Nice to have (maintenance/advanced):**
-- ⬜ `prlt themes` - Theme management
-- ⬜ `prlt repair` - Worktree repair
-- ⬜ `prlt health` - Health checks
-- ⬜ `prlt migrate` - Migration tool
-- ⬜ `prlt upgrade` - Config upgrades
-- ⬜ `prlt agent grant/revoke` - Repo access control
 
 ## Theme System
 
