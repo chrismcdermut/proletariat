@@ -55,8 +55,9 @@ The PMO (Project Management Orchestration) system uses a flat entity → action 
 | `prlt ticket list`                | List all tickets                       | ❌ Not Implemented |
 | `prlt ticket view [id]`           | View ticket details                    | ❌ Not Implemented |
 | `prlt ticket move [id] [column]`  | Move ticket to column                  | ✅ Implemented     |
-| `prlt ticket assign [id] [agent]` | Assign ticket to agent                 | ❌ Not Implemented |
-| `prlt ticket claim [id]`          | Claim ticket (self-assign)             | ❌ Not Implemented |
+| `prlt ticket assign [id] [agent]` | Assign executor (human or agent)       | ❌ Not Implemented |
+| `prlt ticket own [id]`            | Take ownership (responsibility)        | ❌ Not Implemented |
+| `prlt ticket claim [id]`          | Claim ticket (own + execute)           | ❌ Not Implemented |
 | `prlt ticket delete [id]`         | Delete ticket                          | ✅ Implemented     |
 
 ---
@@ -82,6 +83,14 @@ The PMO (Project Management Orchestration) system uses a flat entity → action 
   ❯ Kanban (Backlog, In Progress, Review, Done)
     Scrum (Backlog, Sprint, In Progress, Review, Done)
     Founder Mode (Ideas, This Week, In Progress, Shipped)
+
+? Initialize git repository for PMO?
+  ❯ Yes
+    No
+
+? Add a git remote?
+  ❯ No
+    Yes
 
 ✅ PMO initialized
    Storage: SQLite
@@ -131,6 +140,93 @@ The PMO (Project Management Orchestration) system uses a flat entity → action 
 - Creates project folder structure
 - Initializes empty board.md
 - Returns project ID
+
+---
+
+### `prlt project view [id]`
+**Purpose**: View a project's board
+
+**Arguments**:
+- `id` (optional): Project ID to view - prompts with dropdown if not provided
+
+**Interactive Flow** (if id not provided):
+```
+? Select project to view:
+  ❯ default - Default Project
+    mobile-app - iOS and Android mobile application
+    web-app - Web application
+```
+
+**Example**:
+```bash
+prlt project view mobile-app
+prlt project view  # Interactive mode
+```
+
+**Output**:
+```
+Mobile App Board
+
+📥 Backlog (2)
+    TICK-001 Add login screen P:high
+    TICK-002 Setup CI/CD P:medium
+
+🚧 In Progress (1)
+    TICK-003 Implement navigation P:high
+
+✅ Done (3)
+    TICK-004 Project setup P:high
+    TICK-005 Configure linting P:low
+    TICK-006 Add README P:low
+```
+
+**Behavior**:
+- If no id provided, shows interactive dropdown of available projects
+- Reads from SQLite database
+- Displays board in terminal with color-coded columns
+- Shows ticket counts per column
+- Displays priority and other metadata
+
+---
+
+### `prlt project delete [id]`
+**Purpose**: Delete a project from the PMO
+
+**Arguments**:
+- `id` (optional): Project ID to delete - prompts with dropdown if not provided
+
+**Options**:
+- `--force, -f`: Skip confirmation prompt
+
+**Interactive Flow** (if id not provided):
+```
+? Select project to delete:
+  ❯ mobile-app - iOS and Android mobile application
+    web-app - Web application
+    (default project cannot be deleted)
+
+? Delete project "mobile-app" and its 6 ticket(s)?
+  ❯ No, cancel
+    Yes, delete
+
+✅ Deleted project "mobile-app"
+   (6 ticket(s) removed)
+```
+
+**Example**:
+```bash
+prlt project delete mobile-app
+prlt project delete mobile-app --force
+prlt project delete  # Interactive mode
+```
+
+**Behavior**:
+- If no id provided, shows interactive dropdown (excluding default project)
+- Cannot delete the default project
+- Confirms deletion with ticket count
+- Deletes project entry from SQLite
+- Deletes all tickets in the project
+- Deletes board file if it exists
 
 ---
 
@@ -207,20 +303,35 @@ Summary: 6 tickets | Backlog: 2 | In Progress: 1 | Done: 3
 **Options**:
 - `--direction <direction>`: Force sync direction (import, export, auto)
 - `--project, -p <id>`: Sync specific project (default: current)
+- `--force, -f`: Skip confirmation prompt
+- `--dry-run`: Show changes without applying them
 
 **Output**:
 ```
-🔄 Syncing board...
-   Direction: board.md → SQLite (board file is newer)
-   Updated: 3 tickets
-   Created: 1 ticket
-   Deleted: 0 tickets
+📊 Changes detected in board.md (to sync to database):
 
-✅ Sync complete
+  + 1 ticket(s) to add:
+    + TICK-007: New feature (Backlog)
+
+  ~ 2 ticket(s) to update:
+    ~ TICK-001: Add login screen
+        column: Backlog → In Progress
+
+  - 0 ticket(s) to remove:
+
+? Apply these changes to the database?
+  ❯ Yes, apply changes
+    No, cancel
+
+🔄 Syncing from board.md...
+
+✅ Database synced from board.md!
 ```
 
 **Behavior**:
 - Compares timestamps
+- Shows detailed change summary before applying
+- Requires confirmation unless --force flag used
 - Imports/exports as needed
 - Preserves ticket IDs
 - Handles conflicts (last-write-wins)
@@ -452,7 +563,7 @@ prlt board export --format csv -o tickets.csv
 
 ? Move to column:
   ❯ Backlog
-    In Progress
+    In Progress (current)
     Review
     Done
 
@@ -460,6 +571,8 @@ prlt board export --format csv -o tickets.csv
    Title: Add login screen
    Board updated
 ```
+
+**Note**: Column names are sourced from the database for accuracy, not from config.json
 
 **Example**:
 ```bash
@@ -499,10 +612,14 @@ prlt ticket move  # Interactive mode
     TICK-002 - Setup CI/CD (Backlog)
     TICK-003 - Implement navigation (In Progress)
 
-? Delete ticket TICK-001? (y/N)
+Delete ticket TICK-001?
   Title: Add login screen
   Project: mobile-app
   Status: Backlog
+
+? Are you sure?
+  ❯ No, cancel
+    Yes, delete
 
 ✅ Ticket TICK-001 deleted
    Removed from database and board
@@ -603,25 +720,36 @@ prlt ticket view  # Interactive mode
 ---
 
 ### `prlt ticket assign [id] [agent]` (Not Implemented)
-**Purpose**: Assign ticket to specific user/agent
+**Purpose**: Assign executor to ticket (human or agent)
+
+**Ownership Model**:
+- `owner`: Human responsible/accountable for the ticket
+- `assignee`: Executor who will do the work (human OR agent)
+- This command sets the `assignee` field
+- Agents are always **assigned** by orchestrators (never claim autonomously)
 
 **Arguments**:
 - `id` (optional): Ticket ID - prompts with dropdown if not provided
 - `agent` (optional): Agent/user to assign - prompts with dropdown if not provided
+
+**Options**:
+- `--owner <name>`: Also set the owner (default: unchanged)
 
 **Interactive Flow** (if arguments not provided):
 ```
 ? Select ticket to assign:
   ❯ TICK-001 - Add login screen (Backlog, unassigned)
     TICK-002 - Setup CI/CD (Backlog, unassigned)
-    TICK-003 - Implement navigation (In Progress, alice)
+    TICK-003 - Implement navigation (In Progress, @alice)
 
 ? Assign TICK-001 to:
+    Unassign (remove assignee)
+    ── Common Agents ──
   ❯ alice
     bob
     charlie
-    ────────────
-    Unassign
+    ────────────────────
+    Enter custom name...
 
 ✅ Assigned TICK-001 to alice
    Title: Add login screen
@@ -630,16 +758,64 @@ prlt ticket view  # Interactive mode
 **Example**:
 ```bash
 prlt ticket assign TICK-001 alice
+prlt ticket assign TICK-001 claude      # Assign to AI agent
+prlt ticket assign TICK-001 --owner chris  # Set owner too
 prlt ticket assign  # Interactive mode
 ```
 
 **Behavior**:
-- If no arguments provided, shows interactive dropdowns for both ticket and agent
+- If no arguments provided, shows interactive dropdowns
+- Dropdown includes unassign option, common agents, and custom name entry
+- Sets `assignee` field (executor)
+- Optionally sets `owner` field with --owner flag
+- Used by human orchestrators to delegate work to humans or agents
+
+---
+
+### `prlt ticket own [id]` (Not Implemented)
+**Purpose**: Take ownership/responsibility for ticket (without necessarily executing)
+
+**Ownership Model**:
+- Sets `owner` field to current user (human takes responsibility)
+- Leaves `assignee` unchanged (execution may be delegated)
+- Use when you're accountable but delegating execution to others
+
+**Arguments**:
+- `id` (optional): Ticket ID - prompts with dropdown if not provided
+
+**Interactive Flow** (if id not provided):
+```
+? Select ticket to own:
+  ❯ TICK-001 - Add login screen (Backlog, unassigned)
+    TICK-002 - Setup CI/CD (Backlog, @claude)
+    TICK-003 - Implement navigation (In Progress, @alice)
+
+✅ You now own TICK-001
+   Owner: chris
+   Assignee: unassigned (can delegate with 'prlt ticket assign')
+```
+
+**Example**:
+```bash
+prlt ticket own TICK-001
+prlt ticket own  # Interactive mode
+```
+
+**Behavior**:
+- Sets `owner` = current user (accountable)
+- Leaves `assignee` unchanged
+- Use case: Product owner takes responsibility, will assign to dev/agent later
+- Complements `prlt ticket assign` for delegation workflow
 
 ---
 
 ### `prlt ticket claim [id]` (Not Implemented)
-**Purpose**: Claim ticket (assign to self)
+**Purpose**: Human claims ticket (takes ownership AND execution)
+
+**Ownership Model**:
+- CLI context: Human claims = sets BOTH `owner` and `assignee` to current user
+- Agents never claim autonomously - they are always assigned by orchestrators
+- Use `prlt ticket assign` to delegate to agents or other humans
 
 **Arguments**:
 - `id` (optional): Ticket ID (prompts to select if not provided)
@@ -647,18 +823,27 @@ prlt ticket assign  # Interactive mode
 **Interactive Flow** (no ID provided):
 ```
 ? Select ticket to claim:
-  ❯ TICK-001 - Add login screen (high)
-    TICK-002 - Setup CI/CD (medium)
+  ❯ TICK-001 - Add login screen (high, unassigned)
+    TICK-002 - Setup CI/CD (medium, @bob)
 
 ✅ Claimed TICK-001
-   Assigned to: current-user
+   Owner: chris
+   Assignee: chris
    Moved to: In Progress
 ```
 
+**Example**:
+```bash
+prlt ticket claim TICK-001
+prlt ticket claim  # Interactive mode
+```
+
 **Behavior**:
-- Auto-detects current user/agent
-- Assigns ticket to self
+- Auto-detects current user from system
+- Sets `owner` = current user (takes responsibility)
+- Sets `assignee` = current user (will execute)
 - Optionally moves to "In Progress"
+- **Human-only command** - agents use assigned work queue instead
 
 ---
 
@@ -668,6 +853,8 @@ prlt ticket assign  # Interactive mode
 - All commands follow `entity action [arguments]` pattern
 - Project-scoped operations default to current project
 - Interactive prompts when arguments missing
+- Arrow key navigation for all selections and confirmations (no typing required)
+- Safe defaults for destructive operations (e.g., "No, cancel" is default)
 - Color-coded output for readability
 
 ### Multi-Project Support
@@ -685,6 +872,15 @@ prlt ticket assign  # Interactive mode
 - Clear error messages with actionable guidance
 - Graceful degradation (e.g., if board.md missing)
 - Confirmation prompts for destructive operations
+
+### Ownership & Assignment Model
+- **Owner**: Human responsible/accountable for ticket completion
+- **Assignee**: Executor (human or agent) who does the work
+- **Human claiming** (`prlt ticket claim`): Sets both owner and assignee to current user
+- **Orchestrator assigning** (`prlt ticket assign`): Delegates execution to human or agent
+- **Agent workflow**: Agents never claim autonomously - always assigned by orchestrators
+- **Agent SDK**: Agents poll for assigned tickets and report completion
+- Supports both solo work (human owns + executes) and delegation (human owns, agent executes)
 
 ---
 

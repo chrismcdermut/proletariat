@@ -136,10 +136,14 @@ export default class TicketComplete extends Command {
     // Optional: Ask for completion notes
     const { addNotes } = await inquirer.prompt([
       {
-        type: 'confirm',
+        type: 'list',
         name: 'addNotes',
         message: 'Add completion notes?',
-        default: false
+        choices: [
+          { name: 'No', value: false },
+          { name: 'Yes', value: true },
+        ],
+        default: 0,
       }
     ]);
 

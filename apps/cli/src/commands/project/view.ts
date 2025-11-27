@@ -1,6 +1,7 @@
 import { Command, Args } from '@oclif/core';
 import * as fs from 'fs';
 import * as path from 'path';
+import inquirer from 'inquirer';
 import { SQLiteStorage } from '../../lib/pmo/index.js';
 import { styles, getColumnStyle, getColumnEmoji, formatPriority, formatCategory } from '../../lib/styles.js';
 
@@ -14,9 +15,8 @@ export default class ProjectView extends Command {
 
   static args = {
     id: Args.string({
-      description: 'Project ID to view (default: "default")',
+      description: 'Project ID to view - prompts with dropdown if not provided',
       required: false,
-      default: 'default',
     }),
   };
 
@@ -35,13 +35,38 @@ export default class ProjectView extends Command {
       this.error('Database not found. Run "prlt init" first.');
     }
 
-    const storage = new SQLiteStorage(dbPath, args.id);
+    const storage = new SQLiteStorage(dbPath);
 
     try {
-      const project = await storage.getProject(args.id);
+      // Get project ID - prompt if not provided
+      let projectId = args.id;
+
+      if (!projectId) {
+        const projects = await storage.listProjects();
+
+        if (projects.length === 0) {
+          await storage.close();
+          this.error('No projects found. Create a project first with "prlt project create".');
+        }
+
+        const { selectedProjectId } = await inquirer.prompt([{
+          type: 'list',
+          name: 'selectedProjectId',
+          message: 'Select project to view:',
+          choices: projects.map(p => ({
+            name: `${p.id} - ${p.name}`,
+            value: p.id,
+          })),
+        }]);
+        projectId = selectedProjectId;
+      }
+
+      storage.setCurrentProject(projectId!);
+
+      const project = await storage.getProject(projectId!);
       if (!project) {
         await storage.close();
-        this.error(`Project "${args.id}" not found.`);
+        this.error(`Project "${projectId}" not found.`);
       }
 
       this.log(styles.title(`\n${project.name}`));

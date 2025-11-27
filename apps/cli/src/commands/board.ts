@@ -31,49 +31,13 @@ interface PMOConfigFile {
 }
 
 export default class Board extends Command {
-  static description = 'View or interact with the kanban board';
+  static description = 'Interactive menu for board operations';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> view',
-    '<%= config.bin %> <%= command.id %> open',
-    '<%= config.bin %> <%= command.id %> sync --dry-run',
   ];
 
-  static args = {
-    action: Args.string({
-      description: 'Action to perform',
-      options: ['view', 'open', 'markdown', 'export', 'sync'],
-      default: 'view',
-    }),
-  };
-
-  static flags = {
-    all: Flags.boolean({
-      char: 'a',
-      description: 'Show all columns including empty ones',
-      default: false,
-    }),
-    compact: Flags.boolean({
-      char: 'c',
-      description: 'Compact view without details',
-      default: false,
-    }),
-    force: Flags.boolean({
-      char: 'f',
-      description: 'Force sync without confirmation (for sync action)',
-      default: false,
-    }),
-    'dry-run': Flags.boolean({
-      char: 'd',
-      description: 'Show what would change without applying (for sync action)',
-      default: false,
-    }),
-  };
-
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(Board);
-
     const pmoPath = this.findPMO();
     if (!pmoPath) {
       this.error('PMO not found. Run "prlt pmo init" first.');
@@ -87,9 +51,30 @@ export default class Board extends Command {
 
     const config: PMOConfigFile = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
-    switch (args.action) {
+    // Show interactive menu
+    const { action } = await inquirer.prompt([{
+      type: 'list',
+      name: 'action',
+      message: '📋 Board Operations - What would you like to do?',
+      choices: [
+        { name: 'View board in terminal', value: 'view' },
+        { name: 'Open board in Obsidian', value: 'open' },
+        { name: 'Show as markdown', value: 'markdown' },
+        { name: 'Export board', value: 'export' },
+        { name: 'Sync board', value: 'sync' },
+        { name: 'Watch for changes', value: 'watch' },
+        new inquirer.Separator(),
+        { name: 'Cancel', value: 'cancel' },
+      ],
+    }]);
+
+    if (action === 'cancel') {
+      return;
+    }
+
+    switch (action) {
       case 'view':
-        await this.viewBoard(pmoPath, config, flags);
+        await this.viewBoard(pmoPath, config, { all: false, compact: false });
         break;
 
       case 'open':
@@ -105,7 +90,11 @@ export default class Board extends Command {
         break;
 
       case 'sync':
-        await this.syncFromMarkdown(pmoPath, flags);
+        await this.syncFromMarkdown(pmoPath, { force: false, 'dry-run': false });
+        break;
+
+      case 'watch':
+        this.log(styles.info('To watch for changes, run: prlt board watch'));
         break;
     }
   }
@@ -314,10 +303,14 @@ export default class Board extends Command {
       // Confirm before applying
       if (!flags.force) {
         const { confirm } = await inquirer.prompt([{
-          type: 'confirm',
+          type: 'list',
           name: 'confirm',
           message: 'Apply these changes to the database?',
-          default: true,
+          choices: [
+            { name: 'Yes, apply changes', value: true },
+            { name: 'No, cancel', value: false },
+          ],
+          default: 0,
         }]);
 
         if (!confirm) {

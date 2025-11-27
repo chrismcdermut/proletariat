@@ -16,34 +16,32 @@ interface PMOConfigFile {
   created: string;
 }
 
-export default class TicketMove extends Command {
-  static description = 'Move a ticket to a different column';
+export default class TicketDelete extends Command {
+  static description = 'Delete a ticket permanently';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> my-ticket "In Progress"',
-    '<%= config.bin %> <%= command.id %> implement-auth Done',
-    '<%= config.bin %> <%= command.id %> fix-bug "In Review" --position 0',
+    '<%= config.bin %> <%= command.id %> TICK-001',
+    '<%= config.bin %> <%= command.id %> TICK-001 --force',
+    '<%= config.bin %> <%= command.id %>  # Interactive mode',
   ];
 
   static args = {
     ticketId: Args.string({
-      description: 'Ticket ID - prompts with dropdown if not provided',
-      required: false,
-    }),
-    column: Args.string({
-      description: 'Target column - prompts with dropdown if not provided',
+      description: 'Ticket ID to delete - prompts with dropdown if not provided',
       required: false,
     }),
   };
 
   static flags = {
-    position: Flags.integer({
-      description: 'Position within the column (0 = top)',
+    force: Flags.boolean({
+      char: 'f',
+      description: 'Skip confirmation prompt',
+      default: false,
     }),
   };
 
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(TicketMove);
+    const { args, flags } = await this.parse(TicketDelete);
 
     // Find PMO directory
     const pmoPath = this.findPMO();
@@ -76,13 +74,13 @@ export default class TicketMove extends Command {
 
         if (allTickets.length === 0) {
           await storage.close();
-          this.error('No tickets found. Create a ticket first with "prlt ticket create".');
+          this.error('No tickets found.');
         }
 
         const { selectedTicketId } = await inquirer.prompt([{
           type: 'list',
           name: 'selectedTicketId',
-          message: 'Select ticket to move:',
+          message: 'Select ticket to delete:',
           choices: allTickets.map((t: { id: string; title: string; column: string }) => ({
             name: `${t.id} - ${t.title} (${t.column})`,
             value: t.id,
@@ -91,62 +89,48 @@ export default class TicketMove extends Command {
         ticketId = selectedTicketId;
       }
 
-      // Get ticket
+      // Get ticket to show details in confirmation
       const ticket = await storage.getTicket(ticketId!);
       if (!ticket) {
         await storage.close();
         this.error(`Ticket "${ticketId}" not found.`);
       }
 
-      // Get target column - prompt if not provided
-      let targetColumn = args.column;
+      // Confirmation prompt (unless --force)
+      if (!flags.force) {
+        this.log(`\nDelete ticket ${styles.emphasis(ticketId)}?`);
+        this.log(`  Title: ${ticket.title}`);
+        this.log(`  Project: ${config.boardName}`);
+        this.log(`  Status: ${ticket.column}`);
 
-      if (!targetColumn) {
-        // Get columns from the database (not config.json) to ensure accuracy
-        const project = await storage.getProject(storage.getCurrentProjectId());
-        if (!project) {
-          await storage.close();
-          this.error('Project not found.');
-        }
-
-        const { column } = await inquirer.prompt([{
+        const { confirmed } = await inquirer.prompt([{
           type: 'list',
-          name: 'column',
-          message: `Move to column:`,
-          choices: project.columns.map(col => ({
-            name: col.name === ticket.column ? `${col.name} (current)` : col.name,
-            value: col.name,
-          })),
-          default: ticket.column,
+          name: 'confirmed',
+          message: 'Are you sure?',
+          choices: [
+            { name: 'No, cancel', value: false },
+            { name: 'Yes, delete', value: true },
+          ],
+          default: 0,
         }]);
-        targetColumn = column;
+
+        if (!confirmed) {
+          await storage.close();
+          this.log(styles.warning('Deletion cancelled.'));
+          return;
+        }
       }
 
-      // Column validation happens in storage.moveTicket()
-
-      // Check if actually moving
-      if (targetColumn === ticket.column && flags.position === undefined) {
-        await storage.close();
-        this.log(styles.warning(`Ticket "${ticketId}" is already in "${targetColumn}".`));
-        return;
-      }
-
-      // Move ticket (targetColumn is guaranteed to be string after validation above)
-      const moved = await storage.moveTicket(ticketId!, targetColumn!, flags.position);
+      // Delete ticket
+      await storage.deleteTicket(ticketId!);
 
       // Auto-export to board.md after write
       await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
 
       await storage.close();
 
-      this.log(styles.success(`\n✅ Moved ticket ${styles.emphasis(moved.id)}`));
-      if (targetColumn !== ticket.column) {
-        this.log(styles.muted(`   From: ${ticket.column}`));
-        this.log(styles.muted(`   To: ${moved.column}`));
-      }
-      if (flags.position !== undefined) {
-        this.log(styles.muted(`   Position: ${flags.position}`));
-      }
+      this.log(styles.success(`\n✅ Ticket ${styles.emphasis(ticketId)} deleted`));
+      this.log(styles.muted('   Removed from database and board'));
     } catch (error) {
       await storage.close();
       throw error;

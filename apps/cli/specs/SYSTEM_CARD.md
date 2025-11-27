@@ -1,4 +1,6 @@
-f# Proletariat CLI System Specification
+# Proletariat CLI System Specification
+
+> **Note:** This document is the **single source of truth** for implementation status and system architecture. All command implementation tracking is maintained here.
 
 ## Purpose
 Multi-agent development orchestration system for managing distributed AI-powered development teams.
@@ -100,16 +102,19 @@ This is the authoritative list of commands that MUST exist in the CLI.
 
 #### Ticket Commands
 
-| Command                           | 📝  | ✅   | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️  | Description                | Spec                                            |
-| --------------------------------- | --- | --- | ------ | --------- | -------- | ----------- | -------- | ----------- | -------- | ----------- | --- | -------------------------- | ----------------------------------------------- |
-| `prlt ticket`                     | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Interactive ticket menu    | [pmo-commands.md](specs/active/pmo-commands.md) |
-| `prlt ticket create [title]`      | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Create new ticket          | [pmo-commands.md](specs/active/pmo-commands.md) |
-| `prlt ticket list`                | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | List all tickets           | [pmo-commands.md](specs/active/pmo-commands.md) |
-| `prlt ticket view [id]`           | ✅   | ⬜   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | View ticket details        | [pmo-commands.md](specs/active/pmo-commands.md) |
-| `prlt ticket move [id] [column]`  | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Move ticket to column      | [pmo-commands.md](specs/active/pmo-commands.md) |
-| `prlt ticket assign [id] [agent]` | ✅   | ⬜   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Assign ticket to agent     | [pmo-commands.md](specs/active/pmo-commands.md) |
-| `prlt ticket claim [id]`          | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Claim ticket (self-assign) | [pmo-commands.md](specs/active/pmo-commands.md) |
-| `prlt ticket delete [id]`         | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Delete ticket              | [pmo-commands.md](specs/active/pmo-commands.md) |
+| Command                           | 📝  | ✅   | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️  | Description                          | Spec                                            |
+| --------------------------------- | --- | --- | ------ | --------- | -------- | ----------- | -------- | ----------- | -------- | ----------- | --- | ------------------------------------ | ----------------------------------------------- |
+| `prlt ticket`                     | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Interactive ticket menu              | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt ticket create [title]`      | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Create new ticket                    | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt ticket list`                | ✅   | ⬜   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | List all tickets                     | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt ticket view [id]`           | ✅   | ⬜   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | View ticket details                  | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt ticket move [id] [column]`  | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Move ticket to column                | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt ticket status [id]`         | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Update ticket status (alias for move)| [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt ticket complete [id]`       | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Mark ticket as complete              | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt ticket assign [id] [agent]` | ✅   | ⚠️   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Assign executor (UI only, no backend)| [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt ticket own [id]`            | ✅   | ⬜   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Take ownership (command not created) | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt ticket claim [id]`          | ✅   | ⬜   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Claim ticket (backend unclear)       | [pmo-commands.md](specs/active/pmo-commands.md) |
+| `prlt ticket delete [id]`         | ✅   | ✅   | ⬜      | ⬜         | ⬜        | ⬜           | ⬜        | ⬜           | ⬜        | ⬜           | ⬜   | Delete ticket                        | [pmo-commands.md](specs/active/pmo-commands.md) |
 
 #### Maintenance Commands
 
@@ -158,22 +163,36 @@ Examples:
 - **Performance**: Fast lookups for large workspaces with many agents
 
 **Database Schema:**
-```sql
--- Core workspace metadata
-workspace (id, type, theme, workspace_name, has_pmo, created_at)
 
--- Agent instances  
-agents (name, theme, status, current_task, created_at, last_activity)
+| Table | Primary Key | Columns | Description |
+|-------|-------------|---------|-------------|
+| **workspace** | id | type, theme, workspace_name, has_pmo, created_at | Core workspace metadata |
+| **agents** | name | theme, status, current_task, created_at, last_activity | Agent instances |
+| **agent_worktrees** | (agent_name, repo_name) | worktree_path, branch, created_at, commits_ahead, is_clean | Agent-owned worktrees |
+| **repositories** | name | path, type, source_url, action, added_at | Repository management |
+| **themes** | name | workspace_dir, add_command, remove_command, agents | Theme configurations |
+| **pmo_projects** | id | name, template, description, initiative_id, created_at, updated_at | Multi-project support |
+| **pmo_initiatives** | id | name, objective, key_results, created_at, updated_at | Optional OKR-level grouping |
+| **pmo_columns** | (project_id, id) | name, position, created_at | Kanban lanes (per-project) |
+| **pmo_tickets** | id | project_id, title, column_id, position, priority, category, description, epic_id, created_at, updated_at | Kanban cards (per-project) |
+| **pmo_epics** | id | project_id, name, description, created_at, updated_at | Optional grouping within project |
+| **pmo_subtasks** | (ticket_id, id) | title, done, position | Task breakdown |
+| **pmo_ticket_metadata** | (ticket_id, key) | value | Custom ticket fields |
+| **pmo_specs** | id | path, title, status, created_at, updated_at | Specification documents |
+| **pmo_ticket_specs** | (ticket_id, spec_id) | - | Ticket-Spec relationship (M:M) |
+| **pmo_ticket_assignments** | (ticket_id, agent_name) | assigned_at | Agent-Ticket assignments (M:M) |
+| **pmo_cache_metadata** | key | value | Board.md sync tracking |
 
--- Agent-owned worktrees
-agent_worktrees (agent_name, repo_name, worktree_path, branch, created_at, commits_ahead, is_clean)
+**Foreign Key Constraints:**
+- `pmo_tickets.column_id` → `pmo_columns(project_id, id)` ON DELETE CASCADE
+- `pmo_epics.project_id` → `pmo_projects.id` ON DELETE CASCADE
+- `pmo_subtasks.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
+- `pmo_ticket_metadata.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
+- `pmo_ticket_specs.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
+- `pmo_ticket_specs.spec_id` → `pmo_specs.id` ON DELETE CASCADE
+- `pmo_ticket_assignments.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
 
--- Repository management
-repositories (name, path, type, source_url, action, added_at)
-
--- Theme configurations
-themes (name, workspace_dir, add_command, remove_command, agents)
-```
+**Note on Ownership Model:** The current schema uses `pmo_ticket_assignments` for many-to-many agent assignments. The ownership model documented in [pmo-commands.md](specs/active/pmo-commands.md) (owner vs assignee) is not yet implemented. Implementation will require adding `owner` and `assignee` columns to `pmo_tickets`.
 
 **DRY Architecture:**
 - Shared utilities in `lib/agents/commands.ts`

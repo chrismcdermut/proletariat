@@ -15,8 +15,8 @@ export default class ProjectDelete extends Command {
 
   static args = {
     id: Args.string({
-      description: 'Project ID to delete',
-      required: true,
+      description: 'Project ID to delete - prompts with dropdown if not provided',
+      required: false,
     }),
   };
 
@@ -30,10 +30,6 @@ export default class ProjectDelete extends Command {
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(ProjectDelete);
-
-    if (args.id === 'default') {
-      this.error('Cannot delete the default project.');
-    }
 
     const pmoPath = this.findPMO();
     if (!pmoPath) {
@@ -50,27 +46,68 @@ export default class ProjectDelete extends Command {
     const storage = new SQLiteStorage(dbPath);
 
     try {
+      // Get project ID - prompt if not provided
+      let projectId = args.id;
+
+      if (!projectId) {
+        const projects = await storage.listProjects();
+
+        if (projects.length === 0) {
+          await storage.close();
+          this.error('No projects found.');
+        }
+
+        const deletableProjects = projects.filter(p => p.id !== 'default');
+
+        if (deletableProjects.length === 0) {
+          await storage.close();
+          this.error('No deletable projects found. Cannot delete the default project.');
+        }
+
+        const { selectedProjectId } = await inquirer.prompt([{
+          type: 'list',
+          name: 'selectedProjectId',
+          message: 'Select project to delete:',
+          choices: deletableProjects.map(p => ({
+            name: `${p.id} - ${p.name}`,
+            value: p.id,
+          })),
+        }]);
+        projectId = selectedProjectId;
+      }
+
+      if (projectId === 'default') {
+        await storage.close();
+        this.error('Cannot delete the default project.');
+      }
+
       // Check if project exists
-      const project = await storage.getProject(args.id);
+      const project = await storage.getProject(projectId!);
       if (!project) {
         await storage.close();
-        this.error(`Project "${args.id}" not found.`);
+        this.error(`Project "${projectId}" not found.`);
       }
 
       // Get ticket count
-      storage.setCurrentProject(args.id);
+      storage.setCurrentProject(projectId!);
       const tickets = await storage.listTickets();
       const ticketCount = tickets.length;
 
       // Confirm deletion
       if (!flags.force) {
+        const message = ticketCount > 0
+          ? `Delete project "${project.name}" and its ${ticketCount} ticket(s)?`
+          : `Delete project "${project.name}"?`;
+
         const { confirm } = await inquirer.prompt([{
-          type: 'confirm',
+          type: 'list',
           name: 'confirm',
-          message: ticketCount > 0
-            ? `Delete project "${project.name}" and its ${ticketCount} ticket(s)?`
-            : `Delete project "${project.name}"?`,
-          default: false,
+          message,
+          choices: [
+            { name: 'No, cancel', value: false },
+            { name: 'Yes, delete', value: true },
+          ],
+          default: 0,
         }]);
 
         if (!confirm) {
@@ -81,7 +118,7 @@ export default class ProjectDelete extends Command {
       }
 
       // Delete project
-      await storage.deleteProject(args.id);
+      await storage.deleteProject(projectId!);
 
       // Delete board file if it exists
       const boardPath = path.join(pmoPath, `board-${args.id}.md`);

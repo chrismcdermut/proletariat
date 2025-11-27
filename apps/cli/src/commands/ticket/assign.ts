@@ -1,4 +1,4 @@
-import { Command, Args, Flags } from '@oclif/core';
+import { Command, Args } from '@oclif/core';
 import * as fs from 'fs';
 import * as path from 'path';
 import inquirer from 'inquirer';
@@ -16,13 +16,12 @@ interface PMOConfigFile {
   created: string;
 }
 
-export default class TicketMove extends Command {
-  static description = 'Move a ticket to a different column';
+export default class TicketAssign extends Command {
+  static description = 'Assign ticket to specific user/agent';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> my-ticket "In Progress"',
-    '<%= config.bin %> <%= command.id %> implement-auth Done',
-    '<%= config.bin %> <%= command.id %> fix-bug "In Review" --position 0',
+    '<%= config.bin %> <%= command.id %> TICK-001 alice',
+    '<%= config.bin %> <%= command.id %>  # Interactive mode',
   ];
 
   static args = {
@@ -30,20 +29,14 @@ export default class TicketMove extends Command {
       description: 'Ticket ID - prompts with dropdown if not provided',
       required: false,
     }),
-    column: Args.string({
-      description: 'Target column - prompts with dropdown if not provided',
+    agent: Args.string({
+      description: 'Agent/user to assign - prompts with dropdown if not provided',
       required: false,
     }),
   };
 
-  static flags = {
-    position: Flags.integer({
-      description: 'Position within the column (0 = top)',
-    }),
-  };
-
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(TicketMove);
+    const { args } = await this.parse(TicketAssign);
 
     // Find PMO directory
     const pmoPath = this.findPMO();
@@ -82,9 +75,9 @@ export default class TicketMove extends Command {
         const { selectedTicketId } = await inquirer.prompt([{
           type: 'list',
           name: 'selectedTicketId',
-          message: 'Select ticket to move:',
+          message: 'Select ticket to assign:',
           choices: allTickets.map((t: { id: string; title: string; column: string }) => ({
-            name: `${t.id} - ${t.title} (${t.column})`,
+            name: `${t.id} - ${t.title} (${t.column}, unassigned)`,  // TODO: Show current assignment
             value: t.id,
           })),
         }]);
@@ -98,55 +91,68 @@ export default class TicketMove extends Command {
         this.error(`Ticket "${ticketId}" not found.`);
       }
 
-      // Get target column - prompt if not provided
-      let targetColumn = args.column;
+      // Get agent - prompt if not provided
+      let agent = args.agent;
 
-      if (!targetColumn) {
-        // Get columns from the database (not config.json) to ensure accuracy
-        const project = await storage.getProject(storage.getCurrentProjectId());
-        if (!project) {
-          await storage.close();
-          this.error('Project not found.');
-        }
-
-        const { column } = await inquirer.prompt([{
+      if (!agent) {
+        // Interactive dropdown with common options
+        const { selectedAgent } = await inquirer.prompt([{
           type: 'list',
-          name: 'column',
-          message: `Move to column:`,
-          choices: project.columns.map(col => ({
-            name: col.name === ticket.column ? `${col.name} (current)` : col.name,
-            value: col.name,
-          })),
-          default: ticket.column,
+          name: 'selectedAgent',
+          message: `Assign ${ticketId} to:`,
+          choices: [
+            { name: 'Unassign (remove assignee)', value: '' },
+            new inquirer.Separator('── Common Agents ──'),
+            { name: 'alice', value: 'alice' },
+            { name: 'bob', value: 'bob' },
+            { name: 'charlie', value: 'charlie' },
+            new inquirer.Separator('────────────────────'),
+            { name: 'Enter custom name...', value: '__custom__' },
+          ],
         }]);
-        targetColumn = column;
+
+        if (selectedAgent === '__custom__') {
+          const { customAgent } = await inquirer.prompt([{
+            type: 'input',
+            name: 'customAgent',
+            message: 'Enter agent name:',
+            validate: (input: string) => {
+              if (!input.trim()) {
+                return 'Agent name cannot be empty';
+              }
+              return true;
+            },
+          }]);
+          agent = customAgent.trim();
+        } else {
+          agent = selectedAgent;
+        }
       }
 
-      // Column validation happens in storage.moveTicket()
-
-      // Check if actually moving
-      if (targetColumn === ticket.column && flags.position === undefined) {
-        await storage.close();
-        this.log(styles.warning(`Ticket "${ticketId}" is already in "${targetColumn}".`));
-        return;
-      }
-
-      // Move ticket (targetColumn is guaranteed to be string after validation above)
-      const moved = await storage.moveTicket(ticketId!, targetColumn!, flags.position);
-
-      // Auto-export to board.md after write
-      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
-
+      // TODO: Implement assignTicket and unassignTicket methods in PMOStorage
+      // For now, show error message
       await storage.close();
+      this.error(
+        'Ticket assignment is not yet implemented.\n' +
+        'TODO: Implement assignTicket() and unassignTicket() in PMOStorage interface.'
+      );
 
-      this.log(styles.success(`\n✅ Moved ticket ${styles.emphasis(moved.id)}`));
-      if (targetColumn !== ticket.column) {
-        this.log(styles.muted(`   From: ${ticket.column}`));
-        this.log(styles.muted(`   To: ${moved.column}`));
+      // When implemented, the code should look like:
+      /*
+      if (agent) {
+        await storage.assignTicket(ticketId, agent);
+        await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
+        await storage.close();
+        this.log(styles.success(`\n✅ Assigned ${styles.emphasis(ticketId)} to ${styles.emphasis(agent)}`));
+        this.log(styles.muted(`   Title: ${ticket.title}`));
+      } else {
+        await storage.unassignTicket(ticketId);
+        await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
+        await storage.close();
+        this.log(styles.success(`\n✅ Unassigned ${styles.emphasis(ticketId)}`));
+        this.log(styles.muted(`   Title: ${ticket.title}`));
       }
-      if (flags.position !== undefined) {
-        this.log(styles.muted(`   Position: ${flags.position}`));
-      }
+      */
     } catch (error) {
       await storage.close();
       throw error;

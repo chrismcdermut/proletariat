@@ -285,10 +285,14 @@ export default class PMOInit extends Command {
 
     // Ask about git init
     const { initGit } = await inquirer.prompt([{
-      type: 'confirm',
+      type: 'list',
       name: 'initGit',
       message: 'Initialize git repository for PMO?',
-      default: true,
+      choices: [
+        { name: 'Yes', value: true },
+        { name: 'No', value: false },
+      ],
+      default: 0,
     }]);
 
     if (initGit) {
@@ -308,10 +312,14 @@ export default class PMOInit extends Command {
 
         // Ask about remote
         const { addRemote } = await inquirer.prompt([{
-          type: 'confirm',
+          type: 'list',
           name: 'addRemote',
           message: 'Add a git remote?',
-          default: false,
+          choices: [
+            { name: 'No', value: false },
+            { name: 'Yes', value: true },
+          ],
+          default: 0,
         }]);
 
         if (addRemote) {
