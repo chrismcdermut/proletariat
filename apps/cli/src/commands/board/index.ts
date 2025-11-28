@@ -12,7 +12,9 @@ import {
   findRemovedTickets,
   findModifiedTickets,
   getStorageWithAutoSync,
-} from '../lib/pmo/index.js';
+  findPMO,
+  getPMOContext,
+} from '../../lib/pmo/index.js';
 import {
   styles,
   formatPriority,
@@ -20,15 +22,7 @@ import {
   getColumnStyle,
   getColumnEmoji,
   divider,
-} from '../lib/styles.js';
-
-interface PMOConfigFile {
-  storage: 'sqlite' | 'git';
-  template: string;
-  boardName: string;
-  columns: string[];
-  created: string;
-}
+} from '../../lib/styles.js';
 
 export default class Board extends Command {
   static description = 'Interactive menu for board operations';
@@ -38,24 +32,23 @@ export default class Board extends Command {
   ];
 
   async run(): Promise<void> {
-    const pmoPath = this.findPMO();
+    const pmoPath = findPMO();
     if (!pmoPath) {
       this.error('PMO not found. Run "prlt pmo init" first.');
     }
 
-    // Load PMO config
-    const configPath = path.join(pmoPath, 'config.json');
-    if (!fs.existsSync(configPath)) {
-      this.error('PMO config not found. Run "prlt pmo init" first.');
-    }
-
-    const config: PMOConfigFile = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    // Get PMO context and prompt for project selection if multiple exist
+    const { projectName } = await getPMOContext(
+      undefined,
+      (msg) => this.log(styles.muted(msg)),
+      true // prompt if multiple projects
+    );
 
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: '📋 Board Operations - What would you like to do?',
+      message: `📋 Board Operations - ${projectName} - What would you like to do?`,
       choices: [
         { name: 'View board in terminal', value: 'view' },
         { name: 'Open board in Obsidian', value: 'open' },
@@ -74,11 +67,11 @@ export default class Board extends Command {
 
     switch (action) {
       case 'view':
-        await this.viewBoard(pmoPath, config, { all: false, compact: false });
+        await this.viewBoard(pmoPath, { all: false, compact: false });
         break;
 
       case 'open':
-        this.openInObsidian(pmoPath, config);
+        this.openInObsidian(pmoPath);
         break;
 
       case 'markdown':
@@ -101,13 +94,11 @@ export default class Board extends Command {
 
   private async viewBoard(
     pmoPath: string,
-    config: PMOConfigFile,
     flags: { all: boolean; compact: boolean }
   ): Promise<void> {
-    // Use auto-sync storage for read operations
-    const storage = getStorageWithAutoSync(
-      pmoPath,
-      config.storage,
+    // Get PMO context with correct project ID
+    const { storage } = await getPMOContext(
+      undefined,
       (msg) => this.log(styles.muted(msg))
     );
 
@@ -117,7 +108,7 @@ export default class Board extends Command {
 
       // Header
       this.log(styles.title(`\n${board.name}`));
-      this.log(styles.muted(`Template: ${config.template} | Storage: ${config.storage}`));
+      this.log(styles.muted(`Storage: SQLite`));
       this.log(styles.muted('═'.repeat(60)));
 
       // Display ALL columns (always show empty ones too)
@@ -340,15 +331,7 @@ export default class Board extends Command {
     }
   }
 
-  private openInObsidian(pmoPath: string, config: PMOConfigFile): void {
-    // For git storage, open the board.md
-    if (config.storage === 'git') {
-      const boardPath = path.join(pmoPath, 'board.md');
-      if (!fs.existsSync(boardPath)) {
-        this.error('board.md not found. PMO may need to be reinitialized.');
-      }
-    }
-
+  private openInObsidian(pmoPath: string): void {
     const platform = process.platform;
 
     try {
@@ -367,69 +350,8 @@ export default class Board extends Command {
   }
 
   private async getStorage(pmoPath: string): Promise<SQLiteStorage> {
-    // All PMO data is now in workspace.db
-    const workspacePath = path.dirname(pmoPath);
-    const dbPath = path.join(workspacePath, '.proletariat', 'workspace.db');
-
-    if (!fs.existsSync(dbPath)) {
-      this.error(`Database not found at ${dbPath}. Run 'prlt init' first.`);
-    }
-
-    return new SQLiteStorage(dbPath);
-  }
-
-  private findPMO(): string | null {
-    let currentDir = process.cwd();
-
-    while (currentDir !== '/') {
-      const configPath = path.join(currentDir, '.proletariat', 'config.json');
-      if (fs.existsSync(configPath)) {
-        try {
-          const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-          if (config.type === 'hq') {
-            const pmoPath = path.join(currentDir, 'pmo');
-            if (fs.existsSync(path.join(pmoPath, 'config.json'))) {
-              return pmoPath;
-            }
-          }
-          if (config.pmoPath) {
-            const absolutePath = path.isAbsolute(config.pmoPath)
-              ? config.pmoPath
-              : path.join(currentDir, config.pmoPath);
-            if (fs.existsSync(path.join(absolutePath, 'config.json'))) {
-              return absolutePath;
-            }
-          }
-        } catch {
-          // Ignore parse errors
-        }
-      }
-
-      const dotPmoPath = path.join(currentDir, '.pmo');
-      if (fs.existsSync(path.join(dotPmoPath, 'config.json'))) {
-        return dotPmoPath;
-      }
-
-      const pmoPath = path.join(currentDir, 'pmo');
-      if (fs.existsSync(path.join(pmoPath, 'config.json'))) {
-        return pmoPath;
-      }
-
-      currentDir = path.dirname(currentDir);
-    }
-
-    const globalConfigPath = path.join(process.env.HOME || '', '.proletariat', 'config.json');
-    if (fs.existsSync(globalConfigPath)) {
-      try {
-        const config = JSON.parse(fs.readFileSync(globalConfigPath, 'utf-8'));
-        if (config.defaultPMO && fs.existsSync(path.join(config.defaultPMO, 'config.json'))) {
-          return config.defaultPMO;
-        }
-      } catch {
-        // Ignore parse errors
-      }
-    }
-
-    return null;
+    // Use getPMOContext to get storage with correct project ID
+    const { storage } = await getPMOContext();
+    return storage;
   }
 }

@@ -10,6 +10,7 @@ import {
   createBoardContent,
   createSpecFolders,
 } from '../../lib/pmo/index.js';
+import { slugify } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
 
 type StorageType = 'sqlite' | 'git';
@@ -240,15 +241,16 @@ export default class PMOInit extends Command {
       const dbPath = path.join(proletariatPath, 'workspace.db');
       const dbStorage = new SQLiteStorage(dbPath);
 
-      // Create default project
+      // Create default project with user-provided board name
+      const projectId = slugify(boardName);
       await dbStorage.createProject({
-        id: 'default',
+        id: projectId,
         name: boardName,
-        description: 'Default PMO project',
+        description: `PMO project for ${boardName}`,
         template: template,
       });
 
-      dbStorage.setCurrentProject('default');
+      dbStorage.setCurrentProject(projectId);
       await dbStorage.init({
         name: boardName,
         columns,
@@ -270,8 +272,8 @@ export default class PMOInit extends Command {
       // Create default project using HQ name
       await dbStorage.createProject({
         id: hqName,
-        name: boardName,
-        description: `Default project for ${hqName}`,
+        name: hqName,
+        description: `Project for ${hqName}`,
         template: template,
       });
 
@@ -290,15 +292,15 @@ export default class PMOInit extends Command {
     fs.mkdirSync(pmoPath, { recursive: true });
 
     // Create project directory
-    // For HQ, use HQ name from config; for standalone, use 'default'
-    let projectId = 'default';
+    // For HQ, use HQ name from config; for standalone, use slugified board name
+    let projectId = slugify(boardName);
     if (!isStandalone && hqRoot) {
       try {
         const configPath = path.join(hqRoot, '.proletariat', 'config.json');
         const hqConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        projectId = hqConfig.name || 'default';
+        projectId = hqConfig.name || slugify(boardName);
       } catch {
-        // Fall back to 'default' if config read fails
+        // Fall back to slugified board name if config read fails
       }
     }
 

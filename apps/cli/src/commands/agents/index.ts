@@ -1,6 +1,6 @@
 import { Command } from '@oclif/core';
 import inquirer from 'inquirer';
-import { colors } from '../lib/colors.js';
+import { colors } from '../../lib/colors.js';
 
 export default class Agents extends Command {
   static description = 'Manage agents in bulk (overview and batch operations)';
@@ -41,25 +41,25 @@ export default class Agents extends Command {
       
       switch (action) {
         case 'list': {
-          const { default: ListCommand } = await import('./agents/list.js');
+          const { default: ListCommand } = await import('../agents/list.js');
           const cmd = new ListCommand([], this.config);
           await cmd.run();
           break;
         }
         case 'status': {
-          const { default: StatusCommand } = await import('./agents/status.js');
+          const { default: StatusCommand } = await import('../agents/status.js');
           const cmd = new StatusCommand([], this.config);
           await cmd.run();
           break;
         }
         case 'add': {
-          const { default: AddCommand } = await import('./agents/add.js');
+          const { default: AddCommand } = await import('../agents/add.js');
           const cmd = new AddCommand([], this.config);
           await cmd.run();
           break;
         }
         case 'remove': {
-          const { default: RemoveCommand } = await import('./agents/remove.js');
+          const { default: RemoveCommand } = await import('../agents/remove.js');
           const cmd = new RemoveCommand([], this.config);
           await cmd.run();
           break;

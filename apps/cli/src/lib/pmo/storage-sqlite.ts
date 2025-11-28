@@ -349,16 +349,13 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   /**
-   * Ensure the default project exists
+   * Ensure the default project exists (DEPRECATED - no longer used)
+   * Projects are now created explicitly via prlt init or prlt pmo init
+   * This method is kept for backwards compatibility with old migrations
    */
   private ensureDefaultProject(): void {
-    const exists = this.db.prepare(`SELECT id FROM ${T.projects} WHERE id = 'default'`).get()
-    if (!exists) {
-      this.db.prepare(`
-        INSERT INTO ${T.projects} (id, name, template, created_at, updated_at)
-        VALUES ('default', 'Main Project', 'kanban', datetime('now'), datetime('now'))
-      `).run()
-    }
+    // No longer auto-create default project
+    // Projects should be created explicitly with the HQ/workspace name
   }
 
   // ===========================================================================

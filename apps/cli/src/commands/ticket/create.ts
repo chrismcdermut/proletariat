@@ -51,10 +51,11 @@ export default class TicketCreate extends Command {
   async run(): Promise<void> {
     const { flags } = await this.parse(TicketCreate);
 
-    // Get PMO context (no config.json dependency)
-    const { pmoPath, storage, columns } = getPMOContext(
+    // Get PMO context (prompt for project if multiple exist and no --project flag)
+    const { pmoPath, storage, columns, projectName } = await getPMOContext(
       flags.project,
-      (msg) => this.log(styles.muted(msg))
+      (msg) => this.log(styles.muted(msg)),
+      true // prompt if multiple projects
     );
 
     // Get ticket data (interactive or from flags)
@@ -103,7 +104,7 @@ export default class TicketCreate extends Command {
 
       await storage.close();
 
-      this.log(styles.success(`\n✅ Created ticket ${styles.emphasis(ticket.id)}`));
+      this.log(styles.success(`\n✅ Created ticket ${styles.emphasis(ticket.id)} in project ${styles.emphasis(projectName)}`));
       this.log(styles.muted(`   Title: ${ticket.title}`));
       this.log(styles.muted(`   Column: ${ticket.column}`));
       if (ticket.priority) {

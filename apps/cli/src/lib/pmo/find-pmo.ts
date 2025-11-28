@@ -44,8 +44,10 @@ export function findPMO(): string | null {
         const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
         if (config.type === 'hq') {
           const dbPath = path.join(currentDir, '.proletariat', 'workspace.db');
-          if (hasPMOTables(dbPath)) {
-            return path.join(currentDir, 'pmo');
+          const hasTables = hasPMOTables(dbPath);
+          if (hasTables) {
+            const pmoPath = path.join(currentDir, 'pmo');
+            return pmoPath;
           }
         }
 

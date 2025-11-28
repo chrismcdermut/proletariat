@@ -202,12 +202,12 @@ export function createHQStructure(hqPath: string, theme: string): void {
  * Create workspace database (replaces createHQConfig)
  */
 export function initializeWorkspaceDatabase(workspacePath: string, options: InitOptions): void {
-  if (options.workspaceType !== 'hq' || options.includePMO === undefined) {
+  if (options.workspaceType !== 'hq' || options.includePMO === undefined || !options.hqName) {
     throw new Error('initializeWorkspaceDatabase should only be called for HQ workspace type with defined PMO setting');
   }
 
   const themeConfig = THEMES[options.theme];
-  
+
   // Create the database with workspace configuration
   const db = createWorkspaceDatabase(
     workspacePath,
@@ -216,8 +216,19 @@ export function initializeWorkspaceDatabase(workspacePath: string, options: Init
     themeConfig.workspaceDir,
     options.includePMO
   );
-  
+
   db.close();
+
+  // Update config.json with workspace metadata (required for findPMO)
+  // Note: hasPMO is stored in database only, not in config
+  const configPath = path.join(workspacePath, '.proletariat', 'config.json');
+  const config = {
+    version: "1.0.0",
+    schemaVersion: 1,
+    type: options.workspaceType,
+    name: options.hqName
+  };
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 }
 
 /**
