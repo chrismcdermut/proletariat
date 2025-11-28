@@ -230,6 +230,7 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
 
   const {
     hqPath,
+    hqName,
     theme,
     selectedAgents,
     repos,
@@ -239,7 +240,7 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
   } = options;
 
   // All these fields are required for HQ type
-  if (!hqPath || repos === undefined || includePMO === undefined || !boardTemplate) {
+  if (!hqPath || !hqName || repos === undefined || includePMO === undefined || !boardTemplate) {
     throw new Error('Missing required fields for HQ initialization');
   }
 
@@ -251,7 +252,7 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
 
   // Create PMO if requested
   if (includePMO) {
-    await createPMO(hqPath, boardTemplate, pmoStorageType || 'sqlite');
+    await createPMO(hqPath, boardTemplate, pmoStorageType || 'sqlite', hqName);
     // Note: PMO is tracked in workspace.has_pmo, no need for updateHQConfigWithPMO
   }
 

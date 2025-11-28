@@ -27,13 +27,10 @@ import { Board } from './types.js';
 
 /**
  * Get the board.md path for a project
- * Default project uses board.md, others use board-{projectId}.md
+ * New structure: pmo/projects/{projectId}/board.md
  */
-export function getBoardPath(pmoPath: string, projectId: string = 'default'): string {
-  if (projectId === 'default') {
-    return path.join(pmoPath, 'board.md');
-  }
-  return path.join(pmoPath, `board-${projectId}.md`);
+export function getBoardPath(pmoPath: string, projectId: string): string {
+  return path.join(pmoPath, 'projects', projectId, 'board.md');
 }
 
 export interface SyncMetadata {

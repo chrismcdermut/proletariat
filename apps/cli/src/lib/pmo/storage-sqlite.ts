@@ -549,6 +549,20 @@ export class SQLiteStorage implements PMOStorage {
   // Column Operations
   // ===========================================================================
 
+  /**
+   * Get column names for current project
+   * Returns array of column names in order
+   */
+  getColumnNames(): string[] {
+    const columnRows = this.db.prepare(`
+      SELECT name FROM ${T.columns}
+      WHERE project_id = ?
+      ORDER BY position
+    `).all(this.currentProjectId) as Array<{ name: string }>;
+
+    return columnRows.map(row => row.name);
+  }
+
   async createColumn(name: string, position?: number): Promise<Column> {
     const id = slugify(name)
     const projectId = this.currentProjectId

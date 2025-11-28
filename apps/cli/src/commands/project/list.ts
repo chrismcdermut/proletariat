@@ -1,9 +1,8 @@
 import { Command } from '@oclif/core';
 import * as fs from 'fs';
 import * as path from 'path';
-import { SQLiteStorage } from '../../lib/pmo/index.js';
+import { SQLiteStorage, findPMO } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
-import { findPMO } from '../../lib/find-pmo.js';
 
 export default class ProjectList extends Command {
   static description = 'List all projects in the PMO';

@@ -2,9 +2,8 @@ import { Command, Args } from '@oclif/core';
 import * as fs from 'fs';
 import * as path from 'path';
 import inquirer from 'inquirer';
-import { SQLiteStorage } from '../../lib/pmo/index.js';
+import { SQLiteStorage, findPMO } from '../../lib/pmo/index.js';
 import { styles, getColumnStyle, getColumnEmoji, formatPriority, formatCategory } from '../../lib/styles.js';
-import { findPMO } from '../../lib/find-pmo.js';
 
 export default class ProjectView extends Command {
   static description = 'View a project\'s board';

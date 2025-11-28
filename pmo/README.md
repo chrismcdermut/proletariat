@@ -1,115 +1,108 @@
-# PMO (Project Management Office) System
+# PMO (Project Management Office)
+
+## Structure
+
+```
+pmo/
+└── projects/
+    └── {project-id}/
+        ├── board.md          # Obsidian-compatible kanban board
+        └── specs/
+            ├── active/       # Active work specifications
+            ├── complete/     # Completed specifications
+            ├── future/       # Future/backlog specifications
+            └── dropped/      # Dropped/cancelled work
+```
 
 ## Overview
-This is a markdown-based Kanban project management system designed for both human readability and AI agent compatibility. It integrates with Obsidian's Kanban plugin while maintaining a clear file-based workflow.
 
-## Directory Structure
-```
-/pmo/
-├── kanban.md                    # Main kanban board (Obsidian-compatible)
-├── active-work/                 # Currently active specifications
-├── completed-work/              # Completed specifications  
-├── future-work/                 # Future/backlog specifications
-├── engineering-learnings.md     # Project retrospectives
-├── SPEC_TEMPLATE.md            # Template for new specifications
-└── README.md                   # This file
-```
+Multi-project PMO system with:
+- **SQLite database** (`../.proletariat/workspace.db`) as source of truth
+- **Markdown boards** (`projects/{id}/board.md`) synced with database
+- **Project-based organization** for managing multiple workstreams
+- **Obsidian integration** for visual kanban boards
 
-## Quick Start
+## Current Projects
 
-### Creating a New Task
-1. Copy `SPEC_TEMPLATE.md` to the appropriate directory:
-   - `active-work/` for immediate work
-   - `future-work/` for backlog items
-2. Fill out the specification
-3. Add the task to `kanban.md` in the appropriate column
+### proletariat
+Main Proletariat CLI development project.
 
-### Moving Tasks Through Workflow
-1. **Backlog → In Progress**: Move spec to `active-work/` if not already there
-2. **In Progress → Done**: Move spec from `active-work/` to `completed-work/`
-3. **Done → Released**: Update kanban.md, spec stays in `completed-work/`
+**Location**: `pmo/projects/proletariat/`
 
-## Kanban Board Features
+**Active Specs**:
+- `SYSTEM_CARD.md` - System architecture and design
+- `pmo-architecture.md` - PMO architecture design
+- `pmo-crud-commands.md` - CRUD command specifications
+- `pmo-work-commands.md` - Work command specifications
 
-### Task Format
-```markdown
-- [ ] [[task-name]]
-      **Priority:** [URGENT/IMPORTANT/LOW]
-      **Category:** [BUILD/Tech Debt/GROW/LEARN]
-      ***
-      Brief description
-      - [ ] Subtask 1
-      - [ ] Subtask 2
-      [Spec](active-work/task-name.md)
-```
+**Completed Specs**:
+- `MULTI_PROJECT_PLAN.md` - Multi-project PMO implementation ✅
+- `mvp-completion.md` - MVP completion checklist ✅
+- `pmo-storage-sqlite.md` - SQLite storage implementation ✅
+- `pmo-interface.md` - PMO interface design ✅
+- `agent-commands.md`, `agents-commands.md`, `init-commands.md`, `init.md`
 
-### Categories
-- **BUILD**: Feature development
-- **Tech Debt**: Refactoring, optimization, cleanup
-- **GROW**: Documentation, processes, tooling
-- **LEARN**: Research, experimentation, prototypes
+**Future Work**:
+- `org-pmo.md` - Organization-level PMO features
+- `pmo-storage-git.md` - Git-based storage backend
+- `pmo-storage-cloud.md` - Cloud storage backend
+- `pmo-storage-adapter.md` - Storage adapter pattern
 
-### Priority Levels
-- **URGENT**: Blocking issues, critical path items
-- **IMPORTANT**: Significant features or improvements
-- **LOW**: Nice-to-have, non-critical tasks
+**Dropped**:
+- `cli-enhancement.md` - Superseded by current implementation
+- `documentation-update.md` - Superseded by current documentation
+- `pmo-migrate.md` - Migration no longer needed (greenfield)
 
-## Obsidian Integration
+## Usage
 
-### Setup
-1. Install Obsidian Kanban plugin
-2. Open `pmo/kanban.md` in Obsidian
-3. The file will automatically render as a kanban board
+### CLI Commands
 
-### Features
-- Drag and drop tasks between columns
-- Click [[task-name]] to navigate to specifications
-- Use backlinks to see all references to a task
-
-## Agent/CLI Usage
-
-### Common Operations
 ```bash
-# List active work
-ls pmo/active-work/
+# View board
+prlt board view
 
-# View kanban status
-cat pmo/kanban.md
+# Create ticket
+prlt ticket create --title "My ticket" --column "Ready"
 
-# Create new task from template
-cp pmo/SPEC_TEMPLATE.md pmo/future-work/new-task.md
+# List tickets
+prlt ticket list
+prlt ticket list --column "In Progress"
+prlt ticket list --priority URGENT
 
-# Move task to active
-mv pmo/future-work/task.md pmo/active-work/
+# Move ticket
+prlt ticket move <ticket-id> "In Progress"
 
-# Complete a task
-mv pmo/active-work/task.md pmo/completed-work/
+# Update ticket
+prlt ticket update <ticket-id> --priority HIGH
+
+# Projects
+prlt project create "New Project"
+prlt project list
+prlt project view proletariat
 ```
 
-## Best Practices
+### Obsidian Setup
 
-1. **One task, one file**: Each task should have its own specification file
-2. **Update location and kanban together**: When moving files, update kanban.md
-3. **Document learnings**: Add retrospectives to completed specs
-4. **Regular cleanup**: Archive old completed tasks periodically
-5. **Keep specs updated**: Specifications are living documents
+1. Open the `pmo/` directory as an Obsidian vault
+2. Install the "Kanban" plugin
+3. Open `projects/{id}/board.md` and switch to Kanban view
+4. Drag and drop tickets between columns
+5. Changes sync bidirectionally with the database
 
-## Workflow Example
+## Spec Organization
 
-```
-1. Idea/Request → Create spec in future-work/
-2. Planning → Move spec to active-work/, add to kanban Backlog
-3. Start work → Move task to In Progress column
-4. Complete → Move spec to completed-work/, update kanban
-5. Deploy → Move to Released column
-6. Retrospective → Update engineering-learnings.md
-```
+- **active/**: Currently being worked on
+- **complete/**: Finished and shipped
+- **future/**: Planned but not started
+- **dropped/**: Cancelled or superseded
 
-## Tips for AI Agents
+## Data Storage
 
-When working with this system:
-- Always check file location to understand task status
-- Update both the file location and kanban.md when changing status
-- Use the template for consistency
-- Add meaningful commit messages when updating PMO files
-- Link related tasks using [[wiki-links]] for Obsidian compatibility
+All PMO data lives in `../.proletariat/workspace.db`:
+- `pmo_projects` - Project metadata
+- `pmo_boards` - Board configurations
+- `pmo_columns` - Column definitions
+- `pmo_tickets` - Ticket data
+- `pmo_custom_fields` - Custom field values
+
+Board markdown files are auto-synced with the database for Obsidian compatibility.

@@ -2,9 +2,8 @@ import { Command, Args, Flags } from '@oclif/core';
 import * as fs from 'fs';
 import * as path from 'path';
 import inquirer from 'inquirer';
-import { SQLiteStorage } from '../../lib/pmo/index.js';
+import { SQLiteStorage, getSpecFolderPath, findPMO } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
-import { findPMO } from '../../lib/find-pmo.js';
 
 export default class ProjectDelete extends Command {
   static description = 'Delete a project from the PMO';
@@ -118,13 +117,14 @@ export default class ProjectDelete extends Command {
         }
       }
 
-      // Delete project
+      // Delete project from database
       await storage.deleteProject(projectId!);
 
-      // Delete board file if it exists
-      const boardPath = path.join(pmoPath, `board-${args.id}.md`);
-      if (fs.existsSync(boardPath)) {
-        fs.unlinkSync(boardPath);
+      // Delete entire project folder: pmo/projects/{projectId}/
+      // This includes board.md and specs/ directory
+      const projectPath = path.join(pmoPath, 'projects', projectId!);
+      if (fs.existsSync(projectPath)) {
+        fs.rmSync(projectPath, { recursive: true, force: true });
       }
 
       await storage.close();
