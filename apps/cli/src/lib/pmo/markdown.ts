@@ -176,8 +176,8 @@ export function generateBoardMarkdown(board: Board): string {
     lines.push('')
 
     for (const ticket of column.tickets) {
-      // Ticket header with wikilink
-      lines.push(`- [ ] [[${ticket.id}]]`)
+      // Ticket header with wikilink and title
+      lines.push(`- [ ] [[${ticket.id}]] ${ticket.title}`)
 
       // Metadata
       if (ticket.priority) {
