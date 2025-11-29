@@ -223,7 +223,10 @@ export function getWorkspaceDbPath(pmoPath: string): string {
  * Get storage with auto-sync from board.md (for read operations)
  * Use this when you need to READ from the database
  *
- * Now uses the unified workspace.db instead of separate board.db
+ * Note: storageType parameter controls sync strategy, not storage engine.
+ * - All modes use SQLite (workspace.db) for storage
+ * - 'git' mode enables multi-machine sync via git push/pull
+ * - 'sqlite' mode is local-only (no multi-machine sync)
  */
 export function getStorageWithAutoSync(
   pmoPath: string,
@@ -231,7 +234,7 @@ export function getStorageWithAutoSync(
   logger?: (msg: string) => void,
   projectId: string = 'default'
 ): SQLiteStorage {
-  // All storage types now use workspace.db (PMO tables are unified)
+  // Storage is always workspace.db (unified PMO tables with foreign keys to agents)
   const dbPath = getWorkspaceDbPath(pmoPath);
 
   if (!fs.existsSync(dbPath)) {

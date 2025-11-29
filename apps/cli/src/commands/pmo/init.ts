@@ -260,7 +260,7 @@ export default class PMOInit extends Command {
       this.log(chalk.green('  ✓ Mini-HQ structure created'));
       this.log(chalk.green('  ✓ workspace.db initialized'));
     } else {
-      // For HQ PMOs, create project in existing workspace.db
+      // For HQ PMOs, create project in workspace.db
       const dbPath = path.join(hqRoot!, '.proletariat', 'workspace.db');
       const dbStorage = new SQLiteStorage(dbPath);
 
@@ -269,15 +269,25 @@ export default class PMOInit extends Command {
       const hqConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
       const hqName = hqConfig.name || 'default';
 
-      // Create default project using HQ name
+      // Check if project already exists
+      const existingProject = await dbStorage.getProject(hqName);
+      if (existingProject) {
+        await dbStorage.close();
+        this.error(`Project "${hqName}" already exists in PMO. Use a different name or delete the existing project first.`);
+      }
+
+      // Create project with custom columns for the template
+      // Note: createProject automatically creates default columns, but we need to replace them with template columns
+      const projectId = slugify(boardName);
       await dbStorage.createProject({
-        id: hqName,
-        name: hqName,
-        description: `Project for ${hqName}`,
+        id: projectId,
+        name: boardName,
+        description: `Project for ${boardName}`,
         template: template,
       });
 
-      dbStorage.setCurrentProject(hqName);
+      // Replace default columns with template columns
+      dbStorage.setCurrentProject(projectId);
       await dbStorage.init({
         name: boardName,
         columns,
@@ -285,7 +295,7 @@ export default class PMOInit extends Command {
       await dbStorage.close();
 
       this.log(chalk.green('  ✓ PMO tables initialized in workspace.db'));
-      this.log(chalk.green(`  ✓ Default project "${hqName}" created`));
+      this.log(chalk.green(`  ✓ Project "${projectId}" created`));
     }
 
     // Create PMO directory structure (same for both HQ and standalone)

@@ -58,11 +58,7 @@ export class SQLiteStorage implements PMOStorage {
     this.dbPath = dbPath
     this.currentProjectId = projectId
 
-    if (!fs.existsSync(dbPath)) {
-      throw new Error(`Database not found: ${dbPath}. Run 'prlt init' first.`)
-    }
-
-    // Open database
+    // Open database (creates if doesn't exist)
     this.db = new Database(dbPath)
     this.db.pragma('foreign_keys = ON')
 
@@ -364,7 +360,7 @@ export class SQLiteStorage implements PMOStorage {
 
   async createProject(project: { id?: string; name: string; template?: string; description?: string }): Promise<Board> {
     const id = project.id || slugify(project.name)
-    const now = new Date().toISOString()
+    const now = Date.now()
 
     this.db.prepare(`
       INSERT INTO ${T.projects} (id, name, template, description, created_at, updated_at)
@@ -474,7 +470,7 @@ export class SQLiteStorage implements PMOStorage {
     const projectId = this.currentProjectId
     const projectName = config.name || 'Project Board'
     const columns = config.columns || ['Backlog', 'In Progress', 'Review', 'Done']
-    const now = new Date().toISOString()
+    const now = Date.now()
 
     // Create or update project
     this.db.prepare(`
@@ -577,7 +573,7 @@ export class SQLiteStorage implements PMOStorage {
     this.db.prepare(`
       INSERT INTO ${T.columns} (id, project_id, name, position, created_at)
       VALUES (?, ?, ?, ?, ?)
-    `).run(id, projectId, name, pos, new Date().toISOString())
+    `).run(id, projectId, name, pos, Date.now())
 
     this.updateBoardTimestamp()
 
@@ -732,7 +728,7 @@ export class SQLiteStorage implements PMOStorage {
     // Get position
     const position = ticket.position ?? this.getMaxTicketPosition(columnId) + 1
 
-    const now = new Date().toISOString()
+    const now = Date.now()
 
     // Insert ticket
     this.db.prepare(`
@@ -810,7 +806,7 @@ export class SQLiteStorage implements PMOStorage {
 
     if (updates.length > 0) {
       updates.push('updated_at = ?')
-      params.push(new Date().toISOString())
+      params.push(Date.now())
       params.push(id)
 
       this.db.prepare(`UPDATE ${T.tickets} SET ${updates.join(', ')} WHERE id = ?`).run(...params)
@@ -909,7 +905,7 @@ export class SQLiteStorage implements PMOStorage {
 
     this.db
       .prepare(`UPDATE ${T.tickets} SET column_id = ?, position = ?, updated_at = ? WHERE id = ?`)
-      .run(targetColumnId, pos, new Date().toISOString(), id)
+      .run(targetColumnId, pos, Date.now(), id)
 
     this.updateBoardTimestamp()
 
@@ -1014,7 +1010,7 @@ export class SQLiteStorage implements PMOStorage {
       )
       .run(id, ticketId, title, position)
 
-    this.db.prepare(`UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?`).run(new Date().toISOString(), ticketId)
+    this.db.prepare(`UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?`).run(Date.now(), ticketId)
 
     this.updateBoardTimestamp()
 
@@ -1033,7 +1029,7 @@ export class SQLiteStorage implements PMOStorage {
     const newDone = subtask.done ? 0 : 1
     this.db.prepare(`UPDATE ${T.subtasks} SET done = ? WHERE ticket_id = ? AND id = ?`).run(newDone, ticketId, subtaskId)
 
-    this.db.prepare(`UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?`).run(new Date().toISOString(), ticketId)
+    this.db.prepare(`UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?`).run(Date.now(), ticketId)
 
     this.updateBoardTimestamp()
 
@@ -1053,7 +1049,7 @@ export class SQLiteStorage implements PMOStorage {
       throw new PMOError('NOT_FOUND', `Subtask not found: ${subtaskId}`)
     }
 
-    this.db.prepare(`UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?`).run(new Date().toISOString(), ticketId)
+    this.db.prepare(`UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?`).run(Date.now(), ticketId)
 
     this.updateBoardTimestamp()
   }
@@ -1065,7 +1061,7 @@ export class SQLiteStorage implements PMOStorage {
   async createSpec(spec: Partial<Spec>): Promise<Spec> {
     const id = spec.id || slugify(spec.path || 'untitled')
     const specPath = spec.path || `specs/${id}.md`
-    const now = new Date().toISOString()
+    const now = Date.now()
 
     this.db
       .prepare(
@@ -1168,7 +1164,7 @@ export class SQLiteStorage implements PMOStorage {
 
     if (updates.length > 0) {
       updates.push('updated_at = ?')
-      params.push(new Date().toISOString())
+      params.push(Date.now())
       params.push(id)
 
       this.db.prepare(`UPDATE ${T.specs} SET ${updates.join(', ')} WHERE id = ?`).run(...params)
@@ -1198,7 +1194,7 @@ export class SQLiteStorage implements PMOStorage {
       )
       .run(ticketId, specId)
 
-    this.db.prepare(`UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?`).run(new Date().toISOString(), ticketId)
+    this.db.prepare(`UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?`).run(Date.now(), ticketId)
 
     this.updateBoardTimestamp()
   }
@@ -1206,7 +1202,7 @@ export class SQLiteStorage implements PMOStorage {
   async unlinkTicketFromSpec(ticketId: string, specId: string): Promise<void> {
     this.db.prepare(`DELETE FROM ${T.ticket_specs} WHERE ticket_id = ? AND spec_id = ?`).run(ticketId, specId)
 
-    this.db.prepare(`UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?`).run(new Date().toISOString(), ticketId)
+    this.db.prepare(`UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?`).run(Date.now(), ticketId)
 
     this.updateBoardTimestamp()
   }
@@ -1334,7 +1330,7 @@ export class SQLiteStorage implements PMOStorage {
     this.db.prepare(`DELETE FROM ${T.columns} WHERE project_id = ?`).run(projectId)
 
     // Rebuild
-    const now = new Date().toISOString()
+    const now = Date.now()
 
     // Update or insert project
     this.db.prepare(`
@@ -1534,6 +1530,6 @@ export class SQLiteStorage implements PMOStorage {
       UPDATE ${T.projects}
       SET updated_at = ?
       WHERE id = ?
-    `).run(new Date().toISOString(), this.currentProjectId)
+    `).run(Date.now(), this.currentProjectId)
   }
 }

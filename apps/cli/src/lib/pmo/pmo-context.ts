@@ -83,9 +83,11 @@ export async function getPMOContext(
     }
   }
 
-  // For now, assume 'git' if board.md exists, 'sqlite' otherwise
+  // Detect sync mode: 'git' enables multi-machine sync via git push/pull of board.md
+  // Note: Storage is always SQLite (workspace.db). This flag controls sync strategy.
   // TODO: Read from pmo_settings table when implemented
-  const storageType: 'sqlite' | 'git' = 'sqlite';
+  const gitPath = path.join(pmoPath, '.git');
+  const storageType: 'sqlite' | 'git' = fs.existsSync(gitPath) ? 'git' : 'sqlite';
 
   // Get storage with auto-sync
   const storage = getStorageWithAutoSync(
