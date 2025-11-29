@@ -1,6 +1,6 @@
 import { Command } from '@oclif/core';
 import inquirer from 'inquirer';
-import { findPMO } from '../lib/find-pmo.js';
+import { findPMO } from '../../lib/pmo/index.js';
 
 export default class Project extends Command {
   static description = 'Interactive menu for project operations';

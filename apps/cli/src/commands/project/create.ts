@@ -2,10 +2,9 @@ import { Command, Flags, Args } from '@oclif/core';
 import * as fs from 'fs';
 import * as path from 'path';
 import inquirer from 'inquirer';
-import { SQLiteStorage, createBoardContent } from '../../lib/pmo/index.js';
+import { SQLiteStorage, createBoardContent, createSpecFolders, findPMO } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { slugify } from '../../lib/pmo/utils.js';
-import { findPMO } from '../../lib/find-pmo.js';
 
 export default class ProjectCreate extends Command {
   static description = 'Create a new project in the PMO';
@@ -94,7 +93,7 @@ export default class ProjectCreate extends Command {
         this.error(`Project "${projectId}" already exists.`);
       }
 
-      // Create project
+      // Create project in database
       const project = await storage.createProject({
         id: projectId,
         name: projectData.name,
@@ -102,19 +101,24 @@ export default class ProjectCreate extends Command {
         template: projectData.template,
       });
 
-      // Create board.md file for this project
-      const boardPath = projectId === 'default'
-        ? path.join(pmoPath, 'board.md')
-        : path.join(pmoPath, `board-${projectId}.md`);
+      // Create project folder structure: pmo/projects/{projectId}/
+      const projectPath = path.join(pmoPath, 'projects', projectId);
+      fs.mkdirSync(projectPath, { recursive: true });
 
+      // Create board.md in project directory
       const boardContent = createBoardContent(projectData.template);
+      const boardPath = path.join(projectPath, 'board.md');
       fs.writeFileSync(boardPath, boardContent);
+
+      // Create spec folders in project directory
+      const specsPath = createSpecFolders(pmoPath, projectId);
 
       await storage.close();
 
       this.log(styles.success(`\nCreated project "${styles.emphasis(project.name)}"`));
       this.log(styles.muted(`  ID: ${project.id}`));
       this.log(styles.muted(`  Board: ${path.relative(process.cwd(), boardPath)}`));
+      this.log(styles.muted(`  Specs: ${path.relative(process.cwd(), specsPath)}/`));
       this.log(styles.muted(`\nSwitch to this project:`));
       this.log(styles.muted(`  prlt ticket list --project ${project.id}`));
       this.log(styles.muted(`  prlt project view ${project.id}`));

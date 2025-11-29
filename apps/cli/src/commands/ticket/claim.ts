@@ -7,6 +7,7 @@ import * as React from 'react';
 import { render } from 'ink';
 import { ClaimTicketUI } from '../../lib/ui/ClaimTicketUI.js';
 import { styles } from '../../lib/styles.js';
+import { findPMO } from '../../lib/pmo/index.js';
 
 export default class TicketClaim extends Command {
   static description = 'Claim a ticket (move from backlog to in-progress)';
@@ -25,9 +26,9 @@ export default class TicketClaim extends Command {
 
   async run(): Promise<void> {
     const { args } = await this.parse(TicketClaim);
-    
+
     // Find PMO
-    const pmoPath = this.findPMO();
+    const pmoPath = findPMO();
     if (!pmoPath) {
       this.error('PMO not found. Run "prlt pmo init" first.');
     }
@@ -158,44 +159,6 @@ export default class TicketClaim extends Command {
 
     // Return empty string - will be prompted in UI if needed
     return '';
-  }
-
-  private findPMO(): string | null {
-    let currentDir = process.cwd();
-    
-    while (currentDir !== '/') {
-      const configPath = path.join(currentDir, '.proletariat', 'config.json');
-      if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        if (config.type === 'hq') {
-          const pmoPath = path.join(currentDir, 'pmo');
-          if (fs.existsSync(pmoPath)) return pmoPath;
-        }
-        if (config.pmoPath) {
-          const absolutePath = path.isAbsolute(config.pmoPath) 
-            ? config.pmoPath 
-            : path.join(currentDir, config.pmoPath);
-          if (fs.existsSync(absolutePath)) return absolutePath;
-        }
-      }
-      
-      const pmoPath = path.join(currentDir, 'pmo');
-      if (fs.existsSync(path.join(pmoPath, 'board.md'))) {
-        return pmoPath;
-      }
-      
-      currentDir = path.dirname(currentDir);
-    }
-    
-    const globalConfigPath = path.join(process.env.HOME || '', '.proletariat', 'config.json');
-    if (fs.existsSync(globalConfigPath)) {
-      const config = JSON.parse(fs.readFileSync(globalConfigPath, 'utf-8'));
-      if (config.defaultPMO && fs.existsSync(config.defaultPMO)) {
-        return config.defaultPMO;
-      }
-    }
-    
-    return null;
   }
 
   private findWorktreeRoot(): string | null {

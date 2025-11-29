@@ -202,12 +202,12 @@ export function createHQStructure(hqPath: string, theme: string): void {
  * Create workspace database (replaces createHQConfig)
  */
 export function initializeWorkspaceDatabase(workspacePath: string, options: InitOptions): void {
-  if (options.workspaceType !== 'hq' || options.includePMO === undefined) {
+  if (options.workspaceType !== 'hq' || options.includePMO === undefined || !options.hqName) {
     throw new Error('initializeWorkspaceDatabase should only be called for HQ workspace type with defined PMO setting');
   }
 
   const themeConfig = THEMES[options.theme];
-  
+
   // Create the database with workspace configuration
   const db = createWorkspaceDatabase(
     workspacePath,
@@ -216,8 +216,19 @@ export function initializeWorkspaceDatabase(workspacePath: string, options: Init
     themeConfig.workspaceDir,
     options.includePMO
   );
-  
+
   db.close();
+
+  // Update config.json with workspace metadata (required for findPMO)
+  // Note: hasPMO is stored in database only, not in config
+  const configPath = path.join(workspacePath, '.proletariat', 'config.json');
+  const config = {
+    version: "1.0.0",
+    schemaVersion: 1,
+    type: options.workspaceType,
+    name: options.hqName
+  };
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 }
 
 /**
@@ -230,6 +241,7 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
 
   const {
     hqPath,
+    hqName,
     theme,
     selectedAgents,
     repos,
@@ -239,7 +251,7 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
   } = options;
 
   // All these fields are required for HQ type
-  if (!hqPath || repos === undefined || includePMO === undefined || !boardTemplate) {
+  if (!hqPath || !hqName || repos === undefined || includePMO === undefined || !boardTemplate) {
     throw new Error('Missing required fields for HQ initialization');
   }
 
@@ -251,7 +263,7 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
 
   // Create PMO if requested
   if (includePMO) {
-    await createPMO(hqPath, boardTemplate, pmoStorageType || 'sqlite');
+    await createPMO(hqPath, boardTemplate, pmoStorageType || 'sqlite', hqName);
     // Note: PMO is tracked in workspace.has_pmo, no need for updateHQConfigWithPMO
   }
 

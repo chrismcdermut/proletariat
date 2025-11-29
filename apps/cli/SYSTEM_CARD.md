@@ -57,25 +57,25 @@ This is the authoritative list of commands that MUST exist in the CLI.
 
 #### Agent Commands (Individual Operations)
 
-| Command                      | 📝   | ✅   | 🧪 | 🧑‍💻 | ✔️ | Description                   | Spec              |
-| ---------------------------- | ---- | ---- | -- | ------ | ---- | ----------------------------- | ----------------- |
-| `prlt agent`               | ☑️ | ☑️ | ☐ | ☐     | ☐   | Interactive individual menu   | [agent.md](agent.md) |
-| `prlt agent status [name]` | ☑️ | ☑️ | ☐ | ☐     | ☐   | Show detailed agent status    | [agent.md](agent.md) |
-| `prlt agent visit [name]`  | ☑️ | ☑️ | ☐ | ☐     | ☐   | Navigate to agent directory   | [agent.md](agent.md) |
-| `prlt agent add`           | ☑️ | ☑️ | ☐ | ☐     | ☐   | Add agent (redirects to bulk) | [agent.md](agent.md) |
-| `prlt agent remove [name]` | ☑️ | ☑️ | ☐ | ☐     | ☐   | Remove specific agent         | [agent.md](agent.md) |
-| `prlt agent grant`         | ☑️ | ☐   | ☐ | ☐     | ☐   | Grant repo access to agents   | [agent.md](agent.md) |
-| `prlt agent revoke`        | ☑️ | ☐   | ☐ | ☐     | ☐   | Revoke repo access            | [agent.md](agent.md) |
+| Command                      | 📝   | ✅   | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️ | Description                   | Spec              |
+| ---------------------------- | ---- | ---- | ------ | ---------- | -------- | ------------ | -------- | ------------ | -------- | ------------ | ---- | ----------------------------- | ----------------- |
+| `prlt agent`               | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Interactive individual menu   | [agent.md](agent.md) |
+| `prlt agent status [name]` | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Show detailed agent status    | [agent.md](agent.md) |
+| `prlt agent visit [name]`  | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Navigate to agent directory   | [agent.md](agent.md) |
+| `prlt agent add`           | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Add agent (redirects to bulk) | [agent.md](agent.md) |
+| `prlt agent remove [name]` | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Remove specific agent         | [agent.md](agent.md) |
+| `prlt agent grant`         | ☑️ | ☐   | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Grant repo access to agents   | [agent.md](agent.md) |
+| `prlt agent revoke`        | ☑️ | ☐   | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Revoke repo access            | [agent.md](agent.md) |
 
 #### Agents Commands (Bulk Operations)
 
-| Command                | 📝   | ✅   | 🧪 | 🧑‍💻 | ✔️ | Description                      | Spec                |
-| ---------------------- | ---- | ---- | -- | ------ | ---- | -------------------------------- | ------------------- |
-| `prlt agents`        | ☑️ | ☑️ | ☐ | ☐     | ☐   | Interactive bulk operations menu | [agents.md](agents.md) |
-| `prlt agents list`   | ☑️ | ☑️ | ☐ | ☐     | ☐   | List all agents with overview    | [agents.md](agents.md) |
-| `prlt agents status` | ☑️ | ☑️ | ☐ | ☐     | ☐   | Status overview for all agents   | [agents.md](agents.md) |
-| `prlt agents add`    | ☑️ | ☑️ | ☐ | ☐     | ☐   | Add multiple agents (bulk)       | [agents.md](agents.md) |
-| `prlt agents remove` | ☑️ | ☑️ | ☐ | ☐     | ☐   | Remove multiple agents (bulk)    | [agents.md](agents.md) |
+| Command                | 📝   | ✅   | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️ | Description                      | Spec                |
+| ---------------------- | ---- | ---- | ------ | ---------- | -------- | ------------ | -------- | ------------ | -------- | ------------ | ---- | -------------------------------- | ------------------- |
+| `prlt agents`        | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Interactive bulk operations menu | [agents.md](agents.md) |
+| `prlt agents list`   | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | List all agents with overview    | [agents.md](agents.md) |
+| `prlt agents status` | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Status overview for all agents   | [agents.md](agents.md) |
+| `prlt agents add`    | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Add multiple agents (bulk)       | [agents.md](agents.md) |
+| `prlt agents remove` | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Remove multiple agents (bulk)    | [agents.md](agents.md) |
 
 #### PMO Commands
 
@@ -103,6 +103,17 @@ This is the authoritative list of commands that MUST exist in the CLI.
 | `prlt board export`   | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Export board to file             | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
 | `prlt board sync`     | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Sync between SQLite and board.md | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
 | `prlt board watch`    | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Watch board.md for changes       | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
+
+#### Spec Commands
+
+| Command                               | 📝   | ✅   | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️ | Description                        | Spec                                                   |
+| ------------------------------------- | ---- | ---- | ------ | ---------- | -------- | ------------ | -------- | ------------ | -------- | ------------ | ---- | ---------------------------------- | ------------------------------------------------------ |
+| `prlt spec`                         | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Interactive spec menu              | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
+| `prlt spec create [name]`           | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Create new spec document           | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
+| `prlt spec list`                    | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | List all specs                     | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
+| `prlt spec view [id]`               | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | View spec and linked tickets       | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
+| `prlt spec generate-tickets [spec]` | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Generate tickets from spec         | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
+| `prlt spec link [ticket] [spec]`    | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Link existing ticket to spec       | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
 
 #### Ticket Commands (CRUD Operations)
 

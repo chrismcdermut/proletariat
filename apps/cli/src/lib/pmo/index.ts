@@ -3,6 +3,7 @@ import * as path from 'path';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { SQLiteStorage } from './storage-sqlite.js';
+import { createSpecFolders } from './create-spec-folders.js';
 
 // Re-export new PMO modules
 export * from './types.js';
@@ -29,14 +30,14 @@ export {
   type WatcherInstance,
   type SyncStats,
 } from './watcher.js';
+export {
+  createSpecFolders,
+  getSpecFolderPath,
+  getProjectPath,
+} from './create-spec-folders.js';
+export { findPMO } from './find-pmo.js';
+export { getPMOContext, type PMOContext } from './pmo-context.js';
 
-// Legacy config interface (for backward compatibility)
-export interface PMOConfig {
-  boardTitle: string;
-  queues: string[];
-  lastTicketId: number;
-  columns: string[];
-}
 
 /**
  * Get available board templates
@@ -160,79 +161,82 @@ export function createBoardContent(template: string): string {
   return content;
 }
 
-/**
- * PMO config file structure (new format with SQLite storage)
- */
-interface PMOConfigFile {
-  storage: 'sqlite' | 'git';
-  template: string;
-  boardName: string;
-  columns: string[];
-  created: string;
-  gitRemote?: string;
-  autoSync?: boolean;
-}
 
 /**
  * Create PMO structure in HQ
  *
- * PMO data is stored in the unified workspace.db (pmo_* tables)
- * This allows foreign key relationships between agents and tickets
+ * New structure:
+ * - PMO data is stored in workspace.db (pmo_* tables)
+ * - Default project uses HQ name
+ * - Boards live in pmo/projects/{id}/board.md
+ * - Specs live in pmo/projects/{id}/specs/{active,complete,future,dropped}
+ * - No config.json - all configuration in database
  */
 export async function createPMO(
   hqPath: string,
   boardTemplate: string,
-  storageType: PMOStorageType = 'sqlite'
+  storageType: PMOStorageType = 'sqlite',
+  hqName?: string
 ): Promise<void> {
   console.log(chalk.blue('Creating PMO structure...'));
 
   const pmoPath = path.join(hqPath, 'pmo');
   const columns = getColumnsForTemplate(boardTemplate);
-  const boardName = 'Project Board';
 
-  // Create PMO directories
+  // Use provided HQ name or default
+  const projectId = hqName || 'default';
+  const boardName = `${projectId} Board`;
+
+  // Create PMO directory
   fs.mkdirSync(pmoPath, { recursive: true });
-  fs.mkdirSync(path.join(pmoPath, 'specs'), { recursive: true });
 
-  // Create PMO config (new format)
-  const pmoConfig: PMOConfigFile = {
-    storage: storageType,
-    template: boardTemplate,
-    boardName,
-    columns,
-    created: new Date().toISOString(),
-  };
-
-  fs.writeFileSync(
-    path.join(pmoPath, 'config.json'),
-    JSON.stringify(pmoConfig, null, 2)
-  );
-
-  // Create board.md for Obsidian viewing (both storage types)
-  const boardContent = createBoardContent(boardTemplate);
-  fs.writeFileSync(path.join(pmoPath, 'board.md'), boardContent);
-  console.log(chalk.green('  ✓ board.md created'));
-
-  // Initialize PMO tables in workspace.db
-  // workspace.db is created by init and already has pmo_* tables from schema
+  // Initialize workspace.db with PMO tables
   const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
   if (!fs.existsSync(dbPath)) {
     throw new Error(`workspace.db not found. Run 'prlt init' first.`);
   }
 
   const storage = new SQLiteStorage(dbPath);
+
+  // Create default project using HQ name
+  await storage.createProject({
+    id: projectId,
+    name: boardName,
+    description: `Default project for ${projectId}`,
+    template: boardTemplate,
+  });
+
+  // Set as current project and initialize board
+  storage.setCurrentProject(projectId);
   await storage.init({
     name: boardName,
     columns,
   });
+
+  // Store PMO settings in database (no config.json)
+  // TODO: Add pmo_settings table to store storageType, etc.
+
   await storage.close();
   console.log(chalk.green('  ✓ PMO tables initialized in workspace.db'));
+  console.log(chalk.green(`  ✓ Default project "${projectId}" created`));
+
+  // Create project folder structure: pmo/projects/{projectId}/
+  const projectPath = path.join(pmoPath, 'projects', projectId);
+  fs.mkdirSync(projectPath, { recursive: true });
+
+  // Create spec folders in project directory
+  createSpecFolders(pmoPath, projectId);
+  console.log(chalk.green('  ✓ Spec folders created'));
+
+  // Create board.md in project directory
+  const boardContent = createBoardContent(boardTemplate);
+  const boardPath = path.join(projectPath, 'board.md');
+  fs.writeFileSync(boardPath, boardContent);
+  console.log(chalk.green('  ✓ board.md created'));
 
   // Create README for PMO
-  // Note: PMO data is now stored in workspace.db, not a separate board.db
-  const storageDesc = `- **config.json** - PMO configuration
-- **board.md** - Kanban board (Obsidian compatible, auto-synced with database)
-- **specs/** - Detailed specifications for tickets
+  const storageDesc = `- **projects/{id}/board.md** - Kanban boards (Obsidian compatible, auto-synced with database)
+- **projects/{id}/specs/** - Detailed specifications for tickets (active, complete, future, dropped)
 - Data stored in \`../.proletariat/workspace.db\` (pmo_* tables)`;
 
   const syncCommands = storageType === 'git'
@@ -271,6 +275,10 @@ prlt ticket list --priority URGENT
 
 # Move ticket
 prlt ticket move <ticket-id> "In Progress"
+
+# Projects
+prlt project create "New Project"
+prlt project list
 ${syncCommands}\`\`\`
 
 ## Columns
@@ -296,22 +304,26 @@ export function updateHQConfigWithPMO(hqPath: string): void {
 }
 
 /**
- * Check if PMO exists in HQ
+ * Check if PMO exists in HQ by checking workspace.db for pmo_projects table
  */
 export function hasPMO(hqPath: string): boolean {
-  const pmoPath = path.join(hqPath, 'pmo');
-  return fs.existsSync(pmoPath) && fs.existsSync(path.join(pmoPath, 'config.json'));
+  const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
+
+  if (!fs.existsSync(dbPath)) {
+    return false;
+  }
+
+  try {
+    const Database = require('better-sqlite3');
+    const db = new Database(dbPath);
+    const result = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
+    ).get();
+    db.close();
+
+    return result !== undefined;
+  } catch {
+    return false;
+  }
 }
 
-/**
- * Get PMO config
- */
-export function getPMOConfig(hqPath: string): PMOConfig | null {
-  const pmoConfigPath = path.join(hqPath, 'pmo', 'config.json');
-  
-  if (!fs.existsSync(pmoConfigPath)) {
-    return null;
-  }
-  
-  return JSON.parse(fs.readFileSync(pmoConfigPath, 'utf-8')) as PMOConfig;
-}

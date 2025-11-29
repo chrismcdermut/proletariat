@@ -1,22 +1,7 @@
 import { Command, Flags } from '@oclif/core';
-import * as fs from 'fs';
-import * as path from 'path';
 import inquirer from 'inquirer';
-import {
-  getStorageWithAutoSync,
-  autoExportToBoard,
-} from '../../lib/pmo/index.js';
+import { autoExportToBoard, getPMOContext } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
-
-interface PMOConfigFile {
-  storage: 'sqlite' | 'git';
-  template: string;
-  boardName: string;
-  columns: string[];
-  created: string;
-  gitRemote?: string;
-  autoSync?: boolean;
-}
 
 export default class TicketCreate extends Command {
   static description = 'Create a new ticket on the PMO board';
@@ -66,19 +51,12 @@ export default class TicketCreate extends Command {
   async run(): Promise<void> {
     const { flags } = await this.parse(TicketCreate);
 
-    // Find PMO directory
-    const pmoPath = this.findPMO();
-    if (!pmoPath) {
-      this.error('PMO not found. Run "prlt pmo init" first.');
-    }
-
-    // Load PMO config
-    const configPath = path.join(pmoPath, 'config.json');
-    if (!fs.existsSync(configPath)) {
-      this.error('PMO config not found. Run "prlt pmo init" first.');
-    }
-
-    const config: PMOConfigFile = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    // Get PMO context (prompt for project if multiple exist and no --project flag)
+    const { pmoPath, storage, columns, projectName } = await getPMOContext(
+      flags.project,
+      (msg) => this.log(styles.muted(msg)),
+      true // prompt if multiple projects
+    );
 
     // Get ticket data (interactive or from flags)
     let ticketData: {
@@ -91,14 +69,14 @@ export default class TicketCreate extends Command {
     };
 
     if (flags.interactive || !flags.title) {
-      ticketData = await this.promptTicketData(config.columns, flags);
+      ticketData = await this.promptTicketData(columns, flags);
     } else {
       if (!flags.title) {
         this.error('Title is required. Use --title or -t flag, or use --interactive mode.');
       }
       ticketData = {
         title: flags.title,
-        column: flags.column || config.columns[0],
+        column: flags.column || columns[0],
         priority: flags.priority,
         category: flags.category,
         description: flags.description,
@@ -107,20 +85,9 @@ export default class TicketCreate extends Command {
     }
 
     // Validate column
-    if (!config.columns.includes(ticketData.column)) {
-      this.error(`Invalid column "${ticketData.column}". Available columns: ${config.columns.join(', ')}`);
+    if (!columns.includes(ticketData.column)) {
+      this.error(`Invalid column "${ticketData.column}". Available columns: ${columns.join(', ')}`);
     }
-
-    // Resolve project ID
-    const projectId = flags.project || 'default';
-
-    // Get storage with auto-sync from board.md
-    const storage = getStorageWithAutoSync(
-      pmoPath,
-      config.storage,
-      (msg) => this.log(styles.muted(msg)),
-      projectId
-    );
 
     try {
       const ticket = await storage.createTicket({
@@ -137,7 +104,7 @@ export default class TicketCreate extends Command {
 
       await storage.close();
 
-      this.log(styles.success(`\n✅ Created ticket ${styles.emphasis(ticket.id)}`));
+      this.log(styles.success(`\n✅ Created ticket ${styles.emphasis(ticket.id)} in project ${styles.emphasis(projectName)}`));
       this.log(styles.muted(`   Title: ${ticket.title}`));
       this.log(styles.muted(`   Column: ${ticket.column}`));
       if (ticket.priority) {
@@ -253,62 +220,4 @@ export default class TicketCreate extends Command {
     };
   }
 
-  private findPMO(): string | null {
-    let currentDir = process.cwd();
-
-    while (currentDir !== '/') {
-      // Check for .proletariat config (HQ)
-      const configPath = path.join(currentDir, '.proletariat', 'config.json');
-      if (fs.existsSync(configPath)) {
-        try {
-          const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-          if (config.type === 'hq') {
-            const pmoPath = path.join(currentDir, 'pmo');
-            if (fs.existsSync(path.join(pmoPath, 'config.json'))) {
-              return pmoPath;
-            }
-          }
-          if (config.pmoPath) {
-            const absolutePath = path.isAbsolute(config.pmoPath)
-              ? config.pmoPath
-              : path.join(currentDir, config.pmoPath);
-            if (fs.existsSync(path.join(absolutePath, 'config.json'))) {
-              return absolutePath;
-            }
-          }
-        } catch {
-          // Ignore parse errors
-        }
-      }
-
-      // Check for direct .pmo folder
-      const dotPmoPath = path.join(currentDir, '.pmo');
-      if (fs.existsSync(path.join(dotPmoPath, 'config.json'))) {
-        return dotPmoPath;
-      }
-
-      // Check for pmo folder with board.md (legacy)
-      const pmoPath = path.join(currentDir, 'pmo');
-      if (fs.existsSync(path.join(pmoPath, 'config.json'))) {
-        return pmoPath;
-      }
-
-      currentDir = path.dirname(currentDir);
-    }
-
-    // Check global config
-    const globalConfigPath = path.join(process.env.HOME || '', '.proletariat', 'config.json');
-    if (fs.existsSync(globalConfigPath)) {
-      try {
-        const config = JSON.parse(fs.readFileSync(globalConfigPath, 'utf-8'));
-        if (config.defaultPMO && fs.existsSync(path.join(config.defaultPMO, 'config.json'))) {
-          return config.defaultPMO;
-        }
-      } catch {
-        // Ignore parse errors
-      }
-    }
-
-    return null;
-  }
 }

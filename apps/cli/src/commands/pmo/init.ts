@@ -8,21 +8,12 @@ import {
   SQLiteStorage,
   getColumnsForTemplate,
   createBoardContent,
+  createSpecFolders,
 } from '../../lib/pmo/index.js';
+import { slugify } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
 
 type StorageType = 'sqlite' | 'git';
-
-interface PMOConfig {
-  storage: StorageType;
-  template: string;
-  boardName: string;
-  columns: string[];
-  created: string;
-  // Git-specific
-  gitRemote?: string;
-  autoSync?: boolean;
-}
 
 export default class PMOInit extends Command {
   static description = 'Initialize PMO (Project Management Office) in current directory or HQ';
@@ -56,9 +47,27 @@ export default class PMOInit extends Command {
     // Determine PMO location
     const pmoPath = this.determinePMOPath();
 
-    // Check if PMO already exists
-    if (fs.existsSync(path.join(pmoPath, '.pmo'))) {
-      this.error('PMO already initialized in this location. Use "prlt pmo status" to check.');
+    // Check if PMO already exists by checking for workspace.db with pmo_projects table
+    const hqRoot = this.findHQRoot();
+    const dbPath = hqRoot
+      ? path.join(hqRoot, '.proletariat', 'workspace.db')
+      : path.join(path.dirname(pmoPath), '.proletariat', 'workspace.db');
+
+    if (fs.existsSync(dbPath)) {
+      try {
+        const Database = require('better-sqlite3');
+        const db = new Database(dbPath);
+        const result = db.prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
+        ).get();
+        db.close();
+
+        if (result !== undefined) {
+          this.error('PMO already initialized in this location. Use "prlt pmo status" to check.');
+        }
+      } catch {
+        // Ignore errors - database might not be initialized yet
+      }
     }
 
     this.log(chalk.blue('🎯 Initializing PMO...\n'));
@@ -97,8 +106,9 @@ export default class PMOInit extends Command {
       return path.join(hqRoot, 'pmo');
     }
 
-    // Otherwise use current directory
-    return path.join(process.cwd(), '.pmo');
+    // Otherwise create a mini-HQ in .pmo directory
+    // This returns the pmo path, but we'll create .proletariat structure too
+    return path.join(process.cwd(), '.pmo', 'pmo');
   }
 
   private findHQRoot(): string | null {
@@ -201,31 +211,125 @@ export default class PMOInit extends Command {
   ): Promise<void> {
     const { storage, template, boardName, columns } = options;
 
-    // Create directories
-    fs.mkdirSync(pmoPath, { recursive: true });
-    fs.mkdirSync(path.join(pmoPath, 'specs'), { recursive: true });
+    // Determine if we're in an HQ or creating standalone
+    const hqRoot = this.findHQRoot();
+    const isStandalone = !hqRoot;
 
-    // Create PMO config
-    const config: PMOConfig = {
-      storage,
-      template,
-      boardName,
-      columns,
-      created: new Date().toISOString(),
-    };
+    if (isStandalone) {
+      // Create mini-HQ structure for standalone PMO
+      // pmoPath is .pmo/pmo, so hqPath is .pmo
+      const standaloneHqPath = path.dirname(pmoPath);
 
-    // Storage-specific setup
-    if (storage === 'sqlite') {
-      await this.setupSQLiteStorage(pmoPath, boardName, columns, template);
-    } else if (storage === 'git') {
-      await this.setupGitStorage(pmoPath, boardName, columns, template, config);
+      // Create .proletariat directory with config and workspace.db
+      const proletariatPath = path.join(standaloneHqPath, '.proletariat');
+      fs.mkdirSync(proletariatPath, { recursive: true });
+
+      // Create HQ config
+      const hqConfig = {
+        type: 'hq',
+        name: 'PMO',
+        created: new Date().toISOString(),
+        version: '2.0.0',
+        hasPMO: true,
+      };
+      fs.writeFileSync(
+        path.join(proletariatPath, 'config.json'),
+        JSON.stringify(hqConfig, null, 2)
+      );
+
+      // Initialize workspace.db with schema
+      const dbPath = path.join(proletariatPath, 'workspace.db');
+      const dbStorage = new SQLiteStorage(dbPath);
+
+      // Create default project with user-provided board name
+      const projectId = slugify(boardName);
+      await dbStorage.createProject({
+        id: projectId,
+        name: boardName,
+        description: `PMO project for ${boardName}`,
+        template: template,
+      });
+
+      dbStorage.setCurrentProject(projectId);
+      await dbStorage.init({
+        name: boardName,
+        columns,
+      });
+      await dbStorage.close();
+
+      this.log(chalk.green('  ✓ Mini-HQ structure created'));
+      this.log(chalk.green('  ✓ workspace.db initialized'));
+    } else {
+      // For HQ PMOs, create project in workspace.db
+      const dbPath = path.join(hqRoot!, '.proletariat', 'workspace.db');
+      const dbStorage = new SQLiteStorage(dbPath);
+
+      // Get HQ name from config
+      const configPath = path.join(hqRoot!, '.proletariat', 'config.json');
+      const hqConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      const hqName = hqConfig.name || 'default';
+
+      // Check if project already exists
+      const existingProject = await dbStorage.getProject(hqName);
+      if (existingProject) {
+        await dbStorage.close();
+        this.error(`Project "${hqName}" already exists in PMO. Use a different name or delete the existing project first.`);
+      }
+
+      // Create project with custom columns for the template
+      // Note: createProject automatically creates default columns, but we need to replace them with template columns
+      const projectId = slugify(boardName);
+      await dbStorage.createProject({
+        id: projectId,
+        name: boardName,
+        description: `Project for ${boardName}`,
+        template: template,
+      });
+
+      // Replace default columns with template columns
+      dbStorage.setCurrentProject(projectId);
+      await dbStorage.init({
+        name: boardName,
+        columns,
+      });
+      await dbStorage.close();
+
+      this.log(chalk.green('  ✓ PMO tables initialized in workspace.db'));
+      this.log(chalk.green(`  ✓ Project "${projectId}" created`));
     }
 
-    // Write config
-    fs.writeFileSync(
-      path.join(pmoPath, 'config.json'),
-      JSON.stringify(config, null, 2)
-    );
+    // Create PMO directory structure (same for both HQ and standalone)
+    fs.mkdirSync(pmoPath, { recursive: true });
+
+    // Create project directory
+    // For HQ, use HQ name from config; for standalone, use slugified board name
+    let projectId = slugify(boardName);
+    if (!isStandalone && hqRoot) {
+      try {
+        const configPath = path.join(hqRoot, '.proletariat', 'config.json');
+        const hqConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        projectId = hqConfig.name || slugify(boardName);
+      } catch {
+        // Fall back to slugified board name if config read fails
+      }
+    }
+
+    const projectPath = path.join(pmoPath, 'projects', projectId);
+    fs.mkdirSync(projectPath, { recursive: true });
+
+    // Create spec folders
+    createSpecFolders(pmoPath, projectId);
+
+    // Create board.md
+    const boardContent = createBoardContent(template);
+    const boardPath = path.join(projectPath, 'board.md');
+    fs.writeFileSync(boardPath, boardContent);
+    this.log(chalk.green('  ✓ board.md created'));
+
+    // For git storage, set up git
+    if (storage === 'git') {
+      await this.setupGitStorage(pmoPath);
+    }
 
     // Create README
     this.createReadme(pmoPath, storage, template);
@@ -236,53 +340,7 @@ export default class PMOInit extends Command {
     this.log(styles.muted(`  Columns: ${columns.join(', ')}`));
   }
 
-  private async setupSQLiteStorage(
-    pmoPath: string,
-    boardName: string,
-    columns: string[],
-    template: string
-  ): Promise<void> {
-    // Create board.md for Obsidian viewing
-    const boardContent = createBoardContent(template);
-    fs.writeFileSync(path.join(pmoPath, 'board.md'), boardContent);
-    this.log(chalk.green('  ✓ board.md created'));
-
-    // Create SQLite database (source of truth)
-    const dbPath = path.join(pmoPath, 'board.db');
-    const storage = new SQLiteStorage(dbPath);
-
-    await storage.init({
-      name: boardName,
-      columns,
-    });
-
-    await storage.close();
-
-    this.log(chalk.green('  ✓ SQLite database created'));
-  }
-
-  private async setupGitStorage(
-    pmoPath: string,
-    boardName: string,
-    columns: string[],
-    template: string,
-    config: PMOConfig
-  ): Promise<void> {
-    // Create board.md (source of truth for git)
-    const boardContent = createBoardContent(template);
-    fs.writeFileSync(path.join(pmoPath, 'board.md'), boardContent);
-    this.log(chalk.green('  ✓ board.md created'));
-
-    // Create SQLite cache
-    const cachePath = path.join(pmoPath, '.cache.db');
-    const cache = new SQLiteStorage(cachePath);
-    await cache.init({
-      name: boardName,
-      columns,
-    });
-    await cache.close();
-    this.log(chalk.green('  ✓ SQLite cache created'));
-
+  private async setupGitStorage(pmoPath: string): Promise<void> {
     // Ask about git init
     const { initGit } = await inquirer.prompt([{
       type: 'list',
@@ -331,7 +389,6 @@ export default class PMOInit extends Command {
           }]);
 
           execSync(`git remote add origin ${remoteUrl}`, { cwd: pmoPath, stdio: 'pipe' });
-          config.gitRemote = remoteUrl;
           this.log(chalk.green(`  ✓ Remote added: ${remoteUrl}`));
         }
       } catch (error) {
@@ -347,9 +404,9 @@ export default class PMOInit extends Command {
 ## Template: ${template}
 
 ## Structure
-- **config.json** - PMO configuration
-${storage === 'git' ? '- **board.md** - Kanban board (Obsidian compatible)\n- **.cache.db** - Local SQLite cache (gitignored)' : '- **board.db** - SQLite database'}
-- **specs/** - Detailed specifications for tickets
+- **projects/{id}/board.md** - Kanban boards (Obsidian compatible, auto-synced with database)
+- **projects/{id}/specs/** - Detailed specifications for tickets (active, complete, future, dropped)
+- Data stored in \`../.proletariat/workspace.db\` (pmo_* tables)
 
 ## Commands
 \`\`\`bash

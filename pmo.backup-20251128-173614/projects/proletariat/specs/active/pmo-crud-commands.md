@@ -46,6 +46,17 @@ The PMO (Project Management Orchestration) system uses a flat entity → action 
 | `prlt board sync`            | Sync between SQLite and board.md       | ✅ Implemented    |
 | `prlt board watch`           | Watch board.md for changes             | ✅ Implemented    |
 
+### Spec Commands
+
+| Command                               | Purpose                                | Status            |
+| ------------------------------------- | -------------------------------------- | ----------------- |
+| `prlt spec`                          | Interactive menu for spec operations   | ✅ Implemented    |
+| `prlt spec create [name]`            | Create new spec document               | ✅ Implemented    |
+| `prlt spec list`                     | List all specs                         | ✅ Implemented    |
+| `prlt spec view [id]`                | View spec and linked tickets           | ✅ Implemented    |
+| `prlt spec generate-tickets [spec]`  | Generate tickets from spec frontmatter | ✅ Implemented    |
+| `prlt spec link [ticket] [spec]`     | Link existing ticket to spec           | ✅ Implemented    |
+
 ### Ticket Commands
 
 | Command                           | Purpose                                | Status            |
@@ -844,6 +855,340 @@ prlt ticket claim  # Interactive mode
 - Sets `assignee` = current user (will execute)
 - Optionally moves to "In Progress"
 - **Human-only command** - agents use assigned work queue instead
+
+---
+
+### `prlt spec`
+**Purpose**: Interactive menu for spec document operations
+
+**Interactive Flow**:
+```
+? 📄 Spec Operations - What would you like to do?
+  ❯ Create new spec
+    List all specs
+    View spec
+    Generate tickets from spec
+    Link ticket to spec
+    ─────────
+    Cancel
+```
+
+**Example**:
+```bash
+prlt spec
+```
+
+**Behavior**:
+- Shows menu of all spec operations
+- Runs selected command
+- Returns to menu on completion
+
+---
+
+### `prlt spec create [name]`
+**Purpose**: Create a new spec document with template
+
+**Arguments**:
+- `name` (optional): Spec name (will prompt if not provided)
+
+**Options**:
+- `--name, -n <name>`: Spec name
+- `--status, -s <status>`: Spec status (active, draft, archived) [default: active]
+- `--project, -p <id>`: Project ID (prompts if multiple exist)
+- `--interactive, -i`: Interactive mode
+
+**Interactive Flow**:
+```
+? Spec name: User Authentication System
+? Spec status:
+  ❯ Active (currently working on)
+    Draft (planning phase)
+    Archived (completed/deprecated)
+
+✅ Created spec "User Authentication System"
+  Project: proletariat
+  Status: active
+  File: pmo/projects/proletariat/specs/active/user-authentication-system.md
+
+Next steps:
+  1. Edit the spec file to add details
+  2. Add ticket definitions in the frontmatter
+  3. Run: prlt spec generate-tickets user-authentication-system
+```
+
+**Example**:
+```bash
+prlt spec create "User Authentication"
+prlt spec create --name "API Design" --status draft
+prlt spec create -i
+```
+
+**Behavior**:
+- Creates markdown file in specs/{status}/ directory
+- Adds YAML frontmatter with metadata
+- Includes template sections (Overview, Goals, Design, Success Criteria)
+- Auto-slugifies filename from spec name
+- Checks for existing spec before creating
+
+**Template Structure**:
+```markdown
+---
+title: User Authentication System
+project: proletariat
+created: 2025-11-28T...
+status: design
+tickets:
+  - id: AUTH-001
+    title: Design auth flow
+    description: Plan OAuth2 implementation
+    column: Ready
+    priority: high
+  - id: AUTH-002
+    title: Implement login endpoint
+    column: Ready
+---
+
+# User Authentication System
+
+## Overview
+[Describe what this spec covers and why it's important]
+
+## Goals
+- [ ] Goal 1
+- [ ] Goal 2
+
+## Design
+[Describe the approach, architecture, or implementation plan]
+
+## Tickets
+This spec defines tickets (see frontmatter above).
+Use `prlt spec generate-tickets user-authentication-system` to create them.
+
+## Success Criteria
+- [ ] Criterion 1
+```
+
+---
+
+### `prlt spec list`
+**Purpose**: List all spec documents across all statuses
+
+**Options**:
+- `--status, -s <status>`: Filter by status (active, draft, archived)
+- `--project, -p <id>`: Project ID (prompts if multiple exist)
+
+**Example**:
+```bash
+prlt spec list
+prlt spec list --status active
+prlt spec list --project mobile-app
+```
+
+**Output**:
+```
+📄 Specs - proletariat
+═══════════════════════════════════════════════════
+
+🟢 ACTIVE (3)
+  user-authentication-system: User Authentication System [2 tickets]
+     pmo/projects/proletariat/specs/active/user-authentication-system.md
+  api-design: API Design [5 tickets]
+     pmo/projects/proletariat/specs/active/api-design.md
+  payment-integration: Payment Integration
+     pmo/projects/proletariat/specs/active/payment-integration.md
+
+🟡 DRAFT (1)
+  mobile-redesign: Mobile App Redesign
+     pmo/projects/proletariat/specs/draft/mobile-redesign.md
+
+═══════════════════════════════════════════════════
+Total: 4 specs
+
+Commands:
+  prlt spec create           Create a new spec
+  prlt spec view <id>        View spec details
+  prlt spec generate-tickets Generate tickets from spec
+```
+
+**Behavior**:
+- Groups specs by status (active, draft, archived)
+- Shows ticket count if defined in frontmatter
+- Displays relative file paths
+- Supports filtering by status or project
+
+---
+
+### `prlt spec view [id]`
+**Purpose**: View spec document and its linked tickets
+
+**Arguments**:
+- `id` (optional): Spec ID (filename without .md) - prompts if not provided
+
+**Options**:
+- `--spec, -s <id>`: Spec ID
+- `--project, -p <id>`: Project ID (prompts if multiple exist)
+- `--full, -f`: Show full spec content
+
+**Example**:
+```bash
+prlt spec view user-authentication-system
+prlt spec view --spec api-design --full
+```
+
+**Output** (without --full):
+```
+📄 Spec: User Authentication System
+═══════════════════════════════════════════════════
+ID: user-authentication-system
+Project: proletariat
+Status: active
+Created: 11/28/2025
+File: pmo/projects/proletariat/specs/active/user-authentication-system.md
+
+🎫 Linked Tickets (2):
+  AUTH-001: Design auth flow [Ready]
+  AUTH-002: Implement login endpoint [In Progress]
+
+📋 Ticket Definitions in Spec (2):
+  AUTH-001: Design auth flow [Ready]
+  AUTH-002: Implement login endpoint [Ready]
+
+Generate these tickets:
+  prlt spec generate-tickets user-authentication-system
+
+═══════════════════════════════════════════════════
+To view full content, add --full flag
+```
+
+**Output** (with --full):
+```
+[Same header as above]
+
+═══════════════════════════════════════════════════
+
+📝 Content:
+
+[Full markdown content of the spec file]
+```
+
+**Behavior**:
+- Shows spec metadata from frontmatter
+- Lists tickets already linked to this spec (from database)
+- Lists ticket definitions in frontmatter (not yet created)
+- Optionally displays full spec content with --full flag
+
+---
+
+### `prlt spec generate-tickets [spec]`
+**Purpose**: Generate tickets from spec frontmatter definitions
+
+**Arguments**:
+- `spec` (optional): Spec ID - prompts if not provided
+
+**Options**:
+- `--spec, -s <id>`: Spec ID
+- `--project, -p <id>`: Project ID (prompts if multiple exist)
+- `--dry-run`: Show what would be created without creating tickets
+
+**Example**:
+```bash
+prlt spec generate-tickets user-authentication-system
+prlt spec generate-tickets --dry-run
+```
+
+**Output**:
+```
+📄 Generate Tickets from Spec: user-authentication-system
+Project: proletariat
+═══════════════════════════════════════════════════
+
+Found 2 tickets to create:
+
+  AUTH-001: Design auth flow [high] {BUILD}
+     Column: Ready
+     Plan OAuth2 implementation approach
+
+  AUTH-002: Implement login endpoint
+     Column: Ready
+
+? Create these tickets? (Y/n) Yes
+
+✅ Created 2 tickets from spec "user-authentication-system"
+
+View the board:
+  prlt board
+  prlt ticket list
+```
+
+**Behavior**:
+- Parses YAML frontmatter `tickets:` section
+- Validates column names against project board
+- Shows preview of tickets to create
+- Requires confirmation unless --force
+- Creates tickets with spec linkage (sets `specs: [spec-id]`)
+- Auto-exports to board.md
+- Supports dry-run mode
+
+**Frontmatter Format**:
+```yaml
+---
+tickets:
+  - id: AUTH-001
+    title: Design auth flow
+    description: Plan OAuth2 implementation
+    column: Ready
+    priority: high
+    category: BUILD
+  - id: AUTH-002
+    title: Implement login endpoint
+    column: Ready
+---
+```
+
+---
+
+### `prlt spec link [ticket] [spec]`
+**Purpose**: Link an existing ticket to a spec document
+
+**Arguments**:
+- `ticket` (optional): Ticket ID - prompts if not provided
+- `spec` (optional): Spec ID - prompts if not provided
+
+**Options**:
+- `--ticket, -t <id>`: Ticket ID
+- `--spec, -s <id>`: Spec ID
+- `--project, -p <id>`: Project ID (prompts if multiple exist)
+
+**Example**:
+```bash
+prlt spec link AUTH-003 user-authentication-system
+prlt spec link --ticket AUTH-003 --spec api-design
+prlt spec link  # Interactive mode
+```
+
+**Interactive Flow** (no arguments):
+```
+? Select ticket to link:
+  ❯ AUTH-003: Add session management (Ready)
+    AUTH-004: Implement logout (Ready)
+
+? Select spec to link:
+  ❯ user-authentication-system (active)
+    api-design (active)
+    payment-integration (draft)
+
+✅ Linked ticket "AUTH-003" to spec "user-authentication-system"
+
+View ticket:
+  prlt ticket view AUTH-003
+```
+
+**Behavior**:
+- Adds spec ID to ticket's `specs` array
+- Supports linking one ticket to multiple specs
+- Checks if already linked (warns and skips)
+- Validates that both ticket and spec exist
+- Auto-exports to board.md after linking
 
 ---
 
