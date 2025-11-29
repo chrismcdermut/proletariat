@@ -1,3 +1,21 @@
+---
+title: PMO Command Specifications
+created: 2024-11-28
+tickets:
+  - id: PMO-CRUD-001
+    title: Implement prlt ticket list command
+    description: Create command to list all tickets with filtering by column, priority, category, and assignee
+    column: Ready
+    priority: HIGH
+    category: feature
+  - id: PMO-CRUD-002
+    title: Implement prlt ticket view command
+    description: Create command to view detailed ticket information including metadata, subtasks, and linked specs
+    column: Ready
+    priority: HIGH
+    category: feature
+---
+
 # PMO Command Specifications
 
 > **Note**: This spec describes CLI command interfaces and behaviors.
@@ -326,7 +344,7 @@ Summary: 6 tickets | Backlog: 2 | In Progress: 1 | Done: 3
 
   ~ 2 ticket(s) to update:
     ~ TICK-001: Add login screen
-        column: Backlog → In Progress
+        column: Ready → In Progress
 
   - 0 ticket(s) to remove:
 

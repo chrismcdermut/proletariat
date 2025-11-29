@@ -42,6 +42,7 @@ const T = {
   ticket_specs: 'pmo_ticket_specs',
   ticket_assignments: 'pmo_ticket_assignments',
   cache_metadata: 'pmo_cache_metadata',
+  settings: 'pmo_settings',
 } as const
 
 // =============================================================================
@@ -62,11 +63,8 @@ export class SQLiteStorage implements PMOStorage {
     this.db = new Database(dbPath)
     this.db.pragma('foreign_keys = ON')
 
-    // Ensure PMO tables exist (migration for older workspaces)
+    // Ensure PMO tables exist
     this.ensurePMOTables()
-
-    // Run migration for multi-project support
-    this.migrateToMultiProject()
   }
 
   /**
@@ -130,10 +128,12 @@ export class SQLiteStorage implements PMOStorage {
         priority TEXT,
         category TEXT,
         description TEXT,
+        spec_id TEXT,
         epic_id TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (project_id, column_id) REFERENCES ${T.columns}(project_id, id) ON DELETE CASCADE
+        FOREIGN KEY (project_id, column_id) REFERENCES ${T.columns}(project_id, id) ON DELETE CASCADE,
+        FOREIGN KEY (spec_id) REFERENCES ${T.specs}(id) ON DELETE SET NULL
       );
 
       -- Epics (optional grouping within a project)
@@ -192,6 +192,12 @@ export class SQLiteStorage implements PMOStorage {
 
       -- Cache metadata (for board.md sync)
       CREATE TABLE IF NOT EXISTS ${T.cache_metadata} (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+
+      -- PMO Settings (configuration like pmo_path, template, etc)
+      CREATE TABLE IF NOT EXISTS ${T.settings} (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
@@ -730,11 +736,14 @@ export class SQLiteStorage implements PMOStorage {
 
     const now = Date.now()
 
+    // Get spec_id (take first spec if multiple provided, for backward compat)
+    const specId = ticket.specs && ticket.specs.length > 0 ? ticket.specs[0] : null
+
     // Insert ticket
     this.db.prepare(`
-      INSERT INTO ${T.tickets} (id, project_id, title, column_id, position, priority, category, description, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, projectId, title, columnId, position, ticket.priority || null, ticket.category || null, ticket.description || null, now, now)
+      INSERT INTO ${T.tickets} (id, project_id, title, column_id, position, priority, category, description, spec_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, projectId, title, columnId, position, ticket.priority || null, ticket.category || null, ticket.description || null, specId, now, now)
 
     // Insert subtasks
     if (ticket.subtasks && ticket.subtasks.length > 0) {
@@ -756,17 +765,6 @@ export class SQLiteStorage implements PMOStorage {
       for (const [key, value] of Object.entries(ticket.metadata)) {
         insertMeta.run(id, key, value)
       }
-    }
-
-    // Insert spec links
-    if (ticket.specs && ticket.specs.length > 0) {
-      const insertSpec = this.db.prepare(`
-        INSERT OR IGNORE INTO ${T.ticket_specs} (ticket_id, spec_id)
-        VALUES (?, ?)
-      `)
-      ticket.specs.forEach((specId) => {
-        insertSpec.run(id, specId)
-      })
     }
 
     this.updateBoardTimestamp()
@@ -981,6 +979,7 @@ export class SQLiteStorage implements PMOStorage {
       priority: string | null
       category: string | null
       description: string | null
+      spec_id: string | null
       created_at: string
       updated_at: string
     }>
@@ -1417,6 +1416,7 @@ export class SQLiteStorage implements PMOStorage {
       priority: string | null
       category: string | null
       description: string | null
+      spec_id: string | null
       created_at: string
       updated_at: string
     }>
@@ -1442,6 +1442,7 @@ export class SQLiteStorage implements PMOStorage {
           priority: string | null
           category: string | null
           description: string | null
+          spec_id: string | null
           created_at: string
           updated_at: string
         }
@@ -1461,6 +1462,7 @@ export class SQLiteStorage implements PMOStorage {
     priority: string | null
     category: string | null
     description: string | null
+    spec_id: string | null
     created_at: string
     updated_at: string
   }): Promise<Ticket> {
@@ -1482,10 +1484,16 @@ export class SQLiteStorage implements PMOStorage {
       metadata[m.key] = m.value
     }
 
-    // Get specs
-    const specRows = this.db
-      .prepare(`SELECT spec_id FROM ${T.ticket_specs} WHERE ticket_id = ?`)
-      .all(row.id) as Array<{ spec_id: string }>
+    // Get spec path from spec_id
+    let specPath: string | undefined
+    if (row.spec_id) {
+      const specRow = this.db
+        .prepare(`SELECT path FROM ${T.specs} WHERE id = ?`)
+        .get(row.spec_id) as { path: string } | undefined
+      if (specRow) {
+        specPath = specRow.path
+      }
+    }
 
     return {
       id: row.id,
@@ -1495,7 +1503,7 @@ export class SQLiteStorage implements PMOStorage {
       priority: row.priority || undefined,
       category: row.category || undefined,
       description: row.description || undefined,
-      specs: specRows.map((s) => s.spec_id),
+      specs: specPath ? [specPath] : [],
       subtasks: subtasks.map((st) => ({
         id: st.id,
         title: st.title,

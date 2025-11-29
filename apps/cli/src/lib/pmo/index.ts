@@ -22,6 +22,7 @@ export {
   withAutoExport,
   autoSyncFromBoard,
   getBoardPath,
+  getWorkspaceDbPath,
 } from './sync-manager.js';
 export {
   startWatcher,

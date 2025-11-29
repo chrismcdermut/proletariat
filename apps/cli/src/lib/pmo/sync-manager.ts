@@ -211,10 +211,22 @@ export async function autoExportToBoard(
 
 /**
  * Get the workspace.db path from a PMO path
- * PMO is at <workspace>/pmo, workspace.db is at <workspace>/.proletariat/workspace.db
+ * PMO can be at <workspace>/pmo or <workspace>/repos/<repo>/pmo
+ * workspace.db is always at <workspace>/.proletariat/workspace.db
  */
 export function getWorkspaceDbPath(pmoPath: string): string {
-  // PMO is typically at <workspace>/pmo
+  // Search upward from PMO path to find .proletariat/workspace.db
+  let currentDir = path.dirname(pmoPath); // Start from parent of pmo/
+
+  while (currentDir !== '/') {
+    const dbPath = path.join(currentDir, '.proletariat', 'workspace.db');
+    if (fs.existsSync(dbPath)) {
+      return dbPath;
+    }
+    currentDir = path.dirname(currentDir);
+  }
+
+  // Fallback to old behavior if not found
   const workspacePath = path.dirname(pmoPath);
   return path.join(workspacePath, '.proletariat', 'workspace.db');
 }

@@ -25,8 +25,8 @@ export default class SpecList extends Command {
   static flags = {
     status: Flags.string({
       char: 's',
-      description: 'Filter by status (active, draft, archived)',
-      options: ['active', 'draft', 'archived'],
+      description: 'Filter by status (active, complete, future, dropped)',
+      options: ['active', 'complete', 'future', 'dropped'],
     }),
     project: Flags.string({
       char: 'p',
@@ -59,7 +59,7 @@ export default class SpecList extends Command {
 
     // Collect all specs
     const specs: SpecFile[] = [];
-    const statuses = flags.status ? [flags.status] : ['active', 'draft', 'archived'];
+    const statuses = flags.status ? [flags.status] : ['active', 'complete', 'future', 'dropped'];
 
     for (const status of statuses) {
       const statusPath = path.join(specsBasePath, status);
@@ -87,11 +87,11 @@ export default class SpecList extends Command {
     this.log(styles.title(`\n📄 Specs - ${projectName}`));
     this.log(styles.muted('═'.repeat(60)));
 
-    for (const status of ['active', 'draft', 'archived']) {
+    for (const status of ['active', 'complete', 'future', 'dropped']) {
       const statusSpecs = specs.filter(s => s.status === status);
       if (statusSpecs.length === 0) continue;
 
-      const statusEmoji = status === 'active' ? '🟢' : status === 'draft' ? '🟡' : '⚪';
+      const statusEmoji = status === 'active' ? '🟢' : status === 'complete' ? '✅' : status === 'future' ? '🔮' : '🗑️';
       this.log(styles.emphasis(`\n${statusEmoji} ${status.toUpperCase()} (${statusSpecs.length})`));
 
       for (const spec of statusSpecs) {

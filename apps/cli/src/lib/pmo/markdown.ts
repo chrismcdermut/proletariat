@@ -187,8 +187,12 @@ export function generateBoardMarkdown(board: Board): string {
         lines.push(`      **Category:** ${ticket.category}`)
       }
       if (ticket.specs && ticket.specs.length > 0) {
-        const specLinks = ticket.specs.map((s) => `[[${s}]]`).join(', ')
-        lines.push(`      **Specs:** ${specLinks}`)
+        for (const specPath of ticket.specs) {
+          // Extract spec ID from path (e.g., "projects/.../pmo-work-commands.md" -> "pmo-work-commands")
+          const specId = specPath.split('/').pop()?.replace('.md', '') || specPath
+          // Use wikilink alias syntax: [[path|display-text]]
+          lines.push(`      **Spec:** [[${specPath}|${specId}]]`)
+        }
       }
       for (const [key, value] of Object.entries(ticket.metadata)) {
         lines.push(`      **${key}:** ${value}`)

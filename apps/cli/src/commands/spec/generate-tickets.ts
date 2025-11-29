@@ -124,21 +124,103 @@ export default class SpecGenerateTickets extends Command {
     }
 
     // Confirm creation
-    const { confirm } = await inquirer.prompt([{
-      type: 'confirm',
-      name: 'confirm',
+    const { action } = await inquirer.prompt([{
+      type: 'list',
+      name: 'action',
       message: 'Create these tickets?',
-      default: true,
+      choices: [
+        { name: 'Yes, create tickets', value: 'create' },
+        { name: 'Cancel', value: 'cancel' },
+      ],
+      default: 'create',
     }]);
 
-    if (!confirm) {
+    if (action === 'cancel') {
       this.log(styles.warning('Cancelled.'));
       return;
     }
 
-    // Create tickets
-    const createdTickets = [];
+    // Check for existing tickets
+    const existingTickets = [];
+    const newTickets = [];
     for (const ticketData of tickets) {
+      if (ticketData.id) {
+        try {
+          const existing = await storage.getTicket(ticketData.id);
+          if (existing) {
+            existingTickets.push({ data: ticketData, existing });
+          } else {
+            // Ticket doesn't exist (getTicket returned null)
+            newTickets.push(ticketData);
+          }
+        } catch {
+          // Ticket doesn't exist (error thrown)
+          newTickets.push(ticketData);
+        }
+      } else {
+        // No ID, will auto-generate
+        newTickets.push(ticketData);
+      }
+    }
+
+    // Handle existing tickets
+    let shouldUpdateExisting = false;
+    if (existingTickets.length > 0) {
+      this.log(styles.warning(`\n⚠️  ${existingTickets.length} ticket${existingTickets.length === 1 ? '' : 's'} already exist${existingTickets.length === 1 ? 's' : ''}:`));
+      for (const { data, existing } of existingTickets) {
+        this.log(styles.muted(`  ${data.id}: ${existing?.title || 'Unknown'} (${existing?.column || 'Unknown'})`));
+      }
+
+      const { existingAction } = await inquirer.prompt([{
+        type: 'list',
+        name: 'existingAction',
+        message: 'How should existing tickets be handled?',
+        choices: [
+          { name: 'Skip existing tickets (create only new ones)', value: 'skip' },
+          { name: 'Update existing tickets from spec', value: 'update' },
+          { name: 'Cancel', value: 'cancel' },
+        ],
+        default: 'skip',
+      }]);
+
+      if (existingAction === 'cancel') {
+        this.log(styles.warning('Cancelled.'));
+        return;
+      }
+
+      shouldUpdateExisting = existingAction === 'update';
+    }
+
+    // Ensure spec exists in database (create if needed)
+    try {
+      const existingSpec = await storage.getSpec(specId!);
+      if (!existingSpec) {
+        // Spec doesn't exist, create it
+        const relativePath = path.relative(pmoPath, specPath!);
+        this.log(styles.muted(`  Creating spec: ${specId} at ${relativePath}`));
+        await storage.createSpec({
+          id: specId!,
+          path: relativePath,
+        });
+      }
+    } catch (error) {
+      // Spec doesn't exist, create it
+      const relativePath = path.relative(pmoPath, specPath!);
+      this.log(styles.muted(`  Creating spec: ${specId} at ${relativePath}`));
+      try {
+        await storage.createSpec({
+          id: specId!,
+          path: relativePath,
+        });
+      } catch (createError) {
+        this.warn(`Failed to create spec "${specId}": ${createError}`);
+        throw createError;
+      }
+    }
+
+    // Create new tickets
+    const createdTickets = [];
+    for (const ticketData of newTickets) {
       try {
         const ticket = await storage.createTicket({
           id: ticketData.id,
@@ -155,12 +237,43 @@ export default class SpecGenerateTickets extends Command {
       }
     }
 
+    // Update existing tickets if requested
+    const updatedTickets = [];
+    if (shouldUpdateExisting) {
+      for (const { data } of existingTickets) {
+        try {
+          const ticket = await storage.updateTicket(data.id!, {
+            title: data.title,
+            column: data.column,
+            priority: data.priority,
+            category: data.category,
+            description: data.description,
+          });
+          updatedTickets.push(ticket);
+        } catch (error) {
+          this.warn(`Failed to update ticket "${data.id}": ${error}`);
+        }
+      }
+    }
+
     // Auto-export to board.md
     await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
 
     await storage.close();
 
-    this.log(styles.success(`\n✅ Created ${createdTickets.length} ticket${createdTickets.length === 1 ? '' : 's'} from spec "${specId}"`));
+    // Build summary message
+    const summary = [];
+    if (createdTickets.length > 0) {
+      summary.push(`Created ${createdTickets.length} ticket${createdTickets.length === 1 ? '' : 's'}`);
+    }
+    if (updatedTickets.length > 0) {
+      summary.push(`Updated ${updatedTickets.length} ticket${updatedTickets.length === 1 ? '' : 's'}`);
+    }
+    if (existingTickets.length > 0 && !shouldUpdateExisting) {
+      summary.push(`Skipped ${existingTickets.length} existing ticket${existingTickets.length === 1 ? '' : 's'}`);
+    }
+
+    this.log(styles.success(`\n✅ ${summary.join(', ')} from spec "${specId}"`));
     this.log(styles.muted(`\nView the board:`));
     this.log(styles.muted(`  prlt board`));
     this.log(styles.muted(`  prlt ticket list`));
@@ -215,7 +328,8 @@ export default class SpecGenerateTickets extends Command {
     const frontmatter = frontmatterMatch[1];
 
     // Find tickets section in frontmatter
-    const ticketsMatch = frontmatter.match(/^tickets:([\s\S]*?)(?=\n\w|$)/m);
+    // Match from "tickets:" to end (greedy match works since frontmatter is already extracted)
+    const ticketsMatch = frontmatter.match(/^tickets:([\s\S]+)$/m);
     if (!ticketsMatch) {
       return tickets;
     }

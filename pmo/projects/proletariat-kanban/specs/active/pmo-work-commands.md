@@ -1,3 +1,57 @@
+---
+title: PMO Work Commands Specification
+created: 2024-11-28
+tickets:
+  - id: WORK-001
+    title: Implement prlt ticket assign command
+    description: Create interactive command to assign tickets to humans or agents with dropdown selection
+    column: Ready
+    priority: HIGH
+    category: feature
+  - id: WORK-002
+    title: Implement prlt ticket own command
+    description: Create command for humans to take ownership/responsibility of tickets
+    column: Ready
+    priority: MEDIUM
+    category: feature
+  - id: WORK-003
+    title: Implement prlt ticket claim command
+    description: Create command for humans to claim tickets (own + execute)
+    column: Ready
+    priority: MEDIUM
+    category: feature
+  - id: WORK-004
+    title: Add owner and assignee columns to pmo_tickets table
+    description: Migrate from pmo_ticket_assignments table to simple owner/assignee columns
+    column: Ready
+    priority: HIGH
+    category: backend
+  - id: WORK-005
+    title: Implement backend assignTicket method
+    description: Add storage method to set ticket assignee with optional owner
+    column: Ready
+    priority: HIGH
+    category: backend
+  - id: WORK-006
+    title: Implement backend ownTicket method
+    description: Add storage method to set ticket owner
+    column: Ready
+    priority: MEDIUM
+    category: backend
+  - id: WORK-007
+    title: Implement backend claimTicket method
+    description: Add storage method to set both owner and assignee
+    column: Ready
+    priority: MEDIUM
+    category: backend
+  - id: WORK-008
+    title: Add getAssignedTickets to Agent SDK
+    description: Implement agent polling for tickets assigned to them
+    column: Ready
+    priority: MEDIUM
+    category: agent-sdk
+---
+
 # PMO Work Commands Specification
 
 ## Purpose

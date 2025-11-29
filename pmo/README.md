@@ -1,6 +1,6 @@
 # PMO (Project Management Office)
 
-## Storage: sqlite
+## Storage: SQLite
 ## Template: founder
 
 ## Structure
@@ -10,9 +10,6 @@
 
 ## Commands
 ```bash
-# View board
-prlt board view
-
 # Create ticket
 prlt ticket create --title "My ticket" --column "Backlog"
 
@@ -27,7 +24,14 @@ prlt ticket move <ticket-id> "In Progress"
 # Update ticket
 prlt ticket update <ticket-id> --priority HIGH
 
-
+# View/manage specs
+prlt spec list
+prlt spec create
+prlt spec view <spec-id>
+prlt spec generate-tickets <spec-id>
 ```
 
-
+## Obsidian Setup
+1. Open this folder as an Obsidian vault
+2. Install the "Kanban" plugin
+3. Open board.md and switch to Kanban view
