@@ -66,8 +66,8 @@ export function parseBoard(markdown: string, projectId: string = 'default'): Boa
       continue
     }
 
-    // Ticket: - [ ] [[ticket-id]] or - [ ] Title
-    const ticketMatch = line.match(/^- \[[ x]\] (?:\[\[([^\]|]+)(?:\|[^\]]+)?\]\]|(.+))$/)
+    // Ticket: - [ ] **ID** [[ID]] Title or - [ ] Title
+    const ticketMatch = line.match(/^- \[[ x]\] (?:\*\*([a-z0-9-]+)\*\* \[\[\1\]\] )?(.+)$/)
     if (ticketMatch && currentColumn) {
       // Save previous ticket's description
       if (currentTicket && descriptionLines.length > 0) {
@@ -75,9 +75,8 @@ export function parseBoard(markdown: string, projectId: string = 'default'): Boa
         descriptionLines = []
       }
 
-      const idOrTitle = ticketMatch[1] || ticketMatch[2]
-      const id = ticketMatch[1] ? slugify(ticketMatch[1]) : slugify(idOrTitle)
-      const title = ticketMatch[1] || ticketMatch[2]
+      const id = ticketMatch[1] || slugify(ticketMatch[2])
+      const title = ticketMatch[2]
 
       currentTicket = {
         id,
@@ -177,8 +176,8 @@ export function generateBoardMarkdown(board: Board): string {
     lines.push('')
 
     for (const ticket of column.tickets) {
-      // Ticket header with wikilink and title
-      lines.push(`- [ ] [[${ticket.id}]] ${ticket.title}`)
+      // Ticket header with bold ID, wikilink, and title
+      lines.push(`- [ ] **${ticket.id}** [[${ticket.id}]] ${ticket.title}`)
 
       // Metadata
       if (ticket.priority) {

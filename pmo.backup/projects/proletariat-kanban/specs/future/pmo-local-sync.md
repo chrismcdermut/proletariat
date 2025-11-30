@@ -38,6 +38,16 @@ tickets:
     description: Manual command to sync board.md changes (fallback if hook doesn't run)
     priority: MEDIUM
     category: commands
+  - id: SYNC-008
+    title: Implement spec file location sync
+    description: Auto-sync spec status with file location (active/ vs complete/ vs draft/)
+    priority: LOW
+    category: sync
+  - id: SYNC-009
+    title: Add spec status detection in pre-hook
+    description: Detect when spec file is moved manually and update database status
+    priority: LOW
+    category: sync
 ---
 
 # PMO Local Sync
@@ -191,6 +201,139 @@ async function resolveConflicts(conflicts) {
 - [ ] Field-by-field resolution works
 - [ ] Sync timestamps tracked correctly
 - [ ] No data loss from overwrites
+
+## Spec Status Syncing
+
+### Overview
+The database tracks spec status (`active`, `complete`, `draft`, `dropped`) in the `pmo_specs.status` field, while the filesystem organizes specs by folder (`specs/active/`, `specs/complete/`, `specs/draft/`, `specs/dropped/`). These two representations should stay in sync.
+
+### File Location → Status Mapping
+
+```
+specs/active/     → status = 'active'
+specs/complete/   → status = 'complete'
+specs/draft/      → status = 'draft'
+specs/dropped/    → status = 'dropped'
+specs/future/     → status = 'future'
+```
+
+### Sync Approach
+
+**Option A: Command-Driven (Recommended)**
+- Use `prlt spec archive` and `prlt spec activate` commands
+- Commands move file AND update database atomically
+- User explicitly controls status transitions
+- No automatic sync needed
+
+**Option B: Auto-Sync in Pre-Hook (Future)**
+- Pre-hook detects when spec file location doesn't match database status
+- Updates database status to match file location
+- Warns user about manual file moves
+- Allows manual file organization to work
+
+### Implementation (Option B)
+
+```typescript
+// apps/cli/src/hooks/init/auto-sync-specs.ts
+const hook: Hook<'init'> = async function (opts) {
+  const pmoPath = findPMO()
+  if (!pmoPath) return
+
+  // Get all specs from database
+  const specs = storage.getAllSpecs()
+
+  for (const spec of specs) {
+    // Detect file location
+    const filePath = spec.file_path
+    const expectedStatus = getStatusFromPath(filePath)
+
+    // If mismatch, update database
+    if (spec.status !== expectedStatus) {
+      this.warn(`Spec "${spec.id}" moved: ${spec.status} → ${expectedStatus}`)
+      storage.updateSpec(spec.id, { status: expectedStatus })
+    }
+  }
+}
+
+function getStatusFromPath(filePath: string): SpecStatus {
+  if (filePath.includes('/active/')) return 'active'
+  if (filePath.includes('/complete/')) return 'complete'
+  if (filePath.includes('/draft/')) return 'draft'
+  if (filePath.includes('/dropped/')) return 'dropped'
+  if (filePath.includes('/future/')) return 'future'
+  return 'active' // default
+}
+```
+
+### Validation Rules
+
+**Moving to `complete/`:**
+- Should verify all linked tickets are in "Merged" or "Published" columns
+- Warn if tickets incomplete (but allow with confirmation)
+
+**Moving from `complete/` back to `active/`:**
+- Warn user that spec was previously completed
+- Ask for confirmation to reactivate
+
+### Database Schema
+
+The `pmo_specs` table already supports this:
+```sql
+CREATE TABLE pmo_specs (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  status TEXT CHECK(status IN ('active', 'complete', 'draft', 'dropped', 'future')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  FOREIGN KEY (project_id) REFERENCES pmo_projects(id)
+);
+```
+
+### User Experience
+
+**With Commands (Recommended)**:
+```bash
+# Archive a completed spec
+prlt spec archive pmo-schema-refactor
+# ✅ Archived spec "pmo-schema-refactor"
+#   Moved: specs/active/pmo-schema-refactor.md → specs/complete/pmo-schema-refactor.md
+#   Status: active → complete
+
+# Reactivate a spec
+prlt spec activate pmo-schema-refactor
+# ⚠️  This spec was previously completed (12/12 tickets done)
+# ? Reactivate this spec? (y/N)
+```
+
+**With Manual File Move + Auto-Sync (Future)**:
+```bash
+# User manually moves file
+mv specs/active/my-spec.md specs/complete/
+
+# Next command auto-syncs
+prlt ticket list
+# ⚠️  Spec "my-spec" moved: active → complete
+# Database status updated to match file location
+```
+
+### Priority
+
+Spec status syncing is **LOW priority** because:
+1. Users can manually move files and update database with SQL (works today)
+2. `prlt spec archive` and `prlt spec activate` commands provide better UX
+3. Auto-sync adds complexity for limited benefit
+4. Focus should be on ticket syncing first (higher impact)
+
+### Related Commands
+
+See [pmo-spec-commands.md](../active/pmo-spec-commands.md) for:
+- `prlt spec archive [spec]` - Move to complete/ folder
+- `prlt spec activate [spec]` - Move to active/ folder
+- `prlt spec progress [spec]` - Check completion status
+
+---
 
 ## Future Enhancements (Out of Scope)
 

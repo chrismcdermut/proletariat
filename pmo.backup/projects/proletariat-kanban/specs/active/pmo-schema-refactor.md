@@ -3,62 +3,62 @@ title: PMO Schema Refactor - Normalize Board View & Add Sync Support
 created: 2024-11-30T00:30:00.000Z
 status: design
 tickets:
-  - id: REFACTOR-001
+  - id: pmo-schema-refactor-001
     title: Remove epic_id and pmo_epics table
     description: Epics are replaced by specs - remove epic concept entirely
     priority: HIGH
     category: schema
-  - id: REFACTOR-002
+  - id: pmo-schema-refactor-002
     title: Add status field to pmo_tickets
     description: Add lifecycle status separate from column position (backlog, ready, in_progress, blocked, review, done, cancelled)
     priority: HIGH
     category: schema
-  - id: REFACTOR-003
+  - id: pmo-schema-refactor-003
     title: Add owner and assignee fields to pmo_tickets
     description: Add owner (human responsible) and assignee (executor - human or agent) fields
     priority: HIGH
     category: schema
-  - id: REFACTOR-004
+  - id: pmo-schema-refactor-004
     title: Create pmo_board_tickets table
     description: Normalize board view state into separate table (column_id, position)
     priority: HIGH
     category: schema
-  - id: REFACTOR-005
+  - id: pmo-schema-refactor-005
     title: Add sync tracking fields
     description: Add last_synced_from_spec and last_synced_from_board timestamps for conflict detection
     priority: HIGH
     category: schema
-  - id: REFACTOR-006
+  - id: pmo-schema-refactor-006
     title: Update Ticket TypeScript interface
     description: Update types.ts to match new schema (remove epicId/column/position, add status/owner/assignee/sync fields)
     priority: HIGH
     category: types
-  - id: REFACTOR-007
+  - id: pmo-schema-refactor-007
     title: Create BoardTicket interface
     description: Add new interface for board view state
     priority: MEDIUM
     category: types
-  - id: REFACTOR-008
+  - id: pmo-schema-refactor-008
     title: Refactor storage-sqlite.ts schema creation
     description: Update ensurePMOTables() with new schema
     priority: HIGH
     category: storage
-  - id: REFACTOR-009
+  - id: pmo-schema-refactor-009
     title: Update createTicket to use new schema
     description: Create ticket in pmo_tickets, then create board position in pmo_board_tickets
     priority: HIGH
     category: storage
-  - id: REFACTOR-010
+  - id: pmo-schema-refactor-010
     title: Update getBoard to join pmo_board_tickets
     description: Query must join tickets with board_tickets to get column/position
     priority: HIGH
     category: storage
-  - id: REFACTOR-011
+  - id: pmo-schema-refactor-011
     title: Add updateBoardPosition method
     description: New method to update ticket position on board without touching ticket data
     priority: MEDIUM
     category: storage
-  - id: REFACTOR-012
+  - id: pmo-schema-refactor-012
     title: Test ticket creation flow
     description: Verify prlt spec generate-tickets works with new schema
     priority: HIGH
