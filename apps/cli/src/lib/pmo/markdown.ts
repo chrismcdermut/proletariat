@@ -66,8 +66,8 @@ export function parseBoard(markdown: string, projectId: string = 'default'): Boa
       continue
     }
 
-    // Ticket: - [ ] [[ticket-id]] or - [ ] Title
-    const ticketMatch = line.match(/^- \[[ x]\] (?:\[\[([^\]|]+)(?:\|[^\]]+)?\]\]|(.+))$/)
+    // Ticket: - [ ] **ID** [[ID]] Title or - [ ] Title
+    const ticketMatch = line.match(/^- \[[ x]\] (?:\*\*([a-z0-9-]+)\*\* \[\[\1\]\] )?(.+)$/)
     if (ticketMatch && currentColumn) {
       // Save previous ticket's description
       if (currentTicket && descriptionLines.length > 0) {
@@ -75,13 +75,13 @@ export function parseBoard(markdown: string, projectId: string = 'default'): Boa
         descriptionLines = []
       }
 
-      const idOrTitle = ticketMatch[1] || ticketMatch[2]
-      const id = ticketMatch[1] ? slugify(ticketMatch[1]) : slugify(idOrTitle)
-      const title = ticketMatch[1] || ticketMatch[2]
+      const id = ticketMatch[1] || slugify(ticketMatch[2])
+      const title = ticketMatch[2]
 
       currentTicket = {
         id,
         title: title.trim(),
+        status: 'backlog', // Default status when parsing from board
         column: currentColumn.name,
         position: currentColumn.tickets.length,
         specs: [],
@@ -176,8 +176,8 @@ export function generateBoardMarkdown(board: Board): string {
     lines.push('')
 
     for (const ticket of column.tickets) {
-      // Ticket header with wikilink
-      lines.push(`- [ ] [[${ticket.id}]]`)
+      // Ticket header with bold ID, wikilink, and title
+      lines.push(`- [ ] **${ticket.id}** [[${ticket.id}]] ${ticket.title}`)
 
       // Metadata
       if (ticket.priority) {
@@ -187,8 +187,12 @@ export function generateBoardMarkdown(board: Board): string {
         lines.push(`      **Category:** ${ticket.category}`)
       }
       if (ticket.specs && ticket.specs.length > 0) {
-        const specLinks = ticket.specs.map((s) => `[[${s}]]`).join(', ')
-        lines.push(`      **Specs:** ${specLinks}`)
+        for (const specPath of ticket.specs) {
+          // Extract spec ID from path (e.g., "projects/.../pmo-work-commands.md" -> "pmo-work-commands")
+          const specId = specPath.split('/').pop()?.replace('.md', '') || specPath
+          // Use wikilink alias syntax: [[path|display-text]]
+          lines.push(`      **Spec:** [[${specPath}|${specId}]]`)
+        }
       }
       for (const [key, value] of Object.entries(ticket.metadata)) {
         lines.push(`      **${key}:** ${value}`)

@@ -135,10 +135,11 @@ export default class TicketList extends Command {
       byColumn[col] = [];
     }
     for (const ticket of tickets) {
-      if (!byColumn[ticket.column]) {
-        byColumn[ticket.column] = [];
+      const col = ticket.column || 'Unknown';
+      if (!byColumn[col]) {
+        byColumn[col] = [];
       }
-      byColumn[ticket.column].push(ticket);
+      byColumn[col].push(ticket);
     }
 
     // Display ALL columns
@@ -156,7 +157,7 @@ export default class TicketList extends Command {
       }
 
       // Sort by position
-      colTickets.sort((a, b) => a.position - b.position);
+      colTickets.sort((a, b) => (a.position || 0) - (b.position || 0));
 
       for (const ticket of colTickets) {
         const priorityBadge = formatPriority(ticket.priority);
@@ -188,10 +189,11 @@ export default class TicketList extends Command {
       byColumn[col] = [];
     }
     for (const ticket of tickets) {
-      if (!byColumn[ticket.column]) {
-        byColumn[ticket.column] = [];
+      const col = ticket.column || 'Unknown';
+      if (!byColumn[col]) {
+        byColumn[col] = [];
       }
-      byColumn[ticket.column].push(ticket);
+      byColumn[col].push(ticket);
     }
 
     for (const col of columns) {
@@ -206,7 +208,7 @@ export default class TicketList extends Command {
         continue;
       }
 
-      colTickets.sort((a, b) => a.position - b.position);
+      colTickets.sort((a, b) => (a.position || 0) - (b.position || 0));
 
       for (const ticket of colTickets) {
         const priority = formatPriority(ticket.priority);

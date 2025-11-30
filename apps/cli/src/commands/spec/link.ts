@@ -109,14 +109,14 @@ export default class SpecLink extends Command {
     }
 
     // Check if already linked
-    if (ticket.specs.includes(specId)) {
+    if (ticket.specs && ticket.specs.includes(specId)) {
       this.log(styles.warning(`Ticket "${ticketId}" is already linked to spec "${specId}"`));
       await storage.close();
       return;
     }
 
     // Add spec to ticket
-    const updatedSpecs = [...ticket.specs, specId];
+    const updatedSpecs = [...(ticket.specs || []), specId];
     await storage.updateTicket(ticketId, { specs: updatedSpecs });
 
     // Auto-export to board.md

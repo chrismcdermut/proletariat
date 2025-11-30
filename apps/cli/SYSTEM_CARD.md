@@ -96,13 +96,13 @@ This is the authoritative list of commands that MUST exist in the CLI.
 
 | Command                 | 📝   | ✅   | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️ | Description                      | Spec                                                   |
 | ----------------------- | ---- | ---- | ------ | ---------- | -------- | ------------ | -------- | ------------ | -------- | ------------ | ---- | -------------------------------- | ------------------------------------------------------ |
-| `prlt board`          | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Interactive board menu           | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt board view`     | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | View board in terminal           | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt board open`     | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Open board in Obsidian           | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt board markdown` | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Show board as markdown           | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt board export`   | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Export board to file             | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt board sync`     | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Sync between SQLite and board.md | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt board watch`    | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Watch board.md for changes       | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
+| `prlt board`          | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Interactive board menu           | [pmo-board-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-board-commands.md) |
+| `prlt board view`     | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | View board in terminal           | [pmo-board-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-board-commands.md) |
+| `prlt board open`     | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Open board in Obsidian           | [pmo-board-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-board-commands.md) |
+| `prlt board markdown` | ☑️ | ☐   | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Show board as markdown           | [pmo-board-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-board-commands.md) |
+| `prlt board export`   | ☑️ | ☐   | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Export board to file             | [pmo-board-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-board-commands.md) |
+| `prlt board sync`     | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Sync between SQLite and board.md | [pmo-board-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-board-commands.md) |
+| `prlt board watch`    | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Watch board.md for changes       | [pmo-board-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-board-commands.md) |
 
 #### Spec Commands
 
@@ -119,14 +119,21 @@ This is the authoritative list of commands that MUST exist in the CLI.
 
 | Command                            | 📝   | ✅   | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️ | Description                           | Spec                                                   |
 | ---------------------------------- | ---- | ---- | ------ | ---------- | -------- | ------------ | -------- | ------------ | -------- | ------------ | ---- | ------------------------------------- | ------------------------------------------------------ |
-| `prlt ticket`                    | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Interactive ticket menu               | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt ticket create [title]`     | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Create new ticket                     | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt ticket list`               | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | List all tickets                      | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt ticket view [id]`          | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | View ticket details                   | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt ticket move [id] [column]` | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Move ticket to column                 | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt ticket status [id]`        | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Update ticket status (alias for move) | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt ticket complete [id]`      | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Mark ticket as complete               | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt ticket delete [id]`        | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Delete ticket                         | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
+| `prlt ticket`                    | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Interactive ticket menu               | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
+| `prlt ticket create [title]`     | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Create new ticket                     | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
+| `prlt ticket list`               | ☑️ | ☐   | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | List all tickets                      | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
+| `prlt ticket view [id]`          | ☑️ | ☐   | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | View ticket details                   | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
+| `prlt ticket move [id] [column]` | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Move ticket to column                 | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
+| `prlt ticket delete [id]`        | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Delete ticket                         | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
+
+#### Bulk Ticket Operations
+
+| Command                        | 📝   | ✅ | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️ | Description                          | Spec                                                   |
+| ------------------------------ | ---- | -- | ------ | ---------- | -------- | ------------ | -------- | ------------ | -------- | ------------ | ---- | ------------------------------------ | ------------------------------------------------------ |
+| `prlt ticket bulk move`      | ☑️ | ☐ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Move multiple tickets to column      | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
+| `prlt ticket bulk delete`    | ☑️ | ☐ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Delete multiple tickets              | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
+| `prlt ticket bulk reassign`  | ☑️ | ☐ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Reassign tickets to different spec   | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
+| `prlt ticket bulk update`    | ☑️ | ☐ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Update priority/category for multiple | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
 
 #### Work Commands (Workflow & Orchestration)
 

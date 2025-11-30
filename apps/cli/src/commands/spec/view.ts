@@ -84,7 +84,7 @@ export default class SpecView extends Command {
 
     // Find linked tickets
     const allTickets = await storage.listTickets();
-    const linkedTickets = allTickets.filter(t => t.specs.includes(specId));
+    const linkedTickets = allTickets.filter(t => t.specs && t.specs.includes(specId));
 
     // Display spec info
     this.log(styles.title(`\n📄 Spec: ${metadata.title || specId}`));

@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import inquirer from 'inquirer';
 import Database from 'better-sqlite3';
-import { SQLiteStorage, getStorageWithAutoSync } from './index.js';
+import { SQLiteStorage, getStorageWithAutoSync, getWorkspaceDbPath } from './index.js';
 import { findPMO } from './find-pmo.js';
 
 /**
@@ -37,9 +37,8 @@ export async function getPMOContext(
     throw new Error('PMO not found. Run "prlt pmo init" first.');
   }
 
-  // Get workspace.db path
-  const workspacePath = path.dirname(pmoPath); // pmo is at <workspace>/pmo
-  const dbPath = path.join(workspacePath, '.proletariat', 'workspace.db');
+  // Get workspace.db path (searches upward from PMO)
+  const dbPath = getWorkspaceDbPath(pmoPath);
 
   // If no project ID specified, try to auto-detect from config or prompt if multiple exist
   let resolvedProjectId = projectId;
@@ -67,7 +66,8 @@ export async function getPMOContext(
       resolvedProjectId = projects[0].id;
     } else {
       // Multiple projects but no prompt, try to use HQ name
-      const configPath = path.join(workspacePath, '.proletariat', 'config.json');
+      const hqRoot = path.dirname(path.dirname(dbPath)); // dbPath is at {hq}/.proletariat/workspace.db
+      const configPath = path.join(hqRoot, '.proletariat', 'config.json');
       if (fs.existsSync(configPath)) {
         try {
           const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));

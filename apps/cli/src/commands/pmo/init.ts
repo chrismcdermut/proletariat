@@ -4,6 +4,7 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
+import Database from 'better-sqlite3';
 import {
   SQLiteStorage,
   getColumnsForTemplate,
@@ -13,22 +14,19 @@ import {
 import { slugify } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
 
-type StorageType = 'sqlite' | 'git';
-
 export default class PMOInit extends Command {
   static description = 'Initialize PMO (Project Management Office) in current directory or HQ';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> --storage git --template scrum',
-    '<%= config.bin %> <%= command.id %> --storage sqlite --template founder',
+    '<%= config.bin %> <%= command.id %> --location repo:proletariat --template founder',
+    '<%= config.bin %> <%= command.id %> --location separate --template scrum',
   ];
 
   static flags = {
-    storage: Flags.string({
-      char: 's',
-      description: 'Storage backend',
-      options: ['sqlite', 'git'],
+    location: Flags.string({
+      char: 'l',
+      description: 'PMO location (separate or repo:name)',
     }),
     template: Flags.string({
       char: 't',
@@ -44,36 +42,60 @@ export default class PMOInit extends Command {
   async run(): Promise<void> {
     const { flags } = await this.parse(PMOInit);
 
-    // Determine PMO location
-    const pmoPath = this.determinePMOPath();
-
-    // Check if PMO already exists by checking for workspace.db with pmo_projects table
+    // Check if PMO already exists
     const hqRoot = this.findHQRoot();
-    const dbPath = hqRoot
-      ? path.join(hqRoot, '.proletariat', 'workspace.db')
-      : path.join(path.dirname(pmoPath), '.proletariat', 'workspace.db');
+    let existingPMO = false;
+    let projectCount = 0;
+    let ticketCount = 0;
 
-    if (fs.existsSync(dbPath)) {
-      try {
-        const Database = require('better-sqlite3');
-        const db = new Database(dbPath);
-        const result = db.prepare(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
-        ).get();
-        db.close();
+    if (hqRoot) {
+      const dbPath = path.join(hqRoot, '.proletariat', 'workspace.db');
+      if (fs.existsSync(dbPath)) {
+        try {
+          const db = new Database(dbPath);
+          const result = db.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
+          ).get();
 
-        if (result !== undefined) {
-          this.error('PMO already initialized in this location. Use "prlt pmo status" to check.');
+          if (result !== undefined) {
+            existingPMO = true;
+            // Get counts
+            const projectCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_projects').get() as { count: number };
+            const ticketCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_tickets').get() as { count: number };
+            projectCount = projectCountResult.count;
+            ticketCount = ticketCountResult.count;
+          }
+          db.close();
+        } catch (error) {
+          // Log error for debugging
+          console.error('PMO check error:', error);
+          // Ignore errors - database might not be initialized yet
         }
-      } catch {
-        // Ignore errors - database might not be initialized yet
       }
     }
 
-    this.log(chalk.blue('🎯 Initializing PMO...\n'));
+    // If PMO exists, prompt for reinitialize
+    if (existingPMO) {
+      const shouldReinitialize = await this.promptReinitialize(hqRoot!, projectCount, ticketCount);
+      if (!shouldReinitialize) {
+        this.log(chalk.yellow('\nCancelled. Existing PMO preserved.'));
+        return;
+      }
 
-    // Get storage type
-    const storage = flags.storage as StorageType || await this.promptStorageType();
+      // Delete existing PMO
+      await this.deletePMO(hqRoot!);
+    }
+
+    this.log(chalk.blue('🎯 Initializing PMO...\n'));
+    this.log(chalk.gray('   Creates board.md and specs/ for project planning'));
+    this.log(chalk.gray('   (Data stored in SQLite, synced to markdown files)\n'));
+
+    // Get PMO location (storage is always SQLite)
+    const location = flags.location || await this.promptLocation();
+    const storage = 'sqlite' as const; // Always use SQLite storage
+
+    // Determine PMO path based on location
+    const pmoPath = this.determinePMOPath(location);
 
     // Get board template
     const template = flags.template || await this.promptTemplate();
@@ -89,26 +111,41 @@ export default class PMOInit extends Command {
 
     // Create PMO structure
     await this.createPMOStructure(pmoPath, {
-      storage,
       template,
       boardName,
       columns,
     });
 
-    this.log(chalk.green('\n✅ PMO initialized successfully!'));
-    this.logNextSteps(storage);
-  }
-
-  private determinePMOPath(): string {
-    // Check if we're in an HQ
-    const hqRoot = this.findHQRoot();
-    if (hqRoot) {
-      return path.join(hqRoot, 'pmo');
+    // Initialize git for separate PMO (recommended for syncing across machines)
+    if (location === 'separate') {
+      await this.initGitForPMO(pmoPath);
     }
 
-    // Otherwise create a mini-HQ in .pmo directory
-    // This returns the pmo path, but we'll create .proletariat structure too
-    return path.join(process.cwd(), '.pmo', 'pmo');
+    this.log(chalk.green('\n✅ PMO initialized successfully!'));
+    this.logNextSteps();
+  }
+
+  private determinePMOPath(location: string): string {
+    const hqRoot = this.findHQRoot();
+
+    if (location === 'separate') {
+      if (hqRoot) {
+        // Separate at HQ root
+        return path.join(hqRoot, 'pmo');
+      } else {
+        // Standalone mini-HQ
+        return path.join(process.cwd(), '.pmo', 'pmo');
+      }
+    } else if (location.startsWith('repo:')) {
+      // Inside a specific repo
+      const repoName = location.substring(5); // Remove 'repo:' prefix
+      if (!hqRoot) {
+        throw new Error('Cannot create PMO in repo outside of an HQ');
+      }
+      return path.join(hqRoot, 'repos', repoName, 'pmo');
+    } else {
+      throw new Error(`Invalid location: ${location}`);
+    }
   }
 
   private findHQRoot(): string | null {
@@ -132,29 +169,173 @@ export default class PMOInit extends Command {
     return null;
   }
 
-  private async promptStorageType(): Promise<StorageType> {
-    const { storage } = await inquirer.prompt([{
+  private detectRepos(hqRoot: string): Array<{ name: string; path: string }> {
+    const reposDir = path.join(hqRoot, 'repos');
+    if (!fs.existsSync(reposDir)) {
+      return [];
+    }
+
+    const entries = fs.readdirSync(reposDir, { withFileTypes: true });
+    return entries
+      .filter(entry => entry.isDirectory())
+      .map(entry => ({
+        name: entry.name,
+        path: path.join(reposDir, entry.name),
+      }));
+  }
+
+  private async promptReinitialize(hqRoot: string, projectCount: number, ticketCount: number): Promise<boolean> {
+    // Find PMO location from database
+    const dbPath = path.join(hqRoot, '.proletariat', 'workspace.db');
+    let pmoPath = path.join(hqRoot, 'pmo'); // Default fallback
+
+    try {
+      const db = new Database(dbPath);
+      const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
+      if (result) {
+        pmoPath = result.value;
+      }
+      db.close();
+    } catch {
+      // Use default if table doesn't exist
+    }
+
+    this.log(chalk.yellow('\n⚠️  PMO already exists'));
+    this.log(chalk.gray(`   Location: ${pmoPath}`));
+    this.log(chalk.gray(`   Projects: ${projectCount}`));
+    this.log(chalk.gray(`   Tickets: ${ticketCount}\n`));
+
+    const { action } = await inquirer.prompt([{
       type: 'list',
-      name: 'storage',
-      message: 'Choose storage backend:',
+      name: 'action',
+      message: 'What would you like to do?',
       choices: [
-        {
-          name: 'SQLite (local only, fast, no sync)',
-          value: 'sqlite',
-        },
-        {
-          name: 'Git (markdown file + cache, sync via git)',
-          value: 'git',
-        },
-        // {
-        //   name: 'Cloud (coming soon)',
-        //   value: 'cloud',
-        //   disabled: 'Not yet implemented',
-        // },
+        { name: 'Cancel (keep existing PMO)', value: 'cancel' },
+        { name: 'Reinitialize (DELETES all data)', value: 'reinitialize' },
       ],
-      default: 'sqlite',
+      default: 'cancel',
     }]);
-    return storage;
+
+    if (action === 'cancel') {
+      return false;
+    }
+
+    // Show warning and require typed confirmation
+    this.log(chalk.red('\n⚠️  WARNING: This will permanently delete:'));
+    this.log(chalk.red('   • All tickets and boards'));
+    this.log(chalk.red('   • All specs and documentation'));
+    this.log(chalk.red('   • Database tables (pmo_*)\n'));
+
+    const { confirmation } = await inquirer.prompt([{
+      type: 'input',
+      name: 'confirmation',
+      message: 'Type "delete pmo" to confirm:',
+    }]);
+
+    if (confirmation !== 'delete pmo') {
+      this.log(chalk.yellow('\nCancelled. Confirmation text did not match.'));
+      return false;
+    }
+
+    return true;
+  }
+
+  private async deletePMO(hqRoot: string): Promise<void> {
+    this.log(chalk.blue('\n🗑️  Deleting existing PMO...\n'));
+
+    // Delete database tables and get PMO path before dropping settings
+    const dbPath = path.join(hqRoot, '.proletariat', 'workspace.db');
+    let pmoPath = path.join(hqRoot, 'pmo'); // Default fallback
+
+    if (fs.existsSync(dbPath)) {
+      const db = new Database(dbPath);
+
+      // Get PMO path from database before deleting
+      try {
+        const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
+        if (result) {
+          pmoPath = result.value;
+        }
+      } catch {
+        // Ignore - table might not exist, use default
+      }
+
+      // Drop all pmo_* tables
+      const tables = ['pmo_ticket_specs', 'pmo_ticket_metadata', 'pmo_subtasks', 'pmo_tickets',
+                      'pmo_columns', 'pmo_specs', 'pmo_epics', 'pmo_projects',
+                      'pmo_initiatives', 'pmo_ticket_assignments', 'pmo_cache_metadata', 'pmo_settings'];
+
+      for (const table of tables) {
+        try {
+          db.prepare(`DROP TABLE IF EXISTS ${table}`).run();
+        } catch {
+          // Ignore errors - table might not exist
+        }
+      }
+
+      db.close();
+      this.log(chalk.green('  ✓ Dropped database tables'));
+    }
+
+    // Delete pmo/ directory (using path from database or default)
+    if (fs.existsSync(pmoPath)) {
+      fs.rmSync(pmoPath, { recursive: true, force: true });
+      this.log(chalk.green('  ✓ Removed pmo/ directory\n'));
+    }
+  }
+
+  private async promptLocation(): Promise<string> {
+    const hqRoot = this.findHQRoot();
+    if (!hqRoot) {
+      // Not in an HQ, will create standalone
+      return 'separate';
+    }
+
+    const repos = this.detectRepos(hqRoot);
+
+    if (repos.length === 0) {
+      // No repos - PMO must be at HQ root
+      return 'separate';
+    } else if (repos.length === 1) {
+      // One repo - ask in-repo vs separate
+      const { location } = await inquirer.prompt([{
+        type: 'list',
+        name: 'location',
+        message: 'PMO location:',
+        choices: [
+          {
+            name: `Inside repo (${repos[0].name}/pmo)`,
+            value: `repo:${repos[0].name}`,
+          },
+          {
+            name: 'Separate from repo (hq/pmo)',
+            value: 'separate',
+          },
+        ],
+        default: `repo:${repos[0].name}`,
+      }]);
+      return location;
+    } else {
+      // Multiple repos - ask separate vs which repo
+      const { location } = await inquirer.prompt([{
+        type: 'list',
+        name: 'location',
+        message: 'PMO location:',
+        choices: [
+          {
+            name: 'Separate from repos (recommended for multi-repo HQs)',
+            value: 'separate',
+          },
+          new inquirer.Separator(),
+          ...repos.map(repo => ({
+            name: `Inside ${repo.name} repo`,
+            value: `repo:${repo.name}`,
+          })),
+        ],
+        default: 'separate',
+      }]);
+      return location;
+    }
   }
 
   private async promptTemplate(): Promise<string> {
@@ -203,13 +384,12 @@ export default class PMOInit extends Command {
   private async createPMOStructure(
     pmoPath: string,
     options: {
-      storage: StorageType;
       template: string;
       boardName: string;
       columns: string[];
     }
   ): Promise<void> {
-    const { storage, template, boardName, columns } = options;
+    const { template, boardName, columns } = options;
 
     // Determine if we're in an HQ or creating standalone
     const hqRoot = this.findHQRoot();
@@ -264,20 +444,9 @@ export default class PMOInit extends Command {
       const dbPath = path.join(hqRoot!, '.proletariat', 'workspace.db');
       const dbStorage = new SQLiteStorage(dbPath);
 
-      // Get HQ name from config
-      const configPath = path.join(hqRoot!, '.proletariat', 'config.json');
-      const hqConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      const hqName = hqConfig.name || 'default';
-
-      // Check if project already exists
-      const existingProject = await dbStorage.getProject(hqName);
-      if (existingProject) {
-        await dbStorage.close();
-        this.error(`Project "${hqName}" already exists in PMO. Use a different name or delete the existing project first.`);
-      }
-
       // Create project with custom columns for the template
       // Note: createProject automatically creates default columns, but we need to replace them with template columns
+      // If we got here, reinitialize already deleted existing data if needed
       const projectId = slugify(boardName);
       await dbStorage.createProject({
         id: projectId,
@@ -326,81 +495,33 @@ export default class PMOInit extends Command {
     fs.writeFileSync(boardPath, boardContent);
     this.log(chalk.green('  ✓ board.md created'));
 
-    // For git storage, set up git
-    if (storage === 'git') {
-      await this.setupGitStorage(pmoPath);
+    // Create README
+    this.createReadme(pmoPath, template);
+
+    // Save PMO path to database
+    const dbPath = isStandalone
+      ? path.join(path.dirname(pmoPath), '.proletariat', 'workspace.db')
+      : path.join(hqRoot!, '.proletariat', 'workspace.db');
+
+    try {
+      const db = Database(dbPath);
+      db.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run('pmo_path', pmoPath);
+      db.close();
+    } catch (error) {
+      this.log(chalk.yellow('  ⚠ Could not save PMO path to database'));
     }
 
-    // Create README
-    this.createReadme(pmoPath, storage, template);
-
     this.log(styles.muted(`  Created: ${pmoPath}`));
-    this.log(styles.muted(`  Storage: ${storage}`));
+    this.log(styles.muted(`  Storage: SQLite (workspace.db)`));
     this.log(styles.muted(`  Template: ${template}`));
     this.log(styles.muted(`  Columns: ${columns.join(', ')}`));
   }
 
-  private async setupGitStorage(pmoPath: string): Promise<void> {
-    // Ask about git init
-    const { initGit } = await inquirer.prompt([{
-      type: 'list',
-      name: 'initGit',
-      message: 'Initialize git repository for PMO?',
-      choices: [
-        { name: 'Yes', value: true },
-        { name: 'No', value: false },
-      ],
-      default: 0,
-    }]);
 
-    if (initGit) {
-      try {
-        // Create .gitignore
-        const gitignore = `.cache.db
-.cache.db-journal
-.DS_Store
-`;
-        fs.writeFileSync(path.join(pmoPath, '.gitignore'), gitignore);
-
-        execSync('git init', { cwd: pmoPath, stdio: 'pipe' });
-        execSync('git add .', { cwd: pmoPath, stdio: 'pipe' });
-        execSync('git commit -m "Initialize PMO"', { cwd: pmoPath, stdio: 'pipe' });
-
-        this.log(chalk.green('  ✓ Git repository initialized'));
-
-        // Ask about remote
-        const { addRemote } = await inquirer.prompt([{
-          type: 'list',
-          name: 'addRemote',
-          message: 'Add a git remote?',
-          choices: [
-            { name: 'No', value: false },
-            { name: 'Yes', value: true },
-          ],
-          default: 0,
-        }]);
-
-        if (addRemote) {
-          const { remoteUrl } = await inquirer.prompt([{
-            type: 'input',
-            name: 'remoteUrl',
-            message: 'Remote URL:',
-            validate: (input: string) => input.length > 0 || 'Please enter a URL',
-          }]);
-
-          execSync(`git remote add origin ${remoteUrl}`, { cwd: pmoPath, stdio: 'pipe' });
-          this.log(chalk.green(`  ✓ Remote added: ${remoteUrl}`));
-        }
-      } catch (error) {
-        this.log(chalk.yellow('  ⚠ Git initialization failed. You can set it up manually.'));
-      }
-    }
-  }
-
-  private createReadme(pmoPath: string, storage: StorageType, template: string): void {
+  private createReadme(pmoPath: string, template: string): void {
     const readme = `# PMO (Project Management Office)
 
-## Storage: ${storage}
+## Storage: SQLite
 ## Template: ${template}
 
 ## Structure
@@ -410,9 +531,6 @@ export default class PMOInit extends Command {
 
 ## Commands
 \`\`\`bash
-# View board
-prlt board view
-
 # Create ticket
 prlt ticket create --title "My ticket" --column "Backlog"
 
@@ -427,30 +545,52 @@ prlt ticket move <ticket-id> "In Progress"
 # Update ticket
 prlt ticket update <ticket-id> --priority HIGH
 
-${storage === 'git' ? `# Sync (git storage)
-prlt board pull
-prlt board push
-` : ''}
+# View/manage specs
+prlt spec list
+prlt spec create
+prlt spec view <spec-id>
+prlt spec generate-tickets <spec-id>
 \`\`\`
 
-${storage === 'git' ? `## Obsidian Setup
+## Obsidian Setup
 1. Open this folder as an Obsidian vault
 2. Install the "Kanban" plugin
 3. Open board.md and switch to Kanban view
-` : ''}
 `;
 
     fs.writeFileSync(path.join(pmoPath, 'README.md'), readme);
   }
 
-  private logNextSteps(storage: StorageType): void {
+  private async initGitForPMO(pmoPath: string): Promise<void> {
+    try {
+      // Create .gitignore
+      const gitignore = `# Proletariat PMO
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+`;
+      fs.writeFileSync(path.join(pmoPath, '.gitignore'), gitignore);
+
+      // Initialize git repo
+      execSync('git init', { cwd: pmoPath, stdio: 'pipe' });
+      execSync('git add .', { cwd: pmoPath, stdio: 'pipe' });
+      execSync('git commit -m "Initialize PMO\n\nCreated with Proletariat CLI"', { cwd: pmoPath, stdio: 'pipe' });
+
+      this.log(chalk.green('  ✓ Git repository initialized'));
+      this.log(styles.muted('    Add remote: cd pmo && git remote add origin <url>'));
+    } catch (error) {
+      this.log(chalk.yellow('  ⚠ Git initialization failed (continuing without git)'));
+      this.log(styles.muted('    You can initialize git manually: cd pmo && git init'));
+    }
+  }
+
+  private logNextSteps(): void {
     this.log(styles.muted('\nNext steps:'));
     this.log(styles.muted('  1. Create your first ticket: prlt ticket create'));
-    this.log(styles.muted('  2. View the board: prlt board view'));
-
-    if (storage === 'git') {
-      this.log(styles.muted('  3. Open in Obsidian for visual kanban'));
-      this.log(styles.muted('  4. Push to remote: prlt board push'));
-    }
+    this.log(styles.muted('  2. Create a spec: prlt spec create'));
+    this.log(styles.muted('  3. Open pmo/ in Obsidian for visual kanban'));
   }
 }

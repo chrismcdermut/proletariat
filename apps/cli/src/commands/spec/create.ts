@@ -144,8 +144,8 @@ tickets:
   - id: SPEC-001
     title: Example ticket
     description: Replace this with actual ticket definitions
-    column: Ready
     priority: medium
+    category: example
 ---
 
 # ${name}

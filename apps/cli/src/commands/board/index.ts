@@ -14,6 +14,7 @@ import {
   getStorageWithAutoSync,
   findPMO,
   getPMOContext,
+  getBoardPath,
 } from '../../lib/pmo/index.js';
 import {
   styles,
@@ -125,7 +126,7 @@ export default class Board extends Command {
         }
 
         // Sort tickets by position
-        const sortedTickets = [...column.tickets].sort((a, b) => a.position - b.position);
+        const sortedTickets = [...column.tickets].sort((a, b) => (a.position || 0) - (b.position || 0));
 
         for (const ticket of sortedTickets) {
           if (flags.compact) {
@@ -183,7 +184,7 @@ export default class Board extends Command {
       this.log(styles.muted(`     Subtasks: ${done}/${total} (${progress}%)`));
     }
 
-    if (ticket.specs.length > 0) {
+    if (ticket.specs && ticket.specs.length > 0) {
       this.log(styles.muted(`     Specs: ${ticket.specs.join(', ')}`));
     }
   }
@@ -205,10 +206,11 @@ export default class Board extends Command {
     const storage = await this.getStorage(pmoPath);
 
     try {
+      const projectId = storage.getCurrentProjectId();
       const markdown = await storage.getBoardMarkdown();
       await storage.close();
 
-      const boardPath = path.join(pmoPath, 'board.md');
+      const boardPath = getBoardPath(pmoPath, projectId);
       fs.writeFileSync(boardPath, markdown);
 
       this.log(chalk.green(`✅ Exported board to ${boardPath}`));
@@ -222,7 +224,11 @@ export default class Board extends Command {
     pmoPath: string,
     flags: { force: boolean; 'dry-run': boolean }
   ): Promise<void> {
-    const boardPath = path.join(pmoPath, 'board.md');
+    // Get storage first to get project ID
+    const storage = await this.getStorage(pmoPath);
+    const projectId = storage.getCurrentProjectId();
+    const boardPath = getBoardPath(pmoPath, projectId);
+
     if (!fs.existsSync(boardPath)) {
       this.error('board.md not found. Run "prlt board export" first to create it.');
     }
@@ -230,9 +236,6 @@ export default class Board extends Command {
     // Parse markdown file
     const markdown = fs.readFileSync(boardPath, 'utf-8');
     const markdownBoard = parseBoard(markdown);
-
-    // Get current SQLite/cache state
-    const storage = await this.getStorage(pmoPath);
 
     try {
       const sqliteBoard = await storage.getBoard();

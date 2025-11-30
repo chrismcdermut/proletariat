@@ -59,7 +59,7 @@ export default class TicketAssign extends Command {
           type: 'list',
           name: 'selectedTicketId',
           message: 'Select ticket to assign:',
-          choices: allTickets.map((t: { id: string; title: string; column: string }) => ({
+          choices: allTickets.map(t => ({
             name: `${t.id} - ${t.title} (${t.column}, unassigned)`,  // TODO: Show current assignment
             value: t.id,
           })),

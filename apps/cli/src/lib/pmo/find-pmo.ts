@@ -46,21 +46,33 @@ export function findPMO(): string | null {
           const dbPath = path.join(currentDir, '.proletariat', 'workspace.db');
           const hasTables = hasPMOTables(dbPath);
           if (hasTables) {
+            // Read PMO path from database (new behavior)
+            try {
+              const db = new Database(dbPath);
+              const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
+              db.close();
+
+              if (result) {
+                const absolutePath = path.isAbsolute(result.value)
+                  ? result.value
+                  : path.join(currentDir, result.value);
+                return absolutePath;
+              }
+            } catch {
+              // Table might not exist yet, fall through to legacy behavior
+            }
+
+            // Legacy: check if config has pmoPath (for backward compatibility)
+            if (config.pmoPath) {
+              const absolutePath = path.isAbsolute(config.pmoPath)
+                ? config.pmoPath
+                : path.join(currentDir, config.pmoPath);
+              return absolutePath;
+            }
+
+            // Final fallback: default location at HQ root
             const pmoPath = path.join(currentDir, 'pmo');
             return pmoPath;
-          }
-        }
-
-        // Check for custom pmoPath in config
-        if (config.pmoPath) {
-          const absolutePath = path.isAbsolute(config.pmoPath)
-            ? config.pmoPath
-            : path.join(currentDir, config.pmoPath);
-
-          // For custom PMO path, check if there's a workspace.db nearby
-          const customDbPath = path.join(path.dirname(absolutePath), '.proletariat', 'workspace.db');
-          if (hasPMOTables(customDbPath)) {
-            return absolutePath;
           }
         }
       } catch {

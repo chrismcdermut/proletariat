@@ -98,6 +98,10 @@
     "posttest": "pnpm run lint",
     "prepack": "oclif manifest && oclif readme",
     "test": "mocha --forbid-only \"test/**/*.test.ts\"",
+    "test:unit": "mocha --forbid-only \"test/unit/**/*.test.ts\"",
+    "test:e2e": "mocha --forbid-only \"test/e2e/**/*.test.ts\"",
+    "test:e2e:pmo": "mocha --forbid-only \"test/e2e/pmo-*.test.ts\"",
+    "test:commands": "mocha --forbid-only \"test/commands/**/*.test.ts\"",
     "version": "oclif readme && git add README.md"
   },
   "types": "dist/index.d.ts"

@@ -1,3 +1,21 @@
+---
+title: PMO Command Specifications
+created: 2024-11-28
+tickets:
+  - id: PMO-CRUD-001
+    title: Implement prlt ticket list command
+    description: Create command to list all tickets with filtering by column, priority, category, and assignee
+    column: Ready
+    priority: HIGH
+    category: feature
+  - id: PMO-CRUD-002
+    title: Implement prlt ticket view command
+    description: Create command to view detailed ticket information including metadata, subtasks, and linked specs
+    column: Ready
+    priority: HIGH
+    category: feature
+---
+
 # PMO Command Specifications
 
 > **Note**: This spec describes CLI command interfaces and behaviors.
@@ -66,10 +84,9 @@ The PMO (Project Management Orchestration) system uses a flat entity → action 
 | `prlt ticket list`                | List all tickets                       | ❌ Not Implemented |
 | `prlt ticket view [id]`           | View ticket details                    | ❌ Not Implemented |
 | `prlt ticket move [id] [column]`  | Move ticket to column                  | ✅ Implemented     |
-| `prlt ticket assign [id] [agent]` | Assign executor (human or agent)       | ❌ Not Implemented |
-| `prlt ticket own [id]`            | Take ownership (responsibility)        | ❌ Not Implemented |
-| `prlt ticket claim [id]`          | Claim ticket (own + execute)           | ❌ Not Implemented |
 | `prlt ticket delete [id]`         | Delete ticket                          | ✅ Implemented     |
+
+> **Note**: Work commands (assign, own, claim, execute) are in [pmo-work-commands.md](pmo-work-commands.md)
 
 ---
 
@@ -326,7 +343,7 @@ Summary: 6 tickets | Backlog: 2 | In Progress: 1 | Done: 3
 
   ~ 2 ticket(s) to update:
     ~ TICK-001: Add login screen
-        column: Backlog → In Progress
+        column: Ready → In Progress
 
   - 0 ticket(s) to remove:
 
@@ -730,131 +747,9 @@ prlt ticket view  # Interactive mode
 
 ---
 
-### `prlt ticket assign [id] [agent]` (Not Implemented)
-**Purpose**: Assign executor to ticket (human or agent)
+## Work Commands
 
-**Ownership Model**:
-- `owner`: Human responsible/accountable for the ticket
-- `assignee`: Executor who will do the work (human OR agent)
-- This command sets the `assignee` field
-- Agents are always **assigned** by orchestrators (never claim autonomously)
-
-**Arguments**:
-- `id` (optional): Ticket ID - prompts with dropdown if not provided
-- `agent` (optional): Agent/user to assign - prompts with dropdown if not provided
-
-**Options**:
-- `--owner <name>`: Also set the owner (default: unchanged)
-
-**Interactive Flow** (if arguments not provided):
-```
-? Select ticket to assign:
-  ❯ TICK-001 - Add login screen (Backlog, unassigned)
-    TICK-002 - Setup CI/CD (Backlog, unassigned)
-    TICK-003 - Implement navigation (In Progress, @alice)
-
-? Assign TICK-001 to:
-    Unassign (remove assignee)
-    ── Common Agents ──
-  ❯ alice
-    bob
-    charlie
-    ────────────────────
-    Enter custom name...
-
-✅ Assigned TICK-001 to alice
-   Title: Add login screen
-```
-
-**Example**:
-```bash
-prlt ticket assign TICK-001 alice
-prlt ticket assign TICK-001 claude      # Assign to AI agent
-prlt ticket assign TICK-001 --owner chris  # Set owner too
-prlt ticket assign  # Interactive mode
-```
-
-**Behavior**:
-- If no arguments provided, shows interactive dropdowns
-- Dropdown includes unassign option, common agents, and custom name entry
-- Sets `assignee` field (executor)
-- Optionally sets `owner` field with --owner flag
-- Used by human orchestrators to delegate work to humans or agents
-
----
-
-### `prlt ticket own [id]` (Not Implemented)
-**Purpose**: Take ownership/responsibility for ticket (without necessarily executing)
-
-**Ownership Model**:
-- Sets `owner` field to current user (human takes responsibility)
-- Leaves `assignee` unchanged (execution may be delegated)
-- Use when you're accountable but delegating execution to others
-
-**Arguments**:
-- `id` (optional): Ticket ID - prompts with dropdown if not provided
-
-**Interactive Flow** (if id not provided):
-```
-? Select ticket to own:
-  ❯ TICK-001 - Add login screen (Backlog, unassigned)
-    TICK-002 - Setup CI/CD (Backlog, @claude)
-    TICK-003 - Implement navigation (In Progress, @alice)
-
-✅ You now own TICK-001
-   Owner: chris
-   Assignee: unassigned (can delegate with 'prlt ticket assign')
-```
-
-**Example**:
-```bash
-prlt ticket own TICK-001
-prlt ticket own  # Interactive mode
-```
-
-**Behavior**:
-- Sets `owner` = current user (accountable)
-- Leaves `assignee` unchanged
-- Use case: Product owner takes responsibility, will assign to dev/agent later
-- Complements `prlt ticket assign` for delegation workflow
-
----
-
-### `prlt ticket claim [id]` (Not Implemented)
-**Purpose**: Human claims ticket (takes ownership AND execution)
-
-**Ownership Model**:
-- CLI context: Human claims = sets BOTH `owner` and `assignee` to current user
-- Agents never claim autonomously - they are always assigned by orchestrators
-- Use `prlt ticket assign` to delegate to agents or other humans
-
-**Arguments**:
-- `id` (optional): Ticket ID (prompts to select if not provided)
-
-**Interactive Flow** (no ID provided):
-```
-? Select ticket to claim:
-  ❯ TICK-001 - Add login screen (high, unassigned)
-    TICK-002 - Setup CI/CD (medium, @bob)
-
-✅ Claimed TICK-001
-   Owner: chris
-   Assignee: chris
-   Moved to: In Progress
-```
-
-**Example**:
-```bash
-prlt ticket claim TICK-001
-prlt ticket claim  # Interactive mode
-```
-
-**Behavior**:
-- Auto-detects current user from system
-- Sets `owner` = current user (takes responsibility)
-- Sets `assignee` = current user (will execute)
-- Optionally moves to "In Progress"
-- **Human-only command** - agents use assigned work queue instead
+> **Note**: Work commands (assign, own, claim, execute) are documented in [pmo-work-commands.md](pmo-work-commands.md)
 
 ---
 
