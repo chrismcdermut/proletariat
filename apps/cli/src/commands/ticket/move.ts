@@ -66,7 +66,7 @@ export default class TicketMove extends Command {
           type: 'list',
           name: 'selectedTicketId',
           message: 'Select ticket to move:',
-          choices: allTickets.map((t: { id: string; title: string; column: string }) => ({
+          choices: allTickets.map(t => ({
             name: `${t.id} - ${t.title} (${t.column})`,
             value: t.id,
           })),

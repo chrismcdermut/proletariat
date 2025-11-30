@@ -9,7 +9,6 @@ interface SpecTicket {
   id?: string;
   title: string;
   description?: string;
-  column: string;
   priority?: string;
   category?: string;
 }
@@ -95,12 +94,6 @@ export default class SpecGenerateTickets extends Command {
       this.error('No tickets found in spec frontmatter. Add a "tickets:" section to the frontmatter.');
     }
 
-    // Validate columns
-    const invalidColumns = tickets.filter(t => !columns.includes(t.column));
-    if (invalidColumns.length > 0) {
-      this.error(`Invalid columns found: ${invalidColumns.map(t => `"${t.column}"`).join(', ')}\nAvailable columns: ${columns.join(', ')}`);
-    }
-
     // Show what will be created
     this.log(styles.title(`\n📄 Generate Tickets from Spec: ${specId}`));
     this.log(styles.muted(`Project: ${projectName}`));
@@ -111,7 +104,6 @@ export default class SpecGenerateTickets extends Command {
       const priority = ticket.priority ? ` [${ticket.priority}]` : '';
       const category = ticket.category ? ` {${ticket.category}}` : '';
       this.log(`  ${styles.code(ticket.id || 'auto')}: ${ticket.title}${priority}${category}`);
-      this.log(styles.muted(`     Column: ${ticket.column}`));
       if (ticket.description) {
         const shortDesc = ticket.description.substring(0, 60);
         this.log(styles.muted(`     ${shortDesc}${ticket.description.length > 60 ? '...' : ''}`));
@@ -225,7 +217,7 @@ export default class SpecGenerateTickets extends Command {
         const ticket = await storage.createTicket({
           id: ticketData.id,
           title: ticketData.title,
-          column: ticketData.column,
+          // column intentionally omitted - defaults to first column
           priority: ticketData.priority,
           category: ticketData.category,
           description: ticketData.description,
@@ -244,7 +236,7 @@ export default class SpecGenerateTickets extends Command {
         try {
           const ticket = await storage.updateTicket(data.id!, {
             title: data.title,
-            column: data.column,
+            // column intentionally omitted - preserve existing column when updating from spec
             priority: data.priority,
             category: data.category,
             description: data.description,
@@ -346,7 +338,6 @@ export default class SpecGenerateTickets extends Command {
 
       const ticket: SpecTicket = {
         title: '',
-        column: 'Ready',
       };
 
       // First line is the ID value
@@ -366,12 +357,6 @@ export default class SpecGenerateTickets extends Command {
         const descMatch = line.match(/^\s+description:\s*(.+)/);
         if (descMatch) {
           ticket.description = descMatch[1].trim();
-          continue;
-        }
-
-        const columnMatch = line.match(/^\s+column:\s*(.+)/);
-        if (columnMatch) {
-          ticket.column = columnMatch[1].trim();
           continue;
         }
 

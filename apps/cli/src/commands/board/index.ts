@@ -126,7 +126,7 @@ export default class Board extends Command {
         }
 
         // Sort tickets by position
-        const sortedTickets = [...column.tickets].sort((a, b) => a.position - b.position);
+        const sortedTickets = [...column.tickets].sort((a, b) => (a.position || 0) - (b.position || 0));
 
         for (const ticket of sortedTickets) {
           if (flags.compact) {
@@ -184,7 +184,7 @@ export default class Board extends Command {
       this.log(styles.muted(`     Subtasks: ${done}/${total} (${progress}%)`));
     }
 
-    if (ticket.specs.length > 0) {
+    if (ticket.specs && ticket.specs.length > 0) {
       this.log(styles.muted(`     Specs: ${ticket.specs.join(', ')}`));
     }
   }

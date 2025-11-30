@@ -45,8 +45,8 @@ export default class TicketComplete extends Command {
       if (!ticketId) {
         // Get all incomplete tickets for selection
         const allTickets = await storage.listTickets();
-        const incompleteTickets = allTickets.filter((t: { column: string }) =>
-          !t.column.toLowerCase().includes('done')
+        const incompleteTickets = allTickets.filter(t =>
+          t.column && !t.column.toLowerCase().includes('done')
         );
 
         if (incompleteTickets.length === 0) {
@@ -59,7 +59,7 @@ export default class TicketComplete extends Command {
           type: 'list',
           name: 'selectedTicketId',
           message: 'Select ticket to complete:',
-          choices: incompleteTickets.map((t: { id: string; title: string; column: string }) => ({
+          choices: incompleteTickets.map(t => ({
             name: `${t.id} - ${t.title} (${t.column})`,
             value: t.id,
           })),

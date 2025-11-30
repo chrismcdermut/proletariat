@@ -82,6 +82,7 @@ export function parseBoard(markdown: string, projectId: string = 'default'): Boa
       currentTicket = {
         id,
         title: title.trim(),
+        status: 'backlog', // Default status when parsing from board
         column: currentColumn.name,
         position: currentColumn.tickets.length,
         specs: [],

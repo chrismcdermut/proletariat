@@ -5,51 +5,48 @@ tickets:
   - id: WORK-001
     title: Implement prlt ticket assign command
     description: Create interactive command to assign tickets to humans or agents with dropdown selection
-    column: Ready
     priority: HIGH
     category: feature
   - id: WORK-002
     title: Implement prlt ticket own command
     description: Create command for humans to take ownership/responsibility of tickets
-    column: Ready
     priority: MEDIUM
     category: feature
   - id: WORK-003
     title: Implement prlt ticket claim command
     description: Create command for humans to claim tickets (own + execute)
-    column: Ready
     priority: MEDIUM
     category: feature
   - id: WORK-004
     title: Add owner and assignee columns to pmo_tickets table
     description: Migrate from pmo_ticket_assignments table to simple owner/assignee columns
-    column: Ready
     priority: HIGH
     category: backend
   - id: WORK-005
     title: Implement backend assignTicket method
     description: Add storage method to set ticket assignee with optional owner
-    column: Ready
     priority: HIGH
     category: backend
   - id: WORK-006
     title: Implement backend ownTicket method
     description: Add storage method to set ticket owner
-    column: Ready
     priority: MEDIUM
     category: backend
   - id: WORK-007
     title: Implement backend claimTicket method
     description: Add storage method to set both owner and assignee
-    column: Ready
     priority: MEDIUM
     category: backend
   - id: WORK-008
     title: Add getAssignedTickets to Agent SDK
     description: Implement agent polling for tickets assigned to them
-    column: Ready
     priority: MEDIUM
     category: agent-sdk
+  - id: WORK-009
+    title: Implement prlt ticket execute command
+    description: Execute a ticket by spinning up the assigned agent or prompting human to start work
+    priority: HIGH
+    category: feature
 ---
 
 # PMO Work Commands Specification
@@ -66,17 +63,19 @@ Commands for managing work assignment, ownership, and orchestration within the P
 
 ## Namespace
 All work commands are under the `prlt ticket` namespace but handle workflow/orchestration:
-- `prlt ticket assign` - Delegate execution
+- `prlt ticket assign` - Delegate execution (metadata only)
 - `prlt ticket own` - Take responsibility
-- `prlt ticket claim` - Own + execute (human only)
+- `prlt ticket claim` - Own + execute yourself
+- `prlt ticket execute` - Actually start work on ticket
 
 ## Command Overview
 
 | Command                           | Purpose                                | Status            |
 | --------------------------------- | -------------------------------------- | ----------------- |
-| `prlt ticket assign [id] [agent]` | Assign executor (human or agent)       | ❌ Not Implemented |
+| `prlt ticket assign [id] [agent]` | Assign executor (metadata only)        | ❌ Not Implemented |
 | `prlt ticket own [id]`            | Take ownership (responsibility)        | ❌ Not Implemented |
 | `prlt ticket claim [id]`          | Claim ticket (own + execute)           | ❌ Not Implemented |
+| `prlt ticket execute [id]`        | Execute ticket (spin up agent/start)   | ❌ Not Implemented |
 
 ---
 
@@ -242,6 +241,67 @@ await storage.claimTicket(params);
 
 ---
 
+### `prlt ticket execute [id]`
+**Purpose**: Execute a ticket by spinning up the assigned agent or prompting human to start work
+
+**Ownership Model**:
+- Reads `assignee` field to determine who should execute
+- If `assignee=agent:xxx`, spins up that agent
+- If `assignee=human`, prompts/notifies them
+- If `assignee` is unset, errors or prompts to assign first
+
+**Arguments**:
+- `id` (optional): Ticket ID (prompts to select if not provided)
+
+**Flags**:
+- `--force`: Execute even if already in progress
+- `--watch`: Stream agent output in real-time
+
+**Output**:
+```
+🚀 Executing TICK-001: Implement authentication
+   Assignee: agent:codegen
+
+   Spinning up agent:codegen...
+   ✓ Agent started
+
+   → Agent is working on ticket...
+   → View progress: prlt ticket view TICK-001
+```
+
+**Example**:
+```bash
+prlt ticket execute TICK-001           # Execute assigned work
+prlt ticket execute TICK-001 --watch   # Stream agent output
+prlt ticket execute                    # Interactive mode
+```
+
+**Behavior**:
+- Checks `assignee` field
+- If `assignee` starts with `agent:`, spins up that agent with ticket context
+- If `assignee` is human, prints message or sends notification
+- Moves ticket to "In Progress" column
+- Creates execution record/log
+
+**Backend Implementation**:
+```typescript
+interface ExecuteTicketParams {
+  ticketId: string;
+  force?: boolean;
+  watch?: boolean;
+}
+
+// Returns execution status or agent handle
+await storage.executeTicket(params);
+```
+
+**Agent Integration**:
+- Passes ticket ID, title, description, spec to agent
+- Agent can update ticket status during work
+- Agent moves ticket to "Done" when complete
+
+---
+
 ## Workflow Patterns
 
 ### Pattern 1: Solo Work (Developer)
@@ -261,21 +321,24 @@ prlt ticket complete TICK-001
 
 ---
 
-### Pattern 2: Orchestrator → Agent
-**Use Case**: PM delegates to AI agent
+### Pattern 2: Orchestrator → Agent (Assign + Execute)
+**Use Case**: PM delegates to AI agent and triggers execution
 
 ```bash
 # PM takes ownership
 prlt ticket own TICK-002
 
-# PM assigns to agent
-prlt ticket assign TICK-002 claude
+# PM assigns to agent (metadata only)
+prlt ticket assign TICK-002 @codegen
 
-# Agent picks up work via Agent SDK
+# PM triggers execution (spins up agent)
+prlt ticket execute TICK-002
+
+# Agent works on ticket...
 # Agent reports completion when done
 ```
 
-**Result**: `owner=pm`, `assignee=claude`
+**Result**: `owner=pm`, `assignee=agent:codegen`, ticket moves to "In Progress"
 
 ---
 

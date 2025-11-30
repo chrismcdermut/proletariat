@@ -35,14 +35,19 @@ export interface Project {
   updatedAt: Date
 }
 
-export interface Epic {
-  id: string
-  projectId: string
-  name: string
-  description?: string
-  createdAt: Date
-  updatedAt: Date
-}
+// Epics removed - specs replace epics for grouping tickets
+
+/**
+ * Ticket lifecycle status (independent of board column position)
+ */
+export type TicketStatus =
+  | 'backlog'    // Not started
+  | 'ready'      // Ready to start
+  | 'in_progress' // Being worked on
+  | 'blocked'    // Can't proceed
+  | 'review'     // Needs review
+  | 'done'       // Completed
+  | 'cancelled'  // Won't do
 
 /**
  * Board represents a project's kanban board view.
@@ -59,23 +64,53 @@ export interface Column {
   id: string
   name: string
   position: number
-  tickets: Ticket[]
+  status?: string  // Optional: semantic status mapping for this column
+  tickets: Ticket[] // Populated when generating board view (join with BoardTicket)
 }
 
+/**
+ * Ticket represents a work item (core entity - no board position here)
+ */
 export interface Ticket {
+  // Core ticket data
   id: string
   title: string
-  column: string
-  position: number
+  description?: string
   priority?: string
   category?: string
-  description?: string
-  epicId?: string
-  specs: string[]
+
+  // Workflow state
+  status: TicketStatus
+  owner?: string      // Human responsible for ticket
+  assignee?: string   // Who's executing (human or agent)
+
+  // Relationships
+  specId?: string     // Which spec defined this ticket
   subtasks: Subtask[]
   metadata: Record<string, string>
+
+  // Timestamps
   createdAt: Date
   updatedAt: Date
+  lastSyncedFromSpec?: Date   // When last synced from spec frontmatter
+  lastSyncedFromBoard?: Date  // When last synced from board.md
+
+  // DEPRECATED: Board view fields (populated when querying with board context)
+  // These are maintained for backward compatibility during refactor
+  // Use BoardTicket table for authoritative board position
+  column?: string     // Column name (from board view)
+  position?: number   // Position in column (from board view)
+  specs?: string[]    // Spec paths (backward compat - use specId instead)
+}
+
+/**
+ * BoardTicket represents where a ticket appears on the board (view state)
+ */
+export interface BoardTicket {
+  projectId: string
+  ticketId: string
+  columnId: string
+  position: number
 }
 
 export interface Subtask {
@@ -131,9 +166,11 @@ export interface PMOConfig {
 // =============================================================================
 
 export interface TicketFilter {
-  column?: string
+  status?: TicketStatus
   priority?: string
   category?: string
+  owner?: string
+  assignee?: string
   search?: string
   spec?: string
 }
