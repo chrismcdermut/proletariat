@@ -41,6 +41,7 @@ This matches the pattern used by other entities:
 | `prlt ticket delete [id]`         | Delete ticket                          |
 | `prlt ticket complete [id]`       | Move ticket to Done                    |
 | `prlt ticket status [id]`         | Show ticket status                     |
+| `prlt ticket link [id] [epic-id]` | Link ticket to epic                    |
 
 ### Bulk Commands (`prlt tickets`)
 | Command                           | Purpose                                |
@@ -378,6 +379,65 @@ prlt ticket delete  # Interactive mode
 - Removes from board.md
 - No archive (permanent deletion)
 - Requires confirmation unless --force
+
+---
+
+### `prlt ticket link [id] [epic-id]`
+**Purpose**: Link a single ticket to an epic (or unlink)
+
+**Status**: ✅ IMPLEMENTED
+
+**Arguments**:
+- `id` (optional): Ticket ID to link - prompts with dropdown if not provided
+- `epic-id` (optional): Epic ID to link to - prompts with dropdown if not provided
+
+**Options**:
+- `--project, -P <id>`: Project ID (default: "default")
+- `--unlink, -u`: Remove epic link instead of adding
+
+**Interactive Flow** (if arguments not provided):
+```
+? Select ticket to link:
+  ❯ TKT-001 - Add login screen (Backlog) [No epic]
+    TKT-002 - Setup CI/CD (Backlog) [EPIC-001]
+    TKT-003 - Implement navigation (In Progress) [No epic]
+
+? Link to which epic?
+  ❯ EPIC-001 User Authentication System (active)
+    EPIC-002 Payment Integration (active)
+    EPIC-003 Mobile Redesign (draft)
+    ────────────
+    None (remove epic link)
+
+✅ Linked TKT-001 to EPIC-001
+   Title: Add login screen
+   Epic: User Authentication System
+```
+
+**Example**:
+```bash
+prlt ticket link TKT-001 EPIC-001      # Link ticket to epic
+prlt ticket link TKT-001 --unlink      # Remove epic link
+prlt ticket link                        # Interactive mode
+```
+
+**Output**:
+```
+✅ Linked TKT-001 to EPIC-001
+   Title: Add login screen
+   Epic: User Authentication System
+```
+
+**Behavior**:
+- If no arguments provided, shows interactive dropdowns
+- Updates ticket.epic_id in database
+- Validates epic exists
+- Shows current epic link if any
+- `--unlink` sets epic_id to NULL
+
+**Difference from `prlt tickets link`**:
+- `prlt ticket link` operates on a single ticket (direct arguments)
+- `prlt tickets link` is bulk operation with multi-select checkbox interface
 
 ---
 

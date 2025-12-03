@@ -143,6 +143,7 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 | `prlt epic activate [id]`      | ✓  | ✓  | -  | Move epic to active/ folder    | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
 | `prlt epic move [id] [status]` | ✓  | ✓  | -  | Move epic between status folders | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
 | `prlt epic progress [id]`      | ✓  | ✓  | -  | Show completion percentage     | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
+| `prlt epic link [id] [tickets...]` | ✓  | ✓  | -  | Link tickets to epic           | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
 
 #### Ticket Commands (CRUD Operations)
 
@@ -156,6 +157,7 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 | `prlt ticket delete [id]`        | ✓  | ✓  | -  | Delete ticket           | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
 | `prlt ticket complete [id]`      | ✓  | ✓  | -  | Move ticket to Done     | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
 | `prlt ticket status [id]`        | ✓  | ✓  | -  | Show ticket status      | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt ticket link [id] [epic-id]`| ✓  | ✓  | -  | Link ticket to epic     | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
 
 #### Bulk Ticket Commands (`prlt tickets`)
 
@@ -258,7 +260,7 @@ See [pmo-storage.md](../../docs/architecture/pmo-storage.md) for architecture de
 | Board view/sync        | ✓      | -           | -            | -     |
 | Ticket CRUD            | ✓      | -           | -            | -     |
 | Spec management        | ✓      | -           | -            | -     |
-| Epic management        | -      | -           | -            | -     |
+| Epic management        | ✓      | -           | -            | -     |
 | Work assignment        | -      | -           | -            | -     |
 | Multi-worker (WAL)     | ✓      | N/A         | N/A          | ✓     |
 | Multi-host sync        | -      | ✓           | ✓            | ✓     |

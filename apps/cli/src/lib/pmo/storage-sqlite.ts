@@ -465,10 +465,10 @@ export class SQLiteStorage implements PMOStorage {
     this.db.prepare(`
       INSERT INTO ${T.tickets} (
         id, project_id, title, description, priority, category,
-        status, owner, assignee, spec_id,
+        status, owner, assignee, spec_id, epic_id,
         created_at, updated_at, last_synced_from_spec, last_synced_from_board
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, projectId, title,
       ticket.description || null,
@@ -478,6 +478,7 @@ export class SQLiteStorage implements PMOStorage {
       ticket.owner || null,
       ticket.assignee || null,
       specId,
+      ticket.epicId || null,
       now, now,
       ticket.lastSyncedFromSpec || null,
       ticket.lastSyncedFromBoard || null

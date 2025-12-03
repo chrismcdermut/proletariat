@@ -50,6 +50,7 @@ This matches the pattern used by other entities:
 | `prlt epic activate [id]`         | Move epic to active/ folder          |
 | `prlt epic move [id] [status]`    | Move epic between status folders     |
 | `prlt epic progress [id]`         | Show completion percentage           |
+| `prlt epic link [id] [tickets...]`| Link tickets to epic                 |
 
 ---
 
@@ -541,6 +542,87 @@ Moving to `dropped`:
 - `prlt epic archive` is equivalent to `prlt epic move <id> complete`
 - `prlt epic activate` is equivalent to `prlt epic move <id> active`
 - `prlt epic move` is the general-purpose command for any status transition
+
+---
+
+### `prlt epic link [id] [tickets...]`
+
+**Purpose**: Link one or more tickets to an epic from the epic namespace
+
+**Status**: ✅ IMPLEMENTED
+
+**Arguments**:
+
+- `id` (optional): Epic ID - prompts if not provided
+- `tickets` (optional): One or more ticket IDs to link - prompts with multi-select if not provided
+
+**Options**:
+
+- `--project, -P <id>`: Project ID (default: "default")
+- `--unlink, -u`: Remove tickets from this epic instead of adding
+
+**Interactive Flow**:
+
+```
+? Select epic to link tickets to:
+  ❯ EPIC-001 User Authentication System (active) [6 tickets]
+    EPIC-002 Payment Integration (active) [3 tickets]
+    EPIC-003 Mobile Redesign (draft) [0 tickets]
+
+? Select tickets to link to EPIC-001: (Use space to select, enter to confirm)
+  ❯ ◯ TKT-007 OAuth2 integration [No epic]
+    ◯ TKT-008 2FA implementation [No epic]
+    ◉ TKT-009 Rate limiting [No epic]
+    ◉ TKT-010 Security audit [No epic]
+    ◯ TKT-011 API docs [EPIC-002]
+
+Selected 2 tickets
+
+✅ Linked 2 tickets to EPIC-001 "User Authentication System"
+   TKT-009: Rate limiting
+   TKT-010: Security audit
+
+View epic: prlt epic view EPIC-001
+```
+
+**Example**:
+
+```bash
+prlt epic link EPIC-001 TKT-009 TKT-010    # Link specific tickets
+prlt epic link EPIC-001                     # Interactive multi-select
+prlt epic link                              # Full interactive mode
+prlt epic link EPIC-001 --unlink TKT-009   # Remove ticket from epic
+```
+
+**Output**:
+
+```
+✅ Linked 2 tickets to EPIC-001 "User Authentication System"
+   TKT-009: Rate limiting
+   TKT-010: Security audit
+
+View epic: prlt epic view EPIC-001
+```
+
+**Behavior**:
+
+- If no arguments provided, shows interactive prompts
+- Multi-select interface for choosing tickets (when no ticket IDs provided)
+- Updates ticket.epic_id in database for each selected ticket
+- Shows which tickets were already linked to other epics (requires confirmation to reassign)
+- `--unlink` sets epic_id to NULL for specified tickets
+
+**Difference from `prlt ticket link`**:
+
+- `prlt epic link` starts from epic selection, then selects tickets (epic-centric workflow)
+- `prlt ticket link` starts from ticket selection, then selects epic (ticket-centric workflow)
+- `prlt epic link` supports multiple tickets in one command
+- Both ultimately update the same `ticket.epic_id` field
+
+**Difference from `prlt tickets link`**:
+
+- `prlt epic link` is epic-centric (select epic first, then tickets)
+- `prlt tickets link` is ticket-centric bulk operation (select tickets first, then epic)
 
 ---
 
