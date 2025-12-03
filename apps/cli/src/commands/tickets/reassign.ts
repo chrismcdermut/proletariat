@@ -101,7 +101,7 @@ export default class Reassign extends Command {
       }
 
       // Select target assignee
-      let targetAssignee = flags.to;
+      let targetAssignee: string | null | undefined = flags.to;
       if (targetAssignee === undefined) {
         const { assignee } = await inquirer.prompt([{
           type: 'list',
@@ -130,9 +130,9 @@ export default class Reassign extends Command {
         }
       }
 
-      // Handle 'none' as null
-      if (targetAssignee === 'none' || targetAssignee === 'unassigned') {
-        targetAssignee = null;
+      // Handle 'none' as undefined (unassign)
+      if (targetAssignee === 'none' || targetAssignee === 'unassigned' || targetAssignee === null) {
+        targetAssignee = undefined;
       }
 
       // Confirmation
