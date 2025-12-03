@@ -166,8 +166,9 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 | `prlt tickets move`     | ✓  | ✓  | -  | Move multiple tickets to column       | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
 | `prlt tickets delete`   | ✓  | ✓  | -  | Delete multiple tickets               | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
 | `prlt tickets complete` | ✓  | ✓  | -  | Complete multiple tickets             | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
-| `prlt tickets reassign` | ✓  | -  | -  | Reassign tickets to different epic    | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
-| `prlt tickets update`   | ✓  | -  | -  | Update priority/category for multiple | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt tickets reassign` | ✓  | ✓  | -  | Reassign tickets to different agent   | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt tickets link`     | ✓  | ✓  | -  | Link tickets to different epic        | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt tickets update`   | ✓  | ✓  | -  | Update priority/category for multiple | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
 
 #### Work Commands (Workflow & Orchestration)
 
@@ -377,7 +378,10 @@ apps/cli/
 │   │   ├── list.ts
 │   │   ├── move.ts
 │   │   ├── delete.ts
-│   │   └── complete.ts
+│   │   ├── complete.ts
+│   │   ├── reassign.ts
+│   │   ├── link.ts
+│   │   └── update.ts
 │   ├── spec/
 │   │   ├── create.ts
 │   │   ├── list.ts

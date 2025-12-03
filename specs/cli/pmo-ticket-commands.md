@@ -35,7 +35,8 @@ Ticket commands handle CRUD operations on work items. Tickets are the fundamenta
 | `prlt tickets move`               | Move multiple tickets to column        |
 | `prlt tickets delete`             | Delete multiple tickets                |
 | `prlt tickets complete`           | Complete multiple tickets              |
-| `prlt tickets reassign`           | Reassign tickets to different epic     |
+| `prlt tickets reassign`           | Reassign tickets to different agent    |
+| `prlt tickets link`               | Link tickets to different epic         |
 | `prlt tickets update`             | Update priority/category for multiple  |
 
 > **Note**: Work commands (assign, own, claim, execute) are in [pmo-work-commands.md](pmo-work-commands.md)
@@ -501,29 +502,68 @@ Selected 2 tickets
 ---
 
 ### `prlt tickets reassign`
-**Purpose**: Reassign multiple tickets to a different epic
+**Purpose**: Reassign multiple tickets to a different agent
 
 **Interactive Flow**:
 ```
-📋 Bulk Reassign Tickets to Different Epic
+📋 Bulk Reassign Tickets
 
 ? Select tickets to reassign:
+  ❯ ◯ pmo-tickets-001  Add login screen              Assignee: alice
+    ◉ pmo-tickets-002  Add logout                     Assignee: alice
+    ◉ pmo-tickets-003  Password reset                 Assignee: (none)
+    ◯ pmo-tickets-004  User profile                   Assignee: bob
+
+Selected 2 tickets
+
+? Reassign to which agent?
+  ❯ alice (current)
+    bob
+    charlie
+    None (unassign)
+
+📝 Reassigning 2 tickets to "bob"...
+
+✅ Reassigned 2 tickets to "bob"
+```
+
+**Options**:
+- `--project, -p <id>`: Target project (default: current)
+- `--from <agent>`: Filter tickets by current assignee
+- `--to <agent>`: Target agent (skip interactive prompt)
+
+**Behavior**:
+- Multi-select checkbox interface
+- Shows current assignee for each ticket
+- Updates ticket assignee in database
+- Preserves all other ticket metadata
+
+---
+
+### `prlt tickets link`
+**Purpose**: Link multiple tickets to a different epic
+
+**Interactive Flow**:
+```
+📋 Bulk Link Tickets to Epic
+
+? Select tickets to link:
   ❯ ◯ pmo-tickets-001  Add login screen              Epic: auth-system
     ◉ pmo-tickets-002  Add logout                     Epic: auth-system
-    ◉ pmo-tickets-003  Password reset                 Epic: auth-system
+    ◉ pmo-tickets-003  Password reset                 Epic: (none)
     ◯ pmo-tickets-004  User profile                   Epic: user-management
 
 Selected 2 tickets
 
-? Reassign to which epic?
-  ❯ auth-system (current)
+? Link to which epic?
+  ❯ auth-system
     user-management
-    api-design
+    payment-integration
     None (remove epic link)
 
-📝 Reassigning 2 tickets to "user-management"...
+📝 Linking 2 tickets to "user-management"...
 
-✅ Reassigned 2 tickets to "user-management"
+✅ Linked 2 tickets to "user-management"
 ```
 
 **Options**:

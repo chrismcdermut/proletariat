@@ -22,8 +22,13 @@ export default class Tickets extends Command {
       choices: [
         { name: '📋 List all tickets', value: 'list' },
         { name: '📦 Move multiple tickets', value: 'move' },
-        { name: '🗑️  Delete multiple tickets', value: 'delete' },
         { name: '✅ Complete multiple tickets', value: 'complete' },
+        new inquirer.Separator(),
+        { name: '👤 Reassign tickets (change assignee)', value: 'reassign' },
+        { name: '🔗 Link tickets to epic', value: 'link' },
+        { name: '✏️  Update tickets (priority/category)', value: 'update' },
+        new inquirer.Separator(),
+        { name: '🗑️  Delete multiple tickets', value: 'delete' },
         new inquirer.Separator(),
         { name: '❌ Cancel', value: 'cancel' }
       ]
@@ -59,6 +64,24 @@ export default class Tickets extends Command {
         case 'complete': {
           const { default: CompleteCommand } = await import('./complete.js');
           const cmd = new CompleteCommand([], this.config);
+          await cmd.run();
+          break;
+        }
+        case 'reassign': {
+          const { default: ReassignCommand } = await import('./reassign.js');
+          const cmd = new ReassignCommand([], this.config);
+          await cmd.run();
+          break;
+        }
+        case 'link': {
+          const { default: LinkCommand } = await import('./link.js');
+          const cmd = new LinkCommand([], this.config);
+          await cmd.run();
+          break;
+        }
+        case 'update': {
+          const { default: UpdateCommand } = await import('./update.js');
+          const cmd = new UpdateCommand([], this.config);
           await cmd.run();
           break;
         }

@@ -73,12 +73,14 @@ export const PMO_TABLE_SCHEMAS = {
       owner TEXT,
       assignee TEXT,
       spec_id TEXT,
+      epic_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       last_synced_from_spec TIMESTAMP,
       last_synced_from_board TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES ${PMO_TABLES.projects}(id) ON DELETE CASCADE,
-      FOREIGN KEY (spec_id) REFERENCES ${PMO_TABLES.specs}(id) ON DELETE SET NULL
+      FOREIGN KEY (spec_id) REFERENCES ${PMO_TABLES.specs}(id) ON DELETE SET NULL,
+      FOREIGN KEY (epic_id) REFERENCES ${PMO_TABLES.epics}(id) ON DELETE SET NULL
     )`,
 
   board_tickets: `
@@ -142,6 +144,8 @@ export const PMO_TABLE_SCHEMAS = {
       project_id TEXT NOT NULL,
       name TEXT NOT NULL,
       description TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      file_path TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES ${PMO_TABLES.projects}(id) ON DELETE CASCADE
@@ -171,6 +175,7 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_tickets_owner ON ${PMO_TABLES.tickets}(owner);
   CREATE INDEX IF NOT EXISTS idx_pmo_tickets_assignee ON ${PMO_TABLES.tickets}(assignee);
   CREATE INDEX IF NOT EXISTS idx_pmo_tickets_spec ON ${PMO_TABLES.tickets}(spec_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_tickets_epic ON ${PMO_TABLES.tickets}(epic_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_tickets_priority ON ${PMO_TABLES.tickets}(priority);
   CREATE INDEX IF NOT EXISTS idx_pmo_tickets_category ON ${PMO_TABLES.tickets}(category);
   CREATE INDEX IF NOT EXISTS idx_pmo_board_tickets_column ON ${PMO_TABLES.board_tickets}(project_id, column_id);
@@ -194,13 +199,13 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.initiatives,
   PMO_TABLE_SCHEMAS.columns,
   PMO_TABLE_SCHEMAS.specs,  // Must be before tickets (FK reference)
+  PMO_TABLE_SCHEMAS.epics,  // Must be before tickets (FK reference)
   PMO_TABLE_SCHEMAS.tickets,
   PMO_TABLE_SCHEMAS.board_tickets,
   PMO_TABLE_SCHEMAS.subtasks,
   PMO_TABLE_SCHEMAS.ticket_metadata,
   PMO_TABLE_SCHEMAS.ticket_specs,
   PMO_TABLE_SCHEMAS.ticket_assignments,
-  PMO_TABLE_SCHEMAS.epics,
   PMO_TABLE_SCHEMAS.cache_metadata,
   PMO_TABLE_SCHEMAS.settings,
   PMO_INDEXES,
