@@ -181,6 +181,16 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 | `prlt ticket own [id]`            | ✓  | -  | -  | Take ownership                     | [pmo-work-commands.md](../../specs/cli/pmo-work-commands.md) |
 | `prlt ticket execute [id]`        | ✓  | -  | -  | Execute ticket (spin up agent)     | [pmo-work-commands.md](../../specs/cli/pmo-work-commands.md) |
 
+#### Database Commands
+
+| Command                 | 📝 | ✅ | 🧪 | Description                      | Spec                                               |
+| ----------------------- | -- | -- | -- | -------------------------------- | -------------------------------------------------- |
+| `prlt db`               | ✓  | -  | -  | Interactive database menu        | [db-commands.md](../../specs/cli/db-commands.md)   |
+| `prlt db tables`        | ✓  | -  | -  | List all tables with row counts  | [db-commands.md](../../specs/cli/db-commands.md)   |
+| `prlt db schema [table]`| ✓  | -  | -  | Show table structure             | [db-commands.md](../../specs/cli/db-commands.md)   |
+| `prlt db query <sql>`   | ✓  | -  | -  | Run SQL query (read-only default)| [db-commands.md](../../specs/cli/db-commands.md)   |
+| `prlt db stats`         | ✓  | -  | -  | Database size and health info    | [db-commands.md](../../specs/cli/db-commands.md)   |
+
 #### Maintenance Commands
 
 | Command                  | 📝 | ✅ | 🧪 | Description             |
@@ -386,14 +396,20 @@ apps/cli/
 │   │   ├── create.ts
 │   │   ├── list.ts
 │   │   └── view.ts
-│   └── epic/           # Epic commands (not yet implemented)
-│       ├── create.ts
-│       ├── list.ts
-│       ├── view.ts
-│       ├── archive.ts
-│       ├── activate.ts
-│       ├── move.ts
-│       └── progress.ts
+│   ├── epic/           # Epic commands (not yet implemented)
+│   │   ├── create.ts
+│   │   ├── list.ts
+│   │   ├── view.ts
+│   │   ├── archive.ts
+│   │   ├── activate.ts
+│   │   ├── move.ts
+│   │   └── progress.ts
+│   └── db/             # Database inspection commands
+│       ├── index.ts
+│       ├── tables.ts
+│       ├── schema.ts
+│       ├── query.ts
+│       └── stats.ts
 ├── test/              # Integration tests
 ├── README.md          # User documentation
 └── SYSTEM.md          # This file - system context

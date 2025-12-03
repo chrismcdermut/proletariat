@@ -8,15 +8,14 @@ Commands for initializing workspaces, HQs, PMO systems, and related configuratio
 - **Workspace-Only**: Lightweight setup without repository management
 - **PMO Initialization**: Project management office setup with board templates
 - **Theme Selection**: Agent personality/naming theme for the workspace
-- **Storage**: SQLite database (`workspace.db`) is the single source of truth
 
 ## Command Overview
 
-| Command           | Purpose                                    | Category | Status         |
-| ----------------- | ------------------------------------------ | -------- | -------------- |
+| Command           | Purpose                                    | Category | Status        |
+| ----------------- | ------------------------------------------ | -------- | ------------- |
 | `prlt init`       | Initialize HQ or workspace                 | Setup    | ✅ Implemented |
 | `prlt pmo init`   | Initialize PMO system                      | PMO      | ✅ Implemented |
-| `prlt theme`      | Select or change theme                     | Config   | ❌ Not Implemented |
+| `prlt theme`      | Select or change theme                     | Config   | ⬜ Not Implemented |
 
 ---
 
@@ -69,14 +68,26 @@ Commands for initializing workspaces, HQs, PMO systems, and related configuratio
   ❯ Yes
     No
 
-[If PMO selected, runs pmo init flow]
+[If PMO selected:]
+
+? PMO location:
+  ❯ Inside repo (main-app/pmo)
+    Separate from repo (hq/pmo)
+
+? Choose board template:
+  ❯ Kanban (Backlog, In Progress, Done)
+    Scrum (+ In Review, Blocked)
+    5-Tool Founder (BUILD/GROW/SUPPORT/BIZOPS/STRATEGY + workflow)
+    Custom (define your own columns)
+
+? Board name: my-startup-kanban    # Default: {hqname}-kanban
 
 ✅ HQ initialized successfully!
    Location: /path/to/my-startup-hq
    Theme: Tech Founders
    Agents: 2 (gates, zuck)
    Repositories: 3
-   PMO: Enabled (Kanban)
+   PMO: Enabled (Kanban, my-startup-kanban)
 
 Next steps:
   1. Navigate to HQ: cd my-startup-hq
@@ -104,8 +115,9 @@ my-startup-hq/
 │       ├── gates/           # Agent worktree
 │       └── zuck/            # Agent worktree
 ├── pmo/                     # (if PMO enabled)
+│   ├── config.json
 │   ├── board.md
-│   └── specs/
+│   └── board.db
 └── repos/                   # Repository clones
 ```
 
@@ -117,7 +129,7 @@ my-startup-hq/
 **Arguments**: None (fully interactive)
 
 **Flags**:
-- `--location, -l <type>`: PMO location (`separate` or `repo:name`)
+- `--location, -l <location>`: PMO location (separate or repo:name)
 - `--template, -t <template>`: Board template (kanban, scrum, founder, custom)
 - `--name, -n <name>`: Board name
 
@@ -128,9 +140,9 @@ my-startup-hq/
    Creates board.md and specs/ for project planning
    (Data stored in SQLite, synced to markdown files)
 
-? Where should PMO be located?
-  ❯ Separate pmo/ directory (recommended)
-    Inside repo: proletariat
+? PMO location:
+  ❯ Inside repo (main-app/pmo)
+    Separate from repo (hq/pmo)
 
 ? Choose board template:
   ❯ Kanban (Backlog, In Progress, Done)
@@ -138,11 +150,16 @@ my-startup-hq/
     5-Tool Founder (BUILD/GROW/SUPPORT/BIZOPS/STRATEGY + workflow)
     Custom (define your own columns)
 
-? Board name: my-startup-kanban
+? Board name: my-startup-kanban    # Default: {hqname}-kanban
 
-  ✓ board.md created
-  ✓ specs/ folders created
+  ✓ PMO tables initialized in workspace.db
+  ✓ Project "my-startup-kanban" created
+  ✓ Spec folders created
+  ✓ my-startup-kanban.md created
+
+[If location is 'separate':]
   ✓ Git repository initialized
+    Add remote: cd pmo && git remote add origin <url>
 
 ✅ PMO initialized successfully!
 
@@ -155,54 +172,56 @@ Next steps:
 **Example**:
 ```bash
 prlt pmo init
-prlt pmo init --location repo:proletariat --template founder
-prlt pmo init --location separate --template scrum --name "Sprint Board"
+prlt pmo init --location separate --template kanban
+prlt pmo init --location repo:main-app --template founder --name "Startup Board"
 ```
 
 **Behavior**:
-- Detects if in HQ or standalone
-- If PMO already exists, prompts for reinitialize (requires typed confirmation "delete pmo")
-- Creates `pmo/` directory with board.md for Obsidian compatibility
-- SQLite database (`workspace.db`) is always the source of truth
-- board.md is an export for viewing/editing in Obsidian
-- For separate PMO, initializes git repository with .gitignore
+- Detects if in HQ (uses `hq/pmo/`) or standalone (uses `.pmo/`)
+- Prevents re-initialization if PMO already exists
+- Creates board.md for Obsidian compatibility
+- SQLite storage: Database is source of truth
+- Git storage: board.md is source of truth, SQLite is cache
+- Optionally initializes git repository with proper .gitignore
+- Creates README.md with usage instructions
 
-**Storage Architecture**:
-- **Source of truth**: `.proletariat/workspace.db` (SQLite)
-- **View/Edit file**: `pmo/board.md` (Obsidian-compatible kanban)
-- **Sync**: `prlt board sync` imports board.md changes back to SQLite
+**Storage**:
+SQLite is always used as the storage backend. The database lives in the HQ's
+`.proletariat/workspace.db` file. Markdown files are auto-synced for:
+- Obsidian Kanban compatibility
+- Git-based collaboration (optional)
+- Human-readable backup
 
 **Templates**:
-- **Kanban**: Backlog, In Progress, Done
-- **Scrum**: Backlog, In Progress, In Review, Blocked, Done
-- **Founder**: BUILD, GROW, SUPPORT, BIZOPS, STRATEGY (with sub-workflows)
-- **Custom**: User-defined columns
 
-**Directory Structure** (within HQ):
+**Kanban**: Backlog, In Progress, Done
+**Scrum**: Backlog, In Progress, In Review, Blocked, Done
+**Founder**: BUILD, GROW, SUPPORT, BIZOPS, STRATEGY (with sub-workflows)
+**Custom**: User-defined columns
+
+**PMO Directory Structure**:
 ```
-my-startup-hq/
-├── .proletariat/
-│   ├── config.json          # HQ configuration
-│   └── workspace.db         # SQLite database (PMO tables here)
-├── pmo/                      # PMO directory
-│   ├── board.md              # Kanban board (Obsidian compatible)
-│   ├── .gitignore            # (if git init selected)
-│   └── specs/                # Spec documents
-│       ├── draft/
-│       ├── active/
-│       └── future/
-└── ...
+pmo/
+├── README.md                    # Usage instructions
+├── product/                     # WHAT - Living product definitions
+│   ├── init-commands.md         # How init should work
+│   ├── ticket-commands.md       # How tickets should work
+│   └── architecture.md          # System design
+│
+└── projects/                    # WORK - Implementation flows through lifecycle
+    └── {project-id}/
+        ├── {project-id}-kanban.md  # Kanban board (Obsidian compatible)
+        └── epics/                  # Implementation work
+            ├── draft/              # Planning phase
+            ├── active/             # Currently implementing
+            └── complete/           # Done implementing
 ```
 
-**Standalone PMO** (no HQ):
-```
-.pmo/
-├── .proletariat/
-│   ├── config.json
-│   └── workspace.db
-├── board.md
-└── specs/
-```
+**Key Distinction**:
+- `product/` specs define WHAT the product should do - updated in place, never "complete"
+- `projects/epics/` are implementation work that flows: draft → active → complete
+
+Note: Database tables (pmo_*) live in `../.proletariat/workspace.db`
 
 ---
 
@@ -253,6 +272,156 @@ prlt theme scientists
 - **Advanced Options**: Flags for automation and customization
 - **Contextual Help**: Explain choices during prompts
 - **Sensible Defaults**: Zero-config option for common use cases
+
+### Configuration Management
+- **Centralized Config**: `.proletariat/config.json` for workspace
+- **Module Configs**: Separate configs for PMO, themes, etc.
+- **Version Tracking**: Track configuration schema versions
+- **Migration Support**: Handle config upgrades gracefully
+
+---
+
+## Integration Points
+
+### Workspace Detection
+All commands detect workspace context:
+```typescript
+// Check for HQ root
+private findHQRoot(): string | null {
+  let currentDir = process.cwd();
+
+  while (currentDir !== '/') {
+    const configPath = path.join(currentDir, '.proletariat', 'config.json');
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      if (config.type === 'hq') {
+        return currentDir;
+      }
+    }
+    currentDir = path.dirname(currentDir);
+  }
+
+  return null;
+}
+```
+
+### Database Initialization
+```typescript
+// Initialize workspace database
+const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
+const storage = new SQLiteStorage(dbPath);
+
+await storage.init({
+  workspaceType: 'hq',
+  theme,
+  agents: selectedAgents,
+  repositories: repos,
+  hasPMO: includePMO,
+});
+```
+
+### Agent Worktree Creation
+```typescript
+// Create worktrees for each agent across all repos
+for (const agent of selectedAgents) {
+  const agentDir = path.join(hqPath, 'agents', 'staff', agent.name);
+  fs.mkdirSync(agentDir, { recursive: true });
+
+  for (const repo of repos) {
+    await createWorktree(repo.path, agent.name, agentDir);
+  }
+}
+```
+
+---
+
+## Error Handling
+
+### Common Scenarios
+- **Already Initialized**: Detect existing workspace/PMO and prevent re-init
+- **Missing Dependencies**: Check for git, node, required tools
+- **Permission Issues**: Handle file system access problems
+- **Invalid Paths**: Validate directory locations before creation
+- **Git Failures**: Graceful degradation if git operations fail
+
+### Recovery Guidance
+```typescript
+// Example error with recovery
+if (fs.existsSync(path.join(pmoPath, '.pmo'))) {
+  this.error('PMO already initialized. Use "prlt pmo status" to check.');
+}
+
+// Directory creation failure
+try {
+  fs.mkdirSync(hqPath, { recursive: true });
+} catch (error) {
+  this.error(`Failed to create directory: ${error.message}\n` +
+             `Check permissions for: ${hqPath}`);
+}
+```
+
+---
+
+## Testing Strategy
+
+### Setup Validation
+- Test full HQ initialization flow
+- Test workspace-only flow
+- Test PMO initialization (both storage types)
+- Verify directory structures created correctly
+- Validate database initialization
+
+### Error Cases
+- Test re-initialization prevention
+- Test invalid paths and permissions
+- Test git failures with graceful fallback
+- Test missing dependencies
+
+### Integration
+- Test theme integration with agent creation
+- Test repository worktree creation
+- Test PMO + HQ combined setup
+- Test configuration persistence
+
+---
+
+## Configuration Files
+
+### `.proletariat/config.json` (HQ)
+```json
+{
+  "type": "hq",
+  "name": "my-startup",
+  "theme": "tech-founders",
+  "created": "2025-01-27T10:00:00Z",
+  "version": "1.0.0",
+  "hasPMO": true,
+  "repositories": [
+    {
+      "name": "main-app",
+      "path": "/path/to/repos/main-app",
+      "remote": "https://github.com/user/main-app.git"
+    }
+  ],
+  "agents": [
+    { "name": "gates", "theme": "tech-founders" },
+    { "name": "zuck", "theme": "tech-founders" }
+  ]
+}
+```
+
+### `pmo/config.json` (PMO)
+```json
+{
+  "storage": "sqlite",
+  "template": "kanban",
+  "boardName": "Project Board",
+  "columns": ["Backlog", "In Progress", "Done"],
+  "created": "2025-01-27T10:05:00Z",
+  "gitRemote": "https://github.com/user/pmo.git",
+  "autoSync": false
+}
+```
 
 ---
 
