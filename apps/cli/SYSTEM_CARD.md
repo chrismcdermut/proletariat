@@ -18,7 +18,8 @@ Multi-agent development orchestration system for managing distributed AI-powered
 
 - **Dual Command Structure**: `prlt agent` (individual) and `prlt agents` (bulk)
 - **Individual Operations**: Focus on single agent workflows (status, visit, remove)
-- **Bulk Operations**: Multi-agent management with checkbox selectionm**Git Worktree Integration**: Each agent has isolated workspace with proper cleanup
+- **Bulk Operations**: Multi-agent management with checkbox selection
+- **Git Worktree Integration**: Each agent has isolated workspace with proper cleanup
 - **Interactive Menus**: Arrow-key navigation with cancel options
 - **Status Tracking**: Repository states, commits, activity, and ticket assignments
 - **Navigation Support**: Directory switching and path calculation
@@ -35,137 +36,247 @@ Multi-agent development orchestration system for managing distributed AI-powered
 ### 4. Command Specification
 
 This is the authoritative list of commands that MUST exist in the CLI.
-✅ = Implemented | ❌ = Not yet migrated | 🔄 = Partially implemented
-
-### 4.1 Complete Command Reference
 
 **Legend:**
 
-- 📝 Spec Defined: ☑️ = Yes, ☐ = No
-- ✅ Implemented: ☑️ = Yes, ☐ = No
-- 🧪 Tested: ☑️ = Yes, ☐ = No
-- 🧑‍💻 Manual Testing: ☑️ = Yes, ☐ = No
-- ✔️ Done: ☑️ = All complete, ☐ = Incomplete
+- 📝 Spec: Specification defined
+- ✅ Impl: Code implemented
+- 🧪 Test: Automated tests passing
 
 #### Core Commands
 
-| Command                 | 📝   | ✅   | 🧪   | 🧑‍💻 | ✔️ | Description                 | Spec            |
-| ----------------------- | ---- | ---- | ---- | ------ | ---- | --------------------------- | --------------- |
-| `prlt init <hq-name>` | ☑️ | ☑️ | ☑️ | ☑️   | ☑️ | Initialize new HQ workspace | [init.md](init.md) |
-| `prlt help [command]` | ☑️ | ☑️ | ☑️ | ☑️   | ☑️ | Show help for commands      | oclif built-in  |
-| `prlt --version`      | ☐   | ☐   | ☐   | ☐     | ☐   | Show CLI version            | -               |
+| Command               | 📝 | ✅ | 🧪 | Description                 | Spec                                                 |
+| --------------------- | -- | -- | -- | --------------------------- | ---------------------------------------------------- |
+| `prlt init <hq-name>` | ✓  | ✓  | ✓  | Initialize new HQ workspace | [init-commands.md](../../specs/cli/init-commands.md) |
+| `prlt help [command]` | ✓  | ✓  | ✓  | Show help for commands      | oclif built-in                                       |
+| `prlt --version`      | -  | -  | -  | Show CLI version            | -                                                    |
 
 #### Agent Commands (Individual Operations)
 
-| Command                      | 📝   | ✅   | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️ | Description                   | Spec              |
-| ---------------------------- | ---- | ---- | ------ | ---------- | -------- | ------------ | -------- | ------------ | -------- | ------------ | ---- | ----------------------------- | ----------------- |
-| `prlt agent`               | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Interactive individual menu   | [agent.md](agent.md) |
-| `prlt agent status [name]` | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Show detailed agent status    | [agent.md](agent.md) |
-| `prlt agent visit [name]`  | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Navigate to agent directory   | [agent.md](agent.md) |
-| `prlt agent add`           | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Add agent (redirects to bulk) | [agent.md](agent.md) |
-| `prlt agent remove [name]` | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Remove specific agent         | [agent.md](agent.md) |
-| `prlt agent grant`         | ☑️ | ☐   | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Grant repo access to agents   | [agent.md](agent.md) |
-| `prlt agent revoke`        | ☑️ | ☐   | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Revoke repo access            | [agent.md](agent.md) |
+| Command                      | 📝 | ✅ | 🧪 | Description                   | Spec                                                     |
+| ---------------------------- | -- | -- | -- | ----------------------------- | -------------------------------------------------------- |
+| `prlt agent`                 | ✓  | ✓  | -  | Interactive individual menu   | [agent-commands.md](../../specs/cli/agent-commands.md)   |
+| `prlt agent status [name]`   | ✓  | ✓  | -  | Show detailed agent status    | [agent-commands.md](../../specs/cli/agent-commands.md)   |
+| `prlt agent visit [name]`    | ✓  | ✓  | -  | Navigate to agent directory   | [agent-commands.md](../../specs/cli/agent-commands.md)   |
+| `prlt agent add`             | ✓  | ✓  | -  | Add agent (redirects to bulk) | [agent-commands.md](../../specs/cli/agent-commands.md)   |
+| `prlt agent remove [name]`   | ✓  | ✓  | -  | Remove specific agent         | [agent-commands.md](../../specs/cli/agent-commands.md)   |
+| `prlt agent grant`           | ✓  | -  | -  | Grant repo access to agents   | [agent-commands.md](../../specs/cli/agent-commands.md)   |
+| `prlt agent revoke`          | ✓  | -  | -  | Revoke repo access            | [agent-commands.md](../../specs/cli/agent-commands.md)   |
 
 #### Agents Commands (Bulk Operations)
 
-| Command                | 📝   | ✅   | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️ | Description                      | Spec                |
-| ---------------------- | ---- | ---- | ------ | ---------- | -------- | ------------ | -------- | ------------ | -------- | ------------ | ---- | -------------------------------- | ------------------- |
-| `prlt agents`        | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Interactive bulk operations menu | [agents.md](agents.md) |
-| `prlt agents list`   | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | List all agents with overview    | [agents.md](agents.md) |
-| `prlt agents status` | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Status overview for all agents   | [agents.md](agents.md) |
-| `prlt agents add`    | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Add multiple agents (bulk)       | [agents.md](agents.md) |
-| `prlt agents remove` | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Remove multiple agents (bulk)    | [agents.md](agents.md) |
+| Command              | 📝 | ✅ | 🧪 | Description                      | Spec                                                   |
+| -------------------- | -- | -- | -- | -------------------------------- | ------------------------------------------------------ |
+| `prlt agents`        | ✓  | ✓  | -  | Interactive bulk operations menu | [agent-commands.md](../../specs/cli/agent-commands.md) |
+| `prlt agents list`   | ✓  | ✓  | -  | List all agents with overview    | [agent-commands.md](../../specs/cli/agent-commands.md) |
+| `prlt agents status` | ✓  | ✓  | -  | Status overview for all agents   | [agent-commands.md](../../specs/cli/agent-commands.md) |
+| `prlt agents add`    | ✓  | ✓  | -  | Add multiple agents (bulk)       | [agent-commands.md](../../specs/cli/agent-commands.md) |
+| `prlt agents remove` | ✓  | ✓  | -  | Remove multiple agents (bulk)    | [agent-commands.md](../../specs/cli/agent-commands.md) |
+
+#### Repo Commands (Individual Operations)
+
+| Command                | 📝 | ✅ | 🧪 | Description                     | Spec |
+| ---------------------- | -- | -- | -- | ------------------------------- | ---- |
+| `prlt repo`            | -  | ✓  | -  | Interactive individual menu     | -    |
+| `prlt repo add`        | -  | ✓  | -  | Add single repository           | -    |
+| `prlt repo remove`     | -  | ✓  | -  | Remove single repository        | -    |
+| `prlt repo view`       | -  | ✓  | -  | View repository details         | -    |
+
+#### Repos Commands (Bulk Operations)
+
+| Command           | 📝 | ✅ | 🧪 | Description                      | Spec |
+| ----------------- | -- | -- | -- | -------------------------------- | ---- |
+| `prlt repos`      | -  | ✓  | -  | Interactive bulk operations menu | -    |
+| `prlt repos list` | -  | ✓  | -  | List all repositories            | -    |
+| `prlt repos add`  | -  | ✓  | -  | Add multiple repositories (bulk) | -    |
+| `prlt repos remove` | -  | ✓  | -  | Remove multiple repositories (bulk) | -    |
 
 #### PMO Commands
 
-| Command           | 📝   | ✅   | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️ | Description                      | Spec                                                   |
-| ----------------- | ---- | ---- | ------ | ---------- | -------- | ------------ | -------- | ------------ | -------- | ------------ | ---- | -------------------------------- | ------------------------------------------------------ |
-| `prlt pmo init` | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Initialize PMO system (one-time) | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
+| Command         | 📝 | ✅ | 🧪 | Description                      | Spec                                                 |
+| --------------- | -- | -- | -- | -------------------------------- | ---------------------------------------------------- |
+| `prlt pmo init` | ✓  | ✓  | -  | Initialize PMO system (one-time) | [init-commands.md](../../specs/cli/init-commands.md) |
 
 #### Project Commands
 
-| Command                      | 📝   | ✅   | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️ | Description          | Spec                                                   |
-| ---------------------------- | ---- | ---- | ------ | ---------- | -------- | ------------ | -------- | ------------ | -------- | ------------ | ---- | -------------------- | ------------------------------------------------------ |
-| `prlt project create`      | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Create new project   | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt project list`        | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | List all projects    | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt project view [id]`   | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | View project details | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt project delete [id]` | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Delete project       | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
+| Command                      | 📝 | ✅ | 🧪 | Description          | Spec                                                               |
+| ---------------------------- | -- | -- | -- | -------------------- | ------------------------------------------------------------------ |
+| `prlt project create`        | ✓  | ✓  | -  | Create new project   | [pmo-project-commands.md](../../specs/cli/pmo-project-commands.md) |
+| `prlt project list`          | ✓  | ✓  | -  | List all projects    | [pmo-project-commands.md](../../specs/cli/pmo-project-commands.md) |
+| `prlt project view [id]`     | ✓  | ✓  | -  | View project details | [pmo-project-commands.md](../../specs/cli/pmo-project-commands.md) |
+| `prlt project delete [id]`   | ✓  | ✓  | -  | Delete project       | [pmo-project-commands.md](../../specs/cli/pmo-project-commands.md) |
 
 #### Board Commands
 
-| Command                 | 📝   | ✅   | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️ | Description                      | Spec                                                   |
-| ----------------------- | ---- | ---- | ------ | ---------- | -------- | ------------ | -------- | ------------ | -------- | ------------ | ---- | -------------------------------- | ------------------------------------------------------ |
-| `prlt board`          | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Interactive board menu           | [pmo-board-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-board-commands.md) |
-| `prlt board view`     | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | View board in terminal           | [pmo-board-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-board-commands.md) |
-| `prlt board open`     | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Open board in Obsidian           | [pmo-board-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-board-commands.md) |
-| `prlt board markdown` | ☑️ | ☐   | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Show board as markdown           | [pmo-board-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-board-commands.md) |
-| `prlt board export`   | ☑️ | ☐   | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Export board to file             | [pmo-board-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-board-commands.md) |
-| `prlt board sync`     | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Sync between SQLite and board.md | [pmo-board-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-board-commands.md) |
-| `prlt board watch`    | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Watch board.md for changes       | [pmo-board-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-board-commands.md) |
+| Command               | 📝 | ✅ | 🧪 | Description                        | Spec                                                           |
+| --------------------- | -- | -- | -- | ---------------------------------- | -------------------------------------------------------------- |
+| `prlt board`          | ✓  | ✓  | -  | Interactive board menu             | [pmo-board-commands.md](../../specs/cli/pmo-board-commands.md) |
+| `prlt board view`     | ✓  | ✓  | -  | View board in terminal             | [pmo-board-commands.md](../../specs/cli/pmo-board-commands.md) |
+| `prlt board open`     | ✓  | ✓  | -  | Open board in Obsidian             | [pmo-board-commands.md](../../specs/cli/pmo-board-commands.md) |
+| `prlt board markdown` | ✓  | -  | -  | Show board as markdown             | [pmo-board-commands.md](../../specs/cli/pmo-board-commands.md) |
+| `prlt board export`   | ✓  | -  | -  | Export board to file               | [pmo-board-commands.md](../../specs/cli/pmo-board-commands.md) |
+| `prlt board sync`     | ✓  | ✓  | -  | Sync between SQLite and kanban.md  | [pmo-board-commands.md](../../specs/cli/pmo-board-commands.md) |
+| `prlt board watch`    | ✓  | ✓  | -  | Watch kanban.md for changes        | [pmo-board-commands.md](../../specs/cli/pmo-board-commands.md) |
 
 #### Spec Commands
 
-| Command                               | 📝   | ✅   | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️ | Description                        | Spec                                                   |
-| ------------------------------------- | ---- | ---- | ------ | ---------- | -------- | ------------ | -------- | ------------ | -------- | ------------ | ---- | ---------------------------------- | ------------------------------------------------------ |
-| `prlt spec`                         | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Interactive spec menu              | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt spec create [name]`           | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Create new spec document           | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt spec list`                    | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | List all specs                     | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt spec view [id]`               | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | View spec and linked tickets       | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt spec generate-tickets [spec]` | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Generate tickets from spec         | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
-| `prlt spec link [ticket] [spec]`    | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Link existing ticket to spec       | [pmo-crud-commands.md](specs/active/pmo-crud-commands.md) |
+Specs are **static documentation** (design docs, architecture, requirements). No lifecycle, no tickets.
+
+| Command                   | 📝 | ✅ | 🧪 | Description              | Spec                                                         |
+| ------------------------- | -- | -- | -- | ------------------------ | ------------------------------------------------------------ |
+| `prlt spec`               | ✓  | ✓  | -  | Interactive spec menu    | [pmo-spec-commands.md](../../specs/cli/pmo-spec-commands.md) |
+| `prlt spec create [name]` | ✓  | ✓  | -  | Create new spec document | [pmo-spec-commands.md](../../specs/cli/pmo-spec-commands.md) |
+| `prlt spec list`          | ✓  | ✓  | -  | List all specs           | [pmo-spec-commands.md](../../specs/cli/pmo-spec-commands.md) |
+| `prlt spec view [id]`     | ✓  | ✓  | -  | View spec content        | [pmo-spec-commands.md](../../specs/cli/pmo-spec-commands.md) |
+
+#### Epic Commands
+
+Epics are **work containers** with lifecycle status. Tickets link to epics via `epic_id`.
+
+| Command                        | 📝 | ✅ | 🧪 | Description                    | Spec                                                         |
+| ------------------------------ | -- | -- | -- | ------------------------------ | ------------------------------------------------------------ |
+| `prlt epic`                    | ✓  | -  | -  | Interactive epic menu          | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
+| `prlt epic create [name]`      | ✓  | -  | -  | Create new epic                | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
+| `prlt epic list`               | ✓  | -  | -  | List all epics                 | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
+| `prlt epic view [id]`          | ✓  | -  | -  | View epic and linked tickets   | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
+| `prlt epic archive [id]`       | ✓  | -  | -  | Move epic to complete/ folder  | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
+| `prlt epic activate [id]`      | ✓  | -  | -  | Move epic to active/ folder    | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
+| `prlt epic move [id] [status]` | ✓  | -  | -  | Move epic between status folders | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
+| `prlt epic progress [id]`      | ✓  | -  | -  | Show completion percentage     | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
 
 #### Ticket Commands (CRUD Operations)
 
-| Command                            | 📝   | ✅   | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️ | Description                           | Spec                                                   |
-| ---------------------------------- | ---- | ---- | ------ | ---------- | -------- | ------------ | -------- | ------------ | -------- | ------------ | ---- | ------------------------------------- | ------------------------------------------------------ |
-| `prlt ticket`                    | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Interactive ticket menu               | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
-| `prlt ticket create [title]`     | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Create new ticket                     | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
-| `prlt ticket list`               | ☑️ | ☐   | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | List all tickets                      | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
-| `prlt ticket view [id]`          | ☑️ | ☐   | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | View ticket details                   | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
-| `prlt ticket move [id] [column]` | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Move ticket to column                 | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
-| `prlt ticket delete [id]`        | ☑️ | ☑️ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Delete ticket                         | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
+| Command                          | 📝 | ✅ | 🧪 | Description             | Spec                                                             |
+| -------------------------------- | -- | -- | -- | ----------------------- | ---------------------------------------------------------------- |
+| `prlt ticket`                    | ✓  | ✓  | -  | Interactive ticket menu | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt ticket create [title]`     | ✓  | ✓  | -  | Create new ticket       | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt ticket list`               | ✓  | ✓  | -  | List all tickets        | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt ticket view [id]`          | ✓  | ✓  | -  | View ticket details     | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt ticket move [id] [column]` | ✓  | ✓  | -  | Move ticket to column   | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt ticket delete [id]`        | ✓  | ✓  | -  | Delete ticket           | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt ticket complete [id]`      | ✓  | ✓  | -  | Move ticket to Done     | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt ticket status [id]`        | ✓  | ✓  | -  | Show ticket status      | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
 
-#### Bulk Ticket Operations
+#### Bulk Ticket Commands (`prlt tickets`)
 
-| Command                        | 📝   | ✅ | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️ | Description                          | Spec                                                   |
-| ------------------------------ | ---- | -- | ------ | ---------- | -------- | ------------ | -------- | ------------ | -------- | ------------ | ---- | ------------------------------------ | ------------------------------------------------------ |
-| `prlt ticket bulk move`      | ☑️ | ☐ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Move multiple tickets to column      | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
-| `prlt ticket bulk delete`    | ☑️ | ☐ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Delete multiple tickets              | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
-| `prlt ticket bulk reassign`  | ☑️ | ☐ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Reassign tickets to different spec   | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
-| `prlt ticket bulk update`    | ☑️ | ☐ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Update priority/category for multiple | [pmo-ticket-commands.md](../../pmo/projects/proletariat-kanban/specs/active/pmo-ticket-commands.md) |
+| Command                 | 📝 | ✅ | 🧪 | Description                           | Spec                                                             |
+| ----------------------- | -- | -- | -- | ------------------------------------- | ---------------------------------------------------------------- |
+| `prlt tickets`          | ✓  | ✓  | -  | Interactive bulk operations menu      | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt tickets list`     | ✓  | ✓  | -  | List all tickets with filtering       | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt tickets move`     | ✓  | ✓  | -  | Move multiple tickets to column       | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt tickets delete`   | ✓  | ✓  | -  | Delete multiple tickets               | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt tickets complete` | ✓  | ✓  | -  | Complete multiple tickets             | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt tickets reassign` | ✓  | ✓  | -  | Reassign tickets to different agent   | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt tickets link`     | ✓  | ✓  | -  | Link tickets to different epic        | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
+| `prlt tickets update`   | ✓  | ✓  | -  | Update priority/category for multiple | [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) |
 
 #### Work Commands (Workflow & Orchestration)
 
 **Note**: These commands are under the `prlt ticket` namespace but handle work assignment and ownership rather than ticket data.
 
-| Command                             | 📝   | ✅ | 🧪 SQL | 🧑‍💻 SQL | 🧪 Git-R | 🧑‍💻 Git-R | 🧪 Git-S | 🧑‍💻 Git-S | 🧪 Cloud | 🧑‍💻 Cloud | ✔️ | Description                           | Spec                                                   |
-| ----------------------------------- | ---- | -- | ------ | ---------- | -------- | ------------ | -------- | ------------ | -------- | ------------ | ---- | ------------------------------------- | ------------------------------------------------------ |
-| `prlt ticket assign [id] [agent]` | ☑️ | ☐ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Assign executor (UI only, no backend) | [pmo-work-commands.md](specs/active/pmo-work-commands.md) |
-| `prlt ticket own [id]`            | ☑️ | ☐ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Take ownership (command not created)  | [pmo-work-commands.md](specs/active/pmo-work-commands.md) |
-| `prlt ticket claim [id]`          | ☑️ | ☐ | ☐     | ☐         | ☐       | ☐           | ☐       | ☐           | ☐       | ☐           | ☐   | Claim ticket (backend unclear)        | [pmo-work-commands.md](specs/active/pmo-work-commands.md) |
+| Command                           | 📝 | ✅ | 🧪 | Description                        | Spec                                                         |
+| --------------------------------- | -- | -- | -- | ---------------------------------- | ------------------------------------------------------------ |
+| `prlt ticket assign [id] [agent]` | ✓  | ✓  | -  | Assign ticket to user/agent        | [pmo-work-commands.md](../../specs/cli/pmo-work-commands.md) |
+| `prlt ticket claim [id]`          | ✓  | ✓  | -  | Claim ticket (move to In Progress) | [pmo-work-commands.md](../../specs/cli/pmo-work-commands.md) |
+| `prlt ticket own [id]`            | ✓  | -  | -  | Take ownership                     | [pmo-work-commands.md](../../specs/cli/pmo-work-commands.md) |
+| `prlt ticket execute [id]`        | ✓  | -  | -  | Execute ticket (spin up agent)     | [pmo-work-commands.md](../../specs/cli/pmo-work-commands.md) |
+
+#### Database Commands
+
+| Command                 | 📝 | ✅ | 🧪 | Description                      | Spec                                               |
+| ----------------------- | -- | -- | -- | -------------------------------- | -------------------------------------------------- |
+| `prlt db`               | ✓  | -  | -  | Interactive database menu        | [db-commands.md](../../specs/cli/db-commands.md)   |
+| `prlt db tables`        | ✓  | -  | -  | List all tables with row counts  | [db-commands.md](../../specs/cli/db-commands.md)   |
+| `prlt db schema [table]`| ✓  | -  | -  | Show table structure             | [db-commands.md](../../specs/cli/db-commands.md)   |
+| `prlt db query <sql>`   | ✓  | -  | -  | Run SQL query (read-only default)| [db-commands.md](../../specs/cli/db-commands.md)   |
+| `prlt db stats`         | ✓  | -  | -  | Database size and health info    | [db-commands.md](../../specs/cli/db-commands.md)   |
 
 #### Maintenance Commands
 
-| Command                    | 📝 | ✅ | 🧪 | 🧑‍💻 | ✔️ | Description             |
-| -------------------------- | -- | -- | -- | ------ | ---- | ----------------------- |
-| `prlt themes`            | ☐ | ☐ | ☐ | ☐     | ☐   | List available themes   |
-| `prlt repair`            | ☐ | ☐ | ☐ | ☐     | ☐   | Repair broken worktrees |
-| `prlt health`            | ☐ | ☐ | ☐ | ☐     | ☐   | Check worktree health   |
-| `prlt migrate <hq-name>` | ☐ | ☐ | ☐ | ☐     | ☐   | Migrate repo into HQ    |
-| `prlt upgrade`           | ☐ | ☐ | ☐ | ☐     | ☐   | Upgrade config format   |
+| Command                  | 📝 | ✅ | 🧪 | Description             |
+| ------------------------ | -- | -- | -- | ----------------------- |
+| `prlt themes`            | -  | -  | -  | List available themes   |
+| `prlt repair`            | -  | -  | -  | Repair broken worktrees |
+| `prlt health`            | -  | -  | -  | Check worktree health   |
+| `prlt migrate <hq-name>` | -  | -  | -  | Migrate repo into HQ    |
+| `prlt upgrade`           | -  | -  | -  | Upgrade config format   |
 
 #### Plugin Commands (Oclif Built-in)
 
-| Command                             | 📝 | ✅ | 🧪 | 🧑‍💻 | ✔️ | Description             |
-| ----------------------------------- | -- | -- | -- | ------ | ---- | ----------------------- |
-| `prlt plugins`                    | ☐ | ☐ | ☐ | ☐     | ☐   | List installed plugins  |
-| `prlt plugins install <plugin>`   | ☐ | ☐ | ☐ | ☐     | ☐   | Install a plugin        |
-| `prlt plugins uninstall <plugin>` | ☐ | ☐ | ☐ | ☐     | ☐   | Remove a plugin         |
-| `prlt plugins update`             | ☐ | ☐ | ☐ | ☐     | ☐   | Update all plugins      |
-| `prlt plugins link <path>`        | ☐ | ☐ | ☐ | ☐     | ☐   | Link local plugin       |
-| `prlt plugins reset`              | ☐ | ☐ | ☐ | ☐     | ☐   | Remove all user plugins |
-| `prlt plugins inspect <plugin>`   | ☐ | ☐ | ☐ | ☐     | ☐   | Show plugin details     |
+| Command                           | 📝 | ✅ | 🧪 | Description             |
+| --------------------------------- | -- | -- | -- | ----------------------- |
+| `prlt plugins`                    | -  | -  | -  | List installed plugins  |
+| `prlt plugins install <plugin>`   | -  | -  | -  | Install a plugin        |
+| `prlt plugins uninstall <plugin>` | -  | -  | -  | Remove a plugin         |
+| `prlt plugins update`             | -  | -  | -  | Update all plugins      |
+| `prlt plugins link <path>`        | -  | -  | -  | Link local plugin       |
+| `prlt plugins reset`              | -  | -  | -  | Remove all user plugins |
+| `prlt plugins inspect <plugin>`   | -  | -  | -  | Show plugin details     |
+
+---
+
+## Entity Model
+
+### Spec vs Epic vs Ticket
+
+| Entity | Purpose | Status/Lifecycle | Tickets |
+|--------|---------|------------------|---------|
+| **Spec** | Static documentation (design docs, architecture) | None | None |
+| **Epic** | Work container | active, draft, complete, dropped, future | Tickets link via `epic_id` |
+| **Ticket** | Work item | Column position on board | Optional `epic_id` reference |
+
+### Relationships
+
+```
+Project
+├── Board (1:1)
+│   └── Columns → Tickets
+├── Specs (1:many) - static documentation
+└── Epics (1:many) - work containers with status
+    └── Tickets link via epic_id (optional)
+```
+
+---
+
+## Storage Compatibility Matrix
+
+PMO commands work across multiple storage backends. This matrix shows current implementation status per backend.
+
+**Storage Backends:**
+- **SQLite**: Local database (current default)
+- **Git In-Repo**: PMO data in same repo as code
+- **Git Separate**: PMO data in dedicated repo
+- **Cloud**: Hosted database (future)
+
+See [pmo-storage.md](../../docs/architecture/pmo-storage.md) for architecture decisions on when to use each backend.
+
+### Feature Support by Backend
+
+| Feature                | SQLite | Git In-Repo | Git Separate | Cloud |
+| ---------------------- | ------ | ----------- | ------------ | ----- |
+| Project CRUD           | ✓      | -           | -            | -     |
+| Board view/sync        | ✓      | -           | -            | -     |
+| Ticket CRUD            | ✓      | -           | -            | -     |
+| Spec management        | ✓      | -           | -            | -     |
+| Epic management        | -      | -           | -            | -     |
+| Work assignment        | -      | -           | -            | -     |
+| Multi-worker (WAL)     | ✓      | N/A         | N/A          | ✓     |
+| Multi-host sync        | -      | ✓           | ✓            | ✓     |
+| Real-time updates      | -      | -           | -            | -     |
+| Conflict resolution    | N/A    | -           | -            | -     |
+
+**Legend:** ✓ = Implemented, - = Not yet, N/A = Not applicable
+
+### Migration Triggers
+
+| From     | To           | When                                |
+| -------- | ------------ | ----------------------------------- |
+| SQLite   | SQLite WAL   | Adding 2+ concurrent workers        |
+| SQLite   | Git Separate | Adding second host node             |
+| In-Repo  | Git Separate | Team growth or PR conflicts         |
+| Any      | Cloud        | 10+ engineers or real-time needs    |
+
+---
 
 ## Theme System
 
@@ -206,25 +317,23 @@ Examples:
 | **pmo_initiatives**        | id                      | name, objective, key_results, created_at, updated_at                                                     | Optional OKR-level grouping      |
 | **pmo_columns**            | (project_id, id)        | name, position, created_at                                                                               | Kanban lanes (per-project)       |
 | **pmo_tickets**            | id                      | project_id, title, column_id, position, priority, category, description, epic_id, created_at, updated_at | Kanban cards (per-project)       |
-| **pmo_epics**              | id                      | project_id, name, description, created_at, updated_at                                                    | Optional grouping within project |
+| **pmo_epics**              | id                      | project_id, title, status, file_path, created_at, updated_at                                             | Work containers with lifecycle   |
 | **pmo_subtasks**           | (ticket_id, id)         | title, done, position                                                                                    | Task breakdown                   |
 | **pmo_ticket_metadata**    | (ticket_id, key)        | value                                                                                                    | Custom ticket fields             |
-| **pmo_specs**              | id                      | path, title, status, created_at, updated_at                                                              | Specification documents          |
-| **pmo_ticket_specs**       | (ticket_id, spec_id)    | -                                                                                                        | Ticket-Spec relationship (M:M)   |
+| **pmo_specs**              | id                      | path, title, created_at, updated_at                                                                      | Static specification documents   |
 | **pmo_ticket_assignments** | (ticket_id, agent_name) | assigned_at                                                                                              | Agent-Ticket assignments (M:M)   |
 | **pmo_cache_metadata**     | key                     | value                                                                                                    | Board.md sync tracking           |
 
 **Foreign Key Constraints:**
 
 - `pmo_tickets.column_id` → `pmo_columns(project_id, id)` ON DELETE CASCADE
+- `pmo_tickets.epic_id` → `pmo_epics(id)` ON DELETE SET NULL
 - `pmo_epics.project_id` → `pmo_projects.id` ON DELETE CASCADE
 - `pmo_subtasks.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
 - `pmo_ticket_metadata.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
-- `pmo_ticket_specs.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
-- `pmo_ticket_specs.spec_id` → `pmo_specs.id` ON DELETE CASCADE
 - `pmo_ticket_assignments.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
 
-**Note on Ownership Model:** The current schema uses `pmo_ticket_assignments` for many-to-many agent assignments. The ownership model documented in [pmo-work-commands.md](specs/active/pmo-work-commands.md) (owner vs assignee) is not yet implemented. Implementation will require adding `owner` and `assignee` columns to `pmo_tickets`.
+**Note on Ownership Model:** The current schema uses `pmo_ticket_assignments` for many-to-many agent assignments. The ownership model documented in [pmo-work-commands.md](../../specs/cli/pmo-work-commands.md) (owner vs assignee) is not yet implemented. Implementation will require adding `owner` and `assignee` columns to `pmo_tickets`.
 
 **DRY Architecture:**
 
@@ -251,19 +360,56 @@ apps/cli/
 │   │   ├── add.ts
 │   │   ├── list.ts
 │   │   └── remove.ts
+│   ├── agents/         # Bulk agent operations
+│   │   ├── index.ts
+│   │   ├── list.ts
+│   │   ├── add.ts
+│   │   └── remove.ts
+│   ├── repo/
+│   │   ├── index.ts
+│   │   ├── add.ts
+│   │   ├── remove.ts
+│   │   └── view.ts
+│   ├── repos/          # Bulk repo operations
+│   │   ├── index.ts
+│   │   ├── list.ts
+│   │   ├── add.ts
+│   │   └── remove.ts
 │   ├── pmo/
 │   │   ├── init.ts
 │   │   └── board.ts
 │   ├── ticket/
-│   │   ├── create.ts   # Uses Ink for UI
-│   │   ├── claim.ts    # Uses Ink for UI
+│   │   ├── create.ts
+│   │   ├── claim.ts
 │   │   ├── status.ts
 │   │   └── complete.ts
-│   └── lib/
-│       └── ui/         # Ink UI components
-│           ├── CreateTicketUI.tsx
-│           ├── ClaimTicketUI.tsx
-│           └── BoardUI.tsx
+│   ├── tickets/        # Bulk ticket operations
+│   │   ├── index.ts
+│   │   ├── list.ts
+│   │   ├── move.ts
+│   │   ├── delete.ts
+│   │   ├── complete.ts
+│   │   ├── reassign.ts
+│   │   ├── link.ts
+│   │   └── update.ts
+│   ├── spec/
+│   │   ├── create.ts
+│   │   ├── list.ts
+│   │   └── view.ts
+│   ├── epic/           # Epic commands (not yet implemented)
+│   │   ├── create.ts
+│   │   ├── list.ts
+│   │   ├── view.ts
+│   │   ├── archive.ts
+│   │   ├── activate.ts
+│   │   ├── move.ts
+│   │   └── progress.ts
+│   └── db/             # Database inspection commands
+│       ├── index.ts
+│       ├── tables.ts
+│       ├── schema.ts
+│       ├── query.ts
+│       └── stats.ts
 ├── test/              # Integration tests
 ├── README.md          # User documentation
 └── SYSTEM.md          # This file - system context
@@ -278,7 +424,27 @@ apps/cli/
 
 ## Command Specifications
 
-Detailed specifications for each command are in the `specs/` directory.
+Detailed specifications for each command are in the `specs/` directory at the repo root.
+
+### CLI Commands
+- [init-commands.md](../../specs/cli/init-commands.md) - `prlt init`, `prlt pmo init`
+- [agent-commands.md](../../specs/cli/agent-commands.md) - `prlt agent`, `prlt agents`
+- [pmo-project-commands.md](../../specs/cli/pmo-project-commands.md) - `prlt project`
+- [pmo-board-commands.md](../../specs/cli/pmo-board-commands.md) - `prlt board`
+- [pmo-ticket-commands.md](../../specs/cli/pmo-ticket-commands.md) - `prlt ticket`, `prlt tickets`
+- [pmo-spec-commands.md](../../specs/cli/pmo-spec-commands.md) - `prlt spec` (static documentation)
+- [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) - `prlt epic` (work containers)
+- [pmo-work-commands.md](../../specs/cli/pmo-work-commands.md) - `prlt ticket assign/own/claim`
+
+### Storage Layer
+- [pmo-interface.md](../../specs/architecture/pmo-interface.md) - Core PMO interface contract
+- [pmo-storage-sqlite.md](../../specs/storage/pmo-storage-sqlite.md) - SQLite storage (current)
+- [pmo-storage-git.md](../../specs/storage/pmo-storage-git.md) - Git-based storage (future)
+- [pmo-storage-cloud.md](../../specs/storage/pmo-storage-cloud.md) - Cloud DB storage (future)
+- [pmo-storage-adapter.md](../../specs/storage/pmo-storage-adapter.md) - External tool adapters (Jira, Linear, Notion)
+
+### Architecture Documentation
+- [pmo-storage.md](../../docs/architecture/pmo-storage.md) - Storage architecture decision matrix
 
 ## Future Features (Cloud)
 
@@ -298,7 +464,7 @@ pnpm build
 prlt --help
 prlt ticket --help
 
-# Run integration tests  
+# Run integration tests
 pnpm test
 ```
 

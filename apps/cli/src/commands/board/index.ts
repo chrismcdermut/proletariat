@@ -39,7 +39,7 @@ export default class Board extends Command {
     }
 
     // Get PMO context and prompt for project selection if multiple exist
-    const { projectName } = await getPMOContext(
+    const { projectName, projectId } = await getPMOContext(
       undefined,
       (msg) => this.log(styles.muted(msg)),
       true // prompt if multiple projects
@@ -68,7 +68,7 @@ export default class Board extends Command {
 
     switch (action) {
       case 'view':
-        await this.viewBoard(pmoPath, { all: false, compact: false });
+        await this.viewBoard(pmoPath, projectId, { all: false, compact: false });
         break;
 
       case 'open':
@@ -76,15 +76,15 @@ export default class Board extends Command {
         break;
 
       case 'markdown':
-        await this.showMarkdown(pmoPath);
+        await this.showMarkdown(pmoPath, projectId);
         break;
 
       case 'export':
-        await this.exportMarkdown(pmoPath);
+        await this.exportMarkdown(pmoPath, projectId);
         break;
 
       case 'sync':
-        await this.syncFromMarkdown(pmoPath, { force: false, 'dry-run': false });
+        await this.syncFromMarkdown(pmoPath, projectId, { force: false, 'dry-run': false });
         break;
 
       case 'watch':
@@ -95,11 +95,12 @@ export default class Board extends Command {
 
   private async viewBoard(
     pmoPath: string,
+    projectId: string,
     flags: { all: boolean; compact: boolean }
   ): Promise<void> {
     // Get PMO context with correct project ID
     const { storage } = await getPMOContext(
-      undefined,
+      projectId,
       (msg) => this.log(styles.muted(msg))
     );
 
@@ -189,8 +190,8 @@ export default class Board extends Command {
     }
   }
 
-  private async showMarkdown(pmoPath: string): Promise<void> {
-    const storage = await this.getStorage(pmoPath);
+  private async showMarkdown(pmoPath: string, projectId: string): Promise<void> {
+    const storage = await this.getStorage(pmoPath, projectId);
 
     try {
       const markdown = await storage.getBoardMarkdown();
@@ -202,11 +203,11 @@ export default class Board extends Command {
     }
   }
 
-  private async exportMarkdown(pmoPath: string): Promise<void> {
-    const storage = await this.getStorage(pmoPath);
+  private async exportMarkdown(pmoPath: string, projectId: string): Promise<void> {
+    const storage = await this.getStorage(pmoPath, projectId);
 
     try {
-      const projectId = storage.getCurrentProjectId();
+      const currentProjectId = storage.getCurrentProjectId();
       const markdown = await storage.getBoardMarkdown();
       await storage.close();
 
@@ -222,11 +223,11 @@ export default class Board extends Command {
 
   private async syncFromMarkdown(
     pmoPath: string,
+    projectId: string,
     flags: { force: boolean; 'dry-run': boolean }
   ): Promise<void> {
-    // Get storage first to get project ID
-    const storage = await this.getStorage(pmoPath);
-    const projectId = storage.getCurrentProjectId();
+    // Get storage with the selected project ID
+    const storage = await this.getStorage(pmoPath, projectId);
     const boardPath = getBoardPath(pmoPath, projectId);
 
     if (!fs.existsSync(boardPath)) {
@@ -352,9 +353,9 @@ export default class Board extends Command {
     }
   }
 
-  private async getStorage(pmoPath: string): Promise<SQLiteStorage> {
+  private async getStorage(pmoPath: string, projectId: string): Promise<SQLiteStorage> {
     // Use getPMOContext to get storage with correct project ID
-    const { storage } = await getPMOContext();
+    const { storage } = await getPMOContext(projectId);
     return storage;
   }
 }

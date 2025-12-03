@@ -2,36 +2,62 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
- * Create spec folder structure for a project
+ * Create PMO folder structure
  *
- * New structure: pmo/projects/{id}/specs/{active,complete,future,dropped}
+ * Two distinct areas:
+ * 1. product/ - Living product definitions (specs, requirements, architecture)
+ *    These don't move - they get updated in place as the product evolves.
+ *
+ * 2. projects/{id}/ - Implementation work that flows through lifecycle
+ *    - epics/ with draft/active/complete stages
+ *    - board.md for tracking tickets
  *
  * @param pmoPath - Path to PMO directory
  * @param projectId - Project ID
- * @returns Path to created specs directory
+ * @returns Path to created project directory
  */
 export function createSpecFolders(pmoPath: string, projectId: string): string {
+  // Create product folder for specs/requirements (PMO-wide, not per-project)
+  const productPath = path.join(pmoPath, 'product');
+  fs.mkdirSync(productPath, { recursive: true });
+
+  // Create project folder with epics lifecycle
   const projectPath = path.join(pmoPath, 'projects', projectId);
-  const specsPath = path.join(projectPath, 'specs');
+  const epicsPath = path.join(projectPath, 'epics');
 
-  // Create all subdirectories
-  fs.mkdirSync(path.join(specsPath, 'active'), { recursive: true });
-  fs.mkdirSync(path.join(specsPath, 'complete'), { recursive: true });
-  fs.mkdirSync(path.join(specsPath, 'future'), { recursive: true });
-  fs.mkdirSync(path.join(specsPath, 'dropped'), { recursive: true });
+  fs.mkdirSync(path.join(epicsPath, 'draft'), { recursive: true });
+  fs.mkdirSync(path.join(epicsPath, 'active'), { recursive: true });
+  fs.mkdirSync(path.join(epicsPath, 'complete'), { recursive: true });
 
-  return specsPath;
+  return projectPath;
 }
 
 /**
- * Get spec folder path for a project (without creating it)
+ * Get product folder path (for specs/requirements - PMO-wide)
+ *
+ * @param pmoPath - Path to PMO directory
+ * @returns Path to product directory
+ */
+export function getProductPath(pmoPath: string): string {
+  return path.join(pmoPath, 'product');
+}
+
+/**
+ * Get epics folder path for a project
  *
  * @param pmoPath - Path to PMO directory
  * @param projectId - Project ID
- * @returns Path to specs directory
+ * @returns Path to epics directory
+ */
+export function getEpicsPath(pmoPath: string, projectId: string): string {
+  return path.join(pmoPath, 'projects', projectId, 'epics');
+}
+
+/**
+ * @deprecated Use getProductPath() for specs, getEpicsPath() for implementation work
  */
 export function getSpecFolderPath(pmoPath: string, projectId: string): string {
-  return path.join(pmoPath, 'projects', projectId, 'specs');
+  return path.join(pmoPath, 'projects', projectId, 'epics');
 }
 
 /**
