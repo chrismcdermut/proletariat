@@ -6,7 +6,12 @@ import chalk from 'chalk';
 import { THEMES } from '../themes.js';
 import { addAgentsToHQ, createAgentWorktrees } from '../agents/index.js';
 import { addRepositoriesToHQ, updateHQRepos, isInGitRepo } from '../repos/index.js';
-import { createPMO, updateHQConfigWithPMO, PMOStorageType } from '../pmo/index.js';
+import {
+  createPMO,
+  promptForPMOSetup,
+  PMOSetupResult,
+  PMOLocation,
+} from '../pmo/index.js';
 import { 
   createWorkspaceDatabase, 
   addRepositoriesToDatabase, 
@@ -35,9 +40,8 @@ export interface InitOptions {
   addSuffix?: boolean;
   selectedAgents: string[];
   repos?: Array<{ path: string; action: 'move' | 'clone' }>;
-  includePMO?: boolean;
-  boardTemplate?: string;
-  pmoStorageType?: PMOStorageType;
+  // PMO options (from shared promptForPMOSetup)
+  pmoSetup?: PMOSetupResult;
 }
 
 /**
@@ -202,11 +206,12 @@ export function createHQStructure(hqPath: string, theme: string): void {
  * Create workspace database (replaces createHQConfig)
  */
 export function initializeWorkspaceDatabase(workspacePath: string, options: InitOptions): void {
-  if (options.workspaceType !== 'hq' || options.includePMO === undefined || !options.hqName) {
+  if (options.workspaceType !== 'hq' || !options.pmoSetup || !options.hqName) {
     throw new Error('initializeWorkspaceDatabase should only be called for HQ workspace type with defined PMO setting');
   }
 
   const themeConfig = THEMES[options.theme];
+  const hasPMO = options.pmoSetup.includePMO;
 
   // Create the database with workspace configuration
   const db = createWorkspaceDatabase(
@@ -214,7 +219,7 @@ export function initializeWorkspaceDatabase(workspacePath: string, options: Init
     options.workspaceType,
     options.theme,
     themeConfig.workspaceDir,
-    options.includePMO
+    hasPMO
   );
 
   db.close();
@@ -245,31 +250,24 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
     theme,
     selectedAgents,
     repos,
-    includePMO,
-    boardTemplate,
-    pmoStorageType
+    pmoSetup,
   } = options;
 
   // All these fields are required for HQ type
-  if (!hqPath || !hqName || repos === undefined || includePMO === undefined || !boardTemplate) {
+  if (!hqPath || !hqName || repos === undefined || !pmoSetup) {
     throw new Error('Missing required fields for HQ initialization');
   }
 
   // Create basic structure
   createHQStructure(hqPath, theme);
 
-  // Create database and workspace configuration (replaces createHQConfig)
+  // Create database and workspace configuration
   initializeWorkspaceDatabase(hqPath, options);
 
-  // Create PMO if requested
-  if (includePMO) {
-    await createPMO(hqPath, boardTemplate, pmoStorageType || 'sqlite', hqName);
-    // Note: PMO is tracked in workspace.has_pmo, no need for updateHQConfigWithPMO
-  }
-
-  // Handle repositories - add to file system AND database
+  // Handle repositories first - add to file system AND database
+  // (PMO location might depend on repos existing)
   const addedRepos = await addRepositoriesToHQ(hqPath, repos);
-  
+
   // Convert to database format
   const dbRepos = addedRepos.map(repoName => {
     const repoData = repos.find(r => path.basename(r.path).replace(/\.git$/, '') === repoName);
@@ -280,17 +278,29 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
       action: repoData?.action
     };
   });
-  
+
   addRepositoriesToDatabase(hqPath, dbRepos);
+
+  // Create PMO if requested (using shared createPMO function)
+  if (pmoSetup.includePMO) {
+    await createPMO({
+      hqPath,
+      location: pmoSetup.location,
+      boardTemplate: pmoSetup.boardTemplate,
+      boardName: pmoSetup.boardName,
+      columns: pmoSetup.columns,
+      storageType: pmoSetup.storageType,
+    });
+  }
 
   // Add agents if selected - create worktrees AND add to database
   if (selectedAgents.length > 0) {
     const themeConfig = THEMES[theme];
     const workspacePath = path.join(hqPath, 'agents', themeConfig.workspaceDir);
-    
+
     // Create physical worktrees
     await createAgentWorktrees(workspacePath, selectedAgents, hqPath);
-    
+
     // Add to database
     addAgentsToDatabase(hqPath, selectedAgents, theme);
   }
@@ -386,11 +396,12 @@ export async function showNextSteps(options: InitOptions, workspacePath?: string
   const targetPath = options.workspaceType === 'workspace-only' ? workspacePath! : options.hqPath!;
   const relativePath = path.relative(process.cwd(), targetPath);
   const dirName = options.workspaceType === 'workspace-only' ? 'workspace' : 'HQ';
-  
+  const hasPMO = options.pmoSetup?.includePMO ?? false;
+
   // Show navigation instructions
   console.log(chalk.blue(`\n📂 Your ${dirName} is ready! Navigate to it:`));
   console.log(chalk.yellow(`  cd ${relativePath}`));
-  
+
   // Ask if they want to see the next steps
   const { showNextSteps } = await inquirer.prompt([{
     type: 'list',
@@ -402,18 +413,18 @@ export async function showNextSteps(options: InitOptions, workspacePath?: string
     ],
     default: false,
   }]);
-  
+
   // Show additional next steps if requested
   if (showNextSteps) {
-    const hasCommands = (options.selectedAgents.length === 0) || (options.workspaceType === 'hq' && options.includePMO);
-    
+    const hasCommands = (options.selectedAgents.length === 0) || (options.workspaceType === 'hq' && hasPMO);
+
     if (hasCommands) {
       console.log(chalk.cyan(`\nOnce you're in the ${dirName}, you can run:`));
       if (options.selectedAgents.length === 0) {
         console.log(chalk.white(`  prlt agent ${themeConfig.commands.add} <name>`));
       }
-      
-      if (options.workspaceType === 'hq' && options.includePMO) {
+
+      if (options.workspaceType === 'hq' && hasPMO) {
         console.log(chalk.white(`  prlt ticket create`));
       }
     } else {

@@ -105,9 +105,9 @@ export default class ProjectCreate extends Command {
       const projectPath = path.join(pmoPath, 'projects', projectId);
       fs.mkdirSync(projectPath, { recursive: true });
 
-      // Create board.md in project directory
-      const boardContent = createBoardContent(projectData.template);
-      const boardPath = path.join(projectPath, 'board.md');
+      // Create kanban.md in project directory with project name as board name
+      const boardContent = createBoardContent(projectData.template, projectData.name);
+      const boardPath = path.join(projectPath, 'kanban.md');
       fs.writeFileSync(boardPath, boardContent);
 
       // Create spec folders in project directory

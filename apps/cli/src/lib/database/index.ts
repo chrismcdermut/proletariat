@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
 import { THEMES } from '../themes.js';
+import { PMO_SCHEMA_SQL } from '../pmo/schema.js';
 
 export interface WorkspaceConfig {
   id: number;
@@ -100,118 +101,7 @@ CREATE TABLE IF NOT EXISTS agent_worktrees (
 );
 
 -- =============================================================================
--- PMO (Project Management Office) Tables
--- =============================================================================
-
--- Projects (replaces pmo_board for multi-project support)
-CREATE TABLE IF NOT EXISTS pmo_projects (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  template TEXT,
-  description TEXT,
-  initiative_id TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Initiatives (optional OKR-level grouping)
-CREATE TABLE IF NOT EXISTS pmo_initiatives (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  objective TEXT,
-  key_results TEXT,  -- JSON array
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Columns (kanban lanes) - now per-project
-CREATE TABLE IF NOT EXISTS pmo_columns (
-  id TEXT NOT NULL,
-  project_id TEXT NOT NULL DEFAULT 'default',
-  name TEXT NOT NULL,
-  position INTEGER NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (project_id, id)
-);
-
--- Tickets (kanban cards) - now per-project
-CREATE TABLE IF NOT EXISTS pmo_tickets (
-  id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL DEFAULT 'default',
-  title TEXT NOT NULL,
-  column_id TEXT NOT NULL,
-  position INTEGER NOT NULL,
-  priority TEXT,
-  category TEXT,
-  description TEXT,
-  epic_id TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (project_id, column_id) REFERENCES pmo_columns(project_id, id) ON DELETE CASCADE
-);
-
--- Epics (optional grouping within a project)
-CREATE TABLE IF NOT EXISTS pmo_epics (
-  id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  description TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE
-);
-
--- Subtasks
-CREATE TABLE IF NOT EXISTS pmo_subtasks (
-  id TEXT NOT NULL,
-  ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  done INTEGER DEFAULT 0,
-  position INTEGER NOT NULL,
-  PRIMARY KEY (ticket_id, id)
-);
-
--- Custom metadata fields for tickets
-CREATE TABLE IF NOT EXISTS pmo_ticket_metadata (
-  ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-  key TEXT NOT NULL,
-  value TEXT,
-  PRIMARY KEY (ticket_id, key)
-);
-
--- Specs (specification documents)
-CREATE TABLE IF NOT EXISTS pmo_specs (
-  id TEXT PRIMARY KEY,
-  path TEXT NOT NULL,
-  title TEXT,
-  status TEXT DEFAULT 'active',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Ticket-Spec relationship (many-to-many)
-CREATE TABLE IF NOT EXISTS pmo_ticket_specs (
-  ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-  spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-  PRIMARY KEY (ticket_id, spec_id)
-);
-
--- Agent-Ticket assignments (many-to-many)
-CREATE TABLE IF NOT EXISTS pmo_ticket_assignments (
-  ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-  agent_name TEXT NOT NULL REFERENCES agents(name) ON DELETE CASCADE,
-  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (ticket_id, agent_name)
-);
-
--- Cache metadata (for board.md sync)
-CREATE TABLE IF NOT EXISTS pmo_cache_metadata (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
-
--- =============================================================================
--- Indexes
+-- Indexes (Agent tables only - PMO indexes are in PMO_SCHEMA_SQL)
 -- =============================================================================
 
 -- Agent indexes
@@ -219,19 +109,6 @@ CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
 CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme);
 CREATE INDEX IF NOT EXISTS idx_worktrees_agent ON agent_worktrees(agent_name);
 CREATE INDEX IF NOT EXISTS idx_worktrees_repo ON agent_worktrees(repo_name);
-
--- PMO indexes
-CREATE INDEX IF NOT EXISTS idx_pmo_columns_project ON pmo_columns(project_id);
-CREATE INDEX IF NOT EXISTS idx_pmo_tickets_project ON pmo_tickets(project_id);
-CREATE INDEX IF NOT EXISTS idx_pmo_tickets_column ON pmo_tickets(column_id);
-CREATE INDEX IF NOT EXISTS idx_pmo_tickets_priority ON pmo_tickets(priority);
-CREATE INDEX IF NOT EXISTS idx_pmo_tickets_category ON pmo_tickets(category);
-CREATE INDEX IF NOT EXISTS idx_pmo_tickets_epic ON pmo_tickets(epic_id);
-CREATE INDEX IF NOT EXISTS idx_pmo_subtasks_ticket ON pmo_subtasks(ticket_id);
-CREATE INDEX IF NOT EXISTS idx_pmo_ticket_specs_spec ON pmo_ticket_specs(spec_id);
-CREATE INDEX IF NOT EXISTS idx_pmo_assignments_agent ON pmo_ticket_assignments(agent_name);
-CREATE INDEX IF NOT EXISTS idx_pmo_epics_project ON pmo_epics(project_id);
-CREATE INDEX IF NOT EXISTS idx_pmo_projects_initiative ON pmo_projects(initiative_id);
 `;
 
 /**
@@ -289,12 +166,15 @@ export function createWorkspaceDatabase(
   
   // Create and setup SQLite database
   const db = new Database(dbPath);
-  
+
   // Enable foreign keys
   db.pragma('foreign_keys = ON');
-  
-  // Create all tables
+
+  // Create core workspace tables (agents, repos, etc)
   db.exec(CREATE_TABLES_SQL);
+
+  // Create PMO tables (from shared schema)
+  db.exec(PMO_SCHEMA_SQL);
   
   // Insert workspace data (convert boolean to number for SQLite)
   db.prepare(`

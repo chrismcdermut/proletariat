@@ -4,10 +4,30 @@ import { execSync } from 'child_process';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { styles } from '../styles.js';
+import { colors, format } from '../colors.js';
+import {
+  openWorkspaceDatabase,
+  addRepositoriesToDatabase,
+  getWorkspaceRepositories,
+  getWorkspaceAgents,
+  Repository
+} from '../database/index.js';
 
 export interface RepoToAdd {
   path: string;
   action: 'move' | 'clone';
+}
+
+export interface RepoInfo {
+  name: string;
+  path: string;
+  fullPath: string;
+  sourceUrl?: string;
+  branch?: string;
+  status: 'clean' | 'dirty' | 'missing';
+  commitsAhead: number;
+  commitsBehind: number;
+  addedAt?: string;
 }
 
 /**
@@ -379,6 +399,444 @@ async function searchForRepositories(): Promise<RepoToAdd[]> {
   }]);
 
   console.log(chalk.green(`✅ Selected ${selectedRepos.length} repositories`));
-  
+
   return selectedRepos.map((repoPath: string) => ({ path: repoPath, action: 'clone' as const }));
+}
+
+// =============================================================================
+// Workspace Info & Repository Status
+// =============================================================================
+
+export interface WorkspaceRepoInfo {
+  hqPath: string;
+  reposPath: string;
+  repositories: RepoInfo[];
+}
+
+/**
+ * Find HQ root by traversing upward
+ */
+export function findHQRoot(): string | null {
+  let currentDir = process.cwd();
+
+  while (currentDir !== '/') {
+    const configPath = path.join(currentDir, '.proletariat', 'config.json');
+    if (fs.existsSync(configPath)) {
+      try {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        if (config.type === 'hq') {
+          return currentDir;
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+    currentDir = path.dirname(currentDir);
+  }
+
+  return null;
+}
+
+/**
+ * Get workspace repository information
+ */
+export function getWorkspaceRepoInfo(): WorkspaceRepoInfo {
+  const hqPath = findHQRoot();
+  if (!hqPath) {
+    throw new Error('Not in an HQ directory. Run "prlt init" first.');
+  }
+
+  const reposPath = path.join(hqPath, 'repos');
+  const dbRepos = getWorkspaceRepositories(hqPath);
+
+  const repositories: RepoInfo[] = dbRepos.map(repo => {
+    const fullPath = path.join(hqPath, repo.path);
+    return getRepoStatus(repo.name, fullPath, repo);
+  });
+
+  return { hqPath, reposPath, repositories };
+}
+
+/**
+ * Get detailed status for a repository
+ */
+export function getRepoStatus(name: string, fullPath: string, dbRepo?: Repository): RepoInfo {
+  const info: RepoInfo = {
+    name,
+    path: dbRepo?.path || `repos/${name}`,
+    fullPath,
+    sourceUrl: dbRepo?.source_url,
+    status: 'missing',
+    commitsAhead: 0,
+    commitsBehind: 0,
+    addedAt: dbRepo?.added_at
+  };
+
+  if (!fs.existsSync(fullPath)) {
+    return info;
+  }
+
+  try {
+    // Get current branch
+    info.branch = execSync('git rev-parse --abbrev-ref HEAD', {
+      cwd: fullPath,
+      stdio: 'pipe',
+      encoding: 'utf-8'
+    }).trim();
+
+    // Check for uncommitted changes
+    const status = execSync('git status --porcelain', {
+      cwd: fullPath,
+      stdio: 'pipe',
+      encoding: 'utf-8'
+    }).trim();
+    info.status = status.length > 0 ? 'dirty' : 'clean';
+
+    // Get commits ahead/behind
+    try {
+      const aheadBehind = execSync('git rev-list --left-right --count @{upstream}...HEAD', {
+        cwd: fullPath,
+        stdio: 'pipe',
+        encoding: 'utf-8'
+      }).trim();
+      const [behind, ahead] = aheadBehind.split('\t').map(Number);
+      info.commitsAhead = ahead || 0;
+      info.commitsBehind = behind || 0;
+    } catch {
+      // No upstream configured
+    }
+  } catch {
+    // Git command failed
+    info.status = 'missing';
+  }
+
+  return info;
+}
+
+// =============================================================================
+// Repository CRUD Operations
+// =============================================================================
+
+/**
+ * Add a single repository to the HQ (file system + database + agent worktrees)
+ */
+export async function addRepository(
+  hqPath: string,
+  repoPath: string,
+  action: 'clone' | 'move'
+): Promise<{ success: boolean; name: string; error?: string }> {
+  const repoName = path.basename(repoPath).replace(/\.git$/, '');
+  const reposDir = path.join(hqPath, 'repos');
+  const targetPath = path.join(reposDir, repoName);
+
+  // Ensure repos directory exists
+  if (!fs.existsSync(reposDir)) {
+    fs.mkdirSync(reposDir, { recursive: true });
+  }
+
+  // Check if repo already exists
+  if (fs.existsSync(targetPath)) {
+    return { success: false, name: repoName, error: 'Repository already exists' };
+  }
+
+  try {
+    // Add to file system
+    if (action === 'move') {
+      console.log(styles.muted(`Moving ${repoPath} to repos/${repoName}...`));
+      fs.renameSync(repoPath, targetPath);
+    } else {
+      console.log(styles.muted(`Cloning ${repoPath} to repos/${repoName}...`));
+      execSync(`git clone "${repoPath}" "${targetPath}"`, { stdio: 'inherit' });
+    }
+
+    // Add to database
+    const dbRepoData = [{
+      name: repoName,
+      path: `repos/${repoName}`,
+      source_url: repoPath,
+      action
+    }];
+    addRepositoriesToDatabase(hqPath, dbRepoData);
+
+    // Create worktrees for existing agents
+    await createWorktreesForRepo(hqPath, repoName, targetPath);
+
+    return { success: true, name: repoName };
+  } catch (error) {
+    return {
+      success: false,
+      name: repoName,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+/**
+ * Remove a repository from the HQ
+ */
+export async function removeRepository(
+  hqPath: string,
+  repoName: string,
+  keepFiles: boolean = false
+): Promise<{ success: boolean; error?: string }> {
+  const repoPath = path.join(hqPath, 'repos', repoName);
+
+  try {
+    // Remove agent worktrees first
+    await removeWorktreesForRepo(hqPath, repoName);
+
+    // Remove from file system (unless keepFiles)
+    if (!keepFiles && fs.existsSync(repoPath)) {
+      fs.rmSync(repoPath, { recursive: true, force: true });
+    }
+
+    // Remove from database
+    const db = openWorkspaceDatabase(hqPath);
+    db.prepare('DELETE FROM repositories WHERE name = ?').run(repoName);
+    db.close();
+
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+/**
+ * Create worktrees for a repository in all agent directories
+ */
+async function createWorktreesForRepo(hqPath: string, repoName: string, repoPath: string): Promise<void> {
+  const db = openWorkspaceDatabase(hqPath);
+
+  // Get workspace config for theme info
+  const workspace = db.prepare('SELECT theme FROM workspace').get() as { theme: string };
+  const theme = db.prepare('SELECT workspace_dir FROM themes WHERE name = ?').get(workspace.theme) as { workspace_dir: string };
+
+  // Get all agents
+  const agents = db.prepare('SELECT name FROM agents').all() as { name: string }[];
+
+  if (agents.length === 0) {
+    db.close();
+    return;
+  }
+
+  const agentsBasePath = path.join(hqPath, 'agents', theme.workspace_dir);
+
+  for (const agent of agents) {
+    const agentRepoPath = path.join(agentsBasePath, agent.name, repoName);
+    const branchName = `agent-${agent.name}`;
+
+    try {
+      // Create worktree
+      execSync(`git worktree add -b "${branchName}" "${agentRepoPath}"`, {
+        cwd: repoPath,
+        stdio: 'pipe'
+      });
+
+      // Add to database
+      db.prepare(`
+        INSERT OR REPLACE INTO agent_worktrees
+        (agent_name, repo_name, worktree_path, branch, created_at, commits_ahead, is_clean)
+        VALUES (?, ?, ?, ?, ?, 0, 1)
+      `).run(
+        agent.name,
+        repoName,
+        `agents/${theme.workspace_dir}/${agent.name}/${repoName}`,
+        branchName,
+        new Date().toISOString()
+      );
+    } catch (error) {
+      console.log(chalk.yellow(`Warning: Could not create worktree for ${agent.name}/${repoName}`));
+    }
+  }
+
+  db.close();
+}
+
+/**
+ * Remove worktrees for a repository from all agent directories
+ */
+async function removeWorktreesForRepo(hqPath: string, repoName: string): Promise<void> {
+  const db = openWorkspaceDatabase(hqPath);
+
+  // Get workspace config for theme info
+  const workspace = db.prepare('SELECT theme FROM workspace').get() as { theme: string };
+  const theme = db.prepare('SELECT workspace_dir FROM themes WHERE name = ?').get(workspace.theme) as { workspace_dir: string };
+
+  // Get all agents
+  const agents = db.prepare('SELECT name FROM agents').all() as { name: string }[];
+
+  const repoPath = path.join(hqPath, 'repos', repoName);
+  const agentsBasePath = path.join(hqPath, 'agents', theme.workspace_dir);
+
+  for (const agent of agents) {
+    const agentRepoPath = path.join(agentsBasePath, agent.name, repoName);
+
+    try {
+      // Remove worktree from git
+      if (fs.existsSync(repoPath)) {
+        execSync(`git worktree remove "${agentRepoPath}" --force`, {
+          cwd: repoPath,
+          stdio: 'pipe'
+        });
+      } else if (fs.existsSync(agentRepoPath)) {
+        // Repo doesn't exist but worktree dir does - just remove directory
+        fs.rmSync(agentRepoPath, { recursive: true, force: true });
+      }
+    } catch {
+      // Try to just remove the directory
+      if (fs.existsSync(agentRepoPath)) {
+        try {
+          fs.rmSync(agentRepoPath, { recursive: true, force: true });
+        } catch {
+          console.log(chalk.yellow(`Warning: Could not remove worktree for ${agent.name}/${repoName}`));
+        }
+      }
+    }
+  }
+
+  // Remove from database
+  db.prepare('DELETE FROM agent_worktrees WHERE repo_name = ?').run(repoName);
+  db.close();
+}
+
+// =============================================================================
+// Interactive Prompts for Commands
+// =============================================================================
+
+/**
+ * Prompt to add a single repository
+ */
+export async function promptAddSingleRepo(): Promise<RepoToAdd | null> {
+  const { method } = await inquirer.prompt([{
+    type: 'list',
+    name: 'method',
+    message: 'How would you like to add a repository?',
+    choices: [
+      { name: '📁 Enter path or Git URL', value: 'manual' },
+      { name: '🔍 Search for repositories on this machine', value: 'search' },
+      { name: '✨ Create new repository', value: 'create' },
+      new inquirer.Separator(),
+      { name: '❌ Cancel', value: 'cancel' }
+    ]
+  }]);
+
+  if (method === 'cancel') {
+    return null;
+  }
+
+  if (method === 'create') {
+    return createNewRepository();
+  }
+
+  if (method === 'search') {
+    const repos = await searchForRepositories();
+    return repos.length > 0 ? repos[0] : null;
+  }
+
+  // Manual entry
+  const { repoPath } = await inquirer.prompt([{
+    type: 'input',
+    name: 'repoPath',
+    message: 'Enter repo path or Git URL:',
+    validate: (input) => input.trim() ? true : 'Path or URL required'
+  }]);
+
+  const trimmedPath = repoPath.trim();
+  const isUrl = trimmedPath.startsWith('http://') ||
+                trimmedPath.startsWith('https://') ||
+                trimmedPath.startsWith('git@');
+
+  if (isUrl) {
+    return { path: trimmedPath, action: 'clone' };
+  }
+
+  const resolvedPath = path.resolve(trimmedPath);
+  const repoName = path.basename(resolvedPath);
+  const currentlyInside = process.cwd().startsWith(resolvedPath);
+
+  if (currentlyInside) {
+    console.log(chalk.yellow(`Cannot move ${repoName} - you're currently inside it. Will clone instead.`));
+    return { path: resolvedPath, action: 'clone' };
+  }
+
+  const { action } = await inquirer.prompt([{
+    type: 'list',
+    name: 'action',
+    message: `${repoName} - Move or Clone?`,
+    choices: [
+      { name: 'Clone (keep original)', value: 'clone' },
+      { name: 'Move (relocate to HQ)', value: 'move' }
+    ]
+  }]);
+
+  return { path: resolvedPath, action: action as 'move' | 'clone' };
+}
+
+/**
+ * Prompt to select a repository from the workspace
+ */
+export async function promptSelectRepo(
+  message: string = 'Select repository:',
+  allowCancel: boolean = true
+): Promise<string | null> {
+  const { repositories } = getWorkspaceRepoInfo();
+
+  if (repositories.length === 0) {
+    console.log(colors.warning('No repositories found. Add one with "prlt repo add"'));
+    return null;
+  }
+
+  const choices = [
+    ...repositories.map(repo => ({
+      name: `${repo.name} (${repo.status}${repo.commitsAhead > 0 ? `, ${repo.commitsAhead} ahead` : ''})`,
+      value: repo.name
+    }))
+  ];
+
+  if (allowCancel) {
+    choices.push(
+      new inquirer.Separator() as any,
+      { name: '❌ Cancel', value: 'cancel' }
+    );
+  }
+
+  const { selected } = await inquirer.prompt([{
+    type: 'list',
+    name: 'selected',
+    message,
+    choices
+  }]);
+
+  return selected === 'cancel' ? null : selected;
+}
+
+/**
+ * Prompt to select multiple repositories
+ */
+export async function promptSelectMultipleRepos(
+  message: string = 'Select repositories:'
+): Promise<string[]> {
+  const { repositories } = getWorkspaceRepoInfo();
+
+  if (repositories.length === 0) {
+    console.log(colors.warning('No repositories found.'));
+    return [];
+  }
+
+  const choices = repositories.map(repo => ({
+    name: `${repo.name} (${repo.status}${repo.commitsAhead > 0 ? `, ${repo.commitsAhead} ahead` : ''})`,
+    value: repo.name
+  }));
+
+  const { selected } = await inquirer.prompt([{
+    type: 'checkbox',
+    name: 'selected',
+    message,
+    choices
+  }]);
+
+  return selected;
 }

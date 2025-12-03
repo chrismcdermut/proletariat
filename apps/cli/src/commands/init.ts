@@ -70,8 +70,10 @@ export default class Init extends Command {
       // Step 7: Add repositories
       const repos = await promptForRepositories(process.cwd(), []);
 
-      // Step 8: PMO setup
-      const { includePMO, boardTemplate, storageType } = await promptForPMOSetup();
+      // Step 8: PMO setup (uses shared prompt from lib/pmo)
+      // Pass hqPath so it can detect repos and offer location choices
+      // Pass hqName so default board name is {hqname}-kanban
+      const pmoSetup = await promptForPMOSetup(hqPath, hqName);
 
       // Create the options object
       const options = {
@@ -82,9 +84,7 @@ export default class Init extends Command {
         addSuffix,
         selectedAgents,
         repos,
-        includePMO,
-        boardTemplate,
-        pmoStorageType: storageType
+        pmoSetup,
       };
 
       // Initialize the HQ

@@ -4,6 +4,7 @@ import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { SQLiteStorage } from './storage-sqlite.js';
 import { createSpecFolders } from './create-spec-folders.js';
+import { slugify } from './utils.js';
 
 // Re-export new PMO modules
 export * from './types.js';
@@ -35,9 +36,19 @@ export {
   createSpecFolders,
   getSpecFolderPath,
   getProjectPath,
+  getProductPath,
+  getEpicsPath,
 } from './create-spec-folders.js';
 export { findPMO } from './find-pmo.js';
 export { getPMOContext, type PMOContext } from './pmo-context.js';
+export {
+  PMO_TABLES,
+  PMO_TABLE_SCHEMAS,
+  PMO_INDEXES,
+  PMO_SCHEMA_SQL,
+  EXPECTED_TICKET_COLUMNS,
+  validateTicketSchema,
+} from './schema.js';
 
 
 /**
@@ -56,17 +67,144 @@ export function getBoardTemplates(): { [key: string]: string[] } {
 }
 
 export type PMOStorageType = 'sqlite' | 'git';
+export type PMOLocation = 'separate' | `repo:${string}`;
 
 export interface PMOSetupResult {
   includePMO: boolean;
   boardTemplate: string;
   storageType: PMOStorageType;
+  location: PMOLocation;
+  boardName: string;
+  columns: string[];
 }
 
 /**
- * Prompt user for PMO setup
+ * Detect repositories in an HQ
  */
-export async function promptForPMOSetup(): Promise<PMOSetupResult> {
+export function detectRepos(hqRoot: string): Array<{ name: string; path: string }> {
+  const reposDir = path.join(hqRoot, 'repos');
+  if (!fs.existsSync(reposDir)) {
+    return [];
+  }
+
+  const entries = fs.readdirSync(reposDir, { withFileTypes: true });
+  return entries
+    .filter(entry => entry.isDirectory())
+    .map(entry => ({
+      name: entry.name,
+      path: path.join(reposDir, entry.name),
+    }));
+}
+
+/**
+ * Prompt for PMO location (in-repo vs separate)
+ */
+export async function promptForPMOLocation(hqRoot: string | null): Promise<PMOLocation> {
+  if (!hqRoot) {
+    return 'separate';
+  }
+
+  const repos = detectRepos(hqRoot);
+
+  if (repos.length === 0) {
+    return 'separate';
+  } else if (repos.length === 1) {
+    const { location } = await inquirer.prompt([{
+      type: 'list',
+      name: 'location',
+      message: 'PMO location:',
+      choices: [
+        {
+          name: `Inside repo (${repos[0].name}/pmo)`,
+          value: `repo:${repos[0].name}`,
+        },
+        {
+          name: 'Separate from repo (hq/pmo)',
+          value: 'separate',
+        },
+      ],
+      default: `repo:${repos[0].name}`,
+    }]);
+    return location;
+  } else {
+    const { location } = await inquirer.prompt([{
+      type: 'list',
+      name: 'location',
+      message: 'PMO location:',
+      choices: [
+        {
+          name: 'Separate from repos (recommended for multi-repo HQs)',
+          value: 'separate',
+        },
+        new inquirer.Separator(),
+        ...repos.map(repo => ({
+          name: `Inside ${repo.name} repo`,
+          value: `repo:${repo.name}`,
+        })),
+      ],
+      default: 'separate',
+    }]);
+    return location;
+  }
+}
+
+/**
+ * Prompt for board template
+ */
+export async function promptForBoardTemplate(): Promise<string> {
+  const { template } = await inquirer.prompt([{
+    type: 'list',
+    name: 'template',
+    message: 'Choose board template:',
+    choices: [
+      { name: 'Kanban (Backlog, In Progress, Done)', value: 'kanban' },
+      { name: 'Scrum (+ In Review, Blocked)', value: 'scrum' },
+      { name: '5-Tool Founder (BUILD/GROW/SUPPORT/BIZOPS/STRATEGY + workflow)', value: 'founder' },
+      { name: 'Custom (define your own columns)', value: 'custom' },
+    ],
+    default: 'kanban',
+  }]);
+  return template;
+}
+
+/**
+ * Prompt for custom columns
+ */
+export async function promptForCustomColumns(): Promise<string[]> {
+  const { columnsInput } = await inquirer.prompt([{
+    type: 'input',
+    name: 'columnsInput',
+    message: 'Enter column names (comma-separated):',
+    default: 'Backlog, In Progress, Done',
+    validate: (input: string) => {
+      const cols = input.split(',').map(c => c.trim()).filter(Boolean);
+      if (cols.length < 2) {
+        return 'Please enter at least 2 columns';
+      }
+      return true;
+    },
+  }]);
+  return columnsInput.split(',').map((c: string) => c.trim()).filter(Boolean);
+}
+
+/**
+ * Prompt for board name
+ */
+export async function promptForBoardName(defaultName?: string): Promise<string> {
+  const { name } = await inquirer.prompt([{
+    type: 'input',
+    name: 'name',
+    message: 'Board name:',
+    default: defaultName || 'Project Board',
+  }]);
+  return name;
+}
+
+/**
+ * Full PMO setup prompt - used by both `prlt init` and `prlt pmo init`
+ */
+export async function promptForPMOSetup(hqRoot: string | null, hqName?: string): Promise<PMOSetupResult> {
+  // Ask if they want PMO
   const { includePMO } = await inquirer.prompt([{
     type: 'list',
     name: 'includePMO',
@@ -78,45 +216,41 @@ export async function promptForPMOSetup(): Promise<PMOSetupResult> {
     default: true,
   }]);
 
-  let boardTemplate = 'kanban';
-  let storageType: PMOStorageType = 'sqlite';
-
-  if (includePMO) {
-    // Ask for storage type
-    const { storage } = await inquirer.prompt([{
-      type: 'list',
-      name: 'storage',
-      message: 'Choose storage backend:',
-      choices: [
-        {
-          name: 'SQLite (local only, fast, no sync)',
-          value: 'sqlite',
-        },
-        {
-          name: 'Git (markdown file + cache, sync via git)',
-          value: 'git',
-        },
-      ],
-      default: 'sqlite',
-    }]);
-    storageType = storage;
-
-    // Ask for board template
-    const { template } = await inquirer.prompt([{
-      type: 'list',
-      name: 'template',
-      message: 'Choose board template:',
-      choices: [
-        { name: 'Kanban (Backlog, In Progress, Done)', value: 'kanban' },
-        { name: 'Scrum (+ In Review, Blocked)', value: 'scrum' },
-        { name: '5-Tool Founder (BUILD/GROW/SUPPORT/BIZOPS/STRATEGY + workflow)', value: 'founder' },
-        { name: 'Custom', value: 'custom' },
-      ],
-    }]);
-    boardTemplate = template;
+  if (!includePMO) {
+    return {
+      includePMO: false,
+      boardTemplate: 'kanban',
+      storageType: 'sqlite',
+      location: 'separate',
+      boardName: '',
+      columns: [],
+    };
   }
 
-  return { includePMO, boardTemplate, storageType };
+  // PMO location (in-repo vs separate)
+  const location = await promptForPMOLocation(hqRoot);
+
+  // Board template
+  const boardTemplate = await promptForBoardTemplate();
+
+  // Get columns for template (or prompt for custom)
+  let columns = getColumnsForTemplate(boardTemplate);
+  if (boardTemplate === 'custom') {
+    columns = await promptForCustomColumns();
+  }
+
+  // Board name - default to {hqname}-kanban if hqName provided
+  const defaultBoardName = hqName ? `${hqName}-kanban` : undefined;
+  const boardName = await promptForBoardName(defaultBoardName);
+
+  return {
+    includePMO: true,
+    boardTemplate,
+    storageType: 'sqlite', // Always SQLite now
+    location,
+    boardName,
+    columns,
+  };
 }
 
 /**
@@ -130,7 +264,7 @@ export function getColumnsForTemplate(template: string): string[] {
 /**
  * Create board content for Obsidian Kanban
  */
-export function createBoardContent(template: string): string {
+export function createBoardContent(template: string, boardName?: string): string {
   const columns = getColumnsForTemplate(template);
   const icons: Record<string, string> = {
     // Kanban/Scrum
@@ -153,7 +287,12 @@ export function createBoardContent(template: string): string {
   };
 
   let content = '---\nkanban-plugin: obsidian-kanban\n---\n\n';
-  
+
+  // Add board title (matches parser expectation for `# Title` line)
+  if (boardName) {
+    content += `# ${boardName}\n\n`;
+  }
+
   for (const column of columns) {
     const icon = icons[column] || '📋';
     content += `## ${icon} ${column}\n\n`;
@@ -164,29 +303,54 @@ export function createBoardContent(template: string): string {
 
 
 /**
+ * Determine PMO path based on location setting
+ */
+export function determinePMOPath(hqPath: string, location: PMOLocation): string {
+  if (location === 'separate') {
+    return path.join(hqPath, 'pmo');
+  } else if (location.startsWith('repo:')) {
+    const repoName = location.substring(5);
+    return path.join(hqPath, 'repos', repoName, 'pmo');
+  }
+  throw new Error(`Invalid PMO location: ${location}`);
+}
+
+export interface CreatePMOOptions {
+  hqPath: string;
+  location: PMOLocation;
+  boardTemplate: string;
+  boardName: string;
+  columns: string[];
+  storageType?: PMOStorageType;
+}
+
+/**
  * Create PMO structure in HQ
  *
- * New structure:
+ * Used by both `prlt init` and `prlt pmo init` for consistent behavior.
+ *
+ * Structure:
  * - PMO data is stored in workspace.db (pmo_* tables)
- * - Default project uses HQ name
  * - Boards live in pmo/projects/{id}/board.md
  * - Specs live in pmo/projects/{id}/specs/{active,complete,future,dropped}
- * - No config.json - all configuration in database
  */
-export async function createPMO(
-  hqPath: string,
-  boardTemplate: string,
-  storageType: PMOStorageType = 'sqlite',
-  hqName?: string
-): Promise<void> {
+export async function createPMO(options: CreatePMOOptions): Promise<void> {
+  const {
+    hqPath,
+    location,
+    boardTemplate,
+    boardName,
+    columns,
+    storageType = 'sqlite',
+  } = options;
+
   console.log(chalk.blue('Creating PMO structure...'));
 
-  const pmoPath = path.join(hqPath, 'pmo');
-  const columns = getColumnsForTemplate(boardTemplate);
+  // Determine PMO path based on location
+  const pmoPath = determinePMOPath(hqPath, location);
 
-  // Use provided HQ name or default
-  const projectId = hqName || 'default';
-  const boardName = `${projectId} Board`;
+  // Generate project ID from board name
+  const projectId = slugify(boardName);
 
   // Create PMO directory
   fs.mkdirSync(pmoPath, { recursive: true });
@@ -199,27 +363,33 @@ export async function createPMO(
 
   const storage = new SQLiteStorage(dbPath);
 
-  // Create default project using HQ name
+  // Create project
   await storage.createProject({
     id: projectId,
     name: boardName,
-    description: `Default project for ${projectId}`,
+    description: `Project for ${boardName}`,
     template: boardTemplate,
   });
 
-  // Set as current project and initialize board
+  // Set as current project and initialize board with columns
   storage.setCurrentProject(projectId);
   await storage.init({
     name: boardName,
     columns,
   });
 
-  // Store PMO settings in database (no config.json)
-  // TODO: Add pmo_settings table to store storageType, etc.
+  // Save PMO path to settings
+  try {
+    const db = new (await import('better-sqlite3')).default(dbPath);
+    db.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run('pmo_path', pmoPath);
+    db.close();
+  } catch {
+    // Ignore if settings table doesn't exist
+  }
 
   await storage.close();
   console.log(chalk.green('  ✓ PMO tables initialized in workspace.db'));
-  console.log(chalk.green(`  ✓ Default project "${projectId}" created`));
+  console.log(chalk.green(`  ✓ Project "${projectId}" created`));
 
   // Create project folder structure: pmo/projects/{projectId}/
   const projectPath = path.join(pmoPath, 'projects', projectId);
@@ -229,67 +399,72 @@ export async function createPMO(
   createSpecFolders(pmoPath, projectId);
   console.log(chalk.green('  ✓ Spec folders created'));
 
-  // Create board.md in project directory
-  const boardContent = createBoardContent(boardTemplate);
-  const boardPath = path.join(projectPath, 'board.md');
-  fs.writeFileSync(boardPath, boardContent);
-  console.log(chalk.green('  ✓ board.md created'));
+  // Create kanban.md in project directory with board name as title
+  const boardFileName = 'kanban.md';
+  const boardContent = createBoardContent(boardTemplate, boardName);
+  const boardFilePath = path.join(projectPath, boardFileName);
+  fs.writeFileSync(boardFilePath, boardContent);
+  console.log(chalk.green(`  ✓ ${boardFileName} created`));
 
   // Create README for PMO
-  const storageDesc = `- **projects/{id}/board.md** - Kanban boards (Obsidian compatible, auto-synced with database)
-- **projects/{id}/specs/** - Detailed specifications for tickets (active, complete, future, dropped)
-- Data stored in \`../.proletariat/workspace.db\` (pmo_* tables)`;
-
-  const syncCommands = storageType === 'git'
-    ? `
-# Sync (git storage)
-prlt board pull
-prlt board push
-`
-    : '';
-
-  const readmeContent = `# Project Management Office (PMO)
-
-This directory contains project management resources for the HQ.
-
-## Storage: ${storageType}
+  const readmeContent = `# PMO (Project Management Office)
 
 ## Template: ${boardTemplate}
 
 ## Structure
 
-${storageDesc}
+### product/ - Living Product Definitions
+Specs, requirements, and architecture docs that define WHAT the product should do.
+These don't move through lifecycle - they get updated in place as the product evolves.
+
+### projects/{id}/ - Implementation Work
+Work that flows through a lifecycle to build the product.
+
+\`\`\`
+pmo/
+├── product/                    # WHAT (specs, requirements, architecture)
+│   ├── init-commands.md        # How init should work
+│   ├── ticket-commands.md      # How tickets should work
+│   └── architecture.md         # System design
+│
+└── projects/
+    └── {project-id}/
+        ├── {project-id}-kanban.md  # Kanban board (Obsidian compatible)
+        └── epics/                  # Implementation work
+            ├── draft/              # Planning phase
+            ├── active/             # Currently implementing
+            └── complete/           # Done
+\`\`\`
 
 ## Commands
-
 \`\`\`bash
-# View board
-prlt pmo board view
-
 # Create ticket
 prlt ticket create --title "My ticket" --column "Backlog"
 
 # List tickets
 prlt ticket list
 prlt ticket list --column "In Progress"
-prlt ticket list --priority URGENT
 
 # Move ticket
 prlt ticket move <ticket-id> "In Progress"
 
-# Projects
-prlt project create "New Project"
-prlt project list
-${syncCommands}\`\`\`
+# View board
+prlt board view
+\`\`\`
 
 ## Columns
-
 ${columns.join(', ')}
+
+## Obsidian Setup
+1. Open this folder as an Obsidian vault
+2. Install the "Kanban" plugin
+3. Open ${projectId}-kanban.md and switch to Kanban view
 `;
 
   fs.writeFileSync(path.join(pmoPath, 'README.md'), readmeContent);
 
-  console.log(chalk.green(`✅ PMO created with ${boardTemplate} template (${storageType} storage)`));
+  const locationDesc = location === 'separate' ? 'hq/pmo' : location.replace('repo:', '') + '/pmo';
+  console.log(chalk.green(`✅ PMO created at ${locationDesc} with ${boardTemplate} template`));
 }
 
 /**

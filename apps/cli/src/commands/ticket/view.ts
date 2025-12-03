@@ -1,11 +1,6 @@
 import { Command, Args } from '@oclif/core';
-import * as fs from 'fs';
-import * as path from 'path';
 import inquirer from 'inquirer';
-import {
-  getStorageWithAutoSync,
-  findPMO,
-} from '../../lib/pmo/index.js';
+import { getPMOContext } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
 export default class TicketView extends Command {
@@ -26,17 +21,11 @@ export default class TicketView extends Command {
   async run(): Promise<void> {
     const { args } = await this.parse(TicketView);
 
-    // Find PMO directory
-    const pmoPath = findPMO();
-    if (!pmoPath) {
-      this.error('PMO not found. Run "prlt pmo init" first.');
-    }
-
-    // Get storage with auto-sync from board.md
-    const storage = getStorageWithAutoSync(
-      pmoPath,
-      'sqlite',
-      (msg) => this.log(styles.muted(msg))
+    // Get PMO context (prompts for project if multiple exist)
+    const { storage } = await getPMOContext(
+      undefined,
+      (msg) => this.log(styles.muted(msg)),
+      true // prompt if multiple projects
     );
 
     try {

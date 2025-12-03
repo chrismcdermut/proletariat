@@ -59,12 +59,13 @@ function getWorkspaceDbPath(pmoPath: string): string {
 }
 
 /**
- * Start watching board.md for changes
+ * Start watching kanban.md for changes
  */
 export function startWatcher(
   pmoPath: string,
   storageType: 'sqlite' | 'git',
-  options: WatcherOptions = {}
+  options: WatcherOptions = {},
+  projectId?: string
 ): WatcherInstance {
   const {
     debounceMs = 500,
@@ -73,13 +74,41 @@ export function startWatcher(
     onError,
   } = options;
 
-  const boardPath = path.join(pmoPath, 'board.md');
+  // Get board path - either from projectId or find first project
+  let boardPath: string;
+  if (projectId) {
+    boardPath = path.join(pmoPath, 'projects', projectId, 'kanban.md');
+    // Fall back to legacy board.md
+    if (!fs.existsSync(boardPath)) {
+      boardPath = path.join(pmoPath, 'projects', projectId, 'board.md');
+    }
+  } else {
+    // Legacy: look for board.md in pmo root
+    boardPath = path.join(pmoPath, 'board.md');
+    if (!fs.existsSync(boardPath)) {
+      // Try to find first project
+      const projectsDir = path.join(pmoPath, 'projects');
+      if (fs.existsSync(projectsDir)) {
+        const projects = fs.readdirSync(projectsDir).filter(f =>
+          fs.statSync(path.join(projectsDir, f)).isDirectory()
+        );
+        if (projects.length > 0) {
+          const firstProject = projects[0];
+          boardPath = path.join(projectsDir, firstProject, 'kanban.md');
+          if (!fs.existsSync(boardPath)) {
+            boardPath = path.join(projectsDir, firstProject, 'board.md');
+          }
+        }
+      }
+    }
+  }
+
   // All storage types now use unified workspace.db
   const dbPath = getWorkspaceDbPath(pmoPath);
 
   // Validate paths exist
   if (!fs.existsSync(boardPath)) {
-    throw new Error(`board.md not found at ${boardPath}`);
+    throw new Error(`kanban.md not found at ${boardPath}`);
   }
   if (!fs.existsSync(dbPath)) {
     throw new Error(`Database not found at ${dbPath}. Run 'prlt init' first.`);

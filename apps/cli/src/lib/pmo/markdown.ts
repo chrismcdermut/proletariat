@@ -170,6 +170,10 @@ export function generateBoardMarkdown(board: Board): string {
   lines.push('---')
   lines.push('')
 
+  // Board title
+  lines.push(`# ${board.name}`)
+  lines.push('')
+
   for (const column of board.columns) {
     // Column header
     lines.push(`## ${column.name}`)

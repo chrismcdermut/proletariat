@@ -25,24 +25,10 @@ import {
 } from './types.js'
 import { generateBoardMarkdown } from './markdown.js'
 import { slugify } from './utils.js'
+import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from './schema.js'
 
-// =============================================================================
-// Table name constants (all PMO tables use pmo_ prefix in workspace.db)
-// =============================================================================
-
-const T = {
-  projects: 'pmo_projects',
-  initiatives: 'pmo_initiatives',
-  columns: 'pmo_columns',
-  tickets: 'pmo_tickets',
-  board_tickets: 'pmo_board_tickets',
-  subtasks: 'pmo_subtasks',
-  ticket_metadata: 'pmo_ticket_metadata',
-  specs: 'pmo_specs',
-  ticket_assignments: 'pmo_ticket_assignments',
-  cache_metadata: 'pmo_cache_metadata',
-  settings: 'pmo_settings',
-} as const
+// Use shared table names
+const T = PMO_TABLES
 
 // =============================================================================
 // SQLite Storage Class
@@ -82,135 +68,15 @@ export class SQLiteStorage implements PMOStorage {
 
   /**
    * Ensure PMO tables exist in the database.
+   * Uses shared schema from schema.ts to guarantee consistency.
    * This handles migration for workspaces created before PMO was added.
    */
   private ensurePMOTables(): void {
-    this.db.exec(`
-      -- Projects (replaces pmo_board for multi-project support)
-      CREATE TABLE IF NOT EXISTS ${T.projects} (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        template TEXT,
-        description TEXT,
-        initiative_id TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
+    // Create tables using shared schema (single source of truth)
+    this.db.exec(PMO_SCHEMA_SQL)
 
-      -- Initiatives (optional OKR-level grouping)
-      CREATE TABLE IF NOT EXISTS ${T.initiatives} (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        objective TEXT,
-        key_results TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-
-      -- Columns (kanban lanes) - now per-project
-      CREATE TABLE IF NOT EXISTS ${T.columns} (
-        id TEXT NOT NULL,
-        project_id TEXT NOT NULL DEFAULT 'default',
-        name TEXT NOT NULL,
-        position INTEGER NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (project_id, id)
-      );
-
-      -- Tickets (pure ticket data - board position moved to separate table)
-      CREATE TABLE IF NOT EXISTS ${T.tickets} (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL DEFAULT 'default',
-        title TEXT NOT NULL,
-        description TEXT,
-        priority TEXT,
-        category TEXT,
-        status TEXT NOT NULL DEFAULT 'backlog',
-        owner TEXT,
-        assignee TEXT,
-        spec_id TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_synced_from_spec TIMESTAMP,
-        last_synced_from_board TIMESTAMP,
-        FOREIGN KEY (project_id) REFERENCES ${T.projects}(id) ON DELETE CASCADE,
-        FOREIGN KEY (spec_id) REFERENCES ${T.specs}(id) ON DELETE SET NULL
-      );
-
-      -- Board view state (normalized ticket positions)
-      CREATE TABLE IF NOT EXISTS ${T.board_tickets} (
-        project_id TEXT NOT NULL,
-        ticket_id TEXT NOT NULL,
-        column_id TEXT NOT NULL,
-        position INTEGER NOT NULL,
-        PRIMARY KEY (project_id, ticket_id),
-        FOREIGN KEY (project_id) REFERENCES ${T.projects}(id) ON DELETE CASCADE,
-        FOREIGN KEY (ticket_id) REFERENCES ${T.tickets}(id) ON DELETE CASCADE,
-        FOREIGN KEY (project_id, column_id) REFERENCES ${T.columns}(project_id, id) ON DELETE CASCADE
-      );
-
-      -- Subtasks
-      CREATE TABLE IF NOT EXISTS ${T.subtasks} (
-        id TEXT NOT NULL,
-        ticket_id TEXT NOT NULL REFERENCES ${T.tickets}(id) ON DELETE CASCADE,
-        title TEXT NOT NULL,
-        done INTEGER DEFAULT 0,
-        position INTEGER NOT NULL,
-        PRIMARY KEY (ticket_id, id)
-      );
-
-      -- Custom metadata fields for tickets
-      CREATE TABLE IF NOT EXISTS ${T.ticket_metadata} (
-        ticket_id TEXT NOT NULL REFERENCES ${T.tickets}(id) ON DELETE CASCADE,
-        key TEXT NOT NULL,
-        value TEXT,
-        PRIMARY KEY (ticket_id, key)
-      );
-
-      -- Specs (specification documents)
-      CREATE TABLE IF NOT EXISTS ${T.specs} (
-        id TEXT PRIMARY KEY,
-        path TEXT NOT NULL,
-        title TEXT,
-        status TEXT DEFAULT 'active',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-
-      -- Agent-Ticket assignments (many-to-many)
-      CREATE TABLE IF NOT EXISTS ${T.ticket_assignments} (
-        ticket_id TEXT NOT NULL REFERENCES ${T.tickets}(id) ON DELETE CASCADE,
-        agent_name TEXT NOT NULL,
-        assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (ticket_id, agent_name)
-      );
-
-      -- Cache metadata (for board.md sync)
-      CREATE TABLE IF NOT EXISTS ${T.cache_metadata} (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      );
-
-      -- PMO Settings (configuration like pmo_path, template, etc)
-      CREATE TABLE IF NOT EXISTS ${T.settings} (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      );
-
-      -- Indexes
-      CREATE INDEX IF NOT EXISTS idx_pmo_columns_project ON ${T.columns}(project_id);
-      CREATE INDEX IF NOT EXISTS idx_pmo_tickets_project ON ${T.tickets}(project_id);
-      CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status ON ${T.tickets}(status);
-      CREATE INDEX IF NOT EXISTS idx_pmo_tickets_owner ON ${T.tickets}(owner);
-      CREATE INDEX IF NOT EXISTS idx_pmo_tickets_assignee ON ${T.tickets}(assignee);
-      CREATE INDEX IF NOT EXISTS idx_pmo_tickets_spec ON ${T.tickets}(spec_id);
-      CREATE INDEX IF NOT EXISTS idx_pmo_tickets_priority ON ${T.tickets}(priority);
-      CREATE INDEX IF NOT EXISTS idx_pmo_tickets_category ON ${T.tickets}(category);
-      CREATE INDEX IF NOT EXISTS idx_pmo_board_tickets_column ON ${T.board_tickets}(project_id, column_id);
-      CREATE INDEX IF NOT EXISTS idx_pmo_subtasks_ticket ON ${T.subtasks}(ticket_id);
-      CREATE INDEX IF NOT EXISTS idx_pmo_assignments_agent ON ${T.ticket_assignments}(agent_name);
-      CREATE INDEX IF NOT EXISTS idx_pmo_projects_initiative ON ${T.projects}(initiative_id);
-    `)
+    // Validate schema matches expected columns (catches drift early)
+    validateTicketSchema(this.db)
   }
 
 
@@ -1243,11 +1109,14 @@ export class SQLiteStorage implements PMOStorage {
     // Rebuild
     const now = Date.now()
 
-    // Update or insert project
+    // Update or insert project - preserve existing name if board.name is default "Board"
+    const existingProject = this.db.prepare(`SELECT name FROM ${T.projects} WHERE id = ?`).get(projectId) as { name: string } | undefined
+    const projectName = (board.name === 'Board' && existingProject?.name) ? existingProject.name : board.name
+
     this.db.prepare(`
       INSERT OR REPLACE INTO ${T.projects} (id, name, updated_at)
       VALUES (?, ?, ?)
-    `).run(projectId, board.name, now)
+    `).run(projectId, projectName, now)
 
     // Insert columns and tickets
     const insertColumn = this.db.prepare(`

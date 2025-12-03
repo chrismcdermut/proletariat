@@ -26,11 +26,31 @@ import { parseBoard, generateBoardMarkdown } from './markdown.js';
 import { Board } from './types.js';
 
 /**
- * Get the board.md path for a project
- * New structure: pmo/projects/{projectId}/board.md
+ * Get the board path for a project
+ * Standard: pmo/projects/{projectId}/kanban.md
+ * Falls back to legacy paths for backwards compatibility
  */
 export function getBoardPath(pmoPath: string, projectId: string): string {
-  return path.join(pmoPath, 'projects', projectId, 'board.md');
+  const kanbanPath = path.join(pmoPath, 'projects', projectId, 'kanban.md');
+  const legacyBoardPath = path.join(pmoPath, 'projects', projectId, 'board.md');
+  const legacyProjectKanbanPath = path.join(pmoPath, 'projects', projectId, `${projectId}-kanban.md`);
+  const legacyProjectPath = path.join(pmoPath, 'projects', projectId, `${projectId}.md`);
+
+  // Check paths in order of preference
+  if (fs.existsSync(kanbanPath)) {
+    return kanbanPath;
+  }
+  if (fs.existsSync(legacyBoardPath)) {
+    return legacyBoardPath;
+  }
+  if (fs.existsSync(legacyProjectKanbanPath)) {
+    return legacyProjectKanbanPath;
+  }
+  if (fs.existsSync(legacyProjectPath)) {
+    return legacyProjectPath;
+  }
+  // Default to standard kanban.md for new projects
+  return kanbanPath;
 }
 
 export interface SyncMetadata {

@@ -1,5 +1,6 @@
 import { Command, Flags } from '@oclif/core';
 import { Ticket, getPMOContext } from '../../lib/pmo/index.js';
+import { colors, format } from '../../lib/colors.js';
 import {
   styles,
   formatPriority,
@@ -9,22 +10,23 @@ import {
   divider,
 } from '../../lib/styles.js';
 
-export default class TicketList extends Command {
-  static description = 'List tickets from the PMO board';
+export default class List extends Command {
+  static description = 'List all tickets across all projects or filtered';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> --format compact',
+    '<%= config.bin %> <%= command.id %> --format json',
     '<%= config.bin %> <%= command.id %> --column Backlog',
-    '<%= config.bin %> <%= command.id %> --priority URGENT',
-    '<%= config.bin %> <%= command.id %> --category bug',
-    '<%= config.bin %> <%= command.id %> --search "login"',
-    '<%= config.bin %> <%= command.id %> --project mobile-app',
+    '<%= config.bin %> <%= command.id %> --priority HIGH',
   ];
 
   static flags = {
-    project: Flags.string({
-      char: 'P',
-      description: 'Project ID (prompts if multiple exist)',
+    format: Flags.string({
+      char: 'f',
+      description: 'Output format',
+      options: ['table', 'compact', 'json'],
+      default: 'table',
     }),
     column: Flags.string({
       char: 'c',
@@ -42,25 +44,14 @@ export default class TicketList extends Command {
       char: 's',
       description: 'Search in title and description',
     }),
-    format: Flags.string({
-      char: 'f',
-      description: 'Output format',
-      options: ['table', 'compact', 'json'],
-      default: 'table',
-    }),
-    all: Flags.boolean({
-      char: 'a',
-      description: 'Show all columns (including Done)',
-      default: false,
-    }),
   };
 
   async run(): Promise<void> {
-    const { flags } = await this.parse(TicketList);
+    const { flags } = await this.parse(List);
 
-    // Get PMO context (prompts for project if multiple exist and no --project flag)
-    const { storage } = await getPMOContext(
-      flags.project,
+    // Get PMO context (prompts for project if multiple exist)
+    const { storage, projectName } = await getPMOContext(
+      undefined,
       (msg) => this.log(styles.muted(msg)),
       true // prompt if multiple projects
     );
@@ -74,41 +65,31 @@ export default class TicketList extends Command {
         search?: string;
       } = {};
 
-      if (flags.column) {
-        filter.column = flags.column;
-      }
-      if (flags.priority) {
-        filter.priority = flags.priority;
-      }
-      if (flags.category) {
-        filter.category = flags.category;
-      }
-      if (flags.search) {
-        filter.search = flags.search;
-      }
+      if (flags.column) filter.column = flags.column;
+      if (flags.priority) filter.priority = flags.priority;
+      if (flags.category) filter.category = flags.category;
+      if (flags.search) filter.search = flags.search;
 
       const tickets = await storage.listTickets(filter);
       const board = await storage.getBoard();
       await storage.close();
 
-      if (tickets.length === 0) {
-        this.log(styles.warning('No tickets found.'));
+      if (flags.format === 'json') {
+        this.log(JSON.stringify(tickets, null, 2));
         return;
       }
 
-      // Extract column names from board
+      if (tickets.length === 0) {
+        this.log(colors.warning('No tickets found.'));
+        return;
+      }
+
       const columns = board.columns.map(col => col.name);
 
-      // Output based on format
-      switch (flags.format) {
-        case 'json':
-          this.log(JSON.stringify(tickets, null, 2));
-          break;
-        case 'compact':
-          this.outputCompact(tickets, columns, flags.all);
-          break;
-        default:
-          this.outputTable(tickets, columns, flags.all);
+      if (flags.format === 'compact') {
+        this.outputCompact(tickets, columns, projectName);
+      } else {
+        this.outputTable(tickets, columns, projectName);
       }
     } catch (error) {
       await storage.close();
@@ -116,7 +97,10 @@ export default class TicketList extends Command {
     }
   }
 
-  private outputTable(tickets: Ticket[], columns: string[], showAll: boolean): void {
+  private outputTable(tickets: Ticket[], columns: string[], projectName: string): void {
+    this.log(format.title(`🎫 Tickets - ${projectName} (${tickets.length})`));
+    this.log('');
+
     // Group tickets by column
     const byColumn: Record<string, Ticket[]> = {};
     for (const col of columns) {
@@ -124,17 +108,12 @@ export default class TicketList extends Command {
     }
     for (const ticket of tickets) {
       const col = ticket.column || 'Unknown';
-      if (!byColumn[col]) {
-        byColumn[col] = [];
-      }
+      if (!byColumn[col]) byColumn[col] = [];
       byColumn[col].push(ticket);
     }
 
-    // Display ALL columns
     for (const col of columns) {
       const colTickets = byColumn[col];
-
-      // Column header with color
       const headerColor = getColumnStyle(col);
       this.log(headerColor(`\n${getColumnEmoji(col)} ${col} (${colTickets.length})`));
       this.log(divider(50));
@@ -144,50 +123,37 @@ export default class TicketList extends Command {
         continue;
       }
 
-      // Sort by position
       colTickets.sort((a, b) => (a.position || 0) - (b.position || 0));
 
       for (const ticket of colTickets) {
         const priorityBadge = formatPriority(ticket.priority);
         const categoryBadge = formatCategory(ticket.category);
-
         this.log(`  ${styles.code(ticket.id)} ${ticket.title} ${priorityBadge} ${categoryBadge}`);
 
         if (ticket.description) {
           const shortDesc = ticket.description.split('\n')[0].substring(0, 60);
           this.log(styles.muted(`     ${shortDesc}${ticket.description.length > 60 ? '...' : ''}`));
         }
-
-        if (ticket.subtasks.length > 0) {
-          const done = ticket.subtasks.filter(s => s.done).length;
-          this.log(styles.muted(`     Subtasks: ${done}/${ticket.subtasks.length}`));
-        }
       }
     }
 
-    // Summary
     this.log('\n' + divider(50));
     this.log(styles.emphasis(`Total: ${tickets.length} ticket${tickets.length === 1 ? '' : 's'}`));
   }
 
-  private outputCompact(tickets: Ticket[], columns: string[], showAll: boolean): void {
-    // Group by column
+  private outputCompact(tickets: Ticket[], columns: string[], projectName: string): void {
+    this.log(format.title(`🎫 ${projectName} (${tickets.length} tickets)`));
+
     const byColumn: Record<string, Ticket[]> = {};
-    for (const col of columns) {
-      byColumn[col] = [];
-    }
+    for (const col of columns) byColumn[col] = [];
     for (const ticket of tickets) {
       const col = ticket.column || 'Unknown';
-      if (!byColumn[col]) {
-        byColumn[col] = [];
-      }
+      if (!byColumn[col]) byColumn[col] = [];
       byColumn[col].push(ticket);
     }
 
     for (const col of columns) {
       const colTickets = byColumn[col];
-
-      // Show all columns
       const headerColor = getColumnStyle(col);
       this.log(headerColor(`${getColumnEmoji(col)} ${col} (${colTickets.length}):`));
 
@@ -196,13 +162,10 @@ export default class TicketList extends Command {
         continue;
       }
 
-      colTickets.sort((a, b) => (a.position || 0) - (b.position || 0));
-
       for (const ticket of colTickets) {
         const priority = formatPriority(ticket.priority);
         this.log(`  ${styles.code(ticket.id)}: ${ticket.title} ${priority}`);
       }
     }
   }
-
 }
