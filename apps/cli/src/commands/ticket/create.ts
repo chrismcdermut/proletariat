@@ -2,6 +2,7 @@ import { Command, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { autoExportToBoard, getPMOContext } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import { updateEpicTicketsSection } from '../../lib/pmo/epic-files.js';
 
 export default class TicketCreate extends Command {
   static description = 'Create a new ticket on the PMO board';
@@ -11,6 +12,7 @@ export default class TicketCreate extends Command {
     '<%= config.bin %> <%= command.id %> --title "Fix login bug" --column Backlog',
     '<%= config.bin %> <%= command.id %> -t "Add feature" -c "In Progress" -p HIGH',
     '<%= config.bin %> <%= command.id %> --project mobile-app -t "New feature"',
+    '<%= config.bin %> <%= command.id %> --epic EPIC-001 -t "Implement auth flow"',
   ];
 
   static flags = {
@@ -46,17 +48,30 @@ export default class TicketCreate extends Command {
       description: 'Interactive mode',
       default: false,
     }),
+    epic: Flags.string({
+      char: 'e',
+      description: 'Link ticket to an epic (e.g., EPIC-001)',
+    }),
   };
 
   async run(): Promise<void> {
     const { flags } = await this.parse(TicketCreate);
 
     // Get PMO context (prompt for project if multiple exist and no --project flag)
-    const { pmoPath, storage, columns, projectName } = await getPMOContext(
+    const { pmoPath, storage, columns, projectName, projectId } = await getPMOContext(
       flags.project,
       (msg) => this.log(styles.muted(msg)),
       true // prompt if multiple projects
     );
+
+    // Validate epic if provided
+    if (flags.epic) {
+      const epic = await storage.getEpic(flags.epic);
+      if (!epic) {
+        await storage.close();
+        this.error(`Epic not found: ${flags.epic}. Use 'prlt epic list' to see available epics.`);
+      }
+    }
 
     // Get ticket data (interactive or from flags)
     let ticketData: {
@@ -66,6 +81,7 @@ export default class TicketCreate extends Command {
       category?: string;
       description?: string;
       id?: string;
+      epicId?: string;
     };
 
     if (flags.interactive || !flags.title) {
@@ -81,6 +97,7 @@ export default class TicketCreate extends Command {
         category: flags.category,
         description: flags.description,
         id: flags.id,
+        epicId: flags.epic,
       };
     }
 
@@ -97,10 +114,26 @@ export default class TicketCreate extends Command {
         priority: ticketData.priority,
         category: ticketData.category,
         description: ticketData.description,
+        epicId: ticketData.epicId,
       });
 
       // Auto-export to board.md after write
       await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
+
+      // If linked to an epic, update the epic's markdown file with ticket list
+      if (ticketData.epicId) {
+        const epic = await storage.getEpic(ticketData.epicId);
+        if (epic) {
+          const epicTickets = await storage.getTicketsForEpic(ticketData.epicId);
+          const ticketInfos = epicTickets.map(t => ({
+            id: t.id,
+            title: t.title,
+            status: t.status,
+            priority: t.priority,
+          }));
+          updateEpicTicketsSection(pmoPath, ticketData.epicId, epic.status, ticketInfos, projectId);
+        }
+      }
 
       await storage.close();
 
@@ -112,6 +145,9 @@ export default class TicketCreate extends Command {
       }
       if (ticket.category) {
         this.log(styles.muted(`   Category: ${ticket.category}`));
+      }
+      if (ticketData.epicId) {
+        this.log(styles.muted(`   Epic: ${ticketData.epicId}`));
       }
       this.log(styles.muted(`\n   View board: prlt board`));
       this.log(styles.muted(`   List tickets: prlt ticket list`));
@@ -130,6 +166,7 @@ export default class TicketCreate extends Command {
       category?: string;
       description?: string;
       id?: string;
+      epic?: string;
     }
   ): Promise<{
     title: string;
@@ -138,6 +175,7 @@ export default class TicketCreate extends Command {
     category?: string;
     description?: string;
     id?: string;
+    epicId?: string;
   }> {
     const answers = await inquirer.prompt<{
       title: string;
@@ -217,6 +255,7 @@ export default class TicketCreate extends Command {
       category,
       description: answers.description || undefined,
       id: flags.id,
+      epicId: flags.epic,
     };
   }
 

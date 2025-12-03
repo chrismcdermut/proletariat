@@ -13,6 +13,21 @@ Ticket commands handle CRUD operations on work items. Tickets are the fundamenta
 - Tickets can have subtasks
 - Tickets are positioned on a board in columns
 
+## ID Generation
+
+Ticket IDs use a prefixed sequential format: `TKT-001`, `TKT-002`, etc.
+
+- **Prefix**: `TKT`
+- **Format**: `TKT-XXX` (zero-padded to 3 digits, expands for 1000+)
+- **Auto-generated**: IDs are assigned automatically on creation
+- **Stable**: ID never changes, even if title changes
+- **Counter**: Stored in `pmo_settings` table as `next_ticket_id`
+
+This matches the pattern used by other entities:
+- Epics: `EPIC-001`
+- Specs: `SPEC-001`
+- Projects: `PROJ-001`
+
 ## Command Overview
 
 ### Core Commands
@@ -110,17 +125,17 @@ When selecting "Bulk operations →":
 ? Priority: ❯ High   Medium   Low
 ? Link to epic:
   ❯ None (standalone ticket)
-    user-authentication-system (active)
-    payment-integration (active)
-    mobile-redesign (draft)
+    EPIC-001 User Authentication System (active)
+    EPIC-002 Payment Integration (active)
+    EPIC-003 Mobile Redesign (draft)
 ? Assign to: ❯ Unassigned   alice   bob
 
-✅ Created ticket TICK-007
+✅ Created ticket TKT-007
    Title: Add login screen
    Project: mobile-app
    Column: Backlog
    Priority: high
-   Epic: user-authentication-system
+   Epic: EPIC-001
 
    View board: prlt board view
 ```
@@ -128,7 +143,7 @@ When selecting "Bulk operations →":
 **Output**:
 - Creates ticket in SQLite
 - Exports to board.md
-- Auto-generates ticket ID (TICK-NNN)
+- Auto-generates ticket ID (TKT-NNN)
 - Returns ticket ID
 
 ---
@@ -150,20 +165,20 @@ When selecting "Bulk operations →":
 ```
 📥 Backlog (2)
 ──────────────────────────────────────────────────
-  TICK-001 Add login screen P:high feature
+  TKT-001 Add login screen P:high feature
      Implement user authentication UI...
-  TICK-002 Setup CI/CD P:medium infra
+  TKT-002 Setup CI/CD P:medium infra
 
 🚧 In Progress (1)
 ──────────────────────────────────────────────────
-  TICK-003 Implement navigation P:high feature
+  TKT-003 Implement navigation P:high feature
      Subtasks: 2/4
 
 ✅ Done (3)
 ──────────────────────────────────────────────────
-  TICK-004 Project setup P:high feature
-  TICK-005 Configure linting P:low infra
-  TICK-006 Add README P:low docs
+  TKT-004 Project setup P:high feature
+  TKT-005 Configure linting P:low infra
+  TKT-006 Add README P:low docs
 
 ──────────────────────────────────────────────────
 Total: 6 tickets
@@ -174,7 +189,7 @@ Total: 6 tickets
 prlt ticket list
 prlt ticket list --column Backlog
 prlt ticket list --priority URGENT
-prlt ticket list --epic user-authentication-system
+prlt ticket list --epic EPIC-001
 prlt ticket list --search "login"
 prlt ticket list --format json
 ```
@@ -197,21 +212,21 @@ prlt ticket list --format json
 **Interactive Flow** (if id not provided):
 ```
 ? Select ticket to view:
-  ❯ TICK-001 - Add login screen (Backlog)
-    TICK-002 - Setup CI/CD (Backlog)
-    TICK-003 - Implement navigation (In Progress)
+  ❯ TKT-001 - Add login screen (Backlog)
+    TKT-002 - Setup CI/CD (Backlog)
+    TKT-003 - Implement navigation (In Progress)
 ```
 
 **Output**:
 ```
-📄 Ticket TICK-001
+📄 Ticket TKT-001
 
 Title:       Add login screen
 Project:     mobile-app
 Status:      Backlog
 Priority:    high
 Category:    feature
-Epic:        user-authentication-system
+Epic:        EPIC-001
 Created:     11/26/2024, 10:30:00 AM
 Updated:     11/26/2024, 10:30:00 AM
 
@@ -222,7 +237,7 @@ Description:
 
 **Example**:
 ```bash
-prlt ticket view TICK-001
+prlt ticket view TKT-001
 prlt ticket view  # Interactive mode
 ```
 
@@ -242,20 +257,20 @@ prlt ticket view  # Interactive mode
 **Interactive Flow** (if id not provided):
 ```
 ? Select ticket to complete:
-  ❯ TICK-001 - Add login screen (Backlog)
-    TICK-002 - Setup CI/CD (In Progress)
+  ❯ TKT-001 - Add login screen (Backlog)
+    TKT-002 - Setup CI/CD (In Progress)
 ```
 
 **Output**:
 ```
-✅ Completed TICK-001
+✅ Completed TKT-001
    Title: Add login screen
    Moved to: Done
 ```
 
 **Example**:
 ```bash
-prlt ticket complete TICK-001
+prlt ticket complete TKT-001
 prlt ticket complete  # Interactive mode
 ```
 
@@ -271,15 +286,15 @@ prlt ticket complete  # Interactive mode
 **Purpose**: Move ticket to different column
 
 **Arguments**:
-- `id` (optional): Ticket ID (e.g., TICK-001) - prompts with dropdown if not provided
+- `id` (optional): Ticket ID (e.g., TKT-001) - prompts with dropdown if not provided
 - `column` (optional): Target column name - prompts with dropdown if not provided
 
 **Interactive Flow** (if arguments not provided):
 ```
 ? Select ticket to move:
-  ❯ TICK-001 - Add login screen (Backlog)
-    TICK-002 - Setup CI/CD (Backlog)
-    TICK-003 - Implement navigation (In Progress)
+  ❯ TKT-001 - Add login screen (Backlog)
+    TKT-002 - Setup CI/CD (Backlog)
+    TKT-003 - Implement navigation (In Progress)
 
 ? Move to column:
   ❯ Backlog
@@ -287,7 +302,7 @@ prlt ticket complete  # Interactive mode
     Review
     Done
 
-✅ Moved TICK-001 to In Progress
+✅ Moved TKT-001 to In Progress
    Title: Add login screen
    Board updated
 ```
@@ -296,13 +311,13 @@ prlt ticket complete  # Interactive mode
 
 **Example**:
 ```bash
-prlt ticket move TICK-001 "In Progress"
+prlt ticket move TKT-001 "In Progress"
 prlt ticket move  # Interactive mode
 ```
 
 **Output**:
 ```
-✅ Moved TICK-001 to In Progress
+✅ Moved TKT-001 to In Progress
    Title: Add login screen
    Board updated
 ```
@@ -328,11 +343,11 @@ prlt ticket move  # Interactive mode
 **Interactive Flow** (if id not provided):
 ```
 ? Select ticket to delete:
-  ❯ TICK-001 - Add login screen (Backlog)
-    TICK-002 - Setup CI/CD (Backlog)
-    TICK-003 - Implement navigation (In Progress)
+  ❯ TKT-001 - Add login screen (Backlog)
+    TKT-002 - Setup CI/CD (Backlog)
+    TKT-003 - Implement navigation (In Progress)
 
-Delete ticket TICK-001?
+Delete ticket TKT-001?
   Title: Add login screen
   Project: mobile-app
   Status: Backlog
@@ -341,19 +356,19 @@ Delete ticket TICK-001?
   ❯ No, cancel
     Yes, delete
 
-✅ Ticket TICK-001 deleted
+✅ Ticket TKT-001 deleted
    Removed from database and board
 ```
 
 **Example**:
 ```bash
-prlt ticket delete TICK-001
+prlt ticket delete TKT-001
 prlt ticket delete  # Interactive mode
 ```
 
 **Output**:
 ```
-✅ Ticket TICK-001 deleted
+✅ Ticket TKT-001 deleted
    Removed from database and board
 ```
 
@@ -392,8 +407,8 @@ prlt ticket delete  # Interactive mode
 
 ### Batch Operations
 ```bash
-prlt ticket move TICK-001,TICK-002,TICK-003 "In Progress"
-prlt ticket delete TICK-001,TICK-002 --force
+prlt ticket move TKT-001,TKT-002,TKT-003 "In Progress"
+prlt ticket delete TKT-001,TKT-002 --force
 ```
 
 ### Ticket Templates
@@ -410,9 +425,9 @@ prlt ticket list --assignee alice --column Backlog
 
 ### Subtask Management
 ```bash
-prlt ticket subtask add TICK-001 "Design login form"
-prlt ticket subtask complete TICK-001 1
-prlt ticket subtask list TICK-001
+prlt ticket subtask add TKT-001 "Design login form"
+prlt ticket subtask complete TKT-001 1
+prlt ticket subtask list TKT-001
 ```
 
 ---
@@ -427,11 +442,11 @@ prlt ticket subtask list TICK-001
 📋 Bulk Move Tickets
 
 ? Select tickets to move: (Use space to select, enter to confirm)
-  ❯ ◯ pmo-tickets-001  Add login screen              [Backlog]       P:high
-    ◯ pmo-tickets-002  Setup CI/CD                    [Backlog]       P:medium
-    ◉ pmo-tickets-003  Implement navigation           [In Progress]   P:high
-    ◯ pmo-tickets-004  Project setup                  [Done]          P:high
-    ◉ pmo-tickets-005  Configure linting              [Done]          P:low
+  ❯ ◯ TKT-001  Add login screen              [Backlog]       P:high
+    ◯ TKT-002  Setup CI/CD                    [Backlog]       P:medium
+    ◉ TKT-003  Implement navigation           [In Progress]   P:high
+    ◯ TKT-004  Project setup                  [Done]          P:high
+    ◉ TKT-005  Configure linting              [Done]          P:low
 
 Selected 2 tickets
 
@@ -469,10 +484,10 @@ Selected 2 tickets
 📋 Bulk Delete Tickets
 
 ? Select tickets to delete: (Use space to select, enter to confirm)
-  ❯ ◯ pmo-tickets-001  Add login screen              [Backlog]       P:high
-    ◯ pmo-tickets-002  Setup CI/CD                    [Backlog]       P:medium
-    ◉ pmo-tickets-003  Old feature (cancelled)        [Dropped]       P:low
-    ◉ pmo-tickets-004  Duplicate ticket               [Dropped]       P:low
+  ❯ ◯ TKT-001  Add login screen              [Backlog]       P:high
+    ◯ TKT-002  Setup CI/CD                    [Backlog]       P:medium
+    ◉ TKT-003  Old feature (cancelled)        [Dropped]       P:low
+    ◉ TKT-004  Duplicate ticket               [Dropped]       P:low
 
 Selected 2 tickets
 
@@ -509,10 +524,10 @@ Selected 2 tickets
 📋 Bulk Reassign Tickets
 
 ? Select tickets to reassign:
-  ❯ ◯ pmo-tickets-001  Add login screen              Assignee: alice
-    ◉ pmo-tickets-002  Add logout                     Assignee: alice
-    ◉ pmo-tickets-003  Password reset                 Assignee: (none)
-    ◯ pmo-tickets-004  User profile                   Assignee: bob
+  ❯ ◯ TKT-001  Add login screen              Assignee: alice
+    ◉ TKT-002  Add logout                     Assignee: alice
+    ◉ TKT-003  Password reset                 Assignee: (none)
+    ◯ TKT-004  User profile                   Assignee: bob
 
 Selected 2 tickets
 
@@ -548,22 +563,22 @@ Selected 2 tickets
 📋 Bulk Link Tickets to Epic
 
 ? Select tickets to link:
-  ❯ ◯ pmo-tickets-001  Add login screen              Epic: auth-system
-    ◉ pmo-tickets-002  Add logout                     Epic: auth-system
-    ◉ pmo-tickets-003  Password reset                 Epic: (none)
-    ◯ pmo-tickets-004  User profile                   Epic: user-management
+  ❯ ◯ TKT-001  Add login screen              Epic: EPIC-001
+    ◉ TKT-002  Add logout                     Epic: EPIC-001
+    ◉ TKT-003  Password reset                 Epic: (none)
+    ◯ TKT-004  User profile                   Epic: EPIC-002
 
 Selected 2 tickets
 
 ? Link to which epic?
-  ❯ auth-system
-    user-management
-    payment-integration
+  ❯ EPIC-001 Auth System
+    EPIC-002 User Management
+    EPIC-003 Payment Integration
     None (remove epic link)
 
-📝 Linking 2 tickets to "user-management"...
+📝 Linking 2 tickets to EPIC-002...
 
-✅ Linked 2 tickets to "user-management"
+✅ Linked 2 tickets to EPIC-002
 ```
 
 **Options**:
@@ -587,9 +602,9 @@ Selected 2 tickets
 📋 Bulk Update Tickets
 
 ? Select tickets to update:
-  ❯ ◉ pmo-tickets-001  Add login screen              P:medium  C:feature
-    ◉ pmo-tickets-002  Setup CI/CD                    P:medium  C:infra
-    ◯ pmo-tickets-003  Implement navigation           P:high    C:feature
+  ❯ ◉ TKT-001  Add login screen              P:medium  C:feature
+    ◉ TKT-002  Setup CI/CD                    P:medium  C:infra
+    ◯ TKT-003  Implement navigation           P:high    C:feature
 
 Selected 2 tickets
 

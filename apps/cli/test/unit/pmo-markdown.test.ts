@@ -169,6 +169,7 @@ kanban-plugin: basic
               {
                 id: 'implement-auth',
                 title: 'implement-auth',
+                status: 'backlog',
                 column: 'Backlog',
                 position: 0,
                 specs: [],
@@ -183,7 +184,8 @@ kanban-plugin: basic
         updatedAt: new Date(),
       };
       const markdown = generateBoardMarkdown(board);
-      expect(markdown).to.include('- [ ] [[implement-auth]]');
+      // New format: bold ID + wikilink + title
+      expect(markdown).to.include('- [ ] **implement-auth** [[implement-auth]] implement-auth');
     });
 
     it('generates ticket metadata', () => {
@@ -199,6 +201,7 @@ kanban-plugin: basic
               {
                 id: 'ticket-1',
                 title: 'ticket-1',
+                status: 'backlog',
                 column: 'Backlog',
                 position: 0,
                 priority: 'URGENT',
@@ -217,7 +220,9 @@ kanban-plugin: basic
       const markdown = generateBoardMarkdown(board);
       expect(markdown).to.include('**Priority:** URGENT');
       expect(markdown).to.include('**Category:** feature');
-      expect(markdown).to.include('**Specs:** [[spec-1]], [[spec-2]]');
+      // Specs are rendered as individual lines with wikilink alias syntax
+      expect(markdown).to.include('**Spec:** [[spec-1|spec-1]]');
+      expect(markdown).to.include('**Spec:** [[spec-2|spec-2]]');
       expect(markdown).to.include('**Assignee:** John');
     });
 
@@ -234,6 +239,7 @@ kanban-plugin: basic
               {
                 id: 'ticket-1',
                 title: 'ticket-1',
+                status: 'backlog',
                 column: 'Backlog',
                 position: 0,
                 specs: [],
@@ -268,6 +274,7 @@ kanban-plugin: basic
               {
                 id: 'ticket-1',
                 title: 'ticket-1',
+                status: 'backlog',
                 column: 'Backlog',
                 position: 0,
                 description: 'This is the description',
@@ -333,6 +340,7 @@ kanban-plugin: basic
           tickets: tickets.map((t, i) => ({
             id: t.id || `ticket-${i}`,
             title: t.title || `Ticket ${i}`,
+            status: 'backlog' as const,
             column: 'Backlog',
             position: i,
             specs: [],

@@ -23,12 +23,27 @@ Epic commands handle work containers that have **lifecycle status**. Epics group
 - Epics are organized in folders by status
 - Epics belong to projects
 
+## ID Generation
+
+Epic IDs use a prefixed sequential format: `EPIC-001`, `EPIC-002`, etc.
+
+- **Prefix**: `EPIC`
+- **Format**: `EPIC-XXX` (zero-padded to 3 digits, expands for 1000+)
+- **Auto-generated**: IDs are assigned automatically on creation
+- **Stable**: ID never changes, even if title changes
+- **Counter**: Stored in `pmo_settings` table as `next_epic_id`
+
+This matches the pattern used by other entities:
+- Tickets: `TKT-001`
+- Specs: `SPEC-001`
+- Projects: `PROJ-001`
+
 ## Command Overview
 
 | Command                           | Purpose                              |
 | --------------------------------- | ------------------------------------ |
 | `prlt epic`                       | Interactive menu for epic operations |
-| `prlt epic create [name]`         | Create new epic                      |
+| `prlt epic create [title]`        | Create new epic                      |
 | `prlt epic list`                  | List all epics                       |
 | `prlt epic view [id]`             | View epic and linked tickets         |
 | `prlt epic archive [id]`          | Move epic to complete/ folder        |
@@ -74,57 +89,58 @@ prlt epic
 
 ---
 
-### `prlt epic create [name]`
+### `prlt epic create [title]`
 
 **Purpose**: Create a new epic with initial status
 
 **Arguments**:
 
-- `name` (optional): Epic name (will prompt if not provided)
+- `title` (optional): Epic title (will prompt if not provided)
 
 **Options**:
 
-- `--name, -n <name>`: Epic name
+- `--title, -t <title>`: Epic title
 - `--status, -s <status>`: Initial status (active, draft) [default: active]
 - `--project, -p <id>`: Project ID (prompts if multiple exist)
 
 **Interactive Flow**:
 
 ```
-? Epic name: User Authentication System
+? Epic title: User Authentication System
 ? Initial status:
   ❯ Active (currently working on)
     Draft (planning phase)
 
-✅ Created epic "User Authentication System"
+✅ Created epic EPIC-001 "User Authentication System"
   Project: proletariat
   Status: active
-  File: pmo/projects/proletariat/epics/active/user-authentication-system.md
+  File: pmo/projects/proletariat/epics/active/EPIC-001.md
 
 Next steps:
   1. Create tickets linked to this epic:
-     prlt ticket create --epic user-authentication-system "Design auth flow"
-  2. View progress: prlt epic progress user-authentication-system
+     prlt ticket create --epic EPIC-001 "Design auth flow"
+  2. View progress: prlt epic progress EPIC-001
 ```
 
 **Example**:
 
 ```bash
 prlt epic create "User Authentication"
-prlt epic create --name "API Design" --status draft
+prlt epic create --title "API Design" --status draft
 ```
 
 **Behavior**:
 
-- Creates markdown file in epics/{status}/ directory
-- Adds YAML frontmatter with metadata (title, status, created)
+- Generates sequential ID (EPIC-001, EPIC-002, etc.)
+- Creates markdown file in epics/{status}/ directory using ID as filename
+- Adds YAML frontmatter with metadata (id, title, status, created)
 - Registers epic in database
-- Auto-slugifies filename from epic name
 
 **Template Structure**:
 
 ```markdown
 ---
+id: EPIC-001
 title: User Authentication System
 status: active
 created: 2025-12-02T...
@@ -135,13 +151,25 @@ created: 2025-12-02T...
 ## Overview
 [Describe what this epic covers]
 
+## Motivation
+[Why this work matters - the problem being solved or opportunity being captured]
+
 ## Goals
 - [ ] Goal 1
 - [ ] Goal 2
 
 ## Success Criteria
 - [ ] Criterion 1
+
+## Tickets
+
+_No tickets linked yet. Create tickets with:_
+```bash
+prlt ticket create --epic EPIC-001 "Task title"
 ```
+```
+
+**Note**: The `## Tickets` section is auto-updated when tickets are created with `--epic`. This is a one-way sync (database → markdown).
 
 ---
 
@@ -169,27 +197,23 @@ prlt epic list --project mobile-app
 ═══════════════════════════════════════════════════
 
 🟢 ACTIVE (3)
-  user-authentication-system   ████████████░░░░░░░░  60% (6/10)
-     User Authentication System
-  api-design                   ████████████████████ 100% (5/5)
-     API Design - ready to archive!
-  payment-integration          ░░░░░░░░░░░░░░░░░░░░   0% (0/3)
-     Payment Integration
+  EPIC-001  User Authentication System    ████████████░░░░░░░░  60% (6/10)
+  EPIC-002  API Design                    ████████████████████ 100% (5/5) ← ready to archive!
+  EPIC-003  Payment Integration           ░░░░░░░░░░░░░░░░░░░░   0% (0/3)
 
 🟡 DRAFT (1)
-  mobile-redesign              ░░░░░░░░░░░░░░░░░░░░   0% (0/0)
-     Mobile App Redesign
+  EPIC-004  Mobile App Redesign           ░░░░░░░░░░░░░░░░░░░░   0% (0/0)
 
 ✅ COMPLETE (2)
-  initial-setup                ████████████████████ 100% (8/8)
-  auth-v1                      ████████████████████ 100% (12/12)
+  EPIC-005  Initial Setup                 ████████████████████ 100% (8/8)
+  EPIC-006  Auth V1                       ████████████████████ 100% (12/12)
 
 ═══════════════════════════════════════════════════
 Total: 6 epics (3 active, 1 draft, 2 complete)
 
 Commands:
-  prlt epic progress <id>    View detailed progress
-  prlt epic archive <id>     Archive completed epic
+  prlt epic progress EPIC-001    View detailed progress
+  prlt epic archive EPIC-002     Archive completed epic
 ```
 
 **Behavior**:
@@ -217,40 +241,41 @@ Commands:
 **Example**:
 
 ```bash
-prlt epic view user-authentication-system
+prlt epic view EPIC-001
 prlt epic view --full
 ```
 
 **Output**:
 
 ```
-🎯 Epic: User Authentication System
+🎯 Epic: EPIC-001 - User Authentication System
 ═══════════════════════════════════════════════════
-ID: user-authentication-system
+ID: EPIC-001
+Title: User Authentication System
 Project: proletariat
 Status: active
 Created: 12/02/2025
-File: pmo/projects/proletariat/epics/active/user-authentication-system.md
+File: pmo/projects/proletariat/epics/active/EPIC-001.md
 
 Progress: 60% (6/10 tickets complete)
 ████████████░░░░░░░░
 
 🎫 Tickets (10):
-  ✅ AUTH-001: Design auth flow [Done]
-  ✅ AUTH-002: Implement login [Done]
-  ✅ AUTH-003: Implement logout [Done]
-  ✅ AUTH-004: Session management [Done]
-  ✅ AUTH-005: Password reset flow [Done]
-  ✅ AUTH-006: Email verification [Done]
-  🚧 AUTH-007: OAuth2 integration [In Progress]
-  📋 AUTH-008: 2FA implementation [Ready]
-  📋 AUTH-009: Rate limiting [Backlog]
-  📋 AUTH-010: Security audit [Backlog]
+  ✅ TKT-001: Design auth flow [Done]
+  ✅ TKT-002: Implement login [Done]
+  ✅ TKT-003: Implement logout [Done]
+  ✅ TKT-004: Session management [Done]
+  ✅ TKT-005: Password reset flow [Done]
+  ✅ TKT-006: Email verification [Done]
+  🚧 TKT-007: OAuth2 integration [In Progress]
+  📋 TKT-008: 2FA implementation [Ready]
+  📋 TKT-009: Rate limiting [Backlog]
+  📋 TKT-010: Security audit [Backlog]
 
 ═══════════════════════════════════════════════════
 Commands:
-  prlt epic progress user-authentication-system
-  prlt ticket create --epic user-authentication-system "New task"
+  prlt epic progress EPIC-001
+  prlt ticket create --epic EPIC-001 "New task"
 ```
 
 **Behavior**:
@@ -278,7 +303,7 @@ Commands:
 **Example**:
 
 ```bash
-prlt epic archive api-design
+prlt epic archive EPIC-002
 prlt epic archive --force
 ```
 
@@ -286,14 +311,14 @@ prlt epic archive --force
 
 ```
 ? Select epic to archive:
-  ❯ api-design (active) [5/5 tickets complete] ✅
-    user-authentication-system (active) [6/10 tickets complete]
+  ❯ EPIC-002 API Design (active) [5/5 tickets complete] ✅
+    EPIC-001 User Authentication System (active) [6/10 tickets complete]
 
-Archiving: api-design
+Archiving: EPIC-002 "API Design"
 Status: 5/5 tickets complete ✅
 
-✅ Archived epic "api-design"
-  Moved: epics/active/api-design.md → epics/complete/api-design.md
+✅ Archived epic EPIC-002 "API Design"
+  Moved: epics/active/EPIC-002.md → epics/complete/EPIC-002.md
   Status: active → complete
 
 View archived epics:
@@ -331,26 +356,26 @@ View archived epics:
 **Example**:
 
 ```bash
-prlt epic activate mobile-redesign
+prlt epic activate EPIC-004
 ```
 
 **Interactive Flow**:
 
 ```
 ? Select epic to activate:
-  ❯ mobile-redesign (draft)
-    old-feature (dropped)
+  ❯ EPIC-004 Mobile App Redesign (draft)
+    EPIC-007 Old Feature (dropped)
 
-Activating: mobile-redesign
+Activating: EPIC-004 "Mobile App Redesign"
 Current status: draft
 
-✅ Activated epic "mobile-redesign"
-  Moved: epics/draft/mobile-redesign.md → epics/active/mobile-redesign.md
+✅ Activated epic EPIC-004 "Mobile App Redesign"
+  Moved: epics/draft/EPIC-004.md → epics/active/EPIC-004.md
   Status: draft → active
 
 Next steps:
-  prlt epic view mobile-redesign
-  prlt ticket create --epic mobile-redesign "First task"
+  prlt epic view EPIC-004
+  prlt ticket create --epic EPIC-004 "First task"
 ```
 
 **Behavior**:
@@ -384,14 +409,14 @@ Next steps:
 **Example**:
 
 ```bash
-prlt epic progress user-authentication-system
+prlt epic progress EPIC-001
 prlt epic progress --all
 ```
 
 **Output** (single epic):
 
 ```
-🎯 Epic Progress: user-authentication-system
+🎯 Epic Progress: EPIC-001 - User Authentication System
 ═══════════════════════════════════════════════════
 
 Status: active
@@ -406,10 +431,10 @@ Breakdown by column:
   📥 Backlog:     2 tickets
 
 Remaining work:
-  AUTH-007: OAuth2 integration [In Progress]
-  AUTH-008: 2FA implementation [Ready]
-  AUTH-009: Rate limiting [Backlog]
-  AUTH-010: Security audit [Backlog]
+  TKT-007: OAuth2 integration [In Progress]
+  TKT-008: 2FA implementation [Ready]
+  TKT-009: Rate limiting [Backlog]
+  TKT-010: Security audit [Backlog]
 ```
 
 **Output** (--all):
@@ -419,16 +444,16 @@ Remaining work:
 ═══════════════════════════════════════════════════
 
 🟢 ACTIVE (3)
-  api-design                   ████████████████████ 100% (5/5) ← ready to archive
-  user-authentication-system   ████████████░░░░░░░░  60% (6/10)
-  payment-integration          ░░░░░░░░░░░░░░░░░░░░   0% (0/3)
+  EPIC-002  API Design                    ████████████████████ 100% (5/5) ← ready to archive
+  EPIC-001  User Authentication System    ████████████░░░░░░░░  60% (6/10)
+  EPIC-003  Payment Integration           ░░░░░░░░░░░░░░░░░░░░   0% (0/3)
 
 🟡 DRAFT (1)
-  mobile-redesign              ░░░░░░░░░░░░░░░░░░░░   0% (0/0)
+  EPIC-004  Mobile App Redesign           ░░░░░░░░░░░░░░░░░░░░   0% (0/0)
 
 Commands:
-  prlt epic progress <id>    View detailed progress
-  prlt epic archive <id>     Archive completed epic
+  prlt epic progress EPIC-001    View detailed progress
+  prlt epic archive EPIC-002     Archive completed epic
 ```
 
 **Behavior**:
@@ -458,7 +483,7 @@ Commands:
 **Example**:
 
 ```bash
-prlt epic move api-design complete
+prlt epic move EPIC-002 complete
 prlt epic move --force
 ```
 
@@ -466,8 +491,8 @@ prlt epic move --force
 
 ```
 ? Select epic to move:
-  ❯ api-design (active) [5/5 complete]
-    user-authentication-system (active) [6/10 complete]
+  ❯ EPIC-002 API Design (active) [5/5 complete]
+    EPIC-001 User Authentication System (active) [6/10 complete]
 
 ? Move to which status?
   ❯ active (currently working on)
@@ -476,11 +501,11 @@ prlt epic move --force
     dropped (cancelled/won't do)
     future (backlog for later)
 
-Moving: api-design
+Moving: EPIC-002 "API Design"
 From: active → complete
 
-✅ Moved epic "api-design" to complete
-  File: epics/active/api-design.md → epics/complete/api-design.md
+✅ Moved epic EPIC-002 "API Design" to complete
+  File: epics/active/EPIC-002.md → epics/complete/EPIC-002.md
 ```
 
 **Behavior**:
@@ -524,8 +549,8 @@ Moving to `dropped`:
 Tickets are linked to epics via the `--epic` flag on ticket create:
 
 ```bash
-prlt ticket create --epic user-authentication-system "Design auth flow"
-prlt ticket create --epic user-authentication-system "Implement login" --priority high
+prlt ticket create --epic EPIC-001 "Design auth flow"
+prlt ticket create --epic EPIC-001 "Implement login" --priority high
 ```
 
 The `epic_id` field in the ticket database links it to the epic. This is a one-way reference (ticket → epic), no sync needed.
@@ -533,7 +558,7 @@ The `epic_id` field in the ticket database links it to the epic. This is a one-w
 **Listing tickets for an epic**:
 
 ```bash
-prlt ticket list --epic user-authentication-system
+prlt ticket list --epic EPIC-001
 ```
 
 ---
@@ -562,13 +587,13 @@ draft → active → complete
 ```
 pmo/projects/{projectId}/epics/
 ├── active/
-│   ├── user-authentication-system.md
-│   └── payment-integration.md
+│   ├── EPIC-001.md
+│   └── EPIC-003.md
 ├── draft/
-│   └── mobile-redesign.md
+│   └── EPIC-004.md
 ├── complete/
-│   ├── initial-setup.md
-│   └── auth-v1.md
+│   ├── EPIC-005.md
+│   └── EPIC-006.md
 ├── dropped/
 └── future/
 ```
@@ -620,16 +645,16 @@ prlt epic create --template milestone
 ```yaml
 ---
 depends_on:
-  - user-authentication-system
+  - EPIC-001
 blocks:
-  - payment-integration
+  - EPIC-003
 ---
 ```
 
 ### Epic Metrics
 
 ```bash
-prlt epic metrics user-authentication-system
+prlt epic metrics EPIC-001
 # Output: velocity, cycle time, burndown
 ```
 
@@ -640,3 +665,27 @@ prlt epics list
 prlt epics archive  # Archive all 100% complete
 prlt epics move --from draft --to active
 ```
+
+### Bidirectional Ticket Sync
+
+Currently, ticket sync is **one-directional** (database → markdown):
+- When tickets are created/updated, the epic markdown `## Tickets` section is updated
+- Changes to the markdown file are NOT synced back to the database
+
+**Future enhancement**: Bidirectional sync would allow:
+- Adding tickets by editing the epic markdown file
+- Removing ticket links by deleting from the markdown
+- Requires conflict detection when both sources change
+
+```bash
+# Manual sync command (future)
+prlt epic sync EPIC-001           # Sync markdown → database
+prlt epic sync --all              # Sync all epics
+prlt epic sync --direction=both   # Full bidirectional sync
+```
+
+**Conflict resolution strategy** (TBD):
+- Database wins (markdown is regenerated)
+- Markdown wins (database is updated)
+- Prompt user to resolve conflicts
+- Use timestamps to detect which changed more recently

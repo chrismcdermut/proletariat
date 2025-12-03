@@ -75,21 +75,21 @@ This is the authoritative list of commands that MUST exist in the CLI.
 
 #### Repo Commands (Individual Operations)
 
-| Command                | 📝 | ✅ | 🧪 | Description                     | Spec |
-| ---------------------- | -- | -- | -- | ------------------------------- | ---- |
-| `prlt repo`            | -  | ✓  | -  | Interactive individual menu     | -    |
-| `prlt repo add`        | -  | ✓  | -  | Add single repository           | -    |
-| `prlt repo remove`     | -  | ✓  | -  | Remove single repository        | -    |
-| `prlt repo view`       | -  | ✓  | -  | View repository details         | -    |
+| Command                | 📝 | ✅ | 🧪 | Description                     | Spec                                                 |
+| ---------------------- | -- | -- | -- | ------------------------------- | ---------------------------------------------------- |
+| `prlt repo`            | ✓  | ✓  | -  | Interactive individual menu     | [repo-commands.md](../../specs/cli/repo-commands.md) |
+| `prlt repo add`        | ✓  | ✓  | -  | Add single repository           | [repo-commands.md](../../specs/cli/repo-commands.md) |
+| `prlt repo remove`     | ✓  | ✓  | -  | Remove single repository        | [repo-commands.md](../../specs/cli/repo-commands.md) |
+| `prlt repo view`       | ✓  | ✓  | -  | View repository details         | [repo-commands.md](../../specs/cli/repo-commands.md) |
 
 #### Repos Commands (Bulk Operations)
 
-| Command           | 📝 | ✅ | 🧪 | Description                      | Spec |
-| ----------------- | -- | -- | -- | -------------------------------- | ---- |
-| `prlt repos`      | -  | ✓  | -  | Interactive bulk operations menu | -    |
-| `prlt repos list` | -  | ✓  | -  | List all repositories            | -    |
-| `prlt repos add`  | -  | ✓  | -  | Add multiple repositories (bulk) | -    |
-| `prlt repos remove` | -  | ✓  | -  | Remove multiple repositories (bulk) | -    |
+| Command             | 📝 | ✅ | 🧪 | Description                        | Spec                                                 |
+| ------------------- | -- | -- | -- | ---------------------------------- | ---------------------------------------------------- |
+| `prlt repos`        | ✓  | ✓  | -  | Interactive bulk operations menu   | [repo-commands.md](../../specs/cli/repo-commands.md) |
+| `prlt repos list`   | ✓  | ✓  | -  | List all repositories              | [repo-commands.md](../../specs/cli/repo-commands.md) |
+| `prlt repos add`    | ✓  | ✓  | -  | Add multiple repositories (bulk)   | [repo-commands.md](../../specs/cli/repo-commands.md) |
+| `prlt repos remove` | ✓  | ✓  | -  | Remove multiple repositories (bulk)| [repo-commands.md](../../specs/cli/repo-commands.md) |
 
 #### PMO Commands
 
@@ -135,14 +135,14 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 
 | Command                        | 📝 | ✅ | 🧪 | Description                    | Spec                                                         |
 | ------------------------------ | -- | -- | -- | ------------------------------ | ------------------------------------------------------------ |
-| `prlt epic`                    | ✓  | -  | -  | Interactive epic menu          | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
-| `prlt epic create [name]`      | ✓  | -  | -  | Create new epic                | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
-| `prlt epic list`               | ✓  | -  | -  | List all epics                 | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
-| `prlt epic view [id]`          | ✓  | -  | -  | View epic and linked tickets   | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
-| `prlt epic archive [id]`       | ✓  | -  | -  | Move epic to complete/ folder  | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
-| `prlt epic activate [id]`      | ✓  | -  | -  | Move epic to active/ folder    | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
-| `prlt epic move [id] [status]` | ✓  | -  | -  | Move epic between status folders | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
-| `prlt epic progress [id]`      | ✓  | -  | -  | Show completion percentage     | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
+| `prlt epic`                    | ✓  | ✓  | -  | Interactive epic menu          | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
+| `prlt epic create [name]`      | ✓  | ✓  | -  | Create new epic                | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
+| `prlt epic list`               | ✓  | ✓  | -  | List all epics                 | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
+| `prlt epic view [id]`          | ✓  | ✓  | -  | View epic and linked tickets   | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
+| `prlt epic archive [id]`       | ✓  | ✓  | -  | Move epic to complete/ folder  | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
+| `prlt epic activate [id]`      | ✓  | ✓  | -  | Move epic to active/ folder    | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
+| `prlt epic move [id] [status]` | ✓  | ✓  | -  | Move epic between status folders | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
+| `prlt epic progress [id]`      | ✓  | ✓  | -  | Show completion percentage     | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
 
 #### Ticket Commands (CRUD Operations)
 

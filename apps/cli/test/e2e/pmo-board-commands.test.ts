@@ -134,9 +134,9 @@ describe('PMO Board Commands Integration Tests', () => {
       execCommand('board sync --direction import');
 
       // Check database
-      const ticket = db.prepare('SELECT * FROM pmo_tickets WHERE id = ?').get('TEST-002');
+      const ticket = db.prepare('SELECT * FROM pmo_tickets WHERE id = ?').get('TEST-002') as { title: string } | undefined;
       expect(ticket).to.exist;
-      expect(ticket.title).to.equal('Manual ticket');
+      expect(ticket!.title).to.equal('Manual ticket');
     });
 
     it('should detect and show changes before syncing', () => {

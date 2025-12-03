@@ -142,7 +142,7 @@ export const PMO_TABLE_SCHEMAS = {
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.epics} (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
+      title TEXT NOT NULL,
       description TEXT,
       status TEXT NOT NULL DEFAULT 'active',
       file_path TEXT,
@@ -226,6 +226,7 @@ export const EXPECTED_TICKET_COLUMNS = [
   'owner',
   'assignee',
   'spec_id',
+  'epic_id',
   'created_at',
   'updated_at',
   'last_synced_from_spec',
