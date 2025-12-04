@@ -76,12 +76,22 @@ export default class EpicView extends Command {
       const doneTickets = tickets.filter((t: Ticket) => t.status === 'done').length;
       const percent = tickets.length > 0 ? Math.round((doneTickets / tickets.length) * 100) : 0;
 
+      // Get linked spec if any
+      let specTitle: string | undefined;
+      if (epic.specId) {
+        const spec = await storage.getSpec(epic.specId);
+        specTitle = spec?.title || spec?.path;
+      }
+
       this.log(`\n🎯 Epic: ${styles.emphasis(epic.id)} - ${epic.title}`);
       this.log('═'.repeat(55));
       this.log(`ID: ${epic.id}`);
       this.log(`Title: ${epic.title}`);
       this.log(`Project: ${projectName}`);
       this.log(`Status: ${epic.status}`);
+      if (epic.specId) {
+        this.log(`Spec: ${epic.specId}${specTitle ? ` - ${specTitle}` : ''}`);
+      }
       this.log(`Created: ${epic.createdAt.toLocaleDateString()}`);
       if (epic.description) {
         this.log(`\nDescription: ${epic.description}`);

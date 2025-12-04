@@ -143,7 +143,7 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 | `prlt epic activate [id]`      | ✓  | ✓  | -  | Move epic to active/ folder    | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
 | `prlt epic move [id] [status]` | ✓  | ✓  | -  | Move epic between status folders | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
 | `prlt epic progress [id]`      | ✓  | ✓  | -  | Show completion percentage     | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
-| `prlt epic link [id] [tickets...]` | ✓  | ✓  | -  | Link tickets to epic           | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
+| `prlt epic link [id] [tickets...]` | ✓  | ✓  | -  | Link tickets to epic, or epic to spec (--spec) | [pmo-epic-commands.md](../../specs/cli/pmo-epic-commands.md) |
 
 #### Ticket Commands (CRUD Operations)
 
@@ -221,19 +221,29 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 
 ### Spec vs Epic vs Ticket
 
-| Entity | Purpose | Status/Lifecycle | Tickets |
-|--------|---------|------------------|---------|
-| **Spec** | Static documentation (design docs, architecture) | None | None |
-| **Epic** | Work container | active, draft, complete, dropped, future | Tickets link via `epic_id` |
+| Entity | Purpose | Status/Lifecycle | Links |
+|--------|---------|------------------|-------|
+| **Spec** | Static documentation (design docs, architecture) | None | Epics link via `spec_id` |
+| **Epic** | Work container | active, draft, complete, dropped, future | Links to spec, tickets link to epic |
 | **Ticket** | Work item | Column position on board | Optional `epic_id` reference |
 
 ### Relationships
+
+```
+Spec → Epic → Ticket
+(1)    (many)  (many)
+```
+
+- **Spec → Epic**: One spec can describe multiple epics (via `epic.spec_id`)
+- **Epic → Ticket**: One epic contains many tickets (via `ticket.epic_id`)
+- **Ticket → Spec**: Not allowed directly - must go through epic for traceability
 
 ```
 Project
 ├── Board (1:1)
 │   └── Columns → Tickets
 ├── Specs (1:many) - static documentation
+│   └── Epics link via spec_id (optional)
 └── Epics (1:many) - work containers with status
     └── Tickets link via epic_id (optional)
 ```
@@ -319,7 +329,7 @@ Examples:
 | **pmo_initiatives**        | id                      | name, objective, key_results, created_at, updated_at                                                     | Optional OKR-level grouping      |
 | **pmo_columns**            | (project_id, id)        | name, position, created_at                                                                               | Kanban lanes (per-project)       |
 | **pmo_tickets**            | id                      | project_id, title, column_id, position, priority, category, description, epic_id, created_at, updated_at | Kanban cards (per-project)       |
-| **pmo_epics**              | id                      | project_id, title, status, file_path, created_at, updated_at                                             | Work containers with lifecycle   |
+| **pmo_epics**              | id                      | project_id, title, status, file_path, spec_id, created_at, updated_at                                    | Work containers with lifecycle   |
 | **pmo_subtasks**           | (ticket_id, id)         | title, done, position                                                                                    | Task breakdown                   |
 | **pmo_ticket_metadata**    | (ticket_id, key)        | value                                                                                                    | Custom ticket fields             |
 | **pmo_specs**              | id                      | path, title, created_at, updated_at                                                                      | Static specification documents   |
@@ -331,6 +341,7 @@ Examples:
 - `pmo_tickets.column_id` → `pmo_columns(project_id, id)` ON DELETE CASCADE
 - `pmo_tickets.epic_id` → `pmo_epics(id)` ON DELETE SET NULL
 - `pmo_epics.project_id` → `pmo_projects.id` ON DELETE CASCADE
+- `pmo_epics.spec_id` → `pmo_specs(id)` ON DELETE SET NULL
 - `pmo_subtasks.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
 - `pmo_ticket_metadata.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
 - `pmo_ticket_assignments.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE

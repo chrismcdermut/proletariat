@@ -15,9 +15,23 @@ Epic commands handle work containers that have **lifecycle status**. Epics group
 - **Specs** = static documents (design docs, requirements) - no lifecycle, no tickets
 - **Epics** = work containers with status, tickets link to them via `epic_id`
 
+**Data Model** (1 Spec → Many Epics → Many Tickets):
+```
+Spec (optional design document)
+  └── Epic (work container)
+        ├── TKT-001
+        ├── TKT-002
+        └── TKT-003
+```
+
+- Epics can optionally link to a Spec via `spec_id` (the design doc that describes the work)
+- Tickets link to Epics via `epic_id` (not directly to specs - traceability is through the epic)
+- This creates a clean hierarchy: Spec → Epic → Tickets
+
 **Core Concepts**:
 
 - Epics have status (active, draft, complete, dropped, future)
+- Epics can link to a spec via `spec_id` (optional reference to design document)
 - Tickets reference epics via `epic_id` in database (not frontmatter)
 - Epics track progress based on ticket completion
 - Epics are organized in folders by status
@@ -103,6 +117,7 @@ prlt epic
 - `--title, -t <title>`: Epic title
 - `--status, -s <status>`: Initial status (active, draft) [default: active]
 - `--project, -p <id>`: Project ID (prompts if multiple exist)
+- `--spec <spec-id>`: Link to a spec (design document) that describes this epic
 
 **Interactive Flow**:
 
@@ -111,10 +126,15 @@ prlt epic
 ? Initial status:
   ❯ Active (currently working on)
     Draft (planning phase)
+? Link to spec (design document):
+  ❯ None (no spec linked)
+    SPEC-001 - Auth System Design
+    SPEC-002 - API Design
 
 ✅ Created epic EPIC-001 "User Authentication System"
   Project: proletariat
   Status: active
+  Spec: SPEC-001
   File: pmo/projects/proletariat/epics/active/EPIC-001.md
 
 Next steps:
@@ -547,7 +567,7 @@ Moving to `dropped`:
 
 ### `prlt epic link [id] [tickets...]`
 
-**Purpose**: Link one or more tickets to an epic from the epic namespace
+**Purpose**: Link one or more tickets to an epic, OR link an epic to a spec
 
 **Status**: ✅ IMPLEMENTED
 
@@ -560,8 +580,10 @@ Moving to `dropped`:
 
 - `--project, -P <id>`: Project ID (default: "default")
 - `--unlink, -u`: Remove tickets from this epic instead of adding
+- `--spec, -s <spec-id>`: Link epic to a spec (design document)
+- `--unlink-spec`: Remove spec link from epic
 
-**Interactive Flow**:
+**Interactive Flow** (linking tickets):
 
 ```
 ? Select epic to link tickets to:
@@ -588,13 +610,18 @@ View epic: prlt epic view EPIC-001
 **Example**:
 
 ```bash
+# Link tickets to epic
 prlt epic link EPIC-001 TKT-009 TKT-010    # Link specific tickets
 prlt epic link EPIC-001                     # Interactive multi-select
 prlt epic link                              # Full interactive mode
 prlt epic link EPIC-001 --unlink TKT-009   # Remove ticket from epic
+
+# Link epic to spec (design document)
+prlt epic link EPIC-001 --spec SPEC-001    # Link epic to spec
+prlt epic link EPIC-001 --unlink-spec      # Remove spec link
 ```
 
-**Output**:
+**Output** (linking tickets):
 
 ```
 ✅ Linked 2 tickets to EPIC-001 "User Authentication System"
@@ -604,6 +631,13 @@ prlt epic link EPIC-001 --unlink TKT-009   # Remove ticket from epic
 View epic: prlt epic view EPIC-001
 ```
 
+**Output** (linking spec):
+
+```
+✅ Linked EPIC-001 "User Authentication System" to spec SPEC-001
+   Spec: Auth System Design
+```
+
 **Behavior**:
 
 - If no arguments provided, shows interactive prompts
@@ -611,6 +645,8 @@ View epic: prlt epic view EPIC-001
 - Updates ticket.epic_id in database for each selected ticket
 - Shows which tickets were already linked to other epics (requires confirmation to reassign)
 - `--unlink` sets epic_id to NULL for specified tickets
+- `--spec` links the epic to a spec (design document) - establishes Spec → Epic relationship
+- `--unlink-spec` removes the spec link from the epic
 
 **Difference from `prlt ticket link`**:
 
@@ -701,14 +737,21 @@ CREATE TABLE pmo_epics (
   title TEXT NOT NULL,
   status TEXT DEFAULT 'active',  -- active, draft, complete, dropped, future
   file_path TEXT,
+  spec_id TEXT,  -- Optional link to spec (design document)
   created_at TEXT,
   updated_at TEXT,
-  FOREIGN KEY (project_id) REFERENCES pmo_projects(id)
+  FOREIGN KEY (project_id) REFERENCES pmo_projects(id),
+  FOREIGN KEY (spec_id) REFERENCES pmo_specs(id) ON DELETE SET NULL
 );
 
 -- Tickets link to epics via epic_id
 ALTER TABLE pmo_tickets ADD COLUMN epic_id TEXT REFERENCES pmo_epics(id);
 ```
+
+**Relationship Constraints**:
+- `spec_id` → `pmo_specs(id)` ON DELETE SET NULL (if spec deleted, epic keeps working)
+- `epic_id` → `pmo_epics(id)` ON DELETE SET NULL (if epic deleted, ticket keeps working)
+- Tickets can ONLY link to epics (no direct ticket→spec links)
 
 ---
 

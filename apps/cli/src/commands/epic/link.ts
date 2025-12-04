@@ -5,13 +5,14 @@ import { styles } from '../../lib/styles.js';
 import { Ticket } from '../../lib/pmo/types.js';
 
 export default class EpicLink extends Command {
-  static description = 'Link tickets to an epic';
+  static description = 'Link tickets to an epic, or link epic to a spec';
 
   static examples = [
     '<%= config.bin %> <%= command.id %> EPIC-001 TKT-001 TKT-002',
     '<%= config.bin %> <%= command.id %> EPIC-001',
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> EPIC-001 --unlink TKT-001',
+    '<%= config.bin %> <%= command.id %> EPIC-001 --spec SPEC-001',
   ];
 
   static args = {
@@ -36,6 +37,14 @@ export default class EpicLink extends Command {
     unlink: Flags.boolean({
       char: 'u',
       description: 'Remove tickets from this epic instead of adding',
+      default: false,
+    }),
+    spec: Flags.string({
+      char: 's',
+      description: 'Link epic to a spec (design document)',
+    }),
+    'unlink-spec': Flags.boolean({
+      description: 'Remove spec link from epic',
       default: false,
     }),
   };
@@ -102,6 +111,37 @@ export default class EpicLink extends Command {
       const epic = epics.find(e => e.id === epicId);
       if (!epic) {
         this.error(`Epic not found: ${epicId}`);
+      }
+
+      // Handle spec linking if --spec or --unlink-spec provided
+      if (flags.spec || flags['unlink-spec']) {
+        if (flags['unlink-spec']) {
+          // Unlink spec from epic
+          if (!epic.specId) {
+            this.log(styles.muted(`\nEpic ${epicId} is not linked to any spec.`));
+          } else {
+            await storage.updateEpic(epicId!, { specId: undefined });
+            this.log(styles.success(`\n✅ Unlinked spec from ${styles.emphasis(epicId!)} "${epic.title}"`));
+          }
+        } else {
+          // Link spec to epic
+          const spec = await storage.getSpec(flags.spec!);
+          if (!spec) {
+            await storage.close();
+            this.error(`Spec not found: ${flags.spec}`);
+          }
+
+          await storage.updateEpic(epicId!, { specId: flags.spec });
+          this.log(styles.success(`\n✅ Linked ${styles.emphasis(epicId!)} "${epic.title}" to spec ${styles.emphasis(flags.spec!)}`));
+          this.log(styles.muted(`   Spec: ${spec.title || spec.path}`));
+        }
+
+        // If only spec operation, exit here
+        const argvStrings = argv as string[];
+        if (argvStrings.length <= 1 && !flags.unlink) {
+          await storage.close();
+          return;
+        }
       }
 
       // Get ticket IDs from remaining argv (after epic ID)

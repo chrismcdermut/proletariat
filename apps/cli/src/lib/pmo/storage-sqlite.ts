@@ -1041,9 +1041,9 @@ export class SQLiteStorage implements PMOStorage {
     const now = Date.now()
 
     this.db.prepare(`
-      INSERT INTO ${T.epics} (id, project_id, title, description, status, file_path, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, projectId, title, epic.description || null, status, epic.filePath || null, now, now)
+      INSERT INTO ${T.epics} (id, project_id, title, description, status, file_path, spec_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, projectId, title, epic.description || null, status, epic.filePath || null, epic.specId || null, now, now)
 
     this.updateBoardTimestamp()
 
@@ -1054,6 +1054,7 @@ export class SQLiteStorage implements PMOStorage {
       description: epic.description,
       status,
       filePath: epic.filePath,
+      specId: epic.specId,
       createdAt: new Date(now),
       updatedAt: new Date(now),
     }
@@ -1069,6 +1070,7 @@ export class SQLiteStorage implements PMOStorage {
       description: string | null
       status: string
       file_path: string | null
+      spec_id: string | null
       created_at: string
       updated_at: string
     } | undefined
@@ -1082,6 +1084,7 @@ export class SQLiteStorage implements PMOStorage {
       description: row.description || undefined,
       status: row.status as Epic['status'],
       filePath: row.file_path || undefined,
+      specId: row.spec_id || undefined,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
     }
@@ -1110,6 +1113,7 @@ export class SQLiteStorage implements PMOStorage {
       description: string | null
       status: string
       file_path: string | null
+      spec_id: string | null
       created_at: string
       updated_at: string
     }>
@@ -1121,6 +1125,7 @@ export class SQLiteStorage implements PMOStorage {
       description: row.description || undefined,
       status: row.status as Epic['status'],
       filePath: row.file_path || undefined,
+      specId: row.spec_id || undefined,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
     }))
@@ -1150,6 +1155,10 @@ export class SQLiteStorage implements PMOStorage {
     if (changes.filePath !== undefined) {
       updates.push('file_path = ?')
       params.push(changes.filePath)
+    }
+    if (changes.specId !== undefined) {
+      updates.push('spec_id = ?')
+      params.push(changes.specId || null)
     }
 
     if (updates.length > 0) {

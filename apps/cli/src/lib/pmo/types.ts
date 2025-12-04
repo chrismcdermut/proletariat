@@ -56,6 +56,7 @@ export interface Epic {
   description?: string
   status: EpicStatus
   filePath?: string
+  specId?: string  // Link to the spec that describes this epic (1 Spec → Many Epics)
   createdAt: Date
   updatedAt: Date
 }
