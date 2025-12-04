@@ -142,13 +142,15 @@ export const PMO_TABLE_SCHEMAS = {
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.epics} (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
+      title TEXT NOT NULL,
       description TEXT,
       status TEXT NOT NULL DEFAULT 'active',
       file_path TEXT,
+      spec_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES ${PMO_TABLES.projects}(id) ON DELETE CASCADE
+      FOREIGN KEY (project_id) REFERENCES ${PMO_TABLES.projects}(id) ON DELETE CASCADE,
+      FOREIGN KEY (spec_id) REFERENCES ${PMO_TABLES.specs}(id) ON DELETE SET NULL
     )`,
 
   cache_metadata: `
@@ -183,6 +185,7 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_specs_spec ON ${PMO_TABLES.ticket_specs}(spec_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_assignments_agent ON ${PMO_TABLES.ticket_assignments}(agent_name);
   CREATE INDEX IF NOT EXISTS idx_pmo_epics_project ON ${PMO_TABLES.epics}(project_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_epics_spec ON ${PMO_TABLES.epics}(spec_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_projects_initiative ON ${PMO_TABLES.projects}(initiative_id);
 `;
 
@@ -226,6 +229,7 @@ export const EXPECTED_TICKET_COLUMNS = [
   'owner',
   'assignee',
   'spec_id',
+  'epic_id',
   'created_at',
   'updated_at',
   'last_synced_from_spec',

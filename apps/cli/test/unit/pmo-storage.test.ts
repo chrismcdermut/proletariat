@@ -103,7 +103,7 @@ describe('PMO SQLite Storage', () => {
         priority: 'URGENT',
       });
 
-      expect(ticket.id).to.equal('implement-feature');
+      expect(ticket.id).to.match(/^TKT-\d{3,}$/);
       expect(ticket.title).to.equal('Implement feature');
       expect(ticket.column).to.equal('Backlog');
       expect(ticket.priority).to.equal('URGENT');
@@ -120,12 +120,12 @@ describe('PMO SQLite Storage', () => {
     });
 
     it('retrieves a ticket', async () => {
-      await storage.createTicket({
+      const created = await storage.createTicket({
         title: 'Implement feature',
         column: 'Backlog',
       });
 
-      const ticket = await storage.getTicket('implement-feature');
+      const ticket = await storage.getTicket(created.id);
 
       expect(ticket).to.not.be.null;
       expect(ticket!.title).to.equal('Implement feature');
@@ -137,12 +137,12 @@ describe('PMO SQLite Storage', () => {
     });
 
     it('updates a ticket', async () => {
-      await storage.createTicket({
+      const created = await storage.createTicket({
         title: 'Original title',
         column: 'Backlog',
       });
 
-      const updated = await storage.updateTicket('original-title', {
+      const updated = await storage.updateTicket(created.id, {
         title: 'Updated title',
         priority: 'HIGH',
       });
@@ -152,12 +152,12 @@ describe('PMO SQLite Storage', () => {
     });
 
     it('moves a ticket to a different column', async () => {
-      await storage.createTicket({
+      const created = await storage.createTicket({
         title: 'My ticket',
         column: 'Backlog',
       });
 
-      const moved = await storage.moveTicket('my-ticket', 'In Progress');
+      const moved = await storage.moveTicket(created.id, 'In Progress');
 
       expect(moved.column).to.equal('In Progress');
     });
@@ -165,23 +165,23 @@ describe('PMO SQLite Storage', () => {
     it('moves a ticket to a specific position', async () => {
       await storage.createTicket({ title: 'Ticket 1', column: 'Backlog' });
       await storage.createTicket({ title: 'Ticket 2', column: 'Backlog' });
-      await storage.createTicket({ title: 'Ticket 3', column: 'Backlog' });
+      const ticket3 = await storage.createTicket({ title: 'Ticket 3', column: 'Backlog' });
 
-      await storage.moveTicket('ticket-3', 'Backlog', 0);
+      await storage.moveTicket(ticket3.id, 'Backlog', 0);
 
       const tickets = await storage.listTickets({ column: 'Backlog' });
-      expect(tickets[0].id).to.equal('ticket-3');
+      expect(tickets[0].id).to.equal(ticket3.id);
     });
 
     it('deletes a ticket', async () => {
-      await storage.createTicket({
+      const created = await storage.createTicket({
         title: 'To delete',
         column: 'Backlog',
       });
 
-      await storage.deleteTicket('to-delete');
+      await storage.deleteTicket(created.id);
 
-      const ticket = await storage.getTicket('to-delete');
+      const ticket = await storage.getTicket(created.id);
       expect(ticket).to.be.null;
     });
 
@@ -231,41 +231,44 @@ describe('PMO SQLite Storage', () => {
   });
 
   describe('Subtask Operations', () => {
+    let mainTicketId: string;
+
     beforeEach(async () => {
-      await storage.createTicket({
+      const ticket = await storage.createTicket({
         title: 'Main ticket',
         column: 'Backlog',
       });
+      mainTicketId = ticket.id;
     });
 
     it('adds subtask to a ticket', async () => {
-      const subtask = await storage.addSubtask('main-ticket', 'Design API');
+      const subtask = await storage.addSubtask(mainTicketId, 'Design API');
 
       expect(subtask.title).to.equal('Design API');
       expect(subtask.done).to.be.false;
     });
 
     it('toggles subtask completion', async () => {
-      await storage.addSubtask('main-ticket', 'Task 1');
+      await storage.addSubtask(mainTicketId, 'Task 1');
 
-      const ticket = await storage.getTicket('main-ticket');
+      const ticket = await storage.getTicket(mainTicketId);
       const subtaskId = ticket!.subtasks[0].id;
 
-      await storage.toggleSubtask('main-ticket', subtaskId);
+      await storage.toggleSubtask(mainTicketId, subtaskId);
 
-      const updated = await storage.getTicket('main-ticket');
+      const updated = await storage.getTicket(mainTicketId);
       expect(updated!.subtasks[0].done).to.be.true;
     });
 
     it('removes a subtask', async () => {
-      await storage.addSubtask('main-ticket', 'Task 1');
+      await storage.addSubtask(mainTicketId, 'Task 1');
 
-      const ticket = await storage.getTicket('main-ticket');
+      const ticket = await storage.getTicket(mainTicketId);
       const subtaskId = ticket!.subtasks[0].id;
 
-      await storage.removeSubtask('main-ticket', subtaskId);
+      await storage.removeSubtask(mainTicketId, subtaskId);
 
-      const updated = await storage.getTicket('main-ticket');
+      const updated = await storage.getTicket(mainTicketId);
       expect(updated!.subtasks).to.have.length(0);
     });
   });
@@ -302,25 +305,24 @@ describe('PMO SQLite Storage', () => {
       expect(specs).to.have.length(2);
     });
 
-    it('links specs to tickets', async () => {
-      await storage.createTicket({ title: 'My ticket', column: 'Backlog' });
+    it('links spec to ticket', async () => {
+      const ticket = await storage.createTicket({ title: 'My ticket', column: 'Backlog' });
       await storage.createSpec({ id: 'spec-1', path: 'specs/1.md', title: 'Spec 1' });
-      await storage.createSpec({ id: 'spec-2', path: 'specs/2.md', title: 'Spec 2' });
 
-      await storage.linkTicketToSpec('my-ticket', 'spec-1');
-      await storage.linkTicketToSpec('my-ticket', 'spec-2');
+      await storage.linkTicketToSpec(ticket.id, 'spec-1');
 
-      const specs = await storage.getSpecsForTicket('my-ticket');
-      expect(specs).to.have.length(2);
+      const specs = await storage.getSpecsForTicket(ticket.id);
+      expect(specs).to.have.length(1);
+      expect(specs[0].id).to.equal('spec-1');
     });
 
     it('gets tickets for a spec', async () => {
-      await storage.createTicket({ title: 'Ticket 1', column: 'Backlog' });
-      await storage.createTicket({ title: 'Ticket 2', column: 'Backlog' });
+      const ticket1 = await storage.createTicket({ title: 'Ticket 1', column: 'Backlog' });
+      const ticket2 = await storage.createTicket({ title: 'Ticket 2', column: 'Backlog' });
       await storage.createSpec({ id: 'spec-1', path: 'specs/1.md', title: 'Spec 1' });
 
-      await storage.linkTicketToSpec('ticket-1', 'spec-1');
-      await storage.linkTicketToSpec('ticket-2', 'spec-1');
+      await storage.linkTicketToSpec(ticket1.id, 'spec-1');
+      await storage.linkTicketToSpec(ticket2.id, 'spec-1');
 
       const tickets = await storage.getTicketsForSpec('spec-1');
       expect(tickets).to.have.length(2);
@@ -361,6 +363,7 @@ describe('PMO SQLite Storage', () => {
               {
                 id: 'ticket-1',
                 title: 'Imported ticket',
+                status: 'backlog' as const,
                 column: 'Backlog',
                 position: 0,
                 priority: 'HIGH',

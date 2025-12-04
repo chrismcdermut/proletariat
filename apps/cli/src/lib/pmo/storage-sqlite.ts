@@ -13,6 +13,8 @@ import {
   BoardConfig,
   Column,
   Conflict,
+  Epic,
+  EpicFilter,
   PMOError,
   PMOStorage,
   Spec,
@@ -24,7 +26,7 @@ import {
   TicketFilter,
 } from './types.js'
 import { generateBoardMarkdown } from './markdown.js'
-import { slugify } from './utils.js'
+import { slugify, generateEntityId } from './utils.js'
 import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from './schema.js'
 
 // Use shared table names
@@ -398,7 +400,7 @@ export class SQLiteStorage implements PMOStorage {
   async deleteColumn(id: string, cascade = false): Promise<void> {
     const projectId = this.currentProjectId
     const ticketCount = this.db.prepare(`
-      SELECT COUNT(*) as count FROM ${T.tickets}
+      SELECT COUNT(*) as count FROM ${T.board_tickets}
       WHERE project_id = ? AND column_id = ?
     `).get(projectId, id) as { count: number }
 
@@ -423,8 +425,8 @@ export class SQLiteStorage implements PMOStorage {
   // ===========================================================================
 
   async createTicket(ticket: Partial<Ticket>): Promise<Ticket> {
-    const id = ticket.id || slugify(ticket.title || 'untitled')
-    const title = ticket.title || id
+    const id = ticket.id || generateEntityId(this.db, 'ticket')
+    const title = ticket.title || 'Untitled'
     const projectId = this.currentProjectId
 
     // Get column (default to first column) - this is for board position
@@ -463,10 +465,10 @@ export class SQLiteStorage implements PMOStorage {
     this.db.prepare(`
       INSERT INTO ${T.tickets} (
         id, project_id, title, description, priority, category,
-        status, owner, assignee, spec_id,
+        status, owner, assignee, spec_id, epic_id,
         created_at, updated_at, last_synced_from_spec, last_synced_from_board
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, projectId, title,
       ticket.description || null,
@@ -476,6 +478,7 @@ export class SQLiteStorage implements PMOStorage {
       ticket.owner || null,
       ticket.assignee || null,
       specId,
+      ticket.epicId || null,
       now, now,
       ticket.lastSyncedFromSpec || null,
       ticket.lastSyncedFromBoard || null
@@ -758,6 +761,14 @@ export class SQLiteStorage implements PMOStorage {
       query += ' AND t.spec_id = ?'
       params.push(filter.spec)
     }
+    if (filter?.epic) {
+      query += ' AND t.epic_id = ?'
+      params.push(filter.epic)
+    }
+    if (filter?.column) {
+      query += ' AND c.name = ?'
+      params.push(filter.column)
+    }
 
     query += ' ORDER BY c.position, bt.position'
 
@@ -772,6 +783,7 @@ export class SQLiteStorage implements PMOStorage {
       owner: string | null
       assignee: string | null
       spec_id: string | null
+      epic_id: string | null
       column_id: string | null
       column_name: string | null
       position: number | null
@@ -1018,6 +1030,200 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   // ===========================================================================
+  // Epic Operations
+  // ===========================================================================
+
+  async createEpic(epic: Partial<Epic>): Promise<Epic> {
+    const id = epic.id || generateEntityId(this.db, 'epic')
+    const title = epic.title || 'Untitled Epic'
+    const projectId = this.currentProjectId
+    const status = epic.status || 'active'
+    const now = Date.now()
+
+    this.db.prepare(`
+      INSERT INTO ${T.epics} (id, project_id, title, description, status, file_path, spec_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, projectId, title, epic.description || null, status, epic.filePath || null, epic.specId || null, now, now)
+
+    this.updateBoardTimestamp()
+
+    return {
+      id,
+      projectId,
+      title,
+      description: epic.description,
+      status,
+      filePath: epic.filePath,
+      specId: epic.specId,
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+    }
+  }
+
+  async getEpic(id: string): Promise<Epic | null> {
+    const row = this.db.prepare(`
+      SELECT * FROM ${T.epics} WHERE id = ?
+    `).get(id) as {
+      id: string
+      project_id: string
+      title: string
+      description: string | null
+      status: string
+      file_path: string | null
+      spec_id: string | null
+      created_at: string
+      updated_at: string
+    } | undefined
+
+    if (!row) return null
+
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      title: row.title,
+      description: row.description || undefined,
+      status: row.status as Epic['status'],
+      filePath: row.file_path || undefined,
+      specId: row.spec_id || undefined,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+    }
+  }
+
+  async listEpics(filter?: EpicFilter): Promise<Epic[]> {
+    const projectId = this.currentProjectId
+    let query = `SELECT * FROM ${T.epics} WHERE project_id = ?`
+    const params: unknown[] = [projectId]
+
+    if (filter?.status) {
+      query += ' AND status = ?'
+      params.push(filter.status)
+    }
+    if (filter?.search) {
+      query += ' AND (title LIKE ? OR description LIKE ?)'
+      params.push(`%${filter.search}%`, `%${filter.search}%`)
+    }
+
+    query += ' ORDER BY created_at DESC'
+
+    const rows = this.db.prepare(query).all(...params) as Array<{
+      id: string
+      project_id: string
+      title: string
+      description: string | null
+      status: string
+      file_path: string | null
+      spec_id: string | null
+      created_at: string
+      updated_at: string
+    }>
+
+    return rows.map(row => ({
+      id: row.id,
+      projectId: row.project_id,
+      title: row.title,
+      description: row.description || undefined,
+      status: row.status as Epic['status'],
+      filePath: row.file_path || undefined,
+      specId: row.spec_id || undefined,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+    }))
+  }
+
+  async updateEpic(id: string, changes: Partial<Epic>): Promise<Epic> {
+    const epic = await this.getEpic(id)
+    if (!epic) {
+      throw new PMOError('NOT_FOUND', `Epic not found: ${id}`)
+    }
+
+    const updates: string[] = []
+    const params: unknown[] = []
+
+    if (changes.title !== undefined) {
+      updates.push('title = ?')
+      params.push(changes.title)
+    }
+    if (changes.description !== undefined) {
+      updates.push('description = ?')
+      params.push(changes.description)
+    }
+    if (changes.status !== undefined) {
+      updates.push('status = ?')
+      params.push(changes.status)
+    }
+    if (changes.filePath !== undefined) {
+      updates.push('file_path = ?')
+      params.push(changes.filePath)
+    }
+    if (changes.specId !== undefined) {
+      updates.push('spec_id = ?')
+      params.push(changes.specId || null)
+    }
+
+    if (updates.length > 0) {
+      updates.push('updated_at = ?')
+      params.push(Date.now())
+      params.push(id)
+
+      this.db.prepare(`UPDATE ${T.epics} SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+    }
+
+    this.updateBoardTimestamp()
+    return this.getEpic(id) as Promise<Epic>
+  }
+
+  async deleteEpic(id: string): Promise<void> {
+    const epic = await this.getEpic(id)
+    if (!epic) {
+      throw new PMOError('NOT_FOUND', `Epic not found: ${id}`)
+    }
+
+    // Unlink all tickets from this epic first
+    this.db.prepare(`
+      UPDATE ${T.tickets} SET epic_id = NULL WHERE epic_id = ?
+    `).run(id)
+
+    this.db.prepare(`DELETE FROM ${T.epics} WHERE id = ?`).run(id)
+    this.updateBoardTimestamp()
+  }
+
+  async getTicketsForEpic(epicId: string): Promise<Ticket[]> {
+    return this.listTickets({ epic: epicId })
+  }
+
+  async linkTicketToEpic(ticketId: string, epicId: string): Promise<void> {
+    // Verify both exist
+    const ticket = await this.getTicketById(ticketId)
+    if (!ticket) {
+      throw new PMOError('NOT_FOUND', `Ticket not found: ${ticketId}`, ticketId)
+    }
+
+    const epic = await this.getEpic(epicId)
+    if (!epic) {
+      throw new PMOError('NOT_FOUND', `Epic not found: ${epicId}`)
+    }
+
+    this.db.prepare(`
+      UPDATE ${T.tickets}
+      SET epic_id = ?, updated_at = ?
+      WHERE id = ?
+    `).run(epicId, Date.now(), ticketId)
+
+    this.updateBoardTimestamp()
+  }
+
+  async unlinkTicketFromEpic(ticketId: string): Promise<void> {
+    this.db.prepare(`
+      UPDATE ${T.tickets}
+      SET epic_id = NULL, updated_at = ?
+      WHERE id = ?
+    `).run(Date.now(), ticketId)
+
+    this.updateBoardTimestamp()
+  }
+
+  // ===========================================================================
   // Sync Operations (no-op for pure SQLite)
   // ===========================================================================
 
@@ -1206,6 +1412,7 @@ export class SQLiteStorage implements PMOStorage {
       owner: string | null
       assignee: string | null
       spec_id: string | null
+      epic_id: string | null
       column_id: string
       column_name: string
       position: number
@@ -1238,6 +1445,7 @@ export class SQLiteStorage implements PMOStorage {
           owner: string | null
           assignee: string | null
           spec_id: string | null
+          epic_id: string | null
           column_id: string | null
           column_name: string | null
           position: number | null
@@ -1263,6 +1471,7 @@ export class SQLiteStorage implements PMOStorage {
     owner: string | null
     assignee: string | null
     spec_id: string | null
+    epic_id: string | null
     column_id: string | null
     column_name: string | null
     position: number | null
@@ -1310,6 +1519,7 @@ export class SQLiteStorage implements PMOStorage {
       owner: row.owner || undefined,
       assignee: row.assignee || undefined,
       specId: row.spec_id || undefined,
+      epicId: row.epic_id || undefined,
       subtasks: subtasks.map((st) => ({
         id: st.id,
         title: st.title,

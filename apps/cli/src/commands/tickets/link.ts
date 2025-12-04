@@ -51,10 +51,10 @@ export default class Link extends Command {
       // Get epics from database
       const db = (storage as unknown as { db: { prepare: (sql: string) => { all: (...args: unknown[]) => unknown[]; get: (...args: unknown[]) => unknown; run: (...args: unknown[]) => unknown } } }).db;
       const epics = db.prepare(`
-        SELECT id, name, status FROM pmo_epics
+        SELECT id, title, status FROM pmo_epics
         WHERE project_id = ?
-        ORDER BY status, name
-      `).all(storage.getCurrentProjectId()) as Array<{ id: string; name: string; status: string }>;
+        ORDER BY status, title
+      `).all(storage.getCurrentProjectId()) as Array<{ id: string; title: string; status: string }>;
 
       // Filter tickets if --from-epic specified
       let filteredTickets = allTickets;
@@ -90,9 +90,9 @@ export default class Link extends Command {
         message: 'Select tickets to link:',
         choices: filteredTickets.map(t => {
           const epicId = ticketEpics.get(t.id);
-          const epicName = epicId ? epics.find(e => e.id === epicId)?.name || epicId : '(none)';
+          const epicTitle = epicId ? epics.find(e => e.id === epicId)?.title || epicId : '(none)';
           return {
-            name: `${t.id} - ${t.title}  [Epic: ${epicName}]`,
+            name: `${t.id} - ${t.title}  [Epic: ${epicTitle}]`,
             value: t.id,
           };
         }),
@@ -114,7 +114,7 @@ export default class Link extends Command {
           choices: [
             { name: 'None (remove epic link)', value: null },
             ...epics.map(e => ({
-              name: `${e.name} (${e.status})`,
+              name: `${e.title} (${e.status})`,
               value: e.id,
             })),
           ],
@@ -125,7 +125,7 @@ export default class Link extends Command {
       // Confirmation
       if (!flags.force) {
         const epicLabel = targetEpic
-          ? epics.find(e => e.id === targetEpic)?.name || targetEpic
+          ? epics.find(e => e.id === targetEpic)?.title || targetEpic
           : 'None (removing link)';
 
         this.log(colors.text('\nWill link to epic:'));

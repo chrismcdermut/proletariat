@@ -59,7 +59,7 @@ describe('PMO Spec Commands E2E Tests', () => {
     it('should register spec in database', () => {
       exec('spec create --title "Database Schema"');
 
-      const specs = db.prepare('SELECT * FROM pmo_specs WHERE title = ?').all('Database Schema');
+      const specs = db.prepare('SELECT * FROM pmo_specs WHERE title = ?').all('Database Schema') as Array<{ status: string }>;
       expect(specs).to.have.lengthOf(1);
       expect(specs[0].status).to.equal('active');
     });
@@ -89,7 +89,7 @@ describe('PMO Spec Commands E2E Tests', () => {
     it('should display spec details and linked tickets', () => {
       // Create spec
       exec('spec create --title "View Test"');
-      const spec = db.prepare('SELECT id FROM pmo_specs WHERE title = ?').get('View Test');
+      const spec = db.prepare('SELECT id FROM pmo_specs WHERE title = ?').get('View Test') as { id: string };
 
       const output = exec(`spec view ${spec.id}`);
 
@@ -134,7 +134,7 @@ Spec content here.
       exec('spec generate-tickets test-spec');
 
       // Verify tickets created
-      const tickets = db.prepare('SELECT * FROM pmo_tickets WHERE spec_id = ?').all('test-spec');
+      const tickets = db.prepare('SELECT * FROM pmo_tickets WHERE spec_id = ?').all('test-spec') as Array<{ id: string; title: string; priority: string }>;
       expect(tickets).to.have.lengthOf(2);
       expect(tickets[0].id).to.equal('test-spec-001');
       expect(tickets[0].title).to.equal('First ticket');
@@ -204,7 +204,7 @@ tickets:
     it('should link existing ticket to spec', () => {
       // Create spec
       exec('spec create --title "Link Test"');
-      const spec = db.prepare('SELECT id FROM pmo_specs WHERE title = ?').get('Link Test');
+      const spec = db.prepare('SELECT id FROM pmo_specs WHERE title = ?').get('Link Test') as { id: string };
 
       // Create ticket
       db.prepare(`
@@ -216,7 +216,7 @@ tickets:
       exec(`spec link LINK-001 ${spec.id}`);
 
       // Verify link
-      const ticket = db.prepare('SELECT spec_id FROM pmo_tickets WHERE id = ?').get('LINK-001');
+      const ticket = db.prepare('SELECT spec_id FROM pmo_tickets WHERE id = ?').get('LINK-001') as { spec_id: string };
       expect(ticket.spec_id).to.equal(spec.id);
     });
   });

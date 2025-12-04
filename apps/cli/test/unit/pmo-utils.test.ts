@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { slugify, formatDate, formatTimestamp, parseDate, generateId, deepClone, arraysEqual } from '../../src/lib/pmo/utils.js';
+import { slugify, formatDate, formatTimestamp, parseDate, deepClone, arraysEqual } from '../../src/lib/pmo/utils.js';
 
 describe('PMO Utils', () => {
   describe('slugify', () => {
@@ -63,19 +63,6 @@ describe('PMO Utils', () => {
       expect(date.getUTCFullYear()).to.equal(2024);
       expect(date.getUTCMonth()).to.equal(2); // 0-indexed
       expect(date.getUTCDate()).to.equal(15);
-    });
-  });
-
-  describe('generateId', () => {
-    it('generates unique IDs', () => {
-      const id1 = generateId();
-      const id2 = generateId();
-      expect(id1).to.not.equal(id2);
-    });
-
-    it('generates IDs with expected format', () => {
-      const id = generateId();
-      expect(id).to.match(/^[a-z0-9]+-[a-z0-9]+$/);
     });
   });
 

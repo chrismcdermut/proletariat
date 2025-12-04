@@ -48,7 +48,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
       expect(output).to.contain('Add login');
 
       // Verify in database
-      const tickets = db.prepare('SELECT * FROM pmo_tickets WHERE title = ?').all('Add login');
+      const tickets = db.prepare('SELECT * FROM pmo_tickets WHERE title = ?').all('Add login') as Array<{ priority: string }>;
       expect(tickets).to.have.lengthOf(1);
       expect(tickets[0].priority).to.equal('HIGH');
     });
@@ -56,7 +56,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
     it('should auto-generate ticket ID', () => {
       exec('ticket create --title "Test ticket" --column "BUILD BL"');
 
-      const tickets = db.prepare('SELECT id FROM pmo_tickets').all();
+      const tickets = db.prepare('SELECT id FROM pmo_tickets').all() as Array<{ id: string }>;
       expect(tickets).to.have.lengthOf(1);
       expect(tickets[0].id).to.be.a('string');
       expect(tickets[0].id).to.not.be.empty;
@@ -77,7 +77,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
       // Create ticket
       exec('ticket create --title "Movable" --column "BUILD BL"');
 
-      const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Movable');
+      const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Movable') as { id: string };
       const ticketId = ticket.id;
 
       // Move ticket
@@ -89,14 +89,14 @@ describe('PMO Ticket Commands E2E Tests', () => {
         FROM pmo_board_tickets bt
         JOIN pmo_columns c ON c.id = bt.column_id
         WHERE bt.ticket_id = ?
-      `).get(ticketId);
+      `).get(ticketId) as { name: string };
 
       expect(boardTicket.name).to.equal('In Progress');
     });
 
     it('should update board.md when moving ticket', () => {
       exec('ticket create --title "Move test" --column "BUILD BL"');
-      const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Move test');
+      const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Move test') as { id: string };
 
       exec(`ticket move ${ticket.id} "Merged"`);
 
@@ -112,7 +112,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
   describe('prlt ticket delete', () => {
     it('should delete ticket from database', () => {
       exec('ticket create --title "Delete me" --column "BUILD BL"');
-      const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Delete me');
+      const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Delete me') as { id: string };
 
       exec(`ticket delete ${ticket.id} --force`);
 
@@ -122,7 +122,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
 
     it('should remove ticket from board.md', () => {
       exec('ticket create --title "Remove from board" --column "BUILD BL"');
-      const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Remove from board');
+      const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Remove from board') as { id: string };
 
       exec(`ticket delete ${ticket.id} --force`);
 
@@ -134,7 +134,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
 
     it('should cascade delete from pmo_board_tickets', () => {
       exec('ticket create --title "Cascade test" --column "BUILD BL"');
-      const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Cascade test');
+      const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Cascade test') as { id: string };
 
       exec(`ticket delete ${ticket.id} --force`);
 
@@ -180,7 +180,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
   describe('prlt ticket view', () => {
     it('should show detailed ticket information', () => {
       exec('ticket create --title "View test" --description "Test description" --priority HIGH --column "BUILD BL"');
-      const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('View test');
+      const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('View test') as { id: string };
 
       const output = exec(`ticket view ${ticket.id}`);
 
@@ -223,7 +223,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
       exec('ticket create --title "Delete 2" --column "BUILD BL"');
       exec('ticket create --title "Keep" --column "BUILD BL"');
 
-      const beforeCount = db.prepare('SELECT COUNT(*) as count FROM pmo_tickets').get();
+      const beforeCount = db.prepare('SELECT COUNT(*) as count FROM pmo_tickets').get() as { count: number };
       expect(beforeCount.count).to.equal(3);
 
       // In real usage this would be interactive

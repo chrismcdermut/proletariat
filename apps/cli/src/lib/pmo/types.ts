@@ -35,7 +35,31 @@ export interface Project {
   updatedAt: Date
 }
 
-// Epics removed - specs replace epics for grouping tickets
+/**
+ * Epic status lifecycle
+ */
+export type EpicStatus =
+  | 'active'    // Currently working on
+  | 'draft'     // Planning phase
+  | 'complete'  // All work done
+  | 'dropped'   // Cancelled/won't do
+  | 'future'    // Backlog for later
+
+/**
+ * Epic represents a work container that groups related tickets
+ * and tracks progress through lifecycle statuses.
+ */
+export interface Epic {
+  id: string
+  projectId: string
+  title: string
+  description?: string
+  status: EpicStatus
+  filePath?: string
+  specId?: string  // Link to the spec that describes this epic (1 Spec → Many Epics)
+  createdAt: Date
+  updatedAt: Date
+}
 
 /**
  * Ticket lifecycle status (independent of board column position)
@@ -86,6 +110,7 @@ export interface Ticket {
 
   // Relationships
   specId?: string     // Which spec defined this ticket
+  epicId?: string     // Which epic this ticket belongs to
   subtasks: Subtask[]
   metadata: Record<string, string>
 
@@ -173,10 +198,17 @@ export interface TicketFilter {
   assignee?: string
   search?: string
   spec?: string
+  epic?: string
+  column?: string
 }
 
 export interface SpecFilter {
   status?: 'draft' | 'active' | 'deprecated'
+  search?: string
+}
+
+export interface EpicFilter {
+  status?: EpicStatus
   search?: string
 }
 
@@ -260,6 +292,16 @@ export interface PMOStorage {
   unlinkTicketFromSpec(ticketId: string, specId: string): Promise<void>
   getTicketsForSpec(specId: string): Promise<Ticket[]>
   getSpecsForTicket(ticketId: string): Promise<Spec[]>
+
+  // Epic Operations
+  createEpic(epic: Partial<Epic>): Promise<Epic>
+  getEpic(id: string): Promise<Epic | null>
+  listEpics(filter?: EpicFilter): Promise<Epic[]>
+  updateEpic(id: string, changes: Partial<Epic>): Promise<Epic>
+  deleteEpic(id: string): Promise<void>
+  getTicketsForEpic(epicId: string): Promise<Ticket[]>
+  linkTicketToEpic(ticketId: string, epicId: string): Promise<void>
+  unlinkTicketFromEpic(ticketId: string): Promise<void>
 
   // Sync Operations
   pull(): Promise<SyncResult>

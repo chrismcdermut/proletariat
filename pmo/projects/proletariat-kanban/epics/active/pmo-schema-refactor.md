@@ -1,74 +1,9 @@
 ---
+id: EPIC-SCHEMA
 title: PMO Schema Refactor - Normalize Board View & Add Epic/Sync Support
-created: 2024-11-30T00:30:00.000Z
 status: active
-tickets:
-  - id: REFACTOR-001
-    title: Add epic_id foreign key to pmo_tickets
-    description: Tickets can link to epics via epic_id field
-    priority: HIGH
-    category: schema
-    status: done
-  - id: REFACTOR-002
-    title: Add status field to pmo_tickets
-    description: Add lifecycle status separate from column position (backlog, ready, in_progress, blocked, review, done, cancelled)
-    priority: HIGH
-    category: schema
-    status: done
-  - id: REFACTOR-003
-    title: Add owner and assignee fields to pmo_tickets
-    description: Add owner (human responsible) and assignee (executor - human or agent) fields
-    priority: HIGH
-    category: schema
-    status: done
-  - id: REFACTOR-004
-    title: Create pmo_board_tickets table
-    description: Normalize board view state into separate table (column_id, position)
-    priority: HIGH
-    category: schema
-    status: done
-  - id: REFACTOR-005
-    title: Add sync tracking fields
-    description: Add last_synced_from_spec and last_synced_from_board timestamps for conflict detection
-    priority: HIGH
-    category: schema
-    status: done
-  - id: REFACTOR-006
-    title: Add status and file_path to pmo_epics
-    description: Epics need status (active, draft, complete, dropped, future) and file_path for markdown sync
-    priority: HIGH
-    category: schema
-    status: done
-  - id: REFACTOR-007
-    title: Implement prlt tickets link command
-    description: Bulk command to link tickets to epics
-    priority: HIGH
-    category: commands
-    status: done
-  - id: REFACTOR-008
-    title: Implement prlt tickets reassign command
-    description: Bulk command to reassign tickets to different agents
-    priority: HIGH
-    category: commands
-    status: done
-  - id: REFACTOR-009
-    title: Implement prlt tickets update command
-    description: Bulk command to update priority/category
-    priority: MEDIUM
-    category: commands
-    status: done
-  - id: REFACTOR-010
-    title: Implement prlt db commands
-    description: Database inspection commands (tables, schema, query, stats)
-    priority: MEDIUM
-    category: commands
-    status: pending
-  - id: REFACTOR-011
-    title: Run database migration
-    description: Add epic_id, status, file_path columns to existing database
-    priority: HIGH
-    category: migration
-    status: pending
+created: 2024-11-30T00:30:00.000Z
+description: Refactor PMO database schema to add epic support, status tracking, and normalize board view state
 ---
 
 # PMO Schema Refactor
@@ -83,18 +18,6 @@ Refactor the PMO database schema to:
 
 This sets the foundation for bidirectional sync between spec frontmatter, database, and board.md.
 
-## Entity Model
-
-### Specs vs Epics vs Tickets
-
-| Entity | Purpose | Lifecycle | Storage |
-|--------|---------|-----------|---------|
-| **Spec** | Static documentation defining WHAT | None (always exists) | Markdown files |
-| **Epic** | Work container for implementation | draft → active → complete/dropped | DB + optional markdown |
-| **Ticket** | Atomic work item | backlog → in_progress → done | DB, displayed on board |
-
-**Key relationship**: Tickets link to Epics (not Specs). Epics are work containers.
-
 ## Goals
 
 - [x] Epic support with ticket linking
@@ -103,6 +26,31 @@ This sets the foundation for bidirectional sync between spec frontmatter, databa
 - [x] Support for owner/assignee workflow
 - [x] Foundation for conflict detection in sync
 - [ ] Database migration for existing installations
+- [ ] Epic CRUD commands with markdown file generation
+
+## Success Criteria
+
+- [x] Schema updated in schema.ts
+- [x] `prlt tickets link` command implemented
+- [x] `prlt tickets reassign` command implemented
+- [x] `prlt tickets update` command implemented
+- [x] SYSTEM_CARD.md updated
+- [x] `prlt epic create/list/view/archive/activate/move/progress` commands
+- [x] Epic markdown files generated in epics/{status}/ folders
+- [ ] Run migration on existing workspace.db
+- [ ] Implement `prlt db` commands for database inspection
+
+## Entity Model
+
+### Specs vs Epics vs Tickets
+
+| Entity | Purpose | Lifecycle | Storage |
+|--------|---------|-----------|---------|
+| **Spec** | Static documentation defining WHAT | None (always exists) | Markdown files |
+| **Epic** | Work container for implementation | draft → active → complete/dropped | DB + markdown files |
+| **Ticket** | Atomic work item | backlog → in_progress → done | DB, displayed on board |
+
+**Key relationship**: Tickets link to Epics (not Specs). Epics are work containers.
 
 ## Schema Design
 
@@ -138,7 +86,7 @@ CREATE TABLE pmo_epics (
   name TEXT NOT NULL,
   description TEXT,
   status TEXT NOT NULL DEFAULT 'active',  -- active, draft, complete, dropped, future
-  file_path TEXT,  -- Optional markdown file path
+  file_path TEXT,  -- Markdown file path
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE
@@ -159,20 +107,6 @@ CREATE TABLE pmo_board_tickets (
 );
 ```
 
-## Implementation Status
-
-### Completed
-- [x] Schema updated in schema.ts
-- [x] `prlt tickets link` command implemented
-- [x] `prlt tickets reassign` command implemented
-- [x] `prlt tickets update` command implemented
-- [x] SYSTEM_CARD.md updated
-
-### Pending
-- [ ] Run migration on existing workspace.db
-- [ ] Implement `prlt db` commands for database inspection
-- [ ] Implement epic CRUD commands (`prlt epic create/list/view/archive`)
-
 ## Migration Notes
 
 The schema is updated in code but existing databases need migration:
@@ -191,4 +125,26 @@ Or delete and recreate:
 ```bash
 rm .proletariat/workspace.db
 prlt pmo init
+```
+
+## Tickets
+
+Create these tickets with:
+```bash
+# Schema changes (done)
+prlt ticket create --epic EPIC-SCHEMA -t "Add epic_id foreign key to pmo_tickets" -p HIGH --category schema
+prlt ticket create --epic EPIC-SCHEMA -t "Add status field to pmo_tickets" -p HIGH --category schema
+prlt ticket create --epic EPIC-SCHEMA -t "Add owner and assignee fields to pmo_tickets" -p HIGH --category schema
+prlt ticket create --epic EPIC-SCHEMA -t "Create pmo_board_tickets table" -p HIGH --category schema
+prlt ticket create --epic EPIC-SCHEMA -t "Add sync tracking fields" -p HIGH --category schema
+prlt ticket create --epic EPIC-SCHEMA -t "Add status and file_path to pmo_epics" -p HIGH --category schema
+
+# Commands (done)
+prlt ticket create --epic EPIC-SCHEMA -t "Implement prlt tickets link command" -p HIGH --category commands
+prlt ticket create --epic EPIC-SCHEMA -t "Implement prlt tickets reassign command" -p HIGH --category commands
+prlt ticket create --epic EPIC-SCHEMA -t "Implement prlt tickets update command" -p MEDIUM --category commands
+
+# Pending
+prlt ticket create --epic EPIC-SCHEMA -t "Implement prlt db commands" -p MEDIUM --category commands
+prlt ticket create --epic EPIC-SCHEMA -t "Run database migration" -p HIGH --category migration
 ```
