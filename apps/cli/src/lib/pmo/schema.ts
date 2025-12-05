@@ -23,6 +23,7 @@ export const PMO_TABLES = {
   epics: 'pmo_epics',
   cache_metadata: 'pmo_cache_metadata',
   settings: 'pmo_settings',
+  agent_work: 'agent_work',
 } as const;
 
 // =============================================================================
@@ -164,6 +165,26 @@ export const PMO_TABLE_SCHEMAS = {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     )`,
+
+  agent_work: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.agent_work} (
+      id TEXT PRIMARY KEY,
+      ticket_id TEXT NOT NULL,
+      agent_name TEXT NOT NULL,
+      executor TEXT NOT NULL,
+      mode TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'starting',
+      branch TEXT,
+      pid TEXT,
+      container_id TEXT,
+      session_id TEXT,
+      host TEXT,
+      log_path TEXT,
+      started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      completed_at TIMESTAMP,
+      exit_code INTEGER,
+      FOREIGN KEY (ticket_id) REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE
+    )`,
 } as const;
 
 // =============================================================================
@@ -187,6 +208,9 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_epics_project ON ${PMO_TABLES.epics}(project_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_epics_spec ON ${PMO_TABLES.epics}(spec_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_projects_initiative ON ${PMO_TABLES.projects}(initiative_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_work_agent ON ${PMO_TABLES.agent_work}(agent_name);
+  CREATE INDEX IF NOT EXISTS idx_agent_work_status ON ${PMO_TABLES.agent_work}(status);
+  CREATE INDEX IF NOT EXISTS idx_agent_work_ticket ON ${PMO_TABLES.agent_work}(ticket_id);
 `;
 
 // =============================================================================
@@ -211,6 +235,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.ticket_assignments,
   PMO_TABLE_SCHEMAS.cache_metadata,
   PMO_TABLE_SCHEMAS.settings,
+  PMO_TABLE_SCHEMAS.agent_work,  // Execution tracking
   PMO_INDEXES,
 ].join(';\n');
 

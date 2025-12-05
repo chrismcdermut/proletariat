@@ -1,6 +1,4 @@
-# PMO Ticket Commands Specification
-
-> **Note**: For work commands (assign, own, claim), see [pmo-work-commands.md](pmo-work-commands.md)
+# Ticket Commands Specification
 
 ## Overview
 
@@ -43,6 +41,15 @@ This matches the pattern used by other entities:
 | `prlt ticket status [id]`         | Show ticket status                     |
 | `prlt ticket link [id] [epic-id]` | Link ticket to epic                    |
 
+### Ownership Commands
+| Command                           | Purpose                                |
+| --------------------------------- | -------------------------------------- |
+| `prlt ticket own [id]`            | Take accountability for ticket         |
+| `prlt ticket assign [id] [agent]` | Delegate work to human or agent        |
+| `prlt ticket claim [id]`          | Interactive: own + assign + execute    |
+
+> **Note**: For execution (spinning up agents, runtime modes), see [execute-commands.md](execute-commands.md)
+
 ### Bulk Commands (`prlt tickets`)
 | Command                           | Purpose                                |
 | --------------------------------- | -------------------------------------- |
@@ -54,8 +61,6 @@ This matches the pattern used by other entities:
 | `prlt tickets reassign`           | Reassign tickets to different agent    |
 | `prlt tickets link`               | Link tickets to different epic         |
 | `prlt tickets update`             | Update priority/category for multiple  |
-
-> **Note**: Work commands (assign, own, claim, execute) are in [pmo-work-commands.md](pmo-work-commands.md)
 
 ---
 
@@ -438,6 +443,214 @@ prlt ticket link                        # Interactive mode
 **Difference from `prlt tickets link`**:
 - `prlt ticket link` operates on a single ticket (direct arguments)
 - `prlt tickets link` is bulk operation with multi-select checkbox interface
+
+---
+
+## Ownership Commands
+
+### Core Concepts
+
+- **Owner**: Human accountable for the ticket getting done
+- **Assignee**: Person or agent who will execute the work
+- **Claim**: Interactive workflow to take ownership and assign executor
+
+### `prlt ticket own [id]`
+
+**Purpose**: Take accountability for a ticket (you're responsible for it getting done)
+
+**What it does**:
+- Sets `owner` field to current user
+- Does NOT set `assignee` (you may delegate execution)
+- Does NOT move ticket or start work
+
+**Arguments**:
+- `id` (optional): Ticket ID - prompts with dropdown if not provided
+
+**Interactive Flow** (if id not provided):
+```
+? Select ticket to own:
+  ❯ TKT-001 - Add login screen (Backlog, unowned)
+    TKT-002 - Setup CI/CD (Backlog, owner: alice)
+    TKT-003 - Implement navigation (In Progress, owner: bob)
+
+✅ You now own TKT-001
+   Title: Add login screen
+   Owner: chris
+   Assignee: (unassigned)
+
+Next steps:
+  prlt ticket assign TKT-001 @claude   # Delegate to agent
+  prlt ticket claim TKT-001            # Do it yourself
+```
+
+**Example**:
+```bash
+prlt ticket own TKT-001      # Own specific ticket
+prlt ticket own              # Interactive mode
+```
+
+**Behavior**:
+- Sets `owner` = current user (human accountable)
+- Leaves `assignee` unchanged
+- Use case: PM/lead takes responsibility, will delegate later
+
+---
+
+### `prlt ticket assign [id] [agent]`
+
+**Purpose**: Delegate work to a human or agent (set executor)
+
+**What it does**:
+- Sets `assignee` field
+- Does NOT set `owner` (unless --owner flag used)
+- Does NOT start work or spin up agent
+
+**Arguments**:
+- `id` (optional): Ticket ID - prompts with dropdown if not provided
+- `agent` (optional): Agent/user name - prompts with dropdown if not provided
+
+**Options**:
+- `--owner <name>`: Also set the owner
+- `--unassign, -u`: Remove current assignee
+
+**Interactive Flow** (if arguments not provided):
+```
+? Select ticket to assign:
+  ❯ TKT-001 - Add login screen (Backlog, unassigned)
+    TKT-002 - Setup CI/CD (Backlog, assignee: alice)
+
+? Assign TKT-001 to:
+    ── Agents ──
+  ❯ alice
+    bob
+    charlie
+    ── Other ──
+    Enter custom name...
+    Unassign (remove assignee)
+
+✅ Assigned TKT-001 to alice
+   Title: Add login screen
+   Assignee: alice
+
+To start work: prlt ticket execute TKT-001
+```
+
+**Example**:
+```bash
+prlt ticket assign TKT-001 alice           # Assign to agent
+prlt ticket assign TKT-001 alice --owner chris  # Also set owner
+prlt ticket assign TKT-001 --unassign      # Remove assignee
+prlt ticket assign                          # Interactive mode
+```
+
+**Behavior**:
+- Sets `assignee` field only
+- Does NOT spin up agent (use `execute` for that)
+- Agents are listed from workspace theme configuration
+
+---
+
+### `prlt ticket claim [id]`
+
+**Purpose**: Interactive workflow to take ownership and assign work (to yourself or an agent)
+
+**What it does**:
+- Sets `owner` to current user (you're accountable)
+- Prompts to choose executor (yourself or an agent)
+- If agent selected: sets `assignee` and triggers `execute`
+- If self selected: sets `assignee` to self, moves to In Progress
+
+**Arguments**:
+- `id` (optional): Ticket ID - prompts with dropdown if not provided
+
+**Options**:
+- `--self`: Skip prompt, assign to yourself
+- `--agent <name>`: Skip prompt, assign to specific agent and execute
+
+**Interactive Flow** (if id not provided):
+```
+? Select ticket to claim:
+  ❯ TKT-001 - Add login screen (Backlog, unassigned)
+    TKT-002 - Setup CI/CD (Backlog, unassigned)
+
+Claiming TKT-001: Add login screen
+You will be the owner (accountable for completion).
+
+? Who will do the work?
+  ❯ Me (I'll work on it myself)
+    ── Agents ──
+    alice
+    bob
+    charlie
+```
+
+**If "Me" selected**:
+```
+✅ Claimed TKT-001
+   Owner: chris
+   Assignee: chris
+   Status: In Progress
+
+You're now working on this ticket.
+```
+
+**If agent selected**:
+```
+✅ Claimed TKT-001
+   Owner: chris
+   Assignee: alice
+
+🚀 Starting agent alice...
+   [execution output based on mode]
+```
+
+**Example**:
+```bash
+prlt ticket claim TKT-001              # Interactive
+prlt ticket claim TKT-001 --self       # Claim and do it yourself
+prlt ticket claim TKT-001 --agent alice  # Claim and delegate to agent
+prlt ticket claim                       # Full interactive mode
+```
+
+**Behavior**:
+- Always sets `owner` = current user
+- Prompts for executor choice
+- If self: sets `assignee` = self, moves to "In Progress"
+- If agent: sets `assignee` = agent, calls `execute` internally
+
+---
+
+## Ownership Workflow Patterns
+
+### Pattern 1: Solo Developer
+```bash
+prlt ticket claim TKT-001 --self
+# owner=chris, assignee=chris, status=In Progress
+# Work on it, then complete
+prlt ticket complete TKT-001
+```
+
+### Pattern 2: Delegate to Agent
+```bash
+prlt ticket claim TKT-001
+# Select agent from prompt
+# owner=chris, assignee=alice
+# Agent starts automatically
+```
+
+### Pattern 3: PM Assigns (No Execute Yet)
+```bash
+prlt ticket own TKT-001          # PM takes ownership
+prlt ticket assign TKT-001 alice  # Assign but don't execute
+# Later...
+prlt ticket execute TKT-001       # Trigger execution
+```
+
+### Pattern 4: Reassignment
+```bash
+prlt ticket assign TKT-001 bob   # Move from alice to bob
+prlt ticket execute TKT-001      # Start bob working
+```
 
 ---
 

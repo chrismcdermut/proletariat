@@ -10,27 +10,54 @@ Commands for creating and managing git branches with conventional naming. Inspir
 - **Branch Format**: `{type}/{coder}/{description}` or `{type}/{description}`
 
 ## Branch Types
+
+### Development Types
 | Type    | Purpose                                    |
 | ------- | ------------------------------------------ |
-| `build` | Build system or external dependency changes |
-| `chore` | Maintenance tasks, no production code       |
-| `ci`    | CI/CD configuration changes                 |
-| `db`    | Database migrations or schema changes       |
-| `docs`  | Documentation only                          |
 | `feat`  | New feature                                 |
 | `fix`   | Bug fix                                     |
-| `hotf`  | Hotfix for production issue                 |
-| `infra` | Infrastructure changes                      |
-| `perf`  | Performance improvement                     |
-| `mrkt`  | Marketing and promotional content           |
-| `pmo`   | Project management operations               |
-| `rel`   | Release preparation                         |
-| `rev`   | Code review changes                         |
 | `rfct`  | Refactoring (no functional change)          |
-| `sec`   | Security fixes or improvements              |
-| `style` | Formatting, whitespace, no code change      |
+| `docs`  | Documentation only                          |
 | `test`  | Test additions or corrections               |
-| `write` | Writing or content creation                 |
+| `chore` | Maintenance tasks, no production code       |
+| `perf`  | Performance improvement                     |
+| `sec`   | Security fixes or improvements              |
+| `ci`    | CI/CD configuration changes                 |
+| `build` | Build system or external dependency changes |
+| `db`    | Database migrations or schema changes       |
+| `rel`   | Release preparation                         |
+
+### Founder/Business Types
+| Type    | Purpose                                    |
+| ------- | ------------------------------------------ |
+| `grow`  | Growth and marketing initiatives            |
+| `ops`   | Business operations                         |
+| `strat` | Strategy and planning                       |
+| `cx`    | Customer experience and support             |
+
+### Category → Type Mapping
+
+When inferring branch type from ticket category:
+
+| Category (ticket)           | Type (branch) |
+| --------------------------- | ------------- |
+| feature, feat, new          | `feat`        |
+| bug, fix, bugfix            | `fix`         |
+| refactor, cleanup           | `rfct`        |
+| docs, documentation         | `docs`        |
+| test, testing               | `test`        |
+| chore, maintenance          | `chore`       |
+| performance                 | `perf`        |
+| security                    | `sec`         |
+| ci, pipeline                | `ci`          |
+| build, deps, dependencies   | `build`       |
+| database, migration, schema | `db`          |
+| release                     | `rel`         |
+| growth, marketing           | `grow`        |
+| ops, operations, bizops     | `ops`         |
+| strategy, planning          | `strat`       |
+| support, customer           | `cx`          |
+| *(unmatched)*               | `feat`        |
 
 ## Command Overview
 
@@ -259,14 +286,31 @@ feat/chris/add-user-auth: add login form component
 ```
 
 ### Agent Workflow Integration
-When an agent creates a branch:
-- Type inferred from task context (e.g., ticket type → branch type)
-- Coder set to agent identifier
-- Description derived from task/ticket title
+
+When `prlt ticket execute` creates a branch for an agent:
+
+**Format**: `{type}/{agent}/{ticket-id}-{slug}`
+
+**Examples**:
+- `feat/alice/TKT-001-add-login-screen`
+- `fix/bob/TKT-042-null-pointer-exception`
+- `rfct/charlie/TKT-015-cleanup-auth-utils`
+
+**How it's generated**:
+- **Type**: Inferred from ticket category (feature→feat, bug→fix, etc.) or defaults to `feat`
+- **Agent**: The assigned agent's name
+- **Ticket ID**: From the ticket being executed
+- **Slug**: Kebab-case version of ticket title (truncated if too long)
 
 ```bash
-# Agent "bezos" working on ticket "Implement user dashboard"
-prlt branch create -t feat -c bezos -d implement-user-dashboard
+# When executing TKT-001 "Add login screen" assigned to alice:
+prlt ticket execute TKT-001
+# Creates branch: feat/alice/TKT-001-add-login-screen
+```
+
+**Manual branch creation** (for agents or humans):
+```bash
+prlt branch create -t feat -c alice -d TKT-001-add-login-screen
 ```
 
 ### Worktree Considerations
