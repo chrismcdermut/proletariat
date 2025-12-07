@@ -27,6 +27,18 @@ export type ExecutorType =
   | 'custom'
 
 // =============================================================================
+// Terminal App Types
+// =============================================================================
+
+export type TerminalApp =
+  | 'Terminal'    // macOS Terminal.app
+  | 'iTerm'       // iTerm2
+  | 'Ghostty'     // Ghostty
+  | 'WezTerm'     // WezTerm
+  | 'Kitty'       // Kitty
+  | 'Alacritty'   // Alacritty
+
+// =============================================================================
 // Execution Status
 // =============================================================================
 
@@ -165,7 +177,7 @@ export interface ExecutionConfig {
     layout: 'split' | 'window'
   }
   terminal: {
-    app: 'Terminal' | 'iTerm'
+    app: TerminalApp
   }
   docker: {
     image: string
@@ -182,7 +194,7 @@ export interface ExecutionConfig {
 }
 
 export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
-  defaultMode: 'foreground',
+  defaultMode: 'terminal',
   defaultExecutor: 'claude-code',
   autoExecute: false,
   tmux: {

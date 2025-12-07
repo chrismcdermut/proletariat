@@ -20,10 +20,16 @@ import {
 // Executor Commands
 // =============================================================================
 
-function getExecutorCommand(executor: ExecutorType, prompt: string): { cmd: string; args: string[] } {
+function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissions: boolean = true): { cmd: string; args: string[] } {
   switch (executor) {
     case 'claude-code':
-      return { cmd: 'claude', args: ['--print', prompt] }
+      if (skipPermissions) {
+        // Skip permissions - agent runs autonomously without prompting
+        // --yes auto-accepts the bypass permissions confirmation
+        return { cmd: 'claude', args: ['--dangerously-skip-permissions', '--yes', prompt] }
+      }
+      // Manual mode - will prompt for each action
+      return { cmd: 'claude', args: [prompt] }
     case 'codex':
       return { cmd: 'codex', args: ['--prompt', prompt] }
     case 'aider':
@@ -32,7 +38,10 @@ function getExecutorCommand(executor: ExecutorType, prompt: string): { cmd: stri
       // Custom executor should be configured
       return { cmd: 'echo', args: ['Custom executor not configured'] }
     default:
-      return { cmd: 'claude', args: ['--print', prompt] }
+      if (skipPermissions) {
+        return { cmd: 'claude', args: ['--dangerously-skip-permissions', '--yes', prompt] }
+      }
+      return { cmd: 'claude', args: [prompt] }
   }
 }
 
@@ -85,7 +94,8 @@ export async function runForeground(
   _config: ExecutionConfig
 ): Promise<RunnerResult> {
   const prompt = buildPrompt(context)
-  const { cmd, args } = getExecutorCommand(executor, prompt)
+  // Foreground - skip permissions by default for autonomous execution
+  const { cmd, args } = getExecutorCommand(executor, prompt, true)
 
   return new Promise((resolve) => {
     const child = spawn(cmd, args, {
@@ -117,7 +127,12 @@ export async function runBackground(
   config: ExecutionConfig
 ): Promise<RunnerResult> {
   const prompt = buildPrompt(context)
-  const { cmd, args } = getExecutorCommand(executor, prompt)
+  // Background - skip permissions, also use --print for non-interactive output
+  const { cmd, args } = getExecutorCommand(executor, prompt, true)
+  // Add --print for background mode to avoid interactive prompts
+  if (executor === 'claude-code') {
+    args.unshift('--print')
+  }
 
   // Create logs directory
   const logsDir = path.join(os.homedir(), '.proletariat', 'logs')
@@ -151,7 +166,8 @@ export async function runTmux(
   config: ExecutionConfig
 ): Promise<RunnerResult> {
   const prompt = buildPrompt(context)
-  const { cmd, args } = getExecutorCommand(executor, prompt)
+  // Tmux - skip permissions by default for autonomous execution
+  const { cmd, args } = getExecutorCommand(executor, prompt, true)
 
   // Escape the command for shell
   const escapedArgs = args.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(' ')
@@ -209,6 +225,11 @@ export async function runTmux(
 // Terminal Runner (macOS)
 // =============================================================================
 
+/**
+ * Run command in a new terminal tab/window.
+ * Supports multiple terminal emulators on macOS.
+ * Opens a new tab (not window) and keeps the tab open after command completes.
+ */
 export async function runTerminal(
   context: ExecutionContext,
   executor: ExecutorType,
@@ -217,36 +238,102 @@ export async function runTerminal(
   if (process.platform !== 'darwin') {
     return {
       success: false,
-      error: 'Terminal mode is only supported on macOS',
+      error: 'Terminal mode is only supported on macOS. Use tmux mode instead.',
     }
   }
 
   const prompt = buildPrompt(context)
-  const { cmd, args } = getExecutorCommand(executor, prompt)
+  // Terminal - skip permissions by default for autonomous execution
+  const { cmd, args } = getExecutorCommand(executor, prompt, true)
 
-  // Escape the command for AppleScript
+  // Escape the command for shell
   const escapedArgs = args.map((a) => a.replace(/\\/g, '\\\\').replace(/"/g, '\\"')).join('" "')
-  const fullCmd = `cd "${context.worktreePath}" && ${cmd} "${escapedArgs}"`
+  // Add ; exec bash to keep tab open after command completes
+  const fullCmd = `cd "${context.worktreePath}" && ${cmd} "${escapedArgs}"; exec $SHELL`
   const escapedCmd = fullCmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 
+  const terminalApp = config.terminal.app
+
   try {
-    if (config.terminal.app === 'iTerm') {
-      execSync(`osascript -e '
-        tell application "iTerm"
-          create window with default profile
-          tell current session of current window
-            write text "${escapedCmd}"
+    switch (terminalApp) {
+      case 'iTerm':
+        // iTerm2 - new tab in current window
+        execSync(`osascript -e '
+          tell application "iTerm"
+            activate
+            tell current window
+              create tab with default profile
+              tell current session
+                write text "${escapedCmd}"
+              end tell
+            end tell
           end tell
-        end tell
-      '`)
-    } else {
-      // Default to Terminal.app
-      execSync(`osascript -e '
-        tell application "Terminal"
-          do script "${escapedCmd}"
-          activate
-        end tell
-      '`)
+        '`)
+        break
+
+      case 'Ghostty':
+        // Ghostty - use CLI to open new tab
+        // Ghostty uses a simple CLI: ghostty -e "command"
+        // For new tab, we use gtab or send keybinding via osascript
+        execSync(`osascript -e '
+          tell application "Ghostty"
+            activate
+          end tell
+          tell application "System Events"
+            tell process "Ghostty"
+              keystroke "t" using command down
+              delay 0.3
+              keystroke "${escapedCmd}"
+              keystroke return
+            end tell
+          end tell
+        '`)
+        break
+
+      case 'WezTerm':
+        // WezTerm - use wezterm cli to spawn new tab
+        execSync(`wezterm cli spawn --new-window -- bash -c '${fullCmd.replace(/'/g, "'\\''")}'`)
+        break
+
+      case 'Kitty':
+        // Kitty - use kitten to open new tab
+        execSync(`kitty @ launch --type=tab --cwd="${context.worktreePath}" -- bash -c '${fullCmd.replace(/'/g, "'\\''")}'`)
+        break
+
+      case 'Alacritty':
+        // Alacritty doesn't have native tab support, opens new window
+        // Uses osascript to open new instance
+        execSync(`osascript -e '
+          tell application "Alacritty"
+            activate
+          end tell
+          tell application "System Events"
+            tell process "Alacritty"
+              keystroke "n" using command down
+              delay 0.3
+              keystroke "${escapedCmd}"
+              keystroke return
+            end tell
+          end tell
+        '`)
+        break
+
+      case 'Terminal':
+      default:
+        // macOS Terminal.app - new tab
+        execSync(`osascript -e '
+          tell application "Terminal"
+            activate
+            tell application "System Events"
+              tell process "Terminal"
+                keystroke "t" using command down
+              end tell
+            end tell
+            delay 0.3
+            do script "${escapedCmd}" in front window
+          end tell
+        '`)
+        break
     }
 
     return {
@@ -256,7 +343,7 @@ export async function runTerminal(
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to open terminal',
+      error: error instanceof Error ? error.message : `Failed to open ${terminalApp}`,
     }
   }
 }

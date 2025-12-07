@@ -1,18 +1,18 @@
-import { Command, Args } from '@oclif/core';
-import inquirer from 'inquirer';
-import {
-  getPMOContext,
-  autoExportToBoard,
-} from '../../lib/pmo/index.js';
-import { styles } from '../../lib/styles.js';
+import { Command, Args, Flags } from '@oclif/core'
+import inquirer from 'inquirer'
+import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
+import { styles } from '../../lib/styles.js'
+import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 
 export default class TicketAssign extends Command {
-  static description = 'Assign ticket to specific user/agent';
+  static description = 'Assign ticket to a human or agent (set executor)'
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> TICK-001 alice',
+    '<%= config.bin %> <%= command.id %> TKT-001 alice',
+    '<%= config.bin %> <%= command.id %> TKT-001 --unassign',
+    '<%= config.bin %> <%= command.id %> TKT-001 alice --owner chris',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
-  ];
+  ]
 
   static args = {
     ticketId: Args.string({
@@ -23,116 +23,167 @@ export default class TicketAssign extends Command {
       description: 'Agent/user to assign - prompts with dropdown if not provided',
       required: false,
     }),
-  };
+  }
+
+  static flags = {
+    owner: Flags.string({
+      description: 'Also set the owner',
+    }),
+    unassign: Flags.boolean({
+      char: 'u',
+      description: 'Remove current assignee',
+      default: false,
+    }),
+  }
 
   async run(): Promise<void> {
-    const { args } = await this.parse(TicketAssign);
+    const { args, flags } = await this.parse(TicketAssign)
 
-    // Get PMO context (prompts for project if multiple exist)
+    // Get workspace info for agent list
+    let workspaceAgents: string[] = []
+    try {
+      const workspaceInfo = getWorkspaceInfo()
+      workspaceAgents = workspaceInfo.agents.map((a) => a.name)
+    } catch {
+      // Not in workspace, will use manual entry
+    }
+
+    // Get PMO context
     const { pmoPath, storage } = await getPMOContext(
       undefined,
       (msg) => this.log(styles.muted(msg)),
-      true // prompt if multiple projects
-    );
+      true
+    )
 
     try {
       // Get ticketId - prompt if not provided
-      let ticketId = args.ticketId;
+      let ticketId = args.ticketId
 
       if (!ticketId) {
-        // Get all tickets for selection
-        const allTickets = await storage.listTickets();
+        const allTickets = await storage.listTickets()
 
         if (allTickets.length === 0) {
-          await storage.close();
-          this.error('No tickets found. Create a ticket first with "prlt ticket create".');
+          await storage.close()
+          this.error('No tickets found. Create a ticket first with "prlt ticket create".')
         }
 
-        const { selectedTicketId } = await inquirer.prompt([{
-          type: 'list',
-          name: 'selectedTicketId',
-          message: 'Select ticket to assign:',
-          choices: allTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.column}, unassigned)`,  // TODO: Show current assignment
-            value: t.id,
-          })),
-        }]);
-        ticketId = selectedTicketId;
+        const { selectedTicketId } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'selectedTicketId',
+            message: 'Select ticket to assign:',
+            choices: allTickets.map((t) => ({
+              name: `${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
+              value: t.id,
+            })),
+          },
+        ])
+        ticketId = selectedTicketId
       }
 
       // Get ticket
-      const ticket = await storage.getTicket(ticketId!);
+      const ticket = await storage.getTicket(ticketId!)
       if (!ticket) {
-        await storage.close();
-        this.error(`Ticket "${ticketId}" not found.`);
+        await storage.close()
+        this.error(`Ticket "${ticketId}" not found.`)
+      }
+
+      // Handle unassign flag
+      if (flags.unassign) {
+        await storage.updateTicket(ticketId!, { assignee: undefined })
+        await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
+        await storage.close()
+
+        this.log('')
+        this.log(styles.success(`✅ Unassigned ${styles.emphasis(ticketId)}`))
+        this.log(styles.muted(`   Title: ${ticket.title}`))
+        this.log('')
+        return
       }
 
       // Get agent - prompt if not provided
-      let agent = args.agent;
+      let agent = args.agent
 
       if (!agent) {
-        // Interactive dropdown with common options
-        const { selectedAgent } = await inquirer.prompt([{
-          type: 'list',
-          name: 'selectedAgent',
-          message: `Assign ${ticketId} to:`,
-          choices: [
-            { name: 'Unassign (remove assignee)', value: '' },
-            new inquirer.Separator('── Common Agents ──'),
-            { name: 'alice', value: 'alice' },
-            { name: 'bob', value: 'bob' },
-            { name: 'charlie', value: 'charlie' },
-            new inquirer.Separator('────────────────────'),
-            { name: 'Enter custom name...', value: '__custom__' },
-          ],
-        }]);
+        // Build choices from workspace agents
+        const agentChoices: Array<{ name: string; value: string } | inquirer.Separator> = [
+          { name: 'Unassign (remove assignee)', value: '' },
+        ]
+
+        if (workspaceAgents.length > 0) {
+          agentChoices.push(new inquirer.Separator('── Agents ──'))
+          for (const a of workspaceAgents) {
+            agentChoices.push({ name: a, value: a })
+          }
+        }
+
+        agentChoices.push(new inquirer.Separator('── Other ──'))
+        agentChoices.push({ name: 'Enter custom name...', value: '__custom__' })
+
+        const { selectedAgent } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'selectedAgent',
+            message: `Assign ${ticketId} to:`,
+            choices: agentChoices,
+          },
+        ])
 
         if (selectedAgent === '__custom__') {
-          const { customAgent } = await inquirer.prompt([{
-            type: 'input',
-            name: 'customAgent',
-            message: 'Enter agent name:',
-            validate: (input: string) => {
-              if (!input.trim()) {
-                return 'Agent name cannot be empty';
-              }
-              return true;
+          const { customAgent } = await inquirer.prompt([
+            {
+              type: 'input',
+              name: 'customAgent',
+              message: 'Enter agent/user name:',
+              validate: (input: string) => {
+                if (!input.trim()) {
+                  return 'Name cannot be empty'
+                }
+                return true
+              },
             },
-          }]);
-          agent = customAgent.trim();
+          ])
+          agent = customAgent.trim()
         } else {
-          agent = selectedAgent;
+          agent = selectedAgent
         }
       }
 
-      // TODO: Implement assignTicket and unassignTicket methods in PMOStorage
-      // For now, show error message
-      await storage.close();
-      this.error(
-        'Ticket assignment is not yet implemented.\n' +
-        'TODO: Implement assignTicket() and unassignTicket() in PMOStorage interface.'
-      );
+      // Build update object
+      const updates: { assignee?: string; owner?: string } = {}
 
-      // When implemented, the code should look like:
-      /*
       if (agent) {
-        await storage.assignTicket(ticketId, agent);
-        await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
-        await storage.close();
-        this.log(styles.success(`\n✅ Assigned ${styles.emphasis(ticketId)} to ${styles.emphasis(agent)}`));
-        this.log(styles.muted(`   Title: ${ticket.title}`));
+        updates.assignee = agent
       } else {
-        await storage.unassignTicket(ticketId);
-        await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
-        await storage.close();
-        this.log(styles.success(`\n✅ Unassigned ${styles.emphasis(ticketId)}`));
-        this.log(styles.muted(`   Title: ${ticket.title}`));
+        updates.assignee = undefined
       }
-      */
+
+      if (flags.owner) {
+        updates.owner = flags.owner
+      }
+
+      // Update ticket
+      await storage.updateTicket(ticketId!, updates)
+      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
+      await storage.close()
+
+      this.log('')
+      if (agent) {
+        this.log(styles.success(`✅ Assigned ${styles.emphasis(ticketId!)} to ${styles.emphasis(agent)}`))
+        this.log(styles.muted(`   Title: ${ticket.title}`))
+        if (flags.owner) {
+          this.log(styles.muted(`   Owner: ${flags.owner}`))
+        }
+        this.log('')
+        this.log(styles.muted(`To start work: prlt ticket execute ${ticketId}`))
+      } else {
+        this.log(styles.success(`✅ Unassigned ${styles.emphasis(ticketId!)}`))
+        this.log(styles.muted(`   Title: ${ticket.title}`))
+      }
+      this.log('')
     } catch (error) {
-      await storage.close();
-      throw error;
+      await storage.close()
+      throw error
     }
   }
-
 }

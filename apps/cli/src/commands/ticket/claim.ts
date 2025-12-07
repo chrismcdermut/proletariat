@@ -1,180 +1,187 @@
-import { Command, Args } from '@oclif/core';
-import * as fs from 'fs';
-import * as path from 'path';
-import { execSync } from 'child_process';
-import chalk from 'chalk';
-import * as React from 'react';
-import { render } from 'ink';
-import { ClaimTicketUI } from '../../lib/ui/ClaimTicketUI.js';
-import { styles } from '../../lib/styles.js';
-import { findPMO } from '../../lib/pmo/index.js';
+import { Command, Args, Flags } from '@oclif/core'
+import inquirer from 'inquirer'
+import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
+import { TicketStatus } from '../../lib/pmo/types.js'
+import { styles } from '../../lib/styles.js'
+import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 
 export default class TicketClaim extends Command {
-  static description = 'Claim a ticket (move from backlog to in-progress)';
+  static description = 'Claim a ticket: take ownership and assign work (to yourself or an agent)'
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> T0001',
-    '<%= config.bin %> <%= command.id %>',
-  ];
+    '<%= config.bin %> <%= command.id %> TKT-001',
+    '<%= config.bin %> <%= command.id %> TKT-001 --self',
+    '<%= config.bin %> <%= command.id %> TKT-001 --agent alice',
+    '<%= config.bin %> <%= command.id %>  # Interactive mode',
+  ]
 
   static args = {
     ticketId: Args.string({
       description: 'Ticket ID to claim',
       required: false,
     }),
-  };
+  }
+
+  static flags = {
+    self: Flags.boolean({
+      description: 'Assign to yourself (skip prompt)',
+      default: false,
+    }),
+    agent: Flags.string({
+      description: 'Assign to specific agent and execute',
+    }),
+  }
 
   async run(): Promise<void> {
-    const { args } = await this.parse(TicketClaim);
+    const { args, flags } = await this.parse(TicketClaim)
 
-    // Find PMO
-    const pmoPath = findPMO();
-    if (!pmoPath) {
-      this.error('PMO not found. Run "prlt pmo init" first.');
-    }
+    // Get current user
+    const currentUser = this.getCurrentUser()
 
-    // Determine agent name (from worktree or prompt)
-    let agentName = await this.getAgentName();
-
-    // Pull latest board
+    // Get workspace info for agent list
+    let workspaceAgents: string[] = []
     try {
-      execSync('git pull', { cwd: pmoPath, stdio: 'pipe' });
+      const workspaceInfo = getWorkspaceInfo()
+      workspaceAgents = workspaceInfo.agents.map((a) => a.name)
     } catch {
-      // Ignore if no remote
+      // Not in workspace
     }
 
-    const boardPath = path.join(pmoPath, 'board.md');
-    let board = fs.readFileSync(boardPath, 'utf-8');
+    // Get PMO context
+    const { pmoPath, storage } = await getPMOContext(
+      undefined,
+      (msg) => this.log(styles.muted(msg)),
+      true
+    )
 
-    let ticketId = args.ticketId;
+    try {
+      // Get ticketId - prompt if not provided
+      let ticketId = args.ticketId
 
-    if (!ticketId) {
-      // Parse available tickets from backlog
-      const backlogSection = board.match(/## 📥 Backlog[\s\S]*?(?=##|$)/)?.[0] || '';
-      const tickets = [...backlogSection.matchAll(/- \[ \] \[\[specs\/[^\]]+\|(T\d+)\]\] ([^#\n]+)/g)];
-      
-      const ticketList = tickets.map(match => ({
-        id: match[1],
-        title: match[2].trim(),
-        assignee: 'unassigned'
-      }));
+      if (!ticketId) {
+        const allTickets = await storage.listTickets()
+        // Filter to unassigned or backlog tickets
+        const availableTickets = allTickets.filter(
+          (t) => !t.assignee || t.status === 'backlog'
+        )
 
-      const result = await new Promise<{ ticketId: string; agentName: string }>((resolve) => {
-        render(
-          React.createElement(ClaimTicketUI, {
-            tickets: ticketList,
-            needsAgentName: !agentName,
-            defaultAgentName: agentName,
-            onComplete: resolve
-          })
-        );
-      });
+        if (availableTickets.length === 0) {
+          await storage.close()
+          this.error('No available tickets to claim.')
+        }
 
-      ticketId = result.ticketId;
-      if (!agentName) agentName = result.agentName;
-    }
-
-    // Find the ticket line in backlog
-    const ticketRegex = new RegExp(`(- \\[ \\] \\[\\[specs\\/[^\\]]+\\|${ticketId}\\]\\][^\\n]+)`, 'g');
-    const ticketMatch = board.match(ticketRegex);
-    
-    if (!ticketMatch) {
-      this.error(`Ticket ${ticketId} not found in backlog. It may already be claimed.`);
-    }
-
-    const ticketLine = ticketMatch[0];
-    
-    // Update the line: change assignee and move spec location
-    let updatedLine = ticketLine.replace('@unassigned', `@${agentName}`);
-    
-    // Move spec file from backlog to active
-    const specMatch = ticketLine.match(/\[\[specs\/backlog\/([^\]]+)\]/);
-    if (specMatch) {
-      const specFileName = specMatch[1];
-      const oldSpecPath = path.join(pmoPath, 'specs', 'backlog', specFileName);
-      const newSpecPath = path.join(pmoPath, 'specs', 'active', specFileName);
-      
-      if (fs.existsSync(oldSpecPath)) {
-        fs.renameSync(oldSpecPath, newSpecPath);
-        updatedLine = updatedLine.replace('specs/backlog/', 'specs/active/');
-        
-        // Update spec file with claim info
-        let specContent = fs.readFileSync(newSpecPath, 'utf-8');
-        specContent = specContent.replace('**Status:** Backlog', '**Status:** In Progress');
-        specContent += `\n- Claimed by ${agentName}: ${new Date().toISOString()}`;
-        fs.writeFileSync(newSpecPath, specContent);
+        const { selectedTicketId } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'selectedTicketId',
+            message: 'Select ticket to claim:',
+            choices: availableTickets.map((t) => ({
+              name: `${t.id} - ${t.title} (${t.status}${t.assignee ? `, assignee: ${t.assignee}` : ''})`,
+              value: t.id,
+            })),
+          },
+        ])
+        ticketId = selectedTicketId
       }
-    }
 
-    // Remove from backlog
-    board = board.replace(ticketLine, '');
-    
-    // Add to in-progress
-    board = board.replace(
-      /## 🚀 In Progress\n/,
-      `## 🚀 In Progress\n${updatedLine}\n`
-    );
+      // Get ticket
+      const ticket = await storage.getTicket(ticketId!)
+      if (!ticket) {
+        await storage.close()
+        this.error(`Ticket "${ticketId}" not found.`)
+      }
 
-    // Clean up any double newlines
-    board = board.replace(/\n\n+/g, '\n\n');
+      this.log('')
+      this.log(styles.header(`Claiming ${ticketId}: ${ticket.title}`))
+      this.log(styles.muted('You will be the owner (accountable for completion).'))
+      this.log('')
 
-    // Write updated board
-    fs.writeFileSync(boardPath, board);
+      // Determine executor
+      let executor: string
+      let executeAgent = false
 
-    // Commit changes
-    try {
-      execSync('git add .', { cwd: pmoPath, stdio: 'pipe' });
-      execSync(`git commit -m "${agentName} claimed ${ticketId}"`, { cwd: pmoPath, stdio: 'pipe' });
-      execSync('git push', { cwd: pmoPath, stdio: 'pipe' });
-    } catch {
-      this.log(chalk.yellow('Warning: Could not push changes. You may need to push manually.'));
-    }
+      if (flags.self) {
+        executor = currentUser
+      } else if (flags.agent) {
+        executor = flags.agent
+        executeAgent = true
+      } else {
+        // Interactive prompt
+        const executorChoices: Array<{ name: string; value: string } | inquirer.Separator> = [
+          { name: 'Me (I\'ll work on it myself)', value: '__self__' },
+        ]
 
-    this.log(styles.success(`✅ Ticket ${ticketId} claimed by ${agentName}`));
-    this.log(styles.muted(`   Moved to In Progress`));
-    this.log(styles.muted(`   Spec moved to active/`));
-  }
+        if (workspaceAgents.length > 0) {
+          executorChoices.push(new inquirer.Separator('── Agents ──'))
+          for (const a of workspaceAgents) {
+            executorChoices.push({ name: a, value: a })
+          }
+        }
 
-  private async getAgentName(): Promise<string> {
-    // Try to get from worktree config
-    const worktreeRoot = this.findWorktreeRoot();
-    if (worktreeRoot) {
-      const configPath = path.join(worktreeRoot, '.proletariat', 'config.json');
-      if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        if (config.agentName) {
-          return config.agentName;
+        const { selectedExecutor } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'selectedExecutor',
+            message: 'Who will do the work?',
+            choices: executorChoices,
+          },
+        ])
+
+        if (selectedExecutor === '__self__') {
+          executor = currentUser
+        } else {
+          executor = selectedExecutor
+          executeAgent = true
         }
       }
-    }
 
-    // Try global config
-    const globalConfigPath = path.join(process.env.HOME || '', '.proletariat', 'config.json');
-    if (fs.existsSync(globalConfigPath)) {
-      const config = JSON.parse(fs.readFileSync(globalConfigPath, 'utf-8'));
-      if (config.currentAgent) {
-        return config.currentAgent;
+      // Update ticket
+      const updates: { owner: string; assignee: string; status?: TicketStatus } = {
+        owner: currentUser,
+        assignee: executor,
       }
-    }
 
-    // Return empty string - will be prompted in UI if needed
-    return '';
+      // If self, move to in_progress
+      if (!executeAgent) {
+        updates.status = 'in_progress' as TicketStatus
+      }
+
+      await storage.updateTicket(ticketId!, updates)
+      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
+      await storage.close()
+
+      this.log('')
+      this.log(styles.success(`✅ Claimed ${styles.emphasis(ticketId!)}`))
+      this.log(styles.muted(`   Owner: ${currentUser}`))
+      this.log(styles.muted(`   Assignee: ${executor}`))
+
+      if (!executeAgent) {
+        this.log(styles.muted(`   Status: In Progress`))
+        this.log('')
+        this.log(styles.muted('You\'re now working on this ticket.'))
+      } else {
+        this.log('')
+        this.log(styles.muted(`To start agent: prlt ticket execute ${ticketId}`))
+      }
+      this.log('')
+    } catch (error) {
+      await storage.close()
+      throw error
+    }
   }
 
-  private findWorktreeRoot(): string | null {
-    let currentDir = process.cwd();
-    
-    while (currentDir !== '/') {
-      const configPath = path.join(currentDir, '.proletariat', 'config.json');
-      if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        if (config.type === 'worktree') {
-          return currentDir;
-        }
-      }
-      currentDir = path.dirname(currentDir);
+  private getCurrentUser(): string {
+    try {
+      const { execSync } = require('child_process')
+      const name = execSync('git config user.name', { encoding: 'utf-8' }).trim()
+      if (name) return name
+    } catch {
+      // Ignore
     }
-    
-    return null;
+
+    if (process.env.USER) return process.env.USER
+    if (process.env.USERNAME) return process.env.USERNAME
+
+    return 'unknown'
   }
 }

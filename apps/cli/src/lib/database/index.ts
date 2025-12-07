@@ -100,6 +100,12 @@ CREATE TABLE IF NOT EXISTS agent_worktrees (
   FOREIGN KEY (repo_name) REFERENCES repositories(name) ON DELETE CASCADE
 );
 
+-- Workspace-level settings (key-value store)
+CREATE TABLE IF NOT EXISTS workspace_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 -- =============================================================================
 -- Indexes (Agent tables only - PMO indexes are in PMO_SCHEMA_SQL)
 -- =============================================================================
