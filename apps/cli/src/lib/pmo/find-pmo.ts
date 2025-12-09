@@ -3,6 +3,31 @@ import * as path from 'path';
 import Database from 'better-sqlite3';
 
 /**
+ * Translate a path for container environment.
+ * If pmo_path is an absolute host path (e.g., /Users/.../pmo) and we're in a container
+ * (PRLT_HQ_PATH=/hq), extract the relative portion and map to container path.
+ */
+function translatePathForContainer(pmoPath: string, hqPath: string): string {
+  // If path already starts with hqPath, it's already correct
+  if (pmoPath.startsWith(hqPath)) {
+    return pmoPath;
+  }
+
+  // If we're in a container (hqPath is something like /hq) and pmo_path is an absolute host path
+  // Extract just the last component (e.g., "pmo" from "/Users/.../inflow-test-hq/pmo")
+  const pmoBasename = path.basename(pmoPath);
+  const containerPath = path.join(hqPath, pmoBasename);
+
+  // Check if this path exists in the container
+  if (fs.existsSync(containerPath)) {
+    return containerPath;
+  }
+
+  // Fallback: return original (will likely fail, but gives better error message)
+  return pmoPath;
+}
+
+/**
  * Check if a database has PMO tables
  */
 function hasPMOTables(dbPath: string): boolean {
@@ -27,11 +52,42 @@ function hasPMOTables(dbPath: string): boolean {
  * Find PMO directory by checking workspace.db for pmo_projects table
  *
  * Search priority:
- * 1. Current directory tree for HQ with PMO
- * 2. Current directory tree for standalone PMO (.pmo/)
- * 3. Global config for default PMO
+ * 1. PRLT_HQ_PATH environment variable (used in devcontainers)
+ * 2. Current directory tree for HQ with PMO
+ * 3. Current directory tree for standalone PMO (.pmo/)
+ * 4. Global config for default PMO
  */
 export function findPMO(): string | null {
+  // Check PRLT_HQ_PATH environment variable first (used in devcontainers)
+  const hqPath = process.env.PRLT_HQ_PATH;
+  if (hqPath) {
+    const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
+    if (hasPMOTables(dbPath)) {
+      try {
+        const db = new Database(dbPath);
+        const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
+        db.close();
+
+        if (result) {
+          // Handle absolute paths that might be from host system
+          let pmoPath = path.isAbsolute(result.value)
+            ? result.value
+            : path.join(hqPath, result.value);
+
+          // Translate host paths to container paths if needed
+          pmoPath = translatePathForContainer(pmoPath, hqPath);
+          return pmoPath;
+        }
+      } catch {
+        // Table might not exist yet
+      }
+
+      // Fallback: default location at HQ root
+      const pmoPath = path.join(hqPath, 'pmo');
+      return pmoPath;
+    }
+  }
+
   let currentDir = process.cwd();
 
   // Search up the directory tree

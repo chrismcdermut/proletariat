@@ -83,10 +83,12 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       'source=claude-credentials,target=/home/node/.claude,type=volume',
       'source=${localEnv:HOME}/.claude.json,target=/home/node/.claude.json,type=bind',
       'source=${localEnv:PRLT_HQ_PATH}/.proletariat,target=/hq/.proletariat,type=bind',
+      'source=${localEnv:PRLT_REPO_PATH},target=/opt/prlt,type=bind,readonly',
     ],
     containerEnv: {
       ANTHROPIC_API_KEY: '${localEnv:ANTHROPIC_API_KEY}',
       PRLT_HQ_PATH: '/hq',
+      PATH: '/opt/prlt/apps/cli/bin:/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin',
     },
     workspaceFolder: '/workspace',
     postStartCommand: 'sudo /usr/local/bin/init-firewall.sh',

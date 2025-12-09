@@ -490,11 +490,23 @@ export async function runDevcontainer(
     // Copy Claude credentials into workspace so container can access them
     copyClaudeCredentials(context.worktreePath)
 
-    // Set PRLT_HQ_PATH so devcontainer can mount the HQ .proletariat directory
-    // This allows the agent to run `prlt ticket complete` from inside the container
+    // Set environment variables for devcontainer mounts
+    // PRLT_HQ_PATH: allows agent to access the HQ database and run `prlt ticket complete`
+    // PRLT_REPO_PATH: mounts the entire proletariat repo into the container (until prlt is on npm)
     const env = { ...process.env }
     if (context.hqPath) {
       env.PRLT_HQ_PATH = context.hqPath
+    }
+    // Set repo path to the proletariat monorepo (auto-detect from current CLI location)
+    // We mount the entire repo so node_modules resolution works correctly
+    if (!env.PRLT_REPO_PATH) {
+      // Get the directory where this CLI is running from (apps/cli)
+      const cliDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', '..')
+      // Go up to the monorepo root (repos/proletariat)
+      const repoDir = path.resolve(cliDir, '..', '..')
+      if (fs.existsSync(path.join(repoDir, 'apps', 'cli', 'bin', 'run.js'))) {
+        env.PRLT_REPO_PATH = repoDir
+      }
     }
 
     // Start or reuse container (devcontainer up is idempotent)
