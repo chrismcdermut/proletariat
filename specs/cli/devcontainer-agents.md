@@ -28,12 +28,23 @@ Sandboxed execution environment for AI agents using VS Code devcontainers. Provi
 
 | Command | Purpose | Status |
 |---------|---------|--------|
-| `prlt agents add [names...] --container` | Add agents with devcontainer config | Planned |
-| `prlt agents add [names...] --no-container` | Add agents without devcontainer | Planned |
+| `prlt agents add [names...]` | Add agents with devcontainer config (default) | ✅ Implemented |
+| `prlt agents add [names...] --no-container` | Add agents without devcontainer | ✅ Implemented |
+| `prlt repos add` | Add repos with devcontainer config | ✅ Implemented |
+| `prlt pmo init --location separate` | Create PMO with devcontainer config | ✅ Implemented |
+| `prlt ticket execute --mode devcontainer` | Execute ticket in devcontainer | ✅ Implemented |
 | `prlt agent container start [name]` | Start agent's devcontainer | Planned |
 | `prlt agent container stop [name]` | Stop agent's devcontainer | Planned |
 | `prlt agent container rebuild [name]` | Rebuild agent's devcontainer | Planned |
 | `prlt agent container status [name]` | Show container status | Planned |
+
+### Devcontainer Creation Locations
+
+Devcontainers are automatically created in these locations:
+
+1. **Agent worktrees** (`prlt agents add`): Each agent gets a `.devcontainer/` for sandboxed execution
+2. **Central repos** (`prlt repos add`): Each repo in `repos/` gets a `.devcontainer/`
+3. **Separate PMO** (`prlt pmo init --location separate`): The PMO repo gets a `.devcontainer/`
 
 ---
 
@@ -106,46 +117,51 @@ For agents with multiple repository worktrees:
 
 ---
 
-## Runtime Mode: devcontainer
+## Automatic Devcontainer Usage
 
-### Adding to Execute Command
+### How It Works
 
-New runtime mode in execute command:
-
-```bash
-prlt ticket execute TKT-001 --mode devcontainer
-```
-
-### Mode Selection Menu
+When executing a ticket, if the agent has a `.devcontainer/` directory, **devcontainer is always used automatically**. The user only chooses how to display the output:
 
 ```
-? Select execution mode:
-  devcontainer - Sandboxed container (recommended)
-  terminal     - New Terminal.app window (macOS)
+? How should the agent output be displayed?
+  terminal     - New terminal window (macOS)
   foreground   - Run in current terminal
   tmux         - New tmux pane/window
   background   - Detached process, logs to file
-  ── Advanced ──
-  docker       - Raw Docker container
-  vm           - Remote VM via SSH
 ```
 
-### Auto-Detection
+This ensures agents always run sandboxed when a devcontainer config exists.
 
-When executing, if agent has `.devcontainer/`:
-1. Use devcontainer mode automatically (or prompt to confirm)
-2. Start container if not running
-3. Execute Claude inside container
+### Execution Flow
 
-```typescript
-// In ticket execute
-const hasDevcontainer = fs.existsSync(
-  path.join(agentDir, '.devcontainer', 'devcontainer.json')
-);
+1. Check if agent has `.devcontainer/devcontainer.json`
+2. If yes:
+   - Always use devcontainer (sandboxed)
+   - Prompt for display mode (terminal, foreground, background, tmux)
+   - Show: `🐳 Sandboxed: devcontainer (display: terminal)`
+3. If no:
+   - Fall back to legacy mode selection
+   - Show warning: `⚠️ Mode: terminal (no sandbox - running on host)`
 
-if (hasDevcontainer && !flags.mode) {
-  // Prompt or auto-select devcontainer mode
-}
+### Command Examples
+
+```bash
+prlt ticket execute TKT-001                      # Auto-detect, prompt for display
+prlt ticket execute TKT-001 --mode terminal      # Devcontainer + new terminal window
+prlt ticket execute TKT-001 --mode foreground    # Devcontainer + current terminal
+prlt ticket execute TKT-001 --mode background    # Devcontainer + log to file
+```
+
+### No Devcontainer Fallback
+
+If the agent doesn't have a devcontainer, the legacy mode selection is shown with a warning:
+
+```
+? Select execution mode (no devcontainer - running on host):
+  terminal     - New terminal window (macOS)
+  foreground   - Run in current terminal
+  ...
 ```
 
 ---
@@ -421,22 +437,23 @@ agents/staff/altman/
 ## Implementation Tickets
 
 ### Phase 1: Core Infrastructure
-- [ ] Add `devcontainer` to RuntimeMode type
-- [ ] Create devcontainer template generator in lib/
-- [ ] Implement runDevcontainer runner function
-- [ ] Add devcontainer mode to runner dispatcher
+- [x] Add `devcontainer` to RuntimeMode type
+- [x] Create devcontainer template generator in lib/
+- [x] Implement runDevcontainer runner function
+- [x] Add devcontainer mode to runner dispatcher
 
 ### Phase 2: Agent Creation Integration
-- [ ] Update `prlt agents add` to generate .devcontainer/
-- [ ] Add `--container` / `--no-container` flags
-- [ ] Create default devcontainer.json template
-- [ ] Handle multi-repo mount configuration
+- [x] Update `prlt agents add` to generate .devcontainer/
+- [x] Add `--no-container` flag (devcontainer is default)
+- [x] Create default devcontainer.json template
+- [x] Handle multi-repo mount configuration
 
 ### Phase 3: Execute Integration
-- [ ] Auto-detect devcontainer in execute command
-- [ ] Update mode selection menu with devcontainer option
-- [ ] Implement container auto-start before execution
-- [ ] Track container ID in execution records
+- [x] Auto-detect devcontainer in execute command (always uses devcontainer when available)
+- [x] Update mode selection to display-only when devcontainer exists
+- [x] Implement container auto-start before execution
+- [x] Track container ID in execution records
+- [x] Support display modes (terminal, foreground, background, tmux) with devcontainer
 
 ### Phase 4: Container Lifecycle Commands
 - [ ] Implement `prlt agent container start`
@@ -445,7 +462,7 @@ agents/staff/altman/
 - [ ] Implement `prlt agent container status`
 
 ### Phase 5: Polish
-- [ ] Add configuration options (memory, cpus, image)
+- [x] Add configuration options (memory, cpus, image)
 - [ ] Improve error messages and recovery
 - [ ] Add container health monitoring
 - [ ] Documentation and examples

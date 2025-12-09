@@ -70,8 +70,11 @@ This is the authoritative list of commands that MUST exist in the CLI.
 | `prlt agents`        | ✓  | ✓  | -  | Interactive bulk operations menu | [agent-commands.md](../../specs/cli/agent-commands.md) |
 | `prlt agents list`   | ✓  | ✓  | -  | List all agents with overview    | [agent-commands.md](../../specs/cli/agent-commands.md) |
 | `prlt agents status` | ✓  | ✓  | -  | Status overview for all agents   | [agent-commands.md](../../specs/cli/agent-commands.md) |
-| `prlt agents add`    | ✓  | ✓  | -  | Add multiple agents (bulk)       | [agent-commands.md](../../specs/cli/agent-commands.md) |
+| `prlt agents add`    | ✓  | ✓  | -  | Add multiple agents (bulk, creates devcontainer by default) | [agent-commands.md](../../specs/cli/agent-commands.md) |
 | `prlt agents remove` | ✓  | ✓  | -  | Remove multiple agents (bulk)    | [agent-commands.md](../../specs/cli/agent-commands.md) |
+
+**Agent Options:**
+- `--no-container`: Skip devcontainer setup (not recommended for autonomous agents)
 
 #### Repo Commands (Individual Operations)
 
@@ -110,13 +113,10 @@ This is the authoritative list of commands that MUST exist in the CLI.
 
 | Command               | 📝 | ✅ | 🧪 | Description                        | Spec                                                           |
 | --------------------- | -- | -- | -- | ---------------------------------- | -------------------------------------------------------------- |
-| `prlt board`          | ✓  | ✓  | -  | Interactive board menu             | [board-commands.md](../../specs/cli/board-commands.md) |
-| `prlt board view`     | ✓  | ✓  | -  | View board in terminal             | [board-commands.md](../../specs/cli/board-commands.md) |
-| `prlt board open`     | ✓  | ✓  | -  | Open board in Obsidian             | [board-commands.md](../../specs/cli/board-commands.md) |
-| `prlt board markdown` | ✓  | -  | -  | Show board as markdown             | [board-commands.md](../../specs/cli/board-commands.md) |
-| `prlt board export`   | ✓  | -  | -  | Export board to file               | [board-commands.md](../../specs/cli/board-commands.md) |
-| `prlt board sync`     | ✓  | ✓  | -  | Sync between SQLite and kanban.md  | [board-commands.md](../../specs/cli/board-commands.md) |
+| `prlt board`          | ✓  | ✓  | -  | Interactive board menu (view/open/sync/etc) | [board-commands.md](../../specs/cli/board-commands.md) |
 | `prlt board watch`    | ✓  | ✓  | -  | Watch kanban.md for changes        | [board-commands.md](../../specs/cli/board-commands.md) |
+
+**Note**: Board operations (view, open, markdown, export, sync) are available through the `prlt board` interactive menu.
 
 #### Spec Commands
 
@@ -153,6 +153,7 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 | `prlt ticket create [title]`     | ✓  | ✓  | -  | Create new ticket       | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 | `prlt ticket list`               | ✓  | ✓  | -  | List all tickets        | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 | `prlt ticket view [id]`          | ✓  | ✓  | -  | View ticket details     | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
+| `prlt ticket edit [id]`          | ✓  | ✓  | -  | Edit ticket fields      | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 | `prlt ticket move [id] [column]` | ✓  | ✓  | -  | Move ticket to column   | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 | `prlt ticket delete [id]`        | ✓  | ✓  | -  | Delete ticket           | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 | `prlt ticket complete [id]`      | ✓  | ✓  | -  | Move ticket to Done     | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
@@ -178,9 +179,9 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 
 | Command                           | 📝 | ✅ | 🧪 | Description                        | Spec                                                         |
 | --------------------------------- | -- | -- | -- | ---------------------------------- | ------------------------------------------------------------ |
-| `prlt ticket own [id]`            | ✓  | -  | -  | Take accountability for ticket     | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
+| `prlt ticket own [id]`            | ✓  | ✓  | -  | Take accountability for ticket     | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 | `prlt ticket assign [id] [agent]` | ✓  | ✓  | -  | Delegate work to human/agent       | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt ticket claim [id]`          | ✓  | -  | -  | Interactive: own + assign + execute| [ticket-commands.md](../../specs/cli/ticket-commands.md) |
+| `prlt ticket claim [id]`          | ✓  | ✓  | -  | Interactive: own + assign + execute| [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 
 #### Execute Commands (Agent Runtime)
 
@@ -188,10 +189,42 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 
 | Command                           | 📝 | ✅ | 🧪 | Description                        | Spec                                                             |
 | --------------------------------- | -- | -- | -- | ---------------------------------- | ---------------------------------------------------------------- |
-| `prlt ticket execute [id]`        | ✓  | -  | -  | Start agent working on ticket      | [execute-commands.md](../../specs/cli/execute-commands.md) |
-| `prlt execution list`             | ✓  | -  | -  | List running/recent executions     | [execute-commands.md](../../specs/cli/execute-commands.md) |
-| `prlt execution logs [id]`        | ✓  | -  | -  | View execution logs                | [execute-commands.md](../../specs/cli/execute-commands.md) |
-| `prlt execution stop [id]`        | ✓  | -  | -  | Stop a running execution           | [execute-commands.md](../../specs/cli/execute-commands.md) |
+| `prlt ticket execute [id]`        | ✓  | ✓  | -  | Start agent working on ticket      | [execute-commands.md](../../specs/cli/execute-commands.md) |
+| `prlt execution list`             | ✓  | ✓  | -  | List running/recent executions     | [execute-commands.md](../../specs/cli/execute-commands.md) |
+| `prlt execution logs [id]`        | ✓  | ✓  | -  | View execution logs                | [execute-commands.md](../../specs/cli/execute-commands.md) |
+| `prlt execution stop [id]`        | ✓  | ✓  | -  | Stop a running execution           | [execute-commands.md](../../specs/cli/execute-commands.md) |
+
+**Runtime Modes:**
+
+| Mode           | Description                              | Sandboxed |
+| -------------- | ---------------------------------------- | --------- |
+| `devcontainer` | VS Code devcontainer (recommended)       | ✓         |
+| `terminal`     | New terminal window (macOS)              | -         |
+| `foreground`   | Subprocess in current terminal           | -         |
+| `tmux`         | New tmux pane/window                     | -         |
+| `background`   | Detached process, logs to file           | -         |
+| `docker`       | Raw Docker container                     | ✓         |
+| `vm`           | Remote VM via SSH                        | ✓         |
+
+See [devcontainer-agents.md](../../specs/cli/devcontainer-agents.md) for sandboxed agent execution.
+
+#### Branch Commands
+
+| Command                         | 📝 | ✅ | 🧪 | Description                        | Spec                                                     |
+| ------------------------------- | -- | -- | -- | ---------------------------------- | -------------------------------------------------------- |
+| `prlt branch`                   | ✓  | ✓  | -  | Interactive branch menu            | [branch-commands.md](../../specs/cli/branch-commands.md) |
+| `prlt branch create`            | ✓  | ✓  | -  | Interactive branch creation wizard | [branch-commands.md](../../specs/cli/branch-commands.md) |
+| `prlt branch create [name]`     | ✓  | ✓  | -  | Create branch with given name      | [branch-commands.md](../../specs/cli/branch-commands.md) |
+| `prlt branch list`              | ✓  | ✓  | -  | List branches with conventional info | [branch-commands.md](../../specs/cli/branch-commands.md) |
+| `prlt branch validate`          | ✓  | ✓  | -  | Validate branch name format        | [branch-commands.md](../../specs/cli/branch-commands.md) |
+
+**Branch Types:**
+
+| Group | Types |
+| ----- | ----- |
+| Conventional Commits | `feat`, `fix`, `rfct`, `docs`, `test`, `chore`, `perf`, `ci`, `build` |
+| Extended Types | `sec`, `db`, `rel` |
+| 5Tool Founder | `ship`, `grow`, `cx`, `strat`, `ops` |
 
 #### Database Commands
 
@@ -202,6 +235,15 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 | `prlt db schema [table]`| ✓  | -  | -  | Show table structure             | [db-commands.md](../../specs/cli/db-commands.md)   |
 | `prlt db query <sql>`   | ✓  | -  | -  | Run SQL query (read-only default)| [db-commands.md](../../specs/cli/db-commands.md)   |
 | `prlt db stats`         | ✓  | -  | -  | Database size and health info    | [db-commands.md](../../specs/cli/db-commands.md)   |
+
+#### Config Commands
+
+| Command                         | 📝 | ✅ | 🧪 | Description                     | Spec                                                     |
+| ------------------------------- | -- | -- | -- | ------------------------------- | -------------------------------------------------------- |
+| `prlt config get <key>`         | ✓  | -  | -  | Get a configuration value       | [config-commands.md](../../specs/cli/config-commands.md) |
+| `prlt config set <key> <value>` | ✓  | -  | -  | Set a configuration value       | [config-commands.md](../../specs/cli/config-commands.md) |
+| `prlt config list`              | ✓  | -  | -  | List all configuration settings | [config-commands.md](../../specs/cli/config-commands.md) |
+| `prlt config reset <key>`       | ✓  | -  | -  | Reset a setting to default      | [config-commands.md](../../specs/cli/config-commands.md) |
 
 #### Maintenance Commands
 
@@ -419,18 +461,31 @@ apps/cli/
 │   │   ├── link.ts
 │   │   └── update.ts
 │   ├── spec/
+│   │   ├── index.ts
 │   │   ├── create.ts
 │   │   ├── list.ts
 │   │   └── view.ts
-│   ├── epic/           # Epic commands (not yet implemented)
+│   ├── epic/           # Epic commands
+│   │   ├── index.ts
 │   │   ├── create.ts
 │   │   ├── list.ts
 │   │   ├── view.ts
 │   │   ├── archive.ts
 │   │   ├── activate.ts
 │   │   ├── move.ts
-│   │   └── progress.ts
-│   └── db/             # Database inspection commands
+│   │   ├── progress.ts
+│   │   └── link.ts
+│   ├── branch/         # Branch commands
+│   │   ├── index.ts
+│   │   ├── create.ts
+│   │   ├── list.ts
+│   │   └── validate.ts
+│   ├── execution/      # Execution commands
+│   │   ├── index.ts
+│   │   ├── list.ts
+│   │   ├── logs.ts
+│   │   └── stop.ts
+│   └── db/             # Database inspection commands (not yet implemented)
 │       ├── index.ts
 │       ├── tables.ts
 │       ├── schema.ts
@@ -455,12 +510,16 @@ Detailed specifications for each command are in the `specs/` directory at the re
 ### CLI Commands
 - [init-commands.md](../../specs/cli/init-commands.md) - `prlt init`, `prlt pmo init`
 - [agent-commands.md](../../specs/cli/agent-commands.md) - `prlt agent`, `prlt agents`
+- [repo-commands.md](../../specs/cli/repo-commands.md) - `prlt repo`, `prlt repos`
 - [project-commands.md](../../specs/cli/project-commands.md) - `prlt project`
 - [board-commands.md](../../specs/cli/board-commands.md) - `prlt board`
 - [ticket-commands.md](../../specs/cli/ticket-commands.md) - `prlt ticket`, `prlt tickets`, ownership (own/assign/claim)
 - [spec-commands.md](../../specs/cli/spec-commands.md) - `prlt spec` (static documentation)
 - [epic-commands.md](../../specs/cli/epic-commands.md) - `prlt epic` (work containers)
 - [execute-commands.md](../../specs/cli/execute-commands.md) - `prlt ticket execute`, `prlt execution` (agent runtime)
+- [branch-commands.md](../../specs/cli/branch-commands.md) - `prlt branch` (conventional branch naming)
+- [db-commands.md](../../specs/cli/db-commands.md) - `prlt db` (database inspection, not yet implemented)
+- [config-commands.md](../../specs/cli/config-commands.md) - `prlt config` (configuration management, not yet implemented)
 
 ### Storage Layer
 - [pmo-interface.md](../../specs/architecture/pmo-interface.md) - Core PMO interface contract

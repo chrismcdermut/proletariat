@@ -6,6 +6,7 @@ import chalk from 'chalk';
 import { THEMES } from '../themes.js';
 import { getWorkspaceRepositories } from '../database/index.js';
 import { styles } from '../styles.js';
+import { createDevcontainerConfig } from '../execution/devcontainer.js';
 
 export interface HQConfig {
   type: 'hq';
@@ -76,10 +77,14 @@ export async function selectAgentsFromTheme(theme: string, existingAgents: strin
   return selected;
 }
 
+export interface CreateAgentOptions {
+  skipDevcontainer?: boolean;  // Skip devcontainer creation (default: false)
+}
+
 /**
  * Create agent worktrees (shared between HQ and workspace-only modes)
  */
-export async function createAgentWorktrees(workspacePath: string, agents: string[], hqPath?: string): Promise<void> {
+export async function createAgentWorktrees(workspacePath: string, agents: string[], hqPath?: string, options?: CreateAgentOptions): Promise<void> {
   if (hqPath) {
     // HQ mode - create worktrees for all repos in repos/ directory
     const reposDir = path.join(hqPath, 'repos');
@@ -140,23 +145,16 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
             }
           }
 
-          // Create agent config in the agent directory
-          const agentConfigDir = path.join(agentDir, '.proletariat');
-          fs.mkdirSync(agentConfigDir, { recursive: true });
-          
-          const agentConfig = {
-            type: 'agent',
-            agentName: agent,
-            created: new Date().toISOString(),
-            workspacePath: path.relative(agentDir, hqPath),
-            repos: repos.map(r => r.name),
-            branch: `agent-${agent}`
-          };
-          
-          fs.writeFileSync(
-            path.join(agentConfigDir, 'config.json'),
-            JSON.stringify(agentConfig, null, 2)
-          );
+          // Create devcontainer config for sandboxed execution
+          // Note: Agent metadata is stored in SQLite (agents table), not in config files
+          if (!options?.skipDevcontainer) {
+            console.log(styles.muted(`  Creating devcontainer config...`));
+            createDevcontainerConfig({
+              agentName: agent,
+              agentDir,
+              repoWorktrees: repos.map(r => r.name),
+            });
+          }
 
           console.log(chalk.green(`✅ Agent ${agent} created with ${repos.length} worktree(s)`));
         } catch (error) {
@@ -220,24 +218,16 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
           }
         }
 
-        // Create agent config in the agent directory (not the worktree)
-        const agentConfigDir = path.join(agentDir, '.proletariat');
-        fs.mkdirSync(agentConfigDir, { recursive: true });
-        
-        const agentConfig = {
-          type: 'agent',
-          agentName: agent,
-          created: new Date().toISOString(),
-          workspacePath: path.relative(agentDir, workspacePath),
-          sourceRepo: path.relative(agentDir, sourceRepo),
-          worktreeDir: repoName,
-          branch: `agent-${agent}`
-        };
-        
-        fs.writeFileSync(
-          path.join(agentConfigDir, 'config.json'),
-          JSON.stringify(agentConfig, null, 2)
-        );
+        // Create devcontainer config for sandboxed execution
+        // Note: Agent metadata is stored in SQLite (agents table), not in config files
+        if (!options?.skipDevcontainer) {
+          console.log(styles.muted(`  Creating devcontainer config...`));
+          createDevcontainerConfig({
+            agentName: agent,
+            agentDir,
+            repoWorktrees: [repoName],
+          });
+        }
 
         console.log(chalk.green(`✅ Agent ${agent} created with worktree`));
       } catch (error) {

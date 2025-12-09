@@ -29,38 +29,38 @@ This matches the pattern used by other entities:
 ## Command Overview
 
 ### Core Commands
-| Command                           | Purpose                                |
-| --------------------------------- | -------------------------------------- |
-| `prlt ticket`                     | Interactive menu for ticket operations |
-| `prlt ticket create [title]`      | Create new ticket                      |
-| `prlt ticket list`                | List all tickets with filters          |
-| `prlt ticket view [id]`           | View ticket details                    |
-| `prlt ticket move [id] [column]`  | Move ticket to column                  |
-| `prlt ticket delete [id]`         | Delete ticket                          |
-| `prlt ticket complete [id]`       | Move ticket to Done                    |
-| `prlt ticket status [id]`         | Show ticket status                     |
-| `prlt ticket link [id] [epic-id]` | Link ticket to epic                    |
+| Command                           | Purpose                                | Status             |
+| --------------------------------- | -------------------------------------- | ------------------ |
+| `prlt ticket`                     | Interactive menu for ticket operations | ✅ Implemented     |
+| `prlt ticket create [title]`      | Create new ticket                      | ✅ Implemented     |
+| `prlt ticket list`                | List all tickets with filters          | ✅ Implemented     |
+| `prlt ticket view [id]`           | View ticket details                    | ✅ Implemented     |
+| `prlt ticket move [id] [column]`  | Move ticket to column                  | ✅ Implemented     |
+| `prlt ticket delete [id]`         | Delete ticket                          | ✅ Implemented     |
+| `prlt ticket complete [id]`       | Move ticket to Done                    | ✅ Implemented     |
+| `prlt ticket status [id]`         | Show ticket status                     | ✅ Implemented     |
+| `prlt ticket link [id] [epic-id]` | Link ticket to epic                    | ✅ Implemented     |
 
 ### Ownership Commands
-| Command                           | Purpose                                |
-| --------------------------------- | -------------------------------------- |
-| `prlt ticket own [id]`            | Take accountability for ticket         |
-| `prlt ticket assign [id] [agent]` | Delegate work to human or agent        |
-| `prlt ticket claim [id]`          | Interactive: own + assign + execute    |
+| Command                           | Purpose                                | Status             |
+| --------------------------------- | -------------------------------------- | ------------------ |
+| `prlt ticket own [id]`            | Take accountability for ticket         | ✅ Implemented     |
+| `prlt ticket assign [id] [agent]` | Delegate work to human or agent        | ✅ Implemented     |
+| `prlt ticket claim [id]`          | Interactive: own + assign + execute    | ✅ Implemented     |
 
 > **Note**: For execution (spinning up agents, runtime modes), see [execute-commands.md](execute-commands.md)
 
 ### Bulk Commands (`prlt tickets`)
-| Command                           | Purpose                                |
-| --------------------------------- | -------------------------------------- |
-| `prlt tickets`                    | Interactive menu for bulk operations   |
-| `prlt tickets list`               | List all tickets with filtering        |
-| `prlt tickets move`               | Move multiple tickets to column        |
-| `prlt tickets delete`             | Delete multiple tickets                |
-| `prlt tickets complete`           | Complete multiple tickets              |
-| `prlt tickets reassign`           | Reassign tickets to different agent    |
-| `prlt tickets link`               | Link tickets to different epic         |
-| `prlt tickets update`             | Update priority/category for multiple  |
+| Command                           | Purpose                                | Status         |
+| --------------------------------- | -------------------------------------- | -------------- |
+| `prlt tickets`                    | Interactive menu for bulk operations   | ✅ Implemented |
+| `prlt tickets list`               | List all tickets with filtering        | ✅ Implemented |
+| `prlt tickets move`               | Move multiple tickets to column        | ✅ Implemented |
+| `prlt tickets delete`             | Delete multiple tickets                | ✅ Implemented |
+| `prlt tickets complete`           | Complete multiple tickets              | ✅ Implemented |
+| `prlt tickets reassign`           | Reassign tickets to different agent    | ✅ Implemented |
+| `prlt tickets link`               | Link tickets to different epic         | ✅ Implemented |
+| `prlt tickets update`             | Update priority/category for multiple  | ✅ Implemented |
 
 ---
 

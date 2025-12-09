@@ -12,7 +12,7 @@ import { execSync } from 'child_process'
 // =============================================================================
 
 export const BRANCH_TYPES = {
-  // Development types
+  // Conventional Commits (standard types)
   feat: 'New feature',
   fix: 'Bug fix',
   rfct: 'Refactoring (no functional change)',
@@ -20,27 +20,40 @@ export const BRANCH_TYPES = {
   test: 'Test additions or corrections',
   chore: 'Maintenance tasks, no production code',
   perf: 'Performance improvement',
-  sec: 'Security fixes or improvements',
   ci: 'CI/CD configuration changes',
   build: 'Build system or external dependency changes',
+  // Extended Types (proletariat extras)
+  sec: 'Security fixes or improvements',
   db: 'Database migrations or schema changes',
   rel: 'Release preparation',
-  // Founder/business types
+  // 5Tool Founder Types
+  ship: 'Shipping, deployment, and launch',
   grow: 'Growth and marketing initiatives',
-  ops: 'Business operations',
-  strat: 'Strategy and planning',
   cx: 'Customer experience and support',
+  strat: 'Strategy and planning',
+  ops: 'Business operations',
 } as const
 
 export type BranchType = keyof typeof BRANCH_TYPES
 
-export const DEVELOPMENT_TYPES: BranchType[] = [
-  'feat', 'fix', 'rfct', 'docs', 'test', 'chore', 'perf', 'sec', 'ci', 'build', 'db', 'rel'
+// Conventional Commits (standard types)
+export const CONVENTIONAL_TYPES: BranchType[] = [
+  'feat', 'fix', 'rfct', 'docs', 'test', 'chore', 'perf', 'ci', 'build'
 ]
 
-export const BUSINESS_TYPES: BranchType[] = [
-  'grow', 'ops', 'strat', 'cx'
+// Extended Types (proletariat extras)
+export const EXTENDED_TYPES: BranchType[] = [
+  'sec', 'db', 'rel'
 ]
+
+// 5Tool Founder Types
+export const FOUNDER_TYPES: BranchType[] = [
+  'ship', 'grow', 'cx', 'strat', 'ops'
+]
+
+// Combined for wizard display
+export const DEVELOPMENT_TYPES: BranchType[] = [...CONVENTIONAL_TYPES, ...EXTENDED_TYPES]
+export const BUSINESS_TYPES: BranchType[] = FOUNDER_TYPES
 
 // =============================================================================
 // Validation

@@ -223,15 +223,10 @@ export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string):
     };
   });
 
-  // Get last activity
-  try {
-    const agentConfigDir = path.join(agentDir, '.proletariat');
-    if (fs.existsSync(agentConfigDir)) {
-      const stats = fs.statSync(agentConfigDir);
-      status.lastActivity = stats.mtime;
-    }
-  } catch {
-    // Ignore if can't get last activity
+  // Get last activity from database
+  const agentRecord = workspaceInfo.agents.find(a => a.name === agentName);
+  if (agentRecord?.last_activity) {
+    status.lastActivity = new Date(agentRecord.last_activity);
   }
 
   // Get ticket assignments (if PMO enabled)
@@ -299,26 +294,30 @@ export function validateAgentNames(workspaceInfo: WorkspaceInfo, agentNames: str
   return { valid, invalid };
 }
 
+export interface AddAgentOptions {
+  skipDevcontainer?: boolean;  // Skip devcontainer creation (default: false)
+}
+
 /**
  * Create agent worktrees and update database
  */
-export async function addAgentsToWorkspace(workspaceInfo: WorkspaceInfo, agentNames: string[]): Promise<string[]> {
+export async function addAgentsToWorkspace(workspaceInfo: WorkspaceInfo, agentNames: string[], options?: AddAgentOptions): Promise<string[]> {
   // Import dynamically to avoid circular dependency
   const { createAgentWorktrees } = await import('./index.js');
-  
+
   // Filter out existing agents
   const existingNames = workspaceInfo.agents.map(a => a.name);
   const newAgents = agentNames.filter(name => !existingNames.includes(name));
-  
+
   if (newAgents.length === 0) {
     return [];
   }
 
   // Create worktrees
   if (workspaceInfo.type === 'hq') {
-    await createAgentWorktrees(workspaceInfo.agentsPath, newAgents, workspaceInfo.path);
+    await createAgentWorktrees(workspaceInfo.agentsPath, newAgents, workspaceInfo.path, options);
   } else {
-    await createAgentWorktrees(workspaceInfo.agentsPath, newAgents);
+    await createAgentWorktrees(workspaceInfo.agentsPath, newAgents, undefined, options);
   }
 
   // Add to database

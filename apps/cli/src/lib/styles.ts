@@ -121,7 +121,7 @@ export function getColumnEmoji(column: string): string {
     'Review': '👀',
     'Blocked': '🚧',
     'Done': '✅',
-    'BUILD BL': '🔨',
+    'SHIP BL': '🚢',
     'GROW BL': '📈',
     'SUPPORT BL': '🛟',
     'BIZOPS BL': '⚙️',

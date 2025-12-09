@@ -9,14 +9,18 @@ import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
   RuntimeMode,
+  DisplayMode,
   ExecutorType,
   ExecutionContext,
+  TerminalApp,
+  Shell,
   generateBranchName,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
 import { runExecution } from '../../lib/execution/runners.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
-import { loadExecutionConfig, getTerminalApp } from '../../lib/execution/config.js'
+import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference } from '../../lib/execution/config.js'
+import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 
 export default class TicketExecute extends Command {
   static description = 'Start an agent working on a ticket'
@@ -41,7 +45,7 @@ export default class TicketExecute extends Command {
     mode: Flags.string({
       char: 'm',
       description: 'Runtime mode',
-      options: ['foreground', 'background', 'tmux', 'terminal', 'docker', 'vm'],
+      options: ['foreground', 'background', 'tmux', 'terminal', 'devcontainer', 'docker', 'vm'],
     }),
     executor: Flags.string({
       char: 'e',
@@ -60,6 +64,10 @@ export default class TicketExecute extends Command {
     }),
     host: Flags.string({
       description: 'VM host for vm mode',
+    }),
+    reconfigure: Flags.boolean({
+      description: 'Re-prompt for terminal app preference',
+      default: false,
     }),
   }
 
@@ -257,6 +265,8 @@ export default class TicketExecute extends Command {
       }
 
       // Build execution context
+      // HQ path is parent of pmoPath (pmoPath is <hq>/pmo)
+      const hqPath = path.dirname(pmoPath)
       const context: ExecutionContext = {
         ticketId: ticket.id,
         ticketTitle: ticket.title,
@@ -266,32 +276,69 @@ export default class TicketExecute extends Command {
         agentName: assignedAgent,
         worktreePath,
         branch,
+        hqPath,
       }
 
-      // Determine runtime mode - prompt if not provided via flag
+      // Check if agent has devcontainer config - if so, always use it for sandboxed execution
+      const useDevcontainer = hasDevcontainerConfig(agentDir)
+
+      // Determine runtime mode
       let mode: RuntimeMode
-      if (flags.mode) {
-        mode = flags.mode as RuntimeMode
+      let displayMode: DisplayMode = 'terminal'
+
+      if (useDevcontainer) {
+        // Agent has devcontainer - always run sandboxed, just pick display mode
+        if (flags.mode && ['terminal', 'foreground', 'background', 'tmux'].includes(flags.mode)) {
+          displayMode = flags.mode as DisplayMode
+        } else if (flags.mode === 'devcontainer') {
+          // Explicit devcontainer mode - use foreground display
+          displayMode = 'foreground'
+        } else if (!flags.mode) {
+          const { selectedDisplay } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'selectedDisplay',
+              message: 'How should the agent output be displayed?',
+              choices: [
+                { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
+                { name: 'foreground   - Run in current terminal', value: 'foreground' },
+                { name: 'tmux         - New tmux pane/window', value: 'tmux' },
+                { name: 'background   - Detached process, logs to file', value: 'background' },
+              ],
+              default: 'terminal',
+            },
+          ])
+          displayMode = selectedDisplay as DisplayMode
+        }
+        // Use devcontainer mode - the runner will handle display based on config
+        mode = 'devcontainer'
       } else {
-        const { selectedMode } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedMode',
-            message: 'Select execution mode:',
-            choices: [
-              { name: 'terminal   - New Terminal.app window (macOS)', value: 'terminal' },
-              { name: 'foreground - Run in current terminal', value: 'foreground' },
-              { name: 'tmux       - New tmux pane/window', value: 'tmux' },
-              { name: 'background - Detached process, logs to file', value: 'background' },
-              new inquirer.Separator('── Advanced ──'),
-              { name: 'docker     - Container with worktree mounted', value: 'docker' },
-              { name: 'vm         - Remote VM via SSH', value: 'vm' },
-            ],
-            default: DEFAULT_EXECUTION_CONFIG.defaultMode,
-          },
-        ])
-        mode = selectedMode as RuntimeMode
+        // No devcontainer - fall back to legacy mode selection (less safe)
+        if (flags.mode) {
+          mode = flags.mode as RuntimeMode
+        } else {
+          const { selectedMode } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'selectedMode',
+              message: 'Select execution mode (no devcontainer - running on host):',
+              choices: [
+                { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
+                { name: 'foreground   - Run in current terminal', value: 'foreground' },
+                { name: 'tmux         - New tmux pane/window', value: 'tmux' },
+                { name: 'background   - Detached process, logs to file', value: 'background' },
+                new inquirer.Separator('── Sandboxed (requires setup) ──'),
+                { name: 'docker       - Container with worktree mounted', value: 'docker' },
+                new inquirer.Separator('── Remote ──'),
+                { name: 'vm           - Remote VM via SSH', value: 'vm' },
+              ],
+              default: DEFAULT_EXECUTION_CONFIG.defaultMode,
+            },
+          ])
+          mode = selectedMode as RuntimeMode
+        }
       }
+
       const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
 
       // Show execution info
@@ -299,7 +346,11 @@ export default class TicketExecute extends Command {
       this.log(styles.header(`🚀 Executing ${ticket.id}: ${ticket.title}`))
       this.log(styles.muted(`   Agent: ${assignedAgent}`))
       this.log(styles.muted(`   Executor: ${executor}`))
-      this.log(styles.muted(`   Mode: ${mode}`))
+      if (useDevcontainer) {
+        this.log(styles.success(`   🐳 Sandboxed: devcontainer (display: ${displayMode})`))
+      } else {
+        this.log(styles.warning(`   ⚠️  Mode: ${mode} (no sandbox - running on host)`))
+      }
       this.log(styles.muted(`   Worktree: ${worktreePath}`))
       this.log(styles.muted(`   Branch: ${branch}`))
       this.log('')
@@ -367,17 +418,43 @@ export default class TicketExecute extends Command {
       // Load execution config from database
       const executionConfig = loadExecutionConfig(db)
 
-      // If terminal mode, ensure terminal preference is set (prompts on first use)
-      if (mode === 'terminal') {
-        const terminalApp = await getTerminalApp(db)
+      // If terminal display mode, ensure terminal and shell preferences are set (prompts on first use)
+      // Also re-prompt if --reconfigure flag is set
+      const needsTerminalConfig = (mode === 'terminal') || (useDevcontainer && displayMode === 'terminal')
+      if (needsTerminalConfig) {
+        const needsTerminal = !hasTerminalPreference(db)
+        const needsShell = !hasShellPreference(db)
+
+        // First-time setup: prompt for both together
+        if ((needsTerminal || needsShell) && !flags.reconfigure) {
+          this.log(styles.header('First-time execution setup'))
+          this.log('')
+        }
+
+        let terminalApp: TerminalApp
+        let shell: Shell
+
+        if (flags.reconfigure) {
+          terminalApp = await promptTerminalPreference(db)
+          shell = await promptShellPreference(db)
+          this.log(styles.success(`   Terminal: ${terminalApp}`))
+          this.log(styles.success(`   Shell: ${shell}`))
+        } else {
+          terminalApp = await getTerminalApp(db)
+          shell = await getShell(db)
+          this.log(styles.muted(`   Terminal: ${terminalApp}`))
+          this.log(styles.muted(`   Shell: ${shell}`))
+        }
+
         executionConfig.terminal.app = terminalApp
-        this.log(styles.muted(`   Terminal: ${terminalApp}`))
+        executionConfig.shell = shell
       }
 
       // Run execution
       this.log(styles.muted('Starting agent...'))
       const result = await runExecution(mode, context, executor, executionConfig, {
         host: flags.host,
+        displayMode: useDevcontainer ? displayMode : undefined,
       })
 
       if (result.success) {

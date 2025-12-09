@@ -171,7 +171,7 @@ export default class ProjectCreate extends Command {
         choices: [
           { name: 'Kanban (Backlog, In Progress, Done)', value: 'kanban' },
           { name: 'Scrum (+ In Review, Blocked)', value: 'scrum' },
-          { name: '5-Tool Founder (BUILD/GROW/SUPPORT/BIZOPS/STRATEGY + workflow)', value: 'founder' },
+          { name: '5-Tool Founder (SHIP/GROW/SUPPORT/BIZOPS/STRATEGY + workflow)', value: 'founder' },
         ],
         default: flags.template || 'kanban',
       },

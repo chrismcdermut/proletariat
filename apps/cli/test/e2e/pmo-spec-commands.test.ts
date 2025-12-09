@@ -298,7 +298,7 @@ function setupTestDatabase(db: Database.Database) {
   `).run();
 
   const columns = [
-    { id: 'backlog', name: 'BUILD BL', position: 0 },
+    { id: 'backlog', name: 'SHIP BL', position: 0 },
     { id: 'ready', name: 'Ready', position: 1 },
     { id: 'merged', name: 'Merged', position: 2 },
   ];

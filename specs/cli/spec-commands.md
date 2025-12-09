@@ -24,12 +24,12 @@ Spec commands handle specification documents. Specs are **static markdown files*
 
 ## Command Overview
 
-| Command                    | Purpose                              |
-| -------------------------- | ------------------------------------ |
-| `prlt spec`                | Interactive menu for spec operations |
-| `prlt spec create [name]`  | Create new spec document             |
-| `prlt spec list`           | List all specs                       |
-| `prlt spec view [id]`      | View spec content                    |
+| Command                    | Purpose                              | Status         |
+| -------------------------- | ------------------------------------ | -------------- |
+| `prlt spec`                | Interactive menu for spec operations | ✅ Implemented |
+| `prlt spec create [name]`  | Create new spec document             | ✅ Implemented |
+| `prlt spec list`           | List all specs                       | ✅ Implemented |
+| `prlt spec view [id]`      | View spec content                    | ✅ Implemented |
 
 ---
 

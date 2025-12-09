@@ -41,7 +41,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
   describe('prlt ticket create', () => {
     it('should create ticket with all flags', () => {
       const output = exec(
-        'ticket create --title "Add login" --priority HIGH --column "BUILD BL"'
+        'ticket create --title "Add login" --priority HIGH --column "SHIP BL"'
       );
 
       expect(output).to.contain('Created ticket');
@@ -54,7 +54,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
     });
 
     it('should auto-generate ticket ID', () => {
-      exec('ticket create --title "Test ticket" --column "BUILD BL"');
+      exec('ticket create --title "Test ticket" --column "SHIP BL"');
 
       const tickets = db.prepare('SELECT id FROM pmo_tickets').all() as Array<{ id: string }>;
       expect(tickets).to.have.lengthOf(1);
@@ -63,7 +63,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
     });
 
     it('should add ticket to board.md', () => {
-      exec('ticket create --title "Board test" --column "BUILD BL"');
+      exec('ticket create --title "Board test" --column "SHIP BL"');
 
       const boardPath = path.join(testDir, 'pmo/projects/test-project/board.md');
       const content = fs.readFileSync(boardPath, 'utf-8');
@@ -75,7 +75,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
   describe('prlt ticket move', () => {
     it('should move ticket between columns', () => {
       // Create ticket
-      exec('ticket create --title "Movable" --column "BUILD BL"');
+      exec('ticket create --title "Movable" --column "SHIP BL"');
 
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Movable') as { id: string };
       const ticketId = ticket.id;
@@ -95,7 +95,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
     });
 
     it('should update board.md when moving ticket', () => {
-      exec('ticket create --title "Move test" --column "BUILD BL"');
+      exec('ticket create --title "Move test" --column "SHIP BL"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Move test') as { id: string };
 
       exec(`ticket move ${ticket.id} "Merged"`);
@@ -111,7 +111,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
 
   describe('prlt ticket delete', () => {
     it('should delete ticket from database', () => {
-      exec('ticket create --title "Delete me" --column "BUILD BL"');
+      exec('ticket create --title "Delete me" --column "SHIP BL"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Delete me') as { id: string };
 
       exec(`ticket delete ${ticket.id} --force`);
@@ -121,7 +121,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
     });
 
     it('should remove ticket from board.md', () => {
-      exec('ticket create --title "Remove from board" --column "BUILD BL"');
+      exec('ticket create --title "Remove from board" --column "SHIP BL"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Remove from board') as { id: string };
 
       exec(`ticket delete ${ticket.id} --force`);
@@ -133,7 +133,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
     });
 
     it('should cascade delete from pmo_board_tickets', () => {
-      exec('ticket create --title "Cascade test" --column "BUILD BL"');
+      exec('ticket create --title "Cascade test" --column "SHIP BL"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Cascade test') as { id: string };
 
       exec(`ticket delete ${ticket.id} --force`);
@@ -145,8 +145,8 @@ describe('PMO Ticket Commands E2E Tests', () => {
 
   describe('prlt ticket list', () => {
     it('should list all tickets', () => {
-      exec('ticket create --title "List test 1" --priority HIGH --column "BUILD BL"');
-      exec('ticket create --title "List test 2" --priority MEDIUM --column "BUILD BL"');
+      exec('ticket create --title "List test 1" --priority HIGH --column "SHIP BL"');
+      exec('ticket create --title "List test 2" --priority MEDIUM --column "SHIP BL"');
 
       const output = exec('ticket list');
 
@@ -157,7 +157,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
     });
 
     it('should filter by column', () => {
-      exec('ticket create --title "In backlog" --column "BUILD BL"');
+      exec('ticket create --title "In backlog" --column "SHIP BL"');
       exec('ticket create --title "In progress" --column "In Progress"');
 
       const output = exec('ticket list --column "In Progress"');
@@ -167,8 +167,8 @@ describe('PMO Ticket Commands E2E Tests', () => {
     });
 
     it('should filter by priority', () => {
-      exec('ticket create --title "High priority" --priority HIGH --column "BUILD BL"');
-      exec('ticket create --title "Low priority" --priority LOW --column "BUILD BL"');
+      exec('ticket create --title "High priority" --priority HIGH --column "SHIP BL"');
+      exec('ticket create --title "Low priority" --priority LOW --column "SHIP BL"');
 
       const output = exec('ticket list --priority HIGH');
 
@@ -179,7 +179,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
 
   describe('prlt ticket view', () => {
     it('should show detailed ticket information', () => {
-      exec('ticket create --title "View test" --description "Test description" --priority HIGH --column "BUILD BL"');
+      exec('ticket create --title "View test" --description "Test description" --priority HIGH --column "SHIP BL"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('View test') as { id: string };
 
       const output = exec(`ticket view ${ticket.id}`);
@@ -187,16 +187,16 @@ describe('PMO Ticket Commands E2E Tests', () => {
       expect(output).to.contain('View test');
       expect(output).to.contain('Test description');
       expect(output).to.contain('HIGH');
-      expect(output).to.contain('BUILD BL');
+      expect(output).to.contain('SHIP BL');
     });
   });
 
   describe('prlt ticket bulk move', () => {
     it('should move multiple tickets at once', () => {
       // Create multiple tickets
-      exec('ticket create --title "Bulk 1" --column "BUILD BL"');
-      exec('ticket create --title "Bulk 2" --column "BUILD BL"');
-      exec('ticket create --title "Bulk 3" --column "BUILD BL"');
+      exec('ticket create --title "Bulk 1" --column "SHIP BL"');
+      exec('ticket create --title "Bulk 2" --column "SHIP BL"');
+      exec('ticket create --title "Bulk 3" --column "SHIP BL"');
 
       const ticket1 = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bulk 1');
       const ticket2 = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bulk 2');
@@ -210,7 +210,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
         FROM pmo_tickets t
         JOIN pmo_board_tickets bt ON bt.ticket_id = t.id
         JOIN pmo_columns c ON c.id = bt.column_id
-        WHERE c.name = 'BUILD BL'
+        WHERE c.name = 'SHIP BL'
       `).all();
 
       expect(backlogTickets).to.have.lengthOf(3);
@@ -219,9 +219,9 @@ describe('PMO Ticket Commands E2E Tests', () => {
 
   describe('prlt ticket bulk delete', () => {
     it('should delete multiple tickets', () => {
-      exec('ticket create --title "Delete 1" --column "BUILD BL"');
-      exec('ticket create --title "Delete 2" --column "BUILD BL"');
-      exec('ticket create --title "Keep" --column "BUILD BL"');
+      exec('ticket create --title "Delete 1" --column "SHIP BL"');
+      exec('ticket create --title "Delete 2" --column "SHIP BL"');
+      exec('ticket create --title "Keep" --column "SHIP BL"');
 
       const beforeCount = db.prepare('SELECT COUNT(*) as count FROM pmo_tickets').get() as { count: number };
       expect(beforeCount.count).to.equal(3);
@@ -233,8 +233,8 @@ describe('PMO Ticket Commands E2E Tests', () => {
 
   describe('prlt ticket bulk update', () => {
     it('should update priority for multiple tickets', () => {
-      exec('ticket create --title "Update 1" --priority LOW --column "BUILD BL"');
-      exec('ticket create --title "Update 2" --priority LOW --column "BUILD BL"');
+      exec('ticket create --title "Update 1" --priority LOW --column "SHIP BL"');
+      exec('ticket create --title "Update 2" --priority LOW --column "SHIP BL"');
 
       // Verify both are LOW priority
       const lowTickets = db.prepare('SELECT * FROM pmo_tickets WHERE priority = ?').all('LOW');
@@ -322,7 +322,7 @@ function setupTestDatabase(db: Database.Database) {
   `).run();
 
   const columns = [
-    { id: 'backlog', name: 'BUILD BL', position: 0 },
+    { id: 'backlog', name: 'SHIP BL', position: 0 },
     { id: 'ready', name: 'Ready', position: 1 },
     { id: 'in-progress', name: 'In Progress', position: 2 },
     { id: 'in-review', name: 'In Review', position: 3 },

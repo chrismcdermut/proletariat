@@ -7,13 +7,14 @@
 
 import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
-import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp } from './types.js'
+import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell } from './types.js'
 
 const SETTINGS_TABLE = 'workspace_settings'
 
 // Config keys stored in workspace_settings table
 const CONFIG_KEYS = {
   terminalApp: 'execution.terminal.app',
+  shell: 'execution.shell',
   defaultMode: 'execution.default_mode',
   defaultExecutor: 'execution.default_executor',
   autoExecute: 'execution.auto_execute',
@@ -60,6 +61,12 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
   const terminalApp = getSetting(db, CONFIG_KEYS.terminalApp)
   if (terminalApp) {
     config.terminal = { app: terminalApp as TerminalApp }
+  }
+
+  // Load shell
+  const shell = getSetting(db, CONFIG_KEYS.shell)
+  if (shell) {
+    config.shell = shell as Shell
   }
 
   // Load default mode
@@ -144,10 +151,24 @@ export function saveTerminalApp(db: Database.Database, app: TerminalApp): void {
 }
 
 /**
+ * Save shell preference
+ */
+export function saveShell(db: Database.Database, shell: Shell): void {
+  setSetting(db, CONFIG_KEYS.shell, shell)
+}
+
+/**
  * Check if terminal app preference has been set
  */
 export function hasTerminalPreference(db: Database.Database): boolean {
   return getSetting(db, CONFIG_KEYS.terminalApp) !== null
+}
+
+/**
+ * Check if shell preference has been set
+ */
+export function hasShellPreference(db: Database.Database): boolean {
+  return getSetting(db, CONFIG_KEYS.shell) !== null
 }
 
 /**
@@ -160,12 +181,14 @@ export async function promptTerminalPreference(db: Database.Database): Promise<T
       name: 'terminalApp',
       message: 'Which terminal app would you like to use for agent execution?',
       choices: [
-        { name: 'iTerm2', value: 'iTerm' },
-        { name: 'Ghostty', value: 'Ghostty' },
-        { name: 'WezTerm', value: 'WezTerm' },
-        { name: 'Kitty', value: 'Kitty' },
-        { name: 'Alacritty', value: 'Alacritty' },
+        { name: 'iTerm', value: 'iTerm' },
         { name: 'Terminal.app (macOS default)', value: 'Terminal' },
+        { name: 'Alacritty', value: 'Alacritty' },
+        { name: 'Ghostty', value: 'Ghostty' },
+        { name: 'Kitty', value: 'Kitty' },
+        { name: 'tmux', value: 'tmux' },
+        { name: 'Warp', value: 'Warp' },
+        { name: 'WezTerm', value: 'WezTerm' },
       ],
       default: 'iTerm',
     },
@@ -190,4 +213,43 @@ export async function getTerminalApp(db: Database.Database): Promise<TerminalApp
 
   // First time - prompt user
   return promptTerminalPreference(db)
+}
+
+/**
+ * Prompt user for shell preference (first-time setup)
+ */
+export async function promptShellPreference(db: Database.Database): Promise<Shell> {
+  const { shell } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'shell',
+      message: 'Which shell do you use?',
+      choices: [
+        { name: 'zsh (macOS default)', value: 'zsh' },
+        { name: 'bash', value: 'bash' },
+        { name: 'fish', value: 'fish' },
+      ],
+      default: 'zsh',
+    },
+  ])
+
+  // Save preference to database
+  saveShell(db, shell)
+
+  return shell
+}
+
+/**
+ * Get shell, prompting if not set
+ */
+export async function getShell(db: Database.Database): Promise<Shell> {
+  const config = loadExecutionConfig(db)
+
+  // If already set, return it
+  if (hasShellPreference(db)) {
+    return config.shell
+  }
+
+  // First time - prompt user
+  return promptShellPreference(db)
 }

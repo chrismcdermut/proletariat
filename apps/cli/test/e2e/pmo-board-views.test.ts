@@ -93,14 +93,14 @@ describe('PMO Board Views E2E Tests', () => {
       const output = exec('board view --column "In Progress"');
 
       expect(output).to.contain('In Progress');
-      expect(output).to.not.contain('BUILD BL');
+      expect(output).to.not.contain('SHIP BL');
       expect(output).to.contain('showing: In Progress');
     });
 
     it('should support multiple columns', () => {
-      const output = exec('board view --column "BUILD BL" --column "In Progress"');
+      const output = exec('board view --column "SHIP BL" --column "In Progress"');
 
-      expect(output).to.contain('BUILD BL');
+      expect(output).to.contain('SHIP BL');
       expect(output).to.contain('In Progress');
       expect(output).to.not.contain('Merged');
     });
@@ -162,7 +162,7 @@ describe('PMO Board Views E2E Tests', () => {
       const output = exec('board view --group-by assignee');
 
       // When grouped by assignee, should show which column each ticket is in
-      expect(output).to.contain('[BUILD BL]');
+      expect(output).to.contain('[SHIP BL]');
       expect(output).to.contain('[In Progress]');
     });
 
@@ -188,7 +188,7 @@ describe('PMO Board Views E2E Tests', () => {
       const output = exec('board view --group-by priority');
 
       expect(output).to.contain('@alice');
-      expect(output).to.contain('[BUILD BL]');
+      expect(output).to.contain('[SHIP BL]');
     });
 
     it('should show summary with priority breakdown', () => {
@@ -313,7 +313,7 @@ function setupTestDatabase(db: Database.Database) {
   `).run();
 
   const columns = [
-    { id: 'backlog', name: 'BUILD BL', position: 0 },
+    { id: 'backlog', name: 'SHIP BL', position: 0 },
     { id: 'ready', name: 'Ready', position: 1 },
     { id: 'in-progress', name: 'In Progress', position: 2 },
     { id: 'merged', name: 'Merged', position: 3 },

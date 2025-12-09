@@ -4,6 +4,18 @@
 
 Commands for inspecting and debugging the SQLite database. These are developer/power-user tools for understanding the database state, running ad-hoc queries, and troubleshooting issues.
 
+## Command Overview
+
+| Command                 | Purpose                           | Status             |
+| ----------------------- | --------------------------------- | ------------------ |
+| `prlt db`               | Interactive database menu         | ⬜ Not Implemented |
+| `prlt db tables`        | List all tables with row counts   | ⬜ Not Implemented |
+| `prlt db schema [table]`| Show table structure              | ⬜ Not Implemented |
+| `prlt db query <sql>`   | Run SQL query (read-only default) | ⬜ Not Implemented |
+| `prlt db stats`         | Database size and health info     | ⬜ Not Implemented |
+
+---
+
 ## Commands
 
 ### `prlt db`

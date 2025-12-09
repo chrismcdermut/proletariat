@@ -5,6 +5,7 @@ import chalk from 'chalk';
 import { SQLiteStorage } from './storage-sqlite.js';
 import { createSpecFolders } from './create-spec-folders.js';
 import { slugify } from './utils.js';
+import { createDevcontainerConfig } from '../execution/devcontainer.js';
 
 // Re-export new PMO modules
 export * from './types.js';
@@ -59,7 +60,7 @@ export function getBoardTemplates(): { [key: string]: string[] } {
     kanban: ['Backlog', 'In Progress', 'Done'],
     scrum: ['Backlog', 'In Progress', 'In Review', 'Blocked', 'Done'],
     founder: [
-      'BUILD BL', 'GROW BL', 'SUPPORT BL', 'BIZOPS BL', 'STRATEGY BL',
+      'SHIP BL', 'GROW BL', 'SUPPORT BL', 'BIZOPS BL', 'STRATEGY BL',
       'Ready', 'In Progress', 'In Review', 'Merged', 'Published', 'Dropped'
     ],
     custom: [] // Will be handled separately
@@ -159,7 +160,7 @@ export async function promptForBoardTemplate(): Promise<string> {
     choices: [
       { name: 'Kanban (Backlog, In Progress, Done)', value: 'kanban' },
       { name: 'Scrum (+ In Review, Blocked)', value: 'scrum' },
-      { name: '5-Tool Founder (BUILD/GROW/SUPPORT/BIZOPS/STRATEGY + workflow)', value: 'founder' },
+      { name: '5-Tool Founder (SHIP/GROW/SUPPORT/BIZOPS/STRATEGY + workflow)', value: 'founder' },
       { name: 'Custom (define your own columns)', value: 'custom' },
     ],
     default: 'kanban',
@@ -274,7 +275,7 @@ export function createBoardContent(template: string, boardName?: string): string
     'Blocked': '🚧',
     'Done': '✅',
     // 5-Tool Founder backlogs
-    'BUILD BL': '🔨',
+    'SHIP BL': '🚢',
     'GROW BL': '📈',
     'SUPPORT BL': '🛟',
     'BIZOPS BL': '⚙️',
@@ -462,6 +463,17 @@ ${columns.join(', ')}
 `;
 
   fs.writeFileSync(path.join(pmoPath, 'README.md'), readmeContent);
+
+  // Create devcontainer for separate PMO (it's its own repo)
+  if (location === 'separate') {
+    console.log(chalk.blue('Creating devcontainer config for PMO...'));
+    createDevcontainerConfig({
+      agentName: 'pmo',
+      agentDir: pmoPath,
+      repoWorktrees: [],  // PMO is the repo itself, no nested worktrees
+    });
+    console.log(chalk.green('  ✓ Devcontainer config created'));
+  }
 
   const locationDesc = location === 'separate' ? 'hq/pmo' : location.replace('repo:', '') + '/pmo';
   console.log(chalk.green(`✅ PMO created at ${locationDesc} with ${boardTemplate} template`));

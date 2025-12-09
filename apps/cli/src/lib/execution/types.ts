@@ -8,13 +8,30 @@
 // Runtime Modes
 // =============================================================================
 
+/**
+ * RuntimeMode - The full execution mode (for backwards compatibility).
+ * In the new architecture, this is composed of:
+ *   - ExecutionEnvironment: Where the code runs (devcontainer, host, docker, vm)
+ *   - DisplayMode: How output is shown (terminal, foreground, background, tmux)
+ */
 export type RuntimeMode =
-  | 'foreground'  // Subprocess in current terminal
-  | 'background'  // Detached process, logs to file
-  | 'tmux'        // New tmux pane/window
-  | 'terminal'    // New Terminal.app window (macOS)
-  | 'docker'      // Container with worktree mounted
-  | 'vm'          // Remote VM via SSH
+  | 'devcontainer'  // Sandboxed devcontainer (recommended for agents)
+  | 'foreground'    // Subprocess in current terminal
+  | 'background'    // Detached process, logs to file
+  | 'tmux'          // New tmux pane/window
+  | 'terminal'      // New Terminal.app window (macOS)
+  | 'docker'        // Container with worktree mounted
+  | 'vm'            // Remote VM via SSH
+
+/**
+ * DisplayMode - How output is displayed to the user.
+ * When devcontainer is available, this determines how we show the sandboxed execution.
+ */
+export type DisplayMode =
+  | 'terminal'      // New terminal window showing devcontainer execution
+  | 'foreground'    // Current terminal showing devcontainer execution
+  | 'background'    // Detached, logs to file
+  | 'tmux'          // Tmux pane/window
 
 // =============================================================================
 // Executor Types
@@ -32,11 +49,18 @@ export type ExecutorType =
 
 export type TerminalApp =
   | 'Terminal'    // macOS Terminal.app
-  | 'iTerm'       // iTerm2
-  | 'Ghostty'     // Ghostty
-  | 'WezTerm'     // WezTerm
-  | 'Kitty'       // Kitty
+  | 'iTerm'       // iTerm
   | 'Alacritty'   // Alacritty
+  | 'Ghostty'     // Ghostty
+  | 'Kitty'       // Kitty
+  | 'tmux'        // tmux
+  | 'Warp'        // Warp
+  | 'WezTerm'     // WezTerm
+
+export type Shell =
+  | 'bash'        // Bourne Again Shell
+  | 'zsh'         // Z Shell (macOS default)
+  | 'fish'        // Friendly Interactive Shell
 
 // =============================================================================
 // Execution Status
@@ -84,6 +108,7 @@ export interface ExecutionContext {
   agentName: string
   worktreePath: string
   branch: string
+  hqPath?: string // HQ root path for storing execution artifacts
 }
 
 // =============================================================================
@@ -95,42 +120,96 @@ export interface ExecutionContext {
  * Used when creating branches for agent work.
  */
 export const CATEGORY_TO_BRANCH_TYPE: Record<string, string> = {
-  // Development types
+  // ===========================================================================
+  // Conventional Commits (standard types)
+  // ===========================================================================
+
+  // feat - New features and additions
   'feature': 'feat',
   'feat': 'feat',
   'new': 'feat',
+
+  // fix - Bug fixes
   'bug': 'fix',
   'fix': 'fix',
   'bugfix': 'fix',
-  'refactor': 'rfct',
-  'cleanup': 'rfct',
+
+  // docs - Documentation
   'docs': 'docs',
   'documentation': 'docs',
+
+  // test - Testing
   'test': 'test',
   'testing': 'test',
+
+  // chore - Maintenance tasks
   'chore': 'chore',
   'maintenance': 'chore',
+
+  // perf - Performance improvements
   'performance': 'perf',
-  'security': 'sec',
+  'perf': 'perf',
+
+  // ci - CI/CD pipeline
   'ci': 'ci',
   'pipeline': 'ci',
+
+  // build - Build system (mapped to 'ship' to avoid conflict with commit type)
   'build': 'build',
   'deps': 'build',
   'dependencies': 'build',
+
+  // refactor - Code refactoring
+  'refactor': 'rfct',
+  'cleanup': 'rfct',
+  'rfct': 'rfct',
+
+  // ===========================================================================
+  // Extended Types (proletariat extras)
+  // ===========================================================================
+
+  // sec - Security fixes
+  'security': 'sec',
+  'sec': 'sec',
+
+  // db - Database changes
   'database': 'db',
   'migration': 'db',
   'schema': 'db',
+  'db': 'db',
+
+  // rel - Releases
   'release': 'rel',
-  // Founder/business types
+  'rel': 'rel',
+
+  // ===========================================================================
+  // 5Tool Founder Types (business/ops categories)
+  // ===========================================================================
+
+  // ship - Shipping and deployment
+  'ship': 'ship',
+  'deploy': 'ship',
+  'launch': 'ship',
+
+  // grow - Growth and marketing
   'growth': 'grow',
   'marketing': 'grow',
+  'grow': 'grow',
+
+  // cx - Customer experience/support
+  'support': 'cx',
+  'customer': 'cx',
+  'cx': 'cx',
+
+  // strat - Strategy and planning
+  'strategy': 'strat',
+  'planning': 'strat',
+  'strat': 'strat',
+
+  // ops - Operations
   'ops': 'ops',
   'operations': 'ops',
   'bizops': 'ops',
-  'strategy': 'strat',
-  'planning': 'strat',
-  'support': 'cx',
-  'customer': 'cx',
 }
 
 /**
@@ -172,12 +251,19 @@ export interface ExecutionConfig {
   defaultMode: RuntimeMode
   defaultExecutor: ExecutorType
   autoExecute: boolean
+  shell: Shell
   tmux: {
     session: string
     layout: 'split' | 'window'
   }
   terminal: {
     app: TerminalApp
+  }
+  devcontainer: {
+    defaultImage: string
+    memory: string
+    cpus: number
+    autoStart: boolean  // Auto-start container on execute
   }
   docker: {
     image: string
@@ -197,12 +283,19 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   defaultMode: 'terminal',
   defaultExecutor: 'claude-code',
   autoExecute: false,
+  shell: 'zsh',  // macOS default
   tmux: {
     session: 'proletariat',
     layout: 'window',
   },
   terminal: {
     app: 'Terminal',
+  },
+  devcontainer: {
+    defaultImage: 'mcr.microsoft.com/devcontainers/base:ubuntu',
+    memory: '8g',
+    cpus: 4,
+    autoStart: true,
   },
   docker: {
     image: 'claude-code:latest',

@@ -19,13 +19,13 @@ Project commands handle the creation and management of projects. Each project ha
 
 ## Command Overview
 
-| Command                      | Purpose                                |
-| ---------------------------- | -------------------------------------- |
-| `prlt pmo init`              | Initialize PMO system (one-time)       |
-| `prlt project create`        | Create new project                     |
-| `prlt project list`          | List all projects                      |
-| `prlt project view [id]`     | View project details                   |
-| `prlt project delete [id]`   | Delete project                         |
+| Command                      | Purpose                                | Status         |
+| ---------------------------- | -------------------------------------- | -------------- |
+| `prlt pmo init`              | Initialize PMO system (one-time)       | ✅ Implemented |
+| `prlt project create`        | Create new project                     | ✅ Implemented |
+| `prlt project list`          | List all projects                      | ✅ Implemented |
+| `prlt project view [id]`     | View project details                   | ✅ Implemented |
+| `prlt project delete [id]`   | Delete project                         | ✅ Implemented |
 
 ---
 

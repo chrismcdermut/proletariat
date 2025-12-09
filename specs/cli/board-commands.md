@@ -45,15 +45,24 @@ kanban-plugin: basic
 
 ## Command Overview
 
-| Command                      | Purpose                                |
-| ---------------------------- | -------------------------------------- |
-| `prlt board`                 | Interactive menu for board operations  |
-| `prlt board view`            | View kanban board in terminal          |
-| `prlt board open`            | Open board in Obsidian                 |
-| `prlt board markdown`        | Show board as markdown                 |
-| `prlt board export`          | Export board to file                   |
-| `prlt board sync`            | Sync between SQLite and kanban.md      |
-| `prlt board watch`           | Watch kanban.md for changes            |
+### Standalone Commands
+
+| Command                      | Purpose                                | Status             |
+| ---------------------------- | -------------------------------------- | ------------------ |
+| `prlt board`                 | Interactive menu for board operations  | ✅ Implemented     |
+| `prlt board watch`           | Watch kanban.md for changes            | ✅ Implemented     |
+
+### Interactive Menu Options
+
+These operations are available through the `prlt board` interactive menu:
+
+| Operation  | Purpose                           | Status             |
+| ---------- | --------------------------------- | ------------------ |
+| View       | View kanban board in terminal     | ✅ Implemented     |
+| Open       | Open board in Obsidian            | ✅ Implemented     |
+| Markdown   | Show board as markdown            | ⬜ Not Implemented |
+| Export     | Export board to file              | ⬜ Not Implemented |
+| Sync       | Sync between SQLite and kanban.md | ✅ Implemented     |
 
 ---
 

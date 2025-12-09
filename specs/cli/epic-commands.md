@@ -54,17 +54,17 @@ This matches the pattern used by other entities:
 
 ## Command Overview
 
-| Command                           | Purpose                              |
-| --------------------------------- | ------------------------------------ |
-| `prlt epic`                       | Interactive menu for epic operations |
-| `prlt epic create [title]`        | Create new epic                      |
-| `prlt epic list`                  | List all epics                       |
-| `prlt epic view [id]`             | View epic and linked tickets         |
-| `prlt epic archive [id]`          | Move epic to complete/ folder        |
-| `prlt epic activate [id]`         | Move epic to active/ folder          |
-| `prlt epic move [id] [status]`    | Move epic between status folders     |
-| `prlt epic progress [id]`         | Show completion percentage           |
-| `prlt epic link [id] [tickets...]`| Link tickets to epic                 |
+| Command                           | Purpose                              | Status         |
+| --------------------------------- | ------------------------------------ | -------------- |
+| `prlt epic`                       | Interactive menu for epic operations | ✅ Implemented |
+| `prlt epic create [title]`        | Create new epic                      | ✅ Implemented |
+| `prlt epic list`                  | List all epics                       | ✅ Implemented |
+| `prlt epic view [id]`             | View epic and linked tickets         | ✅ Implemented |
+| `prlt epic archive [id]`          | Move epic to complete/ folder        | ✅ Implemented |
+| `prlt epic activate [id]`         | Move epic to active/ folder          | ✅ Implemented |
+| `prlt epic move [id] [status]`    | Move epic between status folders     | ✅ Implemented |
+| `prlt epic progress [id]`         | Show completion percentage           | ✅ Implemented |
+| `prlt epic link [id] [tickets...]`| Link tickets to epic, or epic to spec (--spec) | ✅ Implemented |
 
 ---
 

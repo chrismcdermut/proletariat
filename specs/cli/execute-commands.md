@@ -13,24 +13,26 @@ Commands for executing work by spinning up coding agents. This spec covers **how
 
 ## Command Overview
 
-| Command                      | Purpose                                      |
-| ---------------------------- | -------------------------------------------- |
-| `prlt ticket execute [id]` | Start the assigned agent working on a ticket |
-| `prlt execution list`      | List running/recent executions               |
-| `prlt execution logs [id]` | View execution logs                          |
-| `prlt execution stop [id]` | Stop a running execution                     |
+| Command                      | Purpose                                      | Status         |
+| ---------------------------- | -------------------------------------------- | -------------- |
+| `prlt ticket execute [id]` | Start the assigned agent working on a ticket | ✅ Implemented |
+| `prlt execution list`      | List running/recent executions               | ✅ Implemented |
+| `prlt execution logs [id]` | View execution logs                          | ✅ Implemented |
+| `prlt execution stop [id]` | Stop a running execution                     | ✅ Implemented |
 
 ---
 
 ## Runtime Modes
 
-| Mode           | How it runs                     | Use case                             |
-| -------------- | ------------------------------- | ------------------------------------ |
-| `foreground` | Subprocess in current terminal  | Debugging, watching agent work       |
-| `background` | Detached process, logs to file  | Local async work                     |
-| `tmux`       | New tmux pane/window            | Multiple agents visible side-by-side |
-| `docker`     | Container with worktree mounted | Isolated environment, reproducible   |
-| `vm`         | Remote VM via SSH               | Cloud scale, parallel execution      |
+| Mode           | How it runs                     | Use case                              |
+| -------------- | ------------------------------- | ------------------------------------- |
+| `terminal`     | New terminal window (macOS)     | Default, see agent output separately  |
+| `foreground`   | Subprocess in current terminal  | Debugging, watching agent work        |
+| `tmux`         | New tmux pane/window            | Multiple agents visible side-by-side  |
+| `background`   | Detached process, logs to file  | Local async work                      |
+| `devcontainer` | VS Code devcontainer            | Sandboxed execution (recommended)     |
+| `docker`       | Container with worktree mounted | Isolated environment, reproducible    |
+| `vm`           | Remote VM via SSH               | Cloud scale, parallel execution       |
 
 **Default mode** can be configured:
 
@@ -57,10 +59,11 @@ prlt config set execution.default_mode background
 
 **Options**:
 
-- `--mode <mode>`: Runtime mode (foreground, background, tmux, docker, vm)
+- `--mode <mode>`: Runtime mode (terminal, foreground, tmux, background, devcontainer, docker, vm)
 - `--executor <name>`: Override executor (claude-code, codex, aider)
 - `--watch, -w`: Stream output in real-time (implies foreground or attaches to background)
 - `--force, -f`: Execute even if already in progress
+- `--reconfigure`: Re-prompt for terminal app preference (only applies to terminal mode)
 
 **Interactive Flow** (if id not provided):
 
@@ -414,6 +417,50 @@ prlt execution logs WORK-003 --tail 50
 ---
 
 ## Configuration
+
+### Terminal App
+
+When executing agents, the CLI needs to know which terminal app to use for opening new windows/tabs. This is prompted on first use and stored in the database.
+
+**Supported terminals:**
+- iTerm2 (macOS)
+- Ghostty
+- WezTerm
+- Kitty
+- Alacritty
+- Terminal.app (macOS default)
+
+**Storage:** `workspace_settings` table with key `execution.terminal.app`
+
+**First-time prompt:**
+```
+? Which terminal app would you like to use for agent execution?
+❯ iTerm2
+  Ghostty
+  WezTerm
+  Kitty
+  Alacritty
+  Terminal.app (macOS default)
+```
+
+### Shell
+
+The shell determines which rc files are loaded and command syntax.
+
+**Supported shells:**
+- zsh (macOS default)
+- bash
+- fish
+
+**Storage:** `workspace_settings` table with key `execution.shell`
+
+**First-time prompt:**
+```
+? Which shell do you use?
+❯ zsh (macOS default)
+  bash
+  fish
+```
 
 ### Default Settings
 

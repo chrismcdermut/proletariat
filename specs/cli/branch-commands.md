@@ -11,7 +11,7 @@ Commands for creating and managing git branches with conventional naming. Inspir
 
 ## Branch Types
 
-### Development Types
+### Conventional Commits (standard types)
 | Type    | Purpose                                    |
 | ------- | ------------------------------------------ |
 | `feat`  | New feature                                 |
@@ -21,24 +21,30 @@ Commands for creating and managing git branches with conventional naming. Inspir
 | `test`  | Test additions or corrections               |
 | `chore` | Maintenance tasks, no production code       |
 | `perf`  | Performance improvement                     |
-| `sec`   | Security fixes or improvements              |
 | `ci`    | CI/CD configuration changes                 |
 | `build` | Build system or external dependency changes |
+
+### Extended Types (proletariat extras)
+| Type    | Purpose                                    |
+| ------- | ------------------------------------------ |
+| `sec`   | Security fixes or improvements              |
 | `db`    | Database migrations or schema changes       |
 | `rel`   | Release preparation                         |
 
-### Founder/Business Types
+### 5Tool Founder Types
 | Type    | Purpose                                    |
 | ------- | ------------------------------------------ |
+| `ship`  | Shipping, deployment, and launch            |
 | `grow`  | Growth and marketing initiatives            |
-| `ops`   | Business operations                         |
-| `strat` | Strategy and planning                       |
 | `cx`    | Customer experience and support             |
+| `strat` | Strategy and planning                       |
+| `ops`   | Business operations                         |
 
 ### Category → Type Mapping
 
 When inferring branch type from ticket category:
 
+**Conventional Commits**
 | Category (ticket)           | Type (branch) |
 | --------------------------- | ------------- |
 | feature, feat, new          | `feat`        |
@@ -48,26 +54,36 @@ When inferring branch type from ticket category:
 | test, testing               | `test`        |
 | chore, maintenance          | `chore`       |
 | performance                 | `perf`        |
-| security                    | `sec`         |
 | ci, pipeline                | `ci`          |
 | build, deps, dependencies   | `build`       |
+
+**Extended Types (proletariat extras)**
+| Category (ticket)           | Type (branch) |
+| --------------------------- | ------------- |
+| security                    | `sec`         |
 | database, migration, schema | `db`          |
 | release                     | `rel`         |
+
+**5Tool Founder Types**
+| Category (ticket)           | Type (branch) |
+| --------------------------- | ------------- |
+| ship, deploy, launch        | `ship`        |
 | growth, marketing           | `grow`        |
-| ops, operations, bizops     | `ops`         |
-| strategy, planning          | `strat`       |
 | support, customer           | `cx`          |
+| strategy, planning          | `strat`       |
+| ops, operations, bizops     | `ops`         |
+
 | *(unmatched)*               | `feat`        |
 
 ## Command Overview
 
-| Command                    | Purpose                               | Status  |
-| -------------------------- | ------------------------------------- | ------- |
-| `prlt branch`              | Interactive menu for branch operations | Planned |
-| `prlt branch create`       | Interactive branch creation wizard     | Planned |
-| `prlt branch create [name]`| Create branch with given name          | Planned |
-| `prlt branch list`         | List branches with conventional info   | Planned |
-| `prlt branch validate`     | Validate branch name format            | Planned |
+| Command                    | Purpose                               | Status      |
+| -------------------------- | ------------------------------------- | ----------- |
+| `prlt branch`              | Interactive menu for branch operations | Implemented |
+| `prlt branch create`       | Interactive branch creation wizard     | Implemented |
+| `prlt branch create [name]`| Create branch with given name          | Implemented |
+| `prlt branch list`         | List branches with conventional info   | Implemented |
+| `prlt branch validate`     | Validate branch name format            | Implemented |
 
 ---
 
