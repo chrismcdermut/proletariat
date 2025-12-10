@@ -62,8 +62,12 @@ export default class TicketExecute extends Command {
       description: 'Execute even if already in progress',
       default: false,
     }),
-    host: Flags.string({
+    'vm-host': Flags.string({
       description: 'VM host for vm mode',
+    }),
+    'run-on-host': Flags.boolean({
+      description: 'Run on host even if devcontainer exists (bypasses sandbox)',
+      default: false,
     }),
     reconfigure: Flags.boolean({
       description: 'Re-prompt for terminal app preference',
@@ -279,21 +283,33 @@ export default class TicketExecute extends Command {
         hqPath,
       }
 
-      // Check if agent has devcontainer config - if so, always use it for sandboxed execution
-      const useDevcontainer = hasDevcontainerConfig(agentDir)
+      // Check if agent has devcontainer config
+      const hasDevcontainer = hasDevcontainerConfig(agentDir)
+
+      // Use devcontainer by default if available, unless --run-on-host is set
+      const useDevcontainer = hasDevcontainer && !flags['run-on-host']
 
       // Determine runtime mode
       let mode: RuntimeMode
       let displayMode: DisplayMode = 'terminal'
 
-      if (useDevcontainer) {
-        // Agent has devcontainer - always run sandboxed, just pick display mode
-        if (flags.mode && ['terminal', 'foreground', 'background', 'tmux'].includes(flags.mode)) {
-          displayMode = flags.mode as DisplayMode
-        } else if (flags.mode === 'devcontainer') {
-          // Explicit devcontainer mode - use foreground display
-          displayMode = 'foreground'
-        } else if (!flags.mode) {
+      if (hasDevcontainer && !flags.mode && !flags['run-on-host']) {
+        // Agent has devcontainer - prompt for environment choice
+        const { environment } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'environment',
+            message: 'Where should the agent run?',
+            choices: [
+              { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
+              { name: '💻 host (runs directly on your machine)', value: 'host' },
+            ],
+            default: 'devcontainer',
+          },
+        ])
+
+        if (environment === 'devcontainer') {
+          // Pick display mode for devcontainer
           const { selectedDisplay } = await inquirer.prompt([
             {
               type: 'list',
@@ -309,19 +325,47 @@ export default class TicketExecute extends Command {
             },
           ])
           displayMode = selectedDisplay as DisplayMode
-        }
-        // Use devcontainer mode - the runner will handle display based on config
-        mode = 'devcontainer'
-      } else {
-        // No devcontainer - fall back to legacy mode selection (less safe)
-        if (flags.mode) {
-          mode = flags.mode as RuntimeMode
+          mode = 'devcontainer'
         } else {
+          // User chose host - fall through to host mode selection
           const { selectedMode } = await inquirer.prompt([
             {
               type: 'list',
               name: 'selectedMode',
-              message: 'Select execution mode (no devcontainer - running on host):',
+              message: 'Select execution mode:',
+              choices: [
+                { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
+                { name: 'foreground   - Run in current terminal', value: 'foreground' },
+                { name: 'tmux         - New tmux pane/window', value: 'tmux' },
+                { name: 'background   - Detached process, logs to file', value: 'background' },
+              ],
+              default: DEFAULT_EXECUTION_CONFIG.defaultMode,
+            },
+          ])
+          mode = selectedMode as RuntimeMode
+        }
+      } else if (useDevcontainer) {
+        // Devcontainer with explicit mode flag
+        if (flags.mode && ['terminal', 'foreground', 'background', 'tmux'].includes(flags.mode)) {
+          displayMode = flags.mode as DisplayMode
+        } else if (flags.mode === 'devcontainer') {
+          displayMode = 'foreground'
+        }
+        mode = 'devcontainer'
+      } else {
+        // No devcontainer or --run-on-host - host mode selection
+        if (flags.mode) {
+          mode = flags.mode as RuntimeMode
+        } else {
+          const warningMsg = flags['run-on-host']
+            ? 'Select execution mode (--run-on-host: bypassing devcontainer):'
+            : 'Select execution mode (no devcontainer - running on host):'
+
+          const { selectedMode } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'selectedMode',
+              message: warningMsg,
               choices: [
                 { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
                 { name: 'foreground   - Run in current terminal', value: 'foreground' },
@@ -346,8 +390,10 @@ export default class TicketExecute extends Command {
       this.log(styles.header(`🚀 Executing ${ticket.id}: ${ticket.title}`))
       this.log(styles.muted(`   Agent: ${assignedAgent}`))
       this.log(styles.muted(`   Executor: ${executor}`))
-      if (useDevcontainer) {
+      if (mode === 'devcontainer') {
         this.log(styles.success(`   🐳 Sandboxed: devcontainer (display: ${displayMode})`))
+      } else if (hasDevcontainer && flags['run-on-host']) {
+        this.log(styles.warning(`   ⚠️  Mode: ${mode} (--run-on-host: devcontainer bypassed)`))
       } else {
         this.log(styles.warning(`   ⚠️  Mode: ${mode} (no sandbox - running on host)`))
       }
@@ -411,8 +457,19 @@ export default class TicketExecute extends Command {
       this.log(styles.muted(`   Work ID: ${execution.id}`))
       this.log('')
 
-      // Update ticket status to in_progress
+      // Update ticket status and move to In Progress column
       await storage.updateTicket(ticket.id, { status: 'in_progress' })
+
+      // Move to "In Progress" column if it exists
+      const board = await storage.getBoard()
+      const inProgressColumn = board.columns.find(col =>
+        col.name.toLowerCase().includes('progress')
+      )
+      if (inProgressColumn && ticket.column !== inProgressColumn.name) {
+        await storage.moveTicket(ticket.id, inProgressColumn.name)
+        this.log(styles.muted(`   Moved to: ${inProgressColumn.name}`))
+      }
+
       await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
 
       // Load execution config from database
@@ -453,8 +510,8 @@ export default class TicketExecute extends Command {
       // Run execution
       this.log(styles.muted('Starting agent...'))
       const result = await runExecution(mode, context, executor, executionConfig, {
-        host: flags.host,
-        displayMode: useDevcontainer ? displayMode : undefined,
+        host: flags['vm-host'],
+        displayMode: mode === 'devcontainer' ? displayMode : undefined,
       })
 
       if (result.success) {

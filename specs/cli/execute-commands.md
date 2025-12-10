@@ -128,7 +128,7 @@ When `execute` is called:
    Worktree: {WORKTREE_PATH}
    Branch: {BRANCH_NAME}
 
-   When complete, run: prlt ticket complete {TICKET_ID}
+   When complete, run: prlt ticket review {TICKET_ID}
    ```
 4. **Launch Executor**
 
@@ -507,12 +507,12 @@ prlt config set execution.vm.pool_size 5
 │                      TICKET LIFECYCLE                        │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
-│  Backlog ──→ In Progress ──→ Review ──→ Done                │
-│               ↑                                              │
-│               │                                              │
-│         ┌─────┴─────┐                                        │
-│         │  EXECUTE  │                                        │
-│         └─────┬─────┘                                        │
+│  Backlog ──→ In Progress ──→ In Review ──→ Done             │
+│               ↑    (agent)      ↑   (human)                  │
+│               │                 │                            │
+│         ┌─────┴─────┐     ┌─────┴─────┐                      │
+│         │  EXECUTE  │     │  REVIEW   │                      │
+│         └─────┬─────┘     └───────────┘                      │
 │               │                                              │
 │               ▼                                              │
 │  ┌───────────────────────────────────────────────────────┐  │
@@ -523,7 +523,7 @@ prlt config set execution.vm.pool_size 5
 │  │                  │             │                       │  │
 │  │                  ▼             ▼                       │  │
 │  │               failed       (ticket moves              │  │
-│  │                  │          to Done)                   │  │
+│  │                  │          to In Review)             │  │
 │  │                  ▼                                     │  │
 │  │               stopped                                  │  │
 │  │                                                        │  │
@@ -537,14 +537,15 @@ prlt config set execution.vm.pool_size 5
 When agent completes work, it should run:
 
 ```bash
-prlt ticket complete {TICKET_ID}
+prlt ticket review {TICKET_ID}
 ```
 
 This:
 
-1. Moves ticket to "Done" column
+1. Moves ticket to "In Review" column
 2. Updates execution status to "completed"
 3. Records completion timestamp
+4. Human owner then reviews and runs `prlt ticket complete` to move to "Done"
 
 ### Agent Failure
 

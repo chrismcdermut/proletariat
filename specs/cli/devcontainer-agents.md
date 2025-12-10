@@ -357,6 +357,55 @@ Users can edit `.devcontainer/devcontainer.json` directly to:
 
 ---
 
+## Agent Workflow and Commands
+
+### Ticket Lifecycle for Agents
+
+When an agent executes a ticket, the following workflow applies:
+
+```
+Backlog → In Progress → In Review → Done
+           (execute)     (review)   (complete)
+```
+
+| Stage | Command | Who | Description |
+|-------|---------|-----|-------------|
+| **Start** | `prlt ticket execute TKT-XXX` | Human | Moves to "In Progress", starts agent |
+| **Finish** | `prlt ticket review TKT-XXX` | Agent | Moves to "In Review" when work is done |
+| **Approve** | `prlt ticket complete TKT-XXX` | Human | Moves to "Done" after review |
+
+### Commands Available Inside Container
+
+Agents running in devcontainers have access to the `prlt` CLI:
+
+```bash
+# View assigned tickets
+prlt ticket list
+
+# Mark work as ready for review (agent's main completion command)
+prlt ticket review TKT-XXX
+
+# View ticket details
+prlt ticket view TKT-XXX
+```
+
+### Agent Completion Flow
+
+When an agent finishes their work, they should:
+
+1. Commit their changes to the branch
+2. Run `prlt ticket review TKT-XXX` to move the ticket to "In Review"
+3. The human owner will then review and run `prlt ticket complete` if approved
+
+### Environment Variables in Container
+
+| Variable | Value | Description |
+|----------|-------|-------------|
+| `PRLT_HQ_PATH` | `/hq` | Path to HQ inside container |
+| `ANTHROPIC_API_KEY` | (from host) | API key for Claude |
+
+---
+
 ## Integration with Execute Command
 
 ### Updated Execute Flow

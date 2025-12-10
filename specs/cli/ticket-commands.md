@@ -38,6 +38,7 @@ This matches the pattern used by other entities:
 | `prlt ticket move [id] [column]`  | Move ticket to column                  | ✅ Implemented     |
 | `prlt ticket delete [id]`         | Delete ticket                          | ✅ Implemented     |
 | `prlt ticket complete [id]`       | Move ticket to Done                    | ✅ Implemented     |
+| `prlt ticket review [id]`         | Move ticket to In Review               | ✅ Implemented     |
 | `prlt ticket status [id]`         | Show ticket status                     | ✅ Implemented     |
 | `prlt ticket link [id] [epic-id]` | Link ticket to epic                    | ✅ Implemented     |
 
@@ -254,6 +255,45 @@ prlt ticket view  # Interactive mode
 
 ---
 
+### `prlt ticket review [id]`
+**Purpose**: Mark a ticket as ready for review (move to In Review column)
+
+**Arguments**:
+- `id` (optional): Ticket ID - prompts with dropdown if not provided
+
+**Interactive Flow** (if id not provided):
+```
+? Select ticket to mark for review:
+  ❯ TKT-001 - Add login screen (In Progress)
+    TKT-002 - Setup CI/CD (In Progress)
+```
+
+**Output**:
+```
+👀 Marked TKT-001 for review
+   Title: Add login screen
+   From: In Progress
+   To: In Review
+```
+
+**Example**:
+```bash
+prlt ticket review TKT-001
+prlt ticket review  # Interactive mode
+```
+
+**Behavior**:
+- Finds the "In Review" column (case-insensitive)
+- Moves ticket to In Review column
+- Exports to board.md
+- Only shows in-progress tickets in dropdown
+- **Used by agents** when they finish their work
+
+> **Note**: This is the command agents should run when they complete their assigned task.
+> The workflow is: `prlt ticket execute` (moves to In Progress) → agent works → `prlt ticket review` (moves to In Review)
+
+---
+
 ### `prlt ticket complete [id]`
 **Purpose**: Mark a ticket as complete (move to Done column)
 
@@ -263,8 +303,8 @@ prlt ticket view  # Interactive mode
 **Interactive Flow** (if id not provided):
 ```
 ? Select ticket to complete:
-  ❯ TKT-001 - Add login screen (Backlog)
-    TKT-002 - Setup CI/CD (In Progress)
+  ❯ TKT-001 - Add login screen (In Review)
+    TKT-002 - Setup CI/CD (In Review)
 ```
 
 **Output**:
@@ -285,6 +325,7 @@ prlt ticket complete  # Interactive mode
 - Moves ticket to Done column
 - Exports to board.md
 - Only shows incomplete tickets in dropdown
+- **Used by humans** to mark a reviewed ticket as fully complete
 
 ---
 

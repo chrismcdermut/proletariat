@@ -3,28 +3,36 @@ import * as path from 'path';
 import Database from 'better-sqlite3';
 
 /**
- * Translate a path for container environment.
- * If pmo_path is an absolute host path (e.g., /Users/.../pmo) and we're in a container
- * (PRLT_HQ_PATH=/hq), extract the relative portion and map to container path.
+ * Resolve PMO path from stored value.
+ *
+ * PMO paths are now stored as relative paths (e.g., "pmo" or "repos/myrepo/pmo").
+ * For backward compatibility, we also handle legacy absolute paths by extracting
+ * the relative portion.
  */
-function translatePathForContainer(pmoPath: string, hqPath: string): string {
-  // If path already starts with hqPath, it's already correct
-  if (pmoPath.startsWith(hqPath)) {
-    return pmoPath;
+function resolvePmoPath(storedPath: string, hqPath: string): string {
+  // If already relative, just join with HQ path
+  if (!path.isAbsolute(storedPath)) {
+    return path.join(hqPath, storedPath);
   }
 
-  // If we're in a container (hqPath is something like /hq) and pmo_path is an absolute host path
-  // Extract just the last component (e.g., "pmo" from "/Users/.../inflow-test-hq/pmo")
-  const pmoBasename = path.basename(pmoPath);
-  const containerPath = path.join(hqPath, pmoBasename);
+  // Legacy: absolute path stored (e.g., "/Users/.../inflow-test-hq/pmo")
+  // Try to extract relative portion by finding common HQ patterns
+  // This handles both host (/Users/.../my-hq/pmo) and container (/hq/pmo) paths
 
-  // Check if this path exists in the container
-  if (fs.existsSync(containerPath)) {
-    return containerPath;
+  // If it already starts with our hqPath, it's correct
+  if (storedPath.startsWith(hqPath)) {
+    return storedPath;
   }
 
-  // Fallback: return original (will likely fail, but gives better error message)
-  return pmoPath;
+  // Extract relative path from absolute (best effort for legacy data)
+  // Look for common patterns like /pmo, /repos/*/pmo
+  const pmoMatch = storedPath.match(/\/(pmo|repos\/[^/]+\/pmo)$/);
+  if (pmoMatch) {
+    return path.join(hqPath, pmoMatch[1]);
+  }
+
+  // Last resort: use basename
+  return path.join(hqPath, path.basename(storedPath));
 }
 
 /**
@@ -69,14 +77,7 @@ export function findPMO(): string | null {
         db.close();
 
         if (result) {
-          // Handle absolute paths that might be from host system
-          let pmoPath = path.isAbsolute(result.value)
-            ? result.value
-            : path.join(hqPath, result.value);
-
-          // Translate host paths to container paths if needed
-          pmoPath = translatePathForContainer(pmoPath, hqPath);
-          return pmoPath;
+          return resolvePmoPath(result.value, hqPath);
         }
       } catch {
         // Table might not exist yet

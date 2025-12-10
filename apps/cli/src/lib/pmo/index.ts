@@ -379,10 +379,12 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
     columns,
   });
 
-  // Save PMO path to settings
+  // Save PMO path to settings (relative to HQ root for container compatibility)
   try {
     const db = new (await import('better-sqlite3')).default(dbPath);
-    db.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run('pmo_path', pmoPath);
+    // Store relative path from HQ root (e.g., "pmo" or "repos/myrepo/pmo")
+    const relativePmoPath = path.relative(hqPath, pmoPath);
+    db.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run('pmo_path', relativePmoPath);
     db.close();
   } catch {
     // Ignore if settings table doesn't exist

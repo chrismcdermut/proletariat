@@ -60,7 +60,7 @@ function buildPrompt(context: ExecutionContext): string {
     prompt += `\nDescription:\n${context.ticketDescription}\n`
   }
 
-  prompt += `\nWhen complete, run: prlt ticket complete ${context.ticketId}`
+  prompt += `\nWhen complete, run: prlt ticket review ${context.ticketId}`
 
   return prompt
 }
