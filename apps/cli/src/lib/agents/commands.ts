@@ -6,9 +6,9 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
-import { 
-  getWorkspaceConfig, 
-  getWorkspaceAgents, 
+import {
+  getWorkspaceConfig,
+  getWorkspaceAgents,
   getWorkspaceRepositories,
   addAgentsToDatabase,
   removeAgentsFromDatabase,
@@ -16,6 +16,7 @@ import {
   Repository
 } from '../database/index.js';
 import { THEMES } from '../themes.js';
+import { getPMOContext } from '../pmo/index.js';
 
 export interface AgentStatus {
   name: string;
@@ -389,6 +390,21 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
   // Remove from database
   if (removed.length > 0) {
     removeAgentsFromDatabase(workspaceInfo.path, removed);
+
+    // Clear ticket assignees for removed agents
+    try {
+      const { storage } = await getPMOContext(undefined, () => {}, false);
+      const allTickets = await storage.listTickets();
+      for (const ticket of allTickets) {
+        if (ticket.assignee && removed.includes(ticket.assignee)) {
+          // Pass null to clear the assignee in the database
+          await storage.updateTicket(ticket.id, { assignee: null as unknown as string });
+        }
+      }
+      await storage.close();
+    } catch {
+      // PMO might not exist, ignore errors
+    }
   }
 
   return { removed, failed };

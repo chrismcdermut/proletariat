@@ -1,10 +1,14 @@
 import { Command, Args } from '@oclif/core';
+import * as path from 'path';
+import Database from 'better-sqlite3';
 import inquirer from 'inquirer';
 import {
   getPMOContext,
   autoExportToBoard,
 } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { ExecutionStorage } from '../../lib/execution/storage.js';
 
 export default class WorkComplete extends Command {
   static description = 'Mark work as complete (moves ticket to Done column)';
@@ -24,12 +28,25 @@ export default class WorkComplete extends Command {
   async run(): Promise<void> {
     const { args } = await this.parse(WorkComplete);
 
+    // Get workspace info for execution storage
+    let workspaceInfo;
+    try {
+      workspaceInfo = getWorkspaceInfo();
+    } catch (error) {
+      this.error('Not in a workspace. Run "prlt init" first.');
+    }
+
     // Get PMO context (prompts for project if multiple exist)
     const { pmoPath, storage } = await getPMOContext(
       undefined,
       (msg) => this.log(styles.muted(msg)),
       true // prompt if multiple projects
     );
+
+    // Open database for execution storage
+    const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db');
+    const db = new Database(dbPath);
+    const executionStorage = new ExecutionStorage(db);
 
     try {
       // Get ticketId - prompt if not provided
@@ -47,6 +64,7 @@ export default class WorkComplete extends Command {
 
         if (completableTickets.length === 0) {
           await storage.close();
+          db.close();
           this.log(styles.info('No in-progress or in-review work found.'));
           return;
         }
@@ -67,6 +85,7 @@ export default class WorkComplete extends Command {
       const ticket = await storage.getTicket(ticketId!);
       if (!ticket) {
         await storage.close();
+        db.close();
         this.error(`Ticket "${ticketId}" not found.`);
       }
 
@@ -81,6 +100,7 @@ export default class WorkComplete extends Command {
 
       if (!doneColumn) {
         await storage.close();
+        db.close();
         this.error('No "Done" or "Complete" column found in board configuration.');
       }
 
@@ -95,7 +115,15 @@ export default class WorkComplete extends Command {
       // Auto-export to board.md if configured
       await autoExportToBoard(pmoPath, storage);
 
+      // Mark any running executions for this ticket as completed
+      const runningExecution = executionStorage.getRunningExecution(ticketId!);
+      if (runningExecution) {
+        executionStorage.updateStatus(runningExecution.id, 'completed');
+        this.log(styles.muted(`   Execution ${runningExecution.id} marked as completed`));
+      }
+
       await storage.close();
+      db.close();
 
       this.log(styles.success(`✅ Work complete: ${ticketId}`));
       this.log(styles.muted(`   Title: ${ticket.title}`));
@@ -103,6 +131,7 @@ export default class WorkComplete extends Command {
       this.log(styles.muted(`   To: ${doneColumn.name}`));
     } catch (error) {
       await storage.close();
+      db.close();
       throw error;
     }
   }

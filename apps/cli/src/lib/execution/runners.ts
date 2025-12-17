@@ -49,21 +49,35 @@ function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissi
 }
 
 function buildPrompt(context: ExecutionContext): string {
-  let prompt = `You are working on ticket ${context.ticketId}: ${context.ticketTitle}\n\n`
+  let prompt = `# Ticket: ${context.ticketId}\n\n`
+  prompt += `**Title:** ${context.ticketTitle}\n\n`
 
-  if (context.epicTitle) {
-    prompt += `Epic: ${context.epicTitle}\n`
+  if (context.ticketPriority) {
+    prompt += `**Priority:** ${context.ticketPriority}\n`
   }
-
+  if (context.ticketCategory) {
+    prompt += `**Category:** ${context.ticketCategory}\n`
+  }
+  if (context.epicTitle) {
+    prompt += `**Epic:** ${context.epicTitle}\n`
+  }
   if (context.specPath) {
-    prompt += `Spec: ${context.specPath}\n`
+    prompt += `**Spec:** ${context.specPath}\n`
   }
 
   if (context.ticketDescription) {
-    prompt += `\nDescription:\n${context.ticketDescription}\n`
+    prompt += `\n## Description\n\n${context.ticketDescription}\n`
   }
 
-  prompt += `\nWhen complete, run: prlt ticket review ${context.ticketId}`
+  if (context.ticketSubtasks && context.ticketSubtasks.length > 0) {
+    prompt += `\n## Subtasks\n\n`
+    for (const subtask of context.ticketSubtasks) {
+      const checkbox = subtask.done ? '[x]' : '[ ]'
+      prompt += `- ${checkbox} ${subtask.title}\n`
+    }
+  }
+
+  prompt += `\n---\n\nWhen complete, run: \`prlt work ready ${context.ticketId}\``
 
   return prompt
 }
@@ -94,11 +108,14 @@ export type Runner = (
 export async function runForeground(
   context: ExecutionContext,
   executor: ExecutorType,
-  _config: ExecutionConfig
+  config: ExecutionConfig
 ): Promise<RunnerResult> {
   const prompt = buildPrompt(context)
-  // Foreground - skip permissions by default for autonomous execution
-  const { cmd, args } = getExecutorCommand(executor, prompt, true)
+  // skipPermissions is the inverse of sandboxed
+  // sandboxed=true means safe mode (no --dangerously-skip-permissions)
+  // sandboxed=false means danger mode (use --dangerously-skip-permissions)
+  const skipPermissions = !config.sandboxed
+  const { cmd, args } = getExecutorCommand(executor, prompt, skipPermissions)
 
   return new Promise((resolve) => {
     const child = spawn(cmd, args, {
@@ -130,8 +147,9 @@ export async function runBackground(
   config: ExecutionConfig
 ): Promise<RunnerResult> {
   const prompt = buildPrompt(context)
-  // Background - skip permissions, also use --print for non-interactive output
-  const { cmd, args } = getExecutorCommand(executor, prompt, true)
+  // Background - use sandboxed setting, also use --print for non-interactive output
+  const skipPermissions = !config.sandboxed
+  const { cmd, args } = getExecutorCommand(executor, prompt, skipPermissions)
   // Add --print for background mode to avoid interactive prompts
   if (executor === 'claude-code') {
     args.unshift('--print')
@@ -245,8 +263,9 @@ export async function runTmux(
   config: ExecutionConfig
 ): Promise<RunnerResult> {
   const prompt = buildPrompt(context)
-  // Tmux - skip permissions by default for autonomous execution
-  const { cmd, args } = getExecutorCommand(executor, prompt, true)
+  // Tmux - use sandboxed setting
+  const skipPermissions = !config.sandboxed
+  const { cmd, args } = getExecutorCommand(executor, prompt, skipPermissions)
 
   const sessionName = config.tmux.session
   const windowName = context.ticketId
@@ -322,8 +341,9 @@ export async function runTerminal(
   }
 
   const prompt = buildPrompt(context)
-  // Terminal - skip permissions by default for autonomous execution
-  const { cmd } = getExecutorCommand(executor, prompt, true)
+  // Terminal - use sandboxed setting
+  const skipPermissions = !config.sandboxed
+  const { cmd } = getExecutorCommand(executor, prompt, skipPermissions)
 
   // Write command to temp script to avoid shell escaping issues
   // Use HQ .proletariat/scripts if available, otherwise fallback to home dir
@@ -339,6 +359,9 @@ export async function runTerminal(
   // Write prompt to separate file to avoid any shell escaping issues
   fs.writeFileSync(promptPath, prompt, { mode: 0o644 })
 
+  // Build permissions flag based on sandboxed setting
+  const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
+
   // Build script that reads prompt from file
   // This completely avoids shell escaping issues with special characters
   const scriptContent = `#!/bin/bash
@@ -347,7 +370,7 @@ SCRIPT_PATH="${scriptPath}"
 PROMPT_PATH="${promptPath}"
 
 cd "${context.worktreePath}"
-${cmd} --dangerously-skip-permissions -p "$(cat "$PROMPT_PATH")"
+${cmd} ${permissionsFlag}-p "$(cat "$PROMPT_PATH")"
 
 # Clean up script and prompt files
 rm -f "$SCRIPT_PATH" "$PROMPT_PATH"
@@ -530,7 +553,8 @@ function buildDevcontainerCommand(
   executor: ExecutorType,
   promptFile: string,
   containerId?: string,
-  outputMode: OutputMode = 'interactive'
+  outputMode: OutputMode = 'interactive',
+  sandboxed: boolean = true
 ): string {
   // Get base command (just 'claude' for claude-code)
   let baseCmd: string
@@ -552,19 +576,21 @@ function buildDevcontainerCommand(
   const relativePath = path.relative(context.agentDir, context.worktreePath)
   const cdCmd = relativePath ? `cd /workspace/${relativePath} && ` : ''
 
-  // Build Claude flags based on output mode
+  // Build Claude flags based on output mode and sandboxed setting
   // - interactive: No -p flag, shows streaming UI (watch Claude work in real-time)
   // - print: Uses -p flag, outputs final result only (better for logs/automation)
   const printFlag = outputMode === 'print' ? '-p ' : ''
+  // sandboxed=true means safe mode (no --dangerously-skip-permissions)
+  // sandboxed=false means danger mode (use --dangerously-skip-permissions)
+  const permissionsFlag = !sandboxed ? '--dangerously-skip-permissions ' : ''
 
   // If we have a container ID, use docker exec for streaming
-  // --dangerously-skip-permissions auto-approves tool calls
   if (containerId) {
-    return `docker exec -it ${containerId} bash -c '${cdCmd}${baseCmd} --dangerously-skip-permissions ${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}'`
+    return `docker exec -it ${containerId} bash -c '${cdCmd}${baseCmd} ${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}'`
   }
 
   // Fallback to devcontainer exec (no streaming, but works)
-  return `devcontainer exec --workspace-folder "${context.agentDir}" bash -c '${cdCmd}${baseCmd} --dangerously-skip-permissions ${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}'`
+  return `devcontainer exec --workspace-folder "${context.agentDir}" bash -c '${cdCmd}${baseCmd} ${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}'`
 }
 
 /**
@@ -674,7 +700,7 @@ export async function runDevcontainer(
     const containerId = getDevcontainerContainerId(context.agentDir)
 
     // Build the devcontainer exec command
-    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId || undefined, config.outputMode)
+    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId || undefined, config.outputMode, config.sandboxed)
 
     // Execute based on display mode
     switch (displayMode) {

@@ -9,10 +9,12 @@ Commands for managing work on tickets - ownership, assignment, and execution. Th
 - **Owner**: Human accountable for the ticket getting done
 - **Assignee**: Person or agent who will execute the work
 - **Executor**: The coding tool (claude-code, codex, aider, custom)
-- **Runtime Mode**: Where/how the agent runs (foreground, background, tmux, docker, vm)
+- **Environment**: Where the agent runs (devcontainer, host, docker, vm)
+- **Display Mode**: How output is shown (terminal, foreground, background, tmux)
+- **Permission Mode**: Whether Claude requires approval for dangerous operations (safe/danger)
 - **Output Mode**: How Claude displays output (interactive streaming vs print)
 - **Execution**: A tracked instance of an agent working on a ticket
-- **Context**: Ticket details, spec content, worktree path injected into agent
+- **Context**: Full ticket details (title, description, subtasks, priority, category, epic, spec)
 
 ## Command Overview
 
@@ -37,23 +39,38 @@ Commands for managing work on tickets - ownership, assignment, and execution. Th
 
 ---
 
-## Runtime Modes
+## Execution Environment
+
+Where the agent runs. Environment and display mode are now separate concepts.
+
+| Environment    | Description                              | Use case                              |
+| -------------- | ---------------------------------------- | ------------------------------------- |
+| `devcontainer` | VS Code devcontainer                     | Sandboxed execution (recommended)     |
+| `host`         | Directly on host machine                 | Faster startup, no container overhead |
+| `docker`       | Raw Docker container                     | Isolated environment, reproducible    |
+| `vm`           | Remote VM via SSH                        | Cloud scale, parallel execution       |
+
+## Display Mode
+
+How the agent's output is shown. Applies to all environments.
 
 | Mode           | How it runs                     | Use case                              |
 | -------------- | ------------------------------- | ------------------------------------- |
 | `terminal`     | New terminal window (macOS)     | Default, see agent output separately  |
 | `foreground`   | Subprocess in current terminal  | Debugging, watching agent work        |
-| `tmux`         | New tmux pane/window            | Multiple agents visible side-by-side  |
 | `background`   | Detached process, logs to file  | Local async work                      |
-| `devcontainer` | VS Code devcontainer            | Sandboxed execution (recommended)     |
-| `docker`       | Container with worktree mounted | Isolated environment, reproducible    |
-| `vm`           | Remote VM via SSH               | Cloud scale, parallel execution       |
+| `tmux`         | New tmux pane/window            | Multiple agents visible side-by-side  |
 
-**Default mode** can be configured:
+## Permission Mode
 
-```bash
-prlt config set execution.default_mode background
-```
+Whether Claude requires approval for dangerous operations.
+
+| Mode     | Flag                              | Description                                           |
+| -------- | --------------------------------- | ----------------------------------------------------- |
+| `safe`   | (none)                            | Requires approval for dangerous operations (default)  |
+| `danger` | `--dangerously-skip-permissions`  | Skip permission checks                                |
+
+**Note**: Permission prompt shows for ALL environments. Container environments display a note about additional isolation.
 
 ---
 
@@ -323,19 +340,28 @@ When `execute` is called:
    - Create branch: `agent/{agent-name}/{ticket-id}`
 3. **Build Prompt**
 
-   ```
-   You are working on ticket {TICKET_ID}: {TITLE}
+   ```markdown
+   # Ticket: {TICKET_ID}
 
-   Epic: {EPIC_TITLE}
-   Spec: {SPEC_PATH}
+   **Title:** {TITLE}
 
-   Description:
+   **Priority:** {PRIORITY}
+   **Category:** {CATEGORY}
+   **Epic:** {EPIC_TITLE}
+   **Spec:** {SPEC_PATH}
+
+   ## Description
+
    {DESCRIPTION}
 
-   Worktree: {WORKTREE_PATH}
-   Branch: {BRANCH_NAME}
+   ## Subtasks
 
-   When complete, run: prlt work ready {TICKET_ID}
+   - [ ] Subtask 1
+   - [x] Subtask 2 (completed)
+
+   ---
+
+   When complete, run: `prlt work ready {TICKET_ID}`
    ```
 4. **Launch Executor**
 
@@ -523,7 +549,10 @@ CREATE TABLE agent_work (
   ticket_id TEXT NOT NULL,
   agent_name TEXT NOT NULL,
   executor TEXT NOT NULL,        -- claude-code, codex, aider
-  mode TEXT NOT NULL,            -- foreground, background, tmux, docker, vm
+  mode TEXT NOT NULL,            -- (legacy, use environment + display_mode)
+  environment TEXT,              -- devcontainer, host, docker, vm
+  display_mode TEXT,             -- terminal, foreground, background, tmux
+  sandboxed INTEGER,             -- 1 = safe mode, 0 = danger mode
   status TEXT NOT NULL,          -- running, completed, failed, stopped
   branch TEXT,                   -- Git branch created for this work
   pid TEXT,                      -- Process ID (background)
@@ -543,15 +572,37 @@ CREATE INDEX idx_agent_work_status ON agent_work(status);
 CREATE INDEX idx_agent_work_ticket ON agent_work(ticket_id);
 ```
 
-### Checking Agent Availability
+### Agent Busy Checking
 
-To find available agents (not currently working on anything):
+The CLI prevents double-booking agents. When selecting an agent:
+
+1. Available agents shown first and selectable
+2. Busy agents shown disabled with current ticket info
+3. Selection is blocked for busy agents
+
+**Implementation**:
 
 ```sql
+-- Find available agents (not currently working on anything)
 SELECT a.name
 FROM agents a
 LEFT JOIN agent_work w ON a.name = w.agent_name AND w.status = 'running'
 WHERE w.id IS NULL;
+
+-- Find busy agents with their current ticket
+SELECT a.name, w.ticket_id
+FROM agents a
+INNER JOIN agent_work w ON a.name = w.agent_name AND w.status = 'running';
+```
+
+**Interactive display**:
+
+```
+? Select an agent:
+  ❯ altman
+    bezos
+    ── Busy ──
+    musk (working on TKT-005)
 ```
 
 ### `prlt execution list`
@@ -750,9 +801,25 @@ prlt work ready {TICKET_ID}
 This:
 
 1. Moves ticket to "In Review" column
-2. Updates execution status to "completed"
-3. Records completion timestamp
-4. Human owner then reviews and runs `prlt work complete` to move to "Done"
+2. Finds any running execution for the ticket
+3. Marks execution status as "completed"
+4. Records completion timestamp
+5. Human owner then reviews and runs `prlt work complete` to move to "Done"
+
+### Human Review Completion
+
+When human reviews and approves work:
+
+```bash
+prlt work complete {TICKET_ID}
+```
+
+This:
+
+1. Moves ticket to "Done" column
+2. Updates ticket status to "done"
+3. Marks any running execution as "completed" (if not already)
+4. Clears the agent for new work
 
 ### Agent Failure
 

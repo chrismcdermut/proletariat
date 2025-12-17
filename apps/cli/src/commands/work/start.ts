@@ -13,6 +13,7 @@ import {
   OutputMode,
   ExecutorType,
   ExecutionContext,
+  ExecutionEnvironment,
   TerminalApp,
   Shell,
   generateBranchName,
@@ -137,13 +138,34 @@ export default class WorkStart extends Command {
       // Check assignee - prompt if not set
       let agentName = ticket.assignee
       if (!agentName) {
-        // Prompt to assign an agent
-        const agentChoices: Array<{ name: string; value: string } | inquirer.Separator> = []
+        // Get list of busy agents (already running something)
+        const busyAgentNames = new Set<string>()
+        for (const agent of workspaceInfo.agents) {
+          const runningExecutions = executionStorage.getAgentRunningExecutions(agent.name)
+          if (runningExecutions.length > 0) {
+            busyAgentNames.add(agent.name)
+          }
+        }
 
-        if (workspaceInfo.agents.length > 0) {
-          agentChoices.push(new inquirer.Separator('── Agents ──'))
-          for (const a of workspaceInfo.agents) {
+        // Prompt to assign an agent
+        const agentChoices: Array<{ name: string; value: string; disabled?: string } | inquirer.Separator> = []
+
+        const availableAgents = workspaceInfo.agents.filter(a => !busyAgentNames.has(a.name))
+        const busyAgents = workspaceInfo.agents.filter(a => busyAgentNames.has(a.name))
+
+        if (availableAgents.length > 0) {
+          agentChoices.push(new inquirer.Separator('── Available Agents ──'))
+          for (const a of availableAgents) {
             agentChoices.push({ name: a.name, value: a.name })
+          }
+        }
+
+        if (busyAgents.length > 0) {
+          agentChoices.push(new inquirer.Separator('── Busy (already working) ──'))
+          for (const a of busyAgents) {
+            const runningExecs = executionStorage.getAgentRunningExecutions(a.name)
+            const ticketIds = runningExecs.map(e => e.ticketId).join(', ')
+            agentChoices.push({ name: `${a.name} (working on ${ticketIds})`, value: a.name, disabled: 'busy' })
           }
         }
 
@@ -193,7 +215,7 @@ export default class WorkStart extends Command {
         )
       }
 
-      // Check for running execution
+      // Check for running execution on this ticket
       const runningExecution = executionStorage.getRunningExecution(ticketId!)
       if (runningExecution && !flags.force) {
         await storage.close()
@@ -201,6 +223,18 @@ export default class WorkStart extends Command {
         this.error(
           `Ticket "${ticketId}" already has work in progress: ${runningExecution.id}\n` +
             `Use --force to start another, or stop with "prlt work stop ${runningExecution.id}"`
+        )
+      }
+
+      // Check if agent is already working on something else
+      const agentRunningExecutions = executionStorage.getAgentRunningExecutions(assignedAgent)
+      if (agentRunningExecutions.length > 0 && !flags.force) {
+        const execInfo = agentRunningExecutions.map(e => `  ${e.id}: ${e.ticketId}`).join('\n')
+        await storage.close()
+        db.close()
+        this.error(
+          `Agent "${assignedAgent}" is already working on other tickets:\n${execInfo}\n\n` +
+            `Use --force to start anyway, or stop existing work first.`
         )
       }
 
@@ -268,13 +302,16 @@ export default class WorkStart extends Command {
         specPath = spec?.path
       }
 
-      // Build execution context
+      // Build execution context with full ticket details
       // HQ path is parent of pmoPath (pmoPath is <hq>/pmo)
       const hqPath = path.dirname(pmoPath)
       const context: ExecutionContext = {
         ticketId: ticket.id,
         ticketTitle: ticket.title,
         ticketDescription: ticket.description,
+        ticketSubtasks: ticket.subtasks?.map(s => ({ title: s.title, done: s.done })),
+        ticketPriority: ticket.priority,
+        ticketCategory: ticket.category,
         epicTitle,
         specPath,
         agentName: assignedAgent,
@@ -293,13 +330,15 @@ export default class WorkStart extends Command {
       // Determine runtime mode
       let mode: RuntimeMode
       let displayMode: DisplayMode = 'terminal'
+      let environment: ExecutionEnvironment = 'host'
+      let sandboxed = false  // Whether --dangerously-skip-permissions is NOT used
 
       if (hasDevcontainer && !flags.mode && !flags['run-on-host']) {
         // Agent has devcontainer - prompt for environment choice
-        const { environment } = await inquirer.prompt([
+        const { selectedEnvironment } = await inquirer.prompt([
           {
             type: 'list',
-            name: 'environment',
+            name: 'selectedEnvironment',
             message: 'Where should the agent run?',
             choices: [
               { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
@@ -309,7 +348,8 @@ export default class WorkStart extends Command {
           },
         ])
 
-        if (environment === 'devcontainer') {
+        if (selectedEnvironment === 'devcontainer') {
+          environment = 'devcontainer'
           // Pick display mode for devcontainer
           const { selectedDisplay } = await inquirer.prompt([
             {
@@ -329,6 +369,7 @@ export default class WorkStart extends Command {
           mode = 'devcontainer'
         } else {
           // User chose host - fall through to host mode selection
+          environment = 'host'
           const { selectedMode } = await inquirer.prompt([
             {
               type: 'list',
@@ -344,9 +385,11 @@ export default class WorkStart extends Command {
             },
           ])
           mode = selectedMode as RuntimeMode
+          displayMode = mode as DisplayMode
         }
       } else if (useDevcontainer) {
         // Devcontainer with explicit mode flag
+        environment = 'devcontainer'
         if (flags.mode && ['terminal', 'foreground', 'background', 'tmux'].includes(flags.mode)) {
           displayMode = flags.mode as DisplayMode
         } else if (flags.mode === 'devcontainer') {
@@ -357,6 +400,15 @@ export default class WorkStart extends Command {
         // No devcontainer or --run-on-host - host mode selection
         if (flags.mode) {
           mode = flags.mode as RuntimeMode
+          // Set environment based on mode
+          if (mode === 'docker') {
+            environment = 'docker'
+          } else if (mode === 'vm') {
+            environment = 'vm'
+          } else {
+            environment = 'host'
+          }
+          displayMode = mode as DisplayMode
         } else {
           const warningMsg = flags['run-on-host']
             ? 'Select execution mode (--run-on-host: bypassing devcontainer):'
@@ -381,6 +433,15 @@ export default class WorkStart extends Command {
             },
           ])
           mode = selectedMode as RuntimeMode
+          // Set environment based on mode
+          if (mode === 'docker') {
+            environment = 'docker'
+          } else if (mode === 'vm') {
+            environment = 'vm'
+          } else {
+            environment = 'host'
+          }
+          displayMode = mode as DisplayMode
         }
       }
 
@@ -408,18 +469,42 @@ export default class WorkStart extends Command {
         outputMode = selectedOutputMode as OutputMode
       }
 
+      // Prompt for permissions mode (all environments)
+      const containerNote = (environment === 'devcontainer' || environment === 'docker')
+        ? ' (container provides additional isolation)'
+        : ''
+      const { permissionMode } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'permissionMode',
+          message: `Permission mode for Claude Code${containerNote}:`,
+          choices: [
+            { name: '🔒 safe   - Requires approval for dangerous operations (recommended)', value: 'safe' },
+            { name: '⚠️  danger - Skip permission checks (--dangerously-skip-permissions)', value: 'danger' },
+          ],
+          default: 'safe',
+        },
+      ])
+      sandboxed = permissionMode === 'safe'
+
       // Show execution info
       this.log('')
       this.log(styles.header(`🚀 Starting work: ${ticket.id}: ${ticket.title}`))
       this.log(styles.muted(`   Agent: ${assignedAgent}`))
       this.log(styles.muted(`   Executor: ${executor}`))
-      if (mode === 'devcontainer') {
-        this.log(styles.success(`   🐳 Sandboxed: devcontainer (display: ${displayMode})`))
-      } else if (hasDevcontainer && flags['run-on-host']) {
-        this.log(styles.warning(`   ⚠️  Mode: ${mode} (--run-on-host: devcontainer bypassed)`))
+
+      // Environment info
+      const envIcon = environment === 'devcontainer' ? '🐳' : (environment === 'docker' ? '📦' : '💻')
+      this.log(styles.muted(`   Environment: ${envIcon} ${environment}`))
+      this.log(styles.muted(`   Display: ${displayMode}`))
+
+      // Permissions info
+      if (sandboxed) {
+        this.log(styles.success(`   Permissions: 🔒 safe`))
       } else {
-        this.log(styles.warning(`   ⚠️  Mode: ${mode} (no sandbox - running on host)`))
+        this.log(styles.warning(`   Permissions: ⚠️  danger (--dangerously-skip-permissions)`))
       }
+
       this.log(styles.muted(`   Output: ${outputMode === 'interactive' ? 'streaming (watch Claude work)' : 'print (final result only)'}`))
       this.log(styles.muted(`   Worktree: ${worktreePath}`))
       this.log(styles.muted(`   Branch: ${branch}`))
@@ -475,6 +560,9 @@ export default class WorkStart extends Command {
         agentName: assignedAgent,
         executor,
         mode,
+        environment,
+        displayMode,
+        sandboxed,
         branch,
       })
 
@@ -533,6 +621,9 @@ export default class WorkStart extends Command {
 
       // Set output mode from user selection
       executionConfig.outputMode = outputMode
+
+      // Set sandboxed mode (determines whether --dangerously-skip-permissions is used)
+      executionConfig.sandboxed = sandboxed
 
       // Run execution
       this.log(styles.muted('Starting agent...'))

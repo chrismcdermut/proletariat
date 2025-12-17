@@ -34,6 +34,15 @@ export type DisplayMode =
   | 'tmux'          // Tmux pane/window
 
 /**
+ * ExecutionEnvironment - Where the agent code runs.
+ */
+export type ExecutionEnvironment =
+  | 'devcontainer'  // In a devcontainer (sandboxed)
+  | 'host'          // Directly on host machine
+  | 'docker'        // In a Docker container
+  | 'vm'            // On a remote VM
+
+/**
  * OutputMode - How Claude Code displays its output.
  * - interactive: Shows streaming UI with real-time tool calls, file reads, etc.
  * - print: Outputs final result only (uses -p flag), better for logs/automation
@@ -91,7 +100,10 @@ export interface AgentWork {
   ticketId: string
   agentName: string
   executor: ExecutorType
-  mode: RuntimeMode
+  mode: RuntimeMode              // Legacy field (for backwards compat)
+  environment: ExecutionEnvironment  // Where: devcontainer, host, docker, vm
+  displayMode: DisplayMode       // How shown: terminal, foreground, background, tmux
+  sandboxed: boolean             // Whether --dangerously-skip-permissions was NOT used
   status: ExecutionStatus
   branch?: string
   pid?: string
@@ -112,6 +124,9 @@ export interface ExecutionContext {
   ticketId: string
   ticketTitle: string
   ticketDescription?: string
+  ticketSubtasks?: Array<{ title: string; done: boolean }>
+  ticketPriority?: string
+  ticketCategory?: string
   epicTitle?: string
   specPath?: string
   agentName: string
@@ -263,6 +278,7 @@ export interface ExecutionConfig {
   autoExecute: boolean
   shell: Shell
   outputMode: OutputMode  // interactive (streaming) or print (final result only)
+  sandboxed: boolean      // Whether --dangerously-skip-permissions is NOT used
   tmux: {
     session: string
     layout: 'split' | 'window'
@@ -296,6 +312,7 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   autoExecute: false,
   shell: 'zsh',  // macOS default
   outputMode: 'interactive',  // Show streaming UI by default
+  sandboxed: true,  // Require approval for dangerous operations by default
   tmux: {
     session: 'proletariat',
     layout: 'window',

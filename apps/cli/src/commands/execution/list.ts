@@ -65,35 +65,43 @@ export default class ExecutionList extends Command {
       // Display header
       this.log('')
       this.log(styles.header('🚀 Agent Work'))
-      this.log('═'.repeat(70))
+      this.log('═'.repeat(100))
       this.log(
         styles.muted(
-          padEnd('ID', 12) +
-            padEnd('Ticket', 10) +
+          padEnd('ID', 11) +
+            padEnd('Ticket', 9) +
             padEnd('Agent', 10) +
-            padEnd('Mode', 12) +
-            padEnd('Status', 12) +
+            padEnd('Env', 12) +
+            padEnd('Display', 11) +
+            padEnd('Perms', 8) +
+            padEnd('Status', 10) +
             'Started'
         )
       )
-      this.log('─'.repeat(70))
+      this.log('─'.repeat(100))
 
       // Display executions
       for (const exec of executions) {
         const statusColor = getStatusColor(exec.status)
         const timeAgo = formatTimeAgo(exec.startedAt)
+        const envIcon = exec.environment === 'devcontainer' ? '🐳' : (exec.environment === 'host' ? '💻' : '📦')
+        const envStr = `${envIcon} ${exec.environment}`
+        const permsStr = exec.sandboxed ? 'safe' : 'danger'
+        const permsColor = exec.sandboxed ? styles.success : styles.warning
 
         this.log(
-          padEnd(exec.id, 12) +
-            padEnd(exec.ticketId, 10) +
+          padEnd(exec.id, 11) +
+            padEnd(exec.ticketId, 9) +
             padEnd(exec.agentName, 10) +
-            padEnd(exec.mode, 12) +
-            statusColor(padEnd(exec.status, 12)) +
+            padEnd(envStr, 12) +
+            padEnd(exec.displayMode, 11) +
+            permsColor(padEnd(permsStr, 8)) +
+            statusColor(padEnd(exec.status, 10)) +
             styles.muted(timeAgo)
         )
       }
 
-      this.log('═'.repeat(70))
+      this.log('═'.repeat(100))
       this.log('')
 
       // Show commands

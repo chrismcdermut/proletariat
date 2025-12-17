@@ -27,12 +27,6 @@ export default class Ticket extends Command {
         { name: 'Edit ticket', value: 'edit' },
         { name: 'Move ticket', value: 'move' },
         { name: 'Link ticket to epic', value: 'link' },
-        new inquirer.Separator('── Ownership ──'),
-        { name: 'Assign ticket', value: 'assign' },
-        { name: 'Claim ticket', value: 'claim' },
-        { name: 'Set owner', value: 'own' },
-        new inquirer.Separator('── Execution ──'),
-        { name: 'Execute ticket (start agent work)', value: 'execute' },
         new inquirer.Separator('──────────────'),
         { name: 'Delete ticket', value: 'delete' },
         { name: 'Cancel', value: 'cancel' },
@@ -62,18 +56,6 @@ export default class Ticket extends Command {
         break;
       case 'link':
         await this.config.runCommand('ticket:link', []);
-        break;
-      case 'assign':
-        await this.config.runCommand('ticket:assign', []);
-        break;
-      case 'claim':
-        await this.config.runCommand('ticket:claim', []);
-        break;
-      case 'own':
-        await this.config.runCommand('ticket:own', []);
-        break;
-      case 'execute':
-        await this.config.runCommand('ticket:execute', []);
         break;
       case 'delete':
         await this.config.runCommand('ticket:delete', []);

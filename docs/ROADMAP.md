@@ -1,33 +1,34 @@
 # Proletariat Roadmap
 
-## Immediate Testing (Next Session)
+## Implementation Status
 
-### Execute Command Testing
-- [ ] Test `prlt work start` with foreground mode (host)
-- [ ] Test `prlt work start` with background mode (host)
-- [ ] Test `prlt work start` with terminal mode (host)
-- [ ] Test `prlt work start` with tmux mode (host)
-- [ ] Test `prlt work start` with devcontainer + foreground display
-- [ ] Test `prlt work start` with devcontainer + background display
-- [ ] Test `prlt work start` with devcontainer + terminal display
-- [ ] Test `prlt work start` with `--run-on-host` flag bypass
+### Core Commands (✅ Complete)
+| Command Area | Status | Notes |
+|--------------|--------|-------|
+| Schema | ✅ 100% | Database schema complete |
+| Ticket CRUD | ✅ 100% | create, list, view, move, delete |
+| Board Commands | ✅ 100% | view, sync, open, markdown |
+| Spec Commands | ✅ 100% | create, list, view |
+| Work Commands | ✅ 100% | start, ready, complete, own, claim, assign |
+| Agent Commands | ✅ 100% | add, remove, list |
+
+### Testing Status
+- [ ] Test `prlt work start` with all display modes (terminal, foreground, background, tmux)
+- [ ] Test `prlt work start` with devcontainer vs host environments
+- [ ] Test `prlt work start` permission mode selection (safe vs danger)
 - [ ] Test `prlt work start` output mode selection (interactive vs print)
+- [ ] Test `prlt work ready` and `prlt work complete` column transitions
+- [ ] Verify agent busy checking prevents double-booking
 
-### Debug: Interactive Prompt SIGKILL Issue
-- Commands with inquirer prompts getting killed (exit 137)
-- Non-interactive commands work fine
-- Likely terminal/shell integration issue (iTerm2? zsh autocomplete?)
-- Test in fresh terminal, disable shell integrations
+### Known Issues
+- **SIGKILL on interactive prompts**: Commands with inquirer prompts getting killed (exit 137)
+  - Non-interactive commands work fine
+  - Likely terminal/shell integration issue (iTerm2? zsh autocomplete?)
+  - Test in fresh terminal, disable shell integrations
 
 ---
 
-## Specs & Documentation
-
-### Update Specs
-- [x] Update execute-commands.md with `--run-on-host` flag
-- [x] Update ticket-commands.md with review/complete column logic
-- [x] Create system card / agent briefing document
-- [x] Ensure all specs reflect current implementation
+## Short Term
 
 ### Review/Complete Column Logic
 - [ ] Tighten logic for `prlt work ready` - which column to move to
@@ -101,6 +102,24 @@
 
 ---
 
+## Future Enhancements
+
+### Bulk Operations
+- [ ] `prlt ticket bulk move` - Move multiple tickets
+- [ ] `prlt ticket bulk delete` - Delete multiple tickets
+- [ ] `prlt ticket bulk reassign` - Change assignee for multiple
+- [ ] `prlt ticket bulk update` - Update priority/category
+
+### Board Views & Filtering
+- [ ] `prlt board view --assignee` - Filter by assignee
+- [ ] `prlt board view --priority` - Filter by priority
+- [ ] `prlt board view --column` - Show specific columns
+- [ ] `prlt board view --group-by` - Group tickets
+- [ ] `prlt board view --sort-by` - Sort tickets
+- [ ] `prlt board export` - Export to JSON/CSV
+
+---
+
 ## Technical Debt
 
 ### PMO Path Migration
@@ -133,6 +152,25 @@
   - Moved `claim`, `assign`, `own` to `work` namespace
 - Added output mode selection (interactive vs print) to work start flow
 - Updated all specs and documentation
+
+### 2024-12-16 (Session 2)
+- Enhanced execution tracking with new fields:
+  - `environment`: devcontainer, host, docker, vm
+  - `display_mode`: terminal, foreground, background, tmux
+  - `sandboxed`: Whether --dangerously-skip-permissions is NOT used
+- Permission prompt now shows for ALL environments (including devcontainer)
+  - Container environments show note about additional isolation
+- Agent busy checking:
+  - Dynamic agent list shows available vs busy agents
+  - Busy agents disabled in selection with ticket info
+  - Prevents double-booking of agents
+- Execution lifecycle improvements:
+  - `work ready` and `work complete` mark executions as "completed"
+  - Ticket assignees cleared when agents are removed from workspace
+- Enhanced Claude prompt with full ticket details:
+  - Priority, category, epic, spec
+  - Full description with markdown formatting
+  - Subtasks with completion checkboxes
 
 ---
 

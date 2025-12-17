@@ -196,21 +196,35 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 | `prlt execution logs [id]`        | ✓  | ✓  | -  | View execution logs                | [execute-commands.md](../../specs/cli/execute-commands.md) |
 | `prlt execution stop [id]`        | ✓  | ✓  | -  | Stop a running execution           | [execute-commands.md](../../specs/cli/execute-commands.md) |
 
-**Runtime Modes:**
+**Execution Environment** (where agent runs):
 
-| Mode           | Description                              | Sandboxed |
-| -------------- | ---------------------------------------- | --------- |
-| `devcontainer` | VS Code devcontainer (recommended)       | ✓         |
-| `terminal`     | New terminal window (macOS)              | -         |
-| `foreground`   | Subprocess in current terminal           | -         |
-| `tmux`         | New tmux pane/window                     | -         |
-| `background`   | Detached process, logs to file           | -         |
-| `docker`       | Raw Docker container                     | ✓         |
-| `vm`           | Remote VM via SSH                        | ✓         |
+| Environment    | Description                              |
+| -------------- | ---------------------------------------- |
+| `devcontainer` | VS Code devcontainer (recommended)       |
+| `host`         | Directly on host machine                 |
+| `docker`       | Raw Docker container                     |
+| `vm`           | Remote VM via SSH                        |
+
+**Display Mode** (how output is shown):
+
+| Mode           | Description                              |
+| -------------- | ---------------------------------------- |
+| `terminal`     | New terminal window (macOS)              |
+| `foreground`   | Subprocess in current terminal           |
+| `background`   | Detached process, logs to file           |
+| `tmux`         | New tmux pane/window                     |
+
+**Permission Mode**:
+- `safe` (sandboxed=true): Requires approval for dangerous operations (recommended)
+- `danger` (sandboxed=false): Skip permission checks (--dangerously-skip-permissions)
 
 **Execute Options:**
 - `--run-on-host`: Bypass devcontainer and run directly on host machine
 - `--vm-host <host>`: Specify VM hostname for vm mode
+
+**Agent Selection:**
+- Available agents shown first, busy agents disabled with current ticket info
+- Prevents double-booking of agents on multiple tickets
 
 See [devcontainer-agents.md](../../specs/cli/devcontainer-agents.md) for sandboxed agent execution.
 
@@ -393,7 +407,7 @@ Examples:
 | **pmo_specs**              | id                      | path, title, created_at, updated_at                                                                      | Static specification documents   |
 | **pmo_ticket_assignments** | (ticket_id, agent_name) | assigned_at                                                                                              | Agent-Ticket assignments (M:M)   |
 | **pmo_cache_metadata**     | key                     | value                                                                                                    | Board.md sync tracking           |
-| **agent_work**             | id                      | ticket_id, agent_name, executor, mode, status, branch, pid, container_id, session_id, host, log_path, started_at, completed_at, exit_code | Execution tracking (agent work sessions) |
+| **agent_work**             | id                      | ticket_id, agent_name, executor, mode, environment, display_mode, sandboxed, status, branch, pid, container_id, session_id, host, log_path, started_at, completed_at, exit_code | Execution tracking (agent work sessions) |
 
 **Foreign Key Constraints:**
 
