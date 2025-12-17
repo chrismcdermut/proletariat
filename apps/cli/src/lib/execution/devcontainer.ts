@@ -56,6 +56,7 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       dockerfile: 'Dockerfile',
       args: {
         TZ: options.timezone || 'America/Los_Angeles',
+        GITHUB_TOKEN: '${localEnv:GITHUB_TOKEN}',
       },
     },
     customizations: {
@@ -81,17 +82,20 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       'source=${localWorkspaceFolder},target=/workspace,type=bind',
       'source=claude-bash-history,target=/commandhistory,type=volume',
       'source=claude-credentials,target=/home/node/.claude,type=volume',
-      'source=${localEnv:HOME}/.claude.json,target=/home/node/.claude.json,type=bind',
+      // NOTE: ~/.claude.json is COPIED (not mounted) to /workspace/.claude.json
+      // to avoid corruption from concurrent writes by multiple containers
       'source=${localEnv:PRLT_HQ_PATH}/.proletariat,target=/hq/.proletariat,type=bind',
+      'source=${localEnv:PRLT_HQ_PATH}/pmo,target=/hq/pmo,type=bind',
       'source=${localEnv:PRLT_REPO_PATH},target=/opt/prlt,type=bind,readonly',
     ],
     containerEnv: {
       ANTHROPIC_API_KEY: '${localEnv:ANTHROPIC_API_KEY}',
       PRLT_HQ_PATH: '/hq',
-      PATH: '/opt/prlt/apps/cli/bin:/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin',
+      // /hq/.proletariat/bin contains prlt wrapper with ESM loader for native modules
+      PATH: '/hq/.proletariat/bin:/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin',
     },
     workspaceFolder: '/workspace',
-    postStartCommand: 'sudo /usr/local/bin/init-firewall.sh',
+    postStartCommand: 'sudo /usr/local/bin/init-firewall.sh && /usr/local/bin/setup-prlt.sh',
     waitFor: 'postStartCommand',
   }
 
@@ -137,20 +141,32 @@ RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master
     && chsh -s /bin/zsh node
 
 # Configure npm global directory
-RUN mkdir -p /home/node/.npm-global \\
+RUN mkdir -p /home/node/.npm-global/bin /home/node/.npm-global/lib \\
     && chown -R node:node /home/node/.npm-global
 ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
 ENV PATH=/home/node/.npm-global/bin:\$PATH
 
-# Install Claude Code
+# Install Claude Code as node user so files are owned correctly
+USER node
 RUN npm install -g @anthropic-ai/claude-code
+USER root
 
-# Install prlt CLI (if published to npm, otherwise skip)
-RUN npm install -g @anthropic-ai/prlt 2>/dev/null || echo "prlt not yet published to npm, skipping"
+# Install prlt CLI from GitHub Packages
+# Requires GITHUB_TOKEN build arg with read:packages scope
+ARG GITHUB_TOKEN
+RUN if [ -n "\${GITHUB_TOKEN}" ]; then \\
+      echo "//npm.pkg.github.com/:_authToken=\${GITHUB_TOKEN}" >> /home/node/.npmrc && \\
+      echo "@chrismcdermut:registry=https://npm.pkg.github.com" >> /home/node/.npmrc && \\
+      npm install -g @chrismcdermut/prlt && \\
+      rm /home/node/.npmrc; \\
+    else \\
+      echo "GITHUB_TOKEN not provided, prlt will be mounted from host"; \\
+    fi
 
-# Copy and set up firewall script
+# Copy and set up scripts
 COPY init-firewall.sh /usr/local/bin/init-firewall.sh
-RUN chmod +x /usr/local/bin/init-firewall.sh
+COPY setup-prlt.sh /usr/local/bin/setup-prlt.sh
+RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/setup-prlt.sh
 
 # Allow node user to run firewall script without password
 RUN echo "node ALL=(ALL) NOPASSWD: /usr/local/bin/init-firewall.sh" >> /etc/sudoers
@@ -234,6 +250,7 @@ add_domain "statsigapi.net"
 add_domain "sentry.io"
 add_domain "registry.npmjs.org"
 add_domain "npmjs.com"
+add_domain "nodejs.org"
 add_domain "update.code.visualstudio.com"
 add_domain "vscode.download.prss.microsoft.com"
 
@@ -276,6 +293,82 @@ echo "Firewall setup complete."
 }
 
 /**
+ * Generate prlt setup script.
+ * Rebuilds better-sqlite3 if prlt is mounted from host (not installed via npm).
+ */
+export function generatePrltSetupScript(): string {
+  return `#!/bin/bash
+# Setup prlt CLI - rebuild native modules if using mounted version
+
+# Copy Claude credentials from workspace to home (each container gets its own copy)
+if [ -f "/workspace/.claude.json" ]; then
+    cp /workspace/.claude.json /home/node/.claude.json
+    echo "Claude credentials copied"
+fi
+
+# Check if prlt is already installed globally (via npm from GitHub Packages)
+if command -v prlt &> /dev/null; then
+    PRLT_PATH=$(which prlt)
+    if [[ "$PRLT_PATH" == "/home/node/.npm-global/bin/prlt" ]]; then
+        echo "prlt installed via npm, no setup needed"
+        exit 0
+    fi
+fi
+
+# Check if mounted prlt exists at /opt/prlt
+if [ -d "/opt/prlt/apps/cli" ]; then
+    echo "Setting up mounted prlt..."
+
+    PRLT_LOCAL="/home/node/.prlt-local"
+
+    # Only rebuild if not already done
+    if [ ! -f "$PRLT_LOCAL/.setup-complete" ]; then
+        echo "Rebuilding native modules for container architecture..."
+        mkdir -p "$PRLT_LOCAL"
+
+        # Install only better-sqlite3 with correct architecture
+        cd "$PRLT_LOCAL"
+        npm init -y > /dev/null 2>&1
+        npm install better-sqlite3@11.6.0 --build-from-source 2>&1 || {
+            echo "Warning: better-sqlite3 rebuild failed"
+        }
+
+        touch "$PRLT_LOCAL/.setup-complete"
+        echo "Native module rebuild complete"
+    else
+        echo "prlt native modules already set up"
+    fi
+
+    # Create ESM loader to redirect better-sqlite3 to rebuilt version
+    LOADER="/home/node/.prlt-local/loader.mjs"
+    cat > "$LOADER" << 'LOADER_EOF'
+export async function resolve(specifier, context, nextResolve) {
+  if (specifier === "better-sqlite3") {
+    return {
+      shortCircuit: true,
+      url: "file:///home/node/.prlt-local/node_modules/better-sqlite3/lib/index.js"
+    };
+  }
+  return nextResolve(specifier, context);
+}
+LOADER_EOF
+
+    # Create wrapper script that uses ESM loader for native module resolution
+    WRAPPER="/home/node/.npm-global/bin/prlt"
+    mkdir -p /home/node/.npm-global/bin
+    cat > "$WRAPPER" << 'WRAPPER_EOF'
+#!/bin/bash
+NODE_NO_WARNINGS=1 exec node --experimental-loader /home/node/.prlt-local/loader.mjs /opt/prlt/apps/cli/bin/run.js "$@"
+WRAPPER_EOF
+    chmod +x "$WRAPPER"
+    echo "prlt wrapper ready at $WRAPPER"
+else
+    echo "No mounted prlt found, skipping setup"
+fi
+`
+}
+
+/**
  * Create .devcontainer/ directory structure for an agent
  * Writes devcontainer.json, Dockerfile, and init-firewall.sh
  */
@@ -299,6 +392,11 @@ export function createDevcontainerConfig(options: DevcontainerOptions, config?: 
   const firewallScript = generateFirewallScript()
   const firewallScriptPath = path.join(devcontainerDir, 'init-firewall.sh')
   fs.writeFileSync(firewallScriptPath, firewallScript, { mode: 0o755 })
+
+  // Generate and write prlt setup script
+  const setupScript = generatePrltSetupScript()
+  const setupScriptPath = path.join(devcontainerDir, 'setup-prlt.sh')
+  fs.writeFileSync(setupScriptPath, setupScript, { mode: 0o755 })
 }
 
 /**
@@ -341,11 +439,12 @@ export function updateDevcontainerMounts(agentDir: string, _repoWorktrees: strin
   }
 
   // Use single mount for entire workspace - includes all repos and temp files
+  // NOTE: ~/.claude.json is COPIED (not mounted) to /workspace/.claude.json
+  // to avoid corruption from concurrent writes by multiple containers
   devcontainerJson.mounts = [
     'source=${localWorkspaceFolder},target=/workspace,type=bind',
     'source=claude-bash-history,target=/commandhistory,type=volume',
     'source=claude-credentials,target=/home/node/.claude,type=volume',
-    'source=${localEnv:HOME}/.claude.json,target=/home/node/.claude.json,type=bind',
   ]
 
   // Write back

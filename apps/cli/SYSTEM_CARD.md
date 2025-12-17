@@ -60,6 +60,7 @@ This is the authoritative list of commands that MUST exist in the CLI.
 | `prlt agent visit [name]`    | ✓  | ✓  | -  | Navigate to agent directory   | [agent-commands.md](../../specs/cli/agent-commands.md)   |
 | `prlt agent add`             | ✓  | ✓  | -  | Add agent (redirects to bulk) | [agent-commands.md](../../specs/cli/agent-commands.md)   |
 | `prlt agent remove [name]`   | ✓  | ✓  | -  | Remove specific agent         | [agent-commands.md](../../specs/cli/agent-commands.md)   |
+| `prlt agent login [name]`    | ✓  | ✓  | -  | Auth Claude in devcontainer   | [agent-commands.md](../../specs/cli/agent-commands.md)   |
 | `prlt agent grant`           | ✓  | -  | -  | Grant repo access to agents   | [agent-commands.md](../../specs/cli/agent-commands.md)   |
 | `prlt agent revoke`          | ✓  | -  | -  | Revoke repo access            | [agent-commands.md](../../specs/cli/agent-commands.md)   |
 
@@ -156,6 +157,7 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 | `prlt ticket edit [id]`          | ✓  | ✓  | -  | Edit ticket fields      | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 | `prlt ticket move [id] [column]` | ✓  | ✓  | -  | Move ticket to column   | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 | `prlt ticket delete [id]`        | ✓  | ✓  | -  | Delete ticket           | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
+| `prlt ticket review [id]`        | ✓  | ✓  | -  | Move ticket to In Review| [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 | `prlt ticket complete [id]`      | ✓  | ✓  | -  | Move ticket to Done     | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 | `prlt ticket status [id]`        | ✓  | ✓  | -  | Show ticket status      | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 | `prlt ticket link [id] [epic-id]`| ✓  | ✓  | -  | Link ticket to epic     | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
@@ -205,6 +207,10 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 | `background`   | Detached process, logs to file           | -         |
 | `docker`       | Raw Docker container                     | ✓         |
 | `vm`           | Remote VM via SSH                        | ✓         |
+
+**Execute Options:**
+- `--run-on-host`: Bypass devcontainer and run directly on host machine
+- `--vm-host <host>`: Specify VM hostname for vm mode
 
 See [devcontainer-agents.md](../../specs/cli/devcontainer-agents.md) for sandboxed agent execution.
 

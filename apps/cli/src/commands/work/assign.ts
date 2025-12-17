@@ -4,13 +4,13 @@ import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 
-export default class TicketAssign extends Command {
-  static description = 'Assign ticket to a human or agent (set executor)'
+export default class WorkAssign extends Command {
+  static description = 'Assign work to an agent or person'
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> TKT-001 alice',
+    '<%= config.bin %> <%= command.id %> TKT-001 altman',
     '<%= config.bin %> <%= command.id %> TKT-001 --unassign',
-    '<%= config.bin %> <%= command.id %> TKT-001 alice --owner chris',
+    '<%= config.bin %> <%= command.id %> TKT-001 altman --owner chris',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
   ]
 
@@ -37,7 +37,7 @@ export default class TicketAssign extends Command {
   }
 
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(TicketAssign)
+    const { args, flags } = await this.parse(WorkAssign)
 
     // Get workspace info for agent list
     let workspaceAgents: string[] = []
@@ -95,7 +95,7 @@ export default class TicketAssign extends Command {
         await storage.close()
 
         this.log('')
-        this.log(styles.success(`✅ Unassigned ${styles.emphasis(ticketId)}`))
+        this.log(styles.success(`Unassigned ${styles.emphasis(ticketId)}`))
         this.log(styles.muted(`   Title: ${ticket.title}`))
         this.log('')
         return
@@ -169,15 +169,15 @@ export default class TicketAssign extends Command {
 
       this.log('')
       if (agent) {
-        this.log(styles.success(`✅ Assigned ${styles.emphasis(ticketId!)} to ${styles.emphasis(agent)}`))
+        this.log(styles.success(`Assigned ${styles.emphasis(ticketId!)} to ${styles.emphasis(agent)}`))
         this.log(styles.muted(`   Title: ${ticket.title}`))
         if (flags.owner) {
           this.log(styles.muted(`   Owner: ${flags.owner}`))
         }
         this.log('')
-        this.log(styles.muted(`To start work: prlt ticket execute ${ticketId}`))
+        this.log(styles.muted(`To start work: prlt work start ${ticketId}`))
       } else {
-        this.log(styles.success(`✅ Unassigned ${styles.emphasis(ticketId!)}`))
+        this.log(styles.success(`Unassigned ${styles.emphasis(ticketId!)}`))
         this.log(styles.muted(`   Title: ${ticket.title}`))
       }
       this.log('')

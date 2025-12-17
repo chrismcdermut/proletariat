@@ -6,12 +6,12 @@ import {
 } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class TicketReview extends Command {
-  static description = 'Mark a ticket as ready for review (move to In Review column)';
+export default class WorkComplete extends Command {
+  static description = 'Mark work as complete (moves ticket to Done column)';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> TICK-001',
+    '<%= config.bin %> <%= command.id %> TKT-001',
   ];
 
   static args = {
@@ -22,7 +22,7 @@ export default class TicketReview extends Command {
   };
 
   async run(): Promise<void> {
-    const { args } = await this.parse(TicketReview);
+    const { args } = await this.parse(WorkComplete);
 
     // Get PMO context (prompts for project if multiple exist)
     const { pmoPath, storage } = await getPMOContext(
@@ -36,23 +36,26 @@ export default class TicketReview extends Command {
       let ticketId = args.ticketId;
 
       if (!ticketId) {
-        // Get all in-progress tickets for selection
+        // Get all tickets that could be completed (in progress or in review)
         const allTickets = await storage.listTickets();
-        const inProgressTickets = allTickets.filter(t =>
-          t.column && t.column.toLowerCase().includes('progress')
+        const completableTickets = allTickets.filter(t =>
+          t.column && (
+            t.column.toLowerCase().includes('progress') ||
+            t.column.toLowerCase().includes('review')
+          )
         );
 
-        if (inProgressTickets.length === 0) {
+        if (completableTickets.length === 0) {
           await storage.close();
-          this.log(styles.info('No in-progress tickets found.'));
+          this.log(styles.info('No in-progress or in-review work found.'));
           return;
         }
 
         const { selectedTicketId } = await inquirer.prompt([{
           type: 'list',
           name: 'selectedTicketId',
-          message: 'Select ticket to mark for review:',
-          choices: inProgressTickets.map(t => ({
+          message: 'Select work to mark as complete:',
+          choices: completableTickets.map(t => ({
             name: `${t.id} - ${t.title} (${t.column})`,
             value: t.id,
           })),
@@ -70,34 +73,37 @@ export default class TicketReview extends Command {
       // Get board for columns
       const board = await storage.getBoard();
 
-      // Find the "In Review" column (case-insensitive)
-      const reviewColumn = board.columns.find(col =>
-        col.name.toLowerCase().includes('review')
+      // Find the "Done" column (case-insensitive)
+      const doneColumn = board.columns.find(col =>
+        col.name.toLowerCase() === 'done' ||
+        col.name.toLowerCase().includes('complete')
       );
 
-      if (!reviewColumn) {
+      if (!doneColumn) {
         await storage.close();
-        this.error('No "In Review" column found in board configuration.');
+        this.error('No "Done" or "Complete" column found in board configuration.');
       }
 
       const previousColumn = ticket.column;
 
-      // Move to In Review column
-      await storage.moveTicket(ticketId!, reviewColumn.name);
+      // Update ticket status
+      await storage.updateTicket(ticketId!, { status: 'done' });
+
+      // Move to Done column
+      await storage.moveTicket(ticketId!, doneColumn.name);
 
       // Auto-export to board.md if configured
       await autoExportToBoard(pmoPath, storage);
 
       await storage.close();
 
-      this.log(styles.success(`👀 Marked ${ticketId} for review`));
+      this.log(styles.success(`✅ Work complete: ${ticketId}`));
       this.log(styles.muted(`   Title: ${ticket.title}`));
       this.log(styles.muted(`   From: ${previousColumn}`));
-      this.log(styles.muted(`   To: ${reviewColumn.name}`));
+      this.log(styles.muted(`   To: ${doneColumn.name}`));
     } catch (error) {
       await storage.close();
       throw error;
     }
   }
-
 }

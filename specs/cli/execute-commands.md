@@ -63,7 +63,9 @@ prlt config set execution.default_mode background
 - `--executor <name>`: Override executor (claude-code, codex, aider)
 - `--watch, -w`: Stream output in real-time (implies foreground or attaches to background)
 - `--force, -f`: Execute even if already in progress
+- `--run-on-host`: Run on host even if devcontainer exists (bypasses sandbox)
 - `--reconfigure`: Re-prompt for terminal app preference (only applies to terminal mode)
+- `--vm-host <host>`: VM hostname for vm mode
 
 **Interactive Flow** (if id not provided):
 
@@ -72,11 +74,34 @@ prlt config set execution.default_mode background
   ❯ TKT-001 - Add login screen (assignee: alice)
     TKT-002 - Setup CI/CD (assignee: bob)
     TKT-003 - Implement auth (assignee: charlie)
+```
 
+**Environment Selection** (if agent has devcontainer):
+
+When the assigned agent has a devcontainer configuration, you'll be prompted to choose the execution environment:
+
+```
+? Where should the agent run?
+  ❯ 🐳 devcontainer (sandboxed, recommended)
+    💻 host (runs directly on your machine)
+```
+
+- **devcontainer**: Runs in an isolated container with network restrictions and controlled filesystem access. Recommended for autonomous agent work.
+- **host**: Runs directly on your machine. Faster startup but no sandbox protection.
+
+Use `--run-on-host` to skip this prompt and force host execution:
+
+```bash
+prlt ticket execute TKT-001 --run-on-host
+```
+
+**Output**:
+
+```
 🚀 Executing TKT-001: Add login screen
    Agent: alice
    Executor: claude-code
-   Mode: background
+   🐳 Sandboxed: devcontainer (display: terminal)
    Worktree: /path/to/agents/alice/repo
 
    ✓ Work started (WORK-001)
@@ -88,10 +113,11 @@ prlt config set execution.default_mode background
 **Example**:
 
 ```bash
-prlt ticket execute TKT-001                     # Use defaults
+prlt ticket execute TKT-001                     # Use defaults (devcontainer if available)
 prlt ticket execute TKT-001 --mode foreground   # Watch in terminal
 prlt ticket execute TKT-001 --mode tmux         # New tmux pane
 prlt ticket execute TKT-001 --mode docker       # Run in container
+prlt ticket execute TKT-001 --run-on-host       # Bypass devcontainer, run on host
 prlt ticket execute TKT-001 --watch             # Stream output
 prlt ticket execute                             # Interactive
 ```

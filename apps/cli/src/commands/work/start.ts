@@ -10,6 +10,7 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
   RuntimeMode,
   DisplayMode,
+  OutputMode,
   ExecutorType,
   ExecutionContext,
   TerminalApp,
@@ -22,15 +23,14 @@ import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 
-export default class TicketExecute extends Command {
-  static description = 'Start an agent working on a ticket'
+export default class WorkStart extends Command {
+  static description = 'Start work on a ticket (launches an agent to implement it)'
 
   static examples = [
     '<%= config.bin %> <%= command.id %> TKT-001',
     '<%= config.bin %> <%= command.id %> TKT-001 --mode foreground',
     '<%= config.bin %> <%= command.id %> TKT-001 --mode tmux',
     '<%= config.bin %> <%= command.id %> TKT-001 --mode terminal',
-    '<%= config.bin %> <%= command.id %> TKT-001 --mode docker',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
   ]
 
@@ -59,7 +59,7 @@ export default class TicketExecute extends Command {
     }),
     force: Flags.boolean({
       char: 'f',
-      description: 'Execute even if already in progress',
+      description: 'Start even if work already in progress',
       default: false,
     }),
     'vm-host': Flags.string({
@@ -76,7 +76,7 @@ export default class TicketExecute extends Command {
   }
 
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(TicketExecute)
+    const { args, flags } = await this.parse(WorkStart)
 
     // Get workspace info (for agent worktree paths)
     let workspaceInfo
@@ -116,7 +116,7 @@ export default class TicketExecute extends Command {
           {
             type: 'list',
             name: 'selectedTicketId',
-            message: 'Select ticket to execute:',
+            message: 'Select ticket to work on:',
             choices: allTickets.map((t) => ({
               name: `${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
               value: t.id,
@@ -154,7 +154,7 @@ export default class TicketExecute extends Command {
           {
             type: 'list',
             name: 'selectedAgent',
-            message: `Ticket "${ticketId}" has no assignee. Select agent to execute:`,
+            message: `Ticket "${ticketId}" has no assignee. Select agent:`,
             choices: agentChoices,
           },
         ])
@@ -199,8 +199,8 @@ export default class TicketExecute extends Command {
         await storage.close()
         db.close()
         this.error(
-          `Ticket "${ticketId}" already has a running execution: ${runningExecution.id}\n` +
-            `Use --force to start another, or stop with "prlt execution stop ${runningExecution.id}"`
+          `Ticket "${ticketId}" already has work in progress: ${runningExecution.id}\n` +
+            `Use --force to start another, or stop with "prlt work stop ${runningExecution.id}"`
         )
       }
 
@@ -278,7 +278,8 @@ export default class TicketExecute extends Command {
         epicTitle,
         specPath,
         agentName: assignedAgent,
-        worktreePath,
+        agentDir,         // Agent directory (contains .devcontainer)
+        worktreePath,     // Worktree path (may be subdirectory of agentDir)
         branch,
         hqPath,
       }
@@ -385,9 +386,31 @@ export default class TicketExecute extends Command {
 
       const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
 
+      // Prompt for output mode (interactive vs print)
+      // Only show this for display modes where streaming makes sense (terminal, tmux, foreground)
+      let outputMode: OutputMode = DEFAULT_EXECUTION_CONFIG.outputMode
+      const streamingDisplayModes: DisplayMode[] = ['terminal', 'tmux', 'foreground']
+      const currentDisplayMode = mode === 'devcontainer' ? displayMode : mode as DisplayMode
+
+      if (streamingDisplayModes.includes(currentDisplayMode)) {
+        const { selectedOutputMode } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'selectedOutputMode',
+            message: 'How should Claude display output?',
+            choices: [
+              { name: 'interactive  - Watch Claude work in real-time (streaming UI)', value: 'interactive' },
+              { name: 'print        - Show final result only (better for logs)', value: 'print' },
+            ],
+            default: 'interactive',
+          },
+        ])
+        outputMode = selectedOutputMode as OutputMode
+      }
+
       // Show execution info
       this.log('')
-      this.log(styles.header(`🚀 Executing ${ticket.id}: ${ticket.title}`))
+      this.log(styles.header(`🚀 Starting work: ${ticket.id}: ${ticket.title}`))
       this.log(styles.muted(`   Agent: ${assignedAgent}`))
       this.log(styles.muted(`   Executor: ${executor}`))
       if (mode === 'devcontainer') {
@@ -397,6 +420,7 @@ export default class TicketExecute extends Command {
       } else {
         this.log(styles.warning(`   ⚠️  Mode: ${mode} (no sandbox - running on host)`))
       }
+      this.log(styles.muted(`   Output: ${outputMode === 'interactive' ? 'streaming (watch Claude work)' : 'print (final result only)'}`))
       this.log(styles.muted(`   Worktree: ${worktreePath}`))
       this.log(styles.muted(`   Branch: ${branch}`))
       this.log('')
@@ -507,6 +531,9 @@ export default class TicketExecute extends Command {
         executionConfig.shell = shell
       }
 
+      // Set output mode from user selection
+      executionConfig.outputMode = outputMode
+
       // Run execution
       this.log(styles.muted('Starting agent...'))
       const result = await runExecution(mode, context, executor, executionConfig, {
@@ -530,12 +557,13 @@ export default class TicketExecute extends Command {
 
         if (mode !== 'foreground') {
           this.log(styles.muted('Commands:'))
-          this.log(styles.muted(`  prlt execution logs ${execution.id}    View logs`))
-          this.log(styles.muted(`  prlt execution stop ${execution.id}    Stop execution`))
+          this.log(styles.muted(`  prlt work status              View work status`))
+          this.log(styles.muted(`  prlt work ready ${ticketId}     Mark ready for review`))
+          this.log(styles.muted(`  prlt work stop ${execution.id}    Stop work`))
         }
       } else {
         executionStorage.updateStatus(execution.id, 'failed')
-        this.error(`Failed to start execution: ${result.error}`)
+        this.error(`Failed to start work: ${result.error}`)
       }
 
       await storage.close()

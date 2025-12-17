@@ -5,13 +5,13 @@ import { TicketStatus } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 
-export default class TicketClaim extends Command {
-  static description = 'Claim a ticket: take ownership and assign work (to yourself or an agent)'
+export default class WorkClaim extends Command {
+  static description = 'Claim work: take ownership and assign to yourself or an agent'
 
   static examples = [
     '<%= config.bin %> <%= command.id %> TKT-001',
     '<%= config.bin %> <%= command.id %> TKT-001 --self',
-    '<%= config.bin %> <%= command.id %> TKT-001 --agent alice',
+    '<%= config.bin %> <%= command.id %> TKT-001 --agent altman',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
   ]
 
@@ -28,12 +28,12 @@ export default class TicketClaim extends Command {
       default: false,
     }),
     agent: Flags.string({
-      description: 'Assign to specific agent and execute',
+      description: 'Assign to specific agent',
     }),
   }
 
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(TicketClaim)
+    const { args, flags } = await this.parse(WorkClaim)
 
     // Get current user
     const currentUser = this.getCurrentUser()
@@ -151,7 +151,7 @@ export default class TicketClaim extends Command {
       await storage.close()
 
       this.log('')
-      this.log(styles.success(`✅ Claimed ${styles.emphasis(ticketId!)}`))
+      this.log(styles.success(`Claimed ${styles.emphasis(ticketId!)}`))
       this.log(styles.muted(`   Owner: ${currentUser}`))
       this.log(styles.muted(`   Assignee: ${executor}`))
 
@@ -161,7 +161,7 @@ export default class TicketClaim extends Command {
         this.log(styles.muted('You\'re now working on this ticket.'))
       } else {
         this.log('')
-        this.log(styles.muted(`To start agent: prlt ticket execute ${ticketId}`))
+        this.log(styles.muted(`To start agent: prlt work start ${ticketId}`))
       }
       this.log('')
     } catch (error) {

@@ -33,6 +33,15 @@ export type DisplayMode =
   | 'background'    // Detached, logs to file
   | 'tmux'          // Tmux pane/window
 
+/**
+ * OutputMode - How Claude Code displays its output.
+ * - interactive: Shows streaming UI with real-time tool calls, file reads, etc.
+ * - print: Outputs final result only (uses -p flag), better for logs/automation
+ */
+export type OutputMode =
+  | 'interactive'   // Streaming UI (no -p flag) - watch Claude work in real-time
+  | 'print'         // Print mode (-p flag) - final result only, good for automation
+
 // =============================================================================
 // Executor Types
 // =============================================================================
@@ -106,7 +115,8 @@ export interface ExecutionContext {
   epicTitle?: string
   specPath?: string
   agentName: string
-  worktreePath: string
+  agentDir: string      // Agent directory (contains .devcontainer)
+  worktreePath: string  // Worktree path (may be subdirectory of agentDir)
   branch: string
   hqPath?: string // HQ root path for storing execution artifacts
 }
@@ -252,6 +262,7 @@ export interface ExecutionConfig {
   defaultExecutor: ExecutorType
   autoExecute: boolean
   shell: Shell
+  outputMode: OutputMode  // interactive (streaming) or print (final result only)
   tmux: {
     session: string
     layout: 'split' | 'window'
@@ -284,6 +295,7 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   defaultExecutor: 'claude-code',
   autoExecute: false,
   shell: 'zsh',  // macOS default
+  outputMode: 'interactive',  // Show streaming UI by default
   tmux: {
     session: 'proletariat',
     layout: 'window',

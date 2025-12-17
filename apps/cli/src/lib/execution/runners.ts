@@ -11,6 +11,7 @@ import * as os from 'os'
 import {
   RuntimeMode,
   DisplayMode,
+  OutputMode,
   ExecutorType,
   ExecutionContext,
   ExecutionConfig,
@@ -26,10 +27,11 @@ function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissi
     case 'claude-code':
       if (skipPermissions) {
         // Skip permissions - agent runs autonomously without prompting
-        return { cmd: 'claude', args: ['--dangerously-skip-permissions', '-p', prompt] }
+        // Note: NO -p flag - we want interactive mode for streaming output in terminal
+        return { cmd: 'claude', args: ['--dangerously-skip-permissions', prompt] }
       }
-      // Manual mode - will prompt for each action
-      return { cmd: 'claude', args: ['-p', prompt] }
+      // Manual mode - will prompt for each action (still interactive, no -p)
+      return { cmd: 'claude', args: [prompt] }
     case 'codex':
       return { cmd: 'codex', args: ['--prompt', prompt] }
     case 'aider':
@@ -39,9 +41,10 @@ function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissi
       return { cmd: 'echo', args: ['Custom executor not configured'] }
     default:
       if (skipPermissions) {
-        return { cmd: 'claude', args: ['--dangerously-skip-permissions', '-p', prompt] }
+        // Note: NO -p flag - we want interactive mode for streaming output
+        return { cmd: 'claude', args: ['--dangerously-skip-permissions', prompt] }
       }
-      return { cmd: 'claude', args: ['-p', prompt] }
+      return { cmd: 'claude', args: [prompt] }
   }
 }
 
@@ -160,6 +163,82 @@ export async function runBackground(
 // Tmux Runner
 // =============================================================================
 
+/**
+ * Create a wrapper script that initializes the shell properly before running commands.
+ * This ensures nvm/node environment is correctly set up in tmux sessions.
+ */
+function createTmuxScript(
+  context: ExecutionContext,
+  cmd: string,
+  args: string[]
+): { scriptPath: string; promptPath: string } {
+  // Write prompt to separate file to avoid shell escaping issues
+  const baseDir = context.hqPath
+    ? path.join(context.hqPath, '.proletariat', 'scripts')
+    : path.join(os.homedir(), '.proletariat', 'scripts')
+  fs.mkdirSync(baseDir, { recursive: true })
+
+  const timestamp = Date.now()
+  const scriptPath = path.join(baseDir, `tmux-${context.ticketId}-${timestamp}.sh`)
+  const promptPath = path.join(baseDir, `prompt-${context.ticketId}-${timestamp}.txt`)
+
+  // Extract prompt from args (it's the last argument after -p flag)
+  const promptIndex = args.indexOf('-p')
+  const prompt = promptIndex !== -1 && promptIndex + 1 < args.length
+    ? args[promptIndex + 1]
+    : ''
+
+  // Write prompt to file
+  fs.writeFileSync(promptPath, prompt, { mode: 0o644 })
+
+  // Build args without the prompt (we'll read from file instead)
+  const argsWithoutPrompt = args.filter((_, i) => i !== promptIndex && i !== promptIndex + 1)
+  const escapedArgs = argsWithoutPrompt.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(' ')
+
+  // Create script that initializes shell environment properly
+  // We use --rcfile/ZDOTDIR to inject nvm init into the shell that stays open
+  const scriptContent = `#!/bin/bash
+# Auto-generated tmux script for ticket ${context.ticketId}
+SCRIPT_PATH="${scriptPath}"
+PROMPT_PATH="${promptPath}"
+
+# Initialize nvm if available (ensures correct Node version)
+export NVM_DIR="\${HOME}/.nvm"
+[ -s "\$NVM_DIR/nvm.sh" ] && source "\$NVM_DIR/nvm.sh"
+
+cd "${context.worktreePath}"
+${cmd} ${escapedArgs} -p "$(cat "$PROMPT_PATH")"
+
+# Clean up prompt file
+rm -f "$PROMPT_PATH"
+
+# Create a temp rc file that sources nvm then the user's normal rc
+TEMP_RC="\$(mktemp)"
+if [ -n "\$ZSH_VERSION" ] || [ "\$SHELL" = */zsh ]; then
+  # For zsh: create temp .zshrc that sources nvm and user's rc
+  cat > "\$TEMP_RC" << 'RCEOF'
+export NVM_DIR="\$HOME/.nvm"
+[ -s "\$NVM_DIR/nvm.sh" ] && source "\$NVM_DIR/nvm.sh"
+[ -f "\$HOME/.zshrc" ] && source "\$HOME/.zshrc"
+RCEOF
+  rm -f "$SCRIPT_PATH"
+  ZDOTDIR="\$(dirname \$TEMP_RC)" exec zsh
+else
+  # For bash: use --rcfile
+  cat > "\$TEMP_RC" << 'RCEOF'
+export NVM_DIR="\$HOME/.nvm"
+[ -s "\$NVM_DIR/nvm.sh" ] && source "\$NVM_DIR/nvm.sh"
+[ -f "\$HOME/.bashrc" ] && source "\$HOME/.bashrc"
+RCEOF
+  rm -f "$SCRIPT_PATH"
+  exec bash --rcfile "\$TEMP_RC"
+fi
+`
+  fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
+
+  return { scriptPath, promptPath }
+}
+
 export async function runTmux(
   context: ExecutionContext,
   executor: ExecutorType,
@@ -169,12 +248,11 @@ export async function runTmux(
   // Tmux - skip permissions by default for autonomous execution
   const { cmd, args } = getExecutorCommand(executor, prompt, true)
 
-  // Escape the command for shell
-  const escapedArgs = args.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(' ')
-  const fullCmd = `${cmd} ${escapedArgs}`
-
   const sessionName = config.tmux.session
   const windowName = context.ticketId
+
+  // Create wrapper script that initializes shell environment
+  const { scriptPath } = createTmuxScript(context, cmd, args)
 
   try {
     // Check if tmux is available
@@ -192,19 +270,19 @@ export async function runTmux(
     if (!sessionExists) {
       // Create new session with window
       execSync(
-        `tmux new-session -d -s ${sessionName} -n "${windowName}" -c "${context.worktreePath}" "${fullCmd}"`,
+        `tmux new-session -d -s ${sessionName} -n "${windowName}" -c "${context.worktreePath}" "${scriptPath}"`,
         { stdio: 'pipe' }
       )
     } else if (config.tmux.layout === 'window') {
       // Create new window in existing session
       execSync(
-        `tmux new-window -t ${sessionName} -n "${windowName}" -c "${context.worktreePath}" "${fullCmd}"`,
+        `tmux new-window -t ${sessionName} -n "${windowName}" -c "${context.worktreePath}" "${scriptPath}"`,
         { stdio: 'pipe' }
       )
     } else {
       // Split existing pane
       execSync(
-        `tmux split-window -t ${sessionName} -h -c "${context.worktreePath}" "${fullCmd}"`,
+        `tmux split-window -t ${sessionName} -h -c "${context.worktreePath}" "${scriptPath}"`,
         { stdio: 'pipe' }
       )
     }
@@ -404,8 +482,16 @@ function writePromptFile(context: ExecutionContext): { hostPath: string; contain
 
   fs.writeFileSync(hostPath, prompt, { mode: 0o644 })
 
-  // Container sees the worktree at /workspace - use relative path
-  return { hostPath, containerPath: filename }
+  // Container mounts agentDir at /workspace
+  // If worktreePath is a subdirectory of agentDir, we need the relative path
+  // e.g., agentDir=/agents/altman, worktreePath=/agents/altman/textdeck
+  //       -> containerPath=/workspace/textdeck/.prlt-prompt-....txt
+  const relativePath = path.relative(context.agentDir, context.worktreePath)
+  const containerPath = relativePath
+    ? `/workspace/${relativePath}/${filename}`
+    : `/workspace/${filename}`
+
+  return { hostPath, containerPath }
 }
 
 /**
@@ -413,26 +499,82 @@ function writePromptFile(context: ExecutionContext): { hostPath: string; contain
  * Uses devcontainer exec which handles user context and working directory automatically.
  * Uses a prompt file to avoid shell escaping issues.
  */
+/**
+ * Get the container ID for a devcontainer workspace.
+ */
+function getDevcontainerContainerId(agentDir: string): string | null {
+  try {
+    // devcontainer up outputs JSON with container ID
+    const result = execSync(
+      `devcontainer up --workspace-folder "${agentDir}" 2>/dev/null | tail -1`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+    )
+    const json = JSON.parse(result.trim())
+    return json.containerId || null
+  } catch {
+    // Fallback: find container by label
+    try {
+      const containerId = execSync(
+        `docker ps -q --filter "label=devcontainer.local_folder=${agentDir}"`,
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+      ).trim()
+      return containerId || null
+    } catch {
+      return null
+    }
+  }
+}
+
 function buildDevcontainerCommand(
   context: ExecutionContext,
   executor: ExecutorType,
-  promptFile: string
+  promptFile: string,
+  containerId?: string,
+  outputMode: OutputMode = 'interactive'
 ): string {
-  const { cmd } = getExecutorCommand(executor, '', true)
+  // Get base command (just 'claude' for claude-code)
+  let baseCmd: string
+  switch (executor) {
+    case 'claude-code':
+      baseCmd = 'claude'
+      break
+    case 'codex':
+      baseCmd = 'codex'
+      break
+    case 'aider':
+      baseCmd = 'aider'
+      break
+    default:
+      baseCmd = 'claude'
+  }
 
-  // Use devcontainer exec - handles user context and working directory automatically
-  // The prompt file is in the worktree which is mounted at /workspace
-  return `devcontainer exec --workspace-folder "${context.worktreePath}" sh -c '${cmd} --dangerously-skip-permissions -p "$(cat ${promptFile})" && rm -f ${promptFile}'`
+  // Calculate the relative path from agentDir to worktreePath for cd
+  const relativePath = path.relative(context.agentDir, context.worktreePath)
+  const cdCmd = relativePath ? `cd /workspace/${relativePath} && ` : ''
+
+  // Build Claude flags based on output mode
+  // - interactive: No -p flag, shows streaming UI (watch Claude work in real-time)
+  // - print: Uses -p flag, outputs final result only (better for logs/automation)
+  const printFlag = outputMode === 'print' ? '-p ' : ''
+
+  // If we have a container ID, use docker exec for streaming
+  // --dangerously-skip-permissions auto-approves tool calls
+  if (containerId) {
+    return `docker exec -it ${containerId} bash -c '${cdCmd}${baseCmd} --dangerously-skip-permissions ${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}'`
+  }
+
+  // Fallback to devcontainer exec (no streaming, but works)
+  return `devcontainer exec --workspace-folder "${context.agentDir}" bash -c '${cdCmd}${baseCmd} --dangerously-skip-permissions ${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}'`
 }
 
 /**
- * Copy Claude Code credentials (~/.claude.json) into the agent workspace.
+ * Copy Claude Code credentials (~/.claude.json) into the agent directory.
  * This makes the subscription credentials available inside the devcontainer
- * since the workspace is mounted at /workspace.
+ * since the agent directory is mounted at /workspace.
  */
-function copyClaudeCredentials(worktreePath: string): void {
+function copyClaudeCredentials(agentDir: string): void {
   const sourceFile = path.join(os.homedir(), '.claude.json')
-  const destFile = path.join(worktreePath, '.claude.json')
+  const destFile = path.join(agentDir, '.claude.json')
 
   if (fs.existsSync(sourceFile)) {
     try {
@@ -457,14 +599,16 @@ export async function runDevcontainer(
   config: ExecutionConfig,
   displayMode: DisplayMode = 'foreground'
 ): Promise<RunnerResult> {
-  const devcontainerPath = path.join(context.worktreePath, '.devcontainer')
+  // Devcontainer config is in the agent directory, not the worktree
+  // (worktree may be a subdirectory like agents/altman/textdeck)
+  const devcontainerPath = path.join(context.agentDir, '.devcontainer')
   const devcontainerJson = path.join(devcontainerPath, 'devcontainer.json')
 
   // Check if devcontainer config exists
   if (!fs.existsSync(devcontainerJson)) {
     return {
       success: false,
-      error: `No devcontainer.json found at ${devcontainerPath}. Create one with: prlt agent container init`,
+      error: `No devcontainer.json found at ${devcontainerPath}. Run 'prlt agents add' to set up the agent with devcontainer config.`,
     }
   }
 
@@ -487,8 +631,8 @@ export async function runDevcontainer(
       }
     }
 
-    // Copy Claude credentials into workspace so container can access them
-    copyClaudeCredentials(context.worktreePath)
+    // Copy Claude credentials into agent directory so container can access them
+    copyClaudeCredentials(context.agentDir)
 
     // Set environment variables for devcontainer mounts
     // PRLT_HQ_PATH: allows agent to access the HQ database and run `prlt ticket complete`
@@ -510,8 +654,9 @@ export async function runDevcontainer(
     }
 
     // Start or reuse container (devcontainer up is idempotent)
+    // Use agentDir as the workspace folder since that's where .devcontainer is
     try {
-      execSync(`devcontainer up --workspace-folder "${context.worktreePath}"`, {
+      execSync(`devcontainer up --workspace-folder "${context.agentDir}"`, {
         stdio: 'pipe',
         env,
       })
@@ -525,8 +670,11 @@ export async function runDevcontainer(
     // Write prompt to file in worktree (accessible by container)
     const { containerPath: promptFile } = writePromptFile(context)
 
+    // Get container ID for docker exec (enables streaming output with TTY)
+    const containerId = getDevcontainerContainerId(context.agentDir)
+
     // Build the devcontainer exec command
-    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile)
+    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId || undefined, config.outputMode)
 
     // Execute based on display mode
     switch (displayMode) {
@@ -623,15 +771,14 @@ exec $SHELL
   try {
     switch (terminalApp) {
       case 'iTerm':
-        // Use iTerm's proper command execution instead of write text
-        // This ensures the script runs with a proper TTY
+        // Run script file directly - iTerm will execute it with proper TTY
         execSync(`osascript -e '
           tell application "iTerm"
             activate
             tell current window
               set newTab to (create tab with default profile)
               tell current session of newTab
-                write text "exec ${scriptPath}"
+                write text "${scriptPath}"
               end tell
             end tell
           end tell
@@ -639,6 +786,7 @@ exec $SHELL
         break
 
       case 'Ghostty':
+        // Use source to preserve TTY for docker exec
         execSync(`osascript -e '
           tell application "Ghostty"
             activate
@@ -647,7 +795,7 @@ exec $SHELL
             tell process "Ghostty"
               keystroke "t" using command down
               delay 0.3
-              keystroke "${scriptPath}"
+              keystroke "source ${scriptPath}"
               keystroke return
             end tell
           end tell
@@ -655,14 +803,17 @@ exec $SHELL
         break
 
       case 'WezTerm':
-        execSync(`wezterm cli spawn --new-window -- ${scriptPath}`)
+        // Use bash -c source to preserve TTY
+        execSync(`wezterm cli spawn --new-window -- bash -c 'source ${scriptPath}'`)
         break
 
       case 'Kitty':
-        execSync(`kitty @ launch --type=tab -- ${scriptPath}`)
+        // Use bash -c source to preserve TTY
+        execSync(`kitty @ launch --type=tab -- bash -c 'source ${scriptPath}'`)
         break
 
       case 'Alacritty':
+        // Use source to preserve TTY for docker exec
         execSync(`osascript -e '
           tell application "Alacritty"
             activate
@@ -671,7 +822,7 @@ exec $SHELL
             tell process "Alacritty"
               keystroke "n" using command down
               delay 0.3
-              keystroke "${scriptPath}"
+              keystroke "source ${scriptPath}"
               keystroke return
             end tell
           end tell
@@ -680,6 +831,7 @@ exec $SHELL
 
       case 'Terminal':
       default:
+        // Use source to preserve TTY for docker exec
         execSync(`osascript -e '
           tell application "Terminal"
             activate
@@ -689,7 +841,7 @@ exec $SHELL
               end tell
             end tell
             delay 0.3
-            do script "${scriptPath}" in front window
+            do script "source ${scriptPath}" in front window
           end tell
         '`)
         break
@@ -738,7 +890,8 @@ async function runDevcontainerInBackground(
 }
 
 /**
- * Run devcontainer command in tmux pane/window
+ * Run devcontainer command in tmux pane/window.
+ * Uses a temp script file to avoid shell escaping issues with complex prompts.
  */
 async function runDevcontainerInTmux(
   context: ExecutionContext,
@@ -752,6 +905,31 @@ async function runDevcontainerInTmux(
     // Check if tmux is available
     execSync('which tmux', { stdio: 'pipe' })
 
+    // Write command to temp script to avoid shell escaping issues
+    const baseDir = context.hqPath
+      ? path.join(context.hqPath, '.proletariat', 'scripts')
+      : path.join(os.homedir(), '.proletariat', 'scripts')
+    fs.mkdirSync(baseDir, { recursive: true })
+    const scriptPath = path.join(baseDir, `exec-${context.ticketId}-${Date.now()}.sh`)
+
+    // Write script that runs the devcontainer command
+    const scriptContent = `#!/bin/bash
+# Auto-generated script for ticket ${context.ticketId}
+
+echo "🚀 Starting ticket execution: ${context.ticketId}"
+echo ""
+
+# Run the ticket - tmux provides a PTY so docker exec -it should work
+${devcontainerCmd}
+
+# Clean up script file
+rm -f "${scriptPath}"
+
+# Keep shell open after completion
+exec $SHELL
+`
+    fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
+
     // Check if session exists
     let sessionExists = false
     try {
@@ -761,28 +939,36 @@ async function runDevcontainerInTmux(
       sessionExists = false
     }
 
-    // Escape command for shell
-    const escapedCmd = devcontainerCmd.replace(/'/g, "'\\''")
+    // Create window with interactive shell, then send the script command
+    // This ensures proper TTY allocation for docker exec -it
+    const targetPane = `${sessionName}:${windowName}`
 
     if (!sessionExists) {
-      // Create new session with window
+      // Create new session with window (starts with shell)
       execSync(
-        `tmux new-session -d -s ${sessionName} -n "${windowName}" "'${escapedCmd}'"`,
+        `tmux new-session -d -s ${sessionName} -n "${windowName}"`,
         { stdio: 'pipe' }
       )
     } else if (config.tmux.layout === 'window') {
-      // Create new window in existing session
+      // Create new window in existing session (starts with shell)
       execSync(
-        `tmux new-window -t ${sessionName} -n "${windowName}" "'${escapedCmd}'"`,
+        `tmux new-window -t ${sessionName} -n "${windowName}"`,
         { stdio: 'pipe' }
       )
     } else {
-      // Split existing pane
+      // Split existing pane (starts with shell)
       execSync(
-        `tmux split-window -t ${sessionName} -h "'${escapedCmd}'"`,
+        `tmux split-window -t ${sessionName} -h`,
         { stdio: 'pipe' }
       )
     }
+
+    // Send the script command to the shell - execute directly (not source)
+    // Using exec replaces the shell, ensuring proper TTY passthrough
+    execSync(
+      `tmux send-keys -t "${targetPane}" 'exec ${scriptPath}' Enter`,
+      { stdio: 'pipe' }
+    )
 
     return {
       success: true,

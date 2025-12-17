@@ -3,8 +3,8 @@ import inquirer from 'inquirer'
 import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 
-export default class TicketOwn extends Command {
-  static description = 'Take accountability for a ticket (you are responsible for it getting done)'
+export default class WorkOwn extends Command {
+  static description = 'Take ownership of work (you are accountable for it getting done)'
 
   static examples = [
     '<%= config.bin %> <%= command.id %> TKT-001',
@@ -19,7 +19,7 @@ export default class TicketOwn extends Command {
   }
 
   async run(): Promise<void> {
-    const { args } = await this.parse(TicketOwn)
+    const { args } = await this.parse(WorkOwn)
 
     // Get current user (from git config or environment)
     const currentUser = this.getCurrentUser()
@@ -47,7 +47,7 @@ export default class TicketOwn extends Command {
           {
             type: 'list',
             name: 'selectedTicketId',
-            message: 'Select ticket to own:',
+            message: 'Select work to own:',
             choices: allTickets.map((t) => ({
               name: `${t.id} - ${t.title} (${t.owner ? `owner: ${t.owner}` : 'unowned'})`,
               value: t.id,
@@ -70,14 +70,14 @@ export default class TicketOwn extends Command {
       await storage.close()
 
       this.log('')
-      this.log(styles.success(`✅ You now own ${styles.emphasis(ticketId!)}`))
+      this.log(styles.success(`You now own ${styles.emphasis(ticketId!)}`))
       this.log(styles.muted(`   Title: ${ticket.title}`))
       this.log(styles.muted(`   Owner: ${currentUser}`))
       this.log(styles.muted(`   Assignee: ${ticket.assignee || '(unassigned)'}`))
       this.log('')
       this.log(styles.muted('Next steps:'))
-      this.log(styles.muted(`  prlt ticket assign ${ticketId} <agent>   # Delegate to agent`))
-      this.log(styles.muted(`  prlt ticket claim ${ticketId}            # Do it yourself`))
+      this.log(styles.muted(`  prlt work assign ${ticketId} <agent>   # Delegate to agent`))
+      this.log(styles.muted(`  prlt work claim ${ticketId}            # Do it yourself`))
       this.log('')
     } catch (error) {
       await storage.close()
