@@ -157,8 +157,6 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 | `prlt ticket edit [id]`          | ✓  | ✓  | -  | Edit ticket fields      | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 | `prlt ticket move [id] [column]` | ✓  | ✓  | -  | Move ticket to column   | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 | `prlt ticket delete [id]`        | ✓  | ✓  | -  | Delete ticket           | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt ticket review [id]`        | ✓  | ✓  | -  | Move ticket to In Review| [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt ticket complete [id]`      | ✓  | ✓  | -  | Move ticket to Done     | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 | `prlt ticket status [id]`        | ✓  | ✓  | -  | Show ticket status      | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 | `prlt ticket link [id] [epic-id]`| ✓  | ✓  | -  | Link ticket to epic     | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 
@@ -175,23 +173,25 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 | `prlt tickets link`     | ✓  | ✓  | -  | Link tickets to different epic        | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 | `prlt tickets update`   | ✓  | ✓  | -  | Update priority/category for multiple | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
 
-#### Work Commands (Ownership & Assignment)
+#### Work Commands (Ownership, Assignment & Execution)
 
-**Note**: These commands handle who is responsible and who does the work.
-
-| Command                           | 📝 | ✅ | 🧪 | Description                        | Spec                                                         |
-| --------------------------------- | -- | -- | -- | ---------------------------------- | ------------------------------------------------------------ |
-| `prlt ticket own [id]`            | ✓  | ✓  | -  | Take accountability for ticket     | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt ticket assign [id] [agent]` | ✓  | ✓  | -  | Delegate work to human/agent       | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt ticket claim [id]`          | ✓  | ✓  | -  | Interactive: own + assign + execute| [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-
-#### Execute Commands (Agent Runtime)
-
-**Note**: These commands handle spinning up and managing coding agents.
+**Note**: The `work` namespace handles the execution/implementation of tickets - who is responsible, who does the work, and how work runs.
 
 | Command                           | 📝 | ✅ | 🧪 | Description                        | Spec                                                             |
 | --------------------------------- | -- | -- | -- | ---------------------------------- | ---------------------------------------------------------------- |
-| `prlt ticket execute [id]`        | ✓  | ✓  | -  | Start agent working on ticket      | [execute-commands.md](../../specs/cli/execute-commands.md) |
+| `prlt work start [id]`            | ✓  | ✓  | -  | Start agent working on ticket      | [execute-commands.md](../../specs/cli/execute-commands.md) |
+| `prlt work ready [id]`            | ✓  | ✓  | -  | Mark work as ready for review      | [execute-commands.md](../../specs/cli/execute-commands.md) |
+| `prlt work complete [id]`         | ✓  | ✓  | -  | Mark work as complete (Done)       | [execute-commands.md](../../specs/cli/execute-commands.md) |
+| `prlt work claim [id]`            | ✓  | ✓  | -  | Claim work for yourself or agent   | [execute-commands.md](../../specs/cli/execute-commands.md) |
+| `prlt work assign [id] [agent]`   | ✓  | ✓  | -  | Assign work to human/agent         | [execute-commands.md](../../specs/cli/execute-commands.md) |
+| `prlt work own [id]`              | ✓  | ✓  | -  | Take accountability for work       | [execute-commands.md](../../specs/cli/execute-commands.md) |
+
+#### Execution Commands (Agent Runtime Management)
+
+**Note**: These commands manage running agent processes.
+
+| Command                           | 📝 | ✅ | 🧪 | Description                        | Spec                                                             |
+| --------------------------------- | -- | -- | -- | ---------------------------------- | ---------------------------------------------------------------- |
 | `prlt execution list`             | ✓  | ✓  | -  | List running/recent executions     | [execute-commands.md](../../specs/cli/execute-commands.md) |
 | `prlt execution logs [id]`        | ✓  | ✓  | -  | View execution logs                | [execute-commands.md](../../specs/cli/execute-commands.md) |
 | `prlt execution stop [id]`        | ✓  | ✓  | -  | Stop a running execution           | [execute-commands.md](../../specs/cli/execute-commands.md) |
@@ -454,9 +454,12 @@ apps/cli/
 │   │   └── board.ts
 │   ├── ticket/
 │   │   ├── create.ts
-│   │   ├── claim.ts
+│   │   ├── list.ts
+│   │   ├── view.ts
+│   │   ├── move.ts
+│   │   ├── delete.ts
 │   │   ├── status.ts
-│   │   └── complete.ts
+│   │   └── link.ts
 │   ├── tickets/        # Bulk ticket operations
 │   │   ├── index.ts
 │   │   ├── list.ts
@@ -466,6 +469,13 @@ apps/cli/
 │   │   ├── reassign.ts
 │   │   ├── link.ts
 │   │   └── update.ts
+│   ├── work/           # Work execution commands
+│   │   ├── start.ts    # Start agent on ticket
+│   │   ├── ready.ts    # Mark ready for review
+│   │   ├── complete.ts # Mark work done
+│   │   ├── claim.ts    # Claim work
+│   │   ├── assign.ts   # Assign work
+│   │   └── own.ts      # Take ownership
 │   ├── spec/
 │   │   ├── index.ts
 │   │   ├── create.ts
@@ -519,10 +529,10 @@ Detailed specifications for each command are in the `specs/` directory at the re
 - [repo-commands.md](../../specs/cli/repo-commands.md) - `prlt repo`, `prlt repos`
 - [project-commands.md](../../specs/cli/project-commands.md) - `prlt project`
 - [board-commands.md](../../specs/cli/board-commands.md) - `prlt board`
-- [ticket-commands.md](../../specs/cli/ticket-commands.md) - `prlt ticket`, `prlt tickets`, ownership (own/assign/claim)
+- [ticket-commands.md](../../specs/cli/ticket-commands.md) - `prlt ticket`, `prlt tickets` (CRUD operations)
 - [spec-commands.md](../../specs/cli/spec-commands.md) - `prlt spec` (static documentation)
 - [epic-commands.md](../../specs/cli/epic-commands.md) - `prlt epic` (work containers)
-- [execute-commands.md](../../specs/cli/execute-commands.md) - `prlt ticket execute`, `prlt execution` (agent runtime)
+- [execute-commands.md](../../specs/cli/execute-commands.md) - `prlt work` (ownership, assignment, execution), `prlt execution` (runtime management)
 - [branch-commands.md](../../specs/cli/branch-commands.md) - `prlt branch` (conventional branch naming)
 - [db-commands.md](../../specs/cli/db-commands.md) - `prlt db` (database inspection, not yet implemented)
 - [config-commands.md](../../specs/cli/config-commands.md) - `prlt config` (configuration management, not yet implemented)

@@ -1,24 +1,39 @@
-# Execute Commands Specification
+# Work & Execute Commands Specification
 
 ## Purpose
 
-Commands for executing work by spinning up coding agents. This spec covers **how and where** work runs, separate from ownership and assignment (see [ticket-commands.md](ticket-commands.md)).
+Commands for managing work on tickets - ownership, assignment, and execution. The `work` namespace handles the full lifecycle of implementing a ticket, from claiming to completion.
 
 ## Core Concepts
 
+- **Owner**: Human accountable for the ticket getting done
+- **Assignee**: Person or agent who will execute the work
 - **Executor**: The coding tool (claude-code, codex, aider, custom)
 - **Runtime Mode**: Where/how the agent runs (foreground, background, tmux, docker, vm)
+- **Output Mode**: How Claude displays output (interactive streaming vs print)
 - **Execution**: A tracked instance of an agent working on a ticket
 - **Context**: Ticket details, spec content, worktree path injected into agent
 
 ## Command Overview
 
+### Work Commands
+
+| Command                        | Purpose                                      | Status         |
+| ------------------------------ | -------------------------------------------- | -------------- |
+| `prlt work start [id]`         | Start agent working on a ticket              | ✅ Implemented |
+| `prlt work ready [id]`         | Mark work as ready for review                | ✅ Implemented |
+| `prlt work complete [id]`      | Mark work as complete (Done)                 | ✅ Implemented |
+| `prlt work claim [id]`         | Claim work for yourself or agent             | ✅ Implemented |
+| `prlt work assign [id] [agent]`| Assign work to human/agent                   | ✅ Implemented |
+| `prlt work own [id]`           | Take accountability for work                 | ✅ Implemented |
+
+### Execution Commands
+
 | Command                      | Purpose                                      | Status         |
 | ---------------------------- | -------------------------------------------- | -------------- |
-| `prlt ticket execute [id]` | Start the assigned agent working on a ticket | ✅ Implemented |
-| `prlt execution list`      | List running/recent executions               | ✅ Implemented |
-| `prlt execution logs [id]` | View execution logs                          | ✅ Implemented |
-| `prlt execution stop [id]` | Stop a running execution                     | ✅ Implemented |
+| `prlt execution list`        | List running/recent executions               | ✅ Implemented |
+| `prlt execution logs [id]`   | View execution logs                          | ✅ Implemented |
+| `prlt execution stop [id]`   | Stop a running execution                     | ✅ Implemented |
 
 ---
 
@@ -42,15 +57,15 @@ prlt config set execution.default_mode background
 
 ---
 
-## Command Specifications
+## Work Command Specifications
 
-### `prlt ticket execute [id]`
+### `prlt work start [id]`
 
-**Purpose**: Start the assigned agent working on a ticket
+**Purpose**: Start agent working on a ticket
 
 **Prerequisites**:
 
-- Ticket must have an `assignee` set
+- Ticket must have an `assignee` set (or will prompt to assign)
 - Assignee should be an agent (not human)
 
 **Arguments**:
@@ -62,7 +77,7 @@ prlt config set execution.default_mode background
 - `--mode <mode>`: Runtime mode (terminal, foreground, tmux, background, devcontainer, docker, vm)
 - `--executor <name>`: Override executor (claude-code, codex, aider)
 - `--watch, -w`: Stream output in real-time (implies foreground or attaches to background)
-- `--force, -f`: Execute even if already in progress
+- `--force, -f`: Start even if work already in progress
 - `--run-on-host`: Run on host even if devcontainer exists (bypasses sandbox)
 - `--reconfigure`: Re-prompt for terminal app preference (only applies to terminal mode)
 - `--vm-host <host>`: VM hostname for vm mode
@@ -70,7 +85,7 @@ prlt config set execution.default_mode background
 **Interactive Flow** (if id not provided):
 
 ```
-? Select ticket to execute:
+? Select ticket to work on:
   ❯ TKT-001 - Add login screen (assignee: alice)
     TKT-002 - Setup CI/CD (assignee: bob)
     TKT-003 - Implement auth (assignee: charlie)
@@ -89,37 +104,203 @@ When the assigned agent has a devcontainer configuration, you'll be prompted to 
 - **devcontainer**: Runs in an isolated container with network restrictions and controlled filesystem access. Recommended for autonomous agent work.
 - **host**: Runs directly on your machine. Faster startup but no sandbox protection.
 
-Use `--run-on-host` to skip this prompt and force host execution:
+**Output Mode Selection**:
 
-```bash
-prlt ticket execute TKT-001 --run-on-host
+For display modes that support streaming (terminal, tmux, foreground), you'll be prompted for output mode:
+
 ```
+? How should Claude display output?
+  ❯ interactive  - Watch Claude work in real-time (streaming UI)
+    print        - Show final result only (better for logs)
+```
+
+- **interactive**: Shows Claude's streaming UI with real-time tool calls, file reads, etc.
+- **print**: Outputs final result only (uses `-p` flag), better for automation/logging.
 
 **Output**:
 
 ```
-🚀 Executing TKT-001: Add login screen
+🚀 Starting work: TKT-001: Add login screen
    Agent: alice
    Executor: claude-code
    🐳 Sandboxed: devcontainer (display: terminal)
+   Output: streaming (watch Claude work)
    Worktree: /path/to/agents/alice/repo
 
    ✓ Work started (WORK-001)
 
-   View logs: prlt execution logs WORK-001
-   Stop: prlt execution stop WORK-001
+   Commands:
+     prlt work status              View work status
+     prlt work ready TKT-001       Mark ready for review
+     prlt work stop WORK-001       Stop work
 ```
 
 **Example**:
 
 ```bash
-prlt ticket execute TKT-001                     # Use defaults (devcontainer if available)
-prlt ticket execute TKT-001 --mode foreground   # Watch in terminal
-prlt ticket execute TKT-001 --mode tmux         # New tmux pane
-prlt ticket execute TKT-001 --mode docker       # Run in container
-prlt ticket execute TKT-001 --run-on-host       # Bypass devcontainer, run on host
-prlt ticket execute TKT-001 --watch             # Stream output
-prlt ticket execute                             # Interactive
+prlt work start TKT-001                     # Use defaults (devcontainer if available)
+prlt work start TKT-001 --mode foreground   # Watch in terminal
+prlt work start TKT-001 --mode tmux         # New tmux pane
+prlt work start TKT-001 --run-on-host       # Bypass devcontainer, run on host
+prlt work start                             # Interactive
+```
+
+---
+
+### `prlt work ready [id]`
+
+**Purpose**: Mark work as ready for review (moves ticket to In Review column)
+
+**Arguments**:
+
+- `id` (optional): Ticket ID - prompts with dropdown if not provided
+
+**Interactive Flow** (if id not provided):
+
+```
+? Select work to mark as ready for review:
+  ❯ TKT-001 - Add login screen (In Progress)
+    TKT-002 - Setup CI/CD (In Progress)
+```
+
+**Output**:
+
+```
+👀 Work ready for review: TKT-001
+   Title: Add login screen
+   From: In Progress
+   To: In Review
+```
+
+**Behavior**:
+
+- Finds the "In Review" column (case-insensitive)
+- Moves ticket to In Review column
+- Only shows in-progress tickets in dropdown
+- **Used by agents** when they finish their assigned task
+
+---
+
+### `prlt work complete [id]`
+
+**Purpose**: Mark work as complete (moves ticket to Done column)
+
+**Arguments**:
+
+- `id` (optional): Ticket ID - prompts with dropdown if not provided
+
+**Interactive Flow** (if id not provided):
+
+```
+? Select work to mark as complete:
+  ❯ TKT-001 - Add login screen (In Review)
+    TKT-002 - Setup CI/CD (In Progress)
+```
+
+**Output**:
+
+```
+✅ Work complete: TKT-001
+   Title: Add login screen
+   From: In Review
+   To: Done
+```
+
+**Behavior**:
+
+- Finds the "Done" column (case-insensitive)
+- Updates ticket status to "done"
+- Moves ticket to Done column
+- **Used by humans** to mark reviewed work as complete
+
+---
+
+### `prlt work claim [id]`
+
+**Purpose**: Claim work - take ownership and assign to yourself or an agent
+
+**Arguments**:
+
+- `id` (optional): Ticket ID - prompts with dropdown if not provided
+
+**Options**:
+
+- `--self`: Skip prompt, assign to yourself
+- `--agent <name>`: Skip prompt, assign to specific agent
+
+**Interactive Flow**:
+
+```
+? Select ticket to claim:
+  ❯ TKT-001 - Add login screen (Backlog, unassigned)
+
+Claiming TKT-001: Add login screen
+You will be the owner (accountable for completion).
+
+? Who will do the work?
+  ❯ Me (I'll work on it myself)
+    ── Agents ──
+    altman
+    bezos
+    musk
+```
+
+**Output** (if agent selected):
+
+```
+✅ Claimed TKT-001
+   Owner: chris
+   Assignee: altman
+
+To start agent: prlt work start TKT-001
+```
+
+---
+
+### `prlt work assign [id] [agent]`
+
+**Purpose**: Assign work to an agent or person
+
+**Arguments**:
+
+- `id` (optional): Ticket ID - prompts with dropdown if not provided
+- `agent` (optional): Agent/user name - prompts with dropdown if not provided
+
+**Options**:
+
+- `--owner <name>`: Also set the owner
+- `--unassign, -u`: Remove current assignee
+
+**Output**:
+
+```
+✅ Assigned TKT-001 to altman
+   Title: Add login screen
+
+To start work: prlt work start TKT-001
+```
+
+---
+
+### `prlt work own [id]`
+
+**Purpose**: Take ownership/accountability for work
+
+**Arguments**:
+
+- `id` (optional): Ticket ID - prompts with dropdown if not provided
+
+**Output**:
+
+```
+✅ You now own TKT-001
+   Title: Add login screen
+   Owner: chris
+   Assignee: (unassigned)
+
+Next steps:
+  prlt work assign TKT-001 <agent>   # Delegate to agent
+  prlt work claim TKT-001            # Do it yourself
 ```
 
 ---
@@ -154,7 +335,7 @@ When `execute` is called:
    Worktree: {WORKTREE_PATH}
    Branch: {BRANCH_NAME}
 
-   When complete, run: prlt ticket review {TICKET_ID}
+   When complete, run: prlt work ready {TICKET_ID}
    ```
 4. **Launch Executor**
 
@@ -563,7 +744,7 @@ prlt config set execution.vm.pool_size 5
 When agent completes work, it should run:
 
 ```bash
-prlt ticket review {TICKET_ID}
+prlt work ready {TICKET_ID}
 ```
 
 This:
@@ -571,7 +752,7 @@ This:
 1. Moves ticket to "In Review" column
 2. Updates execution status to "completed"
 3. Records completion timestamp
-4. Human owner then reviews and runs `prlt ticket complete` to move to "Done"
+4. Human owner then reviews and runs `prlt work complete` to move to "Done"
 
 ### Agent Failure
 
