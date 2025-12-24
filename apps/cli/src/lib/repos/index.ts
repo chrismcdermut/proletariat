@@ -12,6 +12,7 @@ import {
   getWorkspaceAgents,
   Repository
 } from '../database/index.js';
+import { createDevcontainerConfig } from '../execution/devcontainer.js';
 
 export interface RepoToAdd {
   path: string;
@@ -560,6 +561,14 @@ export async function addRepository(
 
     // Create worktrees for existing agents
     await createWorktreesForRepo(hqPath, repoName, targetPath);
+
+    // Create devcontainer config for sandboxed execution in the central repo
+    console.log(styles.muted(`Creating devcontainer config for ${repoName}...`));
+    createDevcontainerConfig({
+      agentName: repoName,  // Use repo name as identifier
+      agentDir: targetPath,
+      repoWorktrees: [],    // No nested worktrees - this is the repo itself
+    });
 
     return { success: true, name: repoName };
   } catch (error) {

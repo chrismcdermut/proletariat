@@ -69,16 +69,57 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   /**
+   * Get the underlying database connection.
+   * Use this when you need direct database access for custom queries.
+   */
+  getDatabase(): Database.Database {
+    return this.db
+  }
+
+  /**
    * Ensure PMO tables exist in the database.
    * Uses shared schema from schema.ts to guarantee consistency.
    * This handles migration for workspaces created before PMO was added.
    */
   private ensurePMOTables(): void {
-    // Create tables using shared schema (single source of truth)
+    // Run migrations FIRST for existing databases
+    // This adds missing columns before we try to create indexes on them
+    this.runMigrations()
+
+    // Create tables and indexes using shared schema (single source of truth)
+    // CREATE TABLE/INDEX IF NOT EXISTS is safe - won't fail if already exists
     this.db.exec(PMO_SCHEMA_SQL)
 
     // Validate schema matches expected columns (catches drift early)
     validateTicketSchema(this.db)
+  }
+
+  /**
+   * Run schema migrations for existing databases.
+   * Each migration checks if the column exists before adding it.
+   */
+  private runMigrations(): void {
+    // Migration: Add spec_type and domain columns to pmo_specs table
+    const specsColumns = this.db.pragma(`table_info(${T.specs})`) as Array<{ name: string }>
+    const specsColumnNames = specsColumns.map(c => c.name)
+
+    if (!specsColumnNames.includes('spec_type')) {
+      this.db.exec(`ALTER TABLE ${T.specs} ADD COLUMN spec_type TEXT DEFAULT 'domain'`)
+    }
+    if (!specsColumnNames.includes('domain')) {
+      this.db.exec(`ALTER TABLE ${T.specs} ADD COLUMN domain TEXT`)
+    }
+
+    // Migration: Add description column to pmo_spec_abilities table
+    const abilitiesColumns = this.db.pragma(`table_info(${T.spec_abilities})`) as Array<{ name: string }>
+    const abilitiesColumnNames = abilitiesColumns.map(c => c.name)
+
+    if (!abilitiesColumnNames.includes('description')) {
+      this.db.exec(`ALTER TABLE ${T.spec_abilities} ADD COLUMN description TEXT`)
+    }
+
+    // Migration: Create pmo_spec_implementations table if it doesn't exist
+    // (already handled by PMO_SCHEMA_SQL with CREATE TABLE IF NOT EXISTS)
   }
 
 
@@ -874,29 +915,33 @@ export class SQLiteStorage implements PMOStorage {
     this.db
       .prepare(
         `
-      INSERT INTO ${T.specs} (id, path, title, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO ${T.specs} (id, path, title, status, spec_type, domain, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `
       )
-      .run(id, specPath, spec.title || null, spec.status || 'active', now, now)
+      .run(id, specPath, spec.title || null, spec.status || 'active', spec.specType || 'domain', spec.domain || null, now, now)
 
     return {
       id,
       path: specPath,
       title: spec.title,
       status: spec.status || 'active',
+      specType: spec.specType || 'domain',
+      domain: spec.domain,
       createdAt: new Date(now),
       updatedAt: new Date(now),
     }
   }
 
   async getSpec(id: string): Promise<Spec | null> {
-    const row = this.db.prepare(`SELECT * FROM ${T.specs} WHERE id = ?`).get(id) as
+    const row = this.db.prepare(`SELECT id, path, title, status, spec_type, domain, created_at, updated_at FROM ${T.specs} WHERE id = ?`).get(id) as
       | {
           id: string
           path: string
           title: string | null
           status: string
+          spec_type: string | null
+          domain: string | null
           created_at: string
           updated_at: string
         }
@@ -909,13 +954,15 @@ export class SQLiteStorage implements PMOStorage {
       path: row.path,
       title: row.title || undefined,
       status: row.status as 'draft' | 'active' | 'deprecated',
+      specType: (row.spec_type || 'domain') as 'domain' | 'infrastructure',
+      domain: row.domain || undefined,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
     }
   }
 
   async listSpecs(filter?: SpecFilter): Promise<Spec[]> {
-    let query = `SELECT * FROM ${T.specs} WHERE 1=1`
+    let query = `SELECT id, path, title, status, spec_type, domain, created_at, updated_at FROM ${T.specs} WHERE 1=1`
     const params: unknown[] = []
 
     if (filter?.status) {
@@ -934,6 +981,8 @@ export class SQLiteStorage implements PMOStorage {
       path: string
       title: string | null
       status: string
+      spec_type: string | null
+      domain: string | null
       created_at: string
       updated_at: string
     }>
@@ -943,6 +992,8 @@ export class SQLiteStorage implements PMOStorage {
       path: row.path,
       title: row.title || undefined,
       status: row.status as 'draft' | 'active' | 'deprecated',
+      specType: (row.spec_type || 'domain') as 'domain' | 'infrastructure',
+      domain: row.domain || undefined,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
     }))

@@ -6,9 +6,9 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
-import { 
-  getWorkspaceConfig, 
-  getWorkspaceAgents, 
+import {
+  getWorkspaceConfig,
+  getWorkspaceAgents,
   getWorkspaceRepositories,
   addAgentsToDatabase,
   removeAgentsFromDatabase,
@@ -16,6 +16,7 @@ import {
   Repository
 } from '../database/index.js';
 import { THEMES } from '../themes.js';
+import { getPMOContext } from '../pmo/index.js';
 
 export interface AgentStatus {
   name: string;
@@ -39,11 +40,49 @@ export interface WorkspaceInfo {
 }
 
 /**
- * Find workspace root and return workspace information
+ * Find workspace root and return workspace information.
+ *
+ * Search priority:
+ * 1. PRLT_HQ_PATH environment variable (used in devcontainers where HQ is mounted at /hq)
+ * 2. Current directory tree for HQ with workspace.db
  */
 export function getWorkspaceInfo(): WorkspaceInfo {
+  // Check PRLT_HQ_PATH environment variable first (used in devcontainers)
+  const hqPath = process.env.PRLT_HQ_PATH;
+  if (hqPath) {
+    const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
+    if (fs.existsSync(dbPath)) {
+      try {
+        const config = getWorkspaceConfig(hqPath);
+        if (config) {
+          const agents = getWorkspaceAgents(hqPath);
+          const repositories = getWorkspaceRepositories(hqPath);
+          const themeConfig = THEMES[config.theme];
+
+          const agentsPath = config.type === 'hq'
+            ? path.join(hqPath, 'agents', themeConfig.workspaceDir)
+            : hqPath;
+
+          return {
+            path: hqPath,
+            type: config.type,
+            theme: config.theme,
+            workspaceName: config.workspace_name,
+            hasPMO: config.has_pmo,
+            agents,
+            repositories,
+            agentsPath
+          };
+        }
+      } catch {
+        // Continue to directory tree search if PRLT_HQ_PATH is invalid
+      }
+    }
+  }
+
+  // Search up the directory tree
   let currentDir = process.cwd();
-  
+
   while (currentDir !== '/') {
     const dbPath = path.join(currentDir, '.proletariat', 'workspace.db');
     if (fs.existsSync(dbPath)) {
@@ -53,11 +92,11 @@ export function getWorkspaceInfo(): WorkspaceInfo {
           const agents = getWorkspaceAgents(currentDir);
           const repositories = getWorkspaceRepositories(currentDir);
           const themeConfig = THEMES[config.theme];
-          
-          const agentsPath = config.type === 'hq' 
+
+          const agentsPath = config.type === 'hq'
             ? path.join(currentDir, 'agents', themeConfig.workspaceDir)
             : currentDir;
-          
+
           return {
             path: currentDir,
             type: config.type,
@@ -69,13 +108,13 @@ export function getWorkspaceInfo(): WorkspaceInfo {
             agentsPath
           };
         }
-      } catch (error) {
+      } catch {
         // Continue searching if database is corrupted
       }
     }
     currentDir = path.dirname(currentDir);
   }
-  
+
   throw new Error('Not in an HQ or workspace directory. Run "prlt init" first.');
 }
 
@@ -223,15 +262,10 @@ export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string):
     };
   });
 
-  // Get last activity
-  try {
-    const agentConfigDir = path.join(agentDir, '.proletariat');
-    if (fs.existsSync(agentConfigDir)) {
-      const stats = fs.statSync(agentConfigDir);
-      status.lastActivity = stats.mtime;
-    }
-  } catch {
-    // Ignore if can't get last activity
+  // Get last activity from database
+  const agentRecord = workspaceInfo.agents.find(a => a.name === agentName);
+  if (agentRecord?.last_activity) {
+    status.lastActivity = new Date(agentRecord.last_activity);
   }
 
   // Get ticket assignments (if PMO enabled)
@@ -299,26 +333,30 @@ export function validateAgentNames(workspaceInfo: WorkspaceInfo, agentNames: str
   return { valid, invalid };
 }
 
+export interface AddAgentOptions {
+  skipDevcontainer?: boolean;  // Skip devcontainer creation (default: false)
+}
+
 /**
  * Create agent worktrees and update database
  */
-export async function addAgentsToWorkspace(workspaceInfo: WorkspaceInfo, agentNames: string[]): Promise<string[]> {
+export async function addAgentsToWorkspace(workspaceInfo: WorkspaceInfo, agentNames: string[], options?: AddAgentOptions): Promise<string[]> {
   // Import dynamically to avoid circular dependency
   const { createAgentWorktrees } = await import('./index.js');
-  
+
   // Filter out existing agents
   const existingNames = workspaceInfo.agents.map(a => a.name);
   const newAgents = agentNames.filter(name => !existingNames.includes(name));
-  
+
   if (newAgents.length === 0) {
     return [];
   }
 
   // Create worktrees
   if (workspaceInfo.type === 'hq') {
-    await createAgentWorktrees(workspaceInfo.agentsPath, newAgents, workspaceInfo.path);
+    await createAgentWorktrees(workspaceInfo.agentsPath, newAgents, workspaceInfo.path, options);
   } else {
-    await createAgentWorktrees(workspaceInfo.agentsPath, newAgents);
+    await createAgentWorktrees(workspaceInfo.agentsPath, newAgents, undefined, options);
   }
 
   // Add to database
@@ -390,6 +428,21 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
   // Remove from database
   if (removed.length > 0) {
     removeAgentsFromDatabase(workspaceInfo.path, removed);
+
+    // Clear ticket assignees for removed agents
+    try {
+      const { storage } = await getPMOContext(undefined, () => {}, false);
+      const allTickets = await storage.listTickets();
+      for (const ticket of allTickets) {
+        if (ticket.assignee && removed.includes(ticket.assignee)) {
+          // Pass null to clear the assignee in the database
+          await storage.updateTicket(ticket.id, { assignee: null as unknown as string });
+        }
+      }
+      await storage.close();
+    } catch {
+      // PMO might not exist, ignore errors
+    }
   }
 
   return { removed, failed };

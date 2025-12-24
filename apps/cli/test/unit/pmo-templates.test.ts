@@ -34,7 +34,7 @@ describe('PMO Board Templates', () => {
       const templates = getBoardTemplates();
 
       expect(templates.founder).to.have.length(11);
-      expect(templates.founder).to.include('BUILD BL');
+      expect(templates.founder).to.include('SHIP BL');
       expect(templates.founder).to.include('GROW BL');
       expect(templates.founder).to.include('SUPPORT BL');
       expect(templates.founder).to.include('BIZOPS BL');
@@ -72,7 +72,7 @@ describe('PMO Board Templates', () => {
       const columns = getColumnsForTemplate('founder');
 
       expect(columns).to.have.length(11);
-      expect(columns[0]).to.equal('BUILD BL');
+      expect(columns[0]).to.equal('SHIP BL');
     });
   });
 
@@ -106,7 +106,7 @@ describe('PMO Board Templates', () => {
       const content = createBoardContent('founder');
 
       // Backlog columns
-      expect(content).to.include('## 🔨 BUILD BL');
+      expect(content).to.include('## 🔨 SHIP BL');
       expect(content).to.include('## 📈 GROW BL');
       expect(content).to.include('## 🛟 SUPPORT BL');
       expect(content).to.include('## ⚙️ BIZOPS BL');

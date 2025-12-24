@@ -1,8 +1,11 @@
 {
-  "name": "@proletariat/cli-v2",
+  "name": "@chrismcdermut/prlt",
   "description": "Proletariat CLI v2 - Multi-agent development orchestration",
-  "version": "2.0.0-alpha.1",
+  "version": "2.0.0-alpha.4",
   "author": "Chris McDermut",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "bin": {
     "prlt": "./bin/run.js"
   },
@@ -17,6 +20,7 @@
     "better-sqlite3": "^9.2.2",
     "chalk": "^4.1.2",
     "chokidar": "^5.0.0",
+    "gray-matter": "^4.0.3",
     "ink": "^5.0.1",
     "ink-select-input": "^6.0.0",
     "inquirer": "^8.2.5",
@@ -88,7 +92,11 @@
       "init": "./dist/hooks/init"
     }
   },
-  "repository": "chrismcdermut/proletariat-cli",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chrismcdermut/proletariat.git",
+    "directory": "apps/cli"
+  },
   "scripts": {
     "build": "shx rm -rf dist && tsc -b",
     "clean": "shx rm -rf dist",

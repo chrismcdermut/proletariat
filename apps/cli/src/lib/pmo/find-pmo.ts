@@ -3,6 +3,39 @@ import * as path from 'path';
 import Database from 'better-sqlite3';
 
 /**
+ * Resolve PMO path from stored value.
+ *
+ * PMO paths are now stored as relative paths (e.g., "pmo" or "repos/myrepo/pmo").
+ * For backward compatibility, we also handle legacy absolute paths by extracting
+ * the relative portion.
+ */
+function resolvePmoPath(storedPath: string, hqPath: string): string {
+  // If already relative, just join with HQ path
+  if (!path.isAbsolute(storedPath)) {
+    return path.join(hqPath, storedPath);
+  }
+
+  // Legacy: absolute path stored (e.g., "/Users/.../inflow-test-hq/pmo")
+  // Try to extract relative portion by finding common HQ patterns
+  // This handles both host (/Users/.../my-hq/pmo) and container (/hq/pmo) paths
+
+  // If it already starts with our hqPath, it's correct
+  if (storedPath.startsWith(hqPath)) {
+    return storedPath;
+  }
+
+  // Extract relative path from absolute (best effort for legacy data)
+  // Look for common patterns like /pmo, /repos/*/pmo
+  const pmoMatch = storedPath.match(/\/(pmo|repos\/[^/]+\/pmo)$/);
+  if (pmoMatch) {
+    return path.join(hqPath, pmoMatch[1]);
+  }
+
+  // Last resort: use basename
+  return path.join(hqPath, path.basename(storedPath));
+}
+
+/**
  * Check if a database has PMO tables
  */
 function hasPMOTables(dbPath: string): boolean {
@@ -27,11 +60,35 @@ function hasPMOTables(dbPath: string): boolean {
  * Find PMO directory by checking workspace.db for pmo_projects table
  *
  * Search priority:
- * 1. Current directory tree for HQ with PMO
- * 2. Current directory tree for standalone PMO (.pmo/)
- * 3. Global config for default PMO
+ * 1. PRLT_HQ_PATH environment variable (used in devcontainers)
+ * 2. Current directory tree for HQ with PMO
+ * 3. Current directory tree for standalone PMO (.pmo/)
+ * 4. Global config for default PMO
  */
 export function findPMO(): string | null {
+  // Check PRLT_HQ_PATH environment variable first (used in devcontainers)
+  const hqPath = process.env.PRLT_HQ_PATH;
+  if (hqPath) {
+    const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
+    if (hasPMOTables(dbPath)) {
+      try {
+        const db = new Database(dbPath);
+        const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
+        db.close();
+
+        if (result) {
+          return resolvePmoPath(result.value, hqPath);
+        }
+      } catch {
+        // Table might not exist yet
+      }
+
+      // Fallback: default location at HQ root
+      const pmoPath = path.join(hqPath, 'pmo');
+      return pmoPath;
+    }
+  }
+
   let currentDir = process.cwd();
 
   // Search up the directory tree

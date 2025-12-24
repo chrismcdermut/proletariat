@@ -5,6 +5,7 @@ import chalk from 'chalk';
 import { SQLiteStorage } from './storage-sqlite.js';
 import { createSpecFolders } from './create-spec-folders.js';
 import { slugify } from './utils.js';
+import { createDevcontainerConfig } from '../execution/devcontainer.js';
 
 // Re-export new PMO modules
 export * from './types.js';
@@ -59,10 +60,64 @@ export function getBoardTemplates(): { [key: string]: string[] } {
     kanban: ['Backlog', 'In Progress', 'Done'],
     scrum: ['Backlog', 'In Progress', 'In Review', 'Blocked', 'Done'],
     founder: [
-      'BUILD BL', 'GROW BL', 'SUPPORT BL', 'BIZOPS BL', 'STRATEGY BL',
+      'SHIP BL', 'GROW BL', 'SUPPORT BL', 'BIZOPS BL', 'STRATEGY BL',
       'Ready', 'In Progress', 'In Review', 'Merged', 'Published', 'Dropped'
     ],
     custom: [] // Will be handled separately
+  };
+}
+
+/**
+ * Get column settings for work commands based on board template.
+ * These settings determine which columns are used for:
+ * - work start: moves ticket to column_in_progress
+ * - work ready: moves ticket to column_review
+ * - work complete: moves ticket to column_done
+ *
+ * For custom templates, we try to find matching columns by keyword.
+ */
+export function getColumnSettingsForTemplate(
+  template: string,
+  columns: string[]
+): { column_in_progress: string; column_review: string; column_done: string } {
+  // Template-specific mappings
+  const templateMappings: Record<string, { column_in_progress: string; column_review: string; column_done: string }> = {
+    kanban: {
+      column_in_progress: 'In Progress',
+      column_review: 'In Progress', // No review column in basic kanban, use In Progress
+      column_done: 'Done',
+    },
+    scrum: {
+      column_in_progress: 'In Progress',
+      column_review: 'In Review',
+      column_done: 'Done',
+    },
+    founder: {
+      column_in_progress: 'In Progress',
+      column_review: 'In Review',
+      column_done: 'Published', // Founder template uses Published as done state
+    },
+  };
+
+  // Use template mapping if available
+  if (templateMappings[template]) {
+    return templateMappings[template];
+  }
+
+  // For custom templates, try to find matching columns by keyword
+  const findColumn = (keywords: string[], fallback: string): string => {
+    const lowerColumns = columns.map(c => c.toLowerCase());
+    for (const keyword of keywords) {
+      const idx = lowerColumns.findIndex(c => c.includes(keyword));
+      if (idx !== -1) return columns[idx];
+    }
+    return fallback;
+  };
+
+  return {
+    column_in_progress: findColumn(['progress', 'active', 'doing', 'working'], columns[1] || 'In Progress'),
+    column_review: findColumn(['review', 'testing', 'qa', 'verify'], columns[columns.length - 2] || 'Review'),
+    column_done: findColumn(['done', 'complete', 'finished', 'published', 'shipped'], columns[columns.length - 1] || 'Done'),
   };
 }
 
@@ -159,7 +214,7 @@ export async function promptForBoardTemplate(): Promise<string> {
     choices: [
       { name: 'Kanban (Backlog, In Progress, Done)', value: 'kanban' },
       { name: 'Scrum (+ In Review, Blocked)', value: 'scrum' },
-      { name: '5-Tool Founder (BUILD/GROW/SUPPORT/BIZOPS/STRATEGY + workflow)', value: 'founder' },
+      { name: '5-Tool Founder (SHIP/GROW/SUPPORT/BIZOPS/STRATEGY + workflow)', value: 'founder' },
       { name: 'Custom (define your own columns)', value: 'custom' },
     ],
     default: 'kanban',
@@ -274,7 +329,7 @@ export function createBoardContent(template: string, boardName?: string): string
     'Blocked': '🚧',
     'Done': '✅',
     // 5-Tool Founder backlogs
-    'BUILD BL': '🔨',
+    'SHIP BL': '🚢',
     'GROW BL': '📈',
     'SUPPORT BL': '🛟',
     'BIZOPS BL': '⚙️',
@@ -378,10 +433,20 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
     columns,
   });
 
-  // Save PMO path to settings
+  // Save PMO path and column settings (relative to HQ root for container compatibility)
   try {
     const db = new (await import('better-sqlite3')).default(dbPath);
-    db.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run('pmo_path', pmoPath);
+    // Store relative path from HQ root (e.g., "pmo" or "repos/myrepo/pmo")
+    const relativePmoPath = path.relative(hqPath, pmoPath);
+    db.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run('pmo_path', relativePmoPath);
+
+    // Set column settings based on template
+    // These determine which columns work commands use for transitions
+    const columnSettings = getColumnSettingsForTemplate(boardTemplate, columns);
+    for (const [key, value] of Object.entries(columnSettings)) {
+      db.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run(key, value);
+    }
+
     db.close();
   } catch {
     // Ignore if settings table doesn't exist
@@ -462,6 +527,17 @@ ${columns.join(', ')}
 `;
 
   fs.writeFileSync(path.join(pmoPath, 'README.md'), readmeContent);
+
+  // Create devcontainer for separate PMO (it's its own repo)
+  if (location === 'separate') {
+    console.log(chalk.blue('Creating devcontainer config for PMO...'));
+    createDevcontainerConfig({
+      agentName: 'pmo',
+      agentDir: pmoPath,
+      repoWorktrees: [],  // PMO is the repo itself, no nested worktrees
+    });
+    console.log(chalk.green('  ✓ Devcontainer config created'));
+  }
 
   const locationDesc = location === 'separate' ? 'hq/pmo' : location.replace('repo:', '') + '/pmo';
   console.log(chalk.green(`✅ PMO created at ${locationDesc} with ${boardTemplate} template`));

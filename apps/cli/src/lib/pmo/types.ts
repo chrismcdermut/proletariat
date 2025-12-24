@@ -114,6 +114,11 @@ export interface Ticket {
   subtasks: Subtask[]
   metadata: Record<string, string>
 
+  // Agent execution support (populated from related tables)
+  blockedBy?: string[]                    // Ticket IDs this depends on
+  affectedPaths?: TicketAffectedPath[]    // File/path scope hints
+  acceptanceCriteria?: AcceptanceCriterion[]  // Structured verifiable criteria
+
   // Timestamps
   createdAt: Date
   updatedAt: Date
@@ -144,13 +149,153 @@ export interface Subtask {
   done: boolean
 }
 
+/**
+ * Affected path hint for agent context scoping.
+ * Tells agents which files/directories are relevant to a ticket.
+ */
+export interface TicketAffectedPath {
+  id?: number
+  ticketId: string
+  pathPattern: string      // e.g., "src/lib/pmo/*.ts" or "specs/domain/tickets.md"
+  pathType: 'file' | 'directory' | 'glob'  // Type of path pattern
+  createdAt?: Date
+}
+
+/**
+ * Structured acceptance criterion for verifiable completion.
+ * Allows programmatic verification rather than markdown parsing.
+ */
+export interface AcceptanceCriterion {
+  id: string
+  ticketId: string
+  criterion: string        // The acceptance criterion text
+  verifiable: boolean      // Can this be auto-verified?
+  verified: boolean        // Has it been verified?
+  verifiedAt?: Date        // When was it verified?
+  verifiedBy?: string      // Who/what verified it (e.g., 'agent:dorsey', 'human:chris', 'test:unit')
+  position: number         // Display order
+}
+
+/**
+ * Ticket dependency for scheduling.
+ * Represents a "blocked by" relationship between tickets.
+ */
+export interface TicketDependency {
+  ticketId: string
+  blockedByTicketId: string
+  createdAt?: Date
+}
+
+/**
+ * Spec type - determines directory location and format
+ */
+export type SpecType = 'domain' | 'infrastructure'
+
+/**
+ * Common modalities - these are suggestions, not constraints.
+ * The normalized schema allows any string as a modality.
+ */
+export type CommonModality =
+  | 'storage'    // Direct database operations (MVP)
+  | 'cli'        // Command-line interface
+  | 'api'        // REST/GraphQL endpoints
+  | 'sdk'        // Programmatic SDK
+  | 'web'        // Web application
+  | 'mobile'     // Mobile application
+  | 'desktop'    // Desktop application
+  | 'obsidian'   // Obsidian plugin
+  | 'slack'      // Slack integration
+  | 'sms'        // SMS interface
+
+/**
+ * @deprecated Use CommonModality instead - modalities are now flexible strings
+ */
+export type Modality = CommonModality
+
+export const COMMON_MODALITIES: readonly CommonModality[] = [
+  'storage', 'cli', 'api', 'sdk', 'web', 'mobile', 'desktop', 'obsidian', 'slack', 'sms'
+] as const
+
+/**
+ * @deprecated Use COMMON_MODALITIES instead
+ */
+export const MODALITIES = COMMON_MODALITIES
+
 export interface Spec {
   id: string
   path: string
   title?: string
+  overview?: string
   status: 'draft' | 'active' | 'deprecated'
+  specType: SpecType           // domain or infrastructure
+  domain?: string              // e.g., 'tickets', 'epics', 'agents'
   createdAt: Date
   updatedAt: Date
+  // Content (populated when fetching full spec)
+  abilities?: SpecAbility[]
+  fields?: SpecField[]
+  rules?: SpecRule[]
+  relatedDomains?: SpecRelation[]
+}
+
+/**
+ * An ability defined in a spec (row in abilities table)
+ * Normalized: implementations are stored in separate SpecImplementation records
+ */
+export interface SpecAbility {
+  id?: number
+  specId: string
+  name: string
+  description?: string
+  position: number
+  // Populated from joins when fetching full spec
+  implementations?: SpecImplementation[]
+}
+
+/**
+ * An implementation of an ability for a specific modality
+ * Normalized from the old *_impl columns into rows
+ */
+export interface SpecImplementation {
+  id?: number
+  abilityId: number
+  modality: string  // Flexible - not constrained to predefined modalities
+  signature: string // The implementation signature (e.g., `createTicket()`, `prlt ticket create`)
+}
+
+/**
+ * A field in the data model
+ */
+export interface SpecField {
+  id?: number
+  specId: string
+  name: string
+  fieldType: 'string' | 'number' | 'boolean' | 'timestamp' | 'enum' | 'ref' | 'json'
+  required: 'required' | 'auto' | 'optional'
+  defaultValue?: string
+  description?: string
+  position: number
+}
+
+/**
+ * A business rule
+ */
+export interface SpecRule {
+  id?: number
+  specId: string
+  name: string
+  description: string
+  position: number
+}
+
+/**
+ * A relationship to another domain
+ */
+export interface SpecRelation {
+  id?: number
+  specId: string
+  relatedDomain: string
+  relationship?: string
 }
 
 // =============================================================================
@@ -204,6 +349,8 @@ export interface TicketFilter {
 
 export interface SpecFilter {
   status?: 'draft' | 'active' | 'deprecated'
+  specType?: SpecType
+  domain?: string
   search?: string
 }
 

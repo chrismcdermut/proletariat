@@ -85,7 +85,7 @@ describe('PMO Board Commands Integration Tests', () => {
 
       const output = execCommand('board markdown');
 
-      expect(output).to.contain('## BUILD BL');
+      expect(output).to.contain('## SHIP BL');
       expect(output).to.contain('**TEST-001**');
       expect(output).to.contain('[[TEST-001]]');
       expect(output).to.contain('Add login screen');
@@ -120,7 +120,7 @@ describe('PMO Board Commands Integration Tests', () => {
     it('should sync from board.md to database when board is newer', () => {
       // Create board.md manually
       const boardContent = `
-## BUILD BL
+## SHIP BL
 
 - [ ] **TEST-002** [[TEST-002]] Manual ticket
       **Priority:** MEDIUM
@@ -282,7 +282,7 @@ function setupTestDatabase(db: Database.Database, testDir: string) {
   `).run();
 
   const columns = [
-    { id: 'backlog', name: 'BUILD BL', position: 0 },
+    { id: 'backlog', name: 'SHIP BL', position: 0 },
     { id: 'ready', name: 'Ready', position: 1 },
     { id: 'in-progress', name: 'In Progress', position: 2 },
     { id: 'merged', name: 'Merged', position: 3 },

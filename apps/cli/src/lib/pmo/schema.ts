@@ -17,12 +17,21 @@ export const PMO_TABLES = {
   board_tickets: 'pmo_board_tickets',
   subtasks: 'pmo_subtasks',
   ticket_metadata: 'pmo_ticket_metadata',
+  ticket_dependencies: 'pmo_ticket_dependencies',
+  ticket_affected_paths: 'pmo_ticket_affected_paths',
+  ticket_acceptance_criteria: 'pmo_ticket_acceptance_criteria',
   specs: 'pmo_specs',
+  spec_abilities: 'pmo_spec_abilities',
+  spec_implementations: 'pmo_spec_implementations',
+  spec_fields: 'pmo_spec_fields',
+  spec_rules: 'pmo_spec_rules',
+  spec_relations: 'pmo_spec_relations',
   ticket_specs: 'pmo_ticket_specs',
   ticket_assignments: 'pmo_ticket_assignments',
   epics: 'pmo_epics',
   cache_metadata: 'pmo_cache_metadata',
   settings: 'pmo_settings',
+  agent_work: 'agent_work',
 } as const;
 
 // =============================================================================
@@ -113,14 +122,101 @@ export const PMO_TABLE_SCHEMAS = {
       PRIMARY KEY (ticket_id, key)
     )`,
 
+  // Agent execution support: ticket dependencies for scheduling
+  ticket_dependencies: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.ticket_dependencies} (
+      ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
+      blocked_by_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (ticket_id, blocked_by_ticket_id),
+      CHECK (ticket_id != blocked_by_ticket_id)
+    )`,
+
+  // Agent execution support: file/path scope hints
+  ticket_affected_paths: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.ticket_affected_paths} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
+      path_pattern TEXT NOT NULL,
+      path_type TEXT NOT NULL DEFAULT 'file',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+  // Agent execution support: structured acceptance criteria
+  ticket_acceptance_criteria: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.ticket_acceptance_criteria} (
+      id TEXT NOT NULL,
+      ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
+      criterion TEXT NOT NULL,
+      verifiable INTEGER DEFAULT 1,
+      verified INTEGER DEFAULT 0,
+      verified_at TIMESTAMP,
+      verified_by TEXT,
+      position INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (ticket_id, id)
+    )`,
+
   specs: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.specs} (
       id TEXT PRIMARY KEY,
       path TEXT NOT NULL,
       title TEXT,
+      overview TEXT,
       status TEXT DEFAULT 'active',
+      spec_type TEXT DEFAULT 'domain',
+      domain TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+  spec_abilities: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.spec_abilities} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      spec_id TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT,
+      position INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(spec_id, name)
+    )`,
+
+  spec_implementations: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.spec_implementations} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ability_id INTEGER NOT NULL REFERENCES ${PMO_TABLES.spec_abilities}(id) ON DELETE CASCADE,
+      modality TEXT NOT NULL,
+      signature TEXT NOT NULL,
+      UNIQUE(ability_id, modality)
+    )`,
+
+  spec_fields: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.spec_fields} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      spec_id TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      field_type TEXT NOT NULL,
+      required TEXT DEFAULT 'optional',
+      default_value TEXT,
+      description TEXT,
+      position INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(spec_id, name)
+    )`,
+
+  spec_rules: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.spec_rules} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      spec_id TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0
+    )`,
+
+  spec_relations: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.spec_relations} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      spec_id TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE CASCADE,
+      related_domain TEXT NOT NULL,
+      relationship TEXT,
+      UNIQUE(spec_id, related_domain)
     )`,
 
   ticket_specs: `
@@ -164,6 +260,29 @@ export const PMO_TABLE_SCHEMAS = {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     )`,
+
+  agent_work: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.agent_work} (
+      id TEXT PRIMARY KEY,
+      ticket_id TEXT NOT NULL,
+      agent_name TEXT NOT NULL,
+      executor TEXT NOT NULL,
+      mode TEXT NOT NULL,
+      environment TEXT NOT NULL DEFAULT 'host',
+      display_mode TEXT NOT NULL DEFAULT 'terminal',
+      sandboxed INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'starting',
+      branch TEXT,
+      pid TEXT,
+      container_id TEXT,
+      session_id TEXT,
+      host TEXT,
+      log_path TEXT,
+      started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      completed_at TIMESTAMP,
+      exit_code INTEGER,
+      FOREIGN KEY (ticket_id) REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE
+    )`,
 } as const;
 
 // =============================================================================
@@ -187,6 +306,20 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_epics_project ON ${PMO_TABLES.epics}(project_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_epics_spec ON ${PMO_TABLES.epics}(spec_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_projects_initiative ON ${PMO_TABLES.projects}(initiative_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_work_agent ON ${PMO_TABLES.agent_work}(agent_name);
+  CREATE INDEX IF NOT EXISTS idx_agent_work_status ON ${PMO_TABLES.agent_work}(status);
+  CREATE INDEX IF NOT EXISTS idx_agent_work_ticket ON ${PMO_TABLES.agent_work}(ticket_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_specs_type ON ${PMO_TABLES.specs}(spec_type);
+  CREATE INDEX IF NOT EXISTS idx_pmo_specs_domain ON ${PMO_TABLES.specs}(domain);
+  CREATE INDEX IF NOT EXISTS idx_pmo_spec_abilities_spec ON ${PMO_TABLES.spec_abilities}(spec_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_spec_implementations_ability ON ${PMO_TABLES.spec_implementations}(ability_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_spec_implementations_modality ON ${PMO_TABLES.spec_implementations}(modality);
+  CREATE INDEX IF NOT EXISTS idx_pmo_spec_fields_spec ON ${PMO_TABLES.spec_fields}(spec_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_spec_rules_spec ON ${PMO_TABLES.spec_rules}(spec_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_spec_relations_spec ON ${PMO_TABLES.spec_relations}(spec_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_ticket_deps_blocked_by ON ${PMO_TABLES.ticket_dependencies}(blocked_by_ticket_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_ticket_paths_ticket ON ${PMO_TABLES.ticket_affected_paths}(ticket_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_ticket_criteria_ticket ON ${PMO_TABLES.ticket_acceptance_criteria}(ticket_id);
 `;
 
 // =============================================================================
@@ -202,15 +335,24 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.initiatives,
   PMO_TABLE_SCHEMAS.columns,
   PMO_TABLE_SCHEMAS.specs,  // Must be before tickets (FK reference)
+  PMO_TABLE_SCHEMAS.spec_abilities,  // Spec content tables
+  PMO_TABLE_SCHEMAS.spec_implementations,  // Normalized: ability → modality implementations
+  PMO_TABLE_SCHEMAS.spec_fields,
+  PMO_TABLE_SCHEMAS.spec_rules,
+  PMO_TABLE_SCHEMAS.spec_relations,
   PMO_TABLE_SCHEMAS.epics,  // Must be before tickets (FK reference)
   PMO_TABLE_SCHEMAS.tickets,
   PMO_TABLE_SCHEMAS.board_tickets,
   PMO_TABLE_SCHEMAS.subtasks,
   PMO_TABLE_SCHEMAS.ticket_metadata,
+  PMO_TABLE_SCHEMAS.ticket_dependencies,  // Agent execution: dependency tracking
+  PMO_TABLE_SCHEMAS.ticket_affected_paths,  // Agent execution: scope hints
+  PMO_TABLE_SCHEMAS.ticket_acceptance_criteria,  // Agent execution: structured criteria
   PMO_TABLE_SCHEMAS.ticket_specs,
   PMO_TABLE_SCHEMAS.ticket_assignments,
   PMO_TABLE_SCHEMAS.cache_metadata,
   PMO_TABLE_SCHEMAS.settings,
+  PMO_TABLE_SCHEMAS.agent_work,  // Execution tracking
   PMO_INDEXES,
 ].join(';\n');
 
