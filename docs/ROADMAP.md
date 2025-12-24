@@ -15,9 +15,9 @@
 ### Testing Status
 - [ ] Test `prlt work start` with all display modes (terminal, foreground, background, tmux)
 - [ ] Test `prlt work start` with devcontainer vs host environments
-- [ ] Test `prlt work start` permission mode selection (safe vs danger)
+- [x] Test `prlt work start` permission mode selection (safe vs danger) - fixed tmux script generation
 - [ ] Test `prlt work start` output mode selection (interactive vs print)
-- [ ] Test `prlt work ready` and `prlt work complete` column transitions
+- [x] Test `prlt work ready` and `prlt work complete` column transitions - now configurable
 - [ ] Verify agent busy checking prevents double-booking
 
 ### Known Issues
@@ -30,11 +30,17 @@
 
 ## Short Term
 
-### Review/Complete Column Logic
-- [ ] Tighten logic for `prlt work ready` - which column to move to
-- [ ] Tighten logic for `prlt work complete` - which column to move to
-- [ ] Handle different board templates (kanban, scrum, founder, custom)
-- [ ] Make column matching more robust for varied naming
+### Review/Complete Column Logic ✅
+- [x] Tighten logic for `prlt work ready` - which column to move to
+- [x] Tighten logic for `prlt work complete` - which column to move to
+- [x] Handle different board templates (kanban, scrum, founder, custom)
+- [x] Make column matching more robust for varied naming
+
+**Implemented via configurable column settings:**
+- `pmo_settings` stores `column_in_progress`, `column_review`, `column_done`
+- `pmo init` sets template-specific defaults (kanban, scrum, founder)
+- Case-insensitive matching with partial match fallback
+- See `specs/domain/settings.md` for full documentation
 
 ---
 
@@ -152,6 +158,22 @@
   - Moved `claim`, `assign`, `own` to `work` namespace
 - Added output mode selection (interactive vs print) to work start flow
 - Updated all specs and documentation
+
+### 2024-12-24
+- Fixed tmux `--dangerously-skip-permissions` flag not working
+  - Bug: `createTmuxScript` looked for `-p` flag in args incorrectly
+  - Fix: Accept `skipPermissions` as direct parameter
+- Fixed devcontainer database sync for `prlt work complete`
+  - Added `PRLT_HQ_PATH` check to `getWorkspaceInfo()`
+- Changed agent prompt from `work ready` to `work complete`
+- **Implemented configurable column mappings:**
+  - Added `getWorkColumnSetting()`, `setWorkColumnSetting()`, `findColumnByName()` helpers
+  - Updated `work start`, `work ready`, `work complete` to use settings
+  - Added `getColumnSettingsForTemplate()` to set defaults during `pmo init`
+  - Template-specific mappings: kanban, scrum, founder, custom
+  - Case-insensitive column matching with partial match fallback
+- Created `specs/domain/settings.md` for settings documentation
+- Updated SYSTEM_CARD.md with pmo_settings table and column mappings
 
 ### 2024-12-16 (Session 2)
 - Enhanced execution tracking with new fields:
