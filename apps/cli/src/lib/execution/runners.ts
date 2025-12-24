@@ -77,7 +77,7 @@ function buildPrompt(context: ExecutionContext): string {
     }
   }
 
-  prompt += `\n---\n\nWhen complete, run: \`prlt work ready ${context.ticketId}\``
+  prompt += `\n---\n\nWhen complete, run: \`prlt work complete ${context.ticketId}\``
 
   return prompt
 }
@@ -188,7 +188,8 @@ export async function runBackground(
 function createTmuxScript(
   context: ExecutionContext,
   cmd: string,
-  args: string[]
+  args: string[],
+  skipPermissions: boolean
 ): { scriptPath: string; promptPath: string } {
   // Write prompt to separate file to avoid shell escaping issues
   const baseDir = context.hqPath
@@ -200,18 +201,15 @@ function createTmuxScript(
   const scriptPath = path.join(baseDir, `tmux-${context.ticketId}-${timestamp}.sh`)
   const promptPath = path.join(baseDir, `prompt-${context.ticketId}-${timestamp}.txt`)
 
-  // Extract prompt from args (it's the last argument after -p flag)
-  const promptIndex = args.indexOf('-p')
-  const prompt = promptIndex !== -1 && promptIndex + 1 < args.length
-    ? args[promptIndex + 1]
-    : ''
+  // The prompt is the last argument in args (getExecutorCommand puts it there directly)
+  // Args structure: ['--dangerously-skip-permissions', 'prompt'] or just ['prompt']
+  const prompt = args[args.length - 1] || ''
 
   // Write prompt to file
   fs.writeFileSync(promptPath, prompt, { mode: 0o644 })
 
-  // Build args without the prompt (we'll read from file instead)
-  const argsWithoutPrompt = args.filter((_, i) => i !== promptIndex && i !== promptIndex + 1)
-  const escapedArgs = argsWithoutPrompt.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(' ')
+  // Build the permissions flag for the script
+  const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
 
   // Create script that initializes shell environment properly
   // We use --rcfile/ZDOTDIR to inject nvm init into the shell that stays open
@@ -225,7 +223,7 @@ export NVM_DIR="\${HOME}/.nvm"
 [ -s "\$NVM_DIR/nvm.sh" ] && source "\$NVM_DIR/nvm.sh"
 
 cd "${context.worktreePath}"
-${cmd} ${escapedArgs} -p "$(cat "$PROMPT_PATH")"
+${cmd} ${permissionsFlag}"$(cat "$PROMPT_PATH")"
 
 # Clean up prompt file
 rm -f "$PROMPT_PATH"
@@ -271,7 +269,7 @@ export async function runTmux(
   const windowName = context.ticketId
 
   // Create wrapper script that initializes shell environment
-  const { scriptPath } = createTmuxScript(context, cmd, args)
+  const { scriptPath } = createTmuxScript(context, cmd, args, skipPermissions)
 
   try {
     // Check if tmux is available
@@ -481,7 +479,7 @@ exec $SHELL
  * Check if Docker daemon is running.
  * Returns true if Docker is available and responsive.
  */
-function isDockerRunning(): boolean {
+export function isDockerRunning(): boolean {
   try {
     execSync('docker info', { stdio: 'pipe', timeout: 5000 })
     return true

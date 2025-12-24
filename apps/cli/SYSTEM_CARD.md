@@ -41,81 +41,82 @@ This is the authoritative list of commands that MUST exist in the CLI.
 
 - 📝 Spec: Specification defined
 - ✅ Impl: Code implemented
-- 🧪 Test: Automated tests passing
+- 🧪 E2E: Automated E2E tests passing
+- 👤 Manual: Manual testing completed
 
 #### Core Commands
 
-| Command               | 📝 | ✅ | 🧪 | Description                 | Spec                                                 |
-| --------------------- | -- | -- | -- | --------------------------- | ---------------------------------------------------- |
-| `prlt init <hq-name>` | ✓  | ✓  | ✓  | Initialize new HQ workspace | [init-commands.md](../../specs/cli/init-commands.md) |
-| `prlt help [command]` | ✓  | ✓  | ✓  | Show help for commands      | oclif built-in                                       |
-| `prlt --version`      | -  | -  | -  | Show CLI version            | -                                                    |
+| Command               | 📝 | ✅ | 🧪 | 👤 | Description                 | Spec                                                 |
+| --------------------- | -- | -- | -- | -- | --------------------------- | ---------------------------------------------------- |
+| `prlt init <hq-name>` | ✓  | ✓  | ✓  | -  | Initialize new HQ workspace | -                                                    |
+| `prlt help [command]` | ✓  | ✓  | ✓  | -  | Show help for commands      | oclif built-in                                       |
+| `prlt --version`      | -  | -  | -  | -  | Show CLI version            | -                                                    |
 
 #### Agent Commands (Individual Operations)
 
-| Command                      | 📝 | ✅ | 🧪 | Description                   | Spec                                                     |
-| ---------------------------- | -- | -- | -- | ----------------------------- | -------------------------------------------------------- |
-| `prlt agent`                 | ✓  | ✓  | -  | Interactive individual menu   | [agent-commands.md](../../specs/cli/agent-commands.md)   |
-| `prlt agent status [name]`   | ✓  | ✓  | -  | Show detailed agent status    | [agent-commands.md](../../specs/cli/agent-commands.md)   |
-| `prlt agent visit [name]`    | ✓  | ✓  | -  | Navigate to agent directory   | [agent-commands.md](../../specs/cli/agent-commands.md)   |
-| `prlt agent add`             | ✓  | ✓  | -  | Add agent (redirects to bulk) | [agent-commands.md](../../specs/cli/agent-commands.md)   |
-| `prlt agent remove [name]`   | ✓  | ✓  | -  | Remove specific agent         | [agent-commands.md](../../specs/cli/agent-commands.md)   |
-| `prlt agent login [name]`    | ✓  | ✓  | -  | Auth Claude in devcontainer   | [agent-commands.md](../../specs/cli/agent-commands.md)   |
-| `prlt agent grant`           | ✓  | -  | -  | Grant repo access to agents   | [agent-commands.md](../../specs/cli/agent-commands.md)   |
-| `prlt agent revoke`          | ✓  | -  | -  | Revoke repo access            | [agent-commands.md](../../specs/cli/agent-commands.md)   |
+| Command                      | 📝 | ✅ | 🧪 | 👤 | Description                   | Spec                                                 |
+| ---------------------------- | -- | -- | -- | -- | ----------------------------- | ---------------------------------------------------- |
+| `prlt agent`                 | ✓  | ✓  | -  | -  | Interactive individual menu   | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent status [name]`   | ✓  | ✓  | -  | -  | Show detailed agent status    | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent visit [name]`    | ✓  | ✓  | -  | -  | Navigate to agent directory   | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent add`             | ✓  | ✓  | -  | -  | Add agent (redirects to bulk) | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent remove [name]`   | ✓  | ✓  | -  | -  | Remove specific agent         | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent login [name]`    | ✓  | ✓  | -  | -  | Auth Claude in devcontainer   | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent grant`           | ✓  | -  | -  | -  | Grant repo access to agents   | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent revoke`          | ✓  | -  | -  | -  | Revoke repo access            | [agents.md](../../specs/domain/agents.md)            |
 
 #### Agents Commands (Bulk Operations)
 
-| Command              | 📝 | ✅ | 🧪 | Description                      | Spec                                                   |
-| -------------------- | -- | -- | -- | -------------------------------- | ------------------------------------------------------ |
-| `prlt agents`        | ✓  | ✓  | -  | Interactive bulk operations menu | [agent-commands.md](../../specs/cli/agent-commands.md) |
-| `prlt agents list`   | ✓  | ✓  | -  | List all agents with overview    | [agent-commands.md](../../specs/cli/agent-commands.md) |
-| `prlt agents status` | ✓  | ✓  | -  | Status overview for all agents   | [agent-commands.md](../../specs/cli/agent-commands.md) |
-| `prlt agents add`    | ✓  | ✓  | -  | Add multiple agents (bulk, creates devcontainer by default) | [agent-commands.md](../../specs/cli/agent-commands.md) |
-| `prlt agents remove` | ✓  | ✓  | -  | Remove multiple agents (bulk)    | [agent-commands.md](../../specs/cli/agent-commands.md) |
+| Command              | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec                                      |
+| -------------------- | -- | -- | -- | -- | -------------------------------- | ----------------------------------------- |
+| `prlt agents`        | ✓  | ✓  | -  | -  | Interactive bulk operations menu | [agents.md](../../specs/domain/agents.md) |
+| `prlt agents list`   | ✓  | ✓  | -  | -  | List all agents with overview    | [agents.md](../../specs/domain/agents.md) |
+| `prlt agents status` | ✓  | ✓  | -  | -  | Status overview for all agents   | [agents.md](../../specs/domain/agents.md) |
+| `prlt agents add`    | ✓  | ✓  | -  | -  | Add multiple agents (bulk, creates devcontainer by default) | [agents.md](../../specs/domain/agents.md) |
+| `prlt agents remove` | ✓  | ✓  | -  | -  | Remove multiple agents (bulk)    | [agents.md](../../specs/domain/agents.md) |
 
 **Agent Options:**
 - `--no-container`: Skip devcontainer setup (not recommended for autonomous agents)
 
 #### Repo Commands (Individual Operations)
 
-| Command                | 📝 | ✅ | 🧪 | Description                     | Spec                                                 |
-| ---------------------- | -- | -- | -- | ------------------------------- | ---------------------------------------------------- |
-| `prlt repo`            | ✓  | ✓  | -  | Interactive individual menu     | [repo-commands.md](../../specs/cli/repo-commands.md) |
-| `prlt repo add`        | ✓  | ✓  | -  | Add single repository           | [repo-commands.md](../../specs/cli/repo-commands.md) |
-| `prlt repo remove`     | ✓  | ✓  | -  | Remove single repository        | [repo-commands.md](../../specs/cli/repo-commands.md) |
-| `prlt repo view`       | ✓  | ✓  | -  | View repository details         | [repo-commands.md](../../specs/cli/repo-commands.md) |
+| Command                | 📝 | ✅ | 🧪 | 👤 | Description                     | Spec |
+| ---------------------- | -- | -- | -- | -- | ------------------------------- | ---- |
+| `prlt repo`            | ✓  | ✓  | -  | -  | Interactive individual menu     | -    |
+| `prlt repo add`        | ✓  | ✓  | -  | -  | Add single repository           | -    |
+| `prlt repo remove`     | ✓  | ✓  | -  | -  | Remove single repository        | -    |
+| `prlt repo view`       | ✓  | ✓  | -  | -  | View repository details         | -    |
 
 #### Repos Commands (Bulk Operations)
 
-| Command             | 📝 | ✅ | 🧪 | Description                        | Spec                                                 |
-| ------------------- | -- | -- | -- | ---------------------------------- | ---------------------------------------------------- |
-| `prlt repos`        | ✓  | ✓  | -  | Interactive bulk operations menu   | [repo-commands.md](../../specs/cli/repo-commands.md) |
-| `prlt repos list`   | ✓  | ✓  | -  | List all repositories              | [repo-commands.md](../../specs/cli/repo-commands.md) |
-| `prlt repos add`    | ✓  | ✓  | -  | Add multiple repositories (bulk)   | [repo-commands.md](../../specs/cli/repo-commands.md) |
-| `prlt repos remove` | ✓  | ✓  | -  | Remove multiple repositories (bulk)| [repo-commands.md](../../specs/cli/repo-commands.md) |
+| Command             | 📝 | ✅ | 🧪 | 👤 | Description                        | Spec |
+| ------------------- | -- | -- | -- | -- | ---------------------------------- | ---- |
+| `prlt repos`        | ✓  | ✓  | -  | -  | Interactive bulk operations menu   | -    |
+| `prlt repos list`   | ✓  | ✓  | -  | -  | List all repositories              | -    |
+| `prlt repos add`    | ✓  | ✓  | -  | -  | Add multiple repositories (bulk)   | -    |
+| `prlt repos remove` | ✓  | ✓  | -  | -  | Remove multiple repositories (bulk)| -    |
 
 #### PMO Commands
 
-| Command         | 📝 | ✅ | 🧪 | Description                      | Spec                                                 |
-| --------------- | -- | -- | -- | -------------------------------- | ---------------------------------------------------- |
-| `prlt pmo init` | ✓  | ✓  | -  | Initialize PMO system (one-time) | [init-commands.md](../../specs/cli/init-commands.md) |
+| Command         | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
+| --------------- | -- | -- | -- | -- | -------------------------------- | ---- |
+| `prlt pmo init` | ✓  | ✓  | -  | -  | Initialize PMO system (one-time) | -    |
 
 #### Project Commands
 
-| Command                      | 📝 | ✅ | 🧪 | Description          | Spec                                                               |
-| ---------------------------- | -- | -- | -- | -------------------- | ------------------------------------------------------------------ |
-| `prlt project create`        | ✓  | ✓  | -  | Create new project   | [project-commands.md](../../specs/cli/project-commands.md) |
-| `prlt project list`          | ✓  | ✓  | -  | List all projects    | [project-commands.md](../../specs/cli/project-commands.md) |
-| `prlt project view [id]`     | ✓  | ✓  | -  | View project details | [project-commands.md](../../specs/cli/project-commands.md) |
-| `prlt project delete [id]`   | ✓  | ✓  | -  | Delete project       | [project-commands.md](../../specs/cli/project-commands.md) |
+| Command                      | 📝 | ✅ | 🧪 | 👤 | Description          | Spec                                            |
+| ---------------------------- | -- | -- | -- | -- | -------------------- | ----------------------------------------------- |
+| `prlt project create`        | ✓  | ✓  | -  | -  | Create new project   | [projects.md](../../specs/domain/projects.md)   |
+| `prlt project list`          | ✓  | ✓  | -  | -  | List all projects    | [projects.md](../../specs/domain/projects.md)   |
+| `prlt project view [id]`     | ✓  | ✓  | -  | -  | View project details | [projects.md](../../specs/domain/projects.md)   |
+| `prlt project delete [id]`   | ✓  | ✓  | -  | -  | Delete project       | [projects.md](../../specs/domain/projects.md)   |
 
 #### Board Commands
 
-| Command               | 📝 | ✅ | 🧪 | Description                        | Spec                                                           |
-| --------------------- | -- | -- | -- | ---------------------------------- | -------------------------------------------------------------- |
-| `prlt board`          | ✓  | ✓  | -  | Interactive board menu (view/open/sync/etc) | [board-commands.md](../../specs/cli/board-commands.md) |
-| `prlt board watch`    | ✓  | ✓  | -  | Watch kanban.md for changes        | [board-commands.md](../../specs/cli/board-commands.md) |
+| Command               | 📝 | ✅ | 🧪 | 👤 | Description                        | Spec                                        |
+| --------------------- | -- | -- | -- | -- | ---------------------------------- | ------------------------------------------- |
+| `prlt board`          | ✓  | ✓  | -  | -  | Interactive board menu (view/open/sync/etc) | [board.md](../../specs/domain/board.md) |
+| `prlt board watch`    | ✓  | ✓  | -  | -  | Watch kanban.md for changes        | [board.md](../../specs/domain/board.md)     |
 
 **Note**: Board operations (view, open, markdown, export, sync) are available through the `prlt board` interactive menu.
 
@@ -123,78 +124,78 @@ This is the authoritative list of commands that MUST exist in the CLI.
 
 Specs are **static documentation** (design docs, architecture, requirements). No lifecycle, no tickets.
 
-| Command                   | 📝 | ✅ | 🧪 | Description              | Spec                                                         |
-| ------------------------- | -- | -- | -- | ------------------------ | ------------------------------------------------------------ |
-| `prlt spec`               | ✓  | ✓  | -  | Interactive spec menu    | [spec-commands.md](../../specs/cli/spec-commands.md) |
-| `prlt spec create [name]` | ✓  | ✓  | -  | Create new spec document | [spec-commands.md](../../specs/cli/spec-commands.md) |
-| `prlt spec list`          | ✓  | ✓  | -  | List all specs           | [spec-commands.md](../../specs/cli/spec-commands.md) |
-| `prlt spec view [id]`     | ✓  | ✓  | -  | View spec content        | [spec-commands.md](../../specs/cli/spec-commands.md) |
+| Command                   | 📝 | ✅ | 🧪 | 👤 | Description              | Spec                                        |
+| ------------------------- | -- | -- | -- | -- | ------------------------ | ------------------------------------------- |
+| `prlt spec`               | ✓  | ✓  | -  | -  | Interactive spec menu    | [specs.md](../../specs/domain/specs.md)     |
+| `prlt spec create [name]` | ✓  | ✓  | -  | -  | Create new spec document | [specs.md](../../specs/domain/specs.md)     |
+| `prlt spec list`          | ✓  | ✓  | -  | -  | List all specs           | [specs.md](../../specs/domain/specs.md)     |
+| `prlt spec view [id]`     | ✓  | ✓  | -  | -  | View spec content        | [specs.md](../../specs/domain/specs.md)     |
 
 #### Epic Commands
 
 Epics are **work containers** with lifecycle status. Tickets link to epics via `epic_id`.
 
-| Command                        | 📝 | ✅ | 🧪 | Description                    | Spec                                                         |
-| ------------------------------ | -- | -- | -- | ------------------------------ | ------------------------------------------------------------ |
-| `prlt epic`                    | ✓  | ✓  | -  | Interactive epic menu          | [epic-commands.md](../../specs/cli/epic-commands.md) |
-| `prlt epic create [name]`      | ✓  | ✓  | -  | Create new epic                | [epic-commands.md](../../specs/cli/epic-commands.md) |
-| `prlt epic list`               | ✓  | ✓  | -  | List all epics                 | [epic-commands.md](../../specs/cli/epic-commands.md) |
-| `prlt epic view [id]`          | ✓  | ✓  | -  | View epic and linked tickets   | [epic-commands.md](../../specs/cli/epic-commands.md) |
-| `prlt epic archive [id]`       | ✓  | ✓  | -  | Move epic to complete/ folder  | [epic-commands.md](../../specs/cli/epic-commands.md) |
-| `prlt epic activate [id]`      | ✓  | ✓  | -  | Move epic to active/ folder    | [epic-commands.md](../../specs/cli/epic-commands.md) |
-| `prlt epic move [id] [status]` | ✓  | ✓  | -  | Move epic between status folders | [epic-commands.md](../../specs/cli/epic-commands.md) |
-| `prlt epic progress [id]`      | ✓  | ✓  | -  | Show completion percentage     | [epic-commands.md](../../specs/cli/epic-commands.md) |
-| `prlt epic link [id] [tickets...]` | ✓  | ✓  | -  | Link tickets to epic, or epic to spec (--spec) | [epic-commands.md](../../specs/cli/epic-commands.md) |
+| Command                        | 📝 | ✅ | 🧪 | 👤 | Description                    | Spec                                        |
+| ------------------------------ | -- | -- | -- | -- | ------------------------------ | ------------------------------------------- |
+| `prlt epic`                    | ✓  | ✓  | -  | -  | Interactive epic menu          | [epics.md](../../specs/domain/epics.md)     |
+| `prlt epic create [name]`      | ✓  | ✓  | -  | -  | Create new epic                | [epics.md](../../specs/domain/epics.md)     |
+| `prlt epic list`               | ✓  | ✓  | -  | -  | List all epics                 | [epics.md](../../specs/domain/epics.md)     |
+| `prlt epic view [id]`          | ✓  | ✓  | -  | -  | View epic and linked tickets   | [epics.md](../../specs/domain/epics.md)     |
+| `prlt epic archive [id]`       | ✓  | ✓  | -  | -  | Move epic to complete/ folder  | [epics.md](../../specs/domain/epics.md)     |
+| `prlt epic activate [id]`      | ✓  | ✓  | -  | -  | Move epic to active/ folder    | [epics.md](../../specs/domain/epics.md)     |
+| `prlt epic move [id] [status]` | ✓  | ✓  | -  | -  | Move epic between status folders | [epics.md](../../specs/domain/epics.md)   |
+| `prlt epic progress [id]`      | ✓  | ✓  | -  | -  | Show completion percentage     | [epics.md](../../specs/domain/epics.md)     |
+| `prlt epic link [id] [tickets...]` | ✓  | ✓  | -  | -  | Link tickets to epic, or epic to spec (--spec) | [epics.md](../../specs/domain/epics.md) |
 
 #### Ticket Commands (CRUD Operations)
 
-| Command                          | 📝 | ✅ | 🧪 | Description             | Spec                                                             |
-| -------------------------------- | -- | -- | -- | ----------------------- | ---------------------------------------------------------------- |
-| `prlt ticket`                    | ✓  | ✓  | -  | Interactive ticket menu | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt ticket create [title]`     | ✓  | ✓  | -  | Create new ticket       | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt ticket list`               | ✓  | ✓  | -  | List all tickets        | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt ticket view [id]`          | ✓  | ✓  | -  | View ticket details     | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt ticket edit [id]`          | ✓  | ✓  | -  | Edit ticket fields      | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt ticket move [id] [column]` | ✓  | ✓  | -  | Move ticket to column   | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt ticket delete [id]`        | ✓  | ✓  | -  | Delete ticket           | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt ticket status [id]`        | ✓  | ✓  | -  | Show ticket status      | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt ticket link [id] [epic-id]`| ✓  | ✓  | -  | Link ticket to epic     | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
+| Command                          | 📝 | ✅ | 🧪 | 👤 | Description             | Spec                                            |
+| -------------------------------- | -- | -- | -- | -- | ----------------------- | ----------------------------------------------- |
+| `prlt ticket`                    | ✓  | ✓  | -  | -  | Interactive ticket menu | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt ticket create [title]`     | ✓  | ✓  | -  | -  | Create new ticket       | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt ticket list`               | ✓  | ✓  | -  | -  | List all tickets        | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt ticket view [id]`          | ✓  | ✓  | -  | -  | View ticket details     | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt ticket edit [id]`          | ✓  | ✓  | -  | -  | Edit ticket fields      | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt ticket move [id] [column]` | ✓  | ✓  | -  | -  | Move ticket to column   | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt ticket delete [id]`        | ✓  | ✓  | -  | -  | Delete ticket           | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt ticket status [id]`        | ✓  | ✓  | -  | -  | Show ticket status      | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt ticket link [id] [epic-id]`| ✓  | ✓  | -  | -  | Link ticket to epic     | [tickets.md](../../specs/domain/tickets.md)     |
 
 #### Bulk Ticket Commands (`prlt tickets`)
 
-| Command                 | 📝 | ✅ | 🧪 | Description                           | Spec                                                             |
-| ----------------------- | -- | -- | -- | ------------------------------------- | ---------------------------------------------------------------- |
-| `prlt tickets`          | ✓  | ✓  | -  | Interactive bulk operations menu      | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt tickets list`     | ✓  | ✓  | -  | List all tickets with filtering       | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt tickets move`     | ✓  | ✓  | -  | Move multiple tickets to column       | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt tickets delete`   | ✓  | ✓  | -  | Delete multiple tickets               | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt tickets complete` | ✓  | ✓  | -  | Complete multiple tickets             | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt tickets reassign` | ✓  | ✓  | -  | Reassign tickets to different agent   | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt tickets link`     | ✓  | ✓  | -  | Link tickets to different epic        | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
-| `prlt tickets update`   | ✓  | ✓  | -  | Update priority/category for multiple | [ticket-commands.md](../../specs/cli/ticket-commands.md) |
+| Command                 | 📝 | ✅ | 🧪 | 👤 | Description                           | Spec                                            |
+| ----------------------- | -- | -- | -- | -- | ------------------------------------- | ----------------------------------------------- |
+| `prlt tickets`          | ✓  | ✓  | -  | -  | Interactive bulk operations menu      | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt tickets list`     | ✓  | ✓  | -  | -  | List all tickets with filtering       | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt tickets move`     | ✓  | ✓  | -  | -  | Move multiple tickets to column       | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt tickets delete`   | ✓  | ✓  | -  | -  | Delete multiple tickets               | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt tickets complete` | ✓  | ✓  | -  | -  | Complete multiple tickets             | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt tickets reassign` | ✓  | ✓  | -  | -  | Reassign tickets to different agent   | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt tickets link`     | ✓  | ✓  | -  | -  | Link tickets to different epic        | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt tickets update`   | ✓  | ✓  | -  | -  | Update priority/category for multiple | [tickets.md](../../specs/domain/tickets.md)     |
 
 #### Work Commands (Ownership, Assignment & Execution)
 
 **Note**: The `work` namespace handles the execution/implementation of tickets - who is responsible, who does the work, and how work runs.
 
-| Command                           | 📝 | ✅ | 🧪 | Description                        | Spec                                                             |
-| --------------------------------- | -- | -- | -- | ---------------------------------- | ---------------------------------------------------------------- |
-| `prlt work start [id]`            | ✓  | ✓  | -  | Start agent working on ticket      | [execute-commands.md](../../specs/cli/execute-commands.md) |
-| `prlt work ready [id]`            | ✓  | ✓  | -  | Mark work as ready for review      | [execute-commands.md](../../specs/cli/execute-commands.md) |
-| `prlt work complete [id]`         | ✓  | ✓  | -  | Mark work as complete (Done)       | [execute-commands.md](../../specs/cli/execute-commands.md) |
-| `prlt work claim [id]`            | ✓  | ✓  | -  | Claim work for yourself or agent   | [execute-commands.md](../../specs/cli/execute-commands.md) |
-| `prlt work assign [id] [agent]`   | ✓  | ✓  | -  | Assign work to human/agent         | [execute-commands.md](../../specs/cli/execute-commands.md) |
-| `prlt work own [id]`              | ✓  | ✓  | -  | Take accountability for work       | [execute-commands.md](../../specs/cli/execute-commands.md) |
+| Command                           | 📝 | ✅ | 🧪 | 👤 | Description                        | Spec                                        |
+| --------------------------------- | -- | -- | -- | -- | ---------------------------------- | ------------------------------------------- |
+| `prlt work start [id]`            | ✓  | ✓  | -  | -  | Start agent working on ticket      | [work.md](../../specs/domain/work.md)       |
+| `prlt work ready [id]`            | ✓  | ✓  | -  | -  | Mark work as ready for review      | [work.md](../../specs/domain/work.md)       |
+| `prlt work complete [id]`         | ✓  | ✓  | -  | -  | Mark work as complete (Done)       | [work.md](../../specs/domain/work.md)       |
+| `prlt work claim [id]`            | ✓  | ✓  | -  | -  | Claim work for yourself or agent   | [work.md](../../specs/domain/work.md)       |
+| `prlt work assign [id] [agent]`   | ✓  | ✓  | -  | -  | Assign work to human/agent         | [work.md](../../specs/domain/work.md)       |
+| `prlt work own [id]`              | ✓  | ✓  | -  | -  | Take accountability for work       | [work.md](../../specs/domain/work.md)       |
 
 #### Execution Commands (Agent Runtime Management)
 
 **Note**: These commands manage running agent processes.
 
-| Command                           | 📝 | ✅ | 🧪 | Description                        | Spec                                                             |
-| --------------------------------- | -- | -- | -- | ---------------------------------- | ---------------------------------------------------------------- |
-| `prlt execution list`             | ✓  | ✓  | -  | List running/recent executions     | [execute-commands.md](../../specs/cli/execute-commands.md) |
-| `prlt execution logs [id]`        | ✓  | ✓  | -  | View execution logs                | [execute-commands.md](../../specs/cli/execute-commands.md) |
-| `prlt execution stop [id]`        | ✓  | ✓  | -  | Stop a running execution           | [execute-commands.md](../../specs/cli/execute-commands.md) |
+| Command                           | 📝 | ✅ | 🧪 | 👤 | Description                        | Spec                                        |
+| --------------------------------- | -- | -- | -- | -- | ---------------------------------- | ------------------------------------------- |
+| `prlt execution list`             | ✓  | ✓  | -  | -  | List running/recent executions     | [work.md](../../specs/domain/work.md)       |
+| `prlt execution logs [id]`        | ✓  | ✓  | -  | -  | View execution logs                | [work.md](../../specs/domain/work.md)       |
+| `prlt execution stop [id]`        | ✓  | ✓  | -  | -  | Stop a running execution           | [work.md](../../specs/domain/work.md)       |
 
 **Execution Environment** (where agent runs):
 
@@ -226,17 +227,17 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 - Available agents shown first, busy agents disabled with current ticket info
 - Prevents double-booking of agents on multiple tickets
 
-See [devcontainer-agents.md](../../specs/cli/devcontainer-agents.md) for sandboxed agent execution.
+See [devcontainer.md](../../specs/infrastructure/devcontainer.md) for sandboxed agent execution.
 
 #### Branch Commands
 
-| Command                         | 📝 | ✅ | 🧪 | Description                        | Spec                                                     |
-| ------------------------------- | -- | -- | -- | ---------------------------------- | -------------------------------------------------------- |
-| `prlt branch`                   | ✓  | ✓  | -  | Interactive branch menu            | [branch-commands.md](../../specs/cli/branch-commands.md) |
-| `prlt branch create`            | ✓  | ✓  | -  | Interactive branch creation wizard | [branch-commands.md](../../specs/cli/branch-commands.md) |
-| `prlt branch create [name]`     | ✓  | ✓  | -  | Create branch with given name      | [branch-commands.md](../../specs/cli/branch-commands.md) |
-| `prlt branch list`              | ✓  | ✓  | -  | List branches with conventional info | [branch-commands.md](../../specs/cli/branch-commands.md) |
-| `prlt branch validate`          | ✓  | ✓  | -  | Validate branch name format        | [branch-commands.md](../../specs/cli/branch-commands.md) |
+| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                        | Spec |
+| ------------------------------- | -- | -- | -- | -- | ---------------------------------- | ---- |
+| `prlt branch`                   | ✓  | ✓  | -  | -  | Interactive branch menu            | -    |
+| `prlt branch create`            | ✓  | ✓  | -  | -  | Interactive branch creation wizard | -    |
+| `prlt branch create [name]`     | ✓  | ✓  | -  | -  | Create branch with given name      | -    |
+| `prlt branch list`              | ✓  | ✓  | -  | -  | List branches with conventional info | -  |
+| `prlt branch validate`          | ✓  | ✓  | -  | -  | Validate branch name format        | -    |
 
 **Branch Types:**
 
@@ -248,44 +249,44 @@ See [devcontainer-agents.md](../../specs/cli/devcontainer-agents.md) for sandbox
 
 #### Database Commands
 
-| Command                 | 📝 | ✅ | 🧪 | Description                      | Spec                                               |
-| ----------------------- | -- | -- | -- | -------------------------------- | -------------------------------------------------- |
-| `prlt db`               | ✓  | -  | -  | Interactive database menu        | [db-commands.md](../../specs/cli/db-commands.md)   |
-| `prlt db tables`        | ✓  | -  | -  | List all tables with row counts  | [db-commands.md](../../specs/cli/db-commands.md)   |
-| `prlt db schema [table]`| ✓  | -  | -  | Show table structure             | [db-commands.md](../../specs/cli/db-commands.md)   |
-| `prlt db query <sql>`   | ✓  | -  | -  | Run SQL query (read-only default)| [db-commands.md](../../specs/cli/db-commands.md)   |
-| `prlt db stats`         | ✓  | -  | -  | Database size and health info    | [db-commands.md](../../specs/cli/db-commands.md)   |
+| Command                 | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
+| ----------------------- | -- | -- | -- | -- | -------------------------------- | ---- |
+| `prlt db`               | ✓  | -  | -  | -  | Interactive database menu        | -    |
+| `prlt db tables`        | ✓  | -  | -  | -  | List all tables with row counts  | -    |
+| `prlt db schema [table]`| ✓  | -  | -  | -  | Show table structure             | -    |
+| `prlt db query <sql>`   | ✓  | -  | -  | -  | Run SQL query (read-only default)| -    |
+| `prlt db stats`         | ✓  | -  | -  | -  | Database size and health info    | -    |
 
 #### Config Commands
 
-| Command                         | 📝 | ✅ | 🧪 | Description                     | Spec                                                     |
-| ------------------------------- | -- | -- | -- | ------------------------------- | -------------------------------------------------------- |
-| `prlt config get <key>`         | ✓  | -  | -  | Get a configuration value       | [config-commands.md](../../specs/cli/config-commands.md) |
-| `prlt config set <key> <value>` | ✓  | -  | -  | Set a configuration value       | [config-commands.md](../../specs/cli/config-commands.md) |
-| `prlt config list`              | ✓  | -  | -  | List all configuration settings | [config-commands.md](../../specs/cli/config-commands.md) |
-| `prlt config reset <key>`       | ✓  | -  | -  | Reset a setting to default      | [config-commands.md](../../specs/cli/config-commands.md) |
+| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                     | Spec |
+| ------------------------------- | -- | -- | -- | -- | ------------------------------- | ---- |
+| `prlt config get <key>`         | ✓  | -  | -  | -  | Get a configuration value       | -    |
+| `prlt config set <key> <value>` | ✓  | -  | -  | -  | Set a configuration value       | -    |
+| `prlt config list`              | ✓  | -  | -  | -  | List all configuration settings | -    |
+| `prlt config reset <key>`       | ✓  | -  | -  | -  | Reset a setting to default      | -    |
 
 #### Maintenance Commands
 
-| Command                  | 📝 | ✅ | 🧪 | Description             |
-| ------------------------ | -- | -- | -- | ----------------------- |
-| `prlt themes`            | -  | -  | -  | List available themes   |
-| `prlt repair`            | -  | -  | -  | Repair broken worktrees |
-| `prlt health`            | -  | -  | -  | Check worktree health   |
-| `prlt migrate <hq-name>` | -  | -  | -  | Migrate repo into HQ    |
-| `prlt upgrade`           | -  | -  | -  | Upgrade config format   |
+| Command                  | 📝 | ✅ | 🧪 | 👤 | Description             |
+| ------------------------ | -- | -- | -- | -- | ----------------------- |
+| `prlt themes`            | -  | -  | -  | -  | List available themes   |
+| `prlt repair`            | -  | -  | -  | -  | Repair broken worktrees |
+| `prlt health`            | -  | -  | -  | -  | Check worktree health   |
+| `prlt migrate <hq-name>` | -  | -  | -  | -  | Migrate repo into HQ    |
+| `prlt upgrade`           | -  | -  | -  | -  | Upgrade config format   |
 
 #### Plugin Commands (Oclif Built-in)
 
-| Command                           | 📝 | ✅ | 🧪 | Description             |
-| --------------------------------- | -- | -- | -- | ----------------------- |
-| `prlt plugins`                    | -  | -  | -  | List installed plugins  |
-| `prlt plugins install <plugin>`   | -  | -  | -  | Install a plugin        |
-| `prlt plugins uninstall <plugin>` | -  | -  | -  | Remove a plugin         |
-| `prlt plugins update`             | -  | -  | -  | Update all plugins      |
-| `prlt plugins link <path>`        | -  | -  | -  | Link local plugin       |
-| `prlt plugins reset`              | -  | -  | -  | Remove all user plugins |
-| `prlt plugins inspect <plugin>`   | -  | -  | -  | Show plugin details     |
+| Command                           | 📝 | ✅ | 🧪 | 👤 | Description             |
+| --------------------------------- | -- | -- | -- | -- | ----------------------- |
+| `prlt plugins`                    | -  | -  | -  | -  | List installed plugins  |
+| `prlt plugins install <plugin>`   | -  | -  | -  | -  | Install a plugin        |
+| `prlt plugins uninstall <plugin>` | -  | -  | -  | -  | Remove a plugin         |
+| `prlt plugins update`             | -  | -  | -  | -  | Update all plugins      |
+| `prlt plugins link <path>`        | -  | -  | -  | -  | Link local plugin       |
+| `prlt plugins reset`              | -  | -  | -  | -  | Remove all user plugins |
+| `prlt plugins inspect <plugin>`   | -  | -  | -  | -  | Show plugin details     |
 
 ---
 
@@ -390,38 +391,99 @@ Examples:
 
 **Database Schema:**
 
-| Table                            | Primary Key             | Columns                                                                                                  | Description                      |
-| -------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| **workspace**              | id                      | type, theme, workspace_name, has_pmo, created_at                                                         | Core workspace metadata          |
-| **agents**                 | name                    | theme, status, current_task, created_at, last_activity                                                   | Agent instances                  |
-| **agent_worktrees**        | (agent_name, repo_name) | worktree_path, branch, created_at, commits_ahead, is_clean                                               | Agent-owned worktrees            |
-| **repositories**           | name                    | path, type, source_url, action, added_at                                                                 | Repository management            |
-| **themes**                 | name                    | workspace_dir, add_command, remove_command, agents                                                       | Theme configurations             |
-| **pmo_projects**           | id                      | name, template, description, initiative_id, created_at, updated_at                                       | Multi-project support            |
-| **pmo_initiatives**        | id                      | name, objective, key_results, created_at, updated_at                                                     | Optional OKR-level grouping      |
-| **pmo_columns**            | (project_id, id)        | name, position, created_at                                                                               | Kanban lanes (per-project)       |
-| **pmo_tickets**            | id                      | project_id, title, column_id, position, priority, category, description, epic_id, created_at, updated_at | Kanban cards (per-project)       |
-| **pmo_epics**              | id                      | project_id, title, status, file_path, spec_id, created_at, updated_at                                    | Work containers with lifecycle   |
-| **pmo_subtasks**           | (ticket_id, id)         | title, done, position                                                                                    | Task breakdown                   |
-| **pmo_ticket_metadata**    | (ticket_id, key)        | value                                                                                                    | Custom ticket fields             |
-| **pmo_specs**              | id                      | path, title, created_at, updated_at                                                                      | Static specification documents   |
-| **pmo_ticket_assignments** | (ticket_id, agent_name) | assigned_at                                                                                              | Agent-Ticket assignments (M:M)   |
-| **pmo_cache_metadata**     | key                     | value                                                                                                    | Board.md sync tracking           |
-| **agent_work**             | id                      | ticket_id, agent_name, executor, mode, environment, display_mode, sandboxed, status, branch, pid, container_id, session_id, host, log_path, started_at, completed_at, exit_code | Execution tracking (agent work sessions) |
+| Table | Primary Key | Description | Auto | Manual |
+| ----- | ----------- | ----------- | ---- | ------ |
+| **workspace** | id | Core workspace metadata | - | - |
+| **agents** | name | Agent instances | - | - |
+| **agent_worktrees** | (agent_name, repo_name) | Agent-owned worktrees | - | - |
+| **repositories** | name | Repository management | - | - |
+| **themes** | name | Theme configurations | - | - |
+| **pmo_projects** | id | Multi-project support | - | - |
+| **pmo_initiatives** | id | Optional OKR-level grouping | - | - |
+| **pmo_columns** | (project_id, id) | Kanban lanes (per-project) | - | - |
+| **pmo_tickets** | id | Kanban cards (per-project) | - | - |
+| **pmo_epics** | id | Work containers with lifecycle | - | - |
+| **pmo_subtasks** | (ticket_id, id) | Task breakdown | - | - |
+| **pmo_ticket_metadata** | (ticket_id, key) | Custom ticket fields | - | - |
+| **pmo_ticket_dependencies** | (ticket_id, blocked_by_ticket_id) | Ticket blocking relationships | - | - |
+| **pmo_ticket_affected_paths** | id | File/directory scope hints | - | - |
+| **pmo_ticket_acceptance_criteria** | (ticket_id, id) | Structured acceptance criteria | - | - |
+| **pmo_specs** | id | Static specification documents | - | - |
+| **pmo_ticket_assignments** | (ticket_id, agent_name) | Agent-Ticket assignments (M:M) | - | - |
+| **pmo_cache_metadata** | key | Board.md sync tracking | - | - |
+| **pmo_settings** | key | PMO configuration settings | - | - |
+| **agent_work** | id | Execution tracking (agent work sessions) | - | - |
+
+**Table Columns (expanded):**
+
+| Table | Columns |
+| ----- | ------- |
+| workspace | type, theme, workspace_name, has_pmo, created_at |
+| agents | theme, status, current_task, created_at, last_activity |
+| agent_worktrees | worktree_path, branch, created_at, commits_ahead, is_clean |
+| repositories | path, type, source_url, action, added_at |
+| themes | workspace_dir, add_command, remove_command, agents |
+| pmo_projects | name, template, description, initiative_id, created_at, updated_at |
+| pmo_initiatives | name, objective, key_results, created_at, updated_at |
+| pmo_columns | name, position, created_at |
+| pmo_tickets | project_id, title, column_id, position, priority, category, description, spec_id, epic_id, owner, assignee, status, created_at, updated_at |
+| pmo_epics | project_id, title, status, file_path, spec_id, created_at, updated_at |
+| pmo_subtasks | title, done, position |
+| pmo_ticket_metadata | value |
+| pmo_ticket_dependencies | created_at |
+| pmo_ticket_affected_paths | ticket_id, path_pattern, path_type, created_at |
+| pmo_ticket_acceptance_criteria | criterion, verifiable, verified, verified_at, verified_by, position |
+| pmo_specs | path, title, created_at, updated_at |
+| pmo_ticket_assignments | assigned_at |
+| pmo_cache_metadata | value |
+| pmo_settings | value |
+| agent_work | ticket_id, agent_name, executor, mode, environment, display_mode, sandboxed, status, branch, pid, container_id, session_id, host, log_path, started_at, completed_at, exit_code |
 
 **Foreign Key Constraints:**
 
 - `pmo_tickets.column_id` → `pmo_columns(project_id, id)` ON DELETE CASCADE
+- `pmo_tickets.spec_id` → `pmo_specs(id)` ON DELETE SET NULL
 - `pmo_tickets.epic_id` → `pmo_epics(id)` ON DELETE SET NULL
 - `pmo_epics.project_id` → `pmo_projects.id` ON DELETE CASCADE
 - `pmo_epics.spec_id` → `pmo_specs(id)` ON DELETE SET NULL
 - `pmo_subtasks.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
 - `pmo_ticket_metadata.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
+- `pmo_ticket_dependencies.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
+- `pmo_ticket_dependencies.blocked_by_ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
+- `pmo_ticket_affected_paths.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
+- `pmo_ticket_acceptance_criteria.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
 - `pmo_ticket_assignments.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
 - `agent_work.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
 - `agent_work.agent_name` → `agents.name` ON DELETE CASCADE
 
-**Note on Ownership Model:** The current schema uses `pmo_ticket_assignments` for many-to-many agent assignments. The ownership model documented in [ticket-commands.md](../../specs/cli/ticket-commands.md) (owner vs assignee) is not yet implemented. Implementation will require adding `owner` and `assignee` columns to `pmo_tickets`.
+**Note on Ownership Model:** Tickets have both `owner` (human accountable) and `assignee` (who does the work, e.g., "agent:dorsey"). The `pmo_ticket_assignments` table provides many-to-many agent assignments for historical tracking.
+
+**Agent Execution Support:** The schema includes three tables for agent orchestration:
+- `pmo_ticket_dependencies`: Tracks blocking relationships for dependency-based scheduling
+- `pmo_ticket_affected_paths`: File/directory scope hints for agent context injection
+- `pmo_ticket_acceptance_criteria`: Structured, verifiable criteria (separate from description markdown)
+
+**PMO Settings (`pmo_settings`):** Key-value store for PMO configuration:
+
+| Key | Default Value | Description |
+|-----|---------------|-------------|
+| `column_in_progress` | In Progress | Column for `work start` to move tickets to |
+| `column_review` | Review | Column for `work ready` to move tickets to |
+| `column_done` | Done | Column for `work complete` to move tickets to |
+| `next_ticket_id` | 1 | Auto-increment counter for TKT-XXX IDs |
+| `next_epic_id` | 1 | Auto-increment counter for EPIC-XXX IDs |
+| `pmo_path` | pmo | Relative path to PMO directory from HQ root |
+
+**Template-specific column mappings** (set automatically by `pmo init`):
+
+| Template | column_in_progress | column_review | column_done |
+|----------|-------------------|---------------|-------------|
+| kanban | In Progress | In Progress | Done |
+| scrum | In Progress | In Review | Done |
+| founder | In Progress | In Review | Published |
+| custom | (auto-detected) | (auto-detected) | (auto-detected) |
+
+Column names are matched case-insensitively with fallback to partial matching. This allows work commands to work with any board layout (e.g., "Active" instead of "In Progress", "Completed" instead of "Done").
 
 **DRY Architecture:**
 
@@ -533,33 +595,26 @@ apps/cli/
 3. **Tests**: Validate commands work as documented
 4. **No drift**: Oclif generates help from the actual code
 
-## Command Specifications
+## Domain Specifications
 
-Detailed specifications for each command are in the `specs/` directory at the repo root.
+Detailed specifications for each domain are in the `specs/domain/` directory at the repo root.
 
-### CLI Commands
-- [init-commands.md](../../specs/cli/init-commands.md) - `prlt init`, `prlt pmo init`
-- [agent-commands.md](../../specs/cli/agent-commands.md) - `prlt agent`, `prlt agents`
-- [repo-commands.md](../../specs/cli/repo-commands.md) - `prlt repo`, `prlt repos`
-- [project-commands.md](../../specs/cli/project-commands.md) - `prlt project`
-- [board-commands.md](../../specs/cli/board-commands.md) - `prlt board`
-- [ticket-commands.md](../../specs/cli/ticket-commands.md) - `prlt ticket`, `prlt tickets` (CRUD operations)
-- [spec-commands.md](../../specs/cli/spec-commands.md) - `prlt spec` (static documentation)
-- [epic-commands.md](../../specs/cli/epic-commands.md) - `prlt epic` (work containers)
-- [execute-commands.md](../../specs/cli/execute-commands.md) - `prlt work` (ownership, assignment, execution), `prlt execution` (runtime management)
-- [branch-commands.md](../../specs/cli/branch-commands.md) - `prlt branch` (conventional branch naming)
-- [db-commands.md](../../specs/cli/db-commands.md) - `prlt db` (database inspection, not yet implemented)
-- [config-commands.md](../../specs/cli/config-commands.md) - `prlt config` (configuration management, not yet implemented)
+### Domain Specs
+- [agents.md](../../specs/domain/agents.md) - `prlt agent`, `prlt agents`
+- [projects.md](../../specs/domain/projects.md) - `prlt project`
+- [board.md](../../specs/domain/board.md) - `prlt board`
+- [tickets.md](../../specs/domain/tickets.md) - `prlt ticket`, `prlt tickets` (CRUD operations)
+- [specs.md](../../specs/domain/specs.md) - `prlt spec` (static documentation)
+- [epics.md](../../specs/domain/epics.md) - `prlt epic` (work containers)
+- [work.md](../../specs/domain/work.md) - `prlt work` (ownership, assignment, execution), `prlt execution` (runtime management)
+- [dependencies.md](../../specs/domain/dependencies.md) - Ticket dependency tracking
 
 ### Storage Layer
-- [pmo-interface.md](../../specs/architecture/pmo-interface.md) - Core PMO interface contract
-- [pmo-storage-sqlite.md](../../specs/storage/pmo-storage-sqlite.md) - SQLite storage (current)
-- [pmo-storage-git.md](../../specs/storage/pmo-storage-git.md) - Git-based storage (future)
-- [pmo-storage-cloud.md](../../specs/storage/pmo-storage-cloud.md) - Cloud DB storage (future)
-- [pmo-storage-adapter.md](../../specs/storage/pmo-storage-adapter.md) - External tool adapters (Jira, Linear, Notion)
-
-### Architecture Documentation
-- [pmo-storage.md](../../docs/architecture/pmo-storage.md) - Storage architecture decision matrix
+- [pmo-interface.md](../../specs/infrastructure/architecture/pmo-interface.md) - Core PMO interface contract
+- [pmo-storage-sqlite.md](../../specs/infrastructure/storage/pmo-storage-sqlite.md) - SQLite storage (current)
+- [pmo-storage-git.md](../../specs/infrastructure/storage/pmo-storage-git.md) - Git-based storage (future)
+- [pmo-storage-cloud.md](../../specs/infrastructure/storage/pmo-storage-cloud.md) - Cloud DB storage (future)
+- [pmo-storage-adapter.md](../../specs/infrastructure/storage/pmo-storage-adapter.md) - External tool adapters (Jira, Linear, Notion)
 
 ## Future Features (Cloud)
 

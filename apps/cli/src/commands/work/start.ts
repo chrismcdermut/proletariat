@@ -5,6 +5,7 @@ import { execSync } from 'child_process'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
+import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
@@ -19,7 +20,7 @@ import {
   generateBranchName,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
-import { runExecution } from '../../lib/execution/runners.js'
+import { runExecution, isDockerRunning } from '../../lib/execution/runners.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
@@ -78,6 +79,17 @@ export default class WorkStart extends Command {
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(WorkStart)
+
+    // Early Docker check - fail fast if Docker is needed but not running
+    // This avoids user going through ticket/agent selection only to fail at the end
+    if (!flags['run-on-host'] && !isDockerRunning()) {
+      this.error(
+        'Docker is not running.\n\n' +
+        'Docker is required for devcontainer execution (recommended for agent sandboxing).\n' +
+        'Please start Docker Desktop and try again.\n\n' +
+        'Alternatively, use --run-on-host to run directly on your machine (bypasses sandbox).'
+      )
+    }
 
     // Get workspace info (for agent worktree paths)
     let workspaceInfo
@@ -569,17 +581,18 @@ export default class WorkStart extends Command {
       this.log(styles.muted(`   Work ID: ${execution.id}`))
       this.log('')
 
-      // Update ticket status and move to In Progress column
+      // Update ticket status and move to configured In Progress column
       await storage.updateTicket(ticket.id, { status: 'in_progress' })
 
-      // Move to "In Progress" column if it exists
+      // Get configured column name (from pmo_settings or default)
+      const targetColumnName = getWorkColumnSetting(db, 'in_progress')
       const board = await storage.getBoard()
-      const inProgressColumn = board.columns.find(col =>
-        col.name.toLowerCase().includes('progress')
-      )
-      if (inProgressColumn && ticket.column !== inProgressColumn.name) {
-        await storage.moveTicket(ticket.id, inProgressColumn.name)
-        this.log(styles.muted(`   Moved to: ${inProgressColumn.name}`))
+      const columnNames = board.columns.map(col => col.name)
+      const inProgressColumn = findColumnByName(columnNames, targetColumnName)
+
+      if (inProgressColumn && ticket.column !== inProgressColumn) {
+        await storage.moveTicket(ticket.id, inProgressColumn)
+        this.log(styles.muted(`   Moved to: ${inProgressColumn}`))
       }
 
       await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))

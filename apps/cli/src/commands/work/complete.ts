@@ -6,6 +6,7 @@ import {
   getPMOContext,
   autoExportToBoard,
 } from '../../lib/pmo/index.js';
+import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ExecutionStorage } from '../../lib/execution/storage.js';
@@ -89,19 +90,16 @@ export default class WorkComplete extends Command {
         this.error(`Ticket "${ticketId}" not found.`);
       }
 
-      // Get board for columns
+      // Get configured column name (from pmo_settings or default)
+      const targetColumnName = getWorkColumnSetting(db, 'done');
       const board = await storage.getBoard();
-
-      // Find the "Done" column (case-insensitive)
-      const doneColumn = board.columns.find(col =>
-        col.name.toLowerCase() === 'done' ||
-        col.name.toLowerCase().includes('complete')
-      );
+      const columnNames = board.columns.map(col => col.name);
+      const doneColumn = findColumnByName(columnNames, targetColumnName);
 
       if (!doneColumn) {
         await storage.close();
         db.close();
-        this.error('No "Done" or "Complete" column found in board configuration.');
+        this.error(`No "${targetColumnName}" column found in board configuration. Configure with: prlt config set column_done <column-name>`);
       }
 
       const previousColumn = ticket.column;
@@ -110,7 +108,7 @@ export default class WorkComplete extends Command {
       await storage.updateTicket(ticketId!, { status: 'done' });
 
       // Move to Done column
-      await storage.moveTicket(ticketId!, doneColumn.name);
+      await storage.moveTicket(ticketId!, doneColumn);
 
       // Auto-export to board.md if configured
       await autoExportToBoard(pmoPath, storage);
@@ -128,7 +126,7 @@ export default class WorkComplete extends Command {
       this.log(styles.success(`✅ Work complete: ${ticketId}`));
       this.log(styles.muted(`   Title: ${ticket.title}`));
       this.log(styles.muted(`   From: ${previousColumn}`));
-      this.log(styles.muted(`   To: ${doneColumn.name}`));
+      this.log(styles.muted(`   To: ${doneColumn}`));
     } catch (error) {
       await storage.close();
       db.close();

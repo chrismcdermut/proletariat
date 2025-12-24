@@ -183,7 +183,6 @@ export default class TicketCreate extends Command {
       priority?: string;
       categoryChoice: string;
       customCategory?: string;
-      description?: string;
     }>([
       {
         type: 'input',
@@ -250,13 +249,6 @@ export default class TicketCreate extends Command {
         when: (answers: { categoryChoice: string }) => answers.categoryChoice === '__custom__',
         validate: (input: string) => input.length > 0 || 'Category is required when choosing custom',
       },
-      {
-        type: 'editor',
-        name: 'description',
-        message: 'Description (opens $EDITOR for multiline input):',
-        default: flags.description || '',
-        waitForUseInput: false,
-      },
     ]);
 
     // Resolve category from choice or custom input
@@ -264,15 +256,94 @@ export default class TicketCreate extends Command {
       ? answers.customCategory
       : answers.categoryChoice || undefined;
 
+    // Prompt for structured description
+    const description = await this.promptStructuredDescription(flags.description);
+
     return {
       title: answers.title,
       column: answers.column,
       priority: answers.priority || undefined,
       category,
-      description: answers.description || undefined,
+      description: description || undefined,
       id: flags.id,
       epicId: flags.epic,
     };
+  }
+
+  private async promptStructuredDescription(existingDescription?: string): Promise<string> {
+    // If description already provided via flag, use it
+    if (existingDescription) {
+      return existingDescription;
+    }
+
+    this.log(styles.muted('\n─── Ticket Description (for agent execution) ───'));
+
+    const descAnswers = await inquirer.prompt<{
+      what: string;
+      doneWhen: string;
+      context: string;
+      notInScope: string;
+    }>([
+      {
+        type: 'input',
+        name: 'what',
+        message: 'What is the concrete outcome? (one sentence):',
+        validate: (input: string) => input.length > 0 || 'Outcome is required - what does success look like?',
+      },
+      {
+        type: 'editor',
+        name: 'doneWhen',
+        message: 'Done when (acceptance criteria, opens editor):',
+        default: '- [ ] \n- [ ] ',
+        waitForUseInput: false,
+      },
+      {
+        type: 'input',
+        name: 'context',
+        message: 'Context (files, patterns, hints - optional):',
+        default: '',
+      },
+      {
+        type: 'input',
+        name: 'notInScope',
+        message: 'Not in scope (explicit exclusions - optional):',
+        default: '',
+      },
+    ]);
+
+    // Build structured description
+    const parts: string[] = [];
+
+    parts.push(`## What\n${descAnswers.what}`);
+
+    if (descAnswers.doneWhen.trim()) {
+      // Ensure each line in doneWhen starts with - [ ] if it doesn't already
+      const criteria = descAnswers.doneWhen
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0)
+        .map(line => {
+          if (line.startsWith('- [ ]') || line.startsWith('- [x]')) {
+            return line;
+          }
+          if (line.startsWith('-')) {
+            return `- [ ]${line.slice(1)}`;
+          }
+          return `- [ ] ${line}`;
+        })
+        .join('\n');
+      parts.push(`## Done when\n${criteria}`);
+    }
+
+    if (descAnswers.context.trim()) {
+      parts.push(`## Context\n${descAnswers.context}`);
+    }
+
+    if (descAnswers.notInScope.trim()) {
+      parts.push(`## Not in scope\n${descAnswers.notInScope}`);
+    }
+
+    return parts.join('\n\n');
   }
 
 }

@@ -101,6 +101,96 @@ export function deepClone<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj))
 }
 
+// =============================================================================
+// Work Column Settings
+// =============================================================================
+
+/**
+ * Default column names for work commands
+ */
+export const DEFAULT_WORK_COLUMNS = {
+  in_progress: 'In Progress',
+  review: 'Review',
+  done: 'Done',
+} as const;
+
+export type WorkColumnType = keyof typeof DEFAULT_WORK_COLUMNS;
+
+/**
+ * Get a work column setting from pmo_settings with fallback to default.
+ * Column matching is case-insensitive.
+ *
+ * Settings keys:
+ * - column_in_progress: Column to move tickets to when work starts
+ * - column_review: Column to move tickets to when work is ready for review
+ * - column_done: Column to move tickets to when work is complete
+ *
+ * @param db - Database instance
+ * @param columnType - Type of column (in_progress, review, done)
+ * @returns The configured column name, or the default if not set
+ */
+export function getWorkColumnSetting(
+  db: DatabaseLike,
+  columnType: WorkColumnType
+): string {
+  const settingKey = `column_${columnType}`;
+
+  const row = db.prepare(
+    `SELECT value FROM pmo_settings WHERE key = ?`
+  ).get(settingKey) as { value: string } | undefined;
+
+  return row?.value || DEFAULT_WORK_COLUMNS[columnType];
+}
+
+/**
+ * Set a work column setting in pmo_settings.
+ *
+ * @param db - Database instance
+ * @param columnType - Type of column (in_progress, review, done)
+ * @param columnName - Name of the column to use
+ */
+export function setWorkColumnSetting(
+  db: DatabaseLike,
+  columnType: WorkColumnType,
+  columnName: string
+): void {
+  const settingKey = `column_${columnType}`;
+
+  db.prepare(`
+    INSERT INTO pmo_settings (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = ?
+  `).run(settingKey, columnName, columnName);
+}
+
+/**
+ * Find a column by configured name (case-insensitive match).
+ * Returns the actual column name from the board if found, null otherwise.
+ *
+ * @param columnNames - Array of column names from the board
+ * @param targetColumn - The column name to find (from settings or default)
+ * @returns The matching column name, or null if not found
+ */
+export function findColumnByName(
+  columnNames: string[],
+  targetColumn: string
+): string | null {
+  const targetLower = targetColumn.toLowerCase();
+
+  // First try exact match (case-insensitive)
+  const exactMatch = columnNames.find(
+    col => col.toLowerCase() === targetLower
+  );
+  if (exactMatch) return exactMatch;
+
+  // Then try partial match (contains)
+  const partialMatch = columnNames.find(
+    col => col.toLowerCase().includes(targetLower) ||
+           targetLower.includes(col.toLowerCase())
+  );
+
+  return partialMatch || null;
+}
+
 /**
  * Check if two arrays have the same elements (order-independent)
  */

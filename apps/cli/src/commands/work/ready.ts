@@ -6,6 +6,7 @@ import {
   getPMOContext,
   autoExportToBoard,
 } from '../../lib/pmo/index.js';
+import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ExecutionStorage } from '../../lib/execution/storage.js';
@@ -86,24 +87,22 @@ export default class WorkReady extends Command {
         this.error(`Ticket "${ticketId}" not found.`);
       }
 
-      // Get board for columns
+      // Get configured column name (from pmo_settings or default)
+      const targetColumnName = getWorkColumnSetting(db, 'review');
       const board = await storage.getBoard();
-
-      // Find the "In Review" column (case-insensitive)
-      const reviewColumn = board.columns.find(col =>
-        col.name.toLowerCase().includes('review')
-      );
+      const columnNames = board.columns.map(col => col.name);
+      const reviewColumn = findColumnByName(columnNames, targetColumnName);
 
       if (!reviewColumn) {
         await storage.close();
         db.close();
-        this.error('No "In Review" column found in board configuration.');
+        this.error(`No "${targetColumnName}" column found in board configuration. Configure with: prlt config set column_review <column-name>`);
       }
 
       const previousColumn = ticket.column;
 
-      // Move to In Review column
-      await storage.moveTicket(ticketId!, reviewColumn.name);
+      // Move to Review column
+      await storage.moveTicket(ticketId!, reviewColumn);
 
       // Auto-export to board.md if configured
       await autoExportToBoard(pmoPath, storage);
@@ -121,7 +120,7 @@ export default class WorkReady extends Command {
       this.log(styles.success(`👀 Work ready for review: ${ticketId}`));
       this.log(styles.muted(`   Title: ${ticket.title}`));
       this.log(styles.muted(`   From: ${previousColumn}`));
-      this.log(styles.muted(`   To: ${reviewColumn.name}`));
+      this.log(styles.muted(`   To: ${reviewColumn}`));
     } catch (error) {
       await storage.close();
       db.close();

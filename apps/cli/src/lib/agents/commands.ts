@@ -40,11 +40,49 @@ export interface WorkspaceInfo {
 }
 
 /**
- * Find workspace root and return workspace information
+ * Find workspace root and return workspace information.
+ *
+ * Search priority:
+ * 1. PRLT_HQ_PATH environment variable (used in devcontainers where HQ is mounted at /hq)
+ * 2. Current directory tree for HQ with workspace.db
  */
 export function getWorkspaceInfo(): WorkspaceInfo {
+  // Check PRLT_HQ_PATH environment variable first (used in devcontainers)
+  const hqPath = process.env.PRLT_HQ_PATH;
+  if (hqPath) {
+    const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
+    if (fs.existsSync(dbPath)) {
+      try {
+        const config = getWorkspaceConfig(hqPath);
+        if (config) {
+          const agents = getWorkspaceAgents(hqPath);
+          const repositories = getWorkspaceRepositories(hqPath);
+          const themeConfig = THEMES[config.theme];
+
+          const agentsPath = config.type === 'hq'
+            ? path.join(hqPath, 'agents', themeConfig.workspaceDir)
+            : hqPath;
+
+          return {
+            path: hqPath,
+            type: config.type,
+            theme: config.theme,
+            workspaceName: config.workspace_name,
+            hasPMO: config.has_pmo,
+            agents,
+            repositories,
+            agentsPath
+          };
+        }
+      } catch {
+        // Continue to directory tree search if PRLT_HQ_PATH is invalid
+      }
+    }
+  }
+
+  // Search up the directory tree
   let currentDir = process.cwd();
-  
+
   while (currentDir !== '/') {
     const dbPath = path.join(currentDir, '.proletariat', 'workspace.db');
     if (fs.existsSync(dbPath)) {
@@ -54,11 +92,11 @@ export function getWorkspaceInfo(): WorkspaceInfo {
           const agents = getWorkspaceAgents(currentDir);
           const repositories = getWorkspaceRepositories(currentDir);
           const themeConfig = THEMES[config.theme];
-          
-          const agentsPath = config.type === 'hq' 
+
+          const agentsPath = config.type === 'hq'
             ? path.join(currentDir, 'agents', themeConfig.workspaceDir)
             : currentDir;
-          
+
           return {
             path: currentDir,
             type: config.type,
@@ -70,13 +108,13 @@ export function getWorkspaceInfo(): WorkspaceInfo {
             agentsPath
           };
         }
-      } catch (error) {
+      } catch {
         // Continue searching if database is corrupted
       }
     }
     currentDir = path.dirname(currentDir);
   }
-  
+
   throw new Error('Not in an HQ or workspace directory. Run "prlt init" first.');
 }
 

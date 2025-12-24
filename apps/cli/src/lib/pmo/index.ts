@@ -67,6 +67,60 @@ export function getBoardTemplates(): { [key: string]: string[] } {
   };
 }
 
+/**
+ * Get column settings for work commands based on board template.
+ * These settings determine which columns are used for:
+ * - work start: moves ticket to column_in_progress
+ * - work ready: moves ticket to column_review
+ * - work complete: moves ticket to column_done
+ *
+ * For custom templates, we try to find matching columns by keyword.
+ */
+export function getColumnSettingsForTemplate(
+  template: string,
+  columns: string[]
+): { column_in_progress: string; column_review: string; column_done: string } {
+  // Template-specific mappings
+  const templateMappings: Record<string, { column_in_progress: string; column_review: string; column_done: string }> = {
+    kanban: {
+      column_in_progress: 'In Progress',
+      column_review: 'In Progress', // No review column in basic kanban, use In Progress
+      column_done: 'Done',
+    },
+    scrum: {
+      column_in_progress: 'In Progress',
+      column_review: 'In Review',
+      column_done: 'Done',
+    },
+    founder: {
+      column_in_progress: 'In Progress',
+      column_review: 'In Review',
+      column_done: 'Published', // Founder template uses Published as done state
+    },
+  };
+
+  // Use template mapping if available
+  if (templateMappings[template]) {
+    return templateMappings[template];
+  }
+
+  // For custom templates, try to find matching columns by keyword
+  const findColumn = (keywords: string[], fallback: string): string => {
+    const lowerColumns = columns.map(c => c.toLowerCase());
+    for (const keyword of keywords) {
+      const idx = lowerColumns.findIndex(c => c.includes(keyword));
+      if (idx !== -1) return columns[idx];
+    }
+    return fallback;
+  };
+
+  return {
+    column_in_progress: findColumn(['progress', 'active', 'doing', 'working'], columns[1] || 'In Progress'),
+    column_review: findColumn(['review', 'testing', 'qa', 'verify'], columns[columns.length - 2] || 'Review'),
+    column_done: findColumn(['done', 'complete', 'finished', 'published', 'shipped'], columns[columns.length - 1] || 'Done'),
+  };
+}
+
 export type PMOStorageType = 'sqlite' | 'git';
 export type PMOLocation = 'separate' | `repo:${string}`;
 
@@ -379,12 +433,20 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
     columns,
   });
 
-  // Save PMO path to settings (relative to HQ root for container compatibility)
+  // Save PMO path and column settings (relative to HQ root for container compatibility)
   try {
     const db = new (await import('better-sqlite3')).default(dbPath);
     // Store relative path from HQ root (e.g., "pmo" or "repos/myrepo/pmo")
     const relativePmoPath = path.relative(hqPath, pmoPath);
     db.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run('pmo_path', relativePmoPath);
+
+    // Set column settings based on template
+    // These determine which columns work commands use for transitions
+    const columnSettings = getColumnSettingsForTemplate(boardTemplate, columns);
+    for (const [key, value] of Object.entries(columnSettings)) {
+      db.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run(key, value);
+    }
+
     db.close();
   } catch {
     // Ignore if settings table doesn't exist

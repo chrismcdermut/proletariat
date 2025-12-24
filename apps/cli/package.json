@@ -20,6 +20,7 @@
     "better-sqlite3": "^9.2.2",
     "chalk": "^4.1.2",
     "chokidar": "^5.0.0",
+    "gray-matter": "^4.0.3",
     "ink": "^5.0.1",
     "ink-select-input": "^6.0.0",
     "inquirer": "^8.2.5",
