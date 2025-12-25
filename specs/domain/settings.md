@@ -11,45 +11,12 @@ Settings provide configurable values for PMO behavior. They are stored in the `p
 
 ## Abilities
 
-### Get setting
-
-Retrieve a setting value with fallback to default.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `getWorkColumnSetting()` |
-| cli | `prlt config get <key>` |
-| api | `GET /api/settings/:key` |
-
-### Set setting
-
-Store a setting value.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `setWorkColumnSetting()` |
-| cli | `prlt config set <key> <value>` |
-| api | `PUT /api/settings/:key` |
-
-### List settings
-
-List all configured settings.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `listSettings()` |
-| cli | `prlt config list` |
-| api | `GET /api/settings` |
-
-### Delete setting
-
-Remove a setting (reverts to default).
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `deleteSetting()` |
-| cli | `prlt config delete <key>` |
-| api | `DELETE /api/settings/:key` |
+| Ability | Description | storage | cli | api |
+|---------|-------------|---------|-----|-----|
+| Get setting | Retrieve a setting value with fallback to default | `getWorkColumnSetting()` | `prlt config get <key>` | `GET /api/settings/:key` |
+| Set setting | Store a setting value | `setWorkColumnSetting()` | `prlt config set <key> <value>` | `PUT /api/settings/:key` |
+| List settings | List all configured settings | `listSettings()` | `prlt config list` | `GET /api/settings` |
+| Delete setting | Remove a setting (reverts to default) | `deleteSetting()` | `prlt config delete <key>` | `DELETE /api/settings/:key` |
 
 ## Data Model
 

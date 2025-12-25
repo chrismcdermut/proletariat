@@ -11,120 +11,36 @@ Work tracks the execution of tickets by agents. It includes claiming tickets, st
 
 ## Abilities
 
-### Claim ticket
+| Ability | Description | storage | cli | api | web | obsidian |
+|---------|-------------|---------|-----|-----|-----|----------|
+| Claim ticket | Claim ownership of a ticket, making the user accountable | `updateTicket()` | `prlt work claim` | `POST /api/work/claim` | `ClaimButton` | - |
+| Assign ticket | Assign a ticket to an agent or human for execution | `updateTicket()` | `prlt work assign` | `POST /api/work/assign` | `AssignDropdown` | `frontmatter` |
+| Start work | Start an agent session to work on a ticket | `createExecution()` | `prlt work start` | `POST /api/work/start` | `StartButton` | - |
+| Mark ready | Mark agent's work as ready for human review | `updateExecution()` | `prlt work ready` | `POST /api/work/ready` | `ReadyButton` | - |
+| Revise work | Spawn an agent to address PR feedback | `createExecution()` | `prlt work revise [ticketId]` | - | - | - |
+| Complete work | Mark the execution as complete and close the session | `updateExecution()` | `prlt work complete` | `POST /api/work/complete` | `CompleteButton` | - |
+| Stop execution | Stop a running agent execution before completion | `updateExecution()` | `prlt execution stop` | `POST /api/executions/:id/stop` | `StopButton` | - |
+| List executions | List all work executions with filtering options | `listExecutions()` | `prlt execution list` | `GET /api/executions` | `ExecutionList` | - |
+| View logs | View the output logs from an agent execution | `getExecutionLogs()` | `prlt execution logs` | `GET /api/executions/:id/logs` | `LogViewer` | - |
 
-Claim ownership of a ticket, making the user accountable for its completion.
+### CLI Flags
 
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateTicket()` |
-| cli | `prlt work claim` |
-| api | `POST /api/work/claim` |
-| web | `ClaimButton` |
-
-### Assign ticket
-
-Assign a ticket to an agent or human for execution.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateTicket()` |
-| cli | `prlt work assign` |
-| api | `POST /api/work/assign` |
-| web | `AssignDropdown` |
-| obsidian | `frontmatter` |
-
-### Start work
-
-Start an agent session to work on a ticket.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `createExecution()` |
-| cli | `prlt work start` |
-| api | `POST /api/work/start` |
-| web | `StartButton` |
-
-### Mark ready
-
-Mark agent's work as ready for human review.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateExecution()` |
-| cli | `prlt work ready` |
-| api | `POST /api/work/ready` |
-| web | `ReadyButton` |
-
-**Flags:**
+**Mark ready** (`prlt work ready`):
 - `--pr`: Create a pull request for this work
 - `--draft`: Create PR as draft (only with --pr)
 - `--no-pr`: Skip PR creation prompt
 
-### Revise work
-
-Spawn an agent to address PR feedback (reviews, comments, change requests).
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `createExecution()`, `updateTicket()` |
-| cli | `prlt work revise [ticketId]` |
-| lib | `getPRFeedback()`, `formatPRFeedbackForPrompt()` |
-
-**Flags:**
+**Revise work** (`prlt work revise`):
 - `--force`, `-f`: Proceed even if no pending feedback
 - `--agent`, `-a`: Agent to perform the work
 
-**Flow:**
+### Revise Work Flow
+
 1. Fetches PR feedback from ticket's linked PR
 2. Checks for pending feedback (changes requested, comments)
 3. Moves ticket back to In Progress column
 4. Spawns agent with PR feedback context in prompt
 5. Agent addresses feedback, commits, and pushes
-
-### Complete work
-
-Mark the execution as complete and close the work session.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateExecution()` |
-| cli | `prlt work complete` |
-| api | `POST /api/work/complete` |
-| web | `CompleteButton` |
-
-### Stop execution
-
-Stop a running agent execution before completion.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateExecution()` |
-| cli | `prlt execution stop` |
-| api | `POST /api/executions/:id/stop` |
-| web | `StopButton` |
-
-### List executions
-
-List all work executions with filtering options.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `listExecutions()` |
-| cli | `prlt execution list` |
-| api | `GET /api/executions` |
-| web | `ExecutionList` |
-
-### View logs
-
-View the output logs from an agent execution.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `getExecutionLogs()` |
-| cli | `prlt execution logs` |
-| api | `GET /api/executions/:id/logs` |
-| web | `LogViewer` |
 
 ## Data Model
 

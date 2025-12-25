@@ -152,10 +152,10 @@ export default class BranchCreate extends Command {
             name: 'wantCommit',
             message: 'Create initial empty commit? (helps seed PR title)',
             choices: [
-              { name: 'No', value: false },
               { name: 'Yes', value: true },
+              { name: 'No', value: false },
             ],
-            default: false,
+            default: true,
           },
         ])
         createCommit = wantCommit

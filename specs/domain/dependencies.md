@@ -11,70 +11,14 @@ Dependencies define relationships between work items (tickets, epics). They enab
 
 ## Abilities
 
-### Link ticket
-
-Create a dependency link from a ticket to another item.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `createDependency()` |
-| cli | `prlt ticket link` |
-| api | `POST /api/dependencies` |
-| web | `LinkButton` |
-
-### Unlink ticket
-
-Remove a dependency link between items.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `deleteDependency()` |
-| cli | `prlt ticket unlink` |
-| api | `DELETE /api/dependencies/:id` |
-| web | `UnlinkButton` |
-
-### List links
-
-Show all dependency links for a ticket or epic.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `listDependencies()` |
-| cli | `prlt ticket links` |
-| api | `GET /api/dependencies` |
-| web | `DependencyList` |
-
-### Link epic
-
-Create a dependency link from an epic to another item.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `createDependency()` |
-| cli | `prlt epic link` |
-| api | `POST /api/dependencies` |
-| web | `LinkButton` |
-
-### Unlink epic
-
-Remove a dependency link from an epic.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `deleteDependency()` |
-| cli | `prlt epic unlink` |
-| api | `DELETE /api/dependencies/:id` |
-| web | `UnlinkButton` |
-
-### View dependency graph
-
-Visualize the dependency graph for work items.
-
-| Modality | Signature |
-|----------|-----------|
-| cli | `prlt deps graph` |
-| api | `GET /api/dependencies/graph` |
-| web | `DependencyGraph` |
+| Ability | Description | storage | cli | api | web |
+|---------|-------------|---------|-----|-----|-----|
+| Link ticket | Create a dependency link from a ticket to another item | `createDependency()` | `prlt ticket link` | `POST /api/dependencies` | `LinkButton` |
+| Unlink ticket | Remove a dependency link between items | `deleteDependency()` | `prlt ticket unlink` | `DELETE /api/dependencies/:id` | `UnlinkButton` |
+| List links | Show all dependency links for a ticket or epic | `listDependencies()` | `prlt ticket links` | `GET /api/dependencies` | `DependencyList` |
+| Link epic | Create a dependency link from an epic to another item | `createDependency()` | `prlt epic link` | `POST /api/dependencies` | `LinkButton` |
+| Unlink epic | Remove a dependency link from an epic | `deleteDependency()` | `prlt epic unlink` | `DELETE /api/dependencies/:id` | `UnlinkButton` |
+| View dependency graph | Visualize the dependency graph for work items | - | `prlt deps graph` | `GET /api/dependencies/graph` | `DependencyGraph` |
 
 ## Data Model
 

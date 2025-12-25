@@ -11,106 +11,17 @@ Boards are kanban views for organizing tickets into columns. Each project has on
 
 ## Abilities
 
-### View board
-
-Display the kanban board with all columns and tickets.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `getBoard()` |
-| cli | `prlt board view` |
-| api | `GET /api/board` |
-| web | `BoardView` |
-| obsidian | `kanban.md` |
-
-### Open in editor
-
-Open the board markdown file in the default editor.
-
-| Modality | Signature |
-|----------|-----------|
-| cli | `prlt board open` |
-| obsidian | `open file` |
-
-### Export board
-
-Export board to markdown format.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `getBoardMarkdown()` |
-| cli | `prlt board export` |
-| api | `GET /api/board/export` |
-| web | `ExportButton` |
-
-### Sync board
-
-Synchronize board between database and markdown file.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `syncBoard()` |
-| cli | `prlt board sync` |
-| api | `POST /api/board/sync` |
-| web | `SyncButton` |
-| obsidian | `auto` |
-
-### Watch changes
-
-Watch for changes to board file and auto-sync.
-
-| Modality | Signature |
-|----------|-----------|
-| cli | `prlt board watch` |
-| obsidian | `Obsidian Kanban` |
-
-### Create column
-
-Add a new column to the board.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `createColumn()` |
-| cli | `prlt column create` |
-| api | `POST /api/columns` |
-| web | `AddColumnButton` |
-| obsidian | `add section` |
-
-### Rename column
-
-Change the name of a column.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `renameColumn()` |
-| cli | `prlt column rename` |
-| api | `PATCH /api/columns/:id` |
-| web | `EditColumnModal` |
-| obsidian | `rename section` |
-
-### Move column
-
-Reorder a column's position on the board.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `moveColumn()` |
-| cli | `prlt column move` |
-| api | `PATCH /api/columns/:id` |
-| web | `DragColumn` |
-| obsidian | `reorder sections` |
-
-### Delete column
-
-Remove a column from the board.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `deleteColumn()` |
-| cli | `prlt column delete` |
-| api | `DELETE /api/columns/:id` |
-| web | `DeleteColumnButton` |
-| obsidian | `delete section` |
+| Ability | Description | storage | cli | api | web | obsidian |
+|---------|-------------|---------|-----|-----|-----|----------|
+| View board | Display the kanban board with all columns and tickets | `getBoard()` | `prlt board view` | `GET /api/board` | `BoardView` | `kanban.md` |
+| Open in editor | Open the board markdown file in the default editor | - | `prlt board open` | - | - | `open file` |
+| Export board | Export board to markdown format | `getBoardMarkdown()` | `prlt board export` | `GET /api/board/export` | `ExportButton` | - |
+| Sync board | Synchronize board between database and markdown file | `syncBoard()` | `prlt board sync` | `POST /api/board/sync` | `SyncButton` | `auto` |
+| Watch changes | Watch for changes to board file and auto-sync | - | `prlt board watch` | - | - | `Obsidian Kanban` |
+| Create column | Add a new column to the board | `createColumn()` | `prlt column create` | `POST /api/columns` | `AddColumnButton` | `add section` |
+| Rename column | Change the name of a column | `renameColumn()` | `prlt column rename` | `PATCH /api/columns/:id` | `EditColumnModal` | `rename section` |
+| Move column | Reorder a column's position on the board | `moveColumn()` | `prlt column move` | `PATCH /api/columns/:id` | `DragColumn` | `reorder sections` |
+| Delete column | Remove a column from the board | `deleteColumn()` | `prlt column delete` | `DELETE /api/columns/:id` | `DeleteColumnButton` | `delete section` |
 
 ## Data Model
 

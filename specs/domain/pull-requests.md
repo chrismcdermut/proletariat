@@ -11,55 +11,29 @@ Pull Requests (PRs) connect work tickets to code changes in Git repositories. PR
 
 ## Abilities
 
-### Create PR
+| Ability | Description | storage | cli | lib |
+|---------|-------------|---------|-----|-----|
+| Create PR | Create a GitHub pull request from the current branch | - | `prlt pr create [ticketId]` | `createPR(options)` |
+| Link PR | Link an existing GitHub pull request to a ticket | `updateTicket()` | `prlt pr link [ticketId]` | - |
+| View PR status | View PR status for a ticket | - | `prlt pr status [ticketId]` | `getPRByNumber(number)` |
+| Get PR Feedback | Fetch reviews, comments, and review decision from a PR | - | - | `getPRFeedback()`, `hasPendingFeedback()`, `formatPRFeedbackForPrompt()` |
 
-Create a GitHub pull request from the current branch.
+### CLI Flags
 
-| Modality | Signature |
-|----------|-----------|
-| cli | `prlt pr create [ticketId]` |
-| lib | `createPR(options)` |
-
-**Flags:**
+**Create PR** (`prlt pr create`):
 - `--base`, `-b`: Base branch for the PR (defaults to main/master)
 - `--draft`, `-d`: Create as draft PR
 - `--no-link`: Skip linking PR to ticket
 - `--title`, `-t`: PR title (auto-generated from ticket if not provided)
 - `--body`: PR body/description
 
-### Link PR
-
-Link an existing GitHub pull request to a ticket.
-
-| Modality | Signature |
-|----------|-----------|
-| cli | `prlt pr link [ticketId]` |
-| storage | `updateTicket(id, { metadata: { pr_url, pr_number } })` |
-
-**Flags:**
+**Link PR** (`prlt pr link`):
 - `--pr`, `-p`: PR number to link
 - `--url`, `-u`: PR URL to link
 
-### View PR status
+### PR Feedback Details
 
-View PR status for a ticket.
-
-| Modality | Signature |
-|----------|-----------|
-| cli | `prlt pr status [ticketId]` |
-| lib | `getPRByNumber(number)` |
-
-### Get PR Feedback
-
-Fetch reviews, comments, and review decision from a PR.
-
-| Modality | Signature |
-|----------|-----------|
-| lib | `getPRFeedback(prUrlOrNumber, cwd?)` |
-| lib | `hasPendingFeedback(feedback)` |
-| lib | `formatPRFeedbackForPrompt(feedback)` |
-
-Returns structured feedback including:
+Get PR Feedback returns structured feedback including:
 - Reviews with state (APPROVED, CHANGES_REQUESTED, COMMENTED, PENDING, DISMISSED)
 - Review comments (inline code comments)
 - PR-level comments
