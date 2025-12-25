@@ -49,7 +49,17 @@ function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissi
 }
 
 function buildPrompt(context: ExecutionContext): string {
-  let prompt = `# Ticket: ${context.ticketId}\n\n`
+  let prompt = ''
+
+  // For revisions, lead with the PR feedback
+  if (context.isRevision && context.prFeedback) {
+    prompt += `# Revision: Address PR Feedback\n\n`
+    prompt += context.prFeedback
+    prompt += `\n\n---\n\n`
+    prompt += `## Original Ticket Context\n\n`
+  }
+
+  prompt += `# Ticket: ${context.ticketId}\n\n`
   prompt += `**Title:** ${context.ticketTitle}\n\n`
 
   if (context.ticketPriority) {
@@ -77,13 +87,19 @@ function buildPrompt(context: ExecutionContext): string {
     }
   }
 
-  // Build the work ready command with the appropriate PR flag
-  const prFlag = context.createPR ? ' --pr' : ' --no-pr'
-  prompt += `\n---\n\nWhen complete, run: \`prlt work ready ${context.ticketId}${prFlag}\` to move the ticket to review`
-  if (context.createPR) {
-    prompt += ` and create a pull request.`
+  // For revisions, just tell agent to push changes
+  if (context.isRevision) {
+    prompt += `\n---\n\nAfter addressing the feedback, commit and push your changes.`
+    prompt += `\nThe PR will be updated automatically.`
   } else {
-    prompt += `.`
+    // Build the work ready command with the appropriate PR flag
+    const prFlag = context.createPR ? ' --pr' : ' --no-pr'
+    prompt += `\n---\n\nWhen complete, run: \`prlt work ready ${context.ticketId}${prFlag}\` to move the ticket to review`
+    if (context.createPR) {
+      prompt += ` and create a pull request.`
+    } else {
+      prompt += `.`
+    }
   }
 
   return prompt

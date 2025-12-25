@@ -56,6 +56,32 @@ Mark agent's work as ready for human review.
 | api | `POST /api/work/ready` |
 | web | `ReadyButton` |
 
+**Flags:**
+- `--pr`: Create a pull request for this work
+- `--draft`: Create PR as draft (only with --pr)
+- `--no-pr`: Skip PR creation prompt
+
+### Revise work
+
+Spawn an agent to address PR feedback (reviews, comments, change requests).
+
+| Modality | Signature |
+|----------|-----------|
+| storage | `createExecution()`, `updateTicket()` |
+| cli | `prlt work revise [ticketId]` |
+| lib | `getPRFeedback()`, `formatPRFeedbackForPrompt()` |
+
+**Flags:**
+- `--force`, `-f`: Proceed even if no pending feedback
+- `--agent`, `-a`: Agent to perform the work
+
+**Flow:**
+1. Fetches PR feedback from ticket's linked PR
+2. Checks for pending feedback (changes requested, comments)
+3. Moves ticket back to In Progress column
+4. Spawns agent with PR feedback context in prompt
+5. Agent addresses feedback, commits, and pushes
+
 ### Complete work
 
 Mark the execution as complete and close the work session.
@@ -124,6 +150,9 @@ View the output logs from an agent execution.
 | started_at | timestamp | auto | now | Start time |
 | completed_at | timestamp | | null | End time |
 | exit_code | number | | null | Process exit code |
+| create_pr | boolean | | false | Whether to create PR when ready |
+| pr_feedback | string | | null | Formatted PR feedback (for revisions) |
+| is_revision | boolean | | false | Whether this is a revision execution |
 
 ## Business Rules
 
@@ -168,3 +197,4 @@ See [Settings](settings.md) for template-specific defaults and configuration det
 - [Tickets](tickets.md) - Work executes tickets
 - [Agents](agents.md) - Agents perform work
 - [Settings](settings.md) - Column configuration for work lifecycle
+- [Pull Requests](pull-requests.md) - PR creation and feedback handling

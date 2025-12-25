@@ -49,6 +49,22 @@ View PR status for a ticket.
 | cli | `prlt pr status [ticketId]` |
 | lib | `getPRByNumber(number)` |
 
+### Get PR Feedback
+
+Fetch reviews, comments, and review decision from a PR.
+
+| Modality | Signature |
+|----------|-----------|
+| lib | `getPRFeedback(prUrlOrNumber, cwd?)` |
+| lib | `hasPendingFeedback(feedback)` |
+| lib | `formatPRFeedbackForPrompt(feedback)` |
+
+Returns structured feedback including:
+- Reviews with state (APPROVED, CHANGES_REQUESTED, COMMENTED, PENDING, DISMISSED)
+- Review comments (inline code comments)
+- PR-level comments
+- Overall review decision
+
 ## Data Model
 
 ### Ticket Metadata (PR fields)
@@ -74,6 +90,40 @@ PR information is stored in the `pmo_ticket_metadata` table as key-value pairs.
 | isDraft | boolean | Whether PR is a draft |
 | createdAt | timestamp | When PR was created |
 | updatedAt | timestamp | When PR was last updated |
+
+### PR Feedback
+
+| Field | Type | Description |
+|-------|------|-------------|
+| prNumber | number | PR number |
+| prUrl | string | Full PR URL |
+| prTitle | string | PR title |
+| reviews | PRReview[] | Review submissions |
+| comments | PRComment[] | PR-level comments |
+| reviewDecision | enum | APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, null |
+
+### PR Review
+
+| Field | Type | Description |
+|-------|------|-------------|
+| id | string | Review ID |
+| author | string | Reviewer username |
+| state | enum | APPROVED, CHANGES_REQUESTED, COMMENTED, PENDING, DISMISSED |
+| body | string | Review body text |
+| createdAt | timestamp | When review was submitted |
+| comments | PRComment[] | Inline code comments in this review |
+
+### PR Comment
+
+| Field | Type | Description |
+|-------|------|-------------|
+| id | string | Comment ID |
+| author | string | Commenter username |
+| body | string | Comment text |
+| createdAt | timestamp | When comment was posted |
+| path | string? | File path (for inline comments) |
+| line | number? | Line number (for inline comments) |
+| diffHunk | string? | Code context (for inline comments) |
 
 ## Business Rules
 
@@ -121,19 +171,32 @@ Resolves {TICKET-ID}: {Ticket Title}
 
 The PR system integrates with the work lifecycle:
 
-1. `work start` - Creates branch for ticket
+1. `work start` - Creates branch for ticket, prompts for PR creation preference
 2. (Agent works on ticket)
-3. `work ready` - Can trigger PR creation (see integration)
-4. Human reviews PR
-5. `work complete` - Ticket moves to Done
+3. `work ready` - Triggers PR creation (based on preference from step 1)
+4. Human reviews PR, leaves feedback
+5. `work revise` - Spawns agent to address PR feedback (if changes requested)
+6. `work complete` - Ticket moves to Done
 
-### Future: Auto-create PR on work ready
+### PR Creation Flow
 
-When an agent calls `prlt work ready`, the system can automatically:
+When starting work (`prlt work start`), the user is prompted whether to create a PR when work is ready. This preference is stored in the execution context and passed to the agent.
+
+When the agent calls `prlt work ready`:
 1. Push all commits to origin
-2. Create a draft PR
+2. Create PR (if preference is yes)
 3. Link PR to ticket
 4. Move ticket to Review column
+
+### PR Revision Flow
+
+When a PR receives feedback requesting changes (`prlt work revise`):
+1. Fetch PR feedback (reviews, comments, review decision)
+2. Check for pending changes requested
+3. Move ticket back to In Progress column
+4. Spawn agent with PR feedback in prompt
+5. Agent addresses feedback, commits, and pushes
+6. PR is updated automatically
 
 ## Related Domains
 
@@ -164,4 +227,10 @@ prlt pr status TKT-001
 
 # Interactive PR menu
 prlt pr
+
+# Address PR feedback (revision)
+prlt work revise TKT-001
+
+# Force revision even without pending feedback
+prlt work revise TKT-001 --force
 ```

@@ -94,9 +94,13 @@ export default class EpicArchive extends Command {
       if (!allComplete && !flags.force) {
         this.log(styles.warning(`\n⚠️  Not all tickets are complete (${doneTickets}/${tickets.length} done)`));
         const { confirm } = await inquirer.prompt([{
-          type: 'confirm',
+          type: 'list',
           name: 'confirm',
           message: 'Continue archiving anyway?',
+          choices: [
+            { name: 'No', value: false },
+            { name: 'Yes', value: true },
+          ],
           default: false,
         }]);
 

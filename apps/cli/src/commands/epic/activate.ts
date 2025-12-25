@@ -80,9 +80,13 @@ export default class EpicActivate extends Command {
 
         this.log(styles.warning(`\n⚠️  This epic was previously completed (${doneTickets}/${tickets.length} tickets done)`));
         const { confirm } = await inquirer.prompt([{
-          type: 'confirm',
+          type: 'list',
           name: 'confirm',
           message: 'Reactivate this epic?',
+          choices: [
+            { name: 'No', value: false },
+            { name: 'Yes', value: true },
+          ],
           default: false,
         }]);
 
