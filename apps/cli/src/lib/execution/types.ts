@@ -135,6 +135,9 @@ export interface ExecutionContext {
   branch: string
   hqPath?: string // HQ root path for storing execution artifacts
   createPR?: boolean // Whether to create a PR when work is ready (chosen at work start)
+  // PR feedback context (for work revise)
+  prFeedback?: string // Formatted PR feedback markdown
+  isRevision?: boolean // Whether this is a revision (addressing PR feedback)
 }
 
 // =============================================================================

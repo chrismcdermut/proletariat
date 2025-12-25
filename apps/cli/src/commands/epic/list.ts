@@ -85,8 +85,10 @@ export default class EpicList extends Command {
           const percent = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
           const bar = progressBar(percent);
           const readyToArchive = percent === 100 && status === 'active' ? ' ← ready to archive!' : '';
+          // Show rank (position + 1) for active epics
+          const rank = status === 'active' ? `#${epic.position + 1} ` : '   ';
 
-          this.log(`  ${epic.id.padEnd(10)} ${epic.title.substring(0, 30).padEnd(30)} ${bar} ${String(percent).padStart(3)}% (${progress.done}/${progress.total})${readyToArchive}`);
+          this.log(`  ${rank}${epic.id.padEnd(10)} ${epic.title.substring(0, 27).padEnd(27)} ${bar} ${String(percent).padStart(3)}% (${progress.done}/${progress.total})${readyToArchive}`);
         }
       }
 

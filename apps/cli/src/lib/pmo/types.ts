@@ -55,6 +55,7 @@ export interface Epic {
   title: string
   description?: string
   status: EpicStatus
+  position: number  // Priority/rank ordering (lower = higher priority)
   filePath?: string
   specId?: string  // Link to the spec that describes this epic (1 Spec → Many Epics)
   createdAt: Date

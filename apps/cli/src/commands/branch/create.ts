@@ -78,9 +78,13 @@ export default class BranchCreate extends Command {
         // Warn but allow creation
         const { proceed } = await inquirer.prompt([
           {
-            type: 'confirm',
+            type: 'list',
             name: 'proceed',
             message: `Branch name doesn't follow conventional format.\n   ${validation.error}\n   Continue anyway?`,
+            choices: [
+              { name: 'No', value: false },
+              { name: 'Yes', value: true },
+            ],
             default: false,
           },
         ])
@@ -144,9 +148,13 @@ export default class BranchCreate extends Command {
         // Only prompt in interactive mode
         const { wantCommit } = await inquirer.prompt([
           {
-            type: 'confirm',
+            type: 'list',
             name: 'wantCommit',
             message: 'Create initial empty commit? (helps seed PR title)',
+            choices: [
+              { name: 'No', value: false },
+              { name: 'Yes', value: true },
+            ],
             default: false,
           },
         ])

@@ -241,6 +241,7 @@ export const PMO_TABLE_SCHEMAS = {
       title TEXT NOT NULL,
       description TEXT,
       status TEXT NOT NULL DEFAULT 'active',
+      position INTEGER NOT NULL DEFAULT 0,
       file_path TEXT,
       spec_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -305,6 +306,7 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_assignments_agent ON ${PMO_TABLES.ticket_assignments}(agent_name);
   CREATE INDEX IF NOT EXISTS idx_pmo_epics_project ON ${PMO_TABLES.epics}(project_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_epics_spec ON ${PMO_TABLES.epics}(spec_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_epics_position ON ${PMO_TABLES.epics}(project_id, position);
   CREATE INDEX IF NOT EXISTS idx_pmo_projects_initiative ON ${PMO_TABLES.projects}(initiative_id);
   CREATE INDEX IF NOT EXISTS idx_agent_work_agent ON ${PMO_TABLES.agent_work}(agent_name);
   CREATE INDEX IF NOT EXISTS idx_agent_work_status ON ${PMO_TABLES.agent_work}(status);

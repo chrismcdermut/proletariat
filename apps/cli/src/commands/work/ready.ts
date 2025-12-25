@@ -208,9 +208,13 @@ export default class WorkReady extends Command {
 
     // Prompt user
     const { createPR: wantPR } = await inquirer.prompt([{
-      type: 'confirm',
+      type: 'list',
       name: 'createPR',
       message: 'Create a pull request for this work?',
+      choices: [
+        { name: 'Yes', value: true },
+        { name: 'No', value: false },
+      ],
       default: true,
     }]);
 

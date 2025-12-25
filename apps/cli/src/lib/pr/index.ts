@@ -428,3 +428,212 @@ export function generatePRBody(options: {
 
   return lines.join('\n');
 }
+
+// =============================================================================
+// PR Feedback/Reviews
+// =============================================================================
+
+/**
+ * Comment on a PR (either review comment or general comment).
+ */
+export interface PRComment {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  path?: string;      // File path (for review comments)
+  line?: number;      // Line number (for review comments)
+  diffHunk?: string;  // Code context (for review comments)
+}
+
+/**
+ * Review on a PR.
+ */
+export interface PRReview {
+  id: string;
+  author: string;
+  state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'PENDING' | 'DISMISSED';
+  body: string;
+  createdAt: string;
+  comments: PRComment[];
+}
+
+/**
+ * Full feedback for a PR (reviews + comments).
+ */
+export interface PRFeedback {
+  prNumber: number;
+  prUrl: string;
+  prTitle: string;
+  reviews: PRReview[];
+  comments: PRComment[];
+  reviewDecision?: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null;
+}
+
+/**
+ * Get PR feedback (reviews and comments) by PR URL or number.
+ */
+export function getPRFeedback(prUrlOrNumber: string | number, cwd?: string): PRFeedback | null {
+  try {
+    const result = execSync(
+      `gh pr view ${prUrlOrNumber} --json number,url,title,reviews,comments,reviewDecision`,
+      {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }
+    );
+
+    const data = JSON.parse(result);
+
+    // Parse reviews
+    const reviews: PRReview[] = (data.reviews || []).map((review: {
+      id: string;
+      author: { login: string };
+      state: string;
+      body: string;
+      createdAt: string;
+      comments?: Array<{
+        id: string;
+        author: { login: string };
+        body: string;
+        createdAt: string;
+        path?: string;
+        line?: number;
+        diffHunk?: string;
+      }>;
+    }) => ({
+      id: review.id,
+      author: review.author?.login || 'unknown',
+      state: review.state,
+      body: review.body || '',
+      createdAt: review.createdAt,
+      comments: (review.comments || []).map(c => ({
+        id: c.id,
+        author: c.author?.login || 'unknown',
+        body: c.body,
+        createdAt: c.createdAt,
+        path: c.path,
+        line: c.line,
+        diffHunk: c.diffHunk,
+      })),
+    }));
+
+    // Parse general comments (not part of reviews)
+    const comments: PRComment[] = (data.comments || []).map((comment: {
+      id: string;
+      author: { login: string };
+      body: string;
+      createdAt: string;
+    }) => ({
+      id: comment.id,
+      author: comment.author?.login || 'unknown',
+      body: comment.body,
+      createdAt: comment.createdAt,
+    }));
+
+    return {
+      prNumber: data.number,
+      prUrl: data.url,
+      prTitle: data.title,
+      reviews,
+      comments,
+      reviewDecision: data.reviewDecision,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if a PR has pending feedback that needs addressing.
+ */
+export function hasPendingFeedback(feedback: PRFeedback): boolean {
+  // Check for "changes requested" reviews
+  const hasChangesRequested = feedback.reviews.some(r => r.state === 'CHANGES_REQUESTED');
+  if (hasChangesRequested) return true;
+
+  // Check review decision
+  if (feedback.reviewDecision === 'CHANGES_REQUESTED') return true;
+
+  // Check for unresolved comments (any review comments or general comments)
+  const hasReviewComments = feedback.reviews.some(r => r.comments.length > 0);
+  const hasGeneralComments = feedback.comments.length > 0;
+
+  return hasReviewComments || hasGeneralComments;
+}
+
+/**
+ * Format PR feedback as markdown for agent prompt.
+ */
+export function formatPRFeedbackForPrompt(feedback: PRFeedback): string {
+  const lines: string[] = [];
+
+  lines.push(`## PR Feedback to Address`);
+  lines.push('');
+  lines.push(`**PR:** ${feedback.prTitle} (#${feedback.prNumber})`);
+  lines.push(`**URL:** ${feedback.prUrl}`);
+
+  if (feedback.reviewDecision) {
+    const decisionEmoji = feedback.reviewDecision === 'APPROVED' ? '✅' :
+                          feedback.reviewDecision === 'CHANGES_REQUESTED' ? '❌' : '⏳';
+    lines.push(`**Status:** ${decisionEmoji} ${feedback.reviewDecision}`);
+  }
+  lines.push('');
+
+  // Add reviews with comments
+  const reviewsWithFeedback = feedback.reviews.filter(r =>
+    r.state === 'CHANGES_REQUESTED' || r.body || r.comments.length > 0
+  );
+
+  if (reviewsWithFeedback.length > 0) {
+    lines.push('### Reviews');
+    lines.push('');
+
+    for (const review of reviewsWithFeedback) {
+      const stateEmoji = review.state === 'APPROVED' ? '✅' :
+                         review.state === 'CHANGES_REQUESTED' ? '❌' : '💬';
+      lines.push(`#### ${stateEmoji} ${review.author} (${review.state})`);
+
+      if (review.body) {
+        lines.push('');
+        lines.push(review.body);
+      }
+
+      if (review.comments.length > 0) {
+        lines.push('');
+        lines.push('**Comments:**');
+        for (const comment of review.comments) {
+          lines.push('');
+          if (comment.path) {
+            lines.push(`📄 **${comment.path}**${comment.line ? `:${comment.line}` : ''}`);
+            if (comment.diffHunk) {
+              lines.push('```diff');
+              lines.push(comment.diffHunk);
+              lines.push('```');
+            }
+          }
+          lines.push(`> ${comment.body.replace(/\n/g, '\n> ')}`);
+        }
+      }
+      lines.push('');
+    }
+  }
+
+  // Add general comments
+  if (feedback.comments.length > 0) {
+    lines.push('### General Comments');
+    lines.push('');
+    for (const comment of feedback.comments) {
+      lines.push(`**${comment.author}:**`);
+      lines.push(`> ${comment.body.replace(/\n/g, '\n> ')}`);
+      lines.push('');
+    }
+  }
+
+  lines.push('---');
+  lines.push('');
+  lines.push('Please address the feedback above. After making changes, commit and push.');
+
+  return lines.join('\n');
+}

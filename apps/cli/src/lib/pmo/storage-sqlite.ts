@@ -1091,10 +1091,19 @@ export class SQLiteStorage implements PMOStorage {
     const status = epic.status || 'active'
     const now = Date.now()
 
+    // Get next position if not provided (add to end)
+    let position = epic.position
+    if (position === undefined) {
+      const maxPos = this.db.prepare(`
+        SELECT COALESCE(MAX(position), -1) as max_pos FROM ${T.epics} WHERE project_id = ?
+      `).get(projectId) as { max_pos: number }
+      position = maxPos.max_pos + 1
+    }
+
     this.db.prepare(`
-      INSERT INTO ${T.epics} (id, project_id, title, description, status, file_path, spec_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, projectId, title, epic.description || null, status, epic.filePath || null, epic.specId || null, now, now)
+      INSERT INTO ${T.epics} (id, project_id, title, description, status, position, file_path, spec_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, projectId, title, epic.description || null, status, position, epic.filePath || null, epic.specId || null, now, now)
 
     this.updateBoardTimestamp()
 
@@ -1104,6 +1113,7 @@ export class SQLiteStorage implements PMOStorage {
       title,
       description: epic.description,
       status,
+      position,
       filePath: epic.filePath,
       specId: epic.specId,
       createdAt: new Date(now),
@@ -1120,6 +1130,7 @@ export class SQLiteStorage implements PMOStorage {
       title: string
       description: string | null
       status: string
+      position: number
       file_path: string | null
       spec_id: string | null
       created_at: string
@@ -1134,6 +1145,7 @@ export class SQLiteStorage implements PMOStorage {
       title: row.title,
       description: row.description || undefined,
       status: row.status as Epic['status'],
+      position: row.position,
       filePath: row.file_path || undefined,
       specId: row.spec_id || undefined,
       createdAt: new Date(row.created_at),
@@ -1155,7 +1167,8 @@ export class SQLiteStorage implements PMOStorage {
       params.push(`%${filter.search}%`, `%${filter.search}%`)
     }
 
-    query += ' ORDER BY created_at DESC'
+    // Sort by position (priority order), then by created_at as tiebreaker
+    query += ' ORDER BY position ASC, created_at ASC'
 
     const rows = this.db.prepare(query).all(...params) as Array<{
       id: string
@@ -1163,6 +1176,7 @@ export class SQLiteStorage implements PMOStorage {
       title: string
       description: string | null
       status: string
+      position: number
       file_path: string | null
       spec_id: string | null
       created_at: string
@@ -1175,11 +1189,58 @@ export class SQLiteStorage implements PMOStorage {
       title: row.title,
       description: row.description || undefined,
       status: row.status as Epic['status'],
+      position: row.position,
       filePath: row.file_path || undefined,
       specId: row.spec_id || undefined,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
     }))
+  }
+
+  /**
+   * Reorder an epic to a new position.
+   * Updates positions of other epics to maintain order.
+   */
+  async reorderEpic(epicId: string, newPosition: number): Promise<Epic> {
+    const epic = await this.getEpic(epicId)
+    if (!epic) {
+      throw new Error(`Epic not found: ${epicId}`)
+    }
+
+    const oldPosition = epic.position
+    if (oldPosition === newPosition) {
+      return epic
+    }
+
+    const projectId = this.currentProjectId
+
+    // Shift other epics to make room
+    if (newPosition < oldPosition) {
+      // Moving up: shift epics in [newPosition, oldPosition) down by 1
+      this.db.prepare(`
+        UPDATE ${T.epics}
+        SET position = position + 1, updated_at = ?
+        WHERE project_id = ? AND position >= ? AND position < ?
+      `).run(Date.now(), projectId, newPosition, oldPosition)
+    } else {
+      // Moving down: shift epics in (oldPosition, newPosition] up by 1
+      this.db.prepare(`
+        UPDATE ${T.epics}
+        SET position = position - 1, updated_at = ?
+        WHERE project_id = ? AND position > ? AND position <= ?
+      `).run(Date.now(), projectId, oldPosition, newPosition)
+    }
+
+    // Update the epic's position
+    this.db.prepare(`
+      UPDATE ${T.epics}
+      SET position = ?, updated_at = ?
+      WHERE id = ?
+    `).run(newPosition, Date.now(), epicId)
+
+    this.updateBoardTimestamp()
+
+    return (await this.getEpic(epicId))!
   }
 
   async updateEpic(id: string, changes: Partial<Epic>): Promise<Epic> {

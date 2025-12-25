@@ -117,9 +117,13 @@ export default class EpicMove extends Command {
       if (targetStatus === 'complete' && !allComplete && !flags.force) {
         this.log(styles.warning(`\n⚠️  Not all tickets are complete (${doneTickets}/${tickets.length} done)`));
         const { confirm } = await inquirer.prompt([{
-          type: 'confirm',
+          type: 'list',
           name: 'confirm',
           message: 'Continue moving to complete anyway?',
+          choices: [
+            { name: 'No', value: false },
+            { name: 'Yes', value: true },
+          ],
           default: false,
         }]);
 
@@ -134,9 +138,13 @@ export default class EpicMove extends Command {
       if (targetStatus === 'dropped' && !flags.force) {
         this.log(styles.warning('\n⚠️  This will mark the epic as dropped/cancelled'));
         const { confirm } = await inquirer.prompt([{
-          type: 'confirm',
+          type: 'list',
           name: 'confirm',
           message: 'Continue?',
+          choices: [
+            { name: 'No', value: false },
+            { name: 'Yes', value: true },
+          ],
           default: false,
         }]);
 

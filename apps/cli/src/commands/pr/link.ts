@@ -112,9 +112,13 @@ export default class PRLink extends Command {
         this.log(styles.muted(`   URL: ${ticket.metadata.pr_url}`));
 
         const { overwrite } = await inquirer.prompt([{
-          type: 'confirm',
+          type: 'list',
           name: 'overwrite',
           message: 'Replace with a different PR?',
+          choices: [
+            { name: 'No', value: false },
+            { name: 'Yes', value: true },
+          ],
           default: false,
         }]);
 
