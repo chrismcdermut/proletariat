@@ -1,11 +1,11 @@
-# Ticket: TKT-016
+# Ticket: TKT-017
 
-**Title:** Test commit and PR flow
+**Title:** Test agent push flow
 
 
 ## Description
 
-Simple test ticket to verify agent can commit and create PR. Just add a comment to any test file.
+Test that agent can push to GitHub from inside container
 
 ---
 
@@ -20,7 +20,7 @@ Simple test ticket to verify agent can commit and create PR. Just add a comment 
    ```
 2. **Mark work as ready** by running:
    ```bash
-   prlt work ready TKT-016 --pr
+   prlt work ready TKT-017 --pr
    ```
    This moves the ticket to review and creates a pull request.
 
