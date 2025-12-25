@@ -134,6 +134,7 @@ export interface ExecutionContext {
   worktreePath: string  // Worktree path (may be subdirectory of agentDir)
   branch: string
   hqPath?: string // HQ root path for storing execution artifacts
+  createPR?: boolean // Whether to create a PR when work is ready (chosen at work start)
 }
 
 // =============================================================================

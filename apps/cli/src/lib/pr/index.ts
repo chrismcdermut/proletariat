@@ -66,6 +66,28 @@ export function isGHAuthenticated(): boolean {
   }
 }
 
+/**
+ * Get the authenticated GitHub username.
+ */
+export function getGHUsername(): string | null {
+  try {
+    const result = execSync('gh api user -q .login', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    return result || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if GH_TOKEN or GITHUB_TOKEN is set in environment.
+ */
+export function isGHTokenInEnv(): boolean {
+  return !!(process.env.GH_TOKEN || process.env.GITHUB_TOKEN);
+}
+
 // =============================================================================
 // Git Remote Detection
 // =============================================================================
