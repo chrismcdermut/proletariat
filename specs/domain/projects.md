@@ -11,87 +11,15 @@ Projects are containers for tickets and boards. Each workspace can have multiple
 
 ## Abilities
 
-### Initialize PMO
-
-Initialize the PMO system in a workspace, creating database and default project.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `init()` |
-| cli | `prlt pmo init` |
-| api | `POST /api/pmo/init` |
-
-### Create project
-
-Create a new project with its own board and ticket namespace.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `createProject()` |
-| cli | `prlt project create` |
-| api | `POST /api/projects` |
-| web | `CreateProjectModal` |
-| obsidian | `new folder` |
-
-### List projects
-
-List all projects in the workspace.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `listProjects()` |
-| cli | `prlt project list` |
-| api | `GET /api/projects` |
-| web | `ProjectList` |
-| obsidian | `folders` |
-
-### View project
-
-View a project's details including ticket count and board summary.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `getProject()` |
-| cli | `prlt project view` |
-| api | `GET /api/projects/:id` |
-| web | `/projects/:id` |
-| obsidian | `project folder` |
-
-### Update project
-
-Update project metadata like name and description.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateProject()` |
-| cli | `prlt project update` |
-| api | `PATCH /api/projects/:id` |
-| web | `EditProjectModal` |
-| obsidian | `edit config` |
-
-### Delete project
-
-Delete a project and all its tickets, columns, and board data.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `deleteProject()` |
-| cli | `prlt project delete` |
-| api | `DELETE /api/projects/:id` |
-| web | `DeleteButton` |
-| obsidian | `delete folder` |
-
-### Archive project
-
-Mark a project as archived (soft delete).
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateProject()` |
-| cli | `prlt project archive` |
-| api | `PATCH /api/projects/:id` |
-| web | `ArchiveButton` |
-| obsidian | `move to archive/` |
+| Ability | Description | storage | cli | api | web | obsidian |
+|---------|-------------|---------|-----|-----|-----|----------|
+| Initialize PMO | Initialize the PMO system in a workspace, creating database and default project | `init()` | `prlt pmo init` | `POST /api/pmo/init` | - | - |
+| Create project | Create a new project with its own board and ticket namespace | `createProject()` | `prlt project create` | `POST /api/projects` | `CreateProjectModal` | `new folder` |
+| List projects | List all projects in the workspace | `listProjects()` | `prlt project list` | `GET /api/projects` | `ProjectList` | `folders` |
+| View project | View a project's details including ticket count and board summary | `getProject()` | `prlt project view` | `GET /api/projects/:id` | `/projects/:id` | `project folder` |
+| Update project | Update project metadata like name and description | `updateProject()` | `prlt project update` | `PATCH /api/projects/:id` | `EditProjectModal` | `edit config` |
+| Delete project | Delete a project and all its tickets, columns, and board data | `deleteProject()` | `prlt project delete` | `DELETE /api/projects/:id` | `DeleteButton` | `delete folder` |
+| Archive project | Mark a project as archived (soft delete) | `updateProject()` | `prlt project archive` | `PATCH /api/projects/:id` | `ArchiveButton` | `move to archive/` |
 
 ## Data Model
 

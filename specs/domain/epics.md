@@ -11,125 +11,18 @@ Epics are containers for related tickets that represent a larger body of work. T
 
 ## Abilities
 
-### Create epic
-
-Create a new epic to group related tickets.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `createEpic()` |
-| cli | `prlt epic create` |
-| api | `POST /api/epics` |
-| web | `CreateEpicModal` |
-| obsidian | `new epic file` |
-
-### List epics
-
-List all epics with optional filtering by status.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `listEpics()` |
-| cli | `prlt epic list` |
-| api | `GET /api/epics` |
-| web | `EpicList` |
-| obsidian | `epics folder` |
-
-### View epic
-
-View an epic's details including linked tickets.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `getEpic()` |
-| cli | `prlt epic view` |
-| api | `GET /api/epics/:id` |
-| web | `/epics/:id` |
-| obsidian | `EPIC-001.md` |
-
-### Update epic
-
-Update epic fields like title, description, status.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateEpic()` |
-| cli | `prlt epic edit` |
-| api | `PATCH /api/epics/:id` |
-| web | `EditEpicModal` |
-| obsidian | `edit file` |
-
-### Delete epic
-
-Delete an epic (does not delete linked tickets).
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `deleteEpic()` |
-| cli | `prlt epic delete` |
-| api | `DELETE /api/epics/:id` |
-| web | `DeleteButton` |
-| obsidian | `delete file` |
-
-### Activate epic
-
-Move an epic from draft to active status.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateEpic()` |
-| cli | `prlt epic activate` |
-| api | `PATCH /api/epics/:id` |
-| web | `StatusDropdown` |
-| obsidian | `move to active/` |
-
-### Archive epic
-
-Move a completed epic to archived status.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateEpic()` |
-| cli | `prlt epic archive` |
-| api | `PATCH /api/epics/:id` |
-| web | `ArchiveButton` |
-| obsidian | `move to complete/` |
-
-### View progress
-
-Show epic progress based on ticket completion.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `getEpicProgress()` |
-| cli | `prlt epic progress` |
-| api | `GET /api/epics/:id/progress` |
-| web | `ProgressBar` |
-| obsidian | `dataview query` |
-
-### Link to spec
-
-Associate an epic with a spec document.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateEpic()` |
-| cli | `prlt epic link` |
-| api | `PATCH /api/epics/:id` |
-| web | `SpecDropdown` |
-| obsidian | `spec_id frontmatter` |
-
-### List tickets
-
-Show all tickets belonging to an epic.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `listTickets()` |
-| cli | `prlt epic view` |
-| api | `GET /api/epics/:id/tickets` |
-| web | `TicketList` |
-| obsidian | `linked tickets` |
+| Ability | Description | storage | cli | api | web | obsidian |
+|---------|-------------|---------|-----|-----|-----|----------|
+| Create epic | Create a new epic to group related tickets | `createEpic()` | `prlt epic create` | `POST /api/epics` | `CreateEpicModal` | `new epic file` |
+| List epics | List all epics with optional filtering by status | `listEpics()` | `prlt epic list` | `GET /api/epics` | `EpicList` | `epics folder` |
+| View epic | View an epic's details including linked tickets | `getEpic()` | `prlt epic view` | `GET /api/epics/:id` | `/epics/:id` | `EPIC-001.md` |
+| Update epic | Update epic fields like title, description, status | `updateEpic()` | `prlt epic edit` | `PATCH /api/epics/:id` | `EditEpicModal` | `edit file` |
+| Delete epic | Delete an epic (does not delete linked tickets) | `deleteEpic()` | `prlt epic delete` | `DELETE /api/epics/:id` | `DeleteButton` | `delete file` |
+| Activate epic | Move an epic from draft to active status | `updateEpic()` | `prlt epic activate` | `PATCH /api/epics/:id` | `StatusDropdown` | `move to active/` |
+| Archive epic | Move a completed epic to archived status | `updateEpic()` | `prlt epic archive` | `PATCH /api/epics/:id` | `ArchiveButton` | `move to complete/` |
+| View progress | Show epic progress based on ticket completion | `getEpicProgress()` | `prlt epic progress` | `GET /api/epics/:id/progress` | `ProgressBar` | `dataview query` |
+| Link to spec | Associate an epic with a spec document | `updateEpic()` | `prlt epic link` | `PATCH /api/epics/:id` | `SpecDropdown` | `spec_id frontmatter` |
+| List tickets | Show all tickets belonging to an epic | `listTickets()` | `prlt epic view` | `GET /api/epics/:id/tickets` | `TicketList` | `linked tickets` |
 
 ## Data Model
 

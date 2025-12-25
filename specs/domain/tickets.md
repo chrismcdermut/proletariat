@@ -11,246 +11,51 @@ Tickets are the fundamental unit of work in the PMO system. They represent indiv
 
 ## Abilities
 
-### Create ticket
+### Core CRUD
 
-Create a new ticket with title and optional metadata.
+| Ability | Description | storage | cli | api | web | obsidian |
+|---------|-------------|---------|-----|-----|-----|----------|
+| Create ticket | Create a new ticket with title and optional metadata | `createTicket()` | `prlt ticket create` | `POST /api/tickets` | `CreateTicketModal` | `new markdown file` |
+| List tickets | List all tickets with optional filtering | `listTickets()` | `prlt ticket list` | `GET /api/tickets` | `TicketList` | `board.md` |
+| View ticket | View a single ticket's details including subtasks | `getTicket()` | `prlt ticket view` | `GET /api/tickets/:id` | `/tickets/:id` | `TKT-001.md` |
+| Update ticket | Update ticket fields like title, description, priority | `updateTicket()` | `prlt ticket edit` | `PATCH /api/tickets/:id` | `EditTicketModal` | `edit frontmatter` |
+| Move ticket | Move a ticket to a different column on the board | `moveTicket()` | `prlt ticket move` | `PATCH /api/tickets/:id` | `DragDrop` | `move in board.md` |
+| Delete ticket | Delete a ticket and its associated subtasks | `deleteTicket()` | `prlt ticket delete` | `DELETE /api/tickets/:id` | `DeleteButton` | `delete file` |
+| Link to epic | Associate a ticket with an epic | `updateTicket()` | `prlt ticket link` | `PATCH /api/tickets/:id` | `EpicDropdown` | `epic_id frontmatter` |
 
-| Modality | Signature |
-|----------|-----------|
-| storage | `createTicket()` |
-| cli | `prlt ticket create` |
-| api | `POST /api/tickets` |
-| web | `CreateTicketModal` |
-| obsidian | `new markdown file` |
+### Filtering
 
-### List tickets
+| Ability | Description | storage | cli | api | web | obsidian |
+|---------|-------------|---------|-----|-----|-----|----------|
+| Search tickets | Search tickets by title or description text | `listTickets()` | `prlt ticket list --search` | `GET /api/tickets?q=` | `SearchBar` | `Obsidian search` |
+| Filter by column | Filter tickets to only those in a specific column | `listTickets()` | `prlt ticket list --column` | `GET /api/tickets?column=` | `ColumnTabs` | `board sections` |
+| Filter by priority | Filter tickets by priority level | `listTickets()` | `prlt ticket list --priority` | `GET /api/tickets?priority=` | `FilterDropdown` | `dataview query` |
 
-List all tickets with optional filtering by status, priority, column, etc.
+### Bulk Operations
 
-| Modality | Signature |
-|----------|-----------|
-| storage | `listTickets()` |
-| cli | `prlt ticket list` |
-| api | `GET /api/tickets` |
-| web | `TicketList` |
-| obsidian | `board.md` |
+| Ability | Description | storage | cli | api | web |
+|---------|-------------|---------|-----|-----|-----|
+| Bulk move | Move multiple tickets at once to a new column | `moveTickets()` | `prlt tickets move` | `POST /api/tickets/bulk` | `BulkActions` |
+| Bulk delete | Delete multiple tickets at once | `deleteTickets()` | `prlt tickets delete` | `POST /api/tickets/bulk` | `BulkActions` |
+| Bulk update | Update multiple tickets at once with the same changes | `updateTickets()` | `prlt tickets update` | `POST /api/tickets/bulk` | `BulkActions` |
 
-### View ticket
+### Dependencies
 
-View a single ticket's details including subtasks and metadata.
+| Ability | Description | storage | cli | api | web |
+|---------|-------------|---------|-----|-----|-----|
+| Add dependency | Add a blocking dependency between tickets | `addTicketDependency()` | `prlt ticket block [id] --by [blocker-id]` | `POST /api/tickets/:id/dependencies` | `DependencyPicker` |
+| Remove dependency | Remove a blocking dependency between tickets | `removeTicketDependency()` | `prlt ticket unblock [id] --from [blocker-id]` | `DELETE /api/tickets/:id/dependencies/:blockerId` | `DependencyList` |
+| List dependencies | Get tickets that block or are blocked by a ticket | `getTicketDependencies()` | `prlt ticket deps [id]` | `GET /api/tickets/:id/dependencies` | `DependencyGraph` |
 
-| Modality | Signature |
-|----------|-----------|
-| storage | `getTicket()` |
-| cli | `prlt ticket view` |
-| api | `GET /api/tickets/:id` |
-| web | `/tickets/:id` |
-| obsidian | `TKT-001.md` |
+### Agent Execution Support
 
-### Update ticket
-
-Update ticket fields like title, description, priority, status.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateTicket()` |
-| cli | `prlt ticket edit` |
-| api | `PATCH /api/tickets/:id` |
-| web | `EditTicketModal` |
-| obsidian | `edit frontmatter` |
-
-### Move ticket
-
-Move a ticket to a different column on the board.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `moveTicket()` |
-| cli | `prlt ticket move` |
-| api | `PATCH /api/tickets/:id` |
-| web | `DragDrop` |
-| obsidian | `move in board.md` |
-
-### Delete ticket
-
-Delete a ticket and its associated subtasks and metadata.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `deleteTicket()` |
-| cli | `prlt ticket delete` |
-| api | `DELETE /api/tickets/:id` |
-| web | `DeleteButton` |
-| obsidian | `delete file` |
-
-### Link to epic
-
-Associate a ticket with an epic for grouping related work.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateTicket()` |
-| cli | `prlt ticket link` |
-| api | `PATCH /api/tickets/:id` |
-| web | `EpicDropdown` |
-| obsidian | `epic_id frontmatter` |
-
-### Search tickets
-
-Search tickets by title or description text.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `listTickets()` |
-| cli | `prlt ticket list --search` |
-| api | `GET /api/tickets?q=` |
-| web | `SearchBar` |
-| obsidian | `Obsidian search` |
-
-### Filter by column
-
-Filter tickets to only those in a specific board column.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `listTickets()` |
-| cli | `prlt ticket list --column` |
-| api | `GET /api/tickets?column=` |
-| web | `ColumnTabs` |
-| obsidian | `board sections` |
-
-### Filter by priority
-
-Filter tickets by priority level.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `listTickets()` |
-| cli | `prlt ticket list --priority` |
-| api | `GET /api/tickets?priority=` |
-| web | `FilterDropdown` |
-| obsidian | `dataview query` |
-
-### Bulk move
-
-Move multiple tickets at once to a new column.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `moveTickets()` |
-| cli | `prlt tickets move` |
-| api | `POST /api/tickets/bulk` |
-| web | `BulkActions` |
-
-### Bulk delete
-
-Delete multiple tickets at once.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `deleteTickets()` |
-| cli | `prlt tickets delete` |
-| api | `POST /api/tickets/bulk` |
-| web | `BulkActions` |
-
-### Bulk update
-
-Update multiple tickets at once with the same changes.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateTickets()` |
-| cli | `prlt tickets update` |
-| api | `POST /api/tickets/bulk` |
-| web | `BulkActions` |
-
-### Add dependency
-
-Add a blocking dependency between tickets (ticket A blocked by ticket B).
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `addTicketDependency()` |
-| cli | `prlt ticket block [id] --by [blocker-id]` |
-| api | `POST /api/tickets/:id/dependencies` |
-| web | `DependencyPicker` |
-
-### Remove dependency
-
-Remove a blocking dependency between tickets.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `removeTicketDependency()` |
-| cli | `prlt ticket unblock [id] --from [blocker-id]` |
-| api | `DELETE /api/tickets/:id/dependencies/:blockerId` |
-| web | `DependencyList` |
-
-### List dependencies
-
-Get tickets that block or are blocked by a given ticket.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `getTicketDependencies()` |
-| cli | `prlt ticket deps [id]` |
-| api | `GET /api/tickets/:id/dependencies` |
-| web | `DependencyGraph` |
-
-### Add affected path
-
-Add a file/directory scope hint to a ticket for agent context.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `addTicketAffectedPath()` |
-| cli | `prlt ticket scope [id] --path [pattern]` |
-| api | `POST /api/tickets/:id/paths` |
-| web | `PathPicker` |
-
-### Remove affected path
-
-Remove a scope hint from a ticket.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `removeTicketAffectedPath()` |
-| cli | `prlt ticket unscope [id] --path [pattern]` |
-| api | `DELETE /api/tickets/:id/paths/:pathId` |
-| web | `PathList` |
-
-### Add acceptance criterion
-
-Add a structured acceptance criterion to a ticket.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `addAcceptanceCriterion()` |
-| cli | `prlt ticket criteria add [id] [text]` |
-| api | `POST /api/tickets/:id/criteria` |
-| web | `CriteriaEditor` |
-
-### Verify acceptance criterion
-
-Mark an acceptance criterion as verified.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `verifyAcceptanceCriterion()` |
-| cli | `prlt ticket criteria verify [id] [criterion-id]` |
-| api | `PATCH /api/tickets/:id/criteria/:criterionId` |
-| web | `CriteriaCheckbox` |
-
-### Remove acceptance criterion
-
-Remove an acceptance criterion from a ticket.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `removeAcceptanceCriterion()` |
-| cli | `prlt ticket criteria remove [id] [criterion-id]` |
-| api | `DELETE /api/tickets/:id/criteria/:criterionId` |
-| web | `CriteriaList` |
+| Ability | Description | storage | cli | api | web |
+|---------|-------------|---------|-----|-----|-----|
+| Add affected path | Add a file/directory scope hint for agent context | `addTicketAffectedPath()` | `prlt ticket scope [id] --path [pattern]` | `POST /api/tickets/:id/paths` | `PathPicker` |
+| Remove affected path | Remove a scope hint from a ticket | `removeTicketAffectedPath()` | `prlt ticket unscope [id] --path [pattern]` | `DELETE /api/tickets/:id/paths/:pathId` | `PathList` |
+| Add acceptance criterion | Add a structured acceptance criterion | `addAcceptanceCriterion()` | `prlt ticket criteria add [id] [text]` | `POST /api/tickets/:id/criteria` | `CriteriaEditor` |
+| Verify acceptance criterion | Mark an acceptance criterion as verified | `verifyAcceptanceCriterion()` | `prlt ticket criteria verify [id] [criterion-id]` | `PATCH /api/tickets/:id/criteria/:criterionId` | `CriteriaCheckbox` |
+| Remove acceptance criterion | Remove an acceptance criterion from a ticket | `removeAcceptanceCriterion()` | `prlt ticket criteria remove [id] [criterion-id]` | `DELETE /api/tickets/:id/criteria/:criterionId` | `CriteriaList` |
 
 ## Data Model
 

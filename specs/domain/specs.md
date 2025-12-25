@@ -11,97 +11,16 @@ Specs define what the product should do. They are the source of truth for abilit
 
 ## Abilities
 
-### Create spec
-
-Create a new spec document for a domain.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `createSpec()` |
-| cli | `prlt spec create` |
-| api | `POST /api/specs` |
-| web | `CreateSpecModal` |
-| obsidian | `new file` |
-
-### List specs
-
-List all specs with optional filtering by type or domain.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `listSpecs()` |
-| cli | `prlt spec list` |
-| api | `GET /api/specs` |
-| web | `SpecList` |
-| obsidian | `specs folder` |
-
-### View spec
-
-View a spec's full content including abilities, data model, and rules.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `getSpec()` |
-| cli | `prlt spec view` |
-| api | `GET /api/specs/:id` |
-| web | `/specs/:id` |
-| obsidian | `spec file` |
-
-### Update spec
-
-Update spec content through the markdown file.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateSpec()` |
-| cli | `prlt spec edit` |
-| api | `PATCH /api/specs/:id` |
-| web | `EditSpecModal` |
-| obsidian | `edit file` |
-
-### Delete spec
-
-Delete a spec and unlink all associated tickets.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `deleteSpec()` |
-| cli | `prlt spec delete` |
-| api | `DELETE /api/specs/:id` |
-| web | `DeleteButton` |
-| obsidian | `delete file` |
-
-### Sync specs
-
-Parse markdown spec files and sync to database.
-
-| Modality | Signature |
-|----------|-----------|
-| cli | `prlt spec sync` |
-| api | `POST /api/specs/sync` |
-| web | `SyncButton` |
-
-### Link ticket
-
-Associate a ticket with a spec for requirements tracing.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `linkTicketToSpec()` |
-| cli | `prlt ticket link` |
-| api | `POST /api/specs/:id/tickets` |
-| web | `TicketDropdown` |
-| obsidian | `frontmatter` |
-
-### Generate System Card
-
-Generate a System Card showing spec coverage across modalities.
-
-| Modality | Signature |
-|----------|-----------|
-| cli | `prlt system-card generate` |
-| api | `GET /api/system-card` |
-| web | `SystemCardView` |
+| Ability | Description | storage | cli | api | web | obsidian |
+|---------|-------------|---------|-----|-----|-----|----------|
+| Create spec | Create a new spec document for a domain | `createSpec()` | `prlt spec create` | `POST /api/specs` | `CreateSpecModal` | `new file` |
+| List specs | List all specs with optional filtering by type or domain | `listSpecs()` | `prlt spec list` | `GET /api/specs` | `SpecList` | `specs folder` |
+| View spec | View a spec's full content including abilities, data model, and rules | `getSpec()` | `prlt spec view` | `GET /api/specs/:id` | `/specs/:id` | `spec file` |
+| Update spec | Update spec content through the markdown file | `updateSpec()` | `prlt spec edit` | `PATCH /api/specs/:id` | `EditSpecModal` | `edit file` |
+| Delete spec | Delete a spec and unlink all associated tickets | `deleteSpec()` | `prlt spec delete` | `DELETE /api/specs/:id` | `DeleteButton` | `delete file` |
+| Sync specs | Parse markdown spec files and sync to database | - | `prlt spec sync` | `POST /api/specs/sync` | `SyncButton` | - |
+| Link ticket | Associate a ticket with a spec for requirements tracing | `linkTicketToSpec()` | `prlt ticket link` | `POST /api/specs/:id/tickets` | `TicketDropdown` | `frontmatter` |
+| Generate System Card | Generate a System Card showing spec coverage across modalities | - | `prlt system-card generate` | `GET /api/system-card` | `SystemCardView` | - |
 
 ## Data Model
 

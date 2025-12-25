@@ -11,137 +11,20 @@ Agents are AI coding assistants that can be assigned to work on tickets. Each ag
 
 ## Abilities
 
-### Add agent
-
-Register a new agent in the workspace.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `createAgent()` |
-| cli | `prlt agent add` |
-| api | `POST /api/agents` |
-| web | `AddAgentModal` |
-
-### Remove agent
-
-Remove an agent from the workspace.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `deleteAgent()` |
-| cli | `prlt agent remove` |
-| api | `DELETE /api/agents/:name` |
-| web | `RemoveButton` |
-
-### List agents
-
-List all registered agents and their status.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `listAgents()` |
-| cli | `prlt agent list` |
-| api | `GET /api/agents` |
-| web | `AgentList` |
-
-### View agent
-
-View details and current status of an agent.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `getAgent()` |
-| cli | `prlt agent status` |
-| api | `GET /api/agents/:name` |
-| web | `/agents/:name` |
-
-### Start work
-
-Start an agent working on a ticket.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `createExecution()` |
-| cli | `prlt work start` |
-| api | `POST /api/work/start` |
-| web | `StartButton` |
-
-### Mark ready
-
-Mark agent's work as ready for review.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateExecution()` |
-| cli | `prlt work ready` |
-| api | `POST /api/work/ready` |
-| web | `ReadyButton` |
-
-### Complete work
-
-Mark agent's work as complete.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateExecution()` |
-| cli | `prlt work complete` |
-| api | `POST /api/work/complete` |
-| web | `CompleteButton` |
-
-### Claim ticket
-
-Claim ownership of a ticket (human accountability).
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateTicket()` |
-| cli | `prlt work claim` |
-| api | `POST /api/work/claim` |
-| web | `ClaimButton` |
-
-### Assign ticket
-
-Assign a ticket to an agent for execution.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateTicket()` |
-| cli | `prlt work assign` |
-| api | `POST /api/work/assign` |
-| web | `AssignDropdown` |
-
-### Stop execution
-
-Stop a running agent execution.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `updateExecution()` |
-| cli | `prlt execution stop` |
-| api | `POST /api/executions/:id/stop` |
-| web | `StopButton` |
-
-### List executions
-
-List all work executions.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `listExecutions()` |
-| cli | `prlt execution list` |
-| api | `GET /api/executions` |
-| web | `ExecutionList` |
-
-### View logs
-
-View logs from an agent execution.
-
-| Modality | Signature |
-|----------|-----------|
-| storage | `getExecutionLogs()` |
-| cli | `prlt execution logs` |
-| api | `GET /api/executions/:id/logs` |
-| web | `LogViewer` |
+| Ability | Description | storage | cli | api | web |
+|---------|-------------|---------|-----|-----|-----|
+| Add agent | Register a new agent in the workspace | `createAgent()` | `prlt agent add` | `POST /api/agents` | `AddAgentModal` |
+| Remove agent | Remove an agent from the workspace | `deleteAgent()` | `prlt agent remove` | `DELETE /api/agents/:name` | `RemoveButton` |
+| List agents | List all registered agents and their status | `listAgents()` | `prlt agent list` | `GET /api/agents` | `AgentList` |
+| View agent | View details and current status of an agent | `getAgent()` | `prlt agent status` | `GET /api/agents/:name` | `/agents/:name` |
+| Start work | Start an agent working on a ticket | `createExecution()` | `prlt work start` | `POST /api/work/start` | `StartButton` |
+| Mark ready | Mark agent's work as ready for review | `updateExecution()` | `prlt work ready` | `POST /api/work/ready` | `ReadyButton` |
+| Complete work | Mark agent's work as complete | `updateExecution()` | `prlt work complete` | `POST /api/work/complete` | `CompleteButton` |
+| Claim ticket | Claim ownership of a ticket (human accountability) | `updateTicket()` | `prlt work claim` | `POST /api/work/claim` | `ClaimButton` |
+| Assign ticket | Assign a ticket to an agent for execution | `updateTicket()` | `prlt work assign` | `POST /api/work/assign` | `AssignDropdown` |
+| Stop execution | Stop a running agent execution | `updateExecution()` | `prlt execution stop` | `POST /api/executions/:id/stop` | `StopButton` |
+| List executions | List all work executions | `listExecutions()` | `prlt execution list` | `GET /api/executions` | `ExecutionList` |
+| View logs | View logs from an agent execution | `getExecutionLogs()` | `prlt execution logs` | `GET /api/executions/:id/logs` | `LogViewer` |
 
 ## Data Model
 
