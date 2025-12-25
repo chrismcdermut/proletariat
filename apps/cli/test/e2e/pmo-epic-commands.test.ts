@@ -1,3 +1,4 @@
+// TKT-016: Test comment to verify commit and PR flow
 import { expect } from 'chai';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -432,6 +433,202 @@ describe('PMO Epic Commands E2E Tests', () => {
       expect(content).to.contain('Sync Test');
     });
   });
+
+  describe('prlt epic reorder', () => {
+    beforeEach(() => {
+      // Create epics with explicit positions
+      createTestEpicWithPosition(db, 'EPIC-001', 'First Epic', 'active', 0);
+      createTestEpicWithPosition(db, 'EPIC-002', 'Second Epic', 'active', 1);
+      createTestEpicWithPosition(db, 'EPIC-003', 'Third Epic', 'active', 2);
+    });
+
+    it('should reorder epic to specific position', () => {
+      // Move EPIC-003 to position 1 (rank 1 in 1-based)
+      exec('epic reorder EPIC-003 1');
+
+      const epics = db.prepare('SELECT id, position FROM pmo_epics WHERE status = ? ORDER BY position').all('active') as Array<{ id: string; position: number }>;
+      expect(epics[0].id).to.equal('EPIC-003');
+      expect(epics[0].position).to.equal(0);
+    });
+
+    it('should shift other epics when reordering', () => {
+      exec('epic reorder EPIC-003 1');
+
+      const epics = db.prepare('SELECT id, position FROM pmo_epics WHERE status = ? ORDER BY position').all('active') as Array<{ id: string; position: number }>;
+      // EPIC-003 moved to first, others shifted
+      expect(epics[0].id).to.equal('EPIC-003');
+      expect(epics[1].id).to.equal('EPIC-001');
+      expect(epics[2].id).to.equal('EPIC-002');
+    });
+
+    it('should move epic to first position with --first flag', () => {
+      exec('epic reorder EPIC-003 --first');
+
+      const epics = db.prepare('SELECT id, position FROM pmo_epics WHERE status = ? ORDER BY position').all('active') as Array<{ id: string; position: number }>;
+      expect(epics[0].id).to.equal('EPIC-003');
+    });
+
+    it('should move epic to last position with --last flag', () => {
+      exec('epic reorder EPIC-001 --last');
+
+      const epics = db.prepare('SELECT id, position FROM pmo_epics WHERE status = ? ORDER BY position').all('active') as Array<{ id: string; position: number }>;
+      expect(epics[epics.length - 1].id).to.equal('EPIC-001');
+    });
+
+    it('should move epic after another with --after flag', () => {
+      exec('epic reorder EPIC-001 --after EPIC-002');
+
+      const epics = db.prepare('SELECT id, position FROM pmo_epics WHERE status = ? ORDER BY position').all('active') as Array<{ id: string; position: number }>;
+      // Order should be: EPIC-002, EPIC-001, EPIC-003
+      expect(epics[0].id).to.equal('EPIC-002');
+      expect(epics[1].id).to.equal('EPIC-001');
+      expect(epics[2].id).to.equal('EPIC-003');
+    });
+
+    it('should move epic before another with --before flag', () => {
+      exec('epic reorder EPIC-003 --before EPIC-001');
+
+      const epics = db.prepare('SELECT id, position FROM pmo_epics WHERE status = ? ORDER BY position').all('active') as Array<{ id: string; position: number }>;
+      // Order should be: EPIC-003, EPIC-001, EPIC-002
+      expect(epics[0].id).to.equal('EPIC-003');
+      expect(epics[1].id).to.equal('EPIC-001');
+    });
+
+    it('should error for non-existent epic', () => {
+      const output = exec('epic reorder EPIC-999 1');
+
+      expect(output.toLowerCase()).to.contain('not found');
+    });
+
+    it('should error for invalid reference epic in --after', () => {
+      const output = exec('epic reorder EPIC-001 --after EPIC-999');
+
+      expect(output.toLowerCase()).to.contain('not found');
+    });
+
+    it('should show message when no active epics', () => {
+      // Remove all epics
+      db.prepare('DELETE FROM pmo_epics').run();
+
+      const output = exec('epic reorder EPIC-001 1');
+
+      expect(output.toLowerCase()).to.match(/no active|not found/i);
+    });
+  });
+
+  describe('prlt epic link', () => {
+    beforeEach(() => {
+      createTestEpic(db, 'EPIC-001', 'Link Target Epic', 'active');
+      createTestEpic(db, 'EPIC-002', 'Another Epic', 'active');
+      createEpicMarkdownFile(epicsDir, 'EPIC-001', 'active', 'Link Target Epic');
+      createEpicMarkdownFile(epicsDir, 'EPIC-002', 'active', 'Another Epic');
+      // Create tickets without epic links
+      createTestTicketWithoutEpic(db, 'TKT-001', 'Unlinked Ticket 1', 'backlog');
+      createTestTicketWithoutEpic(db, 'TKT-002', 'Unlinked Ticket 2', 'backlog');
+      createTestTicketWithoutEpic(db, 'TKT-003', 'Unlinked Ticket 3', 'in_progress');
+    });
+
+    it('should link single ticket to epic', () => {
+      exec('epic link EPIC-001 TKT-001');
+
+      const ticket = db.prepare('SELECT epic_id FROM pmo_tickets WHERE id = ?').get('TKT-001') as { epic_id: string };
+      expect(ticket.epic_id).to.equal('EPIC-001');
+    });
+
+    it('should link multiple tickets to epic', () => {
+      exec('epic link EPIC-001 TKT-001 TKT-002');
+
+      const tickets = db.prepare('SELECT id, epic_id FROM pmo_tickets WHERE epic_id = ?').all('EPIC-001') as Array<{ id: string; epic_id: string }>;
+      expect(tickets).to.have.lengthOf(2);
+      expect(tickets.map(t => t.id)).to.include('TKT-001');
+      expect(tickets.map(t => t.id)).to.include('TKT-002');
+    });
+
+    it('should unlink ticket from epic with --unlink flag', () => {
+      // First link
+      exec('epic link EPIC-001 TKT-001');
+      let ticket = db.prepare('SELECT epic_id FROM pmo_tickets WHERE id = ?').get('TKT-001') as { epic_id: string | null };
+      expect(ticket.epic_id).to.equal('EPIC-001');
+
+      // Then unlink
+      exec('epic link EPIC-001 --unlink TKT-001');
+      ticket = db.prepare('SELECT epic_id FROM pmo_tickets WHERE id = ?').get('TKT-001') as { epic_id: string | null };
+      expect(ticket.epic_id).to.be.null;
+    });
+
+    it('should reassign ticket from one epic to another', () => {
+      // Link to first epic
+      exec('epic link EPIC-001 TKT-001');
+      let ticket = db.prepare('SELECT epic_id FROM pmo_tickets WHERE id = ?').get('TKT-001') as { epic_id: string };
+      expect(ticket.epic_id).to.equal('EPIC-001');
+
+      // Reassign to second epic
+      exec('epic link EPIC-002 TKT-001');
+      ticket = db.prepare('SELECT epic_id FROM pmo_tickets WHERE id = ?').get('TKT-001') as { epic_id: string };
+      expect(ticket.epic_id).to.equal('EPIC-002');
+    });
+
+    it('should skip linking already linked ticket', () => {
+      exec('epic link EPIC-001 TKT-001');
+      const output = exec('epic link EPIC-001 TKT-001');
+
+      expect(output.toLowerCase()).to.match(/already|skipping/i);
+    });
+
+    it('should error for non-existent epic', () => {
+      const output = exec('epic link EPIC-999 TKT-001');
+
+      expect(output.toLowerCase()).to.contain('not found');
+    });
+
+    it('should error for non-existent ticket', () => {
+      const output = exec('epic link EPIC-001 TKT-999');
+
+      expect(output.toLowerCase()).to.contain('not found');
+    });
+  });
+
+  describe('error cases', () => {
+    it('should error when PMO not initialized', () => {
+      // Remove the config to simulate missing PMO
+      const configPath = path.join(testDir, '.proletariat/config.json');
+      fs.unlinkSync(configPath);
+
+      const output = exec('epic list');
+
+      expect(output.toLowerCase()).to.match(/no pmo|not found|hq not found|could not|pmo is not/i);
+    });
+
+    it('should error for invalid epic ID format', () => {
+      const output = exec('epic view invalid-id-format');
+
+      expect(output.toLowerCase()).to.match(/not found|invalid/i);
+    });
+
+    it('should error when viewing non-existent epic', () => {
+      const output = exec('epic view EPIC-999');
+
+      expect(output.toLowerCase()).to.contain('not found');
+    });
+
+    it('should error when archiving non-existent epic', () => {
+      const output = exec('epic archive EPIC-999 --force');
+
+      expect(output.toLowerCase()).to.contain('not found');
+    });
+
+    it('should error when activating non-existent epic', () => {
+      const output = exec('epic activate EPIC-999');
+
+      expect(output.toLowerCase()).to.contain('not found');
+    });
+
+    it('should error when moving non-existent epic', () => {
+      const output = exec('epic move EPIC-999 draft');
+
+      expect(output.toLowerCase()).to.contain('not found');
+    });
+  });
 });
 
 // Helper functions
@@ -493,7 +690,9 @@ function setupTestDatabase(db: Database.Database) {
       title TEXT NOT NULL,
       description TEXT,
       status TEXT NOT NULL DEFAULT 'active',
+      position INTEGER NOT NULL DEFAULT 0,
       file_path TEXT,
+      spec_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE
@@ -628,6 +827,26 @@ function createTestTicket(db: Database.Database, id: string, title: string, epic
     INSERT INTO pmo_tickets (id, project_id, title, epic_id, status)
     VALUES (?, 'test-project', ?, ?, ?)
   `).run(id, title, epicId, status);
+
+  // Also add to board_tickets for proper board integration
+  db.prepare(`
+    INSERT INTO pmo_board_tickets (project_id, ticket_id, column_id, position)
+    VALUES ('test-project', ?, ?, 0)
+  `).run(id, status === 'done' ? 'done' : status === 'in_progress' ? 'in_progress' : 'backlog');
+}
+
+function createTestEpicWithPosition(db: Database.Database, id: string, title: string, status: string, position: number) {
+  db.prepare(`
+    INSERT INTO pmo_epics (id, project_id, title, status, position, file_path)
+    VALUES (?, 'test-project', ?, ?, ?, ?)
+  `).run(id, title, status, position, `pmo/projects/test-project/epics/${status}/${id}.md`);
+}
+
+function createTestTicketWithoutEpic(db: Database.Database, id: string, title: string, status: string) {
+  db.prepare(`
+    INSERT INTO pmo_tickets (id, project_id, title, status)
+    VALUES (?, 'test-project', ?, ?)
+  `).run(id, title, status);
 
   // Also add to board_tickets for proper board integration
   db.prepare(`

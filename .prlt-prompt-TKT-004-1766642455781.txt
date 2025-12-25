@@ -1,0 +1,23 @@
+# Ticket: TKT-004
+
+**Title:** E2E tests for epic commands
+
+**Epic:** E2E Test Coverage for CLI Commands
+
+## Description
+
+## What
+Add E2E tests for epic command namespace.
+
+## Done when
+- [ ] Tests for `epic create`, `epic list`, `epic view`, `epic edit`
+- [ ] Tests for `epic progress`, `epic reorder`
+- [ ] Tests cover epic-ticket linking
+- [ ] Tests cover error cases (missing PMO, invalid epic ID)
+
+## Context
+Test files: apps/cli/src/commands/epic/
+
+---
+
+When complete, run: `prlt work ready TKT-004 --pr` to move the ticket to review and create a pull request.
