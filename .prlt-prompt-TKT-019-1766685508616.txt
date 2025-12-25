@@ -1,11 +1,12 @@
-# Ticket: TKT-017
+# Ticket: TKT-019
 
-**Title:** Test agent push flow
+**Title:** Test PR creation flow
 
+**Epic:** Auto-Watching & Agent Spawning
 
 ## Description
 
-Test that agent can push to GitHub from inside container
+Simple test to verify agent can push and create PR from devcontainer
 
 ---
 
@@ -20,7 +21,7 @@ Test that agent can push to GitHub from inside container
    ```
 2. **Mark work as ready** by running:
    ```bash
-   prlt work ready TKT-017 --pr
+   prlt work ready TKT-019 --pr
    ```
    This moves the ticket to review and creates a pull request.
 
