@@ -24,6 +24,7 @@ import { runExecution, isDockerRunning } from '../../lib/execution/runners.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
+import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js'
 
 export default class WorkStart extends Command {
   static description = 'Start work on a ticket (launches an agent to implement it)'
@@ -499,6 +500,26 @@ export default class WorkStart extends Command {
       ])
       sandboxed = permissionMode === 'safe'
 
+      // Prompt for PR creation when work is complete
+      // Only show if gh CLI is available and authenticated
+      let createPR = false
+      const ghAvailable = isGHInstalled() && isGHAuthenticated()
+      if (ghAvailable) {
+        const { prChoice } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'prChoice',
+            message: 'Create a pull request when work is ready?',
+            choices: [
+              { name: '✓ Yes - Create PR when running `prlt work ready`', value: 'yes' },
+              { name: '✗ No  - Just move ticket to review (can create PR later)', value: 'no' },
+            ],
+            default: 'yes',
+          },
+        ])
+        createPR = prChoice === 'yes'
+      }
+
       // Show execution info
       this.log('')
       this.log(styles.header(`🚀 Starting work: ${ticket.id}: ${ticket.title}`))
@@ -518,9 +539,15 @@ export default class WorkStart extends Command {
       }
 
       this.log(styles.muted(`   Output: ${outputMode === 'interactive' ? 'streaming (watch Claude work)' : 'print (final result only)'}`))
+      if (ghAvailable) {
+        this.log(styles.muted(`   Create PR: ${createPR ? 'yes (when work is ready)' : 'no'}`))
+      }
       this.log(styles.muted(`   Worktree: ${worktreePath}`))
       this.log(styles.muted(`   Branch: ${branch}`))
       this.log('')
+
+      // Add createPR to context
+      context.createPR = createPR
 
       // Create branch in worktree(s)
       this.log(styles.muted('Creating branch...'))

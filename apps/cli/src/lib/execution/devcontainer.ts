@@ -90,6 +90,9 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
     ],
     containerEnv: {
       ANTHROPIC_API_KEY: '${localEnv:ANTHROPIC_API_KEY}',
+      // GH_TOKEN enables gh CLI in container (for PR creation, etc.)
+      GH_TOKEN: '${localEnv:GH_TOKEN}',
+      GITHUB_TOKEN: '${localEnv:GITHUB_TOKEN}',
       PRLT_HQ_PATH: '/hq',
       // /hq/.proletariat/bin contains prlt wrapper with ESM loader for native modules
       PATH: '/hq/.proletariat/bin:/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin',

@@ -11,6 +11,7 @@
 | Spec Commands | ✅ 100% | create, list, view |
 | Work Commands | ✅ 100% | start, ready, complete, own, claim, assign |
 | Agent Commands | ✅ 100% | add, remove, list |
+| PR Commands | ✅ 100% | create, link, status |
 
 ### Testing Status
 - [ ] Test `prlt work start` with all display modes (terminal, foreground, background, tmux)
@@ -46,12 +47,20 @@
 
 ## New Features
 
-### PR Workflow
-- [ ] Add `prlt pr` namespace or integrate into `prlt work ready`
-- [ ] `prlt pr create` - create PR from current branch
-- [ ] `prlt pr link <ticket-id>` - link PR to ticket
-- [ ] Auto-create PR when agent calls `prlt work ready`
-- [ ] Track PR status in ticket metadata
+### PR Workflow ✅
+- [x] Add `prlt pr` namespace with interactive menu
+- [x] `prlt pr create` - create PR from current branch
+- [x] `prlt pr link <ticket-id>` - link PR to ticket
+- [x] `prlt pr status` - view PR status for ticket
+- [x] Auto-create PR when `prlt work ready` is called (with `--pr` flag or interactive prompt)
+- [x] Track PR status in ticket metadata (`pr_url`, `pr_number`, `pr_branch`)
+
+**Implementation notes:**
+- Uses `gh` CLI for GitHub operations
+- Auto-detects ticket ID from branch name (pattern: `TKT-XXX`)
+- Auto-generates PR title/body from ticket information
+- Pushes branch automatically if not already pushed
+- See `specs/domain/pull-requests.md` for full documentation
 
 ### Review Feedback Loop
 - [ ] Way to move ticket back to "In Progress" with review comments
@@ -194,6 +203,20 @@
   - Full description with markdown formatting
   - Subtasks with completion checkboxes
 
+### 2024-12-24 (Session 2)
+- **Implemented PR Workflow:**
+  - Created `prlt pr` command namespace with interactive menu
+  - `prlt pr create` - Create PR from current branch, auto-detect ticket from branch name
+  - `prlt pr link` - Link existing PR to ticket
+  - `prlt pr status` - View PR status for ticket
+  - Integrated PR creation into `work ready` flow
+    - `--pr` flag to always create PR
+    - `--no-pr` flag to skip PR prompt
+    - Interactive prompt when gh is available and on feature branch
+  - PR metadata stored in ticket: `pr_url`, `pr_number`, `pr_branch`
+- Created `src/lib/pr/index.ts` with GitHub CLI helpers
+- Created `specs/domain/pull-requests.md` domain spec
+
 ---
 
 ## Quick Reference
@@ -208,7 +231,9 @@ prlt work start TKT-001 --run-on-host
 # Agent workflow
 prlt work start TKT-001   # moves to In Progress
 # ... agent works ...
-prlt work ready TKT-001   # moves to In Review
+prlt work ready TKT-001   # moves to In Review (prompts for PR)
+prlt work ready TKT-001 --pr  # moves to Review + creates PR
+prlt work ready TKT-001 --pr --draft  # creates draft PR
 
 # Human review
 prlt work complete TKT-001  # moves to Done
@@ -217,4 +242,11 @@ prlt work complete TKT-001  # moves to Done
 prlt work own TKT-001       # take ownership (accountable)
 prlt work claim TKT-001     # own + assign to self/agent
 prlt work assign TKT-001 altman  # assign to agent
+
+# PR commands
+prlt pr                     # interactive PR menu
+prlt pr create              # create PR from current branch
+prlt pr create TKT-001      # create PR and link to ticket
+prlt pr link TKT-001        # link existing PR to ticket
+prlt pr status TKT-001      # view PR status for ticket
 ```

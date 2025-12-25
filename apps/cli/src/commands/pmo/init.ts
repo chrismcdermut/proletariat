@@ -21,6 +21,7 @@ import {
 } from '../../lib/pmo/index.js';
 import { slugify } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
+import { isGHInstalled, isGHAuthenticated, getGHUsername, isGHTokenInEnv } from '../../lib/pr/index.js';
 
 export default class PMOInit extends Command {
   static description = 'Initialize PMO (Project Management Office) in current directory or HQ';
@@ -155,6 +156,10 @@ export default class PMOInit extends Command {
     }
 
     this.log(chalk.green('\n✅ PMO initialized successfully!'));
+
+    // Check GitHub CLI setup for PR workflow
+    this.checkGitHubCLI();
+
     this.logNextSteps();
   }
 
@@ -337,5 +342,45 @@ export default class PMOInit extends Command {
     this.log(styles.muted('  1. Create your first ticket: prlt ticket create'));
     this.log(styles.muted('  2. Create a spec: prlt spec create'));
     this.log(styles.muted('  3. Open pmo/ in Obsidian for visual kanban'));
+  }
+
+  /**
+   * Check GitHub CLI setup and provide guidance for PR workflow
+   */
+  private checkGitHubCLI(): void {
+    this.log(styles.muted('\nChecking GitHub CLI for PR workflow...'));
+
+    // Check if gh is installed
+    if (!isGHInstalled()) {
+      this.log(chalk.yellow('  ⚠ gh CLI not installed'));
+      this.log(styles.muted('    Install: brew install gh'));
+      this.log(styles.muted('    PR creation will be skipped without gh\n'));
+      return;
+    }
+    this.log(chalk.green('  ✓ gh CLI installed'));
+
+    // Check if gh is authenticated
+    if (!isGHAuthenticated()) {
+      this.log(chalk.yellow('  ⚠ gh CLI not authenticated'));
+      this.log(styles.muted('    Run: gh auth login'));
+      this.log(styles.muted('    PR creation will be skipped without auth\n'));
+      return;
+    }
+
+    const username = getGHUsername();
+    this.log(chalk.green(`  ✓ gh authenticated${username ? ` as ${username}` : ''}`));
+
+    // Check if GH_TOKEN is available for devcontainers
+    if (isGHTokenInEnv()) {
+      this.log(chalk.green('  ✓ GH_TOKEN available for devcontainers'));
+    } else {
+      this.log(chalk.yellow('  ⚠ GH_TOKEN not set (needed for PR creation in devcontainers)'));
+      this.log(styles.muted(''));
+      this.log(styles.muted('    To enable PR creation from devcontainers, add to your shell profile:'));
+      this.log(styles.muted(''));
+      this.log(chalk.cyan("      echo 'export GH_TOKEN=$(gh auth token 2>/dev/null)' >> ~/.zshrc"));
+      this.log(styles.muted(''));
+      this.log(styles.muted('    Then restart your terminal or run: source ~/.zshrc'));
+    }
   }
 }

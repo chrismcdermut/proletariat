@@ -77,7 +77,14 @@ function buildPrompt(context: ExecutionContext): string {
     }
   }
 
-  prompt += `\n---\n\nWhen complete, run: \`prlt work complete ${context.ticketId}\``
+  // Build the work ready command with the appropriate PR flag
+  const prFlag = context.createPR ? ' --pr' : ' --no-pr'
+  prompt += `\n---\n\nWhen complete, run: \`prlt work ready ${context.ticketId}${prFlag}\` to move the ticket to review`
+  if (context.createPR) {
+    prompt += ` and create a pull request.`
+  } else {
+    prompt += `.`
+  }
 
   return prompt
 }
