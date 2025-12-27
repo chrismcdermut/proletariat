@@ -169,34 +169,61 @@ export async function runBackground(
   executor: ExecutorType,
   config: ExecutionConfig
 ): Promise<RunnerResult> {
-  const prompt = buildPrompt(context)
-  // Background - use sandboxed setting, also use --print for non-interactive output
-  const skipPermissions = !config.sandboxed
-  const { cmd, args } = getExecutorCommand(executor, prompt, skipPermissions)
-  // Add --print for background mode to avoid interactive prompts
-  if (executor === 'claude-code') {
-    args.unshift('--print')
-  }
+  try {
+    const prompt = buildPrompt(context)
+    // Background - use sandboxed setting, also use --print for non-interactive output
+    const skipPermissions = !config.sandboxed
+    const { cmd, args } = getExecutorCommand(executor, prompt, skipPermissions)
+    // Add --print for background mode to avoid interactive prompts
+    if (executor === 'claude-code') {
+      args.unshift('--print')
+    }
 
-  // Create logs directory
-  const logsDir = path.join(os.homedir(), '.proletariat', 'logs')
-  fs.mkdirSync(logsDir, { recursive: true })
+    // Create logs directory
+    const logsDir = path.join(os.homedir(), '.proletariat', 'logs')
+    fs.mkdirSync(logsDir, { recursive: true })
 
-  const logPath = path.join(logsDir, `work-${context.ticketId}-${Date.now()}.log`)
-  const logStream = fs.openSync(logPath, 'w')
+    const logPath = path.join(logsDir, `work-${context.ticketId}-${Date.now()}.log`)
+    let logStream: number
+    try {
+      logStream = fs.openSync(logPath, 'w')
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      return {
+        success: false,
+        error: `Failed to create log file: ${errorMessage}`,
+      }
+    }
 
-  const child = spawn(cmd, args, {
-    cwd: context.worktreePath,
-    detached: true,
-    stdio: ['ignore', logStream, logStream],
-  })
+    const child = spawn(cmd, args, {
+      cwd: context.worktreePath,
+      detached: true,
+      stdio: ['ignore', logStream, logStream],
+    })
 
-  child.unref()
+    child.on('error', (error) => {
+      // Log spawn errors to the log file
+      const errorMessage = `Spawn error: ${error.message}\n`
+      try {
+        fs.writeSync(logStream, errorMessage)
+      } catch {
+        // Ignore write errors
+      }
+    })
 
-  return {
-    success: true,
-    pid: child.pid?.toString(),
-    logPath,
+    child.unref()
+
+    return {
+      success: true,
+      pid: child.pid?.toString(),
+      logPath,
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    return {
+      success: false,
+      error: `Failed to start background process: ${errorMessage}`,
+    }
   }
 }
 
@@ -750,23 +777,31 @@ async function runDevcontainerForeground(
   context: ExecutionContext,
   devcontainerCmd: string
 ): Promise<RunnerResult> {
-  const child = spawn('sh', ['-c', devcontainerCmd], {
-    stdio: 'inherit',
-  })
-
-  return new Promise((resolve) => {
-    child.on('error', (error) => {
-      resolve({ success: false, error: error.message })
+  try {
+    const child = spawn('sh', ['-c', devcontainerCmd], {
+      stdio: 'inherit',
     })
 
-    child.on('close', (code) => {
-      resolve({
-        success: code === 0,
-        containerId: `devcontainer-${context.agentName}`,
-        error: code !== 0 ? `Process exited with code ${code}` : undefined,
+    return new Promise((resolve) => {
+      child.on('error', (error) => {
+        resolve({ success: false, error: `Spawn error: ${error.message}` })
+      })
+
+      child.on('close', (code) => {
+        resolve({
+          success: code === 0,
+          containerId: `devcontainer-${context.agentName}`,
+          error: code !== 0 ? `Process exited with code ${code}` : undefined,
+        })
       })
     })
-  })
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    return {
+      success: false,
+      error: `Failed to start foreground devcontainer process: ${errorMessage}`,
+    }
+  }
 }
 
 /**
@@ -914,25 +949,52 @@ async function runDevcontainerInBackground(
   context: ExecutionContext,
   devcontainerCmd: string
 ): Promise<RunnerResult> {
-  // Create logs directory
-  const logsDir = path.join(os.homedir(), '.proletariat', 'logs')
-  fs.mkdirSync(logsDir, { recursive: true })
+  try {
+    // Create logs directory
+    const logsDir = path.join(os.homedir(), '.proletariat', 'logs')
+    fs.mkdirSync(logsDir, { recursive: true })
 
-  const logPath = path.join(logsDir, `work-${context.ticketId}-${Date.now()}.log`)
-  const logStream = fs.openSync(logPath, 'w')
+    const logPath = path.join(logsDir, `work-${context.ticketId}-${Date.now()}.log`)
+    let logStream: number
+    try {
+      logStream = fs.openSync(logPath, 'w')
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      return {
+        success: false,
+        error: `Failed to create log file: ${errorMessage}`,
+      }
+    }
 
-  const child = spawn('sh', ['-c', devcontainerCmd], {
-    detached: true,
-    stdio: ['ignore', logStream, logStream],
-  })
+    const child = spawn('sh', ['-c', devcontainerCmd], {
+      detached: true,
+      stdio: ['ignore', logStream, logStream],
+    })
 
-  child.unref()
+    child.on('error', (error) => {
+      // Log spawn errors to the log file
+      const errorMessage = `Spawn error: ${error.message}\n`
+      try {
+        fs.writeSync(logStream, errorMessage)
+      } catch {
+        // Ignore write errors
+      }
+    })
 
-  return {
-    success: true,
-    pid: child.pid?.toString(),
-    containerId: `devcontainer-${context.agentName}`,
-    logPath,
+    child.unref()
+
+    return {
+      success: true,
+      pid: child.pid?.toString(),
+      containerId: `devcontainer-${context.agentName}`,
+      logPath,
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    return {
+      success: false,
+      error: `Failed to start background devcontainer process: ${errorMessage}`,
+    }
   }
 }
 
