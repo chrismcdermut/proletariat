@@ -1,0 +1,29 @@
+# Ticket: test-altman-002
+
+**Title:** Altman writes to README
+
+**Priority:** LOW
+**Category:** test
+
+## Description
+
+Add "altman was here" to the README.md file in the proletariat repo root
+
+---
+
+## When Complete
+
+1. **Commit your work** in each repository directory you modified:
+   ```bash
+   cd /workspace/<repo-name>
+   git add -A
+   git commit -m "Your descriptive commit message"
+   git push
+   ```
+2. **Mark work as ready** by running:
+   ```bash
+   prlt work ready test-altman-002 --pr
+   ```
+   This moves the ticket to review and creates a pull request.
+
+**IMPORTANT:** Use the global `prlt` command (just type `prlt`). Do NOT use `./bin/run.js` or any local path.
