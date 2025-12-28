@@ -23,7 +23,7 @@ Automate the workflow by watching columns and spawning agents automatically. Inc
 
 ## Tickets
 
-_No tickets linked yet. Create tickets with:_
-```bash
-prlt ticket create --epic EPIC-001 "Task title"
-```
+Progress: 0/2 complete
+
+- 📋 TKT-019: Test PR creation flow
+- 🚧 TKT-018: Test full agent push flow with LFS

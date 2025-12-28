@@ -10,6 +10,9 @@ export default class Agent extends Command {
     '<%= config.bin %> <%= command.id %> visit tacoma',
     '<%= config.bin %> <%= command.id %> add',
     '<%= config.bin %> <%= command.id %> remove camry',
+    '<%= config.bin %> <%= command.id %> restart altman',
+    '<%= config.bin %> <%= command.id %> rebuild altman',
+    '<%= config.bin %> <%= command.id %> shell altman',
   ];
 
   async run(): Promise<void> {
@@ -21,10 +24,16 @@ export default class Agent extends Command {
       name: 'action',
       message: 'What would you like to do?',
       choices: [
-        { name: '📊 Show agent status', value: 'status' },
-        { name: '📁 Visit agent directory', value: 'visit' },
-        { name: '➕ Add new agent', value: 'add' },
+        new inquirer.Separator('── View ──'),
+        { name: '📊 Show status', value: 'status' },
+        { name: '📁 Visit directory', value: 'visit' },
+        new inquirer.Separator('── Manage ──'),
+        { name: '➕ Add agent', value: 'add' },
         { name: '🗑️  Remove agent', value: 'remove' },
+        new inquirer.Separator('── Container ──'),
+        { name: '🐚 Open shell', value: 'shell' },
+        { name: '🔄 Restart', value: 'restart' },
+        { name: '🔨 Rebuild', value: 'rebuild' },
         new inquirer.Separator(),
         { name: '❌ Cancel', value: 'cancel' }
       ]
@@ -61,6 +70,24 @@ export default class Agent extends Command {
         case 'remove': {
           const { default: RemoveCommand } = await import('../agent/remove.js');
           const cmd = new RemoveCommand([], this.config);
+          await cmd.run();
+          break;
+        }
+        case 'restart': {
+          const { default: RestartCommand } = await import('../agent/restart.js');
+          const cmd = new RestartCommand([], this.config);
+          await cmd.run();
+          break;
+        }
+        case 'rebuild': {
+          const { default: RebuildCommand } = await import('../agent/rebuild.js');
+          const cmd = new RebuildCommand([], this.config);
+          await cmd.run();
+          break;
+        }
+        case 'shell': {
+          const { default: ShellCommand } = await import('../agent/shell.js');
+          const cmd = new ShellCommand([], this.config);
           await cmd.run();
           break;
         }

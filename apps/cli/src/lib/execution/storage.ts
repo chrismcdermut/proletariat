@@ -297,6 +297,21 @@ export class ExecutionStorage {
   }
 
   /**
+   * Get total execution count for an agent (historical)
+   * Used by least-busy agent selection strategy.
+   */
+  getAgentExecutionCount(agentName: string): number {
+    const result = this.db
+      .prepare(`
+        SELECT COUNT(*) as count FROM ${T.agent_work}
+        WHERE agent_name = ?
+      `)
+      .get(agentName) as { count: number }
+
+    return result?.count || 0
+  }
+
+  /**
    * Delete execution record
    */
   deleteExecution(id: string): void {

@@ -10,6 +10,9 @@ export default class Agents extends Command {
     '<%= config.bin %> <%= command.id %> status',
     '<%= config.bin %> <%= command.id %> add',
     '<%= config.bin %> <%= command.id %> remove',
+    '<%= config.bin %> <%= command.id %> restart',
+    '<%= config.bin %> <%= command.id %> rebuild',
+    '<%= config.bin %> <%= command.id %> shell',
   ];
 
   async run(): Promise<void> {
@@ -21,10 +24,16 @@ export default class Agents extends Command {
       name: 'action',
       message: 'What would you like to do?',
       choices: [
+        new inquirer.Separator('── View ──'),
         { name: '📋 List all agents', value: 'list' },
         { name: '📊 Show status overview', value: 'status' },
-        { name: '➕ Add agents (bulk)', value: 'add' },
-        { name: '➖ Remove agents (bulk)', value: 'remove' },
+        new inquirer.Separator('── Manage ──'),
+        { name: '➕ Add agents', value: 'add' },
+        { name: '➖ Remove agents', value: 'remove' },
+        new inquirer.Separator('── Containers ──'),
+        { name: '🐚 Open shell', value: 'shell' },
+        { name: '🔄 Restart', value: 'restart' },
+        { name: '🔨 Rebuild', value: 'rebuild' },
         new inquirer.Separator(),
         { name: '❌ Cancel', value: 'cancel' }
       ]
@@ -41,26 +50,44 @@ export default class Agents extends Command {
       
       switch (action) {
         case 'list': {
-          const { default: ListCommand } = await import('../agents/list.js');
+          const { default: ListCommand } = await import('./list.js');
           const cmd = new ListCommand([], this.config);
           await cmd.run();
           break;
         }
         case 'status': {
-          const { default: StatusCommand } = await import('../agents/status.js');
+          const { default: StatusCommand } = await import('./status.js');
           const cmd = new StatusCommand([], this.config);
           await cmd.run();
           break;
         }
         case 'add': {
-          const { default: AddCommand } = await import('../agents/add.js');
+          const { default: AddCommand } = await import('./add.js');
           const cmd = new AddCommand([], this.config);
           await cmd.run();
           break;
         }
         case 'remove': {
-          const { default: RemoveCommand } = await import('../agents/remove.js');
+          const { default: RemoveCommand } = await import('./remove.js');
           const cmd = new RemoveCommand([], this.config);
+          await cmd.run();
+          break;
+        }
+        case 'restart': {
+          const { default: RestartCommand } = await import('./restart.js');
+          const cmd = new RestartCommand([], this.config);
+          await cmd.run();
+          break;
+        }
+        case 'rebuild': {
+          const { default: RebuildCommand } = await import('./rebuild.js');
+          const cmd = new RebuildCommand([], this.config);
+          await cmd.run();
+          break;
+        }
+        case 'shell': {
+          const { default: ShellCommand } = await import('./shell.js');
+          const cmd = new ShellCommand([], this.config);
           await cmd.run();
           break;
         }

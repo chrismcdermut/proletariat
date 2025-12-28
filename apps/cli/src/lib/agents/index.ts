@@ -105,7 +105,10 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
           // Create worktrees for all repositories
           for (const repo of repos) {
             const sourceRepo = path.join(reposDir, repo.name);
-            const worktreeDir = path.join(agentDir, repo.name);
+            // Name worktree directory as {repoName}-{agentName} so git creates unique worktree entries
+            // e.g., proletariat-altman instead of just proletariat (which causes proletariat1, proletariat2, etc.)
+            const worktreeDirName = `${repo.name}-${agent}`;
+            const worktreeDir = path.join(agentDir, worktreeDirName);
             
             if (fs.existsSync(sourceRepo)) {
               console.log(styles.muted(`  Creating worktree for ${repo.name}...`));
@@ -177,7 +180,9 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
 
     for (const agent of agents) {
       const agentDir = path.join(workspacePath, agent);
-      const worktreeDir = path.join(agentDir, repoName);
+      // Name worktree directory as {repoName}-{agentName} for unique git worktree entries
+      const worktreeDirName = `${repoName}-${agent}`;
+      const worktreeDir = path.join(agentDir, worktreeDirName);
       
       console.log(chalk.blue(`Creating agent: ${agent}...`));
       
