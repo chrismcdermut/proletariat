@@ -1,0 +1,43 @@
+# Ticket: test-readme-016
+
+**Title:** Add comment to README
+
+**Priority:** LOW
+**Category:** test
+
+## Description
+
+Add a comment line to the README.md file in the proletariat repo root
+
+---
+
+## Before You Start
+
+**IMPORTANT:** You must be on the correct branch before making changes.
+
+```bash
+# Fetch latest and create/checkout the target branch
+git fetch origin main:main 2>/dev/null || true
+git checkout -b test/damodei/test-readme-016-add-comment-to-readme main 2>/dev/null || git checkout -b test/damodei/test-readme-016-add-comment-to-readme 2>/dev/null || git checkout test/damodei/test-readme-016-add-comment-to-readme
+```
+
+**Target branch:** `test/damodei/test-readme-016-add-comment-to-readme`
+
+---
+
+## When Complete
+
+1. **Commit your work** in each repository directory you modified:
+   ```bash
+   cd /workspace/<repo-name>
+   git add -A
+   git commit -m "Your descriptive commit message"
+   git push
+   ```
+2. **Mark work as ready** by running:
+   ```bash
+   prlt work ready test-readme-016 --pr
+   ```
+   This moves the ticket to review and creates a pull request.
+
+**IMPORTANT:** Use the global `prlt` command (just type `prlt`). Do NOT use `./bin/run.js` or any local path.
