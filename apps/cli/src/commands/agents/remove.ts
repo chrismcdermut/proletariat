@@ -42,19 +42,25 @@ export default class Remove extends Command {
 
       // Interactive mode if no agents specified
       if (agentNames.length === 0) {
+        const allAgentNames = workspaceInfo.agents.map(agent => agent.name);
         const { selected } = await inquirer.prompt([{
           type: 'checkbox',
           name: 'selected',
           message: 'Select agents to remove (or press Enter to cancel):',
-          choices: workspaceInfo.agents.map(agent => ({ name: agent.name, value: agent.name }))
+          choices: [
+            { name: '⚠️  All agents', value: '__ALL__' },
+            new inquirer.Separator(),
+            ...workspaceInfo.agents.map(agent => ({ name: agent.name, value: agent.name }))
+          ]
         }]);
-        
+
         if (selected.length === 0) {
           this.log(colors.textMuted('No agents selected. Operation cancelled.'));
           return;
         }
-        
-        agentNames = selected;
+
+        // If "All agents" was selected, use all agent names
+        agentNames = selected.includes('__ALL__') ? allAgentNames : selected;
       }
 
       // Filter to only existing agents

@@ -24,6 +24,42 @@ kanban-plugin: basic
       ***
       Display which agent is assigned to a ticket when starting work
 
+- [ ] **test-readme-019** [[test-readme-019]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-020** [[test-readme-020]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-021** [[test-readme-021]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-022** [[test-readme-022]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-023** [[test-readme-023]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-024** [[test-readme-024]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
 ## In Progress
 
 - [ ] **tkt-005-tkt-005-e2e-tests-for-execution-commands** [[tkt-005-tkt-005-e2e-tests-for-execution-commands]] **TKT-005** [[TKT-005]] E2E tests for execution commands
@@ -210,6 +246,108 @@ kanban-plugin: basic
       ***
       Create a constants file for error messages in apps/cli/src/lib/errors/messages.ts to reduce duplicate error strings
 
+- [ ] **test-altman-005** [[test-altman-005]] Altman writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "altman was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-andreesen-005** [[test-andreesen-005]] Andreesen writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "andreesen was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-cook-005** [[test-cook-005]] Cook writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "cook was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-altman-006** [[test-altman-006]] Altman writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "altman was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-cook-006** [[test-cook-006]] Cook writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "cook was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-altman-007** [[test-altman-007]] Altman writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "altman was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-cook-007** [[test-cook-007]] Cook writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "cook was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-altman-008** [[test-altman-008]] Altman writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "altman was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-cook-008** [[test-cook-008]] Cook writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "cook was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-agent-001** [[test-agent-001]] Agent 1 writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "agent 1 was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-agent-004** [[test-agent-004]] Agent 4 writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "agent 4 was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-001** [[test-readme-001]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-002** [[test-readme-002]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-003** [[test-readme-003]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-004** [[test-readme-004]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-005** [[test-readme-005]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-009** [[test-readme-009]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
 ## Review
 
 - [ ] **tkt-016-tkt-016-test-commit-and-pr-flow** [[tkt-016-tkt-016-test-commit-and-pr-flow]] **TKT-016** [[TKT-016]] Test commit and PR flow
@@ -321,5 +459,235 @@ kanban-plugin: basic
 - [ ] **TKT-033** [[TKT-033]] Show container uptime in agent status
       ***
       Display how long each agent container has been running in the status output
+
+- [ ] **test-altman-001** [[test-altman-001]] Altman writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "altman was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-andreesen-001** [[test-andreesen-001]] Andreesen writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "andreesen was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-branson-001** [[test-branson-001]] Branson writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "branson was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-cook-001** [[test-cook-001]] Cook writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "cook was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-andreesen-002** [[test-andreesen-002]] Andreesen writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "andreesen was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-altman-002** [[test-altman-002]] Altman writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "altman was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-branson-002** [[test-branson-002]] Branson writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "branson was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-cook-002** [[test-cook-002]] Cook writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "cook was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-altman-003** [[test-altman-003]] Altman writes to README (2025-12-27)
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "altman was here - 2025-12-27" to the README.md file in the proletariat repo root
+
+- [ ] **test-andreesen-003** [[test-andreesen-003]] Andreesen writes to README (2025-12-27)
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "andreesen was here - 2025-12-27" to the README.md file in the proletariat repo root
+
+- [ ] **test-cook-003** [[test-cook-003]] Cook writes to README (2025-12-27)
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "cook was here - 2025-12-27" to the README.md file in the proletariat repo root
+
+- [ ] **test-branson-003** [[test-branson-003]] Branson writes to README (2025-12-27)
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "branson was here - 2025-12-27" to the README.md file in the proletariat repo root
+
+- [ ] **test-branson-004** [[test-branson-004]] Branson writes to README (2025-12-27 v2)
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "branson was here - 2025-12-27 v2" to the README.md file in the proletariat repo root
+
+- [ ] **test-altman-004** [[test-altman-004]] Altman writes to README (2025-12-27 v2)
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "altman was here - 2025-12-27 v2" to the README.md file in the proletariat repo root
+
+- [ ] **test-cook-004** [[test-cook-004]] Cook writes to README (2025-12-27 v2)
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "cook was here - 2025-12-27 v2" to the README.md file in the proletariat repo root
+
+- [ ] **test-andreesen-004** [[test-andreesen-004]] Andreesen writes to README (2025-12-27 v2)
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "andreesen was here - 2025-12-27 v2" to the README.md file in the proletariat repo root
+
+- [ ] **test-branson-005** [[test-branson-005]] Branson writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "branson was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-andreesen-006** [[test-andreesen-006]] Andreesen writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "andreesen was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-branson-006** [[test-branson-006]] Branson writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "branson was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-branson-007** [[test-branson-007]] Branson writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "branson was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-andreesen-007** [[test-andreesen-007]] Andreesen writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "andreesen was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-branson-008** [[test-branson-008]] Branson writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "branson was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-andreesen-008** [[test-andreesen-008]] Andreesen writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "andreesen was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-agent-002** [[test-agent-002]] Agent 2 writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "agent 2 was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-agent-003** [[test-agent-003]] Agent 3 writes to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add "agent 3 was here" to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-006** [[test-readme-006]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-007** [[test-readme-007]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-008** [[test-readme-008]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-011** [[test-readme-011]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      **pr_url:** https://github.com/chrismcdermut/proletariat/pull/40
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-010** [[test-readme-010]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      **pr_url:** https://github.com/chrismcdermut/proletariat/pull/41
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-012** [[test-readme-012]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      **pr_url:** https://github.com/chrismcdermut/proletariat/pull/42
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-013** [[test-readme-013]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      **pr_url:** https://github.com/chrismcdermut/proletariat/pull/43
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-014** [[test-readme-014]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      **pr_url:** https://github.com/chrismcdermut/proletariat/pull/44
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-015** [[test-readme-015]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      **pr_url:** https://github.com/chrismcdermut/proletariat/pull/45
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-016** [[test-readme-016]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      **pr_url:** https://github.com/chrismcdermut/proletariat/pull/46
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-017** [[test-readme-017]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      **pr_url:** https://github.com/chrismcdermut/proletariat/pull/47
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
+
+- [ ] **test-readme-018** [[test-readme-018]] Add comment to README
+      **Priority:** LOW
+      **Category:** test
+      ***
+      Add a comment line to the README.md file in the proletariat repo root
 
 ## Done

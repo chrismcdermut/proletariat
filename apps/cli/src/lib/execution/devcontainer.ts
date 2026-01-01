@@ -331,55 +331,72 @@ echo "Firewall setup complete."
  * Rebuilds better-sqlite3 if prlt is mounted from host (not installed via npm).
  */
 export function generatePrltSetupScript(): string {
+  // Note: Using single quotes in heredoc marker ('GITWRAPPER') prevents bash variable expansion
+  // but TypeScript still sees ${} as template literals, so we escape them with backslash
   return `#!/bin/bash
 # Setup prlt CLI - rebuild native modules if using mounted version
 
-# Fix git worktree paths for all worktrees in /workspace
-# Worktree .git files contain paths like: gitdir: /Users/.../repos/proletariat/.git/worktrees/name
+# Configure git wrapper to handle worktree path translation
+# Worktree .git files contain host paths like: gitdir: /Users/.../repos/proletariat/.git/worktrees/name
 # Inside container, the parent repo is mounted at /hq/repos/proletariat
-# Also fix the reverse pointer in the parent repo's worktree metadata
-fix_worktree() {
-    local GIT_FILE="\$1"
-    local WORKTREE_DIR=\$(dirname "\$GIT_FILE")
+#
+# We create a git wrapper that translates paths on-the-fly using GIT_DIR
+# This avoids modifying the .git file which is bind-mounted from the host
+#
+setup_git_wrapper() {
+    # Create git wrapper script in user's bin directory (already in PATH before /usr/bin)
+    mkdir -p /home/node/.npm-global/bin
+    cat > /home/node/.npm-global/bin/git << 'GITWRAPPER'
+#!/bin/bash
+# Git wrapper that handles worktree path translation for containers
+# Translates host paths in .git files to container paths
 
-    if [ -f "\$GIT_FILE" ] && ! [ -d "\$GIT_FILE" ]; then
-        GITDIR_LINE=\$(cat "\$GIT_FILE")
-        if [[ "\$GITDIR_LINE" =~ gitdir:\\ (.*) ]]; then
-            OLD_PATH="\${BASH_REMATCH[1]}"
-
-            # Check if path needs fixing (contains host path)
-            if [[ "\$OLD_PATH" == /Users/* ]] || [[ "\$OLD_PATH" == /home/* ]]; then
-                # Extract the worktree name from the path
-                WORKTREE_NAME=\$(basename "\$OLD_PATH")
-                NEW_PATH="/hq/repos/proletariat/.git/worktrees/\$WORKTREE_NAME"
-
-                if [ -d "\$NEW_PATH" ]; then
-                    echo "gitdir: \$NEW_PATH" > "\$GIT_FILE"
-                    echo "Fixed worktree .git file: \$GIT_FILE -> \$NEW_PATH"
-
-                    # Also fix the reverse pointer (gitdir file in parent repo)
-                    GITDIR_FILE="\$NEW_PATH/gitdir"
-                    if [ -f "\$GITDIR_FILE" ]; then
-                        echo "\$WORKTREE_DIR/.git" > "\$GITDIR_FILE"
-                        echo "Fixed parent gitdir: \$GITDIR_FILE -> \$WORKTREE_DIR/.git"
-                    fi
-                else
-                    echo "Warning: Expected worktree directory not found at \$NEW_PATH"
-                fi
-            fi
+# Find the .git file/dir by walking up the directory tree
+find_git_file() {
+    local dir="$PWD"
+    while [ "$dir" != "/" ]; do
+        if [ -f "$dir/.git" ]; then
+            echo "$dir/.git"
+            return 0
+        elif [ -d "$dir/.git" ]; then
+            # Regular git repo, not a worktree - no translation needed
+            return 1
         fi
-    fi
+        dir="$(dirname "$dir")"
+    done
+    return 1
 }
 
-# Check /workspace/.git (direct worktree mount)
-fix_worktree "/workspace/.git"
+# Check if we need to translate the path
+GIT_FILE="$(find_git_file)"
+if [ -n "$GIT_FILE" ]; then
+    # Read the gitdir path from the .git file
+    # Format is: gitdir: /path/to/parent/.git/worktrees/name
+    HOST_PATH="$(sed -n 's/^gitdir: *//p' "$GIT_FILE")"
 
-# Check subdirectories for worktrees (e.g., /workspace/proletariat-altman/.git)
-for subdir in /workspace/*/; do
-    if [ -f "\${subdir}.git" ]; then
-        fix_worktree "\${subdir}.git"
-    fi
-done
+    # Check if it's a host path that needs translation
+    case "$HOST_PATH" in
+        /Users/*|/home/*)
+            WORKTREE_NAME="$(basename "$HOST_PATH")"
+            CONTAINER_PATH="/hq/repos/proletariat/.git/worktrees/$WORKTREE_NAME"
+            if [ -d "$CONTAINER_PATH" ]; then
+                export GIT_DIR="$CONTAINER_PATH"
+                export GIT_WORK_TREE="$(dirname "$GIT_FILE")"
+            fi
+            ;;
+    esac
+fi
+
+# Run the real git command
+exec /usr/bin/git "$@"
+GITWRAPPER
+
+    chmod +x /home/node/.npm-global/bin/git
+    echo "Git wrapper installed for worktree path translation"
+}
+
+# Set up git wrapper for worktree path translation
+setup_git_wrapper
 
 # Copy Claude credentials from workspace to home (each container gets its own copy)
 if [ -f "/workspace/.claude.json" ]; then

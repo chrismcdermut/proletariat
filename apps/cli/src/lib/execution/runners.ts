@@ -87,6 +87,18 @@ function buildPrompt(context: ExecutionContext): string {
     }
   }
 
+  // Add branch instructions
+  if (context.branch && !context.isRevision) {
+    prompt += `\n---\n\n## Before You Start\n\n`
+    prompt += `**IMPORTANT:** You must be on the correct branch before making changes.\n\n`
+    prompt += `\`\`\`bash\n`
+    prompt += `# Fetch latest and create/checkout the target branch\n`
+    prompt += `git fetch origin main:main 2>/dev/null || true\n`
+    prompt += `git checkout -b ${context.branch} main 2>/dev/null || git checkout -b ${context.branch} 2>/dev/null || git checkout ${context.branch}\n`
+    prompt += `\`\`\`\n\n`
+    prompt += `**Target branch:** \`${context.branch}\`\n`
+  }
+
   // Add completion instructions
   prompt += `\n---\n\n## When Complete\n\n`
 
@@ -781,7 +793,7 @@ export async function runDevcontainer(
     }
 
     // Write prompt to file in worktree (accessible by container)
-    const { containerPath: promptFile } = writePromptFile(context)
+    const { hostPath: promptHostPath, containerPath: promptFile } = writePromptFile(context)
 
     // Get container ID for docker exec (enables streaming output with TTY)
     const containerId = getDevcontainerContainerId(context.agentDir)
@@ -790,18 +802,37 @@ export async function runDevcontainer(
     const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId || undefined, config.outputMode, config.sandboxed, displayMode)
 
     // Execute based on display mode
+    let result: RunnerResult
     switch (displayMode) {
       case 'terminal':
-        return runDevcontainerInTerminal(context, devcontainerCmd, config)
+        result = await runDevcontainerInTerminal(context, devcontainerCmd, config)
+        break
       case 'background':
-        return runDevcontainerInBackground(context, devcontainerCmd)
+        result = await runDevcontainerInBackground(context, devcontainerCmd)
+        break
       case 'tmux':
-        return runDevcontainerInTmux(context, devcontainerCmd, config)
+        result = await runDevcontainerInTmux(context, devcontainerCmd, config)
+        break
       case 'foreground':
       default:
-        return runDevcontainerForeground(context, devcontainerCmd)
+        result = await runDevcontainerForeground(context, devcontainerCmd)
+        break
     }
+
+    // Clean up prompt file if execution failed to start
+    // (successful executions clean up the file themselves via the command)
+    if (!result.success && fs.existsSync(promptHostPath)) {
+      try {
+        fs.unlinkSync(promptHostPath)
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+
+    return result
   } catch (error) {
+    // Clean up any orphaned prompt files on error
+    cleanupOldPromptFiles(context.worktreePath, context.ticketId)
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to run in devcontainer',

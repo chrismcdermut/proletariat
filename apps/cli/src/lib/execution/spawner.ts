@@ -267,28 +267,75 @@ export async function spawnAgentForTicket(
   const sandboxed = !(options.skipPermissions ?? false)
 
   // Create branch in worktree(s)
+  // For devcontainer environments, run git commands inside the container
+  // because the worktree .git file has container paths, not host paths
   const gitRepos = repoWorktrees.length > 0
     ? repoWorktrees.map(r => path.join(agentDir, r))
     : [worktreePath]
 
-  for (const repoPath of gitRepos) {
+  if (environment === 'devcontainer') {
+    // Get container ID for this agent
+    let containerId: string | null = null
     try {
-      // Check if this is a git repo
-      try {
-        execSync('git rev-parse --git-dir', { cwd: repoPath, stdio: 'pipe' })
-      } catch {
-        continue
-      }
+      containerId = execSync(
+        `docker ps -q --filter "label=devcontainer.local_folder=${agentDir}"`,
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+      ).trim() || null
+    } catch {
+      // Container not running
+    }
 
-      // Check if branch exists
-      try {
-        execSync(`git rev-parse --verify ${branch}`, { cwd: repoPath, stdio: 'pipe' })
-        execSync(`git checkout ${branch}`, { cwd: repoPath, stdio: 'pipe' })
-      } catch {
-        execSync(`git checkout -b ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+    if (containerId) {
+      // Run git commands inside the container
+      for (const repoPath of gitRepos) {
+        const repoName = path.basename(repoPath)
+        // Map host path to container path: /workspace/{repoName}
+        const containerRepoPath = `/workspace/${repoName}`
+
+        try {
+          // Check if this is a git repo inside the container
+          try {
+            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" rev-parse --git-dir`, { stdio: 'pipe' })
+          } catch {
+            continue
+          }
+
+          // Check if branch exists
+          try {
+            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" rev-parse --verify ${branch}`, { stdio: 'pipe' })
+            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout ${branch}`, { stdio: 'pipe' })
+          } catch {
+            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout -b ${branch}`, { stdio: 'pipe' })
+          }
+          log(`Created branch ${branch} in ${repoName} (inside container)`)
+        } catch (error) {
+          log(`Could not create branch in ${repoName}: ${error instanceof Error ? error.message : error}`)
+        }
       }
-    } catch (error) {
-      log(`Could not create branch in ${path.basename(repoPath)}: ${error instanceof Error ? error.message : error}`)
+    } else {
+      log('Container not running, will create branch when container starts')
+    }
+  } else {
+    // Host environment - run git commands directly
+    for (const repoPath of gitRepos) {
+      try {
+        // Check if this is a git repo
+        try {
+          execSync('git rev-parse --git-dir', { cwd: repoPath, stdio: 'pipe' })
+        } catch {
+          continue
+        }
+
+        // Check if branch exists
+        try {
+          execSync(`git rev-parse --verify ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+          execSync(`git checkout ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+        } catch {
+          execSync(`git checkout -b ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+        }
+      } catch (error) {
+        log(`Could not create branch in ${path.basename(repoPath)}: ${error instanceof Error ? error.message : error}`)
+      }
     }
   }
 
@@ -303,24 +350,6 @@ export async function spawnAgentForTicket(
     sandboxed,
     branch,
   })
-
-  // Update ticket status and assignee
-  await storage.updateTicket(ticket.id, {
-    status: 'in_progress',
-    assignee: agentName,
-  })
-
-  // Move to In Progress column
-  const targetColumnName = getWorkColumnSetting(db, 'in_progress')
-  const board = await storage.getBoard()
-  const columnNames = board.columns.map(col => col.name)
-  const inProgressColumn = findColumnByName(columnNames, targetColumnName)
-
-  if (inProgressColumn && ticket.column !== inProgressColumn) {
-    await storage.moveTicket(ticket.id, inProgressColumn)
-  }
-
-  await autoExportToBoard(pmoPath, storage, log)
 
   // Load execution config (use passed config or load from db)
   const executionConfig = options.executionConfig || loadExecutionConfig(db)
@@ -341,6 +370,23 @@ export async function spawnAgentForTicket(
       sessionId: result.sessionId,
       logPath: result.logPath,
     })
+
+    // Only update ticket status and move to In Progress after successful spawn
+    await storage.updateTicket(ticket.id, {
+      status: 'in_progress',
+      assignee: agentName,
+    })
+
+    const targetColumnName = getWorkColumnSetting(db, 'in_progress')
+    const board = await storage.getBoard()
+    const columnNames = board.columns.map(col => col.name)
+    const inProgressColumn = findColumnByName(columnNames, targetColumnName)
+
+    if (inProgressColumn && ticket.column !== inProgressColumn) {
+      await storage.moveTicket(ticket.id, inProgressColumn)
+    }
+
+    await autoExportToBoard(pmoPath, storage, log)
 
     return {
       success: true,

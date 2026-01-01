@@ -159,6 +159,37 @@ kanban-plugin: board
 
 ## Ready
 
+- [ ] **test-readme-001** [[test-readme-001]] Add comment to README
+	  **Priority:** LOW
+	  **Category:** test
+	  ***
+	  Add a comment line to the README.md file in the proletariat repo root
+- [ ] **test-readme-002** [[test-readme-002]] Add comment to README
+	  **Priority:** LOW
+	  **Category:** test
+	  ***
+	  Add a comment line to the README.md file in the proletariat repo root
+- [ ] **test-readme-003** [[test-readme-003]] Add comment to README
+	  **Priority:** LOW
+	  **Category:** test
+	  ***
+	  Add a comment line to the README.md file in the proletariat repo root
+- [ ] **test-readme-004** [[test-readme-004]] Add comment to README
+	  **Priority:** LOW
+	  **Category:** test
+	  ***
+	  Add a comment line to the README.md file in the proletariat repo root
+- [ ] **test-readme-005** [[test-readme-005]] Add comment to README
+	  **Priority:** LOW
+	  **Category:** test
+	  ***
+	  Add a comment line to the README.md file in the proletariat repo root
+- [ ] **test-readme-006** [[test-readme-006]] Add comment to README
+	  **Priority:** LOW
+	  **Category:** test
+	  ***
+	  Add a comment line to the README.md file in the proletariat repo root
+
 
 
 ## In Progress

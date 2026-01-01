@@ -112,11 +112,22 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
             
             if (fs.existsSync(sourceRepo)) {
               console.log(styles.muted(`  Creating worktree for ${repo.name}...`));
-              
-              // Create git worktree for the agent
+
+              // Fetch latest from origin to ensure we have up-to-date main
+              try {
+                execSync(`git fetch origin main`, {
+                  cwd: sourceRepo,
+                  stdio: 'pipe'
+                });
+              } catch {
+                // Ignore fetch errors (might be offline)
+                console.log(chalk.yellow(`  Warning: Could not fetch origin/main, using local state`));
+              }
+
+              // Create git worktree for the agent from origin/main
               const branchName = `agent-${agent}`;
               try {
-                execSync(`git worktree add ${worktreeDir} -b ${branchName}`, {
+                execSync(`git worktree add ${worktreeDir} -b ${branchName} origin/main`, {
                   cwd: sourceRepo,
                   stdio: 'inherit'
                 });
@@ -136,7 +147,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
                       cwd: sourceRepo,
                       stdio: 'pipe'
                     });
-                    execSync(`git worktree add ${worktreeDir} -b ${branchName}`, {
+                    execSync(`git worktree add ${worktreeDir} -b ${branchName} origin/main`, {
                       cwd: sourceRepo,
                       stdio: 'inherit'
                     });
@@ -185,15 +196,26 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
       const worktreeDir = path.join(agentDir, worktreeDirName);
       
       console.log(chalk.blue(`Creating agent: ${agent}...`));
-      
+
       try {
         // Create agent directory
         fs.mkdirSync(agentDir, { recursive: true });
-        
-        // Create git worktree for the agent
+
+        // Fetch latest from origin to ensure we have up-to-date main
+        try {
+          execSync(`git fetch origin main`, {
+            cwd: sourceRepo,
+            stdio: 'pipe'
+          });
+        } catch {
+          // Ignore fetch errors (might be offline)
+          console.log(chalk.yellow(`  Warning: Could not fetch origin/main, using local state`));
+        }
+
+        // Create git worktree for the agent from origin/main
         const branchName = `agent-${agent}`;
         try {
-          execSync(`git worktree add ${worktreeDir} -b ${branchName}`, {
+          execSync(`git worktree add ${worktreeDir} -b ${branchName} origin/main`, {
             cwd: sourceRepo,
             stdio: 'inherit'
           });
@@ -213,7 +235,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
                 cwd: sourceRepo,
                 stdio: 'pipe'
               });
-              execSync(`git worktree add ${worktreeDir} -b ${branchName}`, {
+              execSync(`git worktree add ${worktreeDir} -b ${branchName} origin/main`, {
                 cwd: sourceRepo,
                 stdio: 'inherit'
               });

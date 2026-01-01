@@ -369,7 +369,22 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
   for (const agentName of agentNames) {
     try {
       const agentDir = path.join(workspaceInfo.agentsPath, agentName);
-      
+
+      // Stop and remove Docker container if it exists
+      try {
+        const containerId = execSync(
+          `docker ps -aq --filter "label=devcontainer.local_folder=${agentDir}"`,
+          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+        ).trim();
+
+        if (containerId) {
+          execSync(`docker stop ${containerId}`, { stdio: 'pipe' });
+          execSync(`docker rm ${containerId}`, { stdio: 'pipe' });
+        }
+      } catch {
+        // Container might not exist, ignore errors
+      }
+
       if (fs.existsSync(agentDir)) {
         // Remove worktrees for each repository
         for (const repo of workspaceInfo.repositories) {

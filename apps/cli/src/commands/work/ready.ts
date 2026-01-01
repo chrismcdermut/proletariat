@@ -158,9 +158,16 @@ export default class WorkReady extends Command {
 
         if (agentName) {
           // Get agent's worktree path
-          // In devcontainer, agents work directly in /workspace
           if (process.env.DEVCONTAINER === 'true') {
-            worktreePath = '/workspace';
+            // In devcontainer, look for repo directories inside /workspace
+            const entries = fs.readdirSync('/workspace', { withFileTypes: true });
+            const repoDirs = entries.filter((e) =>
+              e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules'
+            );
+            if (repoDirs.length > 0) {
+              // Use the first repo directory (typically proletariat-{agentName})
+              worktreePath = path.join('/workspace', repoDirs[0].name);
+            }
           } else {
             const agentsPath = path.join(workspaceInfo.path, 'agents', 'staff');
             const agentDir = path.join(agentsPath, agentName);
