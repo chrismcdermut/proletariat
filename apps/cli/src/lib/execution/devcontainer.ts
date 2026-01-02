@@ -56,7 +56,6 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       dockerfile: 'Dockerfile',
       args: {
         TZ: options.timezone || 'America/Los_Angeles',
-        GITHUB_TOKEN: '${localEnv:GITHUB_TOKEN}',
       },
     },
     customizations: {
@@ -85,10 +84,17 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       // NOTE: ~/.claude.json is COPIED (not mounted) to /workspace/.claude.json
       // to avoid corruption from concurrent writes by multiple containers
       'source=${localEnv:PRLT_HQ_PATH}/.proletariat,target=/hq/.proletariat,type=bind',
-      'source=${localEnv:PRLT_HQ_PATH}/pmo,target=/hq/pmo,type=bind',
+      // PMO path can be anywhere (e.g., /hq/pmo or /hq/repos/myrepo/pmo)
+      // Use PRLT_PMO_PATH env var to mount the actual location to /hq/pmo
+      'source=${localEnv:PRLT_PMO_PATH},target=/hq/pmo,type=bind',
       'source=${localEnv:PRLT_REPO_PATH},target=/opt/prlt,type=bind,readonly',
+      // Mount the main repo's .git directory so git worktrees can resolve their parent
+      // Worktree .git files reference paths like /Users/.../repos/proletariat/.git/worktrees/name
+      // This mount makes those paths accessible inside the container at /hq/repos/proletariat
+      'source=${localEnv:PRLT_HQ_PATH}/repos/proletariat,target=/hq/repos/proletariat,type=bind',
     ],
     containerEnv: {
+      DEVCONTAINER: 'true',
       ANTHROPIC_API_KEY: '${localEnv:ANTHROPIC_API_KEY}',
       // GH_TOKEN enables gh CLI in container (for PR creation, etc.)
       GH_TOKEN: '${localEnv:GH_TOKEN}',
@@ -120,9 +126,10 @@ ENV DEVCONTAINER=true
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \\
-    less git procps sudo fzf zsh man-db unzip gnupg2 gh \\
+    less git git-lfs procps sudo fzf zsh man-db unzip gnupg2 gh \\
     iptables ipset iproute2 dnsutils jq nano vim \\
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \\
+    && git lfs install
 
 # Create workspace and claude directories
 RUN mkdir -p /workspace /home/node/.claude \\
@@ -209,8 +216,8 @@ if [ -n "$DOCKER_DNS_RULES" ]; then
     echo "$DOCKER_DNS_RULES" | iptables-restore -n
 fi
 
-# Create ipset for allowed domains
-ipset create allowed-domains hash:ip -exist
+# Create ipset for allowed domains (use hash:net to support CIDR ranges)
+ipset create allowed-domains hash:net -exist
 
 # Allow localhost
 iptables -A INPUT -i lo -j ACCEPT
@@ -224,6 +231,13 @@ iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
 iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
 
+# Get host network and allow it (needed for Docker networking)
+HOST_NETWORK=$(ip route | grep default | awk '{print $3}' | head -1)
+if [ -n "$HOST_NETWORK" ]; then
+    HOST_SUBNET=$(echo $HOST_NETWORK | sed 's/\\.[0-9]*$/.0\\/24/')
+    iptables -A OUTPUT -d $HOST_SUBNET -j ACCEPT
+fi
+
 # Function to resolve and add domain IPs
 add_domain() {
     local domain=$1
@@ -235,18 +249,36 @@ add_domain() {
     done
 }
 
-# Fetch GitHub IP ranges
-echo "Fetching GitHub IP ranges..."
-GITHUB_IPS=$(curl -s https://api.github.com/meta 2>/dev/null | jq -r '.git[]?, .api[]?, .web[]?' 2>/dev/null || true)
-for cidr in $GITHUB_IPS; do
-    if [[ $cidr =~ ^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/[0-9]+$ ]]; then
-        # Add base IP of CIDR range
-        base_ip=$(echo $cidr | cut -d'/' -f1)
-        ipset add allowed-domains $base_ip -exist 2>/dev/null || true
-    fi
-done
+# Add hardcoded GitHub IP ranges (from https://api.github.com/meta)
+# These are stable and published by GitHub
+echo "Adding GitHub IP ranges..."
+# GitHub git operations
+ipset add allowed-domains 192.30.252.0/22 -exist 2>/dev/null || true
+ipset add allowed-domains 185.199.108.0/22 -exist 2>/dev/null || true
+ipset add allowed-domains 140.82.112.0/20 -exist 2>/dev/null || true
+ipset add allowed-domains 143.55.64.0/20 -exist 2>/dev/null || true
+# GitHub API
+ipset add allowed-domains 20.201.28.151/32 -exist 2>/dev/null || true
+ipset add allowed-domains 20.205.243.166/32 -exist 2>/dev/null || true
+ipset add allowed-domains 20.87.245.0/24 -exist 2>/dev/null || true
+ipset add allowed-domains 20.248.137.48/32 -exist 2>/dev/null || true
+ipset add allowed-domains 20.207.73.82/32 -exist 2>/dev/null || true
+ipset add allowed-domains 20.27.177.113/32 -exist 2>/dev/null || true
+ipset add allowed-domains 20.200.245.247/32 -exist 2>/dev/null || true
+ipset add allowed-domains 20.233.54.53/32 -exist 2>/dev/null || true
+ipset add allowed-domains 4.208.26.197/32 -exist 2>/dev/null || true
+# GitHub web/packages
+ipset add allowed-domains 20.26.156.215/32 -exist 2>/dev/null || true
 
-# Add allowed domains
+# Also resolve github.com domains dynamically (in case IPs change)
+add_domain "github.com"
+add_domain "api.github.com"
+add_domain "codeload.github.com"
+add_domain "objects.githubusercontent.com"
+add_domain "raw.githubusercontent.com"
+add_domain "npm.pkg.github.com"
+
+# Add other allowed domains
 add_domain "api.anthropic.com"
 add_domain "console.anthropic.com"
 add_domain "statsigapi.net"
@@ -256,13 +288,6 @@ add_domain "npmjs.com"
 add_domain "nodejs.org"
 add_domain "update.code.visualstudio.com"
 add_domain "vscode.download.prss.microsoft.com"
-
-# Get host network and allow it
-HOST_NETWORK=$(ip route | grep default | awk '{print $3}' | head -1)
-if [ -n "$HOST_NETWORK" ]; then
-    HOST_SUBNET=$(echo $HOST_NETWORK | sed 's/\\.[0-9]*$/.0\\/24/')
-    iptables -A OUTPUT -d $HOST_SUBNET -j ACCEPT
-fi
 
 # Allow traffic to whitelisted IPs
 iptables -A OUTPUT -m set --match-set allowed-domains dst -j ACCEPT
@@ -291,6 +316,12 @@ else
     echo "Note: api.anthropic.com not reachable (may need auth)"
 fi
 
+if curl -s --max-time 5 https://github.com >/dev/null 2>&1; then
+    echo "✓ github.com reachable"
+else
+    echo "WARNING: github.com not reachable"
+fi
+
 echo "Firewall setup complete."
 `
 }
@@ -300,13 +331,113 @@ echo "Firewall setup complete."
  * Rebuilds better-sqlite3 if prlt is mounted from host (not installed via npm).
  */
 export function generatePrltSetupScript(): string {
+  // Note: Using single quotes in heredoc marker ('GITWRAPPER') prevents bash variable expansion
+  // but TypeScript still sees ${} as template literals, so we escape them with backslash
   return `#!/bin/bash
 # Setup prlt CLI - rebuild native modules if using mounted version
+
+# Configure git wrapper to handle worktree path translation
+# Worktree .git files contain host paths like: gitdir: /Users/.../repos/proletariat/.git/worktrees/name
+# Inside container, the parent repo is mounted at /hq/repos/proletariat
+#
+# We create a git wrapper that translates paths on-the-fly using GIT_DIR
+# This avoids modifying the .git file which is bind-mounted from the host
+#
+setup_git_wrapper() {
+    # Create git wrapper script in user's bin directory (already in PATH before /usr/bin)
+    mkdir -p /home/node/.npm-global/bin
+    cat > /home/node/.npm-global/bin/git << 'GITWRAPPER'
+#!/bin/bash
+# Git wrapper that handles worktree path translation for containers
+# Translates host paths in .git files to container paths
+
+# Find the .git file/dir by walking up the directory tree
+find_git_file() {
+    local dir="$PWD"
+    while [ "$dir" != "/" ]; do
+        if [ -f "$dir/.git" ]; then
+            echo "$dir/.git"
+            return 0
+        elif [ -d "$dir/.git" ]; then
+            # Regular git repo, not a worktree - no translation needed
+            return 1
+        fi
+        dir="$(dirname "$dir")"
+    done
+    return 1
+}
+
+# Check if we need to translate the path
+GIT_FILE="$(find_git_file)"
+if [ -n "$GIT_FILE" ]; then
+    # Read the gitdir path from the .git file
+    # Format is: gitdir: /path/to/parent/.git/worktrees/name
+    HOST_PATH="$(sed -n 's/^gitdir: *//p' "$GIT_FILE")"
+
+    # Check if it's a host path that needs translation
+    case "$HOST_PATH" in
+        /Users/*|/home/*)
+            WORKTREE_NAME="$(basename "$HOST_PATH")"
+            CONTAINER_PATH="/hq/repos/proletariat/.git/worktrees/$WORKTREE_NAME"
+            if [ -d "$CONTAINER_PATH" ]; then
+                export GIT_DIR="$CONTAINER_PATH"
+                export GIT_WORK_TREE="$(dirname "$GIT_FILE")"
+            fi
+            ;;
+    esac
+fi
+
+# Run the real git command
+exec /usr/bin/git "$@"
+GITWRAPPER
+
+    chmod +x /home/node/.npm-global/bin/git
+    echo "Git wrapper installed for worktree path translation"
+}
+
+# Set up git wrapper for worktree path translation
+setup_git_wrapper
 
 # Copy Claude credentials from workspace to home (each container gets its own copy)
 if [ -f "/workspace/.claude.json" ]; then
     cp /workspace/.claude.json /home/node/.claude.json
     echo "Claude credentials copied"
+fi
+
+# Configure git to use GitHub token for authentication
+# Check for token in environment or get from gh CLI
+TOKEN=""
+if [ -n "$GITHUB_TOKEN" ]; then
+    TOKEN="$GITHUB_TOKEN"
+    echo "Using GITHUB_TOKEN from environment"
+elif [ -n "$GH_TOKEN" ]; then
+    TOKEN="$GH_TOKEN"
+    echo "Using GH_TOKEN from environment"
+elif command -v gh &> /dev/null && gh auth status &>/dev/null; then
+    TOKEN=$(gh auth token 2>/dev/null)
+    if [ -n "$TOKEN" ]; then
+        echo "Using token from gh CLI"
+        export GH_TOKEN="$TOKEN"
+    fi
+fi
+
+if [ -n "$TOKEN" ]; then
+    # Store token in a file for the credential helper (avoids env var issues)
+    echo "$TOKEN" > /home/node/.github-token
+    chmod 600 /home/node/.github-token
+
+    # Configure git credential helper to read token from file
+    git config --global credential.helper "!f() { echo \\"username=x-access-token\\"; echo \\"password=\\$(cat /home/node/.github-token)\\"; }; f"
+
+    # Convert SSH URLs to HTTPS (SCP style: git@github.com:user/repo.git)
+    git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+    # Configure gh CLI to use the token
+    echo "$TOKEN" | gh auth login --with-token 2>/dev/null && echo "gh CLI authenticated" || echo "gh CLI auth (optional)"
+
+    echo "Git configured for GitHub push via HTTPS"
+else
+    echo "Warning: No GitHub token found, push to GitHub will require manual auth"
 fi
 
 # Check if prlt is already installed globally (via npm from GitHub Packages)

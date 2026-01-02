@@ -1,5 +1,6 @@
 import { Command, Args, Flags } from '@oclif/core';
 import * as path from 'path';
+import * as fs from 'fs';
 import Database from 'better-sqlite3';
 import inquirer from 'inquirer';
 import {
@@ -150,7 +151,39 @@ export default class WorkReady extends Command {
       const shouldCreatePR = flags.pr || (!flags['no-pr'] && await this.shouldOfferPRCreation());
 
       if (shouldCreatePR) {
-        prUrl = await this.handlePRCreation(ticket, flags.draft);
+        // Get branch and worktree path from the execution record
+        const branch = runningExecution?.branch;
+        const agentName = runningExecution?.agentName;
+        let worktreePath: string | undefined;
+
+        if (agentName) {
+          // Get agent's worktree path
+          if (process.env.DEVCONTAINER === 'true') {
+            // In devcontainer, look for repo directories inside /workspace
+            const entries = fs.readdirSync('/workspace', { withFileTypes: true });
+            const repoDirs = entries.filter((e) =>
+              e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules'
+            );
+            if (repoDirs.length > 0) {
+              // Use the first repo directory (typically proletariat-{agentName})
+              worktreePath = path.join('/workspace', repoDirs[0].name);
+            }
+          } else {
+            const agentsPath = path.join(workspaceInfo.path, 'agents', 'staff');
+            const agentDir = path.join(agentsPath, agentName);
+            // Look for repo directories inside agent dir
+            const entries = fs.readdirSync(agentDir, { withFileTypes: true });
+            const repoDirs = entries.filter((e) =>
+              e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules'
+            );
+            if (repoDirs.length > 0) {
+              // Use the first repo directory (typically the main worktree)
+              worktreePath = path.join(agentDir, repoDirs[0].name);
+            }
+          }
+        }
+
+        prUrl = await this.handlePRCreation(ticket, flags.draft, branch, worktreePath);
         if (prUrl) {
           // Store PR URL in ticket metadata
           await storage.updateTicket(ticketId!, {
@@ -226,56 +259,77 @@ export default class WorkReady extends Command {
    */
   private async handlePRCreation(
     ticket: { id: string; title: string; description?: string },
-    draft: boolean
+    draft: boolean,
+    branchFromExecution?: string,
+    worktreePath?: string
   ): Promise<string | undefined> {
-    const currentBranch = getCurrentBranch();
+    // Use branch from execution record if available, otherwise try to detect
+    const currentBranch = branchFromExecution || getCurrentBranch();
     if (!currentBranch) {
       this.log(styles.warning('Could not determine current branch. Skipping PR creation.'));
       return undefined;
     }
 
-    const baseBranch = getDefaultBaseBranch();
-
-    // Push branch if needed
-    if (!hasBranchBeenPushed(currentBranch)) {
-      this.log(styles.muted(`   Pushing branch to origin...`));
-      if (!pushBranch(currentBranch)) {
-        this.log(styles.warning('Failed to push branch. Skipping PR creation.'));
-        return undefined;
-      }
-    } else if (hasUnpushedCommits(currentBranch)) {
-      this.log(styles.muted(`   Pushing unpushed commits...`));
-      if (!pushBranch(currentBranch)) {
-        this.log(styles.warning('Failed to push commits. Skipping PR creation.'));
+    // If we have a worktree path, cd to it for git operations
+    const originalCwd = process.cwd();
+    if (worktreePath) {
+      try {
+        process.chdir(worktreePath);
+      } catch {
+        this.log(styles.warning(`Could not access worktree at ${worktreePath}. Skipping PR creation.`));
         return undefined;
       }
     }
 
-    // Generate PR content
-    const prTitle = generatePRTitle(ticket.id, ticket.title);
-    const commits = getCommitLog(baseBranch);
-    const prBody = generatePRBody({
-      ticketId: ticket.id,
-      ticketTitle: ticket.title,
-      ticketDescription: ticket.description,
-      commits: commits.slice(0, 10),
-    });
+    try {
+      const baseBranch = getDefaultBaseBranch();
 
-    // Create PR
-    this.log(styles.muted(`   Creating pull request...`));
-    const result = createPR({
-      title: prTitle,
-      body: prBody,
-      base: baseBranch,
-      draft,
-    });
+      // Push branch if needed
+      if (!hasBranchBeenPushed(currentBranch)) {
+        this.log(styles.muted(`   Pushing branch to origin...`));
+        if (!pushBranch(currentBranch)) {
+          this.log(styles.warning('Failed to push branch. Skipping PR creation.'));
+          return undefined;
+        }
+      } else if (hasUnpushedCommits(currentBranch)) {
+        this.log(styles.muted(`   Pushing unpushed commits...`));
+        if (!pushBranch(currentBranch)) {
+          this.log(styles.warning('Failed to push commits. Skipping PR creation.'));
+          return undefined;
+        }
+      }
 
-    if (!result.success) {
-      this.log(styles.warning(`Failed to create PR: ${result.error}`));
-      return undefined;
+      // Generate PR content
+      const prTitle = generatePRTitle(ticket.id, ticket.title);
+      const commits = getCommitLog(baseBranch);
+      const prBody = generatePRBody({
+        ticketId: ticket.id,
+        ticketTitle: ticket.title,
+        ticketDescription: ticket.description,
+        commits: commits.slice(0, 10),
+      });
+
+      // Create PR
+      this.log(styles.muted(`   Creating pull request...`));
+      const result = createPR({
+        title: prTitle,
+        body: prBody,
+        base: baseBranch,
+        draft,
+      });
+
+      if (!result.success) {
+        this.log(styles.warning(`Failed to create PR: ${result.error}`));
+        return undefined;
+      }
+
+      this.log(styles.success(`   PR #${result.number} created`));
+      return result.url;
+    } finally {
+      // Restore original cwd
+      if (worktreePath) {
+        process.chdir(originalCwd);
+      }
     }
-
-    this.log(styles.success(`   PR #${result.number} created`));
-    return result.url;
   }
 }

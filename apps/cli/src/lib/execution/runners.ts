@@ -87,19 +87,44 @@ function buildPrompt(context: ExecutionContext): string {
     }
   }
 
+  // Add branch instructions
+  if (context.branch && !context.isRevision) {
+    prompt += `\n---\n\n## Before You Start\n\n`
+    prompt += `**IMPORTANT:** You must be on the correct branch before making changes.\n\n`
+    prompt += `\`\`\`bash\n`
+    prompt += `# Create/checkout the target branch from origin/main\n`
+    prompt += `prlt branch create ${context.branch} --from-origin --force\n`
+    prompt += `\`\`\`\n\n`
+    prompt += `**Target branch:** \`${context.branch}\`\n`
+  }
+
+  // Add completion instructions
+  prompt += `\n---\n\n## When Complete\n\n`
+
   // For revisions, just tell agent to push changes
   if (context.isRevision) {
-    prompt += `\n---\n\nAfter addressing the feedback, commit and push your changes.`
+    prompt += `After addressing the feedback:\n`
+    prompt += `1. Commit your changes in each repository you modified\n`
+    prompt += `2. Push your changes: \`git push\`\n`
     prompt += `\nThe PR will be updated automatically.`
   } else {
+    prompt += `1. **Commit your work** in each repository directory you modified:\n`
+    prompt += `   \`\`\`bash\n`
+    prompt += `   cd /workspace/<repo-name>\n`
+    prompt += `   git add -A\n`
+    prompt += `   git commit -m "Your descriptive commit message"\n`
+    prompt += `   git push\n`
+    prompt += `   \`\`\`\n`
+    prompt += `2. **Mark work as ready** by running:\n`
     // Build the work ready command with the appropriate PR flag
     const prFlag = context.createPR ? ' --pr' : ' --no-pr'
-    prompt += `\n---\n\nWhen complete, run: \`prlt work ready ${context.ticketId}${prFlag}\` to move the ticket to review`
+    prompt += `   \`\`\`bash\n   prlt work ready ${context.ticketId}${prFlag}\n   \`\`\`\n`
     if (context.createPR) {
-      prompt += ` and create a pull request.`
+      prompt += `   This moves the ticket to review and creates a pull request.\n`
     } else {
-      prompt += `.`
+      prompt += `   This moves the ticket to review.\n`
     }
+    prompt += `\n**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`
   }
 
   return prompt
@@ -516,10 +541,40 @@ export function isDockerRunning(): boolean {
 // =============================================================================
 
 /**
+ * Clean up old prompt files from the worktree.
+ * This is called before writing a new prompt file to prevent accumulation
+ * of stale prompt files from failed or interrupted executions.
+ */
+function cleanupOldPromptFiles(worktreePath: string, ticketId?: string): void {
+  try {
+    const files = fs.readdirSync(worktreePath)
+    const pattern = ticketId
+      ? new RegExp(`^\\.prlt-prompt-${ticketId}-\\d+\\.txt$`)
+      : /^\.prlt-prompt-.*\.txt$/
+
+    for (const file of files) {
+      if (pattern.test(file)) {
+        try {
+          fs.unlinkSync(path.join(worktreePath, file))
+        } catch {
+          // Ignore individual file deletion errors
+        }
+      }
+    }
+  } catch {
+    // Ignore errors reading directory - may not exist yet
+  }
+}
+
+/**
  * Write prompt to a file inside the worktree so the container can access it.
  * Returns the path to the prompt file (relative to worktree for container access).
+ * Cleans up old prompt files for the same ticket before writing.
  */
 function writePromptFile(context: ExecutionContext): { hostPath: string; containerPath: string } {
+  // Clean up old prompt files for this ticket before creating a new one
+  cleanupOldPromptFiles(context.worktreePath, context.ticketId)
+
   const prompt = buildPrompt(context)
   const filename = `.prlt-prompt-${context.ticketId}-${Date.now()}.txt`
   const hostPath = path.join(context.worktreePath, filename)
@@ -575,7 +630,8 @@ function buildDevcontainerCommand(
   promptFile: string,
   containerId?: string,
   outputMode: OutputMode = 'interactive',
-  sandboxed: boolean = true
+  sandboxed: boolean = true,
+  displayMode: DisplayMode = 'foreground'
 ): string {
   // Get base command (just 'claude' for claude-code)
   let baseCmd: string
@@ -607,7 +663,10 @@ function buildDevcontainerCommand(
 
   // If we have a container ID, use docker exec for streaming
   if (containerId) {
-    return `docker exec -it ${containerId} bash -c '${cdCmd}${baseCmd} ${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}'`
+    // Use -it flags only for terminal/foreground modes where a TTY is available
+    // Background mode runs without a TTY, so -it flags would cause "not a TTY" error
+    const ttyFlags = displayMode === 'background' ? '' : '-it '
+    return `docker exec ${ttyFlags}${containerId} bash -c '${cdCmd}${baseCmd} ${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}'`
   }
 
   // Fallback to devcontainer exec (no streaming, but works)
@@ -683,10 +742,28 @@ export async function runDevcontainer(
 
     // Set environment variables for devcontainer mounts
     // PRLT_HQ_PATH: allows agent to access the HQ database and run `prlt ticket complete`
+    // PRLT_PMO_PATH: allows agent to access the PMO (can be anywhere, e.g., /hq/repos/myrepo/pmo)
     // PRLT_REPO_PATH: mounts the entire proletariat repo into the container (until prlt is on npm)
     const env = { ...process.env }
     if (context.hqPath) {
       env.PRLT_HQ_PATH = context.hqPath
+    }
+    if (context.pmoPath) {
+      env.PRLT_PMO_PATH = context.pmoPath
+    }
+
+    // Ensure GitHub token is available for git push operations
+    // Try to get token from gh CLI if not already in environment
+    if (!env.GITHUB_TOKEN && !env.GH_TOKEN) {
+      try {
+        const token = execSync('gh auth token', { encoding: 'utf-8', stdio: 'pipe' }).trim()
+        if (token) {
+          env.GITHUB_TOKEN = token
+          env.GH_TOKEN = token
+        }
+      } catch {
+        // gh CLI not authenticated or not installed, container will warn about no token
+      }
     }
     // Set repo path to the proletariat monorepo (auto-detect from current CLI location)
     // We mount the entire repo so node_modules resolution works correctly
@@ -715,27 +792,46 @@ export async function runDevcontainer(
     }
 
     // Write prompt to file in worktree (accessible by container)
-    const { containerPath: promptFile } = writePromptFile(context)
+    const { hostPath: promptHostPath, containerPath: promptFile } = writePromptFile(context)
 
     // Get container ID for docker exec (enables streaming output with TTY)
     const containerId = getDevcontainerContainerId(context.agentDir)
 
     // Build the devcontainer exec command
-    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId || undefined, config.outputMode, config.sandboxed)
+    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId || undefined, config.outputMode, config.sandboxed, displayMode)
 
     // Execute based on display mode
+    let result: RunnerResult
     switch (displayMode) {
       case 'terminal':
-        return runDevcontainerInTerminal(context, devcontainerCmd, config)
+        result = await runDevcontainerInTerminal(context, devcontainerCmd, config)
+        break
       case 'background':
-        return runDevcontainerInBackground(context, devcontainerCmd)
+        result = await runDevcontainerInBackground(context, devcontainerCmd)
+        break
       case 'tmux':
-        return runDevcontainerInTmux(context, devcontainerCmd, config)
+        result = await runDevcontainerInTmux(context, devcontainerCmd, config)
+        break
       case 'foreground':
       default:
-        return runDevcontainerForeground(context, devcontainerCmd)
+        result = await runDevcontainerForeground(context, devcontainerCmd)
+        break
     }
+
+    // Clean up prompt file if execution failed to start
+    // (successful executions clean up the file themselves via the command)
+    if (!result.success && fs.existsSync(promptHostPath)) {
+      try {
+        fs.unlinkSync(promptHostPath)
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+
+    return result
   } catch (error) {
+    // Clean up any orphaned prompt files on error
+    cleanupOldPromptFiles(context.worktreePath, context.ticketId)
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to run in devcontainer',

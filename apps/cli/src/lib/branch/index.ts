@@ -247,19 +247,47 @@ export function branchExists(name: string, cwd?: string): boolean {
 
 /**
  * Create a new branch.
+ * @param startPoint - Optional starting point (e.g., 'origin/main')
  */
-export function createBranch(name: string, cwd?: string, checkout = true): void {
+export function createBranch(name: string, cwd?: string, checkout = true, startPoint?: string): void {
+  const startArg = startPoint ? ` ${startPoint}` : ''
   if (checkout) {
-    execSync(`git checkout -b ${name}`, {
+    execSync(`git checkout -b ${name}${startArg}`, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
   } else {
-    execSync(`git branch ${name}`, {
+    execSync(`git branch ${name}${startArg}`, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
   }
+}
+
+/**
+ * Fetch from origin.
+ */
+export function fetchOrigin(ref?: string, cwd?: string): boolean {
+  try {
+    const refArg = ref ? ` ${ref}` : ''
+    execSync(`git fetch origin${refArg}`, {
+      cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Switch to an existing branch.
+ */
+export function checkoutBranch(name: string, cwd?: string): void {
+  execSync(`git checkout ${name}`, {
+    cwd,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
 }
 
 /**

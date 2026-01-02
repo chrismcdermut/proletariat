@@ -7,7 +7,8 @@
 
 import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
-import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell } from './types.js'
+import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell, DisplayMode, OutputMode, ExecutionEnvironment } from './types.js'
+import { isGHInstalled, isGHAuthenticated } from '../pr/index.js'
 
 const SETTINGS_TABLE = 'workspace_settings'
 
@@ -252,4 +253,145 @@ export async function getShell(db: Database.Database): Promise<Shell> {
 
   // First time - prompt user
   return promptShellPreference(db)
+}
+
+// =============================================================================
+// Execution Prompt Options
+// =============================================================================
+
+export interface ExecutionPromptOptions {
+  /** Display mode selected by user */
+  displayMode: DisplayMode
+  /** Environment selected by user */
+  environment: ExecutionEnvironment
+  /** Skip output mode prompt and use this value instead */
+  outputMode?: OutputMode
+  /** Skip permission prompt and use this value instead */
+  skipPermissions?: boolean
+  /** Skip PR prompt and use this value instead */
+  createPR?: boolean
+  /** Force re-prompt for terminal preferences */
+  reconfigure?: boolean
+  /** Log function for status messages */
+  log?: (msg: string) => void
+}
+
+export interface ExecutionPromptResult {
+  /** Execution config with terminal/shell/output settings */
+  executionConfig: ExecutionConfig
+  /** Whether to skip permission checks */
+  skipPermissions: boolean
+  /** Whether to create PR when work is ready */
+  createPR: boolean
+}
+
+/**
+ * Prompt for all execution settings in a consistent way.
+ * Used by work start, work spawn, and work watch commands.
+ */
+export async function promptExecutionSettings(
+  db: Database.Database,
+  options: ExecutionPromptOptions
+): Promise<ExecutionPromptResult> {
+  const { displayMode, environment, log = () => {} } = options
+
+  // Load execution config from database
+  const executionConfig = loadExecutionConfig(db)
+
+  // If terminal display mode, ensure terminal and shell preferences are set (prompts on first use)
+  const needsTerminalConfig = displayMode === 'terminal'
+  if (needsTerminalConfig) {
+    const needsTerminal = !hasTerminalPreference(db)
+    const needsShell = !hasShellPreference(db)
+
+    // First-time setup header
+    if ((needsTerminal || needsShell) && !options.reconfigure) {
+      log('First-time execution setup')
+      log('')
+    }
+
+    let terminalApp: TerminalApp
+    let shell: Shell
+
+    if (options.reconfigure) {
+      terminalApp = await promptTerminalPreference(db)
+      shell = await promptShellPreference(db)
+    } else {
+      terminalApp = await getTerminalApp(db)
+      shell = await getShell(db)
+    }
+
+    executionConfig.terminal.app = terminalApp
+    executionConfig.shell = shell
+  }
+
+  // Prompt for output mode (interactive vs print)
+  // Only show this for display modes where streaming makes sense (terminal, tmux, foreground)
+  let outputMode: OutputMode = options.outputMode ?? DEFAULT_EXECUTION_CONFIG.outputMode
+  const streamingDisplayModes: DisplayMode[] = ['terminal', 'tmux', 'foreground']
+
+  if (options.outputMode === undefined && streamingDisplayModes.includes(displayMode)) {
+    const { selectedOutputMode } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'selectedOutputMode',
+        message: 'How should Claude display output?',
+        choices: [
+          { name: 'interactive  - Watch Claude work in real-time (streaming UI)', value: 'interactive' },
+          { name: 'print        - Show final result only (better for logs)', value: 'print' },
+        ],
+        default: 'interactive',
+      },
+    ])
+    outputMode = selectedOutputMode as OutputMode
+  }
+  executionConfig.outputMode = outputMode
+
+  // Prompt for permissions mode (unless flag override is provided)
+  let skipPermissions = options.skipPermissions ?? false
+  if (options.skipPermissions === undefined) {
+    const containerNote = (environment === 'devcontainer' || environment === 'docker')
+      ? ' (container provides additional isolation)'
+      : ''
+    const { permissionMode } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'permissionMode',
+        message: `Permission mode for Claude Code${containerNote}:`,
+        choices: [
+          { name: '🔒 safe   - Requires approval for dangerous operations (recommended)', value: 'safe' },
+          { name: '⚠️  danger - Skip permission checks (--dangerously-skip-permissions)', value: 'danger' },
+        ],
+        default: 'safe',
+      },
+    ])
+    skipPermissions = permissionMode === 'danger'
+  }
+
+  // Prompt for PR creation when work is complete (unless flag override is provided)
+  let createPR = options.createPR ?? false
+  if (options.createPR === undefined) {
+    const ghAvailable = isGHInstalled() && isGHAuthenticated()
+    if (ghAvailable) {
+      const { prChoice } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'prChoice',
+          message: 'Create a pull request when work is ready?',
+          choices: [
+            { name: '✓ Yes - Create PR when running `prlt work ready`', value: 'yes' },
+            { name: '✗ No  - Just move ticket to review (can create PR later)', value: 'no' },
+          ],
+          default: 'yes',
+        },
+      ])
+      createPR = prChoice === 'yes'
+    }
+  }
+
+  return {
+    executionConfig,
+    skipPermissions,
+    createPR,
+  }
 }

@@ -15,6 +15,8 @@ import {
   createBranch,
   createEmptyCommit,
   isGitRepo,
+  fetchOrigin,
+  checkoutBranch,
 } from '../../lib/branch/index.js'
 
 export default class BranchCreate extends Command {
@@ -55,6 +57,16 @@ export default class BranchCreate extends Command {
     }),
     'no-switch': Flags.boolean({
       description: 'Create branch without switching to it',
+      default: false,
+    }),
+    'from-origin': Flags.boolean({
+      char: 'o',
+      description: 'Fetch and create branch from origin/main',
+      default: false,
+    }),
+    force: Flags.boolean({
+      char: 'f',
+      description: 'Non-interactive mode: skip prompts, switch to existing branch if it exists',
       default: false,
     }),
   }
@@ -124,8 +136,29 @@ export default class BranchCreate extends Command {
       branchName = wizardResult
     }
 
+    // Fetch from origin if requested
+    if (flags['from-origin']) {
+      this.log(styles.muted('Fetching from origin/main...'))
+      if (!fetchOrigin('main')) {
+        if (!flags.force) {
+          this.warn('Could not fetch from origin/main, using local state')
+        }
+      }
+    }
+
     // Check if branch exists
     if (branchExists(branchName)) {
+      if (flags.force) {
+        // In force mode, just switch to the existing branch
+        this.log(styles.muted(`Branch "${branchName}" exists, switching to it...`))
+        try {
+          checkoutBranch(branchName)
+          this.log(styles.success(`✅ Switched to branch: ${branchName}`))
+          return
+        } catch (error) {
+          this.error(`Failed to switch to branch: ${error instanceof Error ? error.message : error}`)
+        }
+      }
       this.error(`Branch "${branchName}" already exists.`)
     }
 
@@ -134,7 +167,8 @@ export default class BranchCreate extends Command {
     this.log(styles.success(`✅ Creating branch: ${branchName}`))
 
     try {
-      createBranch(branchName, undefined, !flags['no-switch'])
+      const startPoint = flags['from-origin'] ? 'origin/main' : undefined
+      createBranch(branchName, undefined, !flags['no-switch'], startPoint)
 
       if (flags['no-switch']) {
         this.log(styles.muted(`   Created branch (not switched)`))

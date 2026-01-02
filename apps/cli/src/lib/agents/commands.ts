@@ -17,6 +17,8 @@ import {
 } from '../database/index.js';
 import { THEMES } from '../themes.js';
 import { getPMOContext } from '../pmo/index.js';
+import { ExecutionStorage } from '../execution/storage.js';
+import Database from 'better-sqlite3';
 
 export interface AgentStatus {
   name: string;
@@ -178,22 +180,10 @@ export async function selectExistingAgentsInteractively(workspaceInfo: Workspace
 export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string): AgentStatus {
   const agentDir = path.join(workspaceInfo.agentsPath, agentName);
   const dirExists = fs.existsSync(agentDir);
-  
-  // Check if agent has valid worktrees, not just if directory exists
-  let hasValidWorktrees = false;
-  if (dirExists && workspaceInfo.repositories.length > 0) {
-    // Check if all expected repository worktrees exist and are valid git directories
-    hasValidWorktrees = workspaceInfo.repositories.every(repo => {
-      const repoWorktreePath = path.join(agentDir, repo.name);
-      const gitFile = path.join(repoWorktreePath, '.git');
-      return fs.existsSync(repoWorktreePath) && fs.existsSync(gitFile);
-    });
-  } else if (dirExists && workspaceInfo.repositories.length === 0) {
-    // For HQ mode with no repos, just having the directory is sufficient
-    hasValidWorktrees = true;
-  }
-  
-  const exists = dirExists && hasValidWorktrees;
+
+  // Agent exists if it's in the database - the source of truth
+  const agentRecord = workspaceInfo.agents.find(a => a.name === agentName);
+  const exists = !!agentRecord;
   
   const status: AgentStatus = {
     name: agentName,
@@ -223,7 +213,9 @@ export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string):
 
   // Get repository status
   status.repositories = workspaceInfo.repositories.map(repo => {
-    const repoPath = path.join(agentDir, repo.name);
+    // Worktree naming convention: {repoName}-{agentName}
+    const worktreeDirName = `${repo.name}-${agentName}`;
+    const repoPath = path.join(agentDir, worktreeDirName);
     const repoExists = fs.existsSync(repoPath);
     
     let repoStatus = 'missing';
@@ -262,28 +254,30 @@ export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string):
     };
   });
 
-  // Get last activity from database
-  const agentRecord = workspaceInfo.agents.find(a => a.name === agentName);
+  // Get last activity from database (agentRecord already found above)
   if (agentRecord?.last_activity) {
     status.lastActivity = new Date(agentRecord.last_activity);
   }
 
-  // Get ticket assignments (if PMO enabled)
-  if (workspaceInfo.hasPMO) {
-    try {
-      const ticketsFile = path.join(workspaceInfo.path, 'pmo', 'tickets.json');
-      if (fs.existsSync(ticketsFile)) {
-        const tickets = JSON.parse(fs.readFileSync(ticketsFile, 'utf-8'));
-        status.assignedTickets = tickets
-          .filter((t: any) => t.assignee === agentName && t.status !== 'done')
-          .map((t: any) => t.id);
-        status.completedTickets = tickets
-          .filter((t: any) => t.assignee === agentName && t.status === 'done')
-          .map((t: any) => t.id);
-      }
-    } catch {
-      // Ignore ticket loading errors
+  // Get active tickets from execution storage (running/in-progress work)
+  try {
+    const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db');
+    if (fs.existsSync(dbPath)) {
+      const db = new Database(dbPath);
+      const executionStorage = new ExecutionStorage(db);
+      const runningExecutions = executionStorage.getAgentRunningExecutions(agentName);
+      status.assignedTickets = runningExecutions.map(exec => exec.ticketId);
+
+      // Get completed executions from recent history
+      const recentExecutions = executionStorage.listExecutions({ agentName, status: 'completed' });
+      status.completedTickets = recentExecutions
+        .map(exec => exec.ticketId)
+        .filter((id: string, index: number, arr: string[]) => arr.indexOf(id) === index); // unique
+
+      db.close();
     }
+  } catch {
+    // Ignore execution storage errors
   }
 
   return status;
@@ -375,7 +369,22 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
   for (const agentName of agentNames) {
     try {
       const agentDir = path.join(workspaceInfo.agentsPath, agentName);
-      
+
+      // Stop and remove Docker container if it exists
+      try {
+        const containerId = execSync(
+          `docker ps -aq --filter "label=devcontainer.local_folder=${agentDir}"`,
+          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+        ).trim();
+
+        if (containerId) {
+          execSync(`docker stop ${containerId}`, { stdio: 'pipe' });
+          execSync(`docker rm ${containerId}`, { stdio: 'pipe' });
+        }
+      } catch {
+        // Container might not exist, ignore errors
+      }
+
       if (fs.existsSync(agentDir)) {
         // Remove worktrees for each repository
         for (const repo of workspaceInfo.repositories) {

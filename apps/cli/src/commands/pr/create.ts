@@ -93,28 +93,30 @@ export default class PRCreate extends Command {
       return;
     }
 
-    // Get workspace and PMO context
+    // Get workspace and PMO context (optional - PR creation works without it)
     let workspaceInfo;
+    let storage: Awaited<ReturnType<typeof getPMOContext>>['storage'] | null = null;
+    let db: Database.Database | null = null;
+
     try {
       workspaceInfo = getWorkspaceInfo();
+      const pmoContext = await getPMOContext(
+        undefined,
+        (msg) => this.log(styles.muted(msg)),
+        true
+      );
+      storage = pmoContext.storage;
+      db = new Database(path.join(workspaceInfo.path, '.proletariat', 'workspace.db'));
     } catch {
-      this.error('Not in a workspace. Run "prlt init" first.');
+      // No workspace - that's fine, we can still create PRs
+      this.log(styles.muted('   No workspace found - creating PR without ticket linking'));
     }
-
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    );
-
-    const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db');
-    const db = new Database(dbPath);
 
     try {
       // Determine ticket ID
       let ticketId = args.ticketId;
 
-      if (!ticketId && !flags['no-link']) {
+      if (!ticketId && !flags['no-link'] && storage) {
         // Try to extract ticket ID from branch name (e.g., feat/agent/TKT-001-description)
         const ticketMatch = currentBranch.match(/(TKT-\d+)/i);
         if (ticketMatch) {
@@ -125,7 +127,7 @@ export default class PRCreate extends Command {
 
       // Get ticket info if available
       let ticket: { id: string; title: string; description?: string } | null = null;
-      if (ticketId) {
+      if (ticketId && storage) {
         ticket = await storage.getTicket(ticketId);
         if (!ticket) {
           this.warn(`Ticket "${ticketId}" not found. Continuing without ticket link.`);
@@ -133,15 +135,15 @@ export default class PRCreate extends Command {
         }
       }
 
-      // If no ticket, prompt for selection
-      if (!ticketId && !flags['no-link']) {
+      // If no ticket, prompt for selection (only if we have storage)
+      if (!ticketId && !flags['no-link'] && storage) {
         const allTickets = await storage.listTickets();
         const inProgressTickets = allTickets.filter(t =>
           t.column && t.column.toLowerCase().includes('progress')
         );
 
         if (inProgressTickets.length > 0) {
-          const { selectedTicketId, skipLink } = await inquirer.prompt([
+          const { selectedTicketId } = await inquirer.prompt([
             {
               type: 'list',
               name: 'selectedTicketId',
@@ -223,7 +225,7 @@ export default class PRCreate extends Command {
       }
 
       // Store PR URL in ticket metadata
-      if (ticket && result.url) {
+      if (ticket && result.url && storage) {
         await storage.updateTicket(ticket.id, {
           metadata: {
             pr_url: result.url,
@@ -232,8 +234,8 @@ export default class PRCreate extends Command {
         });
       }
 
-      await storage.close();
-      db.close();
+      if (storage) await storage.close();
+      if (db) db.close();
 
       this.log('');
       this.log(styles.success(`Pull request created!`));
@@ -243,8 +245,8 @@ export default class PRCreate extends Command {
         this.log(styles.muted(`   Linked to: ${ticket.id}`));
       }
     } catch (error) {
-      await storage.close();
-      db.close();
+      if (storage) await storage.close();
+      if (db) db.close();
       throw error;
     }
   }

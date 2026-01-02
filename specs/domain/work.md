@@ -16,6 +16,8 @@ Work tracks the execution of tickets by agents. It includes claiming tickets, st
 | Claim ticket | Claim ownership of a ticket, making the user accountable | `updateTicket()` | `prlt work claim` | `POST /api/work/claim` | `ClaimButton` | - |
 | Assign ticket | Assign a ticket to an agent or human for execution | `updateTicket()` | `prlt work assign` | `POST /api/work/assign` | `AssignDropdown` | `frontmatter` |
 | Start work | Start an agent session to work on a ticket | `createExecution()` | `prlt work start` | `POST /api/work/start` | `StartButton` | - |
+| Spawn column | Spawn agents for all tickets in a column | `createExecution()` | `prlt work spawn` | `POST /api/work/spawn` | `SpawnButton` | - |
+| Watch column | Auto-spawn agents when new tickets enter a column | `createExecution()` | `prlt work watch` | - | - | - |
 | Mark ready | Mark agent's work as ready for human review | `updateExecution()` | `prlt work ready` | `POST /api/work/ready` | `ReadyButton` | - |
 | Revise work | Spawn an agent to address PR feedback | `createExecution()` | `prlt work revise [ticketId]` | - | - | - |
 | Complete work | Mark the execution as complete and close the session | `updateExecution()` | `prlt work complete` | `POST /api/work/complete` | `CompleteButton` | - |
@@ -25,6 +27,25 @@ Work tracks the execution of tickets by agents. It includes claiming tickets, st
 
 ### CLI Flags
 
+**Spawn column** (`prlt work spawn`):
+- `--column`, `-c`: Column to spawn tickets from (required)
+- `--strategy`, `-s`: Agent selection strategy (round-robin, least-busy, random)
+- `--agent`, `-a`: Use specific agent for all tickets
+- `--limit`, `-l`: Maximum number of tickets to spawn
+- `--dry-run`: Show what would be spawned without executing
+- `--skip-permissions`: Skip permission prompts (danger mode)
+- `--create-pr`: Create PR when work is ready
+
+**Watch column** (`prlt work watch`):
+- `--column`, `-c`: Column to watch for new tickets (required)
+- `--strategy`, `-s`: Agent selection strategy (round-robin, least-busy, random)
+- `--agent`, `-a`: Use specific agent for all tickets
+- `--limit`, `-l`: Maximum concurrent executions
+- `--interval`, `-i`: Polling interval in seconds (default: 5)
+- `--once`: Check once and exit (no continuous watching)
+- `--skip-permissions`: Skip permission prompts (danger mode)
+- `--create-pr`: Create PR when work is ready
+
 **Mark ready** (`prlt work ready`):
 - `--pr`: Create a pull request for this work
 - `--draft`: Create PR as draft (only with --pr)
@@ -33,6 +54,16 @@ Work tracks the execution of tickets by agents. It includes claiming tickets, st
 **Revise work** (`prlt work revise`):
 - `--force`, `-f`: Proceed even if no pending feedback
 - `--agent`, `-a`: Agent to perform the work
+
+### Agent Selection Strategies
+
+When spawning multiple agents (`work spawn` or `work watch`):
+
+| Strategy | Description |
+|----------|-------------|
+| `round-robin` | Cycle through available agents in order (default) |
+| `least-busy` | Select agent with fewest historical executions |
+| `random` | Random selection from available agent pool |
 
 ### Revise Work Flow
 
