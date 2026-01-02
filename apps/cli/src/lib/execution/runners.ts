@@ -92,9 +92,8 @@ function buildPrompt(context: ExecutionContext): string {
     prompt += `\n---\n\n## Before You Start\n\n`
     prompt += `**IMPORTANT:** You must be on the correct branch before making changes.\n\n`
     prompt += `\`\`\`bash\n`
-    prompt += `# Fetch latest and create/checkout the target branch\n`
-    prompt += `git fetch origin main:main 2>/dev/null || true\n`
-    prompt += `git checkout -b ${context.branch} main 2>/dev/null || git checkout -b ${context.branch} 2>/dev/null || git checkout ${context.branch}\n`
+    prompt += `# Create/checkout the target branch from origin/main\n`
+    prompt += `prlt branch create ${context.branch} --from-origin --force\n`
     prompt += `\`\`\`\n\n`
     prompt += `**Target branch:** \`${context.branch}\`\n`
   }
