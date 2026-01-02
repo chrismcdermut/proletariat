@@ -43,6 +43,18 @@ export {
 export { findPMO } from './find-pmo.js';
 export { getPMOContext, type PMOContext } from './pmo-context.js';
 export {
+  getOrInitHooksManager,
+  createTicketWithHooks,
+  updateTicketWithHooks,
+  moveTicketWithHooks,
+  deleteTicketWithHooks,
+  createEpicWithHooks,
+  updateEpicWithHooks,
+  deleteEpicWithHooks,
+  findWorkspaceFromPMO,
+  type PMOContextWithHooks,
+} from './hooks-integration.js';
+export {
   PMO_TABLES,
   PMO_TABLE_SCHEMAS,
   PMO_INDEXES,
