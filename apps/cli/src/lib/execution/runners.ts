@@ -714,7 +714,12 @@ export async function runDevcontainer(
   if (!fs.existsSync(devcontainerJson)) {
     return {
       success: false,
-      error: `No devcontainer.json found at ${devcontainerPath}. Run 'prlt agents add' to set up the agent with devcontainer config.`,
+      error: `No devcontainer.json found at:\n  ${devcontainerPath}\n\n` +
+        `A devcontainer configuration is required to run agents in a sandboxed container.\n\n` +
+        `To set up the agent with devcontainer support:\n` +
+        `  prlt agents add ${context.agentName}\n\n` +
+        `Or to run directly on your machine (bypasses sandbox):\n` +
+        `  prlt work start ${context.ticketId} --run-on-host`,
     }
   }
 
@@ -725,7 +730,12 @@ export async function runDevcontainer(
     } catch {
       return {
         success: false,
-        error: 'devcontainer CLI not found. Install with: npm install -g @devcontainers/cli',
+        error: `The devcontainer CLI is not installed.\n\n` +
+          `The devcontainer CLI is required to run agents in sandboxed containers.\n\n` +
+          `To install it:\n` +
+          `  npm install -g @devcontainers/cli\n\n` +
+          `Or to run directly on your machine (bypasses sandbox):\n` +
+          `  prlt work start ${context.ticketId} --run-on-host`,
       }
     }
 
@@ -733,7 +743,14 @@ export async function runDevcontainer(
     if (!isDockerRunning()) {
       return {
         success: false,
-        error: 'Docker is not running. Please start Docker Desktop and try again.',
+        error: `Docker is not running.\n\n` +
+          `Docker is required for devcontainer execution to provide agent sandboxing.\n\n` +
+          `To fix this:\n` +
+          `  1. Start Docker Desktop\n` +
+          `  2. Wait for Docker to fully start (check the Docker icon in your menu bar)\n` +
+          `  3. Try again: prlt work start ${context.ticketId}\n\n` +
+          `Or to run directly on your machine (bypasses sandbox):\n` +
+          `  prlt work start ${context.ticketId} --run-on-host`,
       }
     }
 
@@ -785,9 +802,22 @@ export async function runDevcontainer(
         env,
       })
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
       return {
         success: false,
-        error: `Failed to start devcontainer: ${error instanceof Error ? error.message : error}`,
+        error: `Failed to start devcontainer.\n\n` +
+          `Error: ${errorMessage}\n\n` +
+          `Common causes:\n` +
+          `  • Docker is not running or not responding\n` +
+          `  • Invalid devcontainer.json configuration\n` +
+          `  • Missing base image or network issues pulling images\n` +
+          `  • Insufficient disk space or memory\n\n` +
+          `To troubleshoot:\n` +
+          `  1. Check Docker is running: docker info\n` +
+          `  2. Validate devcontainer config: devcontainer up --workspace-folder "${context.agentDir}"\n` +
+          `  3. Check Docker logs for more details\n\n` +
+          `Or to run directly on your machine (bypasses sandbox):\n` +
+          `  prlt work start ${context.ticketId} --run-on-host`,
       }
     }
 
@@ -1146,7 +1176,12 @@ export async function runDocker(
     if (!isDockerRunning()) {
       return {
         success: false,
-        error: 'Docker is not running. Please start Docker Desktop and try again.',
+        error: `Docker is not running.\n\n` +
+          `Docker is required for container execution mode.\n\n` +
+          `To fix this:\n` +
+          `  1. Start Docker Desktop\n` +
+          `  2. Wait for Docker to fully start (check the Docker icon in your menu bar)\n` +
+          `  3. Try again: prlt work start ${context.ticketId}`,
       }
     }
 

@@ -234,9 +234,16 @@ export default class WorkStart extends Command {
       if (!agentInfo) {
         await storage.close()
         db.close()
+        const registeredAgents = workspaceInfo.agents.map(a => a.name)
+        const agentListMsg = registeredAgents.length > 0
+          ? `Registered agents: ${registeredAgents.join(', ')}`
+          : 'No agents registered yet.'
         this.error(
-          `Agent "${assignedAgent}" not found in workspace.\n` +
-            `Add agent first with "prlt agents add ${assignedAgent}"`
+          `Agent "${assignedAgent}" not found in workspace registry.\n\n` +
+            `${agentListMsg}\n\n` +
+            `To add a new agent:\n` +
+            `  prlt agents add ${assignedAgent}\n\n` +
+            `This will create an agent directory with a worktree and devcontainer configuration.`
         )
       }
 
@@ -273,8 +280,13 @@ export default class WorkStart extends Command {
         await storage.close()
         db.close()
         this.error(
-          `Agent directory not found at ${agentDir}.\n` +
-            `Create agent with "prlt agents add ${assignedAgent}"`
+          `Agent directory not found at:\n  ${agentDir}\n\n` +
+            `The agent "${assignedAgent}" is registered in the workspace, but its directory is missing.\n` +
+            `This can happen if the directory was manually deleted or moved.\n\n` +
+            `To fix this, re-add the agent:\n` +
+            `  prlt agents add ${assignedAgent}\n\n` +
+            `Or remove the agent from the registry if it's no longer needed:\n` +
+            `  prlt agents remove ${assignedAgent}`
         )
       }
 
