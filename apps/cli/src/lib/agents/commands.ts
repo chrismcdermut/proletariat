@@ -15,16 +15,13 @@ import {
   Agent,
   Repository
 } from '../database/index.js';
-import { THEMES } from '../themes.js';
+import { DEFAULT_AGENTS_DIR, isValidAgentName, getSuggestedAgentNames } from '../themes.js';
 import { getPMOContext } from '../pmo/index.js';
-import { ExecutionStorage } from '../execution/storage.js';
-import Database from 'better-sqlite3';
 
 export interface AgentStatus {
   name: string;
   exists: boolean;
   branch?: string;
-  lastActivity?: Date;
   assignedTickets: string[];
   completedTickets: string[];
   repositories: { name: string; status: string; commitsAhead: number }[];
@@ -33,7 +30,6 @@ export interface AgentStatus {
 export interface WorkspaceInfo {
   path: string;
   type: 'hq' | 'workspace';
-  theme: string;
   workspaceName: string;
   hasPMO: boolean;
   agents: Agent[];
@@ -59,16 +55,14 @@ export function getWorkspaceInfo(): WorkspaceInfo {
         if (config) {
           const agents = getWorkspaceAgents(hqPath);
           const repositories = getWorkspaceRepositories(hqPath);
-          const themeConfig = THEMES[config.theme];
 
           const agentsPath = config.type === 'hq'
-            ? path.join(hqPath, 'agents', themeConfig.workspaceDir)
+            ? path.join(hqPath, 'agents', DEFAULT_AGENTS_DIR)
             : hqPath;
 
           return {
             path: hqPath,
             type: config.type,
-            theme: config.theme,
             workspaceName: config.workspace_name,
             hasPMO: config.has_pmo,
             agents,
@@ -93,16 +87,14 @@ export function getWorkspaceInfo(): WorkspaceInfo {
         if (config) {
           const agents = getWorkspaceAgents(currentDir);
           const repositories = getWorkspaceRepositories(currentDir);
-          const themeConfig = THEMES[config.theme];
 
           const agentsPath = config.type === 'hq'
-            ? path.join(currentDir, 'agents', themeConfig.workspaceDir)
+            ? path.join(currentDir, 'agents', DEFAULT_AGENTS_DIR)
             : currentDir;
 
           return {
             path: currentDir,
             type: config.type,
-            theme: config.theme,
             workspaceName: config.workspace_name,
             hasPMO: config.has_pmo,
             agents,
@@ -121,38 +113,42 @@ export function getWorkspaceInfo(): WorkspaceInfo {
 }
 
 /**
- * Get available agents from theme (not yet added to workspace)
+ * Validate agent name
  */
-export function getAvailableAgents(workspaceInfo: WorkspaceInfo): string[] {
-  const themeConfig = THEMES[workspaceInfo.theme];
+export { isValidAgentName } from '../themes.js';
+
+/**
+ * Get suggested agent names (not yet added to workspace)
+ */
+export function getAvailableAgentSuggestions(workspaceInfo: WorkspaceInfo): string[] {
   const existingAgentNames = workspaceInfo.agents.map(a => a.name);
-  return themeConfig.agents.filter(name => !existingAgentNames.includes(name));
+  return getSuggestedAgentNames().filter(name => !existingAgentNames.includes(name));
 }
 
 /**
- * Interactive agent selection from available agents
+ * Interactive agent selection - prompts user for agent names
  */
-export async function selectAgentsInteractively(workspaceInfo: WorkspaceInfo, message: string = 'Select agents:'): Promise<string[]> {
-  const availableAgents = getAvailableAgents(workspaceInfo);
-  
-  if (availableAgents.length === 0) {
-    throw new Error('No available agents to add. All agents from this theme are already in the workspace.');
-  }
+export async function selectAgentsInteractively(workspaceInfo: WorkspaceInfo, message: string = 'Enter agent names:'): Promise<string[]> {
+  const suggestions = getAvailableAgentSuggestions(workspaceInfo);
 
-  const { selected } = await inquirer.prompt([{
-    type: 'checkbox',
-    name: 'selected',
-    message,
-    choices: availableAgents.map(name => ({ name, value: name })),
-    validate: (choices) => {
-      if (choices.length === 0) {
-        return 'No agents selected. Press SPACE to select agents, or ENTER to continue with none.';
+  const { agentNames } = await inquirer.prompt([{
+    type: 'input',
+    name: 'agentNames',
+    message: `${message} (space-separated, e.g., "${suggestions.slice(0, 2).join(' ')}"):`,
+    validate: (input: string) => {
+      if (!input.trim()) {
+        return 'Please enter at least one agent name';
+      }
+      const names = input.trim().split(/\s+/);
+      const invalid = names.filter(n => !isValidAgentName(n));
+      if (invalid.length > 0) {
+        return `Invalid agent names: ${invalid.join(', ')}. Names must be lowercase alphanumeric with optional hyphens/underscores.`;
       }
       return true;
     },
   }]);
 
-  return selected;
+  return agentNames.trim().split(/\s+/).filter((n: string) => n);
 }
 
 /**
@@ -184,7 +180,7 @@ export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string):
   // Agent exists if it's in the database - the source of truth
   const agentRecord = workspaceInfo.agents.find(a => a.name === agentName);
   const exists = !!agentRecord;
-  
+
   const status: AgentStatus = {
     name: agentName,
     exists,
@@ -217,24 +213,24 @@ export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string):
     const worktreeDirName = `${repo.name}-${agentName}`;
     const repoPath = path.join(agentDir, worktreeDirName);
     const repoExists = fs.existsSync(repoPath);
-    
+
     let repoStatus = 'missing';
     let commitsAhead = 0;
-    
+
     if (repoExists) {
       try {
         // Check if clean
-        const gitStatus = execSync('git status --porcelain', { 
-          cwd: repoPath, 
+        const gitStatus = execSync('git status --porcelain', {
+          cwd: repoPath,
           encoding: 'utf-8',
           stdio: 'pipe'
         });
         repoStatus = gitStatus.trim() === '' ? 'clean' : 'dirty';
-        
+
         // Check commits ahead
         try {
-          const ahead = execSync('git rev-list --count HEAD ^origin/main', { 
-            cwd: repoPath, 
+          const ahead = execSync('git rev-list --count HEAD ^origin/main', {
+            cwd: repoPath,
             encoding: 'utf-8',
             stdio: 'pipe'
           }).trim();
@@ -246,7 +242,7 @@ export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string):
         repoStatus = 'error';
       }
     }
-    
+
     return {
       name: repo.name,
       status: repoStatus,
@@ -254,30 +250,22 @@ export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string):
     };
   });
 
-  // Get last activity from database (agentRecord already found above)
-  if (agentRecord?.last_activity) {
-    status.lastActivity = new Date(agentRecord.last_activity);
-  }
-
-  // Get active tickets from execution storage (running/in-progress work)
-  try {
-    const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db');
-    if (fs.existsSync(dbPath)) {
-      const db = new Database(dbPath);
-      const executionStorage = new ExecutionStorage(db);
-      const runningExecutions = executionStorage.getAgentRunningExecutions(agentName);
-      status.assignedTickets = runningExecutions.map(exec => exec.ticketId);
-
-      // Get completed executions from recent history
-      const recentExecutions = executionStorage.listExecutions({ agentName, status: 'completed' });
-      status.completedTickets = recentExecutions
-        .map(exec => exec.ticketId)
-        .filter((id: string, index: number, arr: string[]) => arr.indexOf(id) === index); // unique
-
-      db.close();
+  // Get ticket assignments (if PMO enabled)
+  if (workspaceInfo.hasPMO) {
+    try {
+      const ticketsFile = path.join(workspaceInfo.path, 'pmo', 'tickets.json');
+      if (fs.existsSync(ticketsFile)) {
+        const tickets = JSON.parse(fs.readFileSync(ticketsFile, 'utf-8'));
+        status.assignedTickets = tickets
+          .filter((t: any) => t.assignee === agentName && t.status !== 'done')
+          .map((t: any) => t.id);
+        status.completedTickets = tickets
+          .filter((t: any) => t.assignee === agentName && t.status === 'done')
+          .map((t: any) => t.id);
+      }
+    } catch {
+      // Ignore ticket loading errors
     }
-  } catch {
-    // Ignore execution storage errors
   }
 
   return status;
@@ -291,39 +279,20 @@ export function getAllAgentsStatus(workspaceInfo: WorkspaceInfo): AgentStatus[] 
 }
 
 /**
- * Format time ago string
+ * Validate agent names (must be valid format)
  */
-export function formatTimeAgo(date: Date): string {
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-  
-  if (diffHours < 1) {
-    return '< 1 hour ago';
-  } else if (diffHours < 24) {
-    return `${diffHours} hours ago`;
-  } else {
-    const diffDays = Math.floor(diffHours / 24);
-    return `${diffDays} day(s) ago`;
-  }
-}
-
-/**
- * Validate agent names against theme
- */
-export function validateAgentNames(workspaceInfo: WorkspaceInfo, agentNames: string[]): { valid: string[]; invalid: string[] } {
-  const themeConfig = THEMES[workspaceInfo.theme];
+export function validateAgentNames(agentNames: string[]): { valid: string[]; invalid: string[] } {
   const valid: string[] = [];
   const invalid: string[] = [];
-  
+
   for (const name of agentNames) {
-    if (themeConfig.agents.includes(name)) {
+    if (isValidAgentName(name)) {
       valid.push(name);
     } else {
       invalid.push(name);
     }
   }
-  
+
   return { valid, invalid };
 }
 
@@ -354,7 +323,7 @@ export async function addAgentsToWorkspace(workspaceInfo: WorkspaceInfo, agentNa
   }
 
   // Add to database
-  addAgentsToDatabase(workspaceInfo.path, newAgents, workspaceInfo.theme);
+  addAgentsToDatabase(workspaceInfo.path, newAgents);
 
   return newAgents;
 }

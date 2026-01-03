@@ -1,17 +1,16 @@
 import { Command, Args } from '@oclif/core';
 import { colors, format } from '../../lib/colors.js';
-import { 
-  getWorkspaceInfo, 
+import {
+  getWorkspaceInfo,
   getAgentStatus,
-  getAllAgentsStatus,
-  formatTimeAgo
+  getAllAgentsStatus
 } from '../../lib/agents/commands.js';
 
 export default class Status extends Command {
   static description = 'Show detailed status for specific agent or all agents';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> camry',
+    '<%= config.bin %> <%= command.id %> agent-1',
     '<%= config.bin %> <%= command.id %>',
   ];
 
@@ -26,13 +25,13 @@ export default class Status extends Command {
 
   async run(): Promise<void> {
     const { args } = await this.parse(Status);
-    
+
     try {
       // Get workspace information
       const workspaceInfo = getWorkspaceInfo();
-      
+
       if (workspaceInfo.agents.length === 0) {
-        this.log(colors.warning('No agents found. Add agents with "prlt agent add"'));
+        this.log(colors.warning('No agents found. Add agents with "prlt agents add"'));
         return;
       }
 
@@ -43,7 +42,7 @@ export default class Status extends Command {
         // Show overview status for all agents
         await this.showOverviewStatus(workspaceInfo);
       }
-      
+
     } catch (error) {
       this.error(error instanceof Error ? error.message : String(error));
     }
@@ -67,7 +66,7 @@ export default class Status extends Command {
 
     if (!agentStatus.exists) {
       this.log(colors.error('   Agent directory not found'));
-      this.log(colors.textSecondary('   Run "prlt agent add" to recreate'));
+      this.log(colors.textSecondary('   Run "prlt agents add" to recreate'));
       return;
     }
 
@@ -87,7 +86,7 @@ export default class Status extends Command {
       for (const repo of agentStatus.repositories) {
         let statusText = '';
         let statusColor = colors.textMuted;
-        
+
         switch (repo.status) {
           case 'clean':
             statusText = 'clean';
@@ -105,12 +104,12 @@ export default class Status extends Command {
             statusText = repo.status;
             statusColor = colors.textMuted;
         }
-        
+
         let repoLine = `   • ${colors.text(repo.name)} (${statusColor(statusText)})`;
         if (repo.commitsAhead > 0) {
           repoLine += colors.commitsAhead(` ${repo.commitsAhead} commits ahead`);
         }
-        
+
         this.log(repoLine);
       }
     }
@@ -129,18 +128,6 @@ export default class Status extends Command {
         }
       }
     }
-
-    // Activity
-    this.log(format.subtitle('\n⚡ Activity:'));
-    if (agentStatus.lastActivity) {
-      const timeAgo = formatTimeAgo(agentStatus.lastActivity);
-      const color = agentStatus.lastActivity.getTime() > (Date.now() - 24 * 60 * 60 * 1000) 
-        ? colors.success 
-        : colors.warning;
-      this.log(`   Last activity: ${color(timeAgo)}`);
-    } else {
-      this.log(colors.textMuted('   No recent activity detected'));
-    }
   }
 
   private async showOverviewStatus(workspaceInfo: any): Promise<void> {
@@ -152,21 +139,15 @@ export default class Status extends Command {
       const statusIcon = agentStatus.exists ? '🟢' : '🔴';
       const status = agentStatus.exists ? 'Active' : 'Inactive';
       const statusColor = agentStatus.exists ? colors.active : colors.inactive;
-      
+
       let statusLine = `${statusIcon} ${colors.agentName(agentStatus.name.padEnd(12))} - ${statusColor(status.padEnd(8))}`;
-      
+
       if (agentStatus.exists) {
         // Add ticket count
         const ticketCount = agentStatus.assignedTickets.length;
         statusLine += ` - ${ticketCount} ticket${ticketCount !== 1 ? 's' : ''}`;
-        
-        // Add last activity
-        if (agentStatus.lastActivity) {
-          const timeAgo = formatTimeAgo(agentStatus.lastActivity);
-          statusLine += ` - ${timeAgo}`;
-        }
       }
-      
+
       this.log(statusLine);
     }
 
@@ -176,7 +157,7 @@ export default class Status extends Command {
 
     this.log(format.subtitle('\nSummary:'));
     this.log(colors.text(`  ${workspaceInfo.agents.length} agents (${activeCount} active, ${workspaceInfo.agents.length - activeCount} inactive)`));
-    
+
     if (workspaceInfo.hasPMO) {
       this.log(colors.text(`  ${totalTickets} active tickets assigned`));
     }

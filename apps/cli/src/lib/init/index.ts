@@ -3,7 +3,7 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { THEMES } from '../themes.js';
+import { DEFAULT_AGENTS_DIR } from '../themes.js';
 import { addAgentsToHQ, createAgentWorktrees } from '../agents/index.js';
 import { addRepositoriesToHQ, updateHQRepos, isInGitRepo } from '../repos/index.js';
 import {
@@ -12,17 +12,16 @@ import {
   PMOSetupResult,
   PMOLocation,
 } from '../pmo/index.js';
-import { 
-  createWorkspaceDatabase, 
-  addRepositoriesToDatabase, 
+import {
+  createWorkspaceDatabase,
+  addRepositoriesToDatabase,
   addAgentsToDatabase,
-  getWorkspaceConfig 
+  getWorkspaceConfig
 } from '../database/index.js';
 
 export interface HQConfig {
   type: 'hq';
   created: string;
-  theme: string;
   workspaceName: string;
   hasPMO: boolean;
   agents: string[];
@@ -36,7 +35,6 @@ export interface InitOptions {
   hqName?: string;
   hqPath?: string;
   workspacePath?: string;
-  theme: string;
   addSuffix?: boolean;
   selectedAgents: string[];
   repos?: Array<{ path: string; action: 'move' | 'clone' }>;
@@ -189,9 +187,7 @@ export async function promptForHQLocation(hqName: string, addSuffix: boolean): P
 /**
  * Create the basic HQ directory structure
  */
-export function createHQStructure(hqPath: string, theme: string): void {
-  const themeConfig = THEMES[theme];
-
+export function createHQStructure(hqPath: string): void {
   console.log(chalk.blue(`\n🏗️  Creating HQ at ${hqPath}...`));
 
   // Create directories
@@ -199,7 +195,7 @@ export function createHQStructure(hqPath: string, theme: string): void {
   fs.mkdirSync(path.join(hqPath, '.proletariat'), { recursive: true });
   fs.mkdirSync(path.join(hqPath, 'repos'), { recursive: true });
   fs.mkdirSync(path.join(hqPath, 'agents'), { recursive: true });
-  fs.mkdirSync(path.join(hqPath, 'agents', themeConfig.workspaceDir), { recursive: true });
+  fs.mkdirSync(path.join(hqPath, 'agents', DEFAULT_AGENTS_DIR), { recursive: true });
 }
 
 /**
@@ -210,15 +206,13 @@ export function initializeWorkspaceDatabase(workspacePath: string, options: Init
     throw new Error('initializeWorkspaceDatabase should only be called for HQ workspace type with defined PMO setting');
   }
 
-  const themeConfig = THEMES[options.theme];
   const hasPMO = options.pmoSetup.includePMO;
 
   // Create the database with workspace configuration
   const db = createWorkspaceDatabase(
     workspacePath,
     options.workspaceType,
-    options.theme,
-    themeConfig.workspaceDir,
+    options.hqName,
     hasPMO
   );
 
@@ -247,7 +241,6 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
   const {
     hqPath,
     hqName,
-    theme,
     selectedAgents,
     repos,
     pmoSetup,
@@ -259,7 +252,7 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
   }
 
   // Create basic structure
-  createHQStructure(hqPath, theme);
+  createHQStructure(hqPath);
 
   // Create database and workspace configuration
   initializeWorkspaceDatabase(hqPath, options);
@@ -295,14 +288,13 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
 
   // Add agents if selected - create worktrees AND add to database
   if (selectedAgents.length > 0) {
-    const themeConfig = THEMES[theme];
-    const workspacePath = path.join(hqPath, 'agents', themeConfig.workspaceDir);
+    const workspacePath = path.join(hqPath, 'agents', DEFAULT_AGENTS_DIR);
 
     // Create physical worktrees
     await createAgentWorktrees(workspacePath, selectedAgents, hqPath);
 
     // Add to database
-    addAgentsToDatabase(hqPath, selectedAgents, theme);
+    addAgentsToDatabase(hqPath, selectedAgents);
   }
 
   console.log(chalk.green(`\n✅ HQ created successfully at ${hqPath}`));
@@ -311,10 +303,9 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
 /**
  * Prompt for workspace location
  */
-export async function promptForWorkspaceLocation(theme: string): Promise<string> {
-  const themeConfig = THEMES[theme];
+export async function promptForWorkspaceLocation(): Promise<string> {
   const repoName = path.basename(process.cwd());
-  const defaultPath = path.join('..', `${repoName}-${themeConfig.workspaceDir}`);
+  const defaultPath = path.join('..', `${repoName}-${DEFAULT_AGENTS_DIR}`);
 
   while (true) {
     const { location } = await inquirer.prompt([{
@@ -345,23 +336,20 @@ export async function promptForWorkspaceLocation(theme: string): Promise<string>
 /**
  * Create workspace-only structure
  */
-export async function createWorkspaceOnly(theme: string, selectedAgents: string[], workspacePath: string): Promise<string> {
-  const themeConfig = THEMES[theme];
-
+export async function createWorkspaceOnly(selectedAgents: string[], workspacePath: string): Promise<string> {
   console.log(chalk.blue(`\n🔧 Creating ${path.basename(workspacePath)} workspace at ${workspacePath}...`));
 
   // Create workspace directory
   fs.mkdirSync(workspacePath, { recursive: true });
-  
+
   // Create database with workspace configuration
   const db = createWorkspaceDatabase(
     workspacePath,
     'workspace',
-    theme,
-    themeConfig.workspaceDir,
+    path.basename(workspacePath),
     false // workspace-only never has PMO
   );
-  
+
   // Add main repository to database (the current repo we're in)
   const mainRepoName = path.basename(process.cwd());
   const mainRepoData = {
@@ -370,16 +358,16 @@ export async function createWorkspaceOnly(theme: string, selectedAgents: string[
     source_url: process.cwd(),
     action: 'link' as const // Special action for workspace-only
   };
-  
+
   addRepositoriesToDatabase(workspacePath, [mainRepoData]);
 
   // Add agents if selected - create worktrees AND add to database
   if (selectedAgents.length > 0) {
     // Create physical worktrees
     await createAgentWorktrees(workspacePath, selectedAgents);
-    
+
     // Add to database
-    addAgentsToDatabase(workspacePath, selectedAgents, theme);
+    addAgentsToDatabase(workspacePath, selectedAgents);
   }
 
   db.close();
@@ -392,7 +380,6 @@ export async function createWorkspaceOnly(theme: string, selectedAgents: string[
  * Show next steps to user and offer to change directory
  */
 export async function showNextSteps(options: InitOptions, workspacePath?: string): Promise<void> {
-  const themeConfig = THEMES[options.theme];
   const targetPath = options.workspaceType === 'workspace-only' ? workspacePath! : options.hqPath!;
   const relativePath = path.relative(process.cwd(), targetPath);
   const dirName = options.workspaceType === 'workspace-only' ? 'workspace' : 'HQ';
@@ -421,7 +408,7 @@ export async function showNextSteps(options: InitOptions, workspacePath?: string
     if (hasCommands) {
       console.log(chalk.cyan(`\nOnce you're in the ${dirName}, you can run:`));
       if (options.selectedAgents.length === 0) {
-        console.log(chalk.white(`  prlt agent ${themeConfig.commands.add} <name>`));
+        console.log(chalk.white(`  prlt agents add <name>`));
       }
 
       if (options.workspaceType === 'hq' && hasPMO) {

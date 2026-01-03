@@ -1,13 +1,12 @@
 import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
-import { THEMES } from '../themes.js';
+import { DEFAULT_AGENTS_DIR } from '../themes.js';
 import { PMO_SCHEMA_SQL } from '../pmo/schema.js';
 
 export interface WorkspaceConfig {
   id: number;
   type: 'hq' | 'workspace';
-  theme: string;
   workspace_name: string;
   has_pmo: boolean;
   created_at: string;
@@ -24,11 +23,7 @@ export interface Repository {
 
 export interface Agent {
   name: string;
-  theme: string;
-  status: 'working' | 'idle' | 'offline';
-  current_task?: string;
   created_at: string;
-  last_activity?: string;
 }
 
 export interface AgentWorktree {
@@ -48,19 +43,9 @@ const CREATE_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS workspace (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   type TEXT NOT NULL CHECK (type IN ('hq', 'workspace')),
-  theme TEXT NOT NULL,
   workspace_name TEXT NOT NULL,
   has_pmo BOOLEAN DEFAULT FALSE,
   created_at TEXT NOT NULL
-);
-
--- Theme definitions with agent list as JSON array
-CREATE TABLE IF NOT EXISTS themes (
-  name TEXT PRIMARY KEY,
-  workspace_dir TEXT NOT NULL,
-  add_command TEXT NOT NULL,
-  remove_command TEXT NOT NULL,
-  agents JSON NOT NULL
 );
 
 -- Repository management
@@ -76,12 +61,7 @@ CREATE TABLE IF NOT EXISTS repositories (
 -- Agent instances in workspace
 CREATE TABLE IF NOT EXISTS agents (
   name TEXT PRIMARY KEY,
-  theme TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'idle' CHECK (status IN ('working', 'idle', 'offline')),
-  current_task TEXT,
-  created_at TEXT NOT NULL,
-  last_activity TEXT,
-  FOREIGN KEY (theme) REFERENCES themes(name)
+  created_at TEXT NOT NULL
 );
 
 -- Agent-owned worktrees
@@ -91,10 +71,6 @@ CREATE TABLE IF NOT EXISTS agent_worktrees (
   worktree_path TEXT NOT NULL,
   branch TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  last_commit_hash TEXT,
-  commits_ahead INTEGER DEFAULT 0,
-  is_clean BOOLEAN DEFAULT TRUE,
-  last_checked TEXT,
   PRIMARY KEY (agent_name, repo_name),
   FOREIGN KEY (agent_name) REFERENCES agents(name) ON DELETE CASCADE,
   FOREIGN KEY (repo_name) REFERENCES repositories(name) ON DELETE CASCADE
@@ -107,12 +83,9 @@ CREATE TABLE IF NOT EXISTS workspace_settings (
 );
 
 -- =============================================================================
--- Indexes (Agent tables only - PMO indexes are in PMO_SCHEMA_SQL)
+-- Indexes
 -- =============================================================================
 
--- Agent indexes
-CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
-CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme);
 CREATE INDEX IF NOT EXISTS idx_worktrees_agent ON agent_worktrees(agent_name);
 CREATE INDEX IF NOT EXISTS idx_worktrees_repo ON agent_worktrees(repo_name);
 `;
@@ -148,28 +121,27 @@ export function openWorkspaceDatabase(workspacePath: string): Database.Database 
  * Create and initialize workspace database
  */
 export function createWorkspaceDatabase(
-  workspacePath: string, 
+  workspacePath: string,
   type: 'hq' | 'workspace',
-  theme: string,
   workspaceName: string,
   hasPMO: boolean = false
 ): Database.Database {
   const dbPath = getDatabasePath(workspacePath);
   const configPath = getConfigPath(workspacePath);
-  
+
   // Ensure .proletariat directory exists
   const proletariatDir = path.dirname(dbPath);
   if (!fs.existsSync(proletariatDir)) {
     fs.mkdirSync(proletariatDir, { recursive: true });
   }
-  
+
   // Create minimal config.json (bootstrap only)
   const bootstrapConfig = {
     version: "1.0.0",
     schemaVersion: 1
   };
   fs.writeFileSync(configPath, JSON.stringify(bootstrapConfig, null, 2));
-  
+
   // Create and setup SQLite database
   const db = new Database(dbPath);
 
@@ -181,30 +153,13 @@ export function createWorkspaceDatabase(
 
   // Create PMO tables (from shared schema)
   db.exec(PMO_SCHEMA_SQL);
-  
+
   // Insert workspace data (convert boolean to number for SQLite)
   db.prepare(`
-    INSERT INTO workspace (id, type, theme, workspace_name, has_pmo, created_at)
-    VALUES (1, ?, ?, ?, ?, ?)
-  `).run(type, theme, workspaceName, hasPMO ? 1 : 0, new Date().toISOString());
-  
-  // Insert theme data
-  const themeConfig = THEMES[theme];
-  if (!themeConfig) {
-    throw new Error(`Unknown theme: ${theme}`);
-  }
-  
-  db.prepare(`
-    INSERT OR REPLACE INTO themes (name, workspace_dir, add_command, remove_command, agents)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(
-    theme,
-    themeConfig.workspaceDir,
-    themeConfig.commands.add,
-    themeConfig.commands.remove,
-    JSON.stringify(themeConfig.agents)
-  );
-  
+    INSERT INTO workspace (id, type, workspace_name, has_pmo, created_at)
+    VALUES (1, ?, ?, ?, ?)
+  `).run(type, workspaceName, hasPMO ? 1 : 0, new Date().toISOString());
+
   return db;
 }
 
@@ -253,52 +208,49 @@ export function addRepositoriesToDatabase(workspacePath: string, repos: { name: 
 /**
  * Add agents to database
  */
-export function addAgentsToDatabase(workspacePath: string, agentNames: string[], theme: string): void {
+export function addAgentsToDatabase(workspacePath: string, agentNames: string[]): void {
   const db = openWorkspaceDatabase(workspacePath);
-  
+
   const insertAgent = db.prepare(`
-    INSERT OR REPLACE INTO agents (name, theme, status, created_at, last_activity)
+    INSERT OR REPLACE INTO agents (name, created_at)
+    VALUES (?, ?)
+  `);
+
+  const insertWorktree = db.prepare(`
+    INSERT OR REPLACE INTO agent_worktrees (agent_name, repo_name, worktree_path, branch, created_at)
     VALUES (?, ?, ?, ?, ?)
   `);
-  
-  const insertWorktree = db.prepare(`
-    INSERT OR REPLACE INTO agent_worktrees (agent_name, repo_name, worktree_path, branch, created_at, commits_ahead, is_clean)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
-  
+
   // Get workspace config to determine paths
   const workspace = db.prepare('SELECT * FROM workspace').get() as WorkspaceConfig;
-  const themeConfig = THEMES[theme];
-  
+
   // Get all repos for this workspace
   const repos = db.prepare('SELECT name FROM repositories').all() as { name: string }[];
-  
+
   const transaction = db.transaction(() => {
     for (const agentName of agentNames) {
       const now = new Date().toISOString();
-      
+
       // Add agent
-      insertAgent.run(agentName, theme, 'idle', now, now);
-      
+      insertAgent.run(agentName, now);
+
       // Add worktrees for all repos
       for (const repo of repos) {
-        const worktreePath = workspace.type === 'hq' 
-          ? `agents/${themeConfig.workspaceDir}/${agentName}/${repo.name}`
+        const worktreePath = workspace.type === 'hq'
+          ? `agents/${DEFAULT_AGENTS_DIR}/${agentName}/${repo.name}`
           : `${agentName}/${repo.name}`;
-          
+
         insertWorktree.run(
           agentName,
           repo.name,
           worktreePath,
           `agent-${agentName}`,
-          now,
-          0,
-          1 // true as number
+          now
         );
       }
     }
   });
-  
+
   transaction();
   db.close();
 }
@@ -323,26 +275,6 @@ export function getWorkspaceRepositories(workspacePath: string): Repository[] {
   return repos;
 }
 
-/**
- * Get available agents (from theme minus workspace agents)
- */
-export function getAvailableAgents(workspacePath: string): string[] {
-  const db = openWorkspaceDatabase(workspacePath);
-  
-  // Get theme agents
-  const workspace = db.prepare('SELECT theme FROM workspace').get() as { theme: string };
-  const theme = db.prepare('SELECT agents FROM themes WHERE name = ?').get(workspace.theme) as { agents: string };
-  const themeAgents: string[] = JSON.parse(theme.agents);
-  
-  // Get workspace agents
-  const workspaceAgents = db.prepare('SELECT name FROM agents').all() as { name: string }[];
-  const workspaceAgentNames = workspaceAgents.map(a => a.name);
-  
-  db.close();
-  
-  // Return theme agents minus workspace agents
-  return themeAgents.filter(agent => !workspaceAgentNames.includes(agent));
-}
 
 /**
  * Remove agents from database

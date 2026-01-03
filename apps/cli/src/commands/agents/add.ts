@@ -11,9 +11,9 @@ export default class Add extends Command {
   static description = 'Add new agents to the workspace';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> camry tacoma',
+    '<%= config.bin %> <%= command.id %> agent-1 agent-2',
     '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> camry --no-container',
+    '<%= config.bin %> <%= command.id %> my-agent --no-container',
   ];
 
   static args = {
@@ -44,9 +44,9 @@ export default class Add extends Command {
       // Interactive mode if no agents specified
       if (agentNames.length === 0) {
         try {
-          agentNames = await selectAgentsInteractively(workspaceInfo, 'Select agents to add:');
+          agentNames = await selectAgentsInteractively(workspaceInfo, 'Enter agent names to add');
           if (agentNames.length === 0) {
-            this.log(chalk.yellow('No agents selected.'));
+            this.log(chalk.yellow('No agents specified.'));
             return;
           }
         } catch (error) {
@@ -54,11 +54,12 @@ export default class Add extends Command {
         }
       }
 
-      // Validate agent names against theme
-      const { valid, invalid } = validateAgentNames(workspaceInfo, agentNames);
-      
+      // Validate agent names
+      const { valid, invalid } = validateAgentNames(agentNames);
+
       if (invalid.length > 0) {
-        this.log(chalk.red(`Invalid agents for ${workspaceInfo.theme} theme: ${invalid.join(', ')}`));
+        this.log(chalk.red(`Invalid agent names: ${invalid.join(', ')}`));
+        this.log(chalk.yellow('Agent names must be lowercase alphanumeric with optional hyphens/underscores.'));
         if (valid.length === 0) {
           return;
         }
@@ -80,7 +81,7 @@ export default class Add extends Command {
       if (!flags['no-container']) {
         this.log(chalk.blue('   Devcontainer config created for sandboxed execution'));
       }
-      
+
     } catch (error) {
       this.error(error instanceof Error ? error.message : String(error));
     }
