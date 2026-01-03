@@ -1,153 +1,95 @@
 import { Command, Flags } from '@oclif/core';
-import * as fs from 'fs';
-import * as path from 'path';
-import { findPMO, getPMOContext } from '../../lib/pmo/index.js';
+import { getPMOContext } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
-
-interface SpecFile {
-  id: string;
-  name: string;
-  status: string;
-  path: string;
-  created?: string;
-  ticketCount?: number;
-}
+import { SpecStatus, SpecType } from '../../lib/pmo/types.js';
 
 export default class SpecList extends Command {
-  static description = 'List all spec documents';
+  static description = 'List all specs';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --status active',
-    '<%= config.bin %> <%= command.id %> --project my-project',
+    '<%= config.bin %> <%= command.id %> --type product',
   ];
 
   static flags = {
     status: Flags.string({
       char: 's',
-      description: 'Filter by status (active, complete, future, dropped)',
-      options: ['active', 'complete', 'future', 'dropped'],
+      description: 'Filter by status',
+      options: ['draft', 'active', 'implemented'],
     }),
-    project: Flags.string({
-      char: 'p',
-      description: 'Project ID (will prompt if not specified)',
+    type: Flags.string({
+      char: 't',
+      description: 'Filter by type',
+      options: ['product', 'platform', 'infra', 'integration'],
+    }),
+    search: Flags.string({
+      description: 'Search in title/problem/solution',
     }),
   };
 
   async run(): Promise<void> {
     const { flags } = await this.parse(SpecList);
 
-    const pmoPath = findPMO();
-    if (!pmoPath) {
-      this.error('PMO not found. Run "prlt pmo init" first.');
-    }
-
-    // Get PMO context (prompt for project if multiple exist)
-    const { projectId, projectName } = await getPMOContext(
-      flags.project,
+    // Get PMO context
+    const { storage } = await getPMOContext(
+      undefined,
       (msg) => this.log(styles.muted(msg)),
-      true // prompt if multiple projects
+      true
     );
 
-    const specsBasePath = path.join(pmoPath, 'projects', projectId, 'specs');
-
-    if (!fs.existsSync(specsBasePath)) {
-      this.log(styles.warning(`\nNo specs directory found for project "${projectName}"`));
-      this.log(styles.muted(`  Create your first spec: prlt spec create`));
-      return;
-    }
-
-    // Collect all specs
-    const specs: SpecFile[] = [];
-    const statuses = flags.status ? [flags.status] : ['active', 'complete', 'future', 'dropped'];
-
-    for (const status of statuses) {
-      const statusPath = path.join(specsBasePath, status);
-      if (!fs.existsSync(statusPath)) {
-        continue;
-      }
-
-      const files = fs.readdirSync(statusPath).filter(f => f.endsWith('.md'));
-      for (const file of files) {
-        const specPath = path.join(statusPath, file);
-        const spec = this.parseSpecFile(specPath, status);
-        if (spec) {
-          specs.push(spec);
-        }
-      }
-    }
+    // List specs with filters
+    const specs = await storage.listSpecs({
+      status: flags.status as SpecStatus | undefined,
+      type: flags.type as SpecType | undefined,
+      search: flags.search,
+    });
 
     if (specs.length === 0) {
-      this.log(styles.warning(`\nNo specs found for project "${projectName}"`));
-      this.log(styles.muted(`  Create your first spec: prlt spec create`));
+      this.log(styles.warning('\nNo specs found'));
+      this.log(styles.muted('  Create your first spec: prlt spec create'));
+      await storage.close();
       return;
     }
 
     // Display specs grouped by status
-    this.log(styles.title(`\n📄 Specs - ${projectName}`));
+    this.log(styles.title('\n📄 Specs'));
     this.log(styles.muted('═'.repeat(60)));
 
-    for (const status of ['active', 'complete', 'future', 'dropped']) {
-      const statusSpecs = specs.filter(s => s.status === status);
-      if (statusSpecs.length === 0) continue;
+    // Group by status
+    const byStatus: Record<string, typeof specs> = {};
+    for (const spec of specs) {
+      if (!byStatus[spec.status]) byStatus[spec.status] = [];
+      byStatus[spec.status].push(spec);
+    }
 
-      const statusEmoji = status === 'active' ? '🟢' : status === 'complete' ? '✅' : status === 'future' ? '🔮' : '🗑️';
+    for (const status of ['draft', 'active', 'implemented']) {
+      const statusSpecs = byStatus[status];
+      if (!statusSpecs || statusSpecs.length === 0) continue;
+
+      const statusEmoji = status === 'draft' ? '📝' : status === 'active' ? '🟢' : '✅';
       this.log(styles.emphasis(`\n${statusEmoji} ${status.toUpperCase()} (${statusSpecs.length})`));
 
       for (const spec of statusSpecs) {
-        const ticketInfo = spec.ticketCount ? ` [${spec.ticketCount} ticket${spec.ticketCount === 1 ? '' : 's'}]` : '';
-        this.log(`  ${styles.code(spec.id)}: ${spec.name}${ticketInfo}`);
-        this.log(styles.muted(`     ${path.relative(process.cwd(), spec.path)}`));
+        const typeTag = spec.type ? ` (${spec.type})` : '';
+        const tags = spec.tags && spec.tags.length > 0 ? ` [${spec.tags.join(', ')}]` : '';
+        this.log(`  ${styles.code(spec.id)}: ${spec.title}${typeTag}${tags}`);
+        if (spec.problem) {
+          const preview = spec.problem.length > 60
+            ? spec.problem.substring(0, 60) + '...'
+            : spec.problem;
+          this.log(styles.muted(`     ${preview}`));
+        }
       }
     }
 
     this.log(styles.muted('\n' + '═'.repeat(60)));
     this.log(styles.emphasis(`Total: ${specs.length} spec${specs.length === 1 ? '' : 's'}`));
     this.log(styles.muted('\nCommands:'));
-    this.log(styles.primary('  prlt spec create           ') + styles.muted('Create a new spec'));
-    this.log(styles.primary('  prlt spec view <id>        ') + styles.muted('View spec details'));
-    this.log(styles.primary('  prlt spec generate-tickets ') + styles.muted('Generate tickets from spec'));
-  }
+    this.log(styles.primary('  prlt spec create      ') + styles.muted('Create a new spec'));
+    this.log(styles.primary('  prlt spec view <id>   ') + styles.muted('View spec details'));
+    this.log(styles.primary('  prlt spec plan <id>   ') + styles.muted('Generate tickets from spec'));
 
-  private parseSpecFile(filePath: string, status: string): SpecFile | null {
-    try {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const fileName = path.basename(filePath, '.md');
-
-      // Try to parse frontmatter
-      let title = fileName;
-      let created: string | undefined;
-      let ticketCount: number | undefined;
-
-      const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-      if (frontmatterMatch) {
-        const frontmatter = frontmatterMatch[1];
-        const titleMatch = frontmatter.match(/^title:\s*(.+)$/m);
-        if (titleMatch) {
-          title = titleMatch[1].trim();
-        }
-        const createdMatch = frontmatter.match(/^created:\s*(.+)$/m);
-        if (createdMatch) {
-          created = createdMatch[1].trim();
-        }
-        // Count tickets in frontmatter
-        const ticketsMatch = frontmatter.match(/^tickets:/m);
-        if (ticketsMatch) {
-          const ticketMatches = frontmatter.match(/- id:/g);
-          ticketCount = ticketMatches ? ticketMatches.length : 0;
-        }
-      }
-
-      return {
-        id: fileName,
-        name: title,
-        status,
-        path: filePath,
-        created,
-        ticketCount,
-      };
-    } catch (error) {
-      return null;
-    }
+    await storage.close();
   }
 }

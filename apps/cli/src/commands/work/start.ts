@@ -355,10 +355,18 @@ export default class WorkStart extends Command {
       }
 
       // Get spec info if linked
-      let specPath: string | undefined
+      let specId: string | undefined
+      let specTitle: string | undefined
+      let specProblem: string | undefined
+      let specSolution: string | undefined
       if (ticket.specId) {
         const spec = await storage.getSpec(ticket.specId)
-        specPath = spec?.path
+        if (spec) {
+          specId = spec.id
+          specTitle = spec.title
+          specProblem = spec.problem
+          specSolution = spec.solution
+        }
       }
 
       // Build execution context with full ticket details
@@ -372,7 +380,10 @@ export default class WorkStart extends Command {
         ticketPriority: ticket.priority,
         ticketCategory: ticket.category,
         epicTitle,
-        specPath,
+        specId,
+        specTitle,
+        specProblem,
+        specSolution,
         agentName: assignedAgent,
         agentDir,         // Agent directory (contains .devcontainer)
         worktreePath,     // Worktree path (may be subdirectory of agentDir)
@@ -947,14 +958,22 @@ export default class WorkStart extends Command {
 
     // Get epic and spec info
     let epicTitle: string | undefined
-    let specPath: string | undefined
+    let specId: string | undefined
+    let specTitle: string | undefined
+    let specProblem: string | undefined
+    let specSolution: string | undefined
     if (ticket.epicId) {
       const epic = await storage.getEpic(ticket.epicId)
       epicTitle = epic?.title
     }
     if (ticket.specId) {
       const spec = await storage.getSpec(ticket.specId)
-      specPath = spec?.path
+      if (spec) {
+        specId = spec.id
+        specTitle = spec.title
+        specProblem = spec.problem
+        specSolution = spec.solution
+      }
     }
 
     // Build context
@@ -966,7 +985,10 @@ export default class WorkStart extends Command {
       ticketPriority: ticket.priority,
       ticketCategory: ticket.category,
       epicTitle,
-      specPath,
+      specId,
+      specTitle,
+      specProblem,
+      specSolution,
       agentName,
       agentDir,
       worktreePath,

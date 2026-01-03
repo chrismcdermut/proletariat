@@ -133,7 +133,7 @@ export default class EpicCreate extends Command {
     const specChoices = [
       { name: 'None (no spec linked)', value: '' },
       ...specs.map(s => ({
-        name: `${s.id} - ${s.title || s.path}`,
+        name: `${s.id} - ${s.title}`,
         value: s.id,
       })),
     ];

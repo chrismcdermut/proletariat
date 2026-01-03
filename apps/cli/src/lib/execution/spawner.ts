@@ -222,10 +222,18 @@ export async function spawnAgentForTicket(
   }
 
   // Get spec info if linked
-  let specPath: string | undefined
+  let specId: string | undefined
+  let specTitle: string | undefined
+  let specProblem: string | undefined
+  let specSolution: string | undefined
   if (ticket.specId) {
     const spec = await storage.getSpec(ticket.specId)
-    specPath = spec?.path
+    if (spec) {
+      specId = spec.id
+      specTitle = spec.title
+      specProblem = spec.problem
+      specSolution = spec.solution
+    }
   }
 
   // Build execution context
@@ -239,7 +247,10 @@ export async function spawnAgentForTicket(
     ticketPriority: ticket.priority,
     ticketCategory: ticket.category,
     epicTitle,
-    specPath,
+    specId,
+    specTitle,
+    specProblem,
+    specSolution,
     agentName,
     agentDir,
     worktreePath,

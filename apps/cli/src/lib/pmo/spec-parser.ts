@@ -1,20 +1,15 @@
 /**
  * Spec Parser
  *
- * Parses markdown spec files into structured data for System Card generation.
+ * Parses markdown spec files into structured data.
+ * Uses the new simplified spec format with frontmatter.
  */
 
 import * as fs from 'fs';
-import * as path from 'path';
 import matter from 'gray-matter';
 import {
-  DomainSpec,
-  DomainSpecFrontmatter,
-  Ability,
-  DataModelField,
-  BusinessRule,
-  FieldType,
-  FieldRequired,
+  SpecFrontmatter,
+  ParsedSpec,
 } from './spec-types.js';
 
 // =============================================================================
@@ -22,286 +17,88 @@ import {
 // =============================================================================
 
 /**
- * Parse a domain spec markdown file into structured data
+ * Parse a spec markdown file into structured data
  */
-export function parseDomainSpec(filePath: string): DomainSpec {
+export function parseSpecFile(filePath: string): ParsedSpec {
   const content = fs.readFileSync(filePath, 'utf-8');
-  const { data: frontmatter, content: body } = matter(content);
-
-  return {
-    frontmatter: parseFrontmatter(frontmatter),
-    overview: parseOverview(body),
-    abilities: parseAbilities(body),
-    dataModel: parseDataModel(body),
-    businessRules: parseBusinessRules(body),
-    relatedDomains: parseRelatedDomains(body),
-    rawContent: content,
-    filePath,
-  };
+  return parseSpecContent(content, filePath);
 }
 
 /**
- * Parse all domain specs from a directory
+ * Parse spec content string into structured data
  */
-export function parseDomainSpecs(specsDir: string): DomainSpec[] {
-  const domainDir = path.join(specsDir, 'domain');
-  if (!fs.existsSync(domainDir)) {
-    return [];
-  }
+export function parseSpecContent(content: string, filePath: string = ''): ParsedSpec {
+  const { data: rawFrontmatter, content: body } = matter(content);
 
-  const files = fs.readdirSync(domainDir).filter(f => f.endsWith('.md'));
-  return files.map(f => parseDomainSpec(path.join(domainDir, f)));
+  const frontmatter: SpecFrontmatter = {
+    id: rawFrontmatter.id as string | undefined,
+    status: rawFrontmatter.status as SpecFrontmatter['status'],
+    type: rawFrontmatter.type as SpecFrontmatter['type'],
+    tags: rawFrontmatter.tags as string[] | undefined,
+    depends_on: rawFrontmatter.depends_on as string[] | undefined,
+  };
+
+  return {
+    frontmatter,
+    title: parseTitle(body),
+    problem: parseSection(body, 'Problem'),
+    solution: parseSection(body, 'Solution'),
+    decisions: parseSection(body, 'Decisions'),
+    notNow: parseSection(body, 'Not Now'),
+    uiUx: parseSection(body, 'UI/UX'),
+    acceptanceCriteria: parseSection(body, 'Acceptance Criteria'),
+    openQuestions: parseSection(body, 'Open Questions'),
+    requirementsFunctional: parseNestedSection(body, 'Requirements', 'Functional'),
+    requirementsTechnical: parseNestedSection(body, 'Requirements', 'Technical'),
+    context: parseSection(body, 'Context'),
+    rawContent: content,
+    filePath,
+  };
 }
 
 // =============================================================================
 // Section Parsers
 // =============================================================================
 
-function parseFrontmatter(data: Record<string, unknown>): DomainSpecFrontmatter {
-  return {
-    title: String(data.title || ''),
-    domain: String(data.domain || ''),
-    status: (data.status as 'active' | 'draft' | 'deprecated') || 'active',
-  };
-}
-
-function parseOverview(body: string): string {
-  const match = body.match(/## Overview\s*\n+([\s\S]*?)(?=\n## |$)/);
-  return match ? match[1].trim() : '';
+/**
+ * Parse title from the first H1 heading
+ */
+function parseTitle(body: string): string {
+  const match = body.match(/^#\s+(.+)$/m);
+  return match ? match[1].trim() : 'Untitled';
 }
 
 /**
- * Parse abilities from markdown
- *
- * Supports two formats:
- *
- * 1. Table format (legacy - columns are modalities):
- *    | Ability | Storage | CLI | API | Web | Obsidian |
- *    |---------|---------|-----|-----|-----|----------|
- *    | Create ticket | `createTicket()` | `prlt ticket create` | ... |
- *
- * 2. Subsection format (new - each ability has description + modality table):
- *    ### Create ticket
- *    Create a new ticket with title and optional metadata.
- *
- *    | Modality | Signature |
- *    |----------|-----------|
- *    | storage | `createTicket()` |
- *    | cli | `prlt ticket create` |
+ * Parse a section by heading name
  */
-function parseAbilities(body: string): Ability[] {
-  const abilities: Ability[] = [];
+function parseSection(body: string, sectionName: string): string | undefined {
+  // Match ## Section Name followed by content until next ## or end
+  const regex = new RegExp(`## ${sectionName}\\s*\\n+([\\s\\S]*?)(?=\\n## [^#]|$)`, 'i');
+  const match = body.match(regex);
+  if (!match) return undefined;
 
-  // Find Abilities section
-  const abilitiesSection = body.match(/## Abilities\s*\n+([\s\S]*?)(?=\n## [^#]|$)/);
-  if (!abilitiesSection) return abilities;
-
-  const sectionContent = abilitiesSection[1];
-
-  // Check if we have ### subsections (new format) or just tables (old format)
-  const hasSubsections = /### [^\n]+/.test(sectionContent);
-
-  if (hasSubsections) {
-    // New format: ### Ability Name\nDescription\n| Modality | Signature |
-    const subsectionRegex = /### ([^\n]+)\s*\n([\s\S]*?)(?=\n### |$)/g;
-    let subsectionMatch;
-
-    while ((subsectionMatch = subsectionRegex.exec(sectionContent)) !== null) {
-      const abilityName = subsectionMatch[1].trim();
-      const subsectionBody = subsectionMatch[2];
-
-      // Extract description (text before the table)
-      const tableStart = subsectionBody.search(/\|[^\n]+\|/);
-      const description = tableStart > 0
-        ? subsectionBody.substring(0, tableStart).trim()
-        : undefined;
-
-      // Parse the modality table
-      const implementations: Record<string, string> = {};
-      const tableMatch = subsectionBody.match(/\|[^\n]+\|\s*\n\|[-:\s|]+\|\s*\n((?:\|[^\n]+\|\s*\n?)*)/);
-
-      if (tableMatch) {
-        const rows = tableMatch[1].trim().split('\n');
-        for (const row of rows) {
-          const cells = parseTableRow(row);
-          if (cells.length >= 2) {
-            const modality = cells[0].toLowerCase().trim();
-            const signature = cells[1].trim().replace(/`/g, '');
-            if (modality && signature && signature !== '-') {
-              implementations[modality] = signature;
-            }
-          }
-        }
-      }
-
-      abilities.push({ name: abilityName, description, implementations });
-    }
-  } else {
-    // Old format: table with columns as modalities
-    const tableRegex = /\|[^\n]+\|\s*\n\|[-:\s|]+\|\s*\n((?:\|[^\n]+\|\s*\n)*)/g;
-    let tableMatch;
-
-    while ((tableMatch = tableRegex.exec(sectionContent)) !== null) {
-      // Get the header row (line before the separator)
-      const tableStart = tableMatch.index;
-      const beforeTable = sectionContent.substring(0, tableStart);
-      const headerLine = beforeTable.split('\n').filter(l => l.trim()).pop() || '';
-
-      // Parse header to get modality columns
-      const headerCells = parseTableRow(headerLine);
-      if (headerCells.length < 2) continue;
-
-      // Map column index to modality name (flexible - use header text as-is)
-      const modalityMap: Map<number, string> = new Map();
-      for (let i = 1; i < headerCells.length; i++) {
-        const header = headerCells[i].toLowerCase().trim();
-        if (header) {
-          modalityMap.set(i, header);
-        }
-      }
-
-      // Parse data rows
-      const rows = tableMatch[1].trim().split('\n');
-      for (const row of rows) {
-        const cells = parseTableRow(row);
-        if (cells.length < 2) continue;
-
-        const abilityName = cells[0].trim();
-        if (!abilityName) continue;
-
-        const implementations: Record<string, string> = {};
-        for (const [colIndex, modality] of modalityMap) {
-          const value = cells[colIndex]?.trim();
-          if (value && value !== '-' && value !== '') {
-            // Remove backticks and clean up
-            implementations[modality] = value.replace(/`/g, '');
-          }
-        }
-
-        abilities.push({ name: abilityName, implementations });
-      }
-    }
-  }
-
-  return abilities;
+  const content = match[1].trim();
+  return content || undefined;
 }
 
 /**
- * Parse data model table from markdown
- *
- * Expected format:
- * | Field | Type | Required | Default | Description |
- * |-------|------|----------|---------|-------------|
- * | id | string | auto | - | TKT-001 format |
+ * Parse a nested section (e.g., ## Requirements -> ### Functional)
  */
-function parseDataModel(body: string): DataModelField[] {
-  const fields: DataModelField[] = [];
+function parseNestedSection(body: string, parentSection: string, childSection: string): string | undefined {
+  // First find the parent section
+  const parentRegex = new RegExp(`## ${parentSection}\\s*\\n+([\\s\\S]*?)(?=\\n## [^#]|$)`, 'i');
+  const parentMatch = body.match(parentRegex);
+  if (!parentMatch) return undefined;
 
-  // Find Data Model section
-  const dataModelSection = body.match(/## Data Model\s*\n+([\s\S]*?)(?=\n## [^#]|$)/);
-  if (!dataModelSection) return fields;
+  const parentContent = parentMatch[1];
 
-  const sectionContent = dataModelSection[1];
+  // Then find the child section within it
+  const childRegex = new RegExp(`### ${childSection}\\s*\\n+([\\s\\S]*?)(?=\\n### |$)`, 'i');
+  const childMatch = parentContent.match(childRegex);
+  if (!childMatch) return undefined;
 
-  // Find markdown tables
-  const tableRegex = /\|[^\n]+\|\s*\n\|[-:\s|]+\|\s*\n((?:\|[^\n]+\|\s*\n)*)/g;
-  let tableMatch;
-
-  while ((tableMatch = tableRegex.exec(sectionContent)) !== null) {
-    const rows = tableMatch[1].trim().split('\n');
-    for (const row of rows) {
-      const cells = parseTableRow(row);
-      if (cells.length < 5) continue;
-
-      const [name, type, required, defaultVal, description] = cells.map(c => c.trim());
-      if (!name) continue;
-
-      fields.push({
-        name,
-        type: parseFieldType(type),
-        required: parseFieldRequired(required),
-        default: defaultVal === '-' ? undefined : defaultVal,
-        description,
-      });
-    }
-  }
-
-  return fields;
-}
-
-/**
- * Parse business rules from markdown
- *
- * Expected format:
- * ## Business Rules
- * - **Title required**: Cannot create ticket without title
- */
-function parseBusinessRules(body: string): BusinessRule[] {
-  const rules: BusinessRule[] = [];
-
-  const rulesSection = body.match(/## Business Rules\s*\n+([\s\S]*?)(?=\n## |$)/);
-  if (!rulesSection) return rules;
-
-  const ruleRegex = /[-*]\s*\*\*([^*]+)\*\*:\s*(.+)/g;
-  let match;
-
-  while ((match = ruleRegex.exec(rulesSection[1])) !== null) {
-    rules.push({
-      name: match[1].trim(),
-      description: match[2].trim(),
-    });
-  }
-
-  return rules;
-}
-
-/**
- * Parse related domains from markdown
- */
-function parseRelatedDomains(body: string): string[] {
-  const domains: string[] = [];
-
-  const relatedSection = body.match(/## Related Domains\s*\n+([\s\S]*?)(?=\n## |$)/);
-  if (!relatedSection) return domains;
-
-  const linkRegex = /\[([^\]]+)\]\(([^)]+\.md)\)/g;
-  let match;
-
-  while ((match = linkRegex.exec(relatedSection[1])) !== null) {
-    // Extract domain name from link text or path
-    const domainName = match[1] || path.basename(match[2], '.md');
-    domains.push(domainName.toLowerCase());
-  }
-
-  return domains;
-}
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-function parseTableRow(row: string): string[] {
-  // Split by | and remove empty first/last elements
-  return row.split('|').slice(1, -1).map(cell => cell.trim());
-}
-
-function parseFieldType(typeStr: string): FieldType {
-  const lower = typeStr.toLowerCase();
-  if (lower.includes('string') || lower.includes('text')) return 'string';
-  if (lower.includes('number') || lower.includes('integer') || lower.includes('int')) return 'number';
-  if (lower.includes('boolean') || lower.includes('bool')) return 'boolean';
-  if (lower.includes('timestamp') || lower.includes('date') || lower.includes('time')) return 'timestamp';
-  if (lower.includes('enum')) return 'enum';
-  if (lower.includes('ref') || lower.includes('foreign')) return 'ref';
-  if (lower.includes('json') || lower.includes('object')) return 'json';
-  return 'string'; // default
-}
-
-function parseFieldRequired(reqStr: string): FieldRequired {
-  const lower = reqStr.toLowerCase().trim();
-  if (lower === '✓' || lower === 'yes' || lower === 'true' || lower === 'required') return 'required';
-  if (lower === 'auto' || lower === 'auto-generated') return 'auto';
-  return 'optional';
+  const content = childMatch[1].trim();
+  return content || undefined;
 }
 
 // =============================================================================
@@ -311,21 +108,128 @@ function parseFieldRequired(reqStr: string): FieldRequired {
 /**
  * Validate a parsed spec for completeness
  */
-export function validateDomainSpec(spec: DomainSpec): string[] {
+export function validateSpec(spec: ParsedSpec): string[] {
   const errors: string[] = [];
 
-  if (!spec.frontmatter.title) {
-    errors.push('Missing title in frontmatter');
+  if (!spec.frontmatter.id) {
+    errors.push('Missing id in frontmatter');
   }
-  if (!spec.frontmatter.domain) {
-    errors.push('Missing domain in frontmatter');
+  if (!spec.title || spec.title === 'Untitled') {
+    errors.push('Missing title (H1 heading)');
   }
-  if (spec.abilities.length === 0) {
-    errors.push('No abilities found - check Abilities section format');
+  if (!spec.problem) {
+    errors.push('Missing Problem section');
   }
-  if (spec.dataModel.length === 0) {
-    errors.push('No data model fields found - check Data Model section format');
+  if (!spec.solution) {
+    errors.push('Missing Solution section');
   }
 
   return errors;
+}
+
+// =============================================================================
+// Export Format
+// =============================================================================
+
+/**
+ * Convert a parsed spec back to markdown format
+ */
+export function specToMarkdown(spec: ParsedSpec, options?: { includeFrontmatter?: boolean }): string {
+  const lines: string[] = [];
+
+  // Frontmatter
+  if (options?.includeFrontmatter !== false) {
+    lines.push('---');
+    if (spec.frontmatter.id) lines.push(`id: ${spec.frontmatter.id}`);
+    if (spec.frontmatter.status) lines.push(`status: ${spec.frontmatter.status}`);
+    if (spec.frontmatter.type) lines.push(`type: ${spec.frontmatter.type}`);
+    if (spec.frontmatter.tags && spec.frontmatter.tags.length > 0) {
+      lines.push(`tags: [${spec.frontmatter.tags.join(', ')}]`);
+    }
+    if (spec.frontmatter.depends_on && spec.frontmatter.depends_on.length > 0) {
+      lines.push(`depends_on: [${spec.frontmatter.depends_on.join(', ')}]`);
+    }
+    lines.push('---');
+    lines.push('');
+  }
+
+  // Title
+  lines.push(`# ${spec.title}`);
+  lines.push('');
+
+  // Sections
+  if (spec.problem) {
+    lines.push('## Problem');
+    lines.push('');
+    lines.push(spec.problem);
+    lines.push('');
+  }
+
+  if (spec.solution) {
+    lines.push('## Solution');
+    lines.push('');
+    lines.push(spec.solution);
+    lines.push('');
+  }
+
+  if (spec.decisions) {
+    lines.push('## Decisions');
+    lines.push('');
+    lines.push(spec.decisions);
+    lines.push('');
+  }
+
+  if (spec.notNow) {
+    lines.push('## Not Now');
+    lines.push('');
+    lines.push(spec.notNow);
+    lines.push('');
+  }
+
+  if (spec.uiUx) {
+    lines.push('## UI/UX');
+    lines.push('');
+    lines.push(spec.uiUx);
+    lines.push('');
+  }
+
+  if (spec.acceptanceCriteria) {
+    lines.push('## Acceptance Criteria');
+    lines.push('');
+    lines.push(spec.acceptanceCriteria);
+    lines.push('');
+  }
+
+  if (spec.openQuestions) {
+    lines.push('## Open Questions');
+    lines.push('');
+    lines.push(spec.openQuestions);
+    lines.push('');
+  }
+
+  if (spec.requirementsFunctional || spec.requirementsTechnical) {
+    lines.push('## Requirements');
+    lines.push('');
+    if (spec.requirementsFunctional) {
+      lines.push('### Functional');
+      lines.push('');
+      lines.push(spec.requirementsFunctional);
+      lines.push('');
+    }
+    if (spec.requirementsTechnical) {
+      lines.push('### Technical');
+      lines.push('');
+      lines.push(spec.requirementsTechnical);
+      lines.push('');
+    }
+  }
+
+  if (spec.context) {
+    lines.push('## Context');
+    lines.push('');
+    lines.push(spec.context);
+    lines.push('');
+  }
+
+  return lines.join('\n');
 }
