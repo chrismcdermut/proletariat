@@ -106,11 +106,16 @@ export function deepClone<T>(obj: T): T {
 // =============================================================================
 
 /**
- * Default column names for work commands
+ * Default column names for work commands (Linear-style workflow)
+ *
+ * Linear-style: Backlog → Planned → In Progress → Done
+ * - planned: Move tickets here when scheduled/assigned
+ * - in_progress: Move tickets here when work starts
+ * - done: Move tickets here when work is complete (includes review/merged)
  */
 export const DEFAULT_WORK_COLUMNS = {
+  planned: 'Planned',
   in_progress: 'In Progress',
-  review: 'Review',
   done: 'Done',
 } as const;
 

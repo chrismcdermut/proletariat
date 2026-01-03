@@ -69,7 +69,7 @@ Tickets are the fundamental unit of work in the PMO system. They represent indiv
 | description | string | | "" | Structured markdown (see format below) |
 | priority | enum | | MEDIUM | URGENT, HIGH, MEDIUM, LOW |
 | category | string | | "feature" | feature, bug, infra, docs |
-| status | enum | | backlog | backlog, ready, in_progress, blocked, review, done, cancelled |
+| status | enum | | backlog | Linear-style: backlog, planned, in_progress, done, canceled |
 | owner | string | | null | Human accountable |
 | assignee | string | | null | Agent/human doing work (e.g., "agent:dorsey") |
 | spec_id | ref | | null | Link to defining spec |
@@ -189,10 +189,23 @@ Add user auth with OAuth, session management, and admin panel.
 - **Cascade delete**: Deleting ticket removes subtasks, metadata, dependencies, paths, and criteria
 - **Owner vs Assignee**: Owner is accountable (human), Assignee does the work (agent or human)
 
+### Status Lifecycle (Linear-style)
+- **backlog**: Not yet scheduled, waiting to be prioritized
+- **planned**: Scheduled for work but not yet started
+- **in_progress**: Actively being worked on by an agent or human
+- **done**: Completed successfully
+- **canceled**: Won't be done (intentionally spelled with one 'l' to match Linear)
+
+Status transitions:
+- Backlog → Planned (when scheduled/assigned)
+- Planned → In Progress (when `prlt work start` is run)
+- In Progress → Done (when `prlt work ready` is run)
+- Any → Canceled (when ticket is abandoned)
+
 ### Dependency Rules
 - **No self-dependency**: A ticket cannot depend on itself
 - **No circular dependencies**: Dependency graph must be acyclic (DAG)
-- **Blocked status**: Tickets with unresolved dependencies should be marked `blocked`
+- **Dependencies block work**: Tickets with unresolved dependencies should remain in Planned until blockers are resolved
 - **Scheduling**: Agent orchestrator should not start tickets with unresolved dependencies
 
 ### Acceptance Criteria Rules

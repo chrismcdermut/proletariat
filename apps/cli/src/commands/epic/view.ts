@@ -105,10 +105,12 @@ export default class EpicView extends Command {
         for (const ticket of tickets) {
           const icon = ticket.status === 'done' ? '✅' :
                        ticket.status === 'in_progress' ? '🚧' :
-                       ticket.status === 'blocked' ? '🔴' : '📋';
+                       ticket.status === 'planned' ? '📋' :
+                       ticket.status === 'canceled' ? '🚫' : '📥';
           const statusLabel = ticket.status === 'done' ? 'Done' :
                              ticket.status === 'in_progress' ? 'In Progress' :
-                             ticket.status === 'blocked' ? 'Blocked' :
+                             ticket.status === 'planned' ? 'Planned' :
+                             ticket.status === 'canceled' ? 'Canceled' :
                              ticket.column || ticket.status;
           this.log(`  ${icon} ${ticket.id}: ${ticket.title} [${statusLabel}]`);
         }

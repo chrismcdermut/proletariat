@@ -63,16 +63,21 @@ export interface Epic {
 }
 
 /**
- * Ticket lifecycle status (independent of board column position)
+ * Ticket lifecycle status (Linear-style workflow)
+ *
+ * Linear-inspired states that map to board columns:
+ * - backlog: Not yet scheduled (can be pulled into planned)
+ * - planned: Scheduled for work but not started
+ * - in_progress: Actively being worked on
+ * - done: Completed successfully
+ * - canceled: Won't be done (intentionally spelled with one 'l' to match Linear)
  */
 export type TicketStatus =
-  | 'backlog'    // Not started
-  | 'ready'      // Ready to start
-  | 'in_progress' // Being worked on
-  | 'blocked'    // Can't proceed
-  | 'review'     // Needs review
-  | 'done'       // Completed
-  | 'cancelled'  // Won't do
+  | 'backlog'      // Not yet scheduled
+  | 'planned'      // Scheduled for work
+  | 'in_progress'  // Actively being worked on
+  | 'done'         // Completed
+  | 'canceled'     // Won't do
 
 /**
  * Board represents a project's kanban board view.

@@ -129,6 +129,19 @@ export class SQLiteStorage implements PMOStorage {
         }
       }
     }
+
+    // Migration: Update ticket statuses to Linear-style values
+    // Old statuses: backlog, ready, in_progress, blocked, review, done, cancelled
+    // New statuses: backlog, planned, in_progress, done, canceled
+    // Mapping:
+    //   - 'ready' -> 'planned' (scheduled for work)
+    //   - 'blocked' -> 'planned' (move back to planned, blocking is now via dependencies)
+    //   - 'review' -> 'in_progress' (still being worked on, review is implicit)
+    //   - 'cancelled' -> 'canceled' (spelling change to match Linear)
+    this.db.exec(`UPDATE ${T.tickets} SET status = 'planned' WHERE status = 'ready'`)
+    this.db.exec(`UPDATE ${T.tickets} SET status = 'planned' WHERE status = 'blocked'`)
+    this.db.exec(`UPDATE ${T.tickets} SET status = 'in_progress' WHERE status = 'review'`)
+    this.db.exec(`UPDATE ${T.tickets} SET status = 'canceled' WHERE status = 'cancelled'`)
   }
 
 
@@ -145,8 +158,8 @@ export class SQLiteStorage implements PMOStorage {
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(id, project.name, project.template || 'kanban', project.description || null, now, now)
 
-    // Create default columns for the project
-    const defaultColumns = ['Backlog', 'In Progress', 'Review', 'Done']
+    // Create default columns for the project (Linear-style)
+    const defaultColumns = ['Backlog', 'Planned', 'In Progress', 'Done']
     const insertColumn = this.db.prepare(`
       INSERT INTO ${T.columns} (id, project_id, name, position, created_at)
       VALUES (?, ?, ?, ?, ?)
@@ -247,7 +260,7 @@ export class SQLiteStorage implements PMOStorage {
   async init(config: BoardConfig): Promise<Board> {
     const projectId = this.currentProjectId
     const projectName = config.name || 'Project Board'
-    const columns = config.columns || ['Backlog', 'In Progress', 'Review', 'Done']
+    const columns = config.columns || ['Backlog', 'Planned', 'In Progress', 'Done']
     const now = Date.now()
 
     // Create or update project

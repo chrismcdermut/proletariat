@@ -112,17 +112,17 @@ export default class WorkRevise extends Command {
 
       if (!ticketId) {
         const allTickets = await storage.listTickets()
-        // Filter to tickets in review that have a PR
+        // Filter to done tickets that have a PR (may need revision based on PR feedback)
         const reviewTickets = allTickets.filter(t => {
-          const inReview = t.column && t.column.toLowerCase().includes('review')
+          const isDone = t.status === 'done' || (t.column && t.column.toLowerCase().includes('done'))
           const hasPR = t.metadata?.pr_url
-          return inReview && hasPR
+          return isDone && hasPR
         })
 
         if (reviewTickets.length === 0) {
           await storage.close()
           db.close()
-          this.log(styles.info('No tickets in review with PRs found.'))
+          this.log(styles.info('No done tickets with PRs found.'))
           this.log(styles.muted('Use "prlt work start" for new work.'))
           return
         }

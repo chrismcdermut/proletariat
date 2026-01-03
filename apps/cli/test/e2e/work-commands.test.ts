@@ -40,19 +40,19 @@ describe('Work Commands E2E Tests', () => {
 
   /**
    * Spec: execute-commands.md > prlt work ready
-   * "Moves ticket to In Review column"
+   * "Moves ticket to Done column (Linear-style: review is implicit via PR)"
    */
   describe('prlt work ready', () => {
-    it('should move ticket to In Review column', () => {
+    it('should move ticket to Done column', () => {
       // Create ticket in In Progress column
       const ticketId = createTicket(db, 'Ready test', 'in-progress');
 
       const output = exec(`work ready ${ticketId}`);
 
-      expect(output).to.contain('ready for review');
+      expect(output).to.contain('ready');
       expect(output).to.contain(ticketId);
 
-      // Verify ticket moved to In Review
+      // Verify ticket moved to Done (Linear-style: review is implicit via PR)
       const ticket = db.prepare(`
         SELECT c.name as column_name
         FROM pmo_board_tickets bt
@@ -60,7 +60,7 @@ describe('Work Commands E2E Tests', () => {
         WHERE bt.ticket_id = ?
       `).get(ticketId) as { column_name: string };
 
-      expect(ticket.column_name).to.equal('In Review');
+      expect(ticket.column_name).to.equal('Done');
     });
 
     it('should mark running execution as completed', () => {
@@ -103,8 +103,8 @@ describe('Work Commands E2E Tests', () => {
    */
   describe('prlt work complete', () => {
     it('should move ticket to Done column', () => {
-      // Create ticket in In Review column
-      const ticketId = createTicket(db, 'Complete test', 'in-review');
+      // Create ticket in In Progress column
+      const ticketId = createTicket(db, 'Complete test', 'in-progress');
 
       const output = exec(`work complete ${ticketId}`);
 
@@ -147,21 +147,21 @@ describe('Work Commands E2E Tests', () => {
       expect(execution.status).to.equal('completed');
     });
 
-    it('should show tickets from both In Progress and In Review', () => {
+    it('should show tickets in In Progress column', () => {
       createTicket(db, 'Progress ticket', 'in-progress');
-      createTicket(db, 'Review ticket', 'in-review');
+      createTicket(db, 'Planned ticket', 'planned');
       createTicket(db, 'Backlog ticket', 'backlog');
 
-      // Verify completable tickets query
+      // Verify completable tickets query (only In Progress in Linear workflow)
       const completable = db.prepare(`
         SELECT t.id
         FROM pmo_tickets t
         JOIN pmo_board_tickets bt ON bt.ticket_id = t.id
         JOIN pmo_columns c ON c.id = bt.column_id
-        WHERE c.name LIKE '%Progress%' OR c.name LIKE '%Review%'
+        WHERE c.name LIKE '%Progress%'
       `).all();
 
-      expect(completable).to.have.lengthOf(2);
+      expect(completable).to.have.lengthOf(1);
     });
   });
 
@@ -453,10 +453,11 @@ function setupTestDatabase(db: Database.Database) {
     VALUES ('pmo_path', 'pmo'), ('current_project', 'test-project')
   `).run();
 
+  // Linear-style columns: Backlog, Planned, In Progress, Done
   const columns = [
     { id: 'backlog', name: 'Backlog', position: 0 },
-    { id: 'in-progress', name: 'In Progress', position: 1 },
-    { id: 'in-review', name: 'In Review', position: 2 },
+    { id: 'planned', name: 'Planned', position: 1 },
+    { id: 'in-progress', name: 'In Progress', position: 2 },
     { id: 'done', name: 'Done', position: 3 },
   ];
 
