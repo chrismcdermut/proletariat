@@ -99,27 +99,36 @@ export class SQLiteStorage implements PMOStorage {
    * Each migration checks if the column exists before adding it.
    */
   private runMigrations(): void {
-    // Migration: Add spec_type and domain columns to pmo_specs table
+    // Migration: Update specs table to new simplified schema
     const specsColumns = this.db.pragma(`table_info(${T.specs})`) as Array<{ name: string }>
     const specsColumnNames = specsColumns.map(c => c.name)
 
-    if (!specsColumnNames.includes('spec_type')) {
-      this.db.exec(`ALTER TABLE ${T.specs} ADD COLUMN spec_type TEXT DEFAULT 'domain'`)
-    }
-    if (!specsColumnNames.includes('domain')) {
-      this.db.exec(`ALTER TABLE ${T.specs} ADD COLUMN domain TEXT`)
-    }
+    // New columns for simplified spec schema
+    const newColumns = [
+      { name: 'type', sql: 'type TEXT' },
+      { name: 'tags', sql: 'tags TEXT' },
+      { name: 'depends_on', sql: 'depends_on TEXT' },
+      { name: 'problem', sql: 'problem TEXT' },
+      { name: 'solution', sql: 'solution TEXT' },
+      { name: 'decisions', sql: 'decisions TEXT' },
+      { name: 'not_now', sql: 'not_now TEXT' },
+      { name: 'ui_ux', sql: 'ui_ux TEXT' },
+      { name: 'acceptance_criteria', sql: 'acceptance_criteria TEXT' },
+      { name: 'open_questions', sql: 'open_questions TEXT' },
+      { name: 'requirements_functional', sql: 'requirements_functional TEXT' },
+      { name: 'requirements_technical', sql: 'requirements_technical TEXT' },
+      { name: 'context', sql: 'context TEXT' },
+    ]
 
-    // Migration: Add description column to pmo_spec_abilities table
-    const abilitiesColumns = this.db.pragma(`table_info(${T.spec_abilities})`) as Array<{ name: string }>
-    const abilitiesColumnNames = abilitiesColumns.map(c => c.name)
-
-    if (!abilitiesColumnNames.includes('description')) {
-      this.db.exec(`ALTER TABLE ${T.spec_abilities} ADD COLUMN description TEXT`)
+    for (const col of newColumns) {
+      if (!specsColumnNames.includes(col.name)) {
+        try {
+          this.db.exec(`ALTER TABLE ${T.specs} ADD COLUMN ${col.sql}`)
+        } catch {
+          // Column may already exist
+        }
+      }
     }
-
-    // Migration: Create pmo_spec_implementations table if it doesn't exist
-    // (already handled by PMO_SCHEMA_SQL with CREATE TABLE IF NOT EXISTS)
   }
 
 
@@ -908,40 +917,91 @@ export class SQLiteStorage implements PMOStorage {
   // ===========================================================================
 
   async createSpec(spec: Partial<Spec>): Promise<Spec> {
-    const id = spec.id || slugify(spec.path || 'untitled')
-    const specPath = spec.path || `specs/${id}.md`
+    const id = spec.id || slugify(spec.title || 'untitled')
     const now = Date.now()
 
     this.db
       .prepare(
         `
-      INSERT INTO ${T.specs} (id, path, title, status, spec_type, domain, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO ${T.specs} (
+        id, title, status, type, tags, depends_on,
+        problem, solution, decisions, not_now, ui_ux,
+        acceptance_criteria, open_questions,
+        requirements_functional, requirements_technical,
+        context, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
       )
-      .run(id, specPath, spec.title || null, spec.status || 'active', spec.specType || 'domain', spec.domain || null, now, now)
+      .run(
+        id,
+        spec.title || 'Untitled Spec',
+        spec.status || 'draft',
+        spec.type || null,
+        spec.tags ? JSON.stringify(spec.tags) : null,
+        spec.dependsOn ? JSON.stringify(spec.dependsOn) : null,
+        spec.problem || null,
+        spec.solution || null,
+        spec.decisions || null,
+        spec.notNow || null,
+        spec.uiUx || null,
+        spec.acceptanceCriteria || null,
+        spec.openQuestions || null,
+        spec.requirementsFunctional || null,
+        spec.requirementsTechnical || null,
+        spec.context || null,
+        now,
+        now
+      )
 
     return {
       id,
-      path: specPath,
-      title: spec.title,
-      status: spec.status || 'active',
-      specType: spec.specType || 'domain',
-      domain: spec.domain,
+      title: spec.title || 'Untitled Spec',
+      status: spec.status || 'draft',
+      type: spec.type,
+      tags: spec.tags,
+      dependsOn: spec.dependsOn,
+      problem: spec.problem,
+      solution: spec.solution,
+      decisions: spec.decisions,
+      notNow: spec.notNow,
+      uiUx: spec.uiUx,
+      acceptanceCriteria: spec.acceptanceCriteria,
+      openQuestions: spec.openQuestions,
+      requirementsFunctional: spec.requirementsFunctional,
+      requirementsTechnical: spec.requirementsTechnical,
+      context: spec.context,
       createdAt: new Date(now),
       updatedAt: new Date(now),
     }
   }
 
   async getSpec(id: string): Promise<Spec | null> {
-    const row = this.db.prepare(`SELECT id, path, title, status, spec_type, domain, created_at, updated_at FROM ${T.specs} WHERE id = ?`).get(id) as
+    const row = this.db.prepare(`
+      SELECT id, title, status, type, tags, depends_on,
+             problem, solution, decisions, not_now, ui_ux,
+             acceptance_criteria, open_questions,
+             requirements_functional, requirements_technical,
+             context, created_at, updated_at
+      FROM ${T.specs} WHERE id = ?
+    `).get(id) as
       | {
           id: string
-          path: string
-          title: string | null
+          title: string
           status: string
-          spec_type: string | null
-          domain: string | null
+          type: string | null
+          tags: string | null
+          depends_on: string | null
+          problem: string | null
+          solution: string | null
+          decisions: string | null
+          not_now: string | null
+          ui_ux: string | null
+          acceptance_criteria: string | null
+          open_questions: string | null
+          requirements_functional: string | null
+          requirements_technical: string | null
+          context: string | null
           created_at: string
           updated_at: string
         }
@@ -951,49 +1011,90 @@ export class SQLiteStorage implements PMOStorage {
 
     return {
       id: row.id,
-      path: row.path,
-      title: row.title || undefined,
-      status: row.status as 'draft' | 'active' | 'deprecated',
-      specType: (row.spec_type || 'domain') as 'domain' | 'infrastructure',
-      domain: row.domain || undefined,
+      title: row.title,
+      status: row.status as 'draft' | 'active' | 'implemented',
+      type: row.type as 'product' | 'platform' | 'infra' | 'integration' | undefined,
+      tags: row.tags ? JSON.parse(row.tags) : undefined,
+      dependsOn: row.depends_on ? JSON.parse(row.depends_on) : undefined,
+      problem: row.problem || undefined,
+      solution: row.solution || undefined,
+      decisions: row.decisions || undefined,
+      notNow: row.not_now || undefined,
+      uiUx: row.ui_ux || undefined,
+      acceptanceCriteria: row.acceptance_criteria || undefined,
+      openQuestions: row.open_questions || undefined,
+      requirementsFunctional: row.requirements_functional || undefined,
+      requirementsTechnical: row.requirements_technical || undefined,
+      context: row.context || undefined,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
     }
   }
 
   async listSpecs(filter?: SpecFilter): Promise<Spec[]> {
-    let query = `SELECT id, path, title, status, spec_type, domain, created_at, updated_at FROM ${T.specs} WHERE 1=1`
+    let query = `
+      SELECT id, title, status, type, tags, depends_on,
+             problem, solution, decisions, not_now, ui_ux,
+             acceptance_criteria, open_questions,
+             requirements_functional, requirements_technical,
+             context, created_at, updated_at
+      FROM ${T.specs} WHERE 1=1
+    `
     const params: unknown[] = []
 
     if (filter?.status) {
       query += ' AND status = ?'
       params.push(filter.status)
     }
+    if (filter?.type) {
+      query += ' AND type = ?'
+      params.push(filter.type)
+    }
     if (filter?.search) {
-      query += ' AND (id LIKE ? OR title LIKE ? OR path LIKE ?)'
-      params.push(`%${filter.search}%`, `%${filter.search}%`, `%${filter.search}%`)
+      query += ' AND (id LIKE ? OR title LIKE ? OR problem LIKE ? OR solution LIKE ?)'
+      params.push(`%${filter.search}%`, `%${filter.search}%`, `%${filter.search}%`, `%${filter.search}%`)
     }
 
-    query += ' ORDER BY id'
+    query += ' ORDER BY title'
 
     const rows = this.db.prepare(query).all(...params) as Array<{
       id: string
-      path: string
-      title: string | null
+      title: string
       status: string
-      spec_type: string | null
-      domain: string | null
+      type: string | null
+      tags: string | null
+      depends_on: string | null
+      problem: string | null
+      solution: string | null
+      decisions: string | null
+      not_now: string | null
+      ui_ux: string | null
+      acceptance_criteria: string | null
+      open_questions: string | null
+      requirements_functional: string | null
+      requirements_technical: string | null
+      context: string | null
       created_at: string
       updated_at: string
     }>
 
     return rows.map((row) => ({
       id: row.id,
-      path: row.path,
-      title: row.title || undefined,
-      status: row.status as 'draft' | 'active' | 'deprecated',
-      specType: (row.spec_type || 'domain') as 'domain' | 'infrastructure',
-      domain: row.domain || undefined,
+      title: row.title,
+      status: row.status as 'draft' | 'active' | 'implemented',
+      type: row.type as 'product' | 'platform' | 'infra' | 'integration' | undefined,
+      tags: row.tags ? JSON.parse(row.tags) : undefined,
+      dependsOn: row.depends_on ? JSON.parse(row.depends_on) : undefined,
+      problem: row.problem || undefined,
+      solution: row.solution || undefined,
+      decisions: row.decisions || undefined,
+      notNow: row.not_now || undefined,
+      uiUx: row.ui_ux || undefined,
+      acceptanceCriteria: row.acceptance_criteria || undefined,
+      openQuestions: row.open_questions || undefined,
+      requirementsFunctional: row.requirements_functional || undefined,
+      requirementsTechnical: row.requirements_technical || undefined,
+      context: row.context || undefined,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
     }))
@@ -1008,10 +1109,6 @@ export class SQLiteStorage implements PMOStorage {
     const updates: string[] = []
     const params: unknown[] = []
 
-    if (changes.path !== undefined) {
-      updates.push('path = ?')
-      params.push(changes.path)
-    }
     if (changes.title !== undefined) {
       updates.push('title = ?')
       params.push(changes.title)
@@ -1019,6 +1116,58 @@ export class SQLiteStorage implements PMOStorage {
     if (changes.status !== undefined) {
       updates.push('status = ?')
       params.push(changes.status)
+    }
+    if (changes.type !== undefined) {
+      updates.push('type = ?')
+      params.push(changes.type)
+    }
+    if (changes.tags !== undefined) {
+      updates.push('tags = ?')
+      params.push(JSON.stringify(changes.tags))
+    }
+    if (changes.dependsOn !== undefined) {
+      updates.push('depends_on = ?')
+      params.push(JSON.stringify(changes.dependsOn))
+    }
+    if (changes.problem !== undefined) {
+      updates.push('problem = ?')
+      params.push(changes.problem)
+    }
+    if (changes.solution !== undefined) {
+      updates.push('solution = ?')
+      params.push(changes.solution)
+    }
+    if (changes.decisions !== undefined) {
+      updates.push('decisions = ?')
+      params.push(changes.decisions)
+    }
+    if (changes.notNow !== undefined) {
+      updates.push('not_now = ?')
+      params.push(changes.notNow)
+    }
+    if (changes.uiUx !== undefined) {
+      updates.push('ui_ux = ?')
+      params.push(changes.uiUx)
+    }
+    if (changes.acceptanceCriteria !== undefined) {
+      updates.push('acceptance_criteria = ?')
+      params.push(changes.acceptanceCriteria)
+    }
+    if (changes.openQuestions !== undefined) {
+      updates.push('open_questions = ?')
+      params.push(changes.openQuestions)
+    }
+    if (changes.requirementsFunctional !== undefined) {
+      updates.push('requirements_functional = ?')
+      params.push(changes.requirementsFunctional)
+    }
+    if (changes.requirementsTechnical !== undefined) {
+      updates.push('requirements_technical = ?')
+      params.push(changes.requirementsTechnical)
+    }
+    if (changes.context !== undefined) {
+      updates.push('context = ?')
+      params.push(changes.context)
     }
 
     if (updates.length > 0) {
@@ -1030,6 +1179,19 @@ export class SQLiteStorage implements PMOStorage {
     }
 
     return this.getSpec(id) as Promise<Spec>
+  }
+
+  async deleteSpec(id: string): Promise<void> {
+    const existing = await this.getSpec(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Spec not found: ${id}`)
+    }
+
+    // Delete spec (cascade will handle spec_dependencies)
+    this.db.prepare(`DELETE FROM ${T.specs} WHERE id = ?`).run(id)
+
+    // Clear spec_id from any tickets that reference this spec
+    this.db.prepare(`UPDATE ${T.tickets} SET spec_id = NULL WHERE spec_id = ?`).run(id)
   }
 
   async linkTicketToSpec(ticketId: string, specId: string): Promise<void> {
@@ -1078,6 +1240,58 @@ export class SQLiteStorage implements PMOStorage {
 
     const spec = await this.getSpec(ticket.specId)
     return spec ? [spec] : []
+  }
+
+  async addSpecDependency(specId: string, dependsOnId: string): Promise<void> {
+    // Verify both specs exist
+    const spec = await this.getSpec(specId)
+    if (!spec) {
+      throw new PMOError('NOT_FOUND', `Spec not found: ${specId}`)
+    }
+
+    const dependsOnSpec = await this.getSpec(dependsOnId)
+    if (!dependsOnSpec) {
+      throw new PMOError('NOT_FOUND', `Spec not found: ${dependsOnId}`)
+    }
+
+    // Insert dependency (ignore if already exists)
+    this.db.prepare(`
+      INSERT OR IGNORE INTO ${T.spec_dependencies} (spec_id, depends_on, created_at)
+      VALUES (?, ?, ?)
+    `).run(specId, dependsOnId, Date.now())
+  }
+
+  async removeSpecDependency(specId: string, dependsOnId: string): Promise<void> {
+    this.db.prepare(`
+      DELETE FROM ${T.spec_dependencies}
+      WHERE spec_id = ? AND depends_on = ?
+    `).run(specId, dependsOnId)
+  }
+
+  async getSpecDependencies(specId: string): Promise<Spec[]> {
+    const rows = this.db.prepare(`
+      SELECT depends_on FROM ${T.spec_dependencies} WHERE spec_id = ?
+    `).all(specId) as Array<{ depends_on: string }>
+
+    const specs: Spec[] = []
+    for (const row of rows) {
+      const spec = await this.getSpec(row.depends_on)
+      if (spec) specs.push(spec)
+    }
+    return specs
+  }
+
+  async getSpecDependents(specId: string): Promise<Spec[]> {
+    const rows = this.db.prepare(`
+      SELECT spec_id FROM ${T.spec_dependencies} WHERE depends_on = ?
+    `).all(specId) as Array<{ spec_id: string }>
+
+    const specs: Spec[] = []
+    for (const row of rows) {
+      const spec = await this.getSpec(row.spec_id)
+      if (spec) specs.push(spec)
+    }
+    return specs
   }
 
   // ===========================================================================

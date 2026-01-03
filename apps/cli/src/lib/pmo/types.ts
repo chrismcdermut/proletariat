@@ -190,113 +190,44 @@ export interface TicketDependency {
 /**
  * Spec type - determines directory location and format
  */
-export type SpecType = 'domain' | 'infrastructure'
+export type SpecType = 'product' | 'platform' | 'infra' | 'integration'
 
 /**
- * Common modalities - these are suggestions, not constraints.
- * The normalized schema allows any string as a modality.
+ * Spec status - lifecycle state
  */
-export type CommonModality =
-  | 'storage'    // Direct database operations (MVP)
-  | 'cli'        // Command-line interface
-  | 'api'        // REST/GraphQL endpoints
-  | 'sdk'        // Programmatic SDK
-  | 'web'        // Web application
-  | 'mobile'     // Mobile application
-  | 'desktop'    // Desktop application
-  | 'obsidian'   // Obsidian plugin
-  | 'slack'      // Slack integration
-  | 'sms'        // SMS interface
+export type SpecStatus = 'draft' | 'active' | 'implemented'
 
 /**
- * @deprecated Use CommonModality instead - modalities are now flexible strings
+ * Spec - a living document describing ideal state
  */
-export type Modality = CommonModality
-
-export const COMMON_MODALITIES: readonly CommonModality[] = [
-  'storage', 'cli', 'api', 'sdk', 'web', 'mobile', 'desktop', 'obsidian', 'slack', 'sms'
-] as const
-
-/**
- * @deprecated Use COMMON_MODALITIES instead
- */
-export const MODALITIES = COMMON_MODALITIES
-
 export interface Spec {
   id: string
-  path: string
-  title?: string
-  overview?: string
-  status: 'draft' | 'active' | 'deprecated'
-  specType: SpecType           // domain or infrastructure
-  domain?: string              // e.g., 'tickets', 'epics', 'agents'
+  title: string
+  status: SpecStatus
+  type?: SpecType
+  tags?: string[]                    // JSON array in DB
+  dependsOn?: string[]               // JSON array of spec IDs
+  problem?: string
+  solution?: string
+  decisions?: string
+  notNow?: string
+  uiUx?: string
+  acceptanceCriteria?: string
+  openQuestions?: string
+  requirementsFunctional?: string
+  requirementsTechnical?: string
+  context?: string
   createdAt: Date
   updatedAt: Date
-  // Content (populated when fetching full spec)
-  abilities?: SpecAbility[]
-  fields?: SpecField[]
-  rules?: SpecRule[]
-  relatedDomains?: SpecRelation[]
 }
 
 /**
- * An ability defined in a spec (row in abilities table)
- * Normalized: implementations are stored in separate SpecImplementation records
+ * Spec dependency - one spec depends on another
  */
-export interface SpecAbility {
-  id?: number
+export interface SpecDependency {
   specId: string
-  name: string
-  description?: string
-  position: number
-  // Populated from joins when fetching full spec
-  implementations?: SpecImplementation[]
-}
-
-/**
- * An implementation of an ability for a specific modality
- * Normalized from the old *_impl columns into rows
- */
-export interface SpecImplementation {
-  id?: number
-  abilityId: number
-  modality: string  // Flexible - not constrained to predefined modalities
-  signature: string // The implementation signature (e.g., `createTicket()`, `prlt ticket create`)
-}
-
-/**
- * A field in the data model
- */
-export interface SpecField {
-  id?: number
-  specId: string
-  name: string
-  fieldType: 'string' | 'number' | 'boolean' | 'timestamp' | 'enum' | 'ref' | 'json'
-  required: 'required' | 'auto' | 'optional'
-  defaultValue?: string
-  description?: string
-  position: number
-}
-
-/**
- * A business rule
- */
-export interface SpecRule {
-  id?: number
-  specId: string
-  name: string
-  description: string
-  position: number
-}
-
-/**
- * A relationship to another domain
- */
-export interface SpecRelation {
-  id?: number
-  specId: string
-  relatedDomain: string
-  relationship?: string
+  dependsOn: string
+  createdAt?: Date
 }
 
 // =============================================================================
@@ -349,9 +280,9 @@ export interface TicketFilter {
 }
 
 export interface SpecFilter {
-  status?: 'draft' | 'active' | 'deprecated'
-  specType?: SpecType
-  domain?: string
+  status?: SpecStatus
+  type?: SpecType
+  tags?: string[]
   search?: string
 }
 
@@ -436,10 +367,15 @@ export interface PMOStorage {
   getSpec(id: string): Promise<Spec | null>
   listSpecs(filter?: SpecFilter): Promise<Spec[]>
   updateSpec(id: string, changes: Partial<Spec>): Promise<Spec>
+  deleteSpec(id: string): Promise<void>
   linkTicketToSpec(ticketId: string, specId: string): Promise<void>
   unlinkTicketFromSpec(ticketId: string, specId: string): Promise<void>
   getTicketsForSpec(specId: string): Promise<Ticket[]>
   getSpecsForTicket(ticketId: string): Promise<Spec[]>
+  addSpecDependency(specId: string, dependsOnId: string): Promise<void>
+  removeSpecDependency(specId: string, dependsOnId: string): Promise<void>
+  getSpecDependencies(specId: string): Promise<Spec[]>
+  getSpecDependents(specId: string): Promise<Spec[]>
 
   // Epic Operations
   createEpic(epic: Partial<Epic>): Promise<Epic>

@@ -21,11 +21,7 @@ export const PMO_TABLES = {
   ticket_affected_paths: 'pmo_ticket_affected_paths',
   ticket_acceptance_criteria: 'pmo_ticket_acceptance_criteria',
   specs: 'pmo_specs',
-  spec_abilities: 'pmo_spec_abilities',
-  spec_implementations: 'pmo_spec_implementations',
-  spec_fields: 'pmo_spec_fields',
-  spec_rules: 'pmo_spec_rules',
-  spec_relations: 'pmo_spec_relations',
+  spec_dependencies: 'pmo_spec_dependencies',
   ticket_specs: 'pmo_ticket_specs',
   ticket_assignments: 'pmo_ticket_assignments',
   epics: 'pmo_epics',
@@ -159,64 +155,32 @@ export const PMO_TABLE_SCHEMAS = {
   specs: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.specs} (
       id TEXT PRIMARY KEY,
-      path TEXT NOT NULL,
-      title TEXT,
-      overview TEXT,
-      status TEXT DEFAULT 'active',
-      spec_type TEXT DEFAULT 'domain',
-      domain TEXT,
+      title TEXT NOT NULL,
+      status TEXT DEFAULT 'draft',
+      type TEXT,
+      tags TEXT,
+      depends_on TEXT,
+      problem TEXT,
+      solution TEXT,
+      decisions TEXT,
+      not_now TEXT,
+      ui_ux TEXT,
+      acceptance_criteria TEXT,
+      open_questions TEXT,
+      requirements_functional TEXT,
+      requirements_technical TEXT,
+      context TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
 
-  spec_abilities: `
-    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.spec_abilities} (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+  spec_dependencies: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.spec_dependencies} (
       spec_id TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      description TEXT,
-      position INTEGER NOT NULL DEFAULT 0,
-      UNIQUE(spec_id, name)
-    )`,
-
-  spec_implementations: `
-    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.spec_implementations} (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ability_id INTEGER NOT NULL REFERENCES ${PMO_TABLES.spec_abilities}(id) ON DELETE CASCADE,
-      modality TEXT NOT NULL,
-      signature TEXT NOT NULL,
-      UNIQUE(ability_id, modality)
-    )`,
-
-  spec_fields: `
-    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.spec_fields} (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      spec_id TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      field_type TEXT NOT NULL,
-      required TEXT DEFAULT 'optional',
-      default_value TEXT,
-      description TEXT,
-      position INTEGER NOT NULL DEFAULT 0,
-      UNIQUE(spec_id, name)
-    )`,
-
-  spec_rules: `
-    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.spec_rules} (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      spec_id TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0
-    )`,
-
-  spec_relations: `
-    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.spec_relations} (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      spec_id TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE CASCADE,
-      related_domain TEXT NOT NULL,
-      relationship TEXT,
-      UNIQUE(spec_id, related_domain)
+      depends_on TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE CASCADE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (spec_id, depends_on),
+      CHECK (spec_id != depends_on)
     )`,
 
   ticket_specs: `
@@ -311,14 +275,9 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_agent_work_agent ON ${PMO_TABLES.agent_work}(agent_name);
   CREATE INDEX IF NOT EXISTS idx_agent_work_status ON ${PMO_TABLES.agent_work}(status);
   CREATE INDEX IF NOT EXISTS idx_agent_work_ticket ON ${PMO_TABLES.agent_work}(ticket_id);
-  CREATE INDEX IF NOT EXISTS idx_pmo_specs_type ON ${PMO_TABLES.specs}(spec_type);
-  CREATE INDEX IF NOT EXISTS idx_pmo_specs_domain ON ${PMO_TABLES.specs}(domain);
-  CREATE INDEX IF NOT EXISTS idx_pmo_spec_abilities_spec ON ${PMO_TABLES.spec_abilities}(spec_id);
-  CREATE INDEX IF NOT EXISTS idx_pmo_spec_implementations_ability ON ${PMO_TABLES.spec_implementations}(ability_id);
-  CREATE INDEX IF NOT EXISTS idx_pmo_spec_implementations_modality ON ${PMO_TABLES.spec_implementations}(modality);
-  CREATE INDEX IF NOT EXISTS idx_pmo_spec_fields_spec ON ${PMO_TABLES.spec_fields}(spec_id);
-  CREATE INDEX IF NOT EXISTS idx_pmo_spec_rules_spec ON ${PMO_TABLES.spec_rules}(spec_id);
-  CREATE INDEX IF NOT EXISTS idx_pmo_spec_relations_spec ON ${PMO_TABLES.spec_relations}(spec_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_specs_status ON ${PMO_TABLES.specs}(status);
+  CREATE INDEX IF NOT EXISTS idx_pmo_specs_type ON ${PMO_TABLES.specs}(type);
+  CREATE INDEX IF NOT EXISTS idx_pmo_spec_deps_depends_on ON ${PMO_TABLES.spec_dependencies}(depends_on);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_deps_blocked_by ON ${PMO_TABLES.ticket_dependencies}(blocked_by_ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_paths_ticket ON ${PMO_TABLES.ticket_affected_paths}(ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_criteria_ticket ON ${PMO_TABLES.ticket_acceptance_criteria}(ticket_id);
@@ -337,11 +296,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.initiatives,
   PMO_TABLE_SCHEMAS.columns,
   PMO_TABLE_SCHEMAS.specs,  // Must be before tickets (FK reference)
-  PMO_TABLE_SCHEMAS.spec_abilities,  // Spec content tables
-  PMO_TABLE_SCHEMAS.spec_implementations,  // Normalized: ability → modality implementations
-  PMO_TABLE_SCHEMAS.spec_fields,
-  PMO_TABLE_SCHEMAS.spec_rules,
-  PMO_TABLE_SCHEMAS.spec_relations,
+  PMO_TABLE_SCHEMAS.spec_dependencies,  // Spec dependency graph
   PMO_TABLE_SCHEMAS.epics,  // Must be before tickets (FK reference)
   PMO_TABLE_SCHEMAS.tickets,
   PMO_TABLE_SCHEMAS.board_tickets,
