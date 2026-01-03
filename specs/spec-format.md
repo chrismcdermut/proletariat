@@ -1,162 +1,75 @@
----
-title: Spec Format Definition
----
+# Spec Format
 
-# Spec Format Definition
+Specs define the **ideal state** of the system. The codebase is the current state. The delta between them is work to be done.
 
-Specs define the **ideal state** of the product - what it should do, not what it currently does. The database is the source of truth; markdown files are views for editing.
+## Paradigm
 
-## Spec Types
+- **Spec** = ideal state (what it should be)
+- **Code** = current state (what it is)
+- **LLM** = delta detection (compares spec vs code, generates tickets)
 
-| Type | Location | Purpose |
-|------|----------|---------|
-| Domain | `specs/domain/` | What - abilities, data model, business rules |
-| Infrastructure | `specs/infrastructure/` | Technical internals (not user-facing) |
+Specs are living documents. Update them in place. Git history tracks evolution.
 
-## Domain Spec Format
-
-Each domain gets one spec file that shows ALL modalities (Storage, CLI, API, Web, etc.) in a single abilities table.
+## Format
 
 ```markdown
----
-title: {Domain Name}
-domain: {domain-id}
----
+# {Title}
 
-# {Domain Name}
+## Problem
 
-## Overview
+Why this exists. What pain point or need it addresses.
 
-{1-3 sentences describing this domain}
+## Solution
 
-## Abilities
+High-level approach. What we're building and why this approach.
 
-| Ability | Storage | CLI | API | Web | Obsidian |
-|---------|---------|-----|-----|-----|----------|
-| {verb + noun} | `{method()}` | `{command}` | `{endpoint}` | {Component} | {feature} |
+## Decisions
 
-## Data Model
+- Key decision 1
+- Key decision 2
+- Rationale for non-obvious choices
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| {field} | {type} | {✓ or auto or blank} | {default} | {description} |
+## Not Now
 
-## Business Rules
+Things explicitly deferred. Prevents scope creep.
 
-- **{Rule name}**: {Rule description}
+## Context
 
-## Related Domains
-
-- [{Domain}]({domain}.md) - {relationship description}
+Optional. Background info, links, references.
 ```
 
-## Abilities Table
+## Naming Convention
 
-The abilities table is the core of a domain spec. Each row is a user capability; each column is a modality (platform) where it's implemented.
+`{type}-{name}.md`
 
-- **Ability**: User-facing capability (verb + noun)
-- **Columns**: Modalities showing implementation signature
-- **Empty cell or `-`**: Not planned for this modality
-- **Signature**: The intended implementation (method, command, endpoint, component)
+| Prefix | Type | Example |
+|--------|------|---------|
+| `prod-` | Product/feature specs | `prod-user-auth.md` |
+| `plat-` | Platform/infrastructure | `plat-database.md` |
+| `tech-` | Technical/architectural | `tech-api-design.md` |
 
-### Modalities
+## Storage
 
-| Modality | Description | Column Header |
-|----------|-------------|---------------|
-| `storage` | Direct database operations (MVP) | Storage |
-| `cli` | Command-line interface | CLI |
-| `api` | REST/GraphQL endpoints | API |
-| `sdk` | Programmatic SDK | SDK |
-| `web` | Web application | Web |
-| `mobile` | Mobile application | Mobile |
-| `desktop` | Desktop application | Desktop |
-| `obsidian` | Obsidian plugin | Obsidian |
-| `slack` | Slack integration | Slack |
-| `sms` | SMS interface | SMS |
+Specs are stored in the database. Files are exportable views for git sync.
 
-Not all domains need all modalities. Only include columns that are relevant.
-
-## Ability Naming
-
-Abilities should be verb + noun format:
-
-| Good | Bad |
-|------|-----|
-| Create ticket | Ticket creation |
-| List epics | Get all epics |
-| Move ticket | Change ticket column |
-| View progress | Progress |
-
-## Data Model Types
-
-| Type | Description | Example |
-|------|-------------|---------|
-| `string` | Text | `"hello"` |
-| `number` | Integer or float | `42` |
-| `boolean` | True/false | `true` |
-| `timestamp` | Date/time | `2024-12-17T10:00:00Z` |
-| `enum` | Fixed set of values | `URGENT, HIGH, MEDIUM, LOW` |
-| `ref` | Foreign key reference | `EPIC-001` |
-| `json` | JSON object | `{ "key": "value" }` |
-
-## Required Fields
-
-| Symbol | Meaning |
-|--------|---------|
-| `auto` | Auto-generated (id, timestamps) |
-| `✓` | Required input |
-| (blank) | Optional |
-
-## File Structure
-
-```
-specs/
-├── spec-format.md              # This file
-├── README.md                   # Overview
-│
-├── domain/                     # What (ideal state)
-│   ├── tickets.md
-│   ├── epics.md
-│   ├── agents.md
-│   ├── board.md
-│   ├── projects.md
-│   ├── work.md
-│   ├── specs.md
-│   └── {domain}.md
-│
-├── infrastructure/             # Technical internals
-│   ├── storage/
-│   │   ├── pmo-storage-sqlite.md
-│   │   └── ...
-│   └── {subsystem}/
-│
-└── testing/                    # Test specifications
-    └── {area}-tests.md
+```sql
+CREATE TABLE specs (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  problem TEXT,
+  solution TEXT,
+  decisions TEXT,
+  not_now TEXT,
+  context TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
 ## Workflow
 
-1. **Edit markdown**: Human edits spec file
-2. **Sync to DB**: `prlt spec sync` parses markdown → writes to database
-3. **Generate reports**: `prlt system-card generate` reads from DB → generates coverage report
-
-## Database Storage
-
-Specs are stored in these tables:
-
-- `pmo_specs` - Spec metadata (id, path, title, domain, status)
-- `pmo_spec_abilities` - Abilities with implementation per modality
-- `pmo_spec_fields` - Data model fields
-- `pmo_spec_rules` - Business rules
-- `pmo_spec_relations` - Related domain links
-
-## Parsing
-
-Domain specs are parsed to extract:
-1. Frontmatter → `pmo_specs` table
-2. `## Abilities` table → `pmo_spec_abilities` table
-3. `## Data Model` table → `pmo_spec_fields` table
-4. `## Business Rules` list → `pmo_spec_rules` table
-5. `## Related Domains` list → `pmo_spec_relations` table
-
-The System Card generator reads from DB to show implementation coverage across all domains and modalities.
+1. Write spec describing ideal state
+2. `prlt spec analyze` - LLM compares spec vs codebase
+3. Tickets generated for the delta
+4. Agents work tickets
+5. Code converges toward spec
