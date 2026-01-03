@@ -88,6 +88,11 @@ export default class WorkStart extends Command {
       description: 'Do not create PR when work is ready',
       default: false,
     }),
+    all: Flags.boolean({
+      char: 'a',
+      description: 'Start work on all backlog tickets (assigns to available agents)',
+      default: false,
+    }),
   }
 
   async run(): Promise<void> {
@@ -125,8 +130,17 @@ export default class WorkStart extends Command {
     const executionStorage = new ExecutionStorage(db)
 
     try {
+      // Handle --all flag for batch spawning
+      if (flags.all) {
+        await this.spawnAllTickets(workspaceInfo, storage, pmoPath, executionStorage, db, flags)
+        await storage.close()
+        db.close()
+        return
+      }
+
       // Get ticketId - prompt if not provided
       let ticketId = args.ticketId
+      let spawnAll = false
 
       if (!ticketId) {
         // Get all tickets
@@ -138,18 +152,38 @@ export default class WorkStart extends Command {
           this.error('No tickets found. Create a ticket first with "prlt ticket create".')
         }
 
+        // Build choices with "All tickets" option
+        const choices: Array<{ name: string; value: string } | inquirer.Separator> = [
+          { name: '🚀 All backlog tickets (spawn to available agents)', value: '__ALL__' },
+          new inquirer.Separator('── Individual Tickets ──'),
+          ...allTickets.map((t) => ({
+            name: `${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
+            value: t.id,
+          })),
+        ]
+
         const { selectedTicketId } = await inquirer.prompt([
           {
             type: 'list',
             name: 'selectedTicketId',
             message: 'Select ticket to work on:',
-            choices: allTickets.map((t) => ({
-              name: `${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
-              value: t.id,
-            })),
+            choices,
           },
         ])
-        ticketId = selectedTicketId
+
+        if (selectedTicketId === '__ALL__') {
+          spawnAll = true
+        } else {
+          ticketId = selectedTicketId
+        }
+      }
+
+      // Handle "All tickets" selection from interactive menu
+      if (spawnAll) {
+        await this.spawnAllTickets(workspaceInfo, storage, pmoPath, executionStorage, db, flags)
+        await storage.close()
+        db.close()
+        return
       }
 
       // Get ticket
@@ -725,6 +759,310 @@ export default class WorkStart extends Command {
     } catch (error) {
       db.close()
       throw error
+    }
+  }
+
+  /**
+   * Spawn work on all backlog tickets, assigning to available agents.
+   * Uses non-interactive defaults for batch operation.
+   */
+  private async spawnAllTickets(
+    workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
+    storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
+    pmoPath: string,
+    executionStorage: ExecutionStorage,
+    db: Database.Database,
+    flags: {
+      force?: boolean
+      'run-on-host'?: boolean
+      'skip-permissions'?: boolean
+      'create-pr'?: boolean
+      'no-pr'?: boolean
+      executor?: string
+    }
+  ): Promise<void> {
+    // Get all tickets and filter to backlog/ready (not in progress)
+    const allTickets = await storage.listTickets()
+    const backlogTickets = allTickets.filter(t =>
+      t.status === 'backlog' || t.status === 'ready' || !t.status
+    )
+
+    if (backlogTickets.length === 0) {
+      this.log(styles.warning('No backlog tickets found.'))
+      return
+    }
+
+    // Get available agents (not currently running work)
+    const busyAgentNames = new Set<string>()
+    for (const agent of workspaceInfo.agents) {
+      const runningExecutions = executionStorage.getAgentRunningExecutions(agent.name)
+      if (runningExecutions.length > 0) {
+        busyAgentNames.add(agent.name)
+      }
+    }
+
+    const availableAgents = workspaceInfo.agents.filter(a => !busyAgentNames.has(a.name))
+
+    if (availableAgents.length === 0) {
+      this.log(styles.warning('No available agents. All agents are busy.'))
+      this.log(styles.muted('Use "prlt work status" to see current work.'))
+      return
+    }
+
+    this.log('')
+    this.log(styles.header('🚀 Spawning work on all backlog tickets'))
+    this.log(styles.muted(`   Tickets: ${backlogTickets.length}`))
+    this.log(styles.muted(`   Available agents: ${availableAgents.length}`))
+    this.log('')
+
+    // Match tickets to agents (round-robin assignment)
+    const assignments: Array<{ ticket: typeof backlogTickets[0]; agent: typeof availableAgents[0] }> = []
+    let agentIndex = 0
+
+    for (const ticket of backlogTickets) {
+      if (agentIndex >= availableAgents.length) {
+        // No more available agents
+        break
+      }
+
+      // Skip tickets already assigned to a busy agent
+      if (ticket.assignee && busyAgentNames.has(ticket.assignee)) {
+        this.log(styles.muted(`   Skipping ${ticket.id}: assigned to busy agent ${ticket.assignee}`))
+        continue
+      }
+
+      // Use existing assignee if available, otherwise assign next available agent
+      let agent: typeof availableAgents[0]
+      if (ticket.assignee) {
+        const existingAgent = availableAgents.find(a => a.name === ticket.assignee)
+        if (existingAgent) {
+          agent = existingAgent
+        } else {
+          agent = availableAgents[agentIndex]
+          agentIndex++
+        }
+      } else {
+        agent = availableAgents[agentIndex]
+        agentIndex++
+      }
+
+      assignments.push({ ticket, agent })
+    }
+
+    if (assignments.length === 0) {
+      this.log(styles.warning('No tickets could be assigned.'))
+      return
+    }
+
+    // Show what we're about to do
+    this.log(styles.muted('Assignments:'))
+    for (const { ticket, agent } of assignments) {
+      this.log(styles.muted(`   ${ticket.id} → ${agent.name}`))
+    }
+    this.log('')
+
+    // Spawn each assignment
+    let successCount = 0
+    let failCount = 0
+
+    for (const { ticket, agent } of assignments) {
+      try {
+        await this.spawnSingleTicket(
+          ticket,
+          agent,
+          workspaceInfo,
+          storage,
+          pmoPath,
+          executionStorage,
+          db,
+          flags
+        )
+        successCount++
+      } catch (error) {
+        this.log(styles.error(`   Failed to spawn ${ticket.id}: ${error instanceof Error ? error.message : error}`))
+        failCount++
+      }
+    }
+
+    this.log('')
+    this.log(styles.success(`✓ Spawned ${successCount} ticket(s)`))
+    if (failCount > 0) {
+      this.log(styles.warning(`   ${failCount} failed`))
+    }
+
+    const remaining = backlogTickets.length - assignments.length
+    if (remaining > 0) {
+      this.log(styles.muted(`   ${remaining} ticket(s) remain in backlog (no available agents)`))
+    }
+  }
+
+  /**
+   * Spawn work on a single ticket with non-interactive defaults.
+   */
+  private async spawnSingleTicket(
+    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; epicId?: string; specId?: string; subtasks?: Array<{ title: string; done: boolean }> },
+    agent: { name: string },
+    workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
+    storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
+    pmoPath: string,
+    executionStorage: ExecutionStorage,
+    db: Database.Database,
+    flags: {
+      force?: boolean
+      'run-on-host'?: boolean
+      'skip-permissions'?: boolean
+      'create-pr'?: boolean
+      'no-pr'?: boolean
+      executor?: string
+    }
+  ): Promise<void> {
+    const agentName = agent.name
+
+    // Update ticket assignee if not set
+    if (!ticket.assignee || ticket.assignee !== agentName) {
+      await storage.updateTicket(ticket.id, { assignee: agentName })
+    }
+
+    // Find agent directory and worktree
+    const agentDir = path.join(workspaceInfo.agentsPath, agentName)
+    if (!fs.existsSync(agentDir)) {
+      throw new Error(`Agent directory not found: ${agentDir}`)
+    }
+
+    // Find worktree path
+    let worktreePath = agentDir
+    const agentContents = fs.readdirSync(agentDir)
+    const repoWorktrees = agentContents.filter(item => {
+      const itemPath = path.join(agentDir, item)
+      const gitPath = path.join(itemPath, '.git')
+      return fs.statSync(itemPath).isDirectory() && fs.existsSync(gitPath)
+    })
+
+    if (repoWorktrees.length === 1) {
+      worktreePath = path.join(agentDir, repoWorktrees[0])
+    }
+
+    // Generate branch name
+    const branch = generateBranchName(ticket.id, ticket.title, agentName, ticket.category)
+
+    // Get epic and spec info
+    let epicTitle: string | undefined
+    let specPath: string | undefined
+    if (ticket.epicId) {
+      const epic = await storage.getEpic(ticket.epicId)
+      epicTitle = epic?.title
+    }
+    if (ticket.specId) {
+      const spec = await storage.getSpec(ticket.specId)
+      specPath = spec?.path
+    }
+
+    // Build context
+    const context: ExecutionContext = {
+      ticketId: ticket.id,
+      ticketTitle: ticket.title,
+      ticketDescription: ticket.description,
+      ticketSubtasks: ticket.subtasks?.map(s => ({ title: s.title, done: s.done })),
+      ticketPriority: ticket.priority,
+      ticketCategory: ticket.category,
+      epicTitle,
+      specPath,
+      agentName,
+      agentDir,
+      worktreePath,
+      branch,
+      hqPath: workspaceInfo.path,
+      pmoPath,
+      createPR: flags['create-pr'] || false,
+    }
+
+    // Use devcontainer by default if available
+    const hasDevcontainer = hasDevcontainerConfig(agentDir)
+    const useDevcontainer = hasDevcontainer && !flags['run-on-host']
+
+    // Non-interactive defaults
+    const mode: RuntimeMode = useDevcontainer ? 'devcontainer' : 'terminal'
+    const displayMode: DisplayMode = 'terminal'
+    const environment: ExecutionEnvironment = useDevcontainer ? 'devcontainer' : 'host'
+    const sandboxed = !flags['skip-permissions']
+    const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
+    const outputMode: OutputMode = 'interactive'
+
+    // Create branch in worktree(s)
+    const gitRepos = repoWorktrees.length > 0
+      ? repoWorktrees.map(r => path.join(agentDir, r))
+      : [worktreePath]
+
+    for (const repoPath of gitRepos) {
+      try {
+        try {
+          execSync('git rev-parse --git-dir', { cwd: repoPath, stdio: 'pipe' })
+        } catch {
+          continue
+        }
+
+        try {
+          execSync(`git rev-parse --verify ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+          execSync(`git checkout ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+        } catch {
+          execSync(`git checkout -b ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+        }
+      } catch {
+        // Ignore branch creation errors in batch mode
+      }
+    }
+
+    // Create execution record
+    const execution = executionStorage.createExecution({
+      ticketId: ticket.id,
+      agentName,
+      executor,
+      mode,
+      environment,
+      displayMode,
+      sandboxed,
+      branch,
+    })
+
+    // Update ticket status
+    await storage.updateTicket(ticket.id, { status: 'in_progress' })
+
+    // Move to In Progress column
+    const targetColumnName = getWorkColumnSetting(db, 'in_progress')
+    const board = await storage.getBoard()
+    const columnNames = board.columns.map(col => col.name)
+    const inProgressColumn = findColumnByName(columnNames, targetColumnName)
+
+    if (inProgressColumn) {
+      await storage.moveTicket(ticket.id, inProgressColumn)
+    }
+
+    await autoExportToBoard(pmoPath, storage, () => {})
+
+    // Load execution config
+    const executionConfig = loadExecutionConfig(db)
+    executionConfig.outputMode = outputMode
+    executionConfig.sandboxed = sandboxed
+
+    // Run execution
+    this.log(styles.muted(`   Starting ${ticket.id} → ${agentName}...`))
+
+    const result = await runExecution(mode, context, executor, executionConfig, {
+      displayMode: mode === 'devcontainer' ? displayMode : undefined,
+    })
+
+    if (result.success) {
+      executionStorage.updateStatus(execution.id, 'running')
+      executionStorage.updateProcessInfo(execution.id, {
+        pid: result.pid,
+        containerId: result.containerId,
+        sessionId: result.sessionId,
+        logPath: result.logPath,
+      })
+      this.log(styles.success(`   ✓ ${ticket.id} started (${execution.id})`))
+    } else {
+      executionStorage.updateStatus(execution.id, 'failed')
+      throw new Error(result.error || 'Unknown error')
     }
   }
 }
