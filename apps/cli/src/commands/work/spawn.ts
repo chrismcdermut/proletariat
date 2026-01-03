@@ -1,71 +1,55 @@
 import { Command, Flags } from '@oclif/core'
 import * as path from 'path'
-import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
-import { getPMOContext } from '../../lib/pmo/index.js'
+import Database from 'better-sqlite3'
+import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
-import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
-import {
-  spawnForColumn,
-  isDockerRunning,
-  AgentStrategy,
-} from '../../lib/execution/spawner.js'
-import { DisplayMode, ExecutionEnvironment } from '../../lib/execution/types.js'
-import { promptExecutionSettings } from '../../lib/execution/config.js'
+import { isDockerRunning } from '../../lib/execution/runners.js'
 
 export default class WorkSpawn extends Command {
-  static description = 'Spawn agents for all tickets in a column'
+  static description = 'Spawn work for multiple tickets by column (batch mode)'
 
   static examples = [
-    '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> --column Ready',
-    '<%= config.bin %> <%= command.id %> --column Ready --strategy round-robin',
-    '<%= config.bin %> <%= command.id %> --column Ready --agent dorsey',
-    '<%= config.bin %> <%= command.id %> --column Ready --limit 3',
-    '<%= config.bin %> <%= command.id %> --column Ready --dry-run',
+    '<%= config.bin %> <%= command.id %> --column Backlog',
+    '<%= config.bin %> <%= command.id %> --column "Ready for Dev"',
+    '<%= config.bin %> <%= command.id %> --column Backlog --mode background',
+    '<%= config.bin %> <%= command.id %>  # Interactive column selection',
   ]
 
   static flags = {
     column: Flags.string({
       char: 'c',
-      description: 'Column to spawn tickets from (prompts if not provided)',
+      description: 'Column name to spawn tickets from',
     }),
-    strategy: Flags.string({
-      char: 's',
-      description: 'Agent selection strategy',
-      options: ['round-robin', 'least-busy', 'random'],
-      default: 'round-robin',
+    mode: Flags.string({
+      char: 'm',
+      description: 'Runtime mode for spawned agents',
+      options: ['foreground', 'background', 'tmux', 'terminal', 'devcontainer', 'docker', 'vm'],
+      default: 'background',
     }),
-    agent: Flags.string({
-      char: 'a',
-      description: 'Use specific agent for all tickets',
+    executor: Flags.string({
+      char: 'e',
+      description: 'Override executor',
+      options: ['claude-code', 'codex', 'aider', 'custom'],
+    }),
+    force: Flags.boolean({
+      char: 'f',
+      description: 'Start even if work already in progress',
+      default: false,
+    }),
+    'run-on-host': Flags.boolean({
+      description: 'Run on host even if devcontainer exists (bypasses sandbox)',
+      default: false,
     }),
     limit: Flags.integer({
       char: 'l',
       description: 'Maximum number of tickets to spawn',
     }),
-    'dry-run': Flags.boolean({
-      description: 'Show what would be spawned without executing',
-      default: false,
-    }),
-    mode: Flags.string({
-      char: 'm',
-      description: 'Display mode for agent output',
-      options: ['terminal', 'foreground', 'background', 'tmux'],
-    }),
-    output: Flags.string({
-      char: 'o',
-      description: 'Output mode: interactive (streaming) or print (final only)',
-      options: ['interactive', 'print'],
-    }),
-    'skip-permissions': Flags.boolean({
-      description: 'Skip permission prompts (danger mode)',
-      default: false,
-    }),
-    'create-pr': Flags.boolean({
-      description: 'Create PR when work is ready',
+    yes: Flags.boolean({
+      char: 'y',
+      description: 'Skip confirmation prompt',
       default: false,
     }),
   }
@@ -73,16 +57,22 @@ export default class WorkSpawn extends Command {
   async run(): Promise<void> {
     const { flags } = await this.parse(WorkSpawn)
 
-    // Get workspace info
+    // Early Docker check - fail fast if Docker is needed but not running
+    if (!flags['run-on-host'] && !isDockerRunning()) {
+      this.error(
+        'Docker is not running.\n\n' +
+        'Docker is required for devcontainer execution (recommended for agent sandboxing).\n' +
+        'Please start Docker Desktop and try again.\n\n' +
+        'Alternatively, use --run-on-host to run directly on your machine (bypasses sandbox).'
+      )
+    }
+
+    // Get workspace info (for agent worktree paths)
     let workspaceInfo
     try {
       workspaceInfo = getWorkspaceInfo()
-    } catch (error) {
+    } catch {
       this.error('Not in a workspace. Run "prlt init" first.')
-    }
-
-    if (workspaceInfo.agents.length === 0) {
-      this.error('No agents found in workspace. Add agents first with "prlt agents add".')
     }
 
     // Get PMO context
@@ -98,193 +88,155 @@ export default class WorkSpawn extends Command {
     const executionStorage = new ExecutionStorage(db)
 
     try {
-      // Get board columns for selection
+      // Get board to list available columns
       const board = await storage.getBoard()
-      const columns = board.columns.map(col => col.name)
+      const columnNames = board.columns.map(col => col.name)
 
-      if (columns.length === 0) {
+      if (columnNames.length === 0) {
         await storage.close()
         db.close()
-        this.error('No columns found in board. Initialize board first.')
+        this.error('No columns found on the board.')
       }
 
-      // Prompt for column if not provided
-      let columnName = flags.column
-      if (!columnName) {
+      // Get column - prompt if not provided
+      let targetColumn = flags.column
+
+      if (!targetColumn) {
         const { selectedColumn } = await inquirer.prompt([
           {
             type: 'list',
             name: 'selectedColumn',
-            message: 'Select column to spawn agents from:',
-            choices: columns.map(col => {
-              // Get ticket count for each column
-              const ticketCount = board.columns.find(c => c.name === col)?.tickets?.length || 0
-              return {
-                name: `${col} (${ticketCount} tickets)`,
-                value: col,
-              }
-            }),
+            message: 'Select column to spawn tickets from:',
+            choices: columnNames.map(name => ({ name, value: name })),
           },
         ])
-        columnName = selectedColumn
+        targetColumn = selectedColumn
       }
 
-      // Check if any agent has devcontainer
-      const hasDevcontainer = workspaceInfo.agents.some(agent => {
-        const agentDir = path.join(workspaceInfo.agentsPath, agent.name)
-        return hasDevcontainerConfig(agentDir)
-      })
+      // Verify column exists
+      const matchedColumn = columnNames.find(
+        c => c.toLowerCase() === targetColumn!.toLowerCase()
+      )
 
-      // Docker check
-      const dockerRunning = isDockerRunning()
-      if (hasDevcontainer && !dockerRunning) {
-        this.warn(
-          'Docker is not running. Agents will run on host instead of devcontainer.\n' +
-          'Start Docker Desktop for sandboxed execution.'
+      if (!matchedColumn) {
+        await storage.close()
+        db.close()
+        this.error(
+          `Column "${targetColumn}" not found.\n` +
+          `Available columns: ${columnNames.join(', ')}`
         )
       }
 
-      // Prompt for environment and display mode if not provided
-      let environment: ExecutionEnvironment = 'host'
-      let displayMode: DisplayMode = 'background'
+      // Get tickets in the selected column
+      const allTickets = await storage.listTickets({ column: matchedColumn })
 
-      if (!flags.mode) {
-        if (hasDevcontainer && dockerRunning) {
-          // Prompt for environment choice
-          const { selectedEnvironment } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedEnvironment',
-              message: 'Where should agents run?',
-              choices: [
-                { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
-                { name: '💻 host (runs directly on your machine)', value: 'host' },
-              ],
-              default: 'devcontainer',
-            },
-          ])
-          environment = selectedEnvironment
+      // Filter to unassigned tickets only
+      const unassignedTickets = allTickets.filter(t => !t.assignee)
+
+      if (unassignedTickets.length === 0) {
+        await storage.close()
+        db.close()
+        this.log(styles.muted(`No unassigned tickets in column "${matchedColumn}".`))
+        return
+      }
+
+      // Apply limit if specified
+      let ticketsToSpawn = unassignedTickets
+      if (flags.limit && flags.limit > 0) {
+        ticketsToSpawn = unassignedTickets.slice(0, flags.limit)
+      }
+
+      this.log('')
+      this.log(styles.header(`🚀 Spawn from column: ${matchedColumn}`))
+      this.log('')
+
+      // Get available agents
+      const busyAgentNames = new Set<string>()
+      for (const agent of workspaceInfo.agents) {
+        const runningExecutions = executionStorage.getAgentRunningExecutions(agent.name)
+        if (runningExecutions.length > 0) {
+          busyAgentNames.add(agent.name)
         }
+      }
 
-        // Prompt for display mode
-        const { selectedDisplay } = await inquirer.prompt([
+      const availableAgents = workspaceInfo.agents.filter(a => !busyAgentNames.has(a.name))
+
+      if (availableAgents.length === 0) {
+        await storage.close()
+        db.close()
+        this.error('No available agents. All agents are busy with other work.')
+      }
+
+      this.log(styles.muted(`Available agents: ${availableAgents.map(a => a.name).join(', ')}`))
+      this.log(styles.muted(`Tickets to spawn: ${ticketsToSpawn.map(t => t.id).join(', ')}`))
+      this.log('')
+
+      // Confirm before batch spawning (unless --yes flag is set)
+      if (!flags.yes) {
+        const { confirm } = await inquirer.prompt([
           {
-            type: 'list',
-            name: 'selectedDisplay',
-            message: 'How should agent output be displayed?',
-            choices: [
-              { name: 'terminal     - New terminal window per agent (macOS)', value: 'terminal' },
-              { name: 'tmux         - New tmux pane/window per agent', value: 'tmux' },
-              { name: 'background   - Detached, logs to file (quiet)', value: 'background' },
-              { name: 'foreground   - Run sequentially in current terminal', value: 'foreground' },
-            ],
-            default: 'terminal',
+            type: 'confirm',
+            name: 'confirm',
+            message: `Spawn ${ticketsToSpawn.length} tickets using ${availableAgents.length} available agents?`,
+            default: true,
           },
         ])
-        displayMode = selectedDisplay as DisplayMode
-      } else {
-        displayMode = flags.mode as DisplayMode
-        environment = hasDevcontainer && dockerRunning ? 'devcontainer' : 'host'
-      }
 
-      // Prompt for execution settings (terminal, output mode, permissions, PR creation)
-      const { executionConfig, skipPermissions, createPR } = await promptExecutionSettings(db, {
-        displayMode,
-        environment,
-        outputMode: flags.output as 'interactive' | 'print' | undefined,
-        skipPermissions: flags['skip-permissions'] ? true : undefined,
-        createPR: flags['create-pr'] ? true : undefined,
-        log: (msg) => this.log(styles.header(msg)),
-      })
-
-      this.log('')
-      if (flags['dry-run']) {
-        this.log(styles.header(`🧪 Dry Run: Spawning agents for column "${columnName}"`))
-      } else {
-        this.log(styles.header(`🚀 Spawning agents for column "${columnName}"`))
-      }
-      this.log('')
-
-      this.log(styles.muted(`   Strategy: ${flags.strategy}`))
-      this.log(styles.muted(`   Environment: ${environment}`))
-      this.log(styles.muted(`   Display: ${displayMode}`))
-      if (displayMode === 'terminal') {
-        this.log(styles.muted(`   Terminal: ${executionConfig.terminal.app}`))
-      }
-      this.log(styles.muted(`   Output: ${executionConfig.outputMode === 'interactive' ? 'streaming (watch Claude work)' : 'print (final result only)'}`))
-      if (skipPermissions) {
-        this.log(styles.warning(`   Permissions: ⚠️  danger (--dangerously-skip-permissions)`))
-      } else {
-        this.log(styles.success(`   Permissions: 🔒 safe`))
-      }
-      if (createPR) {
-        this.log(styles.muted(`   Create PR: yes (when work is ready)`))
-      }
-      if (flags.agent) {
-        this.log(styles.muted(`   Agent: ${flags.agent}`))
-      }
-      if (flags.limit) {
-        this.log(styles.muted(`   Limit: ${flags.limit}`))
-      }
-      this.log('')
-
-      const result = await spawnForColumn(
-        columnName!,
-        storage,
-        executionStorage,
-        workspaceInfo,
-        db,
-        pmoPath,
-        {
-          strategy: flags.strategy as AgentStrategy,
-          specificAgent: flags.agent,
-          limit: flags.limit,
-          dryRun: flags['dry-run'],
-          skipPermissions,
-          createPR,
-          environment,
-          displayMode,
-          executionConfig,
-          log: (msg) => this.log(styles.muted(`   ${msg}`)),
-        }
-      )
-
-      // Print summary
-      this.log('')
-      this.log(styles.header('Summary'))
-      this.log('')
-
-      if (result.spawned.length > 0) {
-        this.log(styles.success(`   ✓ Spawned: ${result.spawned.length}`))
-        for (const spawn of result.spawned) {
-          this.log(styles.muted(`     ${spawn.ticketId} → ${spawn.agentName}${spawn.executionId ? ` (${spawn.executionId})` : ''}`))
+        if (!confirm) {
+          await storage.close()
+          db.close()
+          this.log(styles.muted('Cancelled.'))
+          return
         }
       }
 
-      if (result.skipped.length > 0) {
-        this.log(styles.warning(`   ⏭ Skipped: ${result.skipped.length}`))
-        for (const skip of result.skipped) {
-          this.log(styles.muted(`     ${skip.ticketId}: ${skip.reason}`))
-        }
+      // Assign tickets to agents (round-robin)
+      const assignments: Array<{ ticket: typeof ticketsToSpawn[0]; agent: typeof availableAgents[0] }> = []
+      for (let i = 0; i < ticketsToSpawn.length; i++) {
+        const agent = availableAgents[i % availableAgents.length]
+        assignments.push({ ticket: ticketsToSpawn[i], agent })
       }
 
-      if (result.failed.length > 0) {
-        this.log(styles.error(`   ✗ Failed: ${result.failed.length}`))
-        for (const fail of result.failed) {
-          this.log(styles.muted(`     ${fail.ticketId}: ${fail.error}`))
-        }
+      // Show assignment plan
+      this.log(styles.muted('Assignment plan:'))
+      for (const { ticket, agent } of assignments) {
+        this.log(styles.muted(`  ${ticket.id} → ${agent.name}`))
       }
-
       this.log('')
 
-      if (!flags['dry-run'] && result.spawned.length > 0) {
-        this.log(styles.muted('Commands:'))
-        this.log(styles.muted('  prlt execution list           View running executions'))
-        this.log('')
+      // Spawn each ticket
+      let successCount = 0
+      let failCount = 0
+
+      for (const { ticket, agent } of assignments) {
+        try {
+          this.log(styles.muted(`Starting ${ticket.id} with ${agent.name}...`))
+
+          // First assign the ticket to the agent
+          await storage.updateTicket(ticket.id, { assignee: agent.name })
+
+          // Use the work:start command for each ticket
+          await this.config.runCommand('work:start', [
+            ticket.id,
+            '--mode', flags.mode,
+            ...(flags.executor ? ['--executor', flags.executor] : []),
+            ...(flags['run-on-host'] ? ['--run-on-host'] : []),
+            ...(flags.force ? ['--force'] : []),
+          ])
+
+          successCount++
+        } catch (error) {
+          failCount++
+          this.log(styles.error(`Failed to start ${ticket.id}: ${error instanceof Error ? error.message : error}`))
+        }
       }
 
+      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
       await storage.close()
       db.close()
+
+      this.log('')
+      this.log(styles.success(`✓ Spawn complete: ${successCount} started, ${failCount} failed`))
     } catch (error) {
       db.close()
       throw error

@@ -26,9 +26,8 @@ export default class Work extends Command {
         { name: 'Assign work to agent/person', value: 'assign' },
         { name: 'Take ownership (accountable)', value: 'own' },
         new inquirer.Separator('── Execution ──'),
-        { name: 'Start work (launch agent)', value: 'start' },
-        { name: 'Spawn multiple agents (bulk)', value: 'spawn' },
-        { name: 'Watch column (auto-spawn)', value: 'watch' },
+        { name: 'Start work (launch single agent)', value: 'start' },
+        { name: 'Spawn work (batch by column)', value: 'spawn' },
         { name: 'Mark work ready for review', value: 'ready' },
         { name: 'Mark work complete', value: 'complete' },
         new inquirer.Separator('──────────────'),
@@ -55,10 +54,7 @@ export default class Work extends Command {
         await this.config.runCommand('work:start', []);
         break;
       case 'spawn':
-        await this.config.runCommand('works:start', []);
-        break;
-      case 'watch':
-        await this.config.runCommand('work:watch', []);
+        await this.config.runCommand('work:spawn', []);
         break;
       case 'ready':
         await this.config.runCommand('work:ready', []);
