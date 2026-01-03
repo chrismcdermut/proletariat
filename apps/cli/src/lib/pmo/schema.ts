@@ -32,6 +32,8 @@ export const PMO_TABLES = {
   cache_metadata: 'pmo_cache_metadata',
   settings: 'pmo_settings',
   agent_work: 'agent_work',
+  // Cross-entity dependency system
+  entity_dependencies: 'pmo_entity_dependencies',
 } as const;
 
 // =============================================================================
@@ -284,6 +286,22 @@ export const PMO_TABLE_SCHEMAS = {
       exit_code INTEGER,
       FOREIGN KEY (ticket_id) REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE
     )`,
+
+  // Cross-entity dependency system: supports ticket, epic, and spec dependencies
+  entity_dependencies: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.entity_dependencies} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_type TEXT NOT NULL CHECK (source_type IN ('ticket', 'epic', 'spec')),
+      source_id TEXT NOT NULL,
+      target_type TEXT NOT NULL CHECK (target_type IN ('ticket', 'epic', 'spec')),
+      target_id TEXT NOT NULL,
+      dependency_type TEXT NOT NULL CHECK (dependency_type IN ('blocks', 'relates_to', 'duplicates')),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      created_by TEXT,
+      notes TEXT,
+      UNIQUE(source_type, source_id, target_type, target_id, dependency_type),
+      CHECK (NOT (source_type = target_type AND source_id = target_id))
+    )`,
 } as const;
 
 // =============================================================================
@@ -322,6 +340,9 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_deps_blocked_by ON ${PMO_TABLES.ticket_dependencies}(blocked_by_ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_paths_ticket ON ${PMO_TABLES.ticket_affected_paths}(ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_criteria_ticket ON ${PMO_TABLES.ticket_acceptance_criteria}(ticket_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_entity_deps_source ON ${PMO_TABLES.entity_dependencies}(source_type, source_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_entity_deps_target ON ${PMO_TABLES.entity_dependencies}(target_type, target_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_entity_deps_type ON ${PMO_TABLES.entity_dependencies}(dependency_type);
 `;
 
 // =============================================================================
@@ -347,7 +368,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.board_tickets,
   PMO_TABLE_SCHEMAS.subtasks,
   PMO_TABLE_SCHEMAS.ticket_metadata,
-  PMO_TABLE_SCHEMAS.ticket_dependencies,  // Agent execution: dependency tracking
+  PMO_TABLE_SCHEMAS.ticket_dependencies,  // Agent execution: dependency tracking (legacy)
   PMO_TABLE_SCHEMAS.ticket_affected_paths,  // Agent execution: scope hints
   PMO_TABLE_SCHEMAS.ticket_acceptance_criteria,  // Agent execution: structured criteria
   PMO_TABLE_SCHEMAS.ticket_specs,
@@ -355,6 +376,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.cache_metadata,
   PMO_TABLE_SCHEMAS.settings,
   PMO_TABLE_SCHEMAS.agent_work,  // Execution tracking
+  PMO_TABLE_SCHEMAS.entity_dependencies,  // Cross-entity dependency system
   PMO_INDEXES,
 ].join(';\n');
 

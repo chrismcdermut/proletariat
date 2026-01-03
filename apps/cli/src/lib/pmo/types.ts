@@ -180,11 +180,82 @@ export interface AcceptanceCriterion {
 /**
  * Ticket dependency for scheduling.
  * Represents a "blocked by" relationship between tickets.
+ * @deprecated Use EntityDependency instead for cross-entity dependencies
  */
 export interface TicketDependency {
   ticketId: string
   blockedByTicketId: string
   createdAt?: Date
+}
+
+// =============================================================================
+// Cross-Entity Dependency System
+// =============================================================================
+
+/**
+ * Entity types that can participate in dependencies
+ */
+export type DependencyEntityType = 'ticket' | 'epic' | 'spec'
+
+/**
+ * Dependency relationship types
+ */
+export type DependencyType = 'blocks' | 'relates_to' | 'duplicates'
+
+/**
+ * A cross-entity dependency link.
+ * Supports ticket-to-ticket, epic-to-epic, and cross-entity dependencies.
+ */
+export interface EntityDependency {
+  id: number
+  sourceType: DependencyEntityType
+  sourceId: string
+  targetType: DependencyEntityType
+  targetId: string
+  dependencyType: DependencyType
+  createdAt: Date
+  createdBy?: string
+  notes?: string
+}
+
+/**
+ * Input for creating a dependency
+ */
+export interface CreateDependencyInput {
+  sourceType: DependencyEntityType
+  sourceId: string
+  targetType: DependencyEntityType
+  targetId: string
+  dependencyType: DependencyType
+  createdBy?: string
+  notes?: string
+}
+
+/**
+ * Filter for listing dependencies
+ */
+export interface DependencyFilter {
+  sourceType?: DependencyEntityType
+  sourceId?: string
+  targetType?: DependencyEntityType
+  targetId?: string
+  dependencyType?: DependencyType
+  /** Include dependencies where entity is either source or target */
+  entityId?: string
+  entityType?: DependencyEntityType
+}
+
+/**
+ * Error thrown when a circular dependency is detected
+ */
+export class CircularDependencyError extends Error {
+  constructor(
+    public path: string[],
+    message?: string
+  ) {
+    super(message || `Circular dependency detected: ${path.join(' → ')}`)
+    this.name = 'CircularDependencyError'
+  }
 }
 
 /**

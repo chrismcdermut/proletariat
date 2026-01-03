@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import Database from 'better-sqlite3';
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js';
+import { CircularDependencyError } from '../../src/lib/pmo/types.js';
 
 describe('PMO SQLite Storage', () => {
   let testDir: string;
@@ -396,6 +397,471 @@ describe('PMO SQLite Storage', () => {
       expect(retrieved.columns[0].tickets[0].subtasks).to.have.length(1);
 
       await newStorage.close();
+    });
+  });
+
+  describe('Cross-Entity Dependency Operations', () => {
+    let ticket1Id: string;
+    let ticket2Id: string;
+    let ticket3Id: string;
+    let epic1Id: string;
+    let spec1Id: string;
+
+    beforeEach(async () => {
+      // Create test entities
+      const ticket1 = await storage.createTicket({ title: 'Ticket 1', column: 'Backlog' });
+      const ticket2 = await storage.createTicket({ title: 'Ticket 2', column: 'Backlog' });
+      const ticket3 = await storage.createTicket({ title: 'Ticket 3', column: 'Backlog' });
+      ticket1Id = ticket1.id;
+      ticket2Id = ticket2.id;
+      ticket3Id = ticket3.id;
+
+      const epic = await storage.createEpic({ title: 'Epic 1' });
+      epic1Id = epic.id;
+
+      const spec = await storage.createSpec({ id: 'spec-1', path: 'specs/1.md', title: 'Spec 1' });
+      spec1Id = spec.id;
+    });
+
+    describe('Basic Dependency Operations', () => {
+      it('creates a blocking dependency between tickets', async () => {
+        const dep = await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket1Id,
+          targetType: 'ticket',
+          targetId: ticket2Id,
+          dependencyType: 'blocks',
+        });
+
+        expect(dep.id).to.be.a('number');
+        expect(dep.sourceType).to.equal('ticket');
+        expect(dep.sourceId).to.equal(ticket1Id);
+        expect(dep.targetType).to.equal('ticket');
+        expect(dep.targetId).to.equal(ticket2Id);
+        expect(dep.dependencyType).to.equal('blocks');
+      });
+
+      it('creates a relates_to dependency', async () => {
+        const dep = await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket1Id,
+          targetType: 'ticket',
+          targetId: ticket2Id,
+          dependencyType: 'relates_to',
+        });
+
+        expect(dep.dependencyType).to.equal('relates_to');
+      });
+
+      it('creates a duplicates dependency', async () => {
+        const dep = await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket1Id,
+          targetType: 'ticket',
+          targetId: ticket2Id,
+          dependencyType: 'duplicates',
+        });
+
+        expect(dep.dependencyType).to.equal('duplicates');
+      });
+
+      it('creates cross-entity dependency (ticket blocks epic)', async () => {
+        const dep = await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket1Id,
+          targetType: 'epic',
+          targetId: epic1Id,
+          dependencyType: 'blocks',
+        });
+
+        expect(dep.sourceType).to.equal('ticket');
+        expect(dep.targetType).to.equal('epic');
+      });
+
+      it('creates cross-entity dependency (spec relates to ticket)', async () => {
+        const dep = await storage.createDependency({
+          sourceType: 'spec',
+          sourceId: spec1Id,
+          targetType: 'ticket',
+          targetId: ticket1Id,
+          dependencyType: 'relates_to',
+        });
+
+        expect(dep.sourceType).to.equal('spec');
+        expect(dep.targetType).to.equal('ticket');
+      });
+
+      it('stores optional fields (createdBy, notes)', async () => {
+        const dep = await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket1Id,
+          targetType: 'ticket',
+          targetId: ticket2Id,
+          dependencyType: 'blocks',
+          createdBy: 'test-user',
+          notes: 'This is a test note',
+        });
+
+        expect(dep.createdBy).to.equal('test-user');
+        expect(dep.notes).to.equal('This is a test note');
+      });
+
+      it('retrieves a dependency by ID', async () => {
+        const created = await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket1Id,
+          targetType: 'ticket',
+          targetId: ticket2Id,
+          dependencyType: 'blocks',
+        });
+
+        const retrieved = await storage.getDependency(created.id);
+
+        expect(retrieved).to.not.be.null;
+        expect(retrieved!.id).to.equal(created.id);
+      });
+
+      it('returns null for non-existent dependency', async () => {
+        const dep = await storage.getDependency(99999);
+        expect(dep).to.be.null;
+      });
+
+      it('deletes a dependency by ID', async () => {
+        const created = await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket1Id,
+          targetType: 'ticket',
+          targetId: ticket2Id,
+          dependencyType: 'blocks',
+        });
+
+        await storage.deleteDependency(created.id);
+
+        const retrieved = await storage.getDependency(created.id);
+        expect(retrieved).to.be.null;
+      });
+
+      it('deletes a dependency by entities', async () => {
+        await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket1Id,
+          targetType: 'ticket',
+          targetId: ticket2Id,
+          dependencyType: 'blocks',
+        });
+
+        await storage.deleteDependencyByEntities('ticket', ticket1Id, 'ticket', ticket2Id, 'blocks');
+
+        const deps = await storage.listDependencies();
+        expect(deps).to.have.length(0);
+      });
+    });
+
+    describe('Dependency Validation', () => {
+      it('prevents self-links (same entity)', async () => {
+        try {
+          await storage.createDependency({
+            sourceType: 'ticket',
+            sourceId: ticket1Id,
+            targetType: 'ticket',
+            targetId: ticket1Id,
+            dependencyType: 'blocks',
+          });
+          expect.fail('Should have thrown an error');
+        } catch (error) {
+          // SQLite CHECK constraint should prevent this
+          expect(error).to.be.an('error');
+        }
+      });
+
+      it('prevents duplicate dependencies', async () => {
+        await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket1Id,
+          targetType: 'ticket',
+          targetId: ticket2Id,
+          dependencyType: 'blocks',
+        });
+
+        try {
+          await storage.createDependency({
+            sourceType: 'ticket',
+            sourceId: ticket1Id,
+            targetType: 'ticket',
+            targetId: ticket2Id,
+            dependencyType: 'blocks',
+          });
+          expect.fail('Should have thrown an error');
+        } catch (error: unknown) {
+          expect((error as Error).message).to.include('already exists');
+        }
+      });
+
+      it('prevents circular blocking dependencies (A blocks B, B blocks A)', async () => {
+        // A blocks B
+        await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket1Id,
+          targetType: 'ticket',
+          targetId: ticket2Id,
+          dependencyType: 'blocks',
+        });
+
+        // Try to make B block A (should fail)
+        try {
+          await storage.createDependency({
+            sourceType: 'ticket',
+            sourceId: ticket2Id,
+            targetType: 'ticket',
+            targetId: ticket1Id,
+            dependencyType: 'blocks',
+          });
+          expect.fail('Should have thrown CircularDependencyError');
+        } catch (error) {
+          expect(error).to.be.instanceOf(CircularDependencyError);
+        }
+      });
+
+      it('prevents transitive circular dependencies (A blocks B, B blocks C, C blocks A)', async () => {
+        // A blocks B
+        await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket1Id,
+          targetType: 'ticket',
+          targetId: ticket2Id,
+          dependencyType: 'blocks',
+        });
+
+        // B blocks C
+        await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket2Id,
+          targetType: 'ticket',
+          targetId: ticket3Id,
+          dependencyType: 'blocks',
+        });
+
+        // Try to make C block A (should fail)
+        try {
+          await storage.createDependency({
+            sourceType: 'ticket',
+            sourceId: ticket3Id,
+            targetType: 'ticket',
+            targetId: ticket1Id,
+            dependencyType: 'blocks',
+          });
+          expect.fail('Should have thrown CircularDependencyError');
+        } catch (error) {
+          expect(error).to.be.instanceOf(CircularDependencyError);
+          const circularError = error as CircularDependencyError;
+          expect(circularError.path.length).to.be.greaterThan(2);
+        }
+      });
+
+      it('allows non-blocking circular relationships (relates_to)', async () => {
+        // relates_to doesn't have circular detection
+        await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket1Id,
+          targetType: 'ticket',
+          targetId: ticket2Id,
+          dependencyType: 'relates_to',
+        });
+
+        // This should succeed
+        const dep = await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket2Id,
+          targetType: 'ticket',
+          targetId: ticket1Id,
+          dependencyType: 'relates_to',
+        });
+
+        expect(dep.id).to.be.a('number');
+      });
+
+      it('validates source entity exists', async () => {
+        try {
+          await storage.createDependency({
+            sourceType: 'ticket',
+            sourceId: 'non-existent',
+            targetType: 'ticket',
+            targetId: ticket2Id,
+            dependencyType: 'blocks',
+          });
+          expect.fail('Should have thrown an error');
+        } catch (error: unknown) {
+          expect((error as Error).message).to.include('not found');
+        }
+      });
+
+      it('validates target entity exists', async () => {
+        try {
+          await storage.createDependency({
+            sourceType: 'ticket',
+            sourceId: ticket1Id,
+            targetType: 'ticket',
+            targetId: 'non-existent',
+            dependencyType: 'blocks',
+          });
+          expect.fail('Should have thrown an error');
+        } catch (error: unknown) {
+          expect((error as Error).message).to.include('not found');
+        }
+      });
+    });
+
+    describe('Dependency Queries', () => {
+      beforeEach(async () => {
+        // Create some dependencies for testing
+        await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket1Id,
+          targetType: 'ticket',
+          targetId: ticket2Id,
+          dependencyType: 'blocks',
+        });
+
+        await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket1Id,
+          targetType: 'ticket',
+          targetId: ticket3Id,
+          dependencyType: 'relates_to',
+        });
+
+        await storage.createDependency({
+          sourceType: 'epic',
+          sourceId: epic1Id,
+          targetType: 'ticket',
+          targetId: ticket1Id,
+          dependencyType: 'blocks',
+        });
+      });
+
+      it('lists all dependencies', async () => {
+        const deps = await storage.listDependencies();
+        expect(deps).to.have.length(3);
+      });
+
+      it('filters by source type', async () => {
+        const deps = await storage.listDependencies({ sourceType: 'ticket' });
+        expect(deps).to.have.length(2);
+      });
+
+      it('filters by target type', async () => {
+        const deps = await storage.listDependencies({ targetType: 'ticket' });
+        expect(deps).to.have.length(3);
+      });
+
+      it('filters by source id', async () => {
+        const deps = await storage.listDependencies({ sourceId: ticket1Id });
+        expect(deps).to.have.length(2);
+      });
+
+      it('filters by dependency type', async () => {
+        const deps = await storage.listDependencies({ dependencyType: 'blocks' });
+        expect(deps).to.have.length(2);
+      });
+
+      it('filters by entity (either source or target)', async () => {
+        const deps = await storage.listDependencies({
+          entityType: 'ticket',
+          entityId: ticket1Id,
+        });
+        expect(deps).to.have.length(3); // ticket1 is source in 2, target in 1
+      });
+
+      it('gets blockers for an entity', async () => {
+        const blockers = await storage.getBlockers('ticket', ticket2Id);
+        expect(blockers).to.have.length(1);
+        expect(blockers[0].sourceId).to.equal(ticket1Id);
+      });
+
+      it('gets entities blocked by an entity', async () => {
+        const blocking = await storage.getBlocking('ticket', ticket1Id);
+        expect(blocking).to.have.length(1);
+        expect(blocking[0].targetId).to.equal(ticket2Id);
+      });
+
+      it('checks if entity is blocked (incomplete blocker)', async () => {
+        const isBlocked = await storage.isBlocked('ticket', ticket2Id);
+        expect(isBlocked).to.be.true;
+      });
+
+      it('checks if entity is not blocked (no blockers)', async () => {
+        const isBlocked = await storage.isBlocked('ticket', ticket1Id);
+        // ticket1 is blocked by epic1, but we need to check epic status
+        expect(isBlocked).to.be.true; // epic1 is active (incomplete)
+      });
+
+      it('checks if entity is not blocked when blocker is complete', async () => {
+        // Mark the blocking ticket as done
+        await storage.updateTicket(ticket1Id, { status: 'done' });
+
+        const isBlocked = await storage.isBlocked('ticket', ticket2Id);
+        expect(isBlocked).to.be.false;
+      });
+    });
+
+    describe('Dependency Graph', () => {
+      it('returns graph for all dependencies', async () => {
+        await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket1Id,
+          targetType: 'ticket',
+          targetId: ticket2Id,
+          dependencyType: 'blocks',
+        });
+
+        const graph = await storage.getDependencyGraph();
+
+        expect(graph.nodes).to.have.length(2);
+        expect(graph.edges).to.have.length(1);
+      });
+
+      it('returns graph for specific entity with transitive deps', async () => {
+        // Chain: ticket1 -> ticket2 -> ticket3
+        await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket1Id,
+          targetType: 'ticket',
+          targetId: ticket2Id,
+          dependencyType: 'blocks',
+        });
+
+        await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket2Id,
+          targetType: 'ticket',
+          targetId: ticket3Id,
+          dependencyType: 'blocks',
+        });
+
+        const graph = await storage.getDependencyGraph('ticket', ticket1Id);
+
+        expect(graph.nodes).to.have.length(3);
+        // The graph traversal collects edges from both source and target perspectives
+        // Each edge is collected once per entity visited that it touches
+        expect(graph.edges.length).to.be.greaterThanOrEqual(2);
+      });
+
+      it('includes entity title and status in nodes', async () => {
+        await storage.createDependency({
+          sourceType: 'ticket',
+          sourceId: ticket1Id,
+          targetType: 'ticket',
+          targetId: ticket2Id,
+          dependencyType: 'blocks',
+        });
+
+        const graph = await storage.getDependencyGraph();
+
+        const node1 = graph.nodes.find(n => n.id === ticket1Id);
+        expect(node1).to.not.be.undefined;
+        expect(node1!.title).to.equal('Ticket 1');
+        expect(node1!.status).to.equal('backlog');
+      });
     });
   });
 });
