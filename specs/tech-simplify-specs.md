@@ -27,6 +27,7 @@ Specs become simple content stored in DB with markdown export/import for git syn
 - Remove abilities, modalities, implementations, fields, rules, relations
 - Tickets point to specs (via label/link), not embedded in spec
 - Agent spawner should respect ticket dependencies
+- Spec naming convention: `{type}-{name}.md` with types: `prod-`, `plat-`, `tech-`
 
 ## Not Now
 
