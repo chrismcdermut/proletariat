@@ -92,8 +92,8 @@ function buildPrompt(context: ExecutionContext): string {
     prompt += `\n---\n\n## Before You Start\n\n`
     prompt += `**IMPORTANT:** You must be on the correct branch before making changes.\n\n`
     prompt += `\`\`\`bash\n`
-    prompt += `# Create/checkout the target branch from origin/main\n`
-    prompt += `prlt branch create ${context.branch} --from-origin --force\n`
+    prompt += `# Create/checkout the target branch from origin/main with initial commit (seeds PR title)\n`
+    prompt += `prlt branch create ${context.branch} --from-origin --force --empty-commit\n`
     prompt += `\`\`\`\n\n`
     prompt += `**Target branch:** \`${context.branch}\`\n`
   }
