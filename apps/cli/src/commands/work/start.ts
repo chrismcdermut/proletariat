@@ -792,10 +792,10 @@ export default class WorkStart extends Command {
       executor?: string
     }
   ): Promise<void> {
-    // Get all tickets and filter to backlog/ready (not in progress)
+    // Get all tickets and filter to backlog/planned (not in progress)
     const allTickets = await storage.listTickets()
     const backlogTickets = allTickets.filter(t =>
-      t.status === 'backlog' || t.status === 'ready' || !t.status
+      t.status === 'backlog' || t.status === 'planned' || !t.status
     )
 
     if (backlogTickets.length === 0) {

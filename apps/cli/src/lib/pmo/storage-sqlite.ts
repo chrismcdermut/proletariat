@@ -19,11 +19,17 @@ import {
   PMOStorage,
   Spec,
   SpecFilter,
+  StateCategory,
+  STATE_CATEGORY_ORDER,
   Subtask,
   SyncResult,
   SyncStatus,
+  TemplateFilter,
   Ticket,
   TicketFilter,
+  WorkflowStatus,
+  WorkflowTemplate,
+  WorkflowTemplateStatus,
 } from './types.js'
 import { generateBoardMarkdown } from './markdown.js'
 import { slugify, generateEntityId } from './utils.js'
@@ -90,6 +96,9 @@ export class SQLiteStorage implements PMOStorage {
     // CREATE TABLE/INDEX IF NOT EXISTS is safe - won't fail if already exists
     this.db.exec(PMO_SCHEMA_SQL)
 
+    // Seed built-in templates AFTER tables are created
+    this.seedBuiltinTemplates()
+
     // Validate schema matches expected columns (catches drift early)
     validateTicketSchema(this.db)
   }
@@ -130,6 +139,38 @@ export class SQLiteStorage implements PMOStorage {
       }
     }
 
+    // Migration: Add status_id column to tickets table (for workflow statuses)
+    const ticketsColumns = this.db.pragma(`table_info(${T.tickets})`) as Array<{ name: string }>
+    const ticketsColumnNames = ticketsColumns.map(c => c.name)
+
+    if (!ticketsColumnNames.includes('status_id')) {
+      try {
+        this.db.exec(`ALTER TABLE ${T.tickets} ADD COLUMN status_id TEXT`)
+      } catch {
+        // Column may already exist
+      }
+    }
+
+    // Migration: Add status and target_date columns to projects table
+    const projectsColumns = this.db.pragma(`table_info(${T.projects})`) as Array<{ name: string }>
+    const projectsColumnNames = projectsColumns.map(c => c.name)
+
+    if (!projectsColumnNames.includes('status')) {
+      try {
+        this.db.exec(`ALTER TABLE ${T.projects} ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`)
+      } catch {
+        // Column may already exist
+      }
+    }
+
+    if (!projectsColumnNames.includes('target_date')) {
+      try {
+        this.db.exec(`ALTER TABLE ${T.projects} ADD COLUMN target_date TIMESTAMP`)
+      } catch {
+        // Column may already exist
+      }
+    }
+
     // Migration: Update ticket statuses to Linear-style values
     // Old statuses: backlog, ready, in_progress, blocked, review, done, cancelled
     // New statuses: backlog, planned, in_progress, done, canceled
@@ -144,6 +185,102 @@ export class SQLiteStorage implements PMOStorage {
     this.db.exec(`UPDATE ${T.tickets} SET status = 'canceled' WHERE status = 'cancelled'`)
   }
 
+  /**
+   * Seed built-in workflow templates.
+   * These are system-provided templates that cannot be deleted.
+   */
+  private seedBuiltinTemplates(): void {
+    const builtinTemplates: Array<{
+      id: string
+      name: string
+      description: string
+      statuses: WorkflowTemplateStatus[]
+    }> = [
+      {
+        id: 'kanban',
+        name: 'Kanban',
+        description: 'Simple kanban workflow: Backlog → To Do → In Progress → Done',
+        statuses: [
+          { name: 'Backlog', category: 'backlog', position: 0 },
+          { name: 'To Do', category: 'unstarted', position: 0 },
+          { name: 'In Progress', category: 'started', position: 0 },
+          { name: 'Done', category: 'completed', position: 0 },
+          { name: 'Canceled', category: 'canceled', position: 0 },
+        ],
+      },
+      {
+        id: 'linear',
+        name: 'Linear',
+        description: 'Linear-style workflow with backlog, triage, and review stages',
+        statuses: [
+          { name: 'Backlog', category: 'backlog', position: 0 },
+          { name: 'Triage', category: 'backlog', position: 1 },
+          { name: 'Todo', category: 'unstarted', position: 0 },
+          { name: 'In Progress', category: 'started', position: 0 },
+          { name: 'In Review', category: 'started', position: 1 },
+          { name: 'Done', category: 'completed', position: 0 },
+          { name: 'Canceled', category: 'canceled', position: 0 },
+        ],
+      },
+      {
+        id: 'bug-smash',
+        name: 'Bug Smash',
+        description: 'Bug tracking workflow with verification stages',
+        statuses: [
+          { name: 'Reported', category: 'backlog', position: 0 },
+          { name: 'Confirmed', category: 'unstarted', position: 0 },
+          { name: 'Fixing', category: 'started', position: 0 },
+          { name: 'Verifying', category: 'started', position: 1 },
+          { name: 'Fixed', category: 'completed', position: 0 },
+          { name: 'Won\'t Fix', category: 'canceled', position: 0 },
+        ],
+      },
+      {
+        id: '5-tool-founder',
+        name: '5-Tool Founder',
+        description: 'Founder workflow: Ideas → Build → Ship → Measure → Iterate',
+        statuses: [
+          { name: 'Ideas', category: 'backlog', position: 0 },
+          { name: 'Next Up', category: 'unstarted', position: 0 },
+          { name: 'Building', category: 'started', position: 0 },
+          { name: 'Shipping', category: 'started', position: 1 },
+          { name: 'Measuring', category: 'started', position: 2 },
+          { name: 'Shipped', category: 'completed', position: 0 },
+          { name: 'Parked', category: 'canceled', position: 0 },
+        ],
+      },
+      {
+        id: 'gtm',
+        name: 'GTM',
+        description: 'Go-to-market workflow for launches and campaigns',
+        statuses: [
+          { name: 'Ideation', category: 'backlog', position: 0 },
+          { name: 'Planning', category: 'unstarted', position: 0 },
+          { name: 'In Development', category: 'started', position: 0 },
+          { name: 'Ready to Launch', category: 'started', position: 1 },
+          { name: 'Launched', category: 'completed', position: 0 },
+          { name: 'Retired', category: 'canceled', position: 0 },
+        ],
+      },
+    ]
+
+    const insertTemplate = this.db.prepare(`
+      INSERT OR IGNORE INTO ${T.templates} (id, name, description, is_builtin, statuses, created_at)
+      VALUES (?, ?, ?, 1, ?, ?)
+    `)
+
+    const now = new Date().toISOString()
+    for (const template of builtinTemplates) {
+      insertTemplate.run(
+        template.id,
+        template.name,
+        template.description,
+        JSON.stringify(template.statuses),
+        now
+      )
+    }
+  }
+
 
   // ===========================================================================
   // Project Operations
@@ -151,23 +288,42 @@ export class SQLiteStorage implements PMOStorage {
 
   async createProject(project: { id?: string; name: string; template?: string; description?: string }): Promise<Board> {
     const id = project.id || slugify(project.name)
+    const templateId = project.template || 'kanban'
     const now = Date.now()
 
     this.db.prepare(`
       INSERT INTO ${T.projects} (id, name, template, description, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, project.name, project.template || 'kanban', project.description || null, now, now)
+    `).run(id, project.name, templateId, project.description || null, now, now)
 
-    // Create default columns for the project (Linear-style)
-    const defaultColumns = ['Backlog', 'Planned', 'In Progress', 'Done']
-    const insertColumn = this.db.prepare(`
-      INSERT INTO ${T.columns} (id, project_id, name, position, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `)
+    // Try to apply workflow template if it exists
+    const template = await this.getTemplate(templateId)
+    if (template) {
+      // Apply workflow template - creates statuses for this project
+      await this.applyTemplate(id, templateId)
 
-    defaultColumns.forEach((name, position) => {
-      insertColumn.run(slugify(name), id, name, position, now)
-    })
+      // Create columns from statuses (columns mirror statuses)
+      const statuses = await this.listStatuses(id)
+      const insertColumn = this.db.prepare(`
+        INSERT INTO ${T.columns} (id, project_id, name, position, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `)
+
+      statuses.forEach((status, position) => {
+        insertColumn.run(slugify(status.name), id, status.name, position, now)
+      })
+    } else {
+      // Fallback to default columns if template doesn't exist
+      const defaultColumns = ['Backlog', 'Planned', 'In Progress', 'Done']
+      const insertColumn = this.db.prepare(`
+        INSERT INTO ${T.columns} (id, project_id, name, position, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `)
+
+      defaultColumns.forEach((name, position) => {
+        insertColumn.run(slugify(name), id, name, position, now)
+      })
+    }
 
     // Switch context to new project and return it
     const oldProjectId = this.currentProjectId
@@ -738,12 +894,26 @@ export class SQLiteStorage implements PMOStorage {
       WHERE project_id = ? AND ticket_id = ?
     `).run(targetColumnId, pos, projectId, id)
 
-    // Update ticket timestamp
-    this.db.prepare(`
-      UPDATE ${T.tickets}
-      SET updated_at = ?
-      WHERE id = ?
-    `).run(Date.now(), id)
+    // Find status matching the target column name and update status_id
+    const matchingStatus = this.db.prepare(`
+      SELECT id FROM ${T.statuses}
+      WHERE project_id = ? AND LOWER(name) = LOWER(?)
+    `).get(projectId, column) as { id: string } | undefined
+
+    // Update ticket timestamp and status_id if a matching status exists
+    if (matchingStatus) {
+      this.db.prepare(`
+        UPDATE ${T.tickets}
+        SET updated_at = ?, status_id = ?
+        WHERE id = ?
+      `).run(Date.now(), matchingStatus.id, id)
+    } else {
+      this.db.prepare(`
+        UPDATE ${T.tickets}
+        SET updated_at = ?
+        WHERE id = ?
+      `).run(Date.now(), id)
+    }
 
     this.updateBoardTimestamp()
 
@@ -1560,6 +1730,507 @@ export class SQLiteStorage implements PMOStorage {
     `).run(Date.now(), ticketId)
 
     this.updateBoardTimestamp()
+  }
+
+  // ===========================================================================
+  // Workflow Status Operations
+  // ===========================================================================
+
+  async listStatuses(projectId: string): Promise<WorkflowStatus[]> {
+    const rows = this.db.prepare(`
+      SELECT * FROM ${T.statuses}
+      WHERE project_id = ?
+      ORDER BY
+        CASE category
+          WHEN 'backlog' THEN 0
+          WHEN 'unstarted' THEN 1
+          WHEN 'started' THEN 2
+          WHEN 'completed' THEN 3
+          WHEN 'canceled' THEN 4
+        END,
+        position
+    `).all(projectId) as Array<{
+      id: string
+      project_id: string
+      name: string
+      category: string
+      position: number
+      color: string | null
+      description: string | null
+      is_default: number
+      created_at: string
+    }>
+
+    return rows.map(row => ({
+      id: row.id,
+      projectId: row.project_id,
+      name: row.name,
+      category: row.category as StateCategory,
+      position: row.position,
+      color: row.color || undefined,
+      description: row.description || undefined,
+      isDefault: row.is_default === 1,
+      createdAt: new Date(row.created_at),
+    }))
+  }
+
+  async getStatus(id: string): Promise<WorkflowStatus | null> {
+    const row = this.db.prepare(`
+      SELECT * FROM ${T.statuses} WHERE id = ?
+    `).get(id) as {
+      id: string
+      project_id: string
+      name: string
+      category: string
+      position: number
+      color: string | null
+      description: string | null
+      is_default: number
+      created_at: string
+    } | undefined
+
+    if (!row) return null
+
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      name: row.name,
+      category: row.category as StateCategory,
+      position: row.position,
+      color: row.color || undefined,
+      description: row.description || undefined,
+      isDefault: row.is_default === 1,
+      createdAt: new Date(row.created_at),
+    }
+  }
+
+  async createStatus(status: Partial<WorkflowStatus>): Promise<WorkflowStatus> {
+    const projectId = status.projectId || this.currentProjectId
+    const id = status.id || slugify(status.name || 'status')
+    const category = status.category || 'backlog'
+    const now = new Date().toISOString()
+
+    // Validate category
+    if (!STATE_CATEGORY_ORDER.includes(category)) {
+      throw new PMOError('INVALID', `Invalid category: ${category}. Must be one of: ${STATE_CATEGORY_ORDER.join(', ')}`)
+    }
+
+    // Get next position within category if not specified
+    let position = status.position
+    if (position === undefined) {
+      const maxPos = this.db.prepare(`
+        SELECT COALESCE(MAX(position), -1) as max_pos
+        FROM ${T.statuses}
+        WHERE project_id = ? AND category = ?
+      `).get(projectId, category) as { max_pos: number }
+      position = maxPos.max_pos + 1
+    }
+
+    // Check for duplicate name in project
+    const existing = this.db.prepare(`
+      SELECT id FROM ${T.statuses}
+      WHERE project_id = ? AND LOWER(name) = LOWER(?)
+    `).get(projectId, status.name) as { id: string } | undefined
+    if (existing) {
+      throw new PMOError('CONFLICT', `Status with name "${status.name}" already exists in this project`)
+    }
+
+    // If this is the default, unset other defaults in the project
+    if (status.isDefault) {
+      this.db.prepare(`
+        UPDATE ${T.statuses}
+        SET is_default = 0
+        WHERE project_id = ?
+      `).run(projectId)
+    }
+
+    this.db.prepare(`
+      INSERT INTO ${T.statuses} (id, project_id, name, category, position, color, description, is_default, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      projectId,
+      status.name || 'New Status',
+      category,
+      position,
+      status.color || null,
+      status.description || null,
+      status.isDefault ? 1 : 0,
+      now
+    )
+
+    return {
+      id,
+      projectId,
+      name: status.name || 'New Status',
+      category,
+      position,
+      color: status.color,
+      description: status.description,
+      isDefault: status.isDefault || false,
+      createdAt: new Date(now),
+    }
+  }
+
+  async updateStatus(id: string, changes: Partial<WorkflowStatus>): Promise<WorkflowStatus> {
+    const existing = await this.getStatus(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Status not found: ${id}`)
+    }
+
+    const updates: string[] = []
+    const params: unknown[] = []
+
+    if (changes.name !== undefined) {
+      // Check for duplicate name
+      const duplicate = this.db.prepare(`
+        SELECT id FROM ${T.statuses}
+        WHERE project_id = ? AND LOWER(name) = LOWER(?) AND id != ?
+      `).get(existing.projectId, changes.name, id) as { id: string } | undefined
+      if (duplicate) {
+        throw new PMOError('CONFLICT', `Status with name "${changes.name}" already exists in this project`)
+      }
+      updates.push('name = ?')
+      params.push(changes.name)
+    }
+    if (changes.category !== undefined) {
+      if (!STATE_CATEGORY_ORDER.includes(changes.category)) {
+        throw new PMOError('INVALID', `Invalid category: ${changes.category}`)
+      }
+      updates.push('category = ?')
+      params.push(changes.category)
+    }
+    if (changes.position !== undefined) {
+      updates.push('position = ?')
+      params.push(changes.position)
+    }
+    if (changes.color !== undefined) {
+      updates.push('color = ?')
+      params.push(changes.color || null)
+    }
+    if (changes.description !== undefined) {
+      updates.push('description = ?')
+      params.push(changes.description || null)
+    }
+    if (changes.isDefault !== undefined) {
+      if (changes.isDefault) {
+        // Unset other defaults
+        this.db.prepare(`
+          UPDATE ${T.statuses}
+          SET is_default = 0
+          WHERE project_id = ?
+        `).run(existing.projectId)
+      }
+      updates.push('is_default = ?')
+      params.push(changes.isDefault ? 1 : 0)
+    }
+
+    if (updates.length > 0) {
+      params.push(id)
+      this.db.prepare(`UPDATE ${T.statuses} SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+    }
+
+    return this.getStatus(id) as Promise<WorkflowStatus>
+  }
+
+  async deleteStatus(id: string): Promise<void> {
+    const existing = await this.getStatus(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Status not found: ${id}`)
+    }
+
+    // Check if any tickets use this status
+    const ticketCount = this.db.prepare(`
+      SELECT COUNT(*) as count FROM ${T.tickets}
+      WHERE status_id = ?
+    `).get(id) as { count: number }
+
+    if (ticketCount.count > 0) {
+      throw new PMOError('CONFLICT', `Cannot delete status: ${ticketCount.count} ticket(s) are using it`)
+    }
+
+    this.db.prepare(`DELETE FROM ${T.statuses} WHERE id = ?`).run(id)
+
+    // Reorder remaining statuses in the same category
+    this.db.prepare(`
+      UPDATE ${T.statuses}
+      SET position = position - 1
+      WHERE project_id = ? AND category = ? AND position > ?
+    `).run(existing.projectId, existing.category, existing.position)
+  }
+
+  async reorderStatus(id: string, newPosition: number): Promise<WorkflowStatus> {
+    const existing = await this.getStatus(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Status not found: ${id}`)
+    }
+
+    const oldPosition = existing.position
+    if (oldPosition === newPosition) {
+      return existing
+    }
+
+    // Shift other statuses within the same category
+    if (newPosition < oldPosition) {
+      // Moving up: shift statuses in [newPosition, oldPosition) down by 1
+      this.db.prepare(`
+        UPDATE ${T.statuses}
+        SET position = position + 1
+        WHERE project_id = ? AND category = ? AND position >= ? AND position < ?
+      `).run(existing.projectId, existing.category, newPosition, oldPosition)
+    } else {
+      // Moving down: shift statuses in (oldPosition, newPosition] up by 1
+      this.db.prepare(`
+        UPDATE ${T.statuses}
+        SET position = position - 1
+        WHERE project_id = ? AND category = ? AND position > ? AND position <= ?
+      `).run(existing.projectId, existing.category, oldPosition, newPosition)
+    }
+
+    // Update the status's position
+    this.db.prepare(`
+      UPDATE ${T.statuses}
+      SET position = ?
+      WHERE id = ?
+    `).run(newPosition, id)
+
+    return this.getStatus(id) as Promise<WorkflowStatus>
+  }
+
+  async getDefaultStatus(projectId: string): Promise<WorkflowStatus | null> {
+    type StatusRow = {
+      id: string
+      project_id: string
+      name: string
+      category: string
+      position: number
+      color: string | null
+      description: string | null
+      is_default: number
+      created_at: string
+    }
+
+    const row = this.db.prepare(`
+      SELECT * FROM ${T.statuses}
+      WHERE project_id = ? AND is_default = 1
+    `).get(projectId) as StatusRow | undefined
+
+    if (!row) {
+      // If no explicit default, return first status in backlog category
+      const fallback = this.db.prepare(`
+        SELECT * FROM ${T.statuses}
+        WHERE project_id = ?
+        ORDER BY
+          CASE category
+            WHEN 'backlog' THEN 0
+            WHEN 'unstarted' THEN 1
+            WHEN 'started' THEN 2
+            WHEN 'completed' THEN 3
+            WHEN 'canceled' THEN 4
+          END,
+          position
+        LIMIT 1
+      `).get(projectId) as StatusRow | undefined
+
+      if (!fallback) return null
+      return {
+        id: fallback.id,
+        projectId: fallback.project_id,
+        name: fallback.name,
+        category: fallback.category as StateCategory,
+        position: fallback.position,
+        color: fallback.color || undefined,
+        description: fallback.description || undefined,
+        isDefault: fallback.is_default === 1,
+        createdAt: new Date(fallback.created_at),
+      }
+    }
+
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      name: row.name,
+      category: row.category as StateCategory,
+      position: row.position,
+      color: row.color || undefined,
+      description: row.description || undefined,
+      isDefault: true,
+      createdAt: new Date(row.created_at),
+    }
+  }
+
+  // ===========================================================================
+  // Workflow Template Operations
+  // ===========================================================================
+
+  async listTemplates(filter?: TemplateFilter): Promise<WorkflowTemplate[]> {
+    let query = `SELECT * FROM ${T.templates} WHERE 1=1`
+    const params: unknown[] = []
+
+    if (filter?.isBuiltin !== undefined) {
+      query += ' AND is_builtin = ?'
+      params.push(filter.isBuiltin ? 1 : 0)
+    }
+    if (filter?.search) {
+      query += ' AND (name LIKE ? OR description LIKE ?)'
+      params.push(`%${filter.search}%`, `%${filter.search}%`)
+    }
+
+    query += ' ORDER BY is_builtin DESC, name'
+
+    const rows = this.db.prepare(query).all(...params) as Array<{
+      id: string
+      name: string
+      description: string | null
+      is_builtin: number
+      statuses: string
+      created_at: string
+    }>
+
+    return rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      description: row.description || undefined,
+      isBuiltin: row.is_builtin === 1,
+      statuses: JSON.parse(row.statuses) as WorkflowTemplateStatus[],
+      createdAt: new Date(row.created_at),
+    }))
+  }
+
+  async getTemplate(id: string): Promise<WorkflowTemplate | null> {
+    const row = this.db.prepare(`
+      SELECT * FROM ${T.templates} WHERE id = ?
+    `).get(id) as {
+      id: string
+      name: string
+      description: string | null
+      is_builtin: number
+      statuses: string
+      created_at: string
+    } | undefined
+
+    if (!row) return null
+
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description || undefined,
+      isBuiltin: row.is_builtin === 1,
+      statuses: JSON.parse(row.statuses) as WorkflowTemplateStatus[],
+      createdAt: new Date(row.created_at),
+    }
+  }
+
+  async applyTemplate(projectId: string, templateId: string): Promise<WorkflowStatus[]> {
+    const template = await this.getTemplate(templateId)
+    if (!template) {
+      throw new PMOError('NOT_FOUND', `Template not found: ${templateId}`)
+    }
+
+    // Verify project exists
+    const project = this.db.prepare(`SELECT id FROM ${T.projects} WHERE id = ?`).get(projectId)
+    if (!project) {
+      throw new PMOError('NOT_FOUND', `Project not found: ${projectId}`)
+    }
+
+    // Delete existing statuses for this project
+    this.db.prepare(`DELETE FROM ${T.statuses} WHERE project_id = ?`).run(projectId)
+
+    // Create new statuses from template
+    const now = new Date().toISOString()
+    const insertStatus = this.db.prepare(`
+      INSERT INTO ${T.statuses} (id, project_id, name, category, position, color, is_default, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    const createdStatuses: WorkflowStatus[] = []
+    let isFirstBacklog = true
+
+    for (const templateStatus of template.statuses) {
+      const id = `${projectId}-${slugify(templateStatus.name)}`
+      // First backlog status is default
+      const isDefault = templateStatus.category === 'backlog' && isFirstBacklog
+      if (isDefault) isFirstBacklog = false
+
+      insertStatus.run(
+        id,
+        projectId,
+        templateStatus.name,
+        templateStatus.category,
+        templateStatus.position,
+        templateStatus.color || null,
+        isDefault ? 1 : 0,
+        now
+      )
+
+      createdStatuses.push({
+        id,
+        projectId,
+        name: templateStatus.name,
+        category: templateStatus.category,
+        position: templateStatus.position,
+        color: templateStatus.color,
+        isDefault,
+        createdAt: new Date(now),
+      })
+    }
+
+    return createdStatuses
+  }
+
+  async saveTemplate(name: string, projectId: string, description?: string): Promise<WorkflowTemplate> {
+    // Get statuses from the project
+    const statuses = await this.listStatuses(projectId)
+    if (statuses.length === 0) {
+      throw new PMOError('INVALID', `Project ${projectId} has no statuses to save as template`)
+    }
+
+    // Check for duplicate template name
+    const existing = this.db.prepare(`
+      SELECT id FROM ${T.templates}
+      WHERE LOWER(name) = LOWER(?)
+    `).get(name) as { id: string } | undefined
+    if (existing) {
+      throw new PMOError('CONFLICT', `Template with name "${name}" already exists`)
+    }
+
+    const id = slugify(name)
+    const now = new Date().toISOString()
+
+    // Convert statuses to template format (remove project-specific fields)
+    const templateStatuses: WorkflowTemplateStatus[] = statuses.map(s => ({
+      name: s.name,
+      category: s.category,
+      position: s.position,
+      color: s.color,
+    }))
+
+    this.db.prepare(`
+      INSERT INTO ${T.templates} (id, name, description, is_builtin, statuses, created_at)
+      VALUES (?, ?, ?, 0, ?, ?)
+    `).run(id, name, description || null, JSON.stringify(templateStatuses), now)
+
+    return {
+      id,
+      name,
+      description,
+      isBuiltin: false,
+      statuses: templateStatuses,
+      createdAt: new Date(now),
+    }
+  }
+
+  async deleteTemplate(id: string): Promise<void> {
+    const existing = await this.getTemplate(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Template not found: ${id}`)
+    }
+
+    if (existing.isBuiltin) {
+      throw new PMOError('INVALID', 'Cannot delete built-in templates')
+    }
+
+    this.db.prepare(`DELETE FROM ${T.templates} WHERE id = ?`).run(id)
   }
 
   // ===========================================================================

@@ -30,6 +30,8 @@ export interface Project {
   name: string
   template?: string
   description?: string
+  status: ProjectStatus       // Project lifecycle status (draft, active, completed, archived)
+  targetDate?: Date           // Optional end date for time-bounded projects
   initiativeId?: string
   createdAt: Date
   updatedAt: Date
@@ -65,6 +67,9 @@ export interface Epic {
 /**
  * Ticket lifecycle status (Linear-style workflow)
  *
+ * @deprecated Use StatusId reference to project's workflow configuration instead.
+ * This flat enum is maintained for backward compatibility during migration.
+ *
  * Linear-inspired states that map to board columns:
  * - backlog: Not yet scheduled (can be pulled into planned)
  * - planned: Scheduled for work but not started
@@ -78,6 +83,83 @@ export type TicketStatus =
   | 'in_progress'  // Actively being worked on
   | 'done'         // Completed
   | 'canceled'     // Won't do
+
+// =============================================================================
+// Workflow Types (Two-Tier State/Status Model)
+// =============================================================================
+
+/**
+ * Fixed state categories - the semantic buckets that statuses belong to.
+ * These cannot be added, removed, or reordered.
+ *
+ * Order: backlog < unstarted < started < completed < canceled
+ */
+export type StateCategory =
+  | 'backlog'     // Not yet scheduled for work
+  | 'unstarted'   // Scheduled but work hasn't begun
+  | 'started'     // Work is actively in progress
+  | 'completed'   // Work finished successfully
+  | 'canceled'    // Work won't be done
+
+/**
+ * State category order for sorting columns/statuses
+ */
+export const STATE_CATEGORY_ORDER: readonly StateCategory[] = [
+  'backlog',
+  'unstarted',
+  'started',
+  'completed',
+  'canceled',
+] as const
+
+/**
+ * Customizable status within a project.
+ * Each status belongs to exactly one StateCategory.
+ * Status names must be unique within a project.
+ */
+export interface WorkflowStatus {
+  id: string
+  projectId: string
+  name: string              // Display name, unique within project
+  category: StateCategory   // Which category this belongs to
+  position: number          // Order within category (0-indexed)
+  color?: string            // Hex color for UI
+  description?: string      // Tooltip/help text
+  isDefault?: boolean       // Default status for new tickets
+  createdAt: Date
+}
+
+/**
+ * Workflow template - a preset status configuration.
+ * Templates are copied when applied, not referenced.
+ */
+export interface WorkflowTemplate {
+  id: string
+  name: string
+  description?: string
+  isBuiltin: boolean        // System-provided vs user-created
+  statuses: WorkflowTemplateStatus[]
+  createdAt: Date
+}
+
+/**
+ * Status definition within a template (no projectId since templates are reusable)
+ */
+export interface WorkflowTemplateStatus {
+  name: string
+  category: StateCategory
+  position: number
+  color?: string
+}
+
+/**
+ * Project lifecycle status (fixed, not customizable)
+ */
+export type ProjectStatus =
+  | 'draft'       // Planning phase, not yet active
+  | 'active'      // Work is happening
+  | 'completed'   // Project finished
+  | 'archived'    // Soft-deleted, hidden from default views
 
 /**
  * Board represents a project's kanban board view.
@@ -110,9 +192,10 @@ export interface Ticket {
   category?: string
 
   // Workflow state
-  status: TicketStatus
-  owner?: string      // Human responsible for ticket
-  assignee?: string   // Who's executing (human or agent)
+  status: TicketStatus        // @deprecated - use statusId instead
+  statusId?: string           // Reference to WorkflowStatus in project's configuration
+  owner?: string              // Human responsible for ticket
+  assignee?: string           // Who's executing (human or agent)
 
   // Relationships
   specId?: string     // Which spec defined this ticket
@@ -296,6 +379,17 @@ export interface EpicFilter {
   search?: string
 }
 
+export interface StatusFilter {
+  projectId?: string
+  category?: StateCategory
+  search?: string
+}
+
+export interface TemplateFilter {
+  isBuiltin?: boolean
+  search?: string
+}
+
 // =============================================================================
 // Result Types
 // =============================================================================
@@ -391,6 +485,22 @@ export interface PMOStorage {
   getTicketsForEpic(epicId: string): Promise<Ticket[]>
   linkTicketToEpic(ticketId: string, epicId: string): Promise<void>
   unlinkTicketFromEpic(ticketId: string): Promise<void>
+
+  // Workflow Status Operations
+  listStatuses(projectId: string): Promise<WorkflowStatus[]>
+  getStatus(id: string): Promise<WorkflowStatus | null>
+  createStatus(status: Partial<WorkflowStatus>): Promise<WorkflowStatus>
+  updateStatus(id: string, changes: Partial<WorkflowStatus>): Promise<WorkflowStatus>
+  deleteStatus(id: string): Promise<void>
+  reorderStatus(id: string, newPosition: number): Promise<WorkflowStatus>
+  getDefaultStatus(projectId: string): Promise<WorkflowStatus | null>
+
+  // Workflow Template Operations
+  listTemplates(filter?: TemplateFilter): Promise<WorkflowTemplate[]>
+  getTemplate(id: string): Promise<WorkflowTemplate | null>
+  applyTemplate(projectId: string, templateId: string): Promise<WorkflowStatus[]>
+  saveTemplate(name: string, projectId: string, description?: string): Promise<WorkflowTemplate>
+  deleteTemplate(id: string): Promise<void>
 
   // Sync Operations
   pull(): Promise<SyncResult>
