@@ -634,7 +634,10 @@ async function createWorktreesForRepo(hqPath: string, repoName: string, repoPath
   const agentsBasePath = path.join(hqPath, 'agents', theme.workspace_dir);
 
   for (const agent of agents) {
-    const agentRepoPath = path.join(agentsBasePath, agent.name, repoName);
+    // Name worktree directory as {repoName}-{agentName} so git creates unique worktree entries
+    // e.g., proletariat-branson instead of proletariat (which causes proletariat1, proletariat2, etc.)
+    const worktreeDirName = `${repoName}-${agent.name}`;
+    const agentRepoPath = path.join(agentsBasePath, agent.name, worktreeDirName);
     const branchName = `agent-${agent.name}`;
 
     try {
@@ -652,7 +655,7 @@ async function createWorktreesForRepo(hqPath: string, repoName: string, repoPath
       `).run(
         agent.name,
         repoName,
-        `agents/${theme.workspace_dir}/${agent.name}/${repoName}`,
+        `agents/${theme.workspace_dir}/${agent.name}/${worktreeDirName}`,
         branchName,
         new Date().toISOString()
       );

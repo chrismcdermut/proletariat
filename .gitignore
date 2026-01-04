@@ -40,3 +40,5 @@ pmo/projects/*/board.md
 
 # Scripts - keep in source control but mark as dev tools
 # (none excluded - we want to track these)
+# Temporary prompt files for agent execution
+.prlt-prompt-*.txt

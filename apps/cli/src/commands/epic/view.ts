@@ -80,7 +80,7 @@ export default class EpicView extends Command {
       let specTitle: string | undefined;
       if (epic.specId) {
         const spec = await storage.getSpec(epic.specId);
-        specTitle = spec?.title || spec?.path;
+        specTitle = spec?.title;
       }
 
       this.log(`\n🎯 Epic: ${styles.emphasis(epic.id)} - ${epic.title}`);

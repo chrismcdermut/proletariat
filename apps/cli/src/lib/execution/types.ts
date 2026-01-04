@@ -128,12 +128,16 @@ export interface ExecutionContext {
   ticketPriority?: string
   ticketCategory?: string
   epicTitle?: string
-  specPath?: string
+  specId?: string
+  specTitle?: string
+  specProblem?: string
+  specSolution?: string
   agentName: string
   agentDir: string      // Agent directory (contains .devcontainer)
   worktreePath: string  // Worktree path (may be subdirectory of agentDir)
   branch: string
   hqPath?: string // HQ root path for storing execution artifacts
+  pmoPath?: string // PMO path for mounting into container
   createPR?: boolean // Whether to create a PR when work is ready (chosen at work start)
   // PR feedback context (for work revise)
   prFeedback?: string // Formatted PR feedback markdown

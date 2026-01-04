@@ -6,7 +6,7 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { ExecutionStatus } from '../../lib/execution/types.js'
 
-export default class ExecutionList extends Command {
+export default class ExecutionsList extends Command {
   static description = 'List running and recent executions'
 
   static examples = [
@@ -34,7 +34,7 @@ export default class ExecutionList extends Command {
   }
 
   async run(): Promise<void> {
-    const { flags } = await this.parse(ExecutionList)
+    const { flags } = await this.parse(ExecutionsList)
 
     // Get workspace info
     let workspaceInfo
@@ -116,6 +116,11 @@ export default class ExecutionList extends Command {
         this.log(
           styles.muted(`  prlt execution stop ${runningExecs[0].id}    Stop execution`)
         )
+        if (runningExecs.length > 1) {
+          this.log(
+            styles.muted(`  prlt executions stop --all              Stop all running`)
+          )
+        }
         this.log('')
       }
 

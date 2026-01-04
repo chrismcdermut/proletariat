@@ -69,6 +69,12 @@ export function findPMO(): string | null {
   // Check PRLT_HQ_PATH environment variable first (used in devcontainers)
   const hqPath = process.env.PRLT_HQ_PATH;
   if (hqPath) {
+    // In devcontainer, PMO is always mounted at /hq/pmo regardless of database value
+    // (database stores relative path like "repos/proletariat/pmo" but mount is at /hq/pmo)
+    if (process.env.DEVCONTAINER === 'true') {
+      return path.join(hqPath, 'pmo');
+    }
+
     const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
     if (hasPMOTables(dbPath)) {
       try {

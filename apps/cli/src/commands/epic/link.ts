@@ -133,7 +133,7 @@ export default class EpicLink extends Command {
 
           await storage.updateEpic(epicId!, { specId: flags.spec });
           this.log(styles.success(`\n✅ Linked ${styles.emphasis(epicId!)} "${epic.title}" to spec ${styles.emphasis(flags.spec!)}`));
-          this.log(styles.muted(`   Spec: ${spec.title || spec.path}`));
+          this.log(styles.muted(`   Spec: ${spec.title}`));
         }
 
         // If only spec operation, exit here
