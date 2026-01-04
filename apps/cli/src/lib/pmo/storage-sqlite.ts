@@ -15,8 +15,12 @@ import {
   Conflict,
   Epic,
   EpicFilter,
+  PhaseFilter,
   PMOError,
   PMOStorage,
+  Project,
+  ProjectFilter,
+  ProjectPhase,
   Spec,
   SpecFilter,
   StateCategory,
@@ -96,8 +100,9 @@ export class SQLiteStorage implements PMOStorage {
     // CREATE TABLE/INDEX IF NOT EXISTS is safe - won't fail if already exists
     this.db.exec(PMO_SCHEMA_SQL)
 
-    // Seed built-in templates AFTER tables are created
+    // Seed built-in templates and phases AFTER tables are created
     this.seedBuiltinTemplates()
+    this.seedBuiltinPhases()
 
     // Validate schema matches expected columns (catches drift early)
     validateTicketSchema(this.db)
@@ -166,6 +171,22 @@ export class SQLiteStorage implements PMOStorage {
     if (!projectsColumnNames.includes('target_date')) {
       try {
         this.db.exec(`ALTER TABLE ${T.projects} ADD COLUMN target_date TIMESTAMP`)
+      } catch {
+        // Column may already exist
+      }
+    }
+
+    if (!projectsColumnNames.includes('phase_id')) {
+      try {
+        this.db.exec(`ALTER TABLE ${T.projects} ADD COLUMN phase_id TEXT`)
+      } catch {
+        // Column may already exist
+      }
+    }
+
+    if (!projectsColumnNames.includes('is_archived')) {
+      try {
+        this.db.exec(`ALTER TABLE ${T.projects} ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0`)
       } catch {
         // Column may already exist
       }
@@ -281,6 +302,45 @@ export class SQLiteStorage implements PMOStorage {
     }
   }
 
+  /**
+   * Seed default project phases.
+   * These are the default phases for project lifecycle.
+   */
+  private seedBuiltinPhases(): void {
+    const defaultPhases: Array<{
+      id: string
+      name: string
+      category: StateCategory
+      position: number
+      description?: string
+      isDefault?: boolean
+    }> = [
+      { id: 'idea', name: 'Idea', category: 'backlog', position: 0, description: 'Project concept, not yet planned', isDefault: true },
+      { id: 'planned', name: 'Planned', category: 'unstarted', position: 0, description: 'Scheduled for work but not started' },
+      { id: 'active', name: 'Active', category: 'started', position: 0, description: 'Work is in progress' },
+      { id: 'completed', name: 'Completed', category: 'completed', position: 0, description: 'Project finished successfully' },
+      { id: 'canceled', name: 'Canceled', category: 'canceled', position: 0, description: 'Project won\'t be completed' },
+    ]
+
+    const insertPhase = this.db.prepare(`
+      INSERT OR IGNORE INTO ${T.phases} (id, name, category, position, description, is_default, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    const now = new Date().toISOString()
+    for (const phase of defaultPhases) {
+      insertPhase.run(
+        phase.id,
+        phase.name,
+        phase.category,
+        phase.position,
+        phase.description || null,
+        phase.isDefault ? 1 : 0,
+        now
+      )
+    }
+  }
+
 
   // ===========================================================================
   // Project Operations
@@ -333,7 +393,7 @@ export class SQLiteStorage implements PMOStorage {
     return result
   }
 
-  async getProject(projectId: string): Promise<Board | null> {
+  async getProjectBoard(projectId: string): Promise<Board | null> {
     const projectRow = this.db.prepare(`SELECT * FROM ${T.projects} WHERE id = ?`).get(projectId) as
       | { id: string; name: string; template: string | null; description: string | null; updated_at: string }
       | undefined
@@ -371,7 +431,7 @@ export class SQLiteStorage implements PMOStorage {
     }
   }
 
-  async listProjects(): Promise<Array<{ id: string; name: string; template: string | null; description: string | null; ticketCount: number }>> {
+  async listProjectSummaries(): Promise<Array<{ id: string; name: string; template: string | null; description: string | null; ticketCount: number }>> {
     const projects = this.db.prepare(`
       SELECT p.*, COUNT(t.id) as ticket_count
       FROM ${T.projects} p
@@ -2231,6 +2291,453 @@ export class SQLiteStorage implements PMOStorage {
     }
 
     this.db.prepare(`DELETE FROM ${T.templates} WHERE id = ?`).run(id)
+  }
+
+  // ===========================================================================
+  // Project Phase Operations (workspace-scoped)
+  // ===========================================================================
+
+  async listPhases(filter?: PhaseFilter): Promise<ProjectPhase[]> {
+    let sql = `SELECT * FROM ${T.phases}`
+    const conditions: string[] = []
+    const params: unknown[] = []
+
+    if (filter?.category) {
+      conditions.push('category = ?')
+      params.push(filter.category)
+    }
+
+    if (filter?.search) {
+      conditions.push('(name LIKE ? OR description LIKE ?)')
+      const searchTerm = `%${filter.search}%`
+      params.push(searchTerm, searchTerm)
+    }
+
+    if (conditions.length > 0) {
+      sql += ' WHERE ' + conditions.join(' AND ')
+    }
+
+    // Order by category order, then by position within category
+    sql += ` ORDER BY
+      CASE category
+        WHEN 'backlog' THEN 0
+        WHEN 'unstarted' THEN 1
+        WHEN 'started' THEN 2
+        WHEN 'completed' THEN 3
+        WHEN 'canceled' THEN 4
+      END,
+      position`
+
+    const rows = this.db.prepare(sql).all(...params) as Array<{
+      id: string
+      name: string
+      category: string
+      position: number
+      color: string | null
+      description: string | null
+      is_default: number
+      created_at: string
+    }>
+
+    return rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      category: row.category as StateCategory,
+      position: row.position,
+      color: row.color || undefined,
+      description: row.description || undefined,
+      isDefault: row.is_default === 1,
+      createdAt: new Date(row.created_at),
+    }))
+  }
+
+  async getPhase(id: string): Promise<ProjectPhase | null> {
+    const row = this.db.prepare(`SELECT * FROM ${T.phases} WHERE id = ?`).get(id) as {
+      id: string
+      name: string
+      category: string
+      position: number
+      color: string | null
+      description: string | null
+      is_default: number
+      created_at: string
+    } | undefined
+
+    if (!row) return null
+
+    return {
+      id: row.id,
+      name: row.name,
+      category: row.category as StateCategory,
+      position: row.position,
+      color: row.color || undefined,
+      description: row.description || undefined,
+      isDefault: row.is_default === 1,
+      createdAt: new Date(row.created_at),
+    }
+  }
+
+  async createPhase(phase: Partial<ProjectPhase>): Promise<ProjectPhase> {
+    if (!phase.name) {
+      throw new PMOError('INVALID', 'Phase name is required')
+    }
+
+    if (!phase.category) {
+      throw new PMOError('INVALID', 'Phase category is required')
+    }
+
+    // Validate category
+    if (!STATE_CATEGORY_ORDER.includes(phase.category)) {
+      throw new PMOError('INVALID', `Invalid category: ${phase.category}. Must be one of: ${STATE_CATEGORY_ORDER.join(', ')}`)
+    }
+
+    // Check for duplicate name
+    const existing = this.db.prepare(`SELECT id FROM ${T.phases} WHERE LOWER(name) = LOWER(?)`).get(phase.name)
+    if (existing) {
+      throw new PMOError('CONFLICT', `Phase "${phase.name}" already exists`)
+    }
+
+    // Get next position within category
+    const maxPos = this.db.prepare(`
+      SELECT MAX(position) as max FROM ${T.phases} WHERE category = ?
+    `).get(phase.category) as { max: number | null }
+    const position = phase.position ?? (maxPos.max !== null ? maxPos.max + 1 : 0)
+
+    const id = phase.id || slugify(phase.name)
+    const now = new Date().toISOString()
+
+    this.db.prepare(`
+      INSERT INTO ${T.phases} (id, name, category, position, color, description, is_default, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      phase.name,
+      phase.category,
+      position,
+      phase.color || null,
+      phase.description || null,
+      phase.isDefault ? 1 : 0,
+      now
+    )
+
+    return (await this.getPhase(id))!
+  }
+
+  async updatePhase(id: string, changes: Partial<ProjectPhase>): Promise<ProjectPhase> {
+    const existing = await this.getPhase(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Phase not found: ${id}`)
+    }
+
+    if (changes.category && !STATE_CATEGORY_ORDER.includes(changes.category)) {
+      throw new PMOError('INVALID', `Invalid category: ${changes.category}. Must be one of: ${STATE_CATEGORY_ORDER.join(', ')}`)
+    }
+
+    // Check for duplicate name if name is changing
+    if (changes.name && changes.name.toLowerCase() !== existing.name.toLowerCase()) {
+      const dup = this.db.prepare(`SELECT id FROM ${T.phases} WHERE LOWER(name) = LOWER(?) AND id != ?`).get(changes.name, id)
+      if (dup) {
+        throw new PMOError('CONFLICT', `Phase "${changes.name}" already exists`)
+      }
+    }
+
+    const updates: string[] = []
+    const params: unknown[] = []
+
+    if (changes.name !== undefined) {
+      updates.push('name = ?')
+      params.push(changes.name)
+    }
+    if (changes.category !== undefined) {
+      updates.push('category = ?')
+      params.push(changes.category)
+    }
+    if (changes.position !== undefined) {
+      updates.push('position = ?')
+      params.push(changes.position)
+    }
+    if (changes.color !== undefined) {
+      updates.push('color = ?')
+      params.push(changes.color || null)
+    }
+    if (changes.description !== undefined) {
+      updates.push('description = ?')
+      params.push(changes.description || null)
+    }
+    if (changes.isDefault !== undefined) {
+      updates.push('is_default = ?')
+      params.push(changes.isDefault ? 1 : 0)
+
+      // If setting as default, unset other defaults
+      if (changes.isDefault) {
+        this.db.prepare(`UPDATE ${T.phases} SET is_default = 0 WHERE id != ?`).run(id)
+      }
+    }
+
+    if (updates.length > 0) {
+      params.push(id)
+      this.db.prepare(`UPDATE ${T.phases} SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+    }
+
+    return (await this.getPhase(id))!
+  }
+
+  async deletePhase(id: string): Promise<void> {
+    const existing = await this.getPhase(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Phase not found: ${id}`)
+    }
+
+    // Check if any projects use this phase
+    const projectCount = this.db.prepare(`SELECT COUNT(*) as count FROM ${T.projects} WHERE phase_id = ?`).get(id) as { count: number }
+    if (projectCount.count > 0) {
+      throw new PMOError('CONFLICT', `Cannot delete phase "${existing.name}" - ${projectCount.count} project(s) are using it`)
+    }
+
+    this.db.prepare(`DELETE FROM ${T.phases} WHERE id = ?`).run(id)
+  }
+
+  async reorderPhase(id: string, newPosition: number): Promise<ProjectPhase> {
+    const phase = await this.getPhase(id)
+    if (!phase) {
+      throw new PMOError('NOT_FOUND', `Phase not found: ${id}`)
+    }
+
+    const oldPosition = phase.position
+
+    if (newPosition === oldPosition) {
+      return phase
+    }
+
+    // Shift other phases within the same category
+    if (newPosition < oldPosition) {
+      this.db.prepare(`
+        UPDATE ${T.phases}
+        SET position = position + 1
+        WHERE category = ? AND position >= ? AND position < ? AND id != ?
+      `).run(phase.category, newPosition, oldPosition, id)
+    } else {
+      this.db.prepare(`
+        UPDATE ${T.phases}
+        SET position = position - 1
+        WHERE category = ? AND position > ? AND position <= ? AND id != ?
+      `).run(phase.category, oldPosition, newPosition, id)
+    }
+
+    this.db.prepare(`UPDATE ${T.phases} SET position = ? WHERE id = ?`).run(newPosition, id)
+
+    return (await this.getPhase(id))!
+  }
+
+  async getDefaultPhase(): Promise<ProjectPhase | null> {
+    type PhaseRow = {
+      id: string
+      name: string
+      category: string
+      position: number
+      color: string | null
+      description: string | null
+      is_default: number
+      created_at: string
+    }
+
+    const row = this.db.prepare(`SELECT * FROM ${T.phases} WHERE is_default = 1`).get() as PhaseRow | undefined
+
+    if (!row) {
+      // Fallback to first phase
+      const firstRow = this.db.prepare(`
+        SELECT * FROM ${T.phases}
+        ORDER BY
+          CASE category WHEN 'backlog' THEN 0 WHEN 'unstarted' THEN 1 WHEN 'started' THEN 2 WHEN 'completed' THEN 3 WHEN 'canceled' THEN 4 END,
+          position
+        LIMIT 1
+      `).get() as PhaseRow | undefined
+      if (!firstRow) return null
+      return {
+        id: firstRow.id,
+        name: firstRow.name,
+        category: firstRow.category as StateCategory,
+        position: firstRow.position,
+        color: firstRow.color || undefined,
+        description: firstRow.description || undefined,
+        isDefault: false,
+        createdAt: new Date(firstRow.created_at),
+      }
+    }
+
+    return {
+      id: row.id,
+      name: row.name,
+      category: row.category as StateCategory,
+      position: row.position,
+      color: row.color || undefined,
+      description: row.description || undefined,
+      isDefault: true,
+      createdAt: new Date(row.created_at),
+    }
+  }
+
+  // ===========================================================================
+  // Extended Project Operations
+  // ===========================================================================
+
+  async getProject(id: string): Promise<Project | null> {
+    const row = this.db.prepare(`SELECT * FROM ${T.projects} WHERE id = ?`).get(id) as {
+      id: string
+      name: string
+      template: string | null
+      description: string | null
+      status: string
+      phase_id: string | null
+      is_archived: number
+      target_date: string | null
+      initiative_id: string | null
+      created_at: string
+      updated_at: string
+    } | undefined
+
+    if (!row) return null
+
+    return {
+      id: row.id,
+      name: row.name,
+      template: row.template || undefined,
+      description: row.description || undefined,
+      status: (row.status || 'active') as 'draft' | 'active' | 'completed' | 'archived',
+      phaseId: row.phase_id || undefined,
+      isArchived: row.is_archived === 1,
+      targetDate: row.target_date ? new Date(row.target_date) : undefined,
+      initiativeId: row.initiative_id || undefined,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+    }
+  }
+
+  async updateProject(id: string, changes: Partial<Project>): Promise<Project> {
+    const existing = await this.getProject(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Project not found: ${id}`)
+    }
+
+    const updates: string[] = ['updated_at = ?']
+    const params: unknown[] = [Date.now()]
+
+    if (changes.name !== undefined) {
+      updates.push('name = ?')
+      params.push(changes.name)
+    }
+    if (changes.description !== undefined) {
+      updates.push('description = ?')
+      params.push(changes.description || null)
+    }
+    if (changes.status !== undefined) {
+      updates.push('status = ?')
+      params.push(changes.status)
+    }
+    if (changes.phaseId !== undefined) {
+      updates.push('phase_id = ?')
+      params.push(changes.phaseId || null)
+    }
+    if (changes.isArchived !== undefined) {
+      updates.push('is_archived = ?')
+      params.push(changes.isArchived ? 1 : 0)
+    }
+    if (changes.targetDate !== undefined) {
+      updates.push('target_date = ?')
+      params.push(changes.targetDate ? changes.targetDate.toISOString() : null)
+    }
+
+    params.push(id)
+    this.db.prepare(`UPDATE ${T.projects} SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+
+    return (await this.getProject(id))!
+  }
+
+  async listProjects(filter?: ProjectFilter): Promise<Project[]> {
+    let sql = `SELECT * FROM ${T.projects}`
+    const conditions: string[] = []
+    const params: unknown[] = []
+
+    // By default, don't show archived projects unless explicitly requested
+    if (filter?.isArchived === undefined) {
+      conditions.push('is_archived = 0')
+    } else if (filter.isArchived === true) {
+      conditions.push('is_archived = 1')
+    } else if (filter.isArchived === false) {
+      conditions.push('is_archived = 0')
+    }
+    // If isArchived is null, show all
+
+    if (filter?.phaseId) {
+      conditions.push('phase_id = ?')
+      params.push(filter.phaseId)
+    }
+
+    if (filter?.search) {
+      conditions.push('(name LIKE ? OR description LIKE ?)')
+      const searchTerm = `%${filter.search}%`
+      params.push(searchTerm, searchTerm)
+    }
+
+    if (conditions.length > 0) {
+      sql += ' WHERE ' + conditions.join(' AND ')
+    }
+
+    sql += ' ORDER BY updated_at DESC'
+
+    const rows = this.db.prepare(sql).all(...params) as Array<{
+      id: string
+      name: string
+      template: string | null
+      description: string | null
+      status: string
+      phase_id: string | null
+      is_archived: number
+      target_date: string | null
+      initiative_id: string | null
+      created_at: string
+      updated_at: string
+    }>
+
+    return rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      template: row.template || undefined,
+      description: row.description || undefined,
+      status: (row.status || 'active') as 'draft' | 'active' | 'completed' | 'archived',
+      phaseId: row.phase_id || undefined,
+      isArchived: row.is_archived === 1,
+      targetDate: row.target_date ? new Date(row.target_date) : undefined,
+      initiativeId: row.initiative_id || undefined,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+    }))
+  }
+
+  async archiveProject(id: string): Promise<Project> {
+    const existing = await this.getProject(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Project not found: ${id}`)
+    }
+
+    if (existing.isArchived) {
+      return existing
+    }
+
+    return this.updateProject(id, { isArchived: true })
+  }
+
+  async unarchiveProject(id: string): Promise<Project> {
+    const existing = await this.getProject(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Project not found: ${id}`)
+    }
+
+    if (!existing.isArchived) {
+      return existing
+    }
+
+    return this.updateProject(id, { isArchived: false })
   }
 
   // ===========================================================================

@@ -30,7 +30,9 @@ export interface Project {
   name: string
   template?: string
   description?: string
-  status: ProjectStatus       // Project lifecycle status (draft, active, completed, archived)
+  status: ProjectStatus       // @deprecated - use phaseId instead
+  phaseId?: string            // Reference to ProjectPhase
+  isArchived: boolean         // Soft-delete flag (hidden from default views)
   targetDate?: Date           // Optional end date for time-bounded projects
   initiativeId?: string
   createdAt: Date
@@ -154,12 +156,29 @@ export interface WorkflowTemplateStatus {
 
 /**
  * Project lifecycle status (fixed, not customizable)
+ * @deprecated Use phaseId reference to workspace's phase configuration instead.
  */
 export type ProjectStatus =
   | 'draft'       // Planning phase, not yet active
   | 'active'      // Work is happening
   | 'completed'   // Project finished
-  | 'archived'    // Soft-deleted, hidden from default views
+  | 'archived'    // Legacy - now use isArchived flag instead
+
+/**
+ * Project lifecycle phase (workspace-scoped, customizable)
+ * Each phase belongs to exactly one StateCategory.
+ * Phase names must be unique within a workspace.
+ */
+export interface ProjectPhase {
+  id: string
+  name: string              // Display name, unique within workspace
+  category: StateCategory   // Which category this belongs to
+  position: number          // Order within category (0-indexed)
+  color?: string            // Hex color for UI
+  description?: string      // Tooltip/help text
+  isDefault?: boolean       // Default phase for new projects
+  createdAt: Date
+}
 
 /**
  * Board represents a project's kanban board view.
@@ -390,6 +409,17 @@ export interface TemplateFilter {
   search?: string
 }
 
+export interface PhaseFilter {
+  category?: StateCategory
+  search?: string
+}
+
+export interface ProjectFilter {
+  phaseId?: string
+  isArchived?: boolean
+  search?: string
+}
+
 // =============================================================================
 // Result Types
 // =============================================================================
@@ -501,6 +531,23 @@ export interface PMOStorage {
   applyTemplate(projectId: string, templateId: string): Promise<WorkflowStatus[]>
   saveTemplate(name: string, projectId: string, description?: string): Promise<WorkflowTemplate>
   deleteTemplate(id: string): Promise<void>
+
+  // Project Phase Operations (workspace-scoped)
+  listPhases(filter?: PhaseFilter): Promise<ProjectPhase[]>
+  getPhase(id: string): Promise<ProjectPhase | null>
+  createPhase(phase: Partial<ProjectPhase>): Promise<ProjectPhase>
+  updatePhase(id: string, changes: Partial<ProjectPhase>): Promise<ProjectPhase>
+  deletePhase(id: string): Promise<void>
+  reorderPhase(id: string, newPosition: number): Promise<ProjectPhase>
+  getDefaultPhase(): Promise<ProjectPhase | null>
+
+  // Project Operations
+  getProject(id: string): Promise<Project | null>
+  createProject(project: Partial<Project> & { template?: string }): Promise<Board>
+  updateProject(id: string, changes: Partial<Project>): Promise<Project>
+  listProjects(filter?: ProjectFilter): Promise<Project[]>
+  archiveProject(id: string): Promise<Project>
+  unarchiveProject(id: string): Promise<Project>
 
   // Sync Operations
   pull(): Promise<SyncResult>

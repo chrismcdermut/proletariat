@@ -31,6 +31,7 @@ export const PMO_TABLES = {
   // Workflow tables
   statuses: 'pmo_statuses',
   templates: 'pmo_templates',
+  phases: 'pmo_phases',  // Project lifecycle phases (workspace-scoped)
 } as const;
 
 // =============================================================================
@@ -45,10 +46,13 @@ export const PMO_TABLE_SCHEMAS = {
       template TEXT,
       description TEXT,
       status TEXT NOT NULL DEFAULT 'active',
+      phase_id TEXT,
+      is_archived INTEGER NOT NULL DEFAULT 0,
       target_date TIMESTAMP,
       initiative_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (phase_id) REFERENCES ${PMO_TABLES.phases}(id) ON DELETE SET NULL
     )`,
 
   initiatives: `
@@ -282,6 +286,19 @@ export const PMO_TABLE_SCHEMAS = {
       statuses TEXT NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
+
+  // Project lifecycle phases (workspace-scoped, not per-project)
+  phases: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.phases} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      category TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      color TEXT,
+      description TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
 } as const;
 
 // =============================================================================
@@ -320,6 +337,10 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_statuses_category ON ${PMO_TABLES.statuses}(project_id, category);
   CREATE INDEX IF NOT EXISTS idx_pmo_statuses_position ON ${PMO_TABLES.statuses}(project_id, category, position);
   CREATE INDEX IF NOT EXISTS idx_pmo_projects_status ON ${PMO_TABLES.projects}(status);
+  CREATE INDEX IF NOT EXISTS idx_pmo_projects_phase ON ${PMO_TABLES.projects}(phase_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_projects_archived ON ${PMO_TABLES.projects}(is_archived);
+  CREATE INDEX IF NOT EXISTS idx_pmo_phases_category ON ${PMO_TABLES.phases}(category);
+  CREATE INDEX IF NOT EXISTS idx_pmo_phases_position ON ${PMO_TABLES.phases}(category, position);
 `;
 
 // =============================================================================
@@ -331,6 +352,7 @@ export const PMO_INDEXES = `
  * Order matters due to foreign key dependencies.
  */
 export const PMO_SCHEMA_SQL = [
+  PMO_TABLE_SCHEMAS.phases,  // Project phases (before projects for FK)
   PMO_TABLE_SCHEMAS.projects,
   PMO_TABLE_SCHEMAS.initiatives,
   PMO_TABLE_SCHEMAS.columns,
