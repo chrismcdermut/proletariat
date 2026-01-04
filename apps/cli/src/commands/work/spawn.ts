@@ -13,10 +13,10 @@ export default class WorkSpawn extends Command {
 
   static examples = [
     '<%= config.bin %> <%= command.id %> --column Backlog',
-    '<%= config.bin %> <%= command.id %> --column "Ready for Dev"',
     '<%= config.bin %> <%= command.id %> --column Backlog --strategy round-robin',
     '<%= config.bin %> <%= command.id %> --column Backlog --dry-run',
-    '<%= config.bin %> <%= command.id %>  # Interactive column selection',
+    '<%= config.bin %> <%= command.id %> --per-ticket  # Prompt settings for each ticket',
+    '<%= config.bin %> <%= command.id %>  # Interactive column selection (batch mode)',
   ]
 
   static flags = {
@@ -61,6 +61,27 @@ export default class WorkSpawn extends Command {
     yes: Flags.boolean({
       char: 'y',
       description: 'Skip confirmation prompt',
+      default: false,
+    }),
+    'per-ticket': Flags.boolean({
+      description: 'Prompt for settings per ticket (default: batch mode with same settings for all)',
+      default: false,
+    }),
+    output: Flags.string({
+      char: 'o',
+      description: 'Output mode (batch mode only)',
+      options: ['interactive', 'print'],
+    }),
+    'skip-permissions': Flags.boolean({
+      description: 'Skip permission prompts - danger mode (batch mode only)',
+      default: false,
+    }),
+    'create-pr': Flags.boolean({
+      description: 'Create PR when work is ready (batch mode only)',
+      default: false,
+    }),
+    'no-pr': Flags.boolean({
+      description: 'Do not create PR when work is ready (batch mode only)',
       default: false,
     }),
   }
@@ -263,6 +284,71 @@ export default class WorkSpawn extends Command {
         return
       }
 
+      // Batch mode settings - prompt once for all tickets
+      let batchOutput = flags.output
+      let batchSkipPermissions = flags['skip-permissions']
+      let batchCreatePr = flags['create-pr']
+      let batchNoPr = flags['no-pr']
+
+      if (!flags['per-ticket']) {
+        this.log(styles.header('Batch Settings (applies to all tickets)'))
+        this.log('')
+
+        // Prompt for output mode if not provided
+        if (!batchOutput) {
+          const { selectedOutput } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'selectedOutput',
+              message: 'How should Claude display output?',
+              choices: [
+                { name: 'interactive  - Watch Claude work in real-time', value: 'interactive' },
+                { name: 'print        - Show final result only', value: 'print' },
+              ],
+              default: 'interactive',
+            },
+          ])
+          batchOutput = selectedOutput
+        }
+
+        // Prompt for permissions mode if not provided
+        if (!batchSkipPermissions) {
+          const { permissionMode } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'permissionMode',
+              message: 'Permission mode for Claude Code:',
+              choices: [
+                { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+                { name: '⚠️  danger - Skip permission checks', value: 'danger' },
+              ],
+              default: 'safe',
+            },
+          ])
+          batchSkipPermissions = permissionMode === 'danger'
+        }
+
+        // Prompt for PR creation if not provided
+        if (!batchCreatePr && !batchNoPr) {
+          const { prChoice } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'prChoice',
+              message: 'Create pull requests when work is ready?',
+              choices: [
+                { name: '✓ Yes - Create PR for each ticket', value: 'yes' },
+                { name: '✗ No  - Just move tickets to review', value: 'no' },
+              ],
+              default: 'yes',
+            },
+          ])
+          batchCreatePr = prChoice === 'yes'
+          batchNoPr = prChoice === 'no'
+        }
+
+        this.log('')
+      }
+
       // Spawn each ticket
       let successCount = 0
       let failCount = 0
@@ -274,14 +360,28 @@ export default class WorkSpawn extends Command {
           // First assign the ticket to the agent
           await storage.updateTicket(ticket.id, { assignee: agent.name })
 
-          // Use the work:start command for each ticket
-          await this.config.runCommand('work:start', [
-            ticket.id,
-            '--mode', flags.mode,
-            ...(flags.executor ? ['--executor', flags.executor] : []),
-            ...(flags['run-on-host'] ? ['--run-on-host'] : []),
-            ...(flags.force ? ['--force'] : []),
-          ])
+          // Build args for work:start
+          const startArgs: string[] = [ticket.id]
+
+          if (flags['per-ticket']) {
+            // Per-ticket mode: only pass mode flag, let start prompt for the rest
+            startArgs.push('--mode', flags.mode)
+            if (flags.executor) startArgs.push('--executor', flags.executor)
+            if (flags['run-on-host']) startArgs.push('--run-on-host')
+            if (flags.force) startArgs.push('--force')
+          } else {
+            // Batch mode: pass all settings to skip prompts
+            startArgs.push('--mode', flags.mode)
+            if (flags.executor) startArgs.push('--executor', flags.executor)
+            if (flags['run-on-host']) startArgs.push('--run-on-host')
+            if (flags.force) startArgs.push('--force')
+            if (batchOutput) startArgs.push('--output', batchOutput)
+            if (batchSkipPermissions) startArgs.push('--skip-permissions')
+            if (batchCreatePr) startArgs.push('--create-pr')
+            if (batchNoPr) startArgs.push('--no-pr')
+          }
+
+          await this.config.runCommand('work:start', startArgs)
 
           successCount++
         } catch (error) {

@@ -91,6 +91,23 @@ export default class WorkStart extends Command {
       description: 'Re-prompt for terminal app preference',
       default: false,
     }),
+    'skip-permissions': Flags.boolean({
+      description: 'Skip permission prompts (danger mode)',
+      default: false,
+    }),
+    'create-pr': Flags.boolean({
+      description: 'Create PR when work is ready',
+      default: false,
+    }),
+    'no-pr': Flags.boolean({
+      description: 'Do not create PR when work is ready',
+      default: false,
+    }),
+    output: Flags.string({
+      char: 'o',
+      description: 'Output mode',
+      options: ['interactive', 'print'],
+    }),
   }
 
   async run(): Promise<void> {
@@ -567,7 +584,10 @@ export default class WorkStart extends Command {
       const streamingDisplayModes: DisplayMode[] = ['terminal', 'tmux', 'foreground']
       const currentDisplayMode = mode === 'devcontainer' ? displayMode : mode as DisplayMode
 
-      if (streamingDisplayModes.includes(currentDisplayMode)) {
+      if (flags.output) {
+        // Use flag value
+        outputMode = flags.output as OutputMode
+      } else if (streamingDisplayModes.includes(currentDisplayMode)) {
         const { selectedOutputMode } = await inquirer.prompt([
           {
             type: 'list',
@@ -584,28 +604,38 @@ export default class WorkStart extends Command {
       }
 
       // Prompt for permissions mode (all environments)
-      const containerNote = (environment === 'devcontainer' || environment === 'docker')
-        ? ' (container provides additional isolation)'
-        : ''
-      const { permissionMode } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'permissionMode',
-          message: `Permission mode for Claude Code${containerNote}:`,
-          choices: [
-            { name: '🔒 safe   - Requires approval for dangerous operations (recommended)', value: 'safe' },
-            { name: '⚠️  danger - Skip permission checks (--dangerously-skip-permissions)', value: 'danger' },
-          ],
-          default: 'safe',
-        },
-      ])
-      sandboxed = permissionMode === 'safe'
+      // Skip prompt if --skip-permissions flag is set
+      if (flags['skip-permissions']) {
+        sandboxed = false
+      } else {
+        const containerNote = (environment === 'devcontainer' || environment === 'docker')
+          ? ' (container provides additional isolation)'
+          : ''
+        const { permissionMode } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'permissionMode',
+            message: `Permission mode for Claude Code${containerNote}:`,
+            choices: [
+              { name: '🔒 safe   - Requires approval for dangerous operations (recommended)', value: 'safe' },
+              { name: '⚠️  danger - Skip permission checks (--dangerously-skip-permissions)', value: 'danger' },
+            ],
+            default: 'safe',
+          },
+        ])
+        sandboxed = permissionMode === 'safe'
+      }
 
       // Prompt for PR creation when work is complete
       // Only show if gh CLI is available and authenticated
       let createPR = false
       const ghAvailable = isGHInstalled() && isGHAuthenticated()
-      if (ghAvailable) {
+      // Use flags if provided, otherwise prompt
+      if (flags['create-pr']) {
+        createPR = true
+      } else if (flags['no-pr']) {
+        createPR = false
+      } else if (ghAvailable) {
         const { prChoice } = await inquirer.prompt([
           {
             type: 'list',
