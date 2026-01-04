@@ -69,7 +69,7 @@ Tickets are the fundamental unit of work in the PMO system. They represent indiv
 | description | string | | "" | Structured markdown (see format below) |
 | priority | enum | | MEDIUM | URGENT, HIGH, MEDIUM, LOW |
 | category | string | | "feature" | feature, bug, infra, docs |
-| status | enum | | backlog | Linear-style: backlog, planned, in_progress, done, canceled |
+| status_id | ref | | default | Reference to Status from project's workflow config (see [Workflow](workflow.md)) |
 | owner | string | | null | Human accountable |
 | assignee | string | | null | Agent/human doing work (e.g., "agent:dorsey") |
 | spec_id | ref | | null | Link to defining spec |
@@ -189,18 +189,22 @@ Add user auth with OAuth, session management, and admin panel.
 - **Cascade delete**: Deleting ticket removes subtasks, metadata, dependencies, paths, and criteria
 - **Owner vs Assignee**: Owner is accountable (human), Assignee does the work (agent or human)
 
-### Status Lifecycle (Linear-style)
-- **backlog**: Not yet scheduled, waiting to be prioritized
-- **planned**: Scheduled for work but not yet started
-- **in_progress**: Actively being worked on by an agent or human
-- **done**: Completed successfully
-- **canceled**: Won't be done (intentionally spelled with one 'l' to match Linear)
+### Status Lifecycle
 
-Status transitions:
-- Backlog → Planned (when scheduled/assigned)
-- Planned → In Progress (when `prlt work start` is run)
-- In Progress → Done (when `prlt work ready` is run)
-- Any → Canceled (when ticket is abandoned)
+Ticket status is determined by the project's workflow configuration. See [Workflow](workflow.md) for full details.
+
+Status belongs to one of five fixed categories:
+- **backlog**: Not yet scheduled
+- **unstarted**: Scheduled but not started
+- **started**: Actively being worked on
+- **completed**: Finished successfully
+- **canceled**: Won't be done
+
+Typical transitions (actual statuses depend on project's configuration):
+- Backlog status → Unstarted status (when scheduled/assigned)
+- Unstarted status → Started status (when `prlt work start` is run)
+- Started status → Completed status (when `prlt work ready` is run)
+- Any → Canceled status (when ticket is abandoned)
 
 ### Dependency Rules
 - **No self-dependency**: A ticket cannot depend on itself
@@ -215,6 +219,8 @@ Status transitions:
 
 ## Related Domains
 
-- [Epics](epics.md) - Tickets belong to epics
+- [Workflow](workflow.md) - Status configuration and state categories
+- [Projects](projects.md) - Tickets belong to projects
+- [Epics](epics.md) - Tickets can belong to epics (deprecated - use Projects)
 - [Agents](agents.md) - Tickets can be assigned to agents
 - [Board](board.md) - Tickets displayed on kanban board

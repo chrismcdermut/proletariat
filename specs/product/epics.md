@@ -1,9 +1,12 @@
 ---
 title: Epics
 domain: epics
+status: deprecated
 ---
 
 # Epics
+
+> **DEPRECATED**: Epics are being phased out. [Projects](projects.md) now serve as the primary grouping mechanism for tickets, similar to Linear's model. This spec is retained for backward compatibility but should not be used for new development.
 
 ## Overview
 
