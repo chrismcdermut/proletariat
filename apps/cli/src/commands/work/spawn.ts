@@ -14,7 +14,8 @@ export default class WorkSpawn extends Command {
   static examples = [
     '<%= config.bin %> <%= command.id %> --column Backlog',
     '<%= config.bin %> <%= command.id %> --column "Ready for Dev"',
-    '<%= config.bin %> <%= command.id %> --column Backlog --mode background',
+    '<%= config.bin %> <%= command.id %> --column Backlog --strategy round-robin',
+    '<%= config.bin %> <%= command.id %> --column Backlog --dry-run',
     '<%= config.bin %> <%= command.id %>  # Interactive column selection',
   ]
 
@@ -22,6 +23,16 @@ export default class WorkSpawn extends Command {
     column: Flags.string({
       char: 'c',
       description: 'Column name to spawn tickets from',
+    }),
+    strategy: Flags.string({
+      char: 's',
+      description: 'Agent selection strategy',
+      options: ['round-robin', 'least-busy', 'random'],
+      default: 'round-robin',
+    }),
+    'dry-run': Flags.boolean({
+      description: 'Show what would be spawned without executing',
+      default: false,
     }),
     mode: Flags.string({
       char: 'm',
@@ -190,19 +201,67 @@ export default class WorkSpawn extends Command {
         }
       }
 
-      // Assign tickets to agents (round-robin)
+      // Assign tickets to agents based on strategy
       const assignments: Array<{ ticket: typeof ticketsToSpawn[0]; agent: typeof availableAgents[0] }> = []
+
+      // Track how many tickets each agent is assigned (for least-busy)
+      const agentLoad = new Map<string, number>()
+      for (const agent of availableAgents) {
+        const runningCount = executionStorage.getAgentRunningExecutions(agent.name).length
+        agentLoad.set(agent.name, runningCount)
+      }
+
       for (let i = 0; i < ticketsToSpawn.length; i++) {
-        const agent = availableAgents[i % availableAgents.length]
+        let agent: typeof availableAgents[0]
+
+        switch (flags.strategy) {
+          case 'least-busy': {
+            // Pick the agent with the fewest running executions
+            let minLoad = Infinity
+            let leastBusyAgent = availableAgents[0]
+            for (const a of availableAgents) {
+              const load = agentLoad.get(a.name) || 0
+              if (load < minLoad) {
+                minLoad = load
+                leastBusyAgent = a
+              }
+            }
+            agent = leastBusyAgent
+            // Increment load for next iteration
+            agentLoad.set(agent.name, (agentLoad.get(agent.name) || 0) + 1)
+            break
+          }
+          case 'random': {
+            // Pick a random agent
+            agent = availableAgents[Math.floor(Math.random() * availableAgents.length)]
+            break
+          }
+          case 'round-robin':
+          default: {
+            // Distribute evenly across agents
+            agent = availableAgents[i % availableAgents.length]
+            break
+          }
+        }
+
         assignments.push({ ticket: ticketsToSpawn[i], agent })
       }
 
       // Show assignment plan
+      this.log(styles.muted(`Strategy: ${flags.strategy}`))
       this.log(styles.muted('Assignment plan:'))
       for (const { ticket, agent } of assignments) {
         this.log(styles.muted(`  ${ticket.id} → ${agent.name}`))
       }
       this.log('')
+
+      // Dry run - just show what would happen
+      if (flags['dry-run']) {
+        await storage.close()
+        db.close()
+        this.log(styles.success(`✓ Dry run complete: would spawn ${assignments.length} tickets`))
+        return
+      }
 
       // Spawn each ticket
       let successCount = 0

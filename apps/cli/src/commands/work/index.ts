@@ -28,6 +28,7 @@ export default class Work extends Command {
         new inquirer.Separator('── Execution ──'),
         { name: 'Start work (launch single agent)', value: 'start' },
         { name: 'Spawn work (batch by column)', value: 'spawn' },
+        { name: 'Watch column (auto-spawn)', value: 'watch' },
         { name: 'Mark work ready for review', value: 'ready' },
         { name: 'Mark work complete', value: 'complete' },
         new inquirer.Separator('──────────────'),
@@ -55,6 +56,9 @@ export default class Work extends Command {
         break;
       case 'spawn':
         await this.config.runCommand('work:spawn', []);
+        break;
+      case 'watch':
+        await this.config.runCommand('work:watch', []);
         break;
       case 'ready':
         await this.config.runCommand('work:ready', []);
