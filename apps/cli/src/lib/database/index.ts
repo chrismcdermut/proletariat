@@ -23,7 +23,23 @@ export interface Repository {
 
 export interface Agent {
   name: string;
+  theme_id: string | null;
   created_at: string;
+}
+
+export interface AgentTheme {
+  id: string;
+  name: string;
+  display_name: string;
+  description: string | null;
+  builtin: boolean;
+  created_at: string;
+}
+
+export interface AgentThemeName {
+  theme_id: string;
+  name: string;
+  used: boolean;
 }
 
 export interface AgentWorktree {
@@ -58,10 +74,31 @@ CREATE TABLE IF NOT EXISTS repositories (
   added_at TEXT NOT NULL
 );
 
+-- Agent naming themes (optional)
+CREATE TABLE IF NOT EXISTS agent_themes (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  description TEXT,
+  builtin BOOLEAN DEFAULT FALSE,
+  created_at TEXT NOT NULL
+);
+
+-- Names available within each theme
+CREATE TABLE IF NOT EXISTS agent_theme_names (
+  theme_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  used BOOLEAN DEFAULT FALSE,
+  PRIMARY KEY (theme_id, name),
+  FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE CASCADE
+);
+
 -- Agent instances in workspace
 CREATE TABLE IF NOT EXISTS agents (
   name TEXT PRIMARY KEY,
-  created_at TEXT NOT NULL
+  theme_id TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
 );
 
 -- Agent-owned worktrees
@@ -88,7 +125,25 @@ CREATE TABLE IF NOT EXISTS workspace_settings (
 
 CREATE INDEX IF NOT EXISTS idx_worktrees_agent ON agent_worktrees(agent_name);
 CREATE INDEX IF NOT EXISTS idx_worktrees_repo ON agent_worktrees(repo_name);
+CREATE INDEX IF NOT EXISTS idx_theme_names_theme ON agent_theme_names(theme_id);
+CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
 `;
+
+/**
+ * Migrate existing database to add theme support
+ */
+function migrateToThemeSupport(db: Database.Database): void {
+  // Check if theme_id column exists in agents table
+  const columns = db.pragma('table_info(agents)') as Array<{ name: string }>;
+  const hasThemeId = columns.some(c => c.name === 'theme_id');
+
+  if (!hasThemeId) {
+    // Add theme_id column to existing agents table
+    db.exec('ALTER TABLE agents ADD COLUMN theme_id TEXT REFERENCES agent_themes(id) ON DELETE SET NULL');
+  }
+
+  // Create theme tables if they don't exist (handled by CREATE_TABLES_SQL)
+}
 
 /**
  * Get the database path for a workspace
@@ -109,12 +164,39 @@ export function getConfigPath(workspacePath: string): string {
  */
 export function openWorkspaceDatabase(workspacePath: string): Database.Database {
   const dbPath = getDatabasePath(workspacePath);
-  
+
   if (!fs.existsSync(dbPath)) {
     throw new Error(`Database not found: ${dbPath}. Run 'prlt init' first.`);
   }
-  
-  return new Database(dbPath);
+
+  const db = new Database(dbPath);
+  db.pragma('foreign_keys = ON');
+
+  // Run migrations for theme support
+  migrateToThemeSupport(db);
+
+  // Ensure theme tables exist (for older databases)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_themes (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      description TEXT,
+      builtin BOOLEAN DEFAULT FALSE,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS agent_theme_names (
+      theme_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      used BOOLEAN DEFAULT FALSE,
+      PRIMARY KEY (theme_id, name),
+      FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_theme_names_theme ON agent_theme_names(theme_id);
+    CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
+  `);
+
+  return db;
 }
 
 /**
@@ -208,12 +290,12 @@ export function addRepositoriesToDatabase(workspacePath: string, repos: { name: 
 /**
  * Add agents to database
  */
-export function addAgentsToDatabase(workspacePath: string, agentNames: string[]): void {
+export function addAgentsToDatabase(workspacePath: string, agentNames: string[], themeId?: string): void {
   const db = openWorkspaceDatabase(workspacePath);
 
   const insertAgent = db.prepare(`
-    INSERT OR REPLACE INTO agents (name, created_at)
-    VALUES (?, ?)
+    INSERT OR REPLACE INTO agents (name, theme_id, created_at)
+    VALUES (?, ?, ?)
   `);
 
   const insertWorktree = db.prepare(`
@@ -232,7 +314,7 @@ export function addAgentsToDatabase(workspacePath: string, agentNames: string[])
       const now = new Date().toISOString();
 
       // Add agent
-      insertAgent.run(agentName, now);
+      insertAgent.run(agentName, themeId || null, now);
 
       // Add worktrees for all repos
       for (const repo of repos) {
@@ -281,16 +363,149 @@ export function getWorkspaceRepositories(workspacePath: string): Repository[] {
  */
 export function removeAgentsFromDatabase(workspacePath: string, agentNames: string[]): void {
   const db = openWorkspaceDatabase(workspacePath);
-  
+
+  const getAgent = db.prepare('SELECT theme_id, name FROM agents WHERE name = ?');
   const deleteAgent = db.prepare('DELETE FROM agents WHERE name = ?');
+  const clearUsedFlag = db.prepare('UPDATE agent_theme_names SET used = 0 WHERE theme_id = ? AND name = ?');
   // Note: agent_worktrees will be deleted automatically due to CASCADE
-  
+
   const transaction = db.transaction(() => {
     for (const agentName of agentNames) {
+      // Clear used flag if agent came from a theme
+      const agent = getAgent.get(agentName) as { theme_id: string | null; name: string } | undefined;
+      if (agent?.theme_id) {
+        clearUsedFlag.run(agent.theme_id, agentName);
+      }
       deleteAgent.run(agentName);
     }
   });
-  
+
   transaction();
+  db.close();
+}
+
+// =============================================================================
+// Theme CRUD Operations
+// =============================================================================
+
+/**
+ * Get all themes
+ */
+export function getThemes(workspacePath: string): AgentTheme[] {
+  const db = openWorkspaceDatabase(workspacePath);
+  const themes = db.prepare('SELECT * FROM agent_themes ORDER BY builtin DESC, name').all() as AgentTheme[];
+  db.close();
+  return themes;
+}
+
+/**
+ * Get a theme by ID
+ */
+export function getTheme(workspacePath: string, themeId: string): AgentTheme | null {
+  const db = openWorkspaceDatabase(workspacePath);
+  const theme = db.prepare('SELECT * FROM agent_themes WHERE id = ?').get(themeId) as AgentTheme | undefined;
+  db.close();
+  return theme || null;
+}
+
+/**
+ * Create a new theme
+ */
+export function createTheme(
+  workspacePath: string,
+  theme: { id: string; name: string; displayName: string; description?: string; builtin?: boolean }
+): AgentTheme {
+  const db = openWorkspaceDatabase(workspacePath);
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO agent_themes (id, name, display_name, description, builtin, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(theme.id, theme.name, theme.displayName, theme.description || null, theme.builtin ? 1 : 0, now);
+
+  const created = db.prepare('SELECT * FROM agent_themes WHERE id = ?').get(theme.id) as AgentTheme;
+  db.close();
+  return created;
+}
+
+/**
+ * Delete a theme (cannot delete builtin themes)
+ */
+export function deleteTheme(workspacePath: string, themeId: string): boolean {
+  const db = openWorkspaceDatabase(workspacePath);
+
+  // Check if builtin
+  const theme = db.prepare('SELECT builtin FROM agent_themes WHERE id = ?').get(themeId) as { builtin: number } | undefined;
+  if (!theme) {
+    db.close();
+    return false;
+  }
+  if (theme.builtin) {
+    db.close();
+    throw new Error('Cannot delete built-in themes');
+  }
+
+  db.prepare('DELETE FROM agent_themes WHERE id = ?').run(themeId);
+  db.close();
+  return true;
+}
+
+/**
+ * Get names for a theme
+ */
+export function getThemeNames(workspacePath: string, themeId: string, includeUsed: boolean = true): AgentThemeName[] {
+  const db = openWorkspaceDatabase(workspacePath);
+  const query = includeUsed
+    ? 'SELECT * FROM agent_theme_names WHERE theme_id = ? ORDER BY name'
+    : 'SELECT * FROM agent_theme_names WHERE theme_id = ? AND used = 0 ORDER BY name';
+  const names = db.prepare(query).all(themeId) as AgentThemeName[];
+  db.close();
+  return names;
+}
+
+/**
+ * Get available (unused) names for a theme
+ */
+export function getAvailableThemeNames(workspacePath: string, themeId: string): string[] {
+  const names = getThemeNames(workspacePath, themeId, false);
+  return names.map(n => n.name);
+}
+
+/**
+ * Add names to a theme
+ */
+export function addThemeNames(workspacePath: string, themeId: string, names: string[]): void {
+  const db = openWorkspaceDatabase(workspacePath);
+
+  const insertName = db.prepare(`
+    INSERT OR IGNORE INTO agent_theme_names (theme_id, name, used)
+    VALUES (?, ?, 0)
+  `);
+
+  const transaction = db.transaction(() => {
+    for (const name of names) {
+      insertName.run(themeId, name);
+    }
+  });
+
+  transaction();
+  db.close();
+}
+
+/**
+ * Mark a theme name as used
+ */
+export function markThemeNameUsed(workspacePath: string, themeId: string, name: string): void {
+  const db = openWorkspaceDatabase(workspacePath);
+  db.prepare('UPDATE agent_theme_names SET used = 1 WHERE theme_id = ? AND name = ?').run(themeId, name);
+  db.close();
+}
+
+/**
+ * Mark a theme name as available
+ */
+export function markThemeNameAvailable(workspacePath: string, themeId: string, name: string): void {
+  const db = openWorkspaceDatabase(workspacePath);
+  db.prepare('UPDATE agent_theme_names SET used = 0 WHERE theme_id = ? AND name = ?').run(themeId, name);
   db.close();
 }

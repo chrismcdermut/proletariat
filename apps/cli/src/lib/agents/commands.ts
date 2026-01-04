@@ -298,6 +298,7 @@ export function validateAgentNames(agentNames: string[]): { valid: string[]; inv
 
 export interface AddAgentOptions {
   skipDevcontainer?: boolean;  // Skip devcontainer creation (default: false)
+  themeId?: string;            // Theme ID if agent came from a theme
 }
 
 /**
@@ -322,8 +323,8 @@ export async function addAgentsToWorkspace(workspaceInfo: WorkspaceInfo, agentNa
     await createAgentWorktrees(workspaceInfo.agentsPath, newAgents, undefined, options);
   }
 
-  // Add to database
-  addAgentsToDatabase(workspaceInfo.path, newAgents);
+  // Add to database (with optional theme ID)
+  addAgentsToDatabase(workspaceInfo.path, newAgents, options?.themeId);
 
   return newAgents;
 }
