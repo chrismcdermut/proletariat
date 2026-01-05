@@ -348,10 +348,18 @@ export default class WorkStart extends Command {
       }
 
       // Get spec info if linked
-      let specPath: string | undefined
+      let specId: string | undefined
+      let specTitle: string | undefined
+      let specProblem: string | undefined
+      let specSolution: string | undefined
       if (ticket.specId) {
         const spec = await storage.getSpec(ticket.specId)
-        specPath = spec?.path
+        if (spec) {
+          specId = spec.id
+          specTitle = spec.title
+          specProblem = spec.problem
+          specSolution = spec.solution
+        }
       }
 
       // Determine action for this work session
@@ -438,7 +446,10 @@ export default class WorkStart extends Command {
         ticketPriority: ticket.priority,
         ticketCategory: ticket.category,
         epicTitle,
-        specPath,
+        specId,
+        specTitle,
+        specProblem,
+        specSolution,
         agentName: assignedAgent,
         agentDir,         // Agent directory (contains .devcontainer)
         worktreePath,     // Worktree path (may be subdirectory of agentDir)
