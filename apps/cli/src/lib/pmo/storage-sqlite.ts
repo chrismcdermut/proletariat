@@ -118,8 +118,22 @@ export class SQLiteStorage implements PMOStorage {
   /**
    * Run schema migrations for existing databases.
    * Each migration checks if the column exists before adding it.
+   * Skips if tables don't exist yet (fresh database).
    */
   private runMigrations(): void {
+    // Check if tables exist (skip migrations for fresh databases)
+    const tableExists = (name: string): boolean => {
+      const result = this.db.prepare(`
+        SELECT name FROM sqlite_master WHERE type='table' AND name=?
+      `).get(name) as { name: string } | undefined
+      return !!result
+    }
+
+    // Skip if core tables don't exist yet
+    if (!tableExists(T.tickets) || !tableExists(T.specs) || !tableExists(T.projects)) {
+      return
+    }
+
     // Migration: Update specs table to new simplified schema
     const specsColumns = this.db.pragma(`table_info(${T.specs})`) as Array<{ name: string }>
     const specsColumnNames = specsColumns.map(c => c.name)
@@ -211,6 +225,63 @@ export class SQLiteStorage implements PMOStorage {
     this.db.exec(`UPDATE ${T.tickets} SET status = 'planned' WHERE status = 'blocked'`)
     this.db.exec(`UPDATE ${T.tickets} SET status = 'in_progress' WHERE status = 'review'`)
     this.db.exec(`UPDATE ${T.tickets} SET status = 'canceled' WHERE status = 'cancelled'`)
+
+    // Migration: Add branch column to tickets table
+    if (!ticketsColumnNames.includes('branch')) {
+      try {
+        this.db.exec(`ALTER TABLE ${T.tickets} ADD COLUMN branch TEXT`)
+      } catch {
+        // Column may already exist
+      }
+    }
+
+    // Migration: Populate status_id for tickets based on status string
+    // This maps the legacy status enum to the new WorkflowStatus foreign key
+    this.migrateTicketStatusToStatusId()
+  }
+
+  /**
+   * Migrate ticket.status (string enum) to ticket.status_id (foreign key).
+   * Maps each ticket's status to a WorkflowStatus in the same project/category.
+   */
+  private migrateTicketStatusToStatusId(): void {
+    // Map old status values to StateCategory
+    const statusToCategory: Record<string, StateCategory> = {
+      'backlog': 'backlog',
+      'planned': 'unstarted',
+      'in_progress': 'started',
+      'done': 'completed',
+      'canceled': 'canceled',
+    }
+
+    // Find tickets with null status_id
+    const ticketsToMigrate = this.db.prepare(`
+      SELECT id, project_id, status FROM ${T.tickets}
+      WHERE status_id IS NULL
+    `).all() as Array<{ id: string; project_id: string; status: string }>
+
+    if (ticketsToMigrate.length === 0) return
+
+    const updateStmt = this.db.prepare(`
+      UPDATE ${T.tickets} SET status_id = ? WHERE id = ?
+    `)
+
+    for (const ticket of ticketsToMigrate) {
+      const category = statusToCategory[ticket.status]
+      if (!category) continue
+
+      // Find the first status in this project matching the category
+      const matchingStatus = this.db.prepare(`
+        SELECT id FROM ${T.statuses}
+        WHERE project_id = ? AND category = ?
+        ORDER BY position ASC
+        LIMIT 1
+      `).get(ticket.project_id, category) as { id: string } | undefined
+
+      if (matchingStatus) {
+        updateStmt.run(matchingStatus.id, ticket.id)
+      }
+    }
   }
 
   /**
@@ -950,20 +1021,50 @@ Output a review summary with your findings and any concerns.`,
     // Get spec_id (changed from specs array to single specId)
     const specId = ticket.specId || (ticket.specs && ticket.specs.length > 0 ? ticket.specs[0] : null)
 
+    // Determine status and status_id
+    const status = ticket.status || 'backlog'
+    let statusId = ticket.statusId || null
+
+    // If no statusId provided, try to find matching status in project
+    if (!statusId) {
+      // Map status string to category
+      const statusToCategory: Record<string, StateCategory> = {
+        'backlog': 'backlog',
+        'planned': 'unstarted',
+        'in_progress': 'started',
+        'done': 'completed',
+        'canceled': 'canceled',
+      }
+      const category = statusToCategory[status]
+      if (category) {
+        // Find default status or first status in category
+        const matchingStatus = this.db.prepare(`
+          SELECT id FROM ${T.statuses}
+          WHERE project_id = ? AND category = ?
+          ORDER BY is_default DESC, position ASC
+          LIMIT 1
+        `).get(projectId, category) as { id: string } | undefined
+        if (matchingStatus) {
+          statusId = matchingStatus.id
+        }
+      }
+    }
+
     // Insert into tickets table (pure ticket data)
     this.db.prepare(`
       INSERT INTO ${T.tickets} (
         id, project_id, title, description, priority, category,
-        status, owner, assignee, spec_id, epic_id,
+        status, status_id, owner, assignee, spec_id, epic_id,
         created_at, updated_at, last_synced_from_spec, last_synced_from_board
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, projectId, title,
       ticket.description || null,
       ticket.priority || null,
       ticket.category || null,
-      ticket.status || 'backlog',
+      status,
+      statusId,
       ticket.owner || null,
       ticket.assignee || null,
       specId,
@@ -1038,6 +1139,10 @@ Output a review summary with your findings and any concerns.`,
     if (changes.status !== undefined) {
       updates.push('status = ?')
       params.push(changes.status)
+    }
+    if (changes.statusId !== undefined) {
+      updates.push('status_id = ?')
+      params.push(changes.statusId)
     }
     if (changes.owner !== undefined) {
       updates.push('owner = ?')
@@ -1287,6 +1392,7 @@ Output a review summary with your findings and any concerns.`,
       priority: string | null
       category: string | null
       status: string
+      status_id: string | null
       owner: string | null
       assignee: string | null
       branch: string | null
@@ -3604,6 +3710,7 @@ Output a review summary with your findings and any concerns.`,
       priority: string | null
       category: string | null
       status: string
+      status_id: string | null
       owner: string | null
       assignee: string | null
       branch: string | null
@@ -3638,6 +3745,7 @@ Output a review summary with your findings and any concerns.`,
           priority: string | null
           category: string | null
           status: string
+          status_id: string | null
           owner: string | null
           assignee: string | null
           branch: string | null
@@ -3665,6 +3773,7 @@ Output a review summary with your findings and any concerns.`,
     priority: string | null
     category: string | null
     status: string
+    status_id: string | null
     owner: string | null
     assignee: string | null
     branch: string | null
@@ -3714,6 +3823,7 @@ Output a review summary with your findings and any concerns.`,
       priority: row.priority || undefined,
       category: row.category || undefined,
       status: row.status as Ticket['status'],
+      statusId: row.status_id || undefined,
       owner: row.owner || undefined,
       assignee: row.assignee || undefined,
       branch: row.branch || undefined,
