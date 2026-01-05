@@ -24,6 +24,9 @@ describe('PMO SQLite Storage', () => {
       name: 'Test Board',
       columns: ['Backlog', 'In Progress', 'Done'],
     });
+
+    // Apply default workflow template (required for ticket creation)
+    await storage.applyTemplate('default', 'kanban');
   });
 
   afterEach(async () => {
@@ -277,7 +280,6 @@ describe('PMO SQLite Storage', () => {
     it('creates a spec', async () => {
       const spec = await storage.createSpec({
         id: 'auth-spec',
-        path: 'specs/auth.md',
         title: 'Authentication Spec',
       });
 
@@ -288,7 +290,6 @@ describe('PMO SQLite Storage', () => {
     it('retrieves a spec', async () => {
       await storage.createSpec({
         id: 'auth-spec',
-        path: 'specs/auth.md',
         title: 'Authentication Spec',
       });
 
@@ -298,8 +299,8 @@ describe('PMO SQLite Storage', () => {
     });
 
     it('lists specs', async () => {
-      await storage.createSpec({ id: 'spec-1', path: 'specs/1.md', title: 'Spec 1' });
-      await storage.createSpec({ id: 'spec-2', path: 'specs/2.md', title: 'Spec 2' });
+      await storage.createSpec({ id: 'spec-1', title: 'Spec 1' });
+      await storage.createSpec({ id: 'spec-2', title: 'Spec 2' });
 
       const specs = await storage.listSpecs();
       expect(specs).to.have.length(2);
@@ -307,7 +308,7 @@ describe('PMO SQLite Storage', () => {
 
     it('links spec to ticket', async () => {
       const ticket = await storage.createTicket({ title: 'My ticket', column: 'Backlog' });
-      await storage.createSpec({ id: 'spec-1', path: 'specs/1.md', title: 'Spec 1' });
+      await storage.createSpec({ id: 'spec-1', title: 'Spec 1' });
 
       await storage.linkTicketToSpec(ticket.id, 'spec-1');
 
@@ -319,7 +320,7 @@ describe('PMO SQLite Storage', () => {
     it('gets tickets for a spec', async () => {
       const ticket1 = await storage.createTicket({ title: 'Ticket 1', column: 'Backlog' });
       const ticket2 = await storage.createTicket({ title: 'Ticket 2', column: 'Backlog' });
-      await storage.createSpec({ id: 'spec-1', path: 'specs/1.md', title: 'Spec 1' });
+      await storage.createSpec({ id: 'spec-1', title: 'Spec 1' });
 
       await storage.linkTicketToSpec(ticket1.id, 'spec-1');
       await storage.linkTicketToSpec(ticket2.id, 'spec-1');
@@ -364,6 +365,7 @@ describe('PMO SQLite Storage', () => {
                 id: 'ticket-1',
                 title: 'Imported ticket',
                 status: 'backlog' as const,
+                statusId: 'status-backlog',
                 column: 'Backlog',
                 position: 0,
                 priority: 'HIGH',

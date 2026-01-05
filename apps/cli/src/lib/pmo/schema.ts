@@ -28,6 +28,12 @@ export const PMO_TABLES = {
   cache_metadata: 'pmo_cache_metadata',
   settings: 'pmo_settings',
   agent_work: 'agent_work',
+  // Workflow tables
+  statuses: 'pmo_statuses',
+  templates: 'pmo_templates',
+  phases: 'pmo_phases',  // Project lifecycle phases (workspace-scoped)
+  phase_templates: 'pmo_phase_templates',  // Phase configuration templates
+  actions: 'pmo_actions',  // Work actions (reusable agent prompts)
 } as const;
 
 // =============================================================================
@@ -41,9 +47,14 @@ export const PMO_TABLE_SCHEMAS = {
       name TEXT NOT NULL,
       template TEXT,
       description TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      phase_id TEXT,
+      is_archived INTEGER NOT NULL DEFAULT 0,
+      target_date TIMESTAMP,
       initiative_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (phase_id) REFERENCES ${PMO_TABLES.phases}(id) ON DELETE SET NULL
     )`,
 
   initiatives: `
@@ -75,8 +86,10 @@ export const PMO_TABLE_SCHEMAS = {
       priority TEXT,
       category TEXT,
       status TEXT NOT NULL DEFAULT 'backlog',
+      status_id TEXT,
       owner TEXT,
       assignee TEXT,
+      branch TEXT,
       spec_id TEXT,
       epic_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -85,7 +98,8 @@ export const PMO_TABLE_SCHEMAS = {
       last_synced_from_board TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES ${PMO_TABLES.projects}(id) ON DELETE CASCADE,
       FOREIGN KEY (spec_id) REFERENCES ${PMO_TABLES.specs}(id) ON DELETE SET NULL,
-      FOREIGN KEY (epic_id) REFERENCES ${PMO_TABLES.epics}(id) ON DELETE SET NULL
+      FOREIGN KEY (epic_id) REFERENCES ${PMO_TABLES.epics}(id) ON DELETE SET NULL,
+      FOREIGN KEY (status_id) REFERENCES ${PMO_TABLES.statuses}(id) ON DELETE SET NULL
     )`,
 
   board_tickets: `
@@ -248,6 +262,71 @@ export const PMO_TABLE_SCHEMAS = {
       exit_code INTEGER,
       FOREIGN KEY (ticket_id) REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE
     )`,
+
+  // Workflow status per project (two-tier: category -> status)
+  statuses: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.statuses} (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      color TEXT,
+      description TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES ${PMO_TABLES.projects}(id) ON DELETE CASCADE,
+      UNIQUE(project_id, name)
+    )`,
+
+  // Workflow templates (preset status configurations)
+  templates: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.templates} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      statuses TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+  // Project lifecycle phases (workspace-scoped, not per-project)
+  phases: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.phases} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      category TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      color TEXT,
+      description TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+  // Phase templates (preset phase configurations)
+  phase_templates: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.phase_templates} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      phases TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+  actions: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.actions} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      prompt TEXT NOT NULL,
+      suggested_for_categories TEXT,
+      default_move_to_category TEXT,
+      modifies_code INTEGER NOT NULL DEFAULT 1,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
 } as const;
 
 // =============================================================================
@@ -281,6 +360,15 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_deps_blocked_by ON ${PMO_TABLES.ticket_dependencies}(blocked_by_ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_paths_ticket ON ${PMO_TABLES.ticket_affected_paths}(ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_criteria_ticket ON ${PMO_TABLES.ticket_acceptance_criteria}(ticket_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_id ON ${PMO_TABLES.tickets}(status_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_statuses_project ON ${PMO_TABLES.statuses}(project_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_statuses_category ON ${PMO_TABLES.statuses}(project_id, category);
+  CREATE INDEX IF NOT EXISTS idx_pmo_statuses_position ON ${PMO_TABLES.statuses}(project_id, category, position);
+  CREATE INDEX IF NOT EXISTS idx_pmo_projects_status ON ${PMO_TABLES.projects}(status);
+  CREATE INDEX IF NOT EXISTS idx_pmo_projects_phase ON ${PMO_TABLES.projects}(phase_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_projects_archived ON ${PMO_TABLES.projects}(is_archived);
+  CREATE INDEX IF NOT EXISTS idx_pmo_phases_category ON ${PMO_TABLES.phases}(category);
+  CREATE INDEX IF NOT EXISTS idx_pmo_phases_position ON ${PMO_TABLES.phases}(category, position);
 `;
 
 // =============================================================================
@@ -292,9 +380,13 @@ export const PMO_INDEXES = `
  * Order matters due to foreign key dependencies.
  */
 export const PMO_SCHEMA_SQL = [
+  PMO_TABLE_SCHEMAS.phases,  // Project phases (before projects for FK)
+  PMO_TABLE_SCHEMAS.phase_templates,  // Phase templates (for preset phase configurations)
   PMO_TABLE_SCHEMAS.projects,
   PMO_TABLE_SCHEMAS.initiatives,
   PMO_TABLE_SCHEMAS.columns,
+  PMO_TABLE_SCHEMAS.templates,  // Workflow templates (before statuses for seeding)
+  PMO_TABLE_SCHEMAS.statuses,  // Workflow statuses per project
   PMO_TABLE_SCHEMAS.specs,  // Must be before tickets (FK reference)
   PMO_TABLE_SCHEMAS.spec_dependencies,  // Spec dependency graph
   PMO_TABLE_SCHEMAS.epics,  // Must be before tickets (FK reference)
@@ -310,6 +402,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.cache_metadata,
   PMO_TABLE_SCHEMAS.settings,
   PMO_TABLE_SCHEMAS.agent_work,  // Execution tracking
+  PMO_TABLE_SCHEMAS.actions,  // Work actions (reusable agent prompts)
   PMO_INDEXES,
 ].join(';\n');
 
@@ -325,8 +418,10 @@ export const EXPECTED_TICKET_COLUMNS = [
   'priority',
   'category',
   'status',
+  'status_id',
   'owner',
   'assignee',
+  'branch',
   'spec_id',
   'epic_id',
   'created_at',

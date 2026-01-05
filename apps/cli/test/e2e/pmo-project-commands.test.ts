@@ -112,15 +112,15 @@ describe('PMO Project Commands E2E Tests', () => {
       expect(content).to.contain('Done');
     });
 
-    it('should use scrum template when specified', () => {
-      exec('project create --name "Scrum Project" --template scrum');
+    it('should use linear template when specified', () => {
+      exec('project create --name "Linear Project" --template linear');
 
-      const boardPath = path.join(testDir, 'pmo/projects/scrum-project/kanban.md');
+      const boardPath = path.join(testDir, 'pmo/projects/linear-project/kanban.md');
       const content = fs.readFileSync(boardPath, 'utf-8');
 
-      // Scrum template has additional columns
+      // Linear template has Canceled column (unlike kanban)
       expect(content).to.contain('Backlog');
-      expect(content).to.contain('In Review');
+      expect(content).to.contain('Canceled');
     });
 
     it('should error when project already exists', () => {
@@ -335,6 +335,128 @@ describe('PMO Project Commands E2E Tests', () => {
       expect(output).to.contain('Delete Test Project');
     });
   });
+
+  describe('prlt project archive', () => {
+    beforeEach(() => {
+      createTestProject(db, 'archive-project', 'Archive Test Project');
+      createTestColumns(db, 'archive-project');
+    });
+
+    it('should archive a project', () => {
+      exec('project archive archive-project --force');
+
+      const project = db.prepare('SELECT is_archived FROM pmo_projects WHERE id = ?').get('archive-project') as { is_archived: number };
+      expect(project.is_archived).to.equal(1);
+    });
+
+    it('should show success message', () => {
+      const output = exec('project archive archive-project --force');
+
+      expect(output).to.contain('Archived project');
+      expect(output).to.contain('Archive Test Project');
+    });
+
+    it('should not archive already archived project', () => {
+      exec('project archive archive-project --force');
+      const output = exec('project archive archive-project --force');
+
+      expect(output.toLowerCase()).to.contain('already archived');
+    });
+
+    it('should error for non-existent project', () => {
+      const output = exec('project archive non-existent --force');
+
+      expect(output.toLowerCase()).to.contain('not found');
+    });
+  });
+
+  describe('prlt project unarchive', () => {
+    beforeEach(() => {
+      createTestProject(db, 'unarchive-project', 'Unarchive Test Project');
+      createTestColumns(db, 'unarchive-project');
+      // Archive the project
+      db.prepare('UPDATE pmo_projects SET is_archived = 1 WHERE id = ?').run('unarchive-project');
+    });
+
+    it('should unarchive a project', () => {
+      exec('project unarchive unarchive-project');
+
+      const project = db.prepare('SELECT is_archived FROM pmo_projects WHERE id = ?').get('unarchive-project') as { is_archived: number };
+      expect(project.is_archived).to.equal(0);
+    });
+
+    it('should show success message', () => {
+      const output = exec('project unarchive unarchive-project');
+
+      expect(output).to.contain('Unarchived project');
+      expect(output).to.contain('Unarchive Test Project');
+    });
+
+    it('should not unarchive non-archived project', () => {
+      db.prepare('UPDATE pmo_projects SET is_archived = 0 WHERE id = ?').run('unarchive-project');
+      const output = exec('project unarchive unarchive-project');
+
+      expect(output.toLowerCase()).to.contain('not archived');
+    });
+
+    it('should error for non-existent project', () => {
+      const output = exec('project unarchive non-existent');
+
+      expect(output.toLowerCase()).to.contain('not found');
+    });
+  });
+
+  describe('prlt project list --archived', () => {
+    beforeEach(() => {
+      createTestProject(db, 'active-proj', 'Active Project');
+      createTestProject(db, 'archived-proj', 'Archived Project');
+      // Archive one project
+      db.prepare('UPDATE pmo_projects SET is_archived = 1 WHERE id = ?').run('archived-proj');
+    });
+
+    it('should show only non-archived projects by default', () => {
+      const output = exec('project list');
+
+      expect(output).to.contain('Active Project');
+      expect(output).not.to.contain('Archived Project');
+    });
+
+    it('should show only archived projects with --archived flag', () => {
+      const output = exec('project list --archived');
+
+      expect(output).to.contain('Archived Project');
+      expect(output).not.to.contain('Active Project');
+    });
+
+    it('should show all projects with --all flag', () => {
+      const output = exec('project list --all');
+
+      expect(output).to.contain('Active Project');
+      expect(output).to.contain('Archived Project');
+    });
+
+    it('should indicate archived projects when showing all', () => {
+      const output = exec('project list --all');
+
+      expect(output).to.contain('archived');
+    });
+
+    it('should show hint about archived projects when viewing active', () => {
+      const output = exec('project list');
+
+      expect(output).to.contain('archived');
+      expect(output).to.contain('--archived');
+    });
+
+    it('should show empty message when no archived projects', () => {
+      // Unarchive all projects
+      db.prepare('UPDATE pmo_projects SET is_archived = 0').run();
+
+      const output = exec('project list --archived');
+
+      expect(output.toLowerCase()).to.contain('no archived projects');
+    });
+  });
 });
 
 // Helper functions
@@ -348,15 +470,32 @@ function setupTestDatabase(db: Database.Database) {
       value TEXT NOT NULL
     );
 
+    -- Phases table (project lifecycle states)
+    CREATE TABLE IF NOT EXISTS pmo_phases (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      category TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      color TEXT,
+      description TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Projects table
     CREATE TABLE IF NOT EXISTS pmo_projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       template TEXT,
       description TEXT,
+      status TEXT DEFAULT 'active',
+      phase_id TEXT,
+      is_archived INTEGER NOT NULL DEFAULT 0,
+      target_date TEXT,
       initiative_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (phase_id) REFERENCES pmo_phases(id) ON DELETE SET NULL
     );
 
     -- Initiatives table
@@ -377,6 +516,21 @@ function setupTestDatabase(db: Database.Database) {
       position INTEGER NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (project_id, id)
+    );
+
+    -- Statuses table (must be before tickets due to FK)
+    CREATE TABLE IF NOT EXISTS pmo_statuses (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      color TEXT,
+      description TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
+      UNIQUE(project_id, name)
     );
 
     -- Specs table (must be before tickets and epics due to FK)
@@ -449,6 +603,7 @@ function setupTestDatabase(db: Database.Database) {
       title TEXT NOT NULL,
       description TEXT,
       status TEXT NOT NULL DEFAULT 'active',
+      position INTEGER NOT NULL DEFAULT 0,
       file_path TEXT,
       spec_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -466,6 +621,8 @@ function setupTestDatabase(db: Database.Database) {
       priority TEXT,
       category TEXT,
       status TEXT NOT NULL DEFAULT 'backlog',
+      status_id TEXT,
+      branch TEXT,
       owner TEXT,
       assignee TEXT,
       spec_id TEXT,
@@ -476,7 +633,8 @@ function setupTestDatabase(db: Database.Database) {
       last_synced_from_board TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
       FOREIGN KEY (spec_id) REFERENCES pmo_specs(id) ON DELETE SET NULL,
-      FOREIGN KEY (epic_id) REFERENCES pmo_epics(id) ON DELETE SET NULL
+      FOREIGN KEY (epic_id) REFERENCES pmo_epics(id) ON DELETE SET NULL,
+      FOREIGN KEY (status_id) REFERENCES pmo_statuses(id)
     );
 
     -- Board tickets table
@@ -584,6 +742,16 @@ function setupTestDatabase(db: Database.Database) {
       FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE
     );
 
+    -- Workflow templates table
+    CREATE TABLE IF NOT EXISTS pmo_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      statuses TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_pmo_columns_project ON pmo_columns(project_id);
     CREATE INDEX IF NOT EXISTS idx_pmo_tickets_project ON pmo_tickets(project_id);
@@ -593,10 +761,26 @@ function setupTestDatabase(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_pmo_spec_abilities_spec ON pmo_spec_abilities(spec_id);
   `);
 
+  // Seed default phases
+  const defaultPhases = [
+    { id: 'idea', name: 'Idea', category: 'backlog', position: 0, description: 'Project concept', isDefault: 1 },
+    { id: 'planned', name: 'Planned', category: 'unstarted', position: 0, description: 'Scheduled for work' },
+    { id: 'active', name: 'Active', category: 'started', position: 0, description: 'Work in progress' },
+    { id: 'completed', name: 'Completed', category: 'completed', position: 0, description: 'Finished' },
+    { id: 'canceled', name: 'Canceled', category: 'canceled', position: 0, description: 'Won\'t be done' },
+  ];
+
+  for (const phase of defaultPhases) {
+    db.prepare(`
+      INSERT INTO pmo_phases (id, name, category, position, description, is_default)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(phase.id, phase.name, phase.category, phase.position, phase.description, phase.isDefault || 0);
+  }
+
   // Create default project
   db.prepare(`
-    INSERT INTO pmo_projects (id, name)
-    VALUES ('default', 'Default Project')
+    INSERT INTO pmo_projects (id, name, phase_id, is_archived)
+    VALUES ('default', 'Default Project', 'idea', 0)
   `).run();
 
   db.prepare(`INSERT INTO pmo_settings (key, value) VALUES ('pmo_path', 'pmo')`).run();
@@ -614,6 +798,22 @@ function setupTestDatabase(db: Database.Database) {
       INSERT INTO pmo_columns (id, project_id, name, position)
       VALUES (?, 'default', ?, ?)
     `).run(col.id, col.name, col.position);
+  }
+
+  // Seed default statuses
+  const statuses = [
+    { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
+    { id: 'status-todo', name: 'Todo', category: 'unstarted', position: 0 },
+    { id: 'status-in-progress', name: 'In Progress', category: 'started', position: 0 },
+    { id: 'status-done', name: 'Done', category: 'completed', position: 0 },
+    { id: 'status-canceled', name: 'Canceled', category: 'canceled', position: 0 },
+  ];
+
+  for (const status of statuses) {
+    db.prepare(`
+      INSERT INTO pmo_statuses (id, project_id, name, category, position, is_default)
+      VALUES (?, 'default', ?, ?, ?, ?)
+    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
   }
 
   // Create HQ config file (required for findPMO to work)
@@ -636,8 +836,8 @@ function setupTestDatabase(db: Database.Database) {
 
 function createTestProject(db: Database.Database, id: string, name: string, description?: string) {
   db.prepare(`
-    INSERT INTO pmo_projects (id, name, description)
-    VALUES (?, ?, ?)
+    INSERT INTO pmo_projects (id, name, description, is_archived)
+    VALUES (?, ?, ?, 0)
   `).run(id, name, description || null);
 }
 

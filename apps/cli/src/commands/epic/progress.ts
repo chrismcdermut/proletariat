@@ -106,7 +106,7 @@ export default class EpicProgress extends Command {
     // Group tickets by status/column
     const byStatus = new Map<string, Ticket[]>();
     for (const ticket of tickets) {
-      const key = ticket.column || ticket.status;
+      const key = ticket.column || ticket.statusName || 'Unknown';
       const list = byStatus.get(key) || [];
       list.push(ticket);
       byStatus.set(key, list);

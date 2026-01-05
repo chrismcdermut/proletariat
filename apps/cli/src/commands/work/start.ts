@@ -6,6 +6,7 @@ import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
+import { StateCategory, WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
@@ -54,6 +55,14 @@ export default class WorkStart extends Command {
       char: 'e',
       description: 'Override executor',
       options: ['claude-code', 'codex', 'aider', 'custom'],
+    }),
+    action: Flags.string({
+      char: 'A',
+      description: 'Action to perform (e.g., implement, groom, review)',
+    }),
+    prompt: Flags.string({
+      char: 'p',
+      description: 'Custom prompt (overrides action)',
     }),
     watch: Flags.boolean({
       char: 'w',
@@ -339,13 +348,14 @@ export default class WorkStart extends Command {
         worktreePath = process.cwd()
       }
 
-      // Generate branch name
-      const branch = generateBranchName(
+      // Use ticket's existing branch or generate a new one
+      const branch = ticket.branch || generateBranchName(
         ticket.id,
         ticket.title,
         assignedAgent,
         ticket.category
       )
+      const isExistingBranch = !!ticket.branch
 
       // Get epic info if linked
       let epicTitle: string | undefined
@@ -366,6 +376,79 @@ export default class WorkStart extends Command {
           specTitle = spec.title
           specProblem = spec.problem
           specSolution = spec.solution
+        }
+      }
+
+      // Determine action for this work session
+      let selectedAction: WorkAction | null = null
+      let customPrompt: string | undefined
+
+      if (flags.prompt) {
+        // Custom prompt overrides everything
+        customPrompt = flags.prompt
+      } else if (flags.action) {
+        // Specific action requested
+        selectedAction = await storage.getAction(flags.action)
+        if (!selectedAction) {
+          await storage.close()
+          db.close()
+          this.error(`Action not found: ${flags.action}. Use "prlt action list" to see available actions.`)
+        }
+      } else {
+        // Interactive action selection
+        // Get ticket's current status to determine suggested action
+        const ticketStatus = await storage.getStatus(ticket.statusId || '')
+        const currentCategory: StateCategory = ticketStatus?.category || 'unstarted'
+
+        // Get suggested action for this category
+        const suggestedAction = await storage.getSuggestedAction(currentCategory)
+
+        // Get all actions for selection
+        const allActions = await storage.listActions()
+
+        // Build choices with suggested action at top
+        const actionChoices: Array<{ name: string; value: string } | inquirer.Separator> = []
+
+        if (suggestedAction) {
+          actionChoices.push({
+            name: `${suggestedAction.name} - ${suggestedAction.description || 'Suggested for ' + currentCategory} (Recommended)`,
+            value: suggestedAction.id,
+          })
+          actionChoices.push(new inquirer.Separator('── Other Actions ──'))
+        }
+
+        for (const action of allActions) {
+          if (suggestedAction && action.id === suggestedAction.id) continue
+          actionChoices.push({
+            name: `${action.name}${action.description ? ' - ' + action.description : ''}`,
+            value: action.id,
+          })
+        }
+
+        actionChoices.push(new inquirer.Separator('── Custom ──'))
+        actionChoices.push({ name: 'Custom prompt...', value: '__custom__' })
+
+        const { selectedActionId } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'selectedActionId',
+            message: `What should the agent do with ${ticket.id}?`,
+            choices: actionChoices,
+          },
+        ])
+
+        if (selectedActionId === '__custom__') {
+          const { customInput } = await inquirer.prompt([
+            {
+              type: 'input',
+              name: 'customInput',
+              message: 'Enter custom prompt:',
+              validate: (input: string) => input.trim() ? true : 'Prompt cannot be empty',
+            },
+          ])
+          customPrompt = customInput.trim()
+        } else {
+          selectedAction = await storage.getAction(selectedActionId)
         }
       }
 
@@ -390,6 +473,11 @@ export default class WorkStart extends Command {
         branch,
         hqPath,
         pmoPath,          // PMO path for container mounting
+        // Action context
+        actionId: selectedAction?.id,
+        actionName: selectedAction?.name || (customPrompt ? 'Custom' : undefined),
+        actionPrompt: customPrompt || selectedAction?.prompt,
+        modifiesCode: customPrompt ? true : selectedAction?.modifiesCode ?? true,
       }
 
       // Check if agent has devcontainer config
@@ -592,6 +680,7 @@ export default class WorkStart extends Command {
       this.log('')
       this.log(styles.header(`🚀 Starting work: ${ticket.id}: ${ticket.title}`))
       this.log(styles.muted(`   Agent: ${assignedAgent}`))
+      this.log(styles.muted(`   Action: ${context.actionName || 'None'}`))
       this.log(styles.muted(`   Executor: ${executor}`))
 
       // Environment info
@@ -617,48 +706,150 @@ export default class WorkStart extends Command {
       // Add createPR to context
       context.createPR = createPR
 
-      // Create branch in worktree(s)
-      this.log(styles.muted('Creating branch...'))
+      // Handle git branch - only if action modifies code
+      let finalBranch = branch
+      if (context.modifiesCode !== false) {
+        // If we have multiple repo worktrees, use the first for branch detection
+        const gitRepos = repoWorktrees.length > 0
+          ? repoWorktrees.map(r => path.join(agentDir, r))
+          : [worktreePath]
+        const primaryRepo = gitRepos[0]
 
-      // If we have multiple repo worktrees, create branch in each
-      const gitRepos = repoWorktrees.length > 0
-        ? repoWorktrees.map(r => path.join(agentDir, r))
-        : [worktreePath]  // Single repo or cwd fallback
+        if (isExistingBranch) {
+          // Ticket already has a branch linked - just use it
+          this.log(styles.muted(`Using existing branch: ${branch}`))
+        } else {
+          // No branch in DB - ask user if one already exists
+          const { branchChoice } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'branchChoice',
+              message: `Does a branch already exist for ${ticket.id}?`,
+              choices: [
+                { name: 'No, create new branch (Recommended)', value: 'create' },
+                { name: 'Yes, I\'ll enter the branch name', value: 'enter' },
+                { name: 'Search for matching branches', value: 'search' },
+              ],
+            },
+          ])
 
-      for (const repoPath of gitRepos) {
-        const repoName = path.basename(repoPath)
-        try {
-          // Check if this is a git repo
-          try {
-            execSync('git rev-parse --git-dir', { cwd: repoPath, stdio: 'pipe' })
-          } catch {
-            // Not a git repo, skip
-            continue
+          if (branchChoice === 'enter') {
+            // User enters existing branch name
+            const { enteredBranch } = await inquirer.prompt([
+              {
+                type: 'input',
+                name: 'enteredBranch',
+                message: 'Enter branch name:',
+                validate: (input: string) => input.trim() ? true : 'Branch name required',
+              },
+            ])
+            finalBranch = enteredBranch.trim()
+
+            // Validate branch exists (locally or in origin)
+            try {
+              execSync(`git rev-parse --verify ${finalBranch}`, { cwd: primaryRepo, stdio: 'pipe' })
+              this.log(styles.muted(`   Found local branch: ${finalBranch}`))
+            } catch {
+              // Try fetching from origin
+              try {
+                execSync(`git fetch origin ${finalBranch}:${finalBranch}`, { cwd: primaryRepo, stdio: 'pipe' })
+                this.log(styles.muted(`   Fetched from origin: ${finalBranch}`))
+              } catch {
+                this.warn(`Branch "${finalBranch}" not found locally or in origin. Will create it.`)
+              }
+            }
+          } else if (branchChoice === 'search') {
+            // Search for matching branches
+            let remoteBranches: string[] = []
+            try {
+              execSync('git fetch --prune', { cwd: primaryRepo, stdio: 'pipe' })
+              const branchOutput = execSync(`git branch -r`, { cwd: primaryRepo, encoding: 'utf-8' })
+              remoteBranches = branchOutput
+                .split('\n')
+                .map(b => b.trim())
+                .filter(b => b && !b.includes('HEAD') && b.toLowerCase().includes(ticket.id.toLowerCase()))
+            } catch {
+              // Ignore fetch errors
+            }
+
+            if (remoteBranches.length > 0) {
+              const branchChoices = [
+                ...remoteBranches.map(b => ({ name: b, value: b.replace('origin/', '') })),
+                new inquirer.Separator(),
+                { name: 'None of these, create new branch', value: '__create__' },
+              ]
+
+              const { selectedBranch } = await inquirer.prompt([
+                {
+                  type: 'list',
+                  name: 'selectedBranch',
+                  message: `Found ${remoteBranches.length} matching branch(es):`,
+                  choices: branchChoices,
+                },
+              ])
+
+              if (selectedBranch !== '__create__') {
+                finalBranch = selectedBranch
+                // Fetch and checkout the selected branch
+                try {
+                  execSync(`git fetch origin ${finalBranch}:${finalBranch}`, { cwd: primaryRepo, stdio: 'pipe' })
+                  this.log(styles.muted(`   Fetched: ${finalBranch}`))
+                } catch {
+                  // Branch might already exist locally
+                }
+              }
+            } else {
+              this.log(styles.muted(`   No matching branches found for "${ticket.id}". Creating new.`))
+            }
           }
+          // branchChoice === 'create' uses the generated branch name (default)
 
-          // Check if branch exists
-          try {
-            execSync(`git rev-parse --verify ${branch}`, {
-              cwd: repoPath,
-              stdio: 'pipe',
-            })
-            // Branch exists, check it out
-            execSync(`git checkout ${branch}`, {
-              cwd: repoPath,
-              stdio: 'pipe',
-            })
-            this.log(styles.muted(`   ${repoName}: checked out existing branch`))
-          } catch {
-            // Branch doesn't exist, create it
-            execSync(`git checkout -b ${branch}`, {
-              cwd: repoPath,
-              stdio: 'pipe',
-            })
-            this.log(styles.muted(`   ${repoName}: created new branch`))
-          }
-        } catch (error) {
-          this.warn(`Could not create branch in ${repoName}: ${error instanceof Error ? error.message : error}`)
+          this.log(styles.muted(`Branch: ${finalBranch}`))
         }
+
+        // Handle branch in each repo
+        for (const repoPath of gitRepos) {
+          const repoName = path.basename(repoPath)
+          try {
+            // Check if this is a git repo
+            try {
+              execSync('git rev-parse --git-dir', { cwd: repoPath, stdio: 'pipe' })
+            } catch {
+              continue
+            }
+
+            // Check if branch exists in git
+            try {
+              execSync(`git rev-parse --verify ${finalBranch}`, {
+                cwd: repoPath,
+                stdio: 'pipe',
+              })
+              execSync(`git checkout ${finalBranch}`, {
+                cwd: repoPath,
+                stdio: 'pipe',
+              })
+              this.log(styles.muted(`   ${repoName}: checked out branch`))
+            } catch {
+              execSync(`git checkout -b ${finalBranch}`, {
+                cwd: repoPath,
+                stdio: 'pipe',
+              })
+              this.log(styles.muted(`   ${repoName}: created new branch`))
+            }
+          } catch (error) {
+            this.warn(`Could not handle branch in ${repoName}: ${error instanceof Error ? error.message : error}`)
+          }
+        }
+
+        // Save branch to ticket
+        if (!isExistingBranch || finalBranch !== branch) {
+          await storage.updateTicket(ticket.id, { branch: finalBranch })
+        }
+
+        // Update context with final branch
+        context.branch = finalBranch
+      } else {
+        this.log(styles.muted('Skipping branch (action does not modify code)'))
       }
 
       // Create execution record
@@ -792,10 +983,10 @@ export default class WorkStart extends Command {
       executor?: string
     }
   ): Promise<void> {
-    // Get all tickets and filter to backlog/ready (not in progress)
+    // Get all tickets and filter to backlog/planned (not in progress)
     const allTickets = await storage.listTickets()
     const backlogTickets = allTickets.filter(t =>
-      t.status === 'backlog' || t.status === 'ready' || !t.status
+      t.status === 'backlog' || t.status === 'planned' || !t.status
     )
 
     if (backlogTickets.length === 0) {
@@ -911,7 +1102,7 @@ export default class WorkStart extends Command {
    * Spawn work on a single ticket with non-interactive defaults.
    */
   private async spawnSingleTicket(
-    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; epicId?: string; specId?: string; subtasks?: Array<{ title: string; done: boolean }> },
+    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; subtasks?: Array<{ title: string; done: boolean }> },
     agent: { name: string },
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
     storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
@@ -953,8 +1144,9 @@ export default class WorkStart extends Command {
       worktreePath = path.join(agentDir, repoWorktrees[0])
     }
 
-    // Generate branch name
-    const branch = generateBranchName(ticket.id, ticket.title, agentName, ticket.category)
+    // Use ticket's existing branch or generate a new one
+    const branch = ticket.branch || generateBranchName(ticket.id, ticket.title, agentName, ticket.category)
+    const isExistingBranch = !!ticket.branch
 
     // Get epic and spec info
     let epicTitle: string | undefined
@@ -976,6 +1168,9 @@ export default class WorkStart extends Command {
       }
     }
 
+    // Get default action for batch mode (use 'implement')
+    const defaultAction = await storage.getAction('implement')
+
     // Build context
     const context: ExecutionContext = {
       ticketId: ticket.id,
@@ -996,6 +1191,11 @@ export default class WorkStart extends Command {
       hqPath: workspaceInfo.path,
       pmoPath,
       createPR: flags['create-pr'] || false,
+      // Use 'implement' action for batch mode
+      actionId: defaultAction?.id,
+      actionName: defaultAction?.name,
+      actionPrompt: defaultAction?.prompt,
+      modifiesCode: defaultAction?.modifiesCode ?? true,
     }
 
     // Use devcontainer by default if available
@@ -1010,27 +1210,34 @@ export default class WorkStart extends Command {
     const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
     const outputMode: OutputMode = 'interactive'
 
-    // Create branch in worktree(s)
-    const gitRepos = repoWorktrees.length > 0
-      ? repoWorktrees.map(r => path.join(agentDir, r))
-      : [worktreePath]
+    // Handle git branch - only if action modifies code
+    if (context.modifiesCode !== false) {
+      const gitRepos = repoWorktrees.length > 0
+        ? repoWorktrees.map(r => path.join(agentDir, r))
+        : [worktreePath]
 
-    for (const repoPath of gitRepos) {
-      try {
+      for (const repoPath of gitRepos) {
         try {
-          execSync('git rev-parse --git-dir', { cwd: repoPath, stdio: 'pipe' })
-        } catch {
-          continue
-        }
+          try {
+            execSync('git rev-parse --git-dir', { cwd: repoPath, stdio: 'pipe' })
+          } catch {
+            continue
+          }
 
-        try {
-          execSync(`git rev-parse --verify ${branch}`, { cwd: repoPath, stdio: 'pipe' })
-          execSync(`git checkout ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+          try {
+            execSync(`git rev-parse --verify ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+            execSync(`git checkout ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+          } catch {
+            execSync(`git checkout -b ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+          }
         } catch {
-          execSync(`git checkout -b ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+          // Ignore branch errors in batch mode
         }
-      } catch {
-        // Ignore branch creation errors in batch mode
+      }
+
+      // Save branch to ticket if newly created
+      if (!isExistingBranch) {
+        await storage.updateTicket(ticket.id, { branch })
       }
     }
 

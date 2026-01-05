@@ -28,6 +28,7 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+.claude/
 
 # Temporary files
 *.tmp

@@ -79,7 +79,7 @@ export default class TicketMove extends Command {
 
       if (!targetColumn) {
         // Get columns from the database (not config.json) to ensure accuracy
-        const project = await storage.getProject(storage.getCurrentProjectId());
+        const project = await storage.getProjectBoard(storage.getCurrentProjectId());
         if (!project) {
           await storage.close();
           this.error('Project not found.');
@@ -89,7 +89,7 @@ export default class TicketMove extends Command {
           type: 'list',
           name: 'column',
           message: `Move to column:`,
-          choices: project.columns.map(col => ({
+          choices: project.columns.map((col: { name: string }) => ({
             name: col.name === ticket.column ? `${col.name} (current)` : col.name,
             value: col.name,
           })),

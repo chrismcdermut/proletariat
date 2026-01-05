@@ -54,19 +54,16 @@ export default class WorkComplete extends Command {
       let ticketId = args.ticketId;
 
       if (!ticketId) {
-        // Get all tickets that could be completed (in progress or in review)
+        // Get all tickets that could be completed (in progress)
         const allTickets = await storage.listTickets();
         const completableTickets = allTickets.filter(t =>
-          t.column && (
-            t.column.toLowerCase().includes('progress') ||
-            t.column.toLowerCase().includes('review')
-          )
+          t.status === 'in_progress' || (t.column && t.column.toLowerCase().includes('progress'))
         );
 
         if (completableTickets.length === 0) {
           await storage.close();
           db.close();
-          this.log(styles.info('No in-progress or in-review work found.'));
+          this.log(styles.info('No in-progress work found.'));
           return;
         }
 

@@ -36,8 +36,8 @@ export default class ProjectCreate extends Command {
     }),
     template: Flags.string({
       char: 't',
-      description: 'Board template',
-      options: ['kanban', 'scrum', 'founder'],
+      description: 'Workflow template',
+      options: ['kanban', 'linear', 'bug-smash', '5-tool-founder', 'gtm'],
       default: 'kanban',
     }),
     interactive: Flags.boolean({
@@ -113,10 +113,15 @@ export default class ProjectCreate extends Command {
       // Create spec folders in project directory
       const specsPath = createSpecFolders(pmoPath, projectId);
 
+      // Get the statuses that were created
+      const statuses = await storage.listStatuses(projectId);
+
       await storage.close();
 
       this.log(styles.success(`\nCreated project "${styles.emphasis(project.name)}"`));
       this.log(styles.muted(`  ID: ${project.id}`));
+      this.log(styles.muted(`  Template: ${projectData.template}`));
+      this.log(styles.muted(`  Statuses: ${statuses.map(s => s.name).join(' → ')}`));
       this.log(styles.muted(`  Board: ${path.relative(process.cwd(), boardPath)}`));
       this.log(styles.muted(`  Specs: ${path.relative(process.cwd(), specsPath)}/`));
       this.log(styles.muted(`\nSwitch to this project:`));
@@ -167,11 +172,13 @@ export default class ProjectCreate extends Command {
       {
         type: 'list',
         name: 'template',
-        message: 'Board template:',
+        message: 'Workflow template:',
         choices: [
-          { name: 'Kanban (Backlog, In Progress, Done)', value: 'kanban' },
-          { name: 'Scrum (+ In Review, Blocked)', value: 'scrum' },
-          { name: '5-Tool Founder (SHIP/GROW/SUPPORT/BIZOPS/STRATEGY + workflow)', value: 'founder' },
+          { name: 'Kanban - Backlog → To Do → In Progress → Done', value: 'kanban' },
+          { name: 'Linear - Backlog, Triage, Todo, In Progress, In Review, Done', value: 'linear' },
+          { name: 'Bug Smash - Reported → Confirmed → Fixing → Verifying → Fixed', value: 'bug-smash' },
+          { name: '5-Tool Founder - Ideas → Next Up → Building → Shipping → Shipped', value: '5-tool-founder' },
+          { name: 'GTM - Ideation → Planning → In Development → Ready to Launch → Launched', value: 'gtm' },
         ],
         default: flags.template || 'kanban',
       },

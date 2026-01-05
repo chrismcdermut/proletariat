@@ -57,11 +57,14 @@ export {
  */
 export function getBoardTemplates(): { [key: string]: string[] } {
   return {
-    kanban: ['Backlog', 'In Progress', 'Done'],
-    scrum: ['Backlog', 'In Progress', 'In Review', 'Blocked', 'Done'],
+    // Linear-style: Simple workflow with Planned for scheduled work
+    kanban: ['Backlog', 'Planned', 'In Progress', 'Done'],
+    // Linear-style with Canceled column for visibility
+    linear: ['Backlog', 'Planned', 'In Progress', 'Done', 'Canceled'],
+    // Founder template: 5-tool backlogs + workflow stages
     founder: [
       'SHIP BL', 'GROW BL', 'SUPPORT BL', 'BIZOPS BL', 'STRATEGY BL',
-      'Ready', 'In Progress', 'In Review', 'Merged', 'Published', 'Dropped'
+      'Planned', 'In Progress', 'Done', 'Dropped'
     ],
     custom: [] // Will be handled separately
   };
@@ -79,23 +82,23 @@ export function getBoardTemplates(): { [key: string]: string[] } {
 export function getColumnSettingsForTemplate(
   template: string,
   columns: string[]
-): { column_in_progress: string; column_review: string; column_done: string } {
-  // Template-specific mappings
-  const templateMappings: Record<string, { column_in_progress: string; column_review: string; column_done: string }> = {
+): { column_planned: string; column_in_progress: string; column_done: string } {
+  // Template-specific mappings (Linear-style: planned -> in_progress -> done)
+  const templateMappings: Record<string, { column_planned: string; column_in_progress: string; column_done: string }> = {
     kanban: {
+      column_planned: 'Planned',
       column_in_progress: 'In Progress',
-      column_review: 'In Progress', // No review column in basic kanban, use In Progress
       column_done: 'Done',
     },
-    scrum: {
+    linear: {
+      column_planned: 'Planned',
       column_in_progress: 'In Progress',
-      column_review: 'In Review',
       column_done: 'Done',
     },
     founder: {
+      column_planned: 'Planned',
       column_in_progress: 'In Progress',
-      column_review: 'In Review',
-      column_done: 'Published', // Founder template uses Published as done state
+      column_done: 'Done',
     },
   };
 
@@ -115,8 +118,8 @@ export function getColumnSettingsForTemplate(
   };
 
   return {
-    column_in_progress: findColumn(['progress', 'active', 'doing', 'working'], columns[1] || 'In Progress'),
-    column_review: findColumn(['review', 'testing', 'qa', 'verify'], columns[columns.length - 2] || 'Review'),
+    column_planned: findColumn(['planned', 'ready', 'scheduled', 'todo'], columns[1] || 'Planned'),
+    column_in_progress: findColumn(['progress', 'active', 'doing', 'working'], columns[2] || 'In Progress'),
     column_done: findColumn(['done', 'complete', 'finished', 'published', 'shipped'], columns[columns.length - 1] || 'Done'),
   };
 }
@@ -212,8 +215,8 @@ export async function promptForBoardTemplate(): Promise<string> {
     name: 'template',
     message: 'Choose board template:',
     choices: [
-      { name: 'Kanban (Backlog, In Progress, Done)', value: 'kanban' },
-      { name: 'Scrum (+ In Review, Blocked)', value: 'scrum' },
+      { name: 'Kanban (Backlog, Planned, In Progress, Done)', value: 'kanban' },
+      { name: 'Linear (+ Canceled column)', value: 'linear' },
       { name: '5-Tool Founder (SHIP/GROW/SUPPORT/BIZOPS/STRATEGY + workflow)', value: 'founder' },
       { name: 'Custom (define your own columns)', value: 'custom' },
     ],
@@ -322,12 +325,12 @@ export function getColumnsForTemplate(template: string): string[] {
 export function createBoardContent(template: string, boardName?: string): string {
   const columns = getColumnsForTemplate(template);
   const icons: Record<string, string> = {
-    // Kanban/Scrum
+    // Linear-style workflow
     'Backlog': '📥',
+    'Planned': '📋',
     'In Progress': '🚀',
-    'In Review': '👀',
-    'Blocked': '🚧',
     'Done': '✅',
+    'Canceled': '🚫',
     // 5-Tool Founder backlogs
     'SHIP BL': '🚢',
     'GROW BL': '📈',
@@ -335,9 +338,6 @@ export function createBoardContent(template: string, boardName?: string): string
     'BIZOPS BL': '⚙️',
     'STRATEGY BL': '🎯',
     // 5-Tool Founder workflow
-    'Ready': '📥',
-    'Merged': '🔀',
-    'Published': '🚀',
     'Dropped': '🗑️',
   };
 

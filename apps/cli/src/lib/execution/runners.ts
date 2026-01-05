@@ -59,6 +59,13 @@ function buildPrompt(context: ExecutionContext): string {
     prompt += `## Original Ticket Context\n\n`
   }
 
+  // Action instruction (what the agent should do)
+  if (context.actionPrompt) {
+    prompt += `# Action: ${context.actionName || 'Work'}\n\n`
+    prompt += context.actionPrompt
+    prompt += `\n\n---\n\n`
+  }
+
   prompt += `# Ticket: ${context.ticketId}\n\n`
   prompt += `**Title:** ${context.ticketTitle}\n\n`
 
