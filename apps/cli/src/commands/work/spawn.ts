@@ -12,17 +12,26 @@ export default class WorkSpawn extends Command {
   static description = 'Spawn work for multiple tickets by column (batch mode)'
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> --column Backlog',
-    '<%= config.bin %> <%= command.id %> --column Backlog --strategy round-robin',
-    '<%= config.bin %> <%= command.id %> --column Backlog --dry-run',
-    '<%= config.bin %> <%= command.id %> --per-ticket  # Prompt settings for each ticket',
-    '<%= config.bin %> <%= command.id %>  # Interactive column selection (batch mode)',
+    '<%= config.bin %> <%= command.id %>                    # Interactive: All or Many',
+    '<%= config.bin %> <%= command.id %> --all              # All unassigned in selected column',
+    '<%= config.bin %> <%= command.id %> --column Backlog   # All unassigned in Backlog',
+    '<%= config.bin %> <%= command.id %> --many             # Multi-select specific tickets',
+    '<%= config.bin %> <%= command.id %> --dry-run          # Preview without executing',
   ]
 
   static flags = {
+    all: Flags.boolean({
+      char: 'a',
+      description: 'Spawn all unassigned tickets in a column',
+      default: false,
+    }),
+    many: Flags.boolean({
+      description: 'Multi-select specific tickets to spawn',
+      default: false,
+    }),
     column: Flags.string({
       char: 'c',
-      description: 'Column name to spawn tickets from',
+      description: 'Column name to spawn tickets from (used with --all)',
     }),
     strategy: Flags.string({
       char: 's',
@@ -130,57 +139,16 @@ export default class WorkSpawn extends Command {
         this.error('No columns found on the board.')
       }
 
-      // Get column - prompt if not provided
-      let targetColumn = flags.column
-
-      if (!targetColumn) {
-        const { selectedColumn } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedColumn',
-            message: 'Select column to spawn tickets from:',
-            choices: columnNames.map(name => ({ name, value: name })),
-          },
-        ])
-        targetColumn = selectedColumn
-      }
-
-      // Verify column exists
-      const matchedColumn = columnNames.find(
-        c => c.toLowerCase() === targetColumn!.toLowerCase()
-      )
-
-      if (!matchedColumn) {
-        await storage.close()
-        db.close()
-        this.error(
-          `Column "${targetColumn}" not found.\n` +
-          `Available columns: ${columnNames.join(', ')}`
-        )
-      }
-
-      // Get tickets in the selected column
-      const allTickets = await storage.listTickets({ column: matchedColumn })
-
-      // Filter to unassigned tickets only
+      // Get all tickets
+      const allTickets = await storage.listTickets()
       const unassignedTickets = allTickets.filter(t => !t.assignee)
 
       if (unassignedTickets.length === 0) {
         await storage.close()
         db.close()
-        this.log(styles.muted(`No unassigned tickets in column "${matchedColumn}".`))
+        this.log(styles.muted('No unassigned tickets to spawn.'))
         return
       }
-
-      // Apply limit if specified
-      let ticketsToSpawn = unassignedTickets
-      if (flags.limit && flags.limit > 0) {
-        ticketsToSpawn = unassignedTickets.slice(0, flags.limit)
-      }
-
-      this.log('')
-      this.log(styles.header(`🚀 Spawn from column: ${matchedColumn}`))
-      this.log('')
 
       // Get available agents
       const busyAgentNames = new Set<string>()
@@ -190,13 +158,208 @@ export default class WorkSpawn extends Command {
           busyAgentNames.add(agent.name)
         }
       }
-
       const availableAgents = workspaceInfo.agents.filter(a => !busyAgentNames.has(a.name))
 
+      // Determine spawn mode: All or Many
+      let spawnMode: 'all' | 'many' = 'all'
+
+      if (flags.all) {
+        spawnMode = 'all'
+      } else if (flags.many) {
+        spawnMode = 'many'
+      } else if (!flags.column) {
+        // Interactive: ask user
+        const { mode } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'mode',
+            message: 'How would you like to spawn work?',
+            choices: [
+              { name: '📦 All    - Spawn all unassigned tickets in a column', value: 'all' },
+              { name: '✅ Many   - Select specific tickets to spawn', value: 'many' },
+            ],
+          },
+        ])
+        spawnMode = mode
+      }
+
+      let ticketsToSpawn: typeof unassignedTickets = []
+
+      if (spawnMode === 'all') {
+        // ALL MODE: Column picker, then spawn all unassigned in that column
+        let targetColumn = flags.column
+
+        if (!targetColumn) {
+          // Show columns with ticket counts
+          const columnChoices = columnNames.map(name => {
+            const count = unassignedTickets.filter(t => t.column === name).length
+            return {
+              name: `${name} (${count} unassigned)`,
+              value: name,
+            }
+          })
+
+          const { selectedColumn } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'selectedColumn',
+              message: 'Select column to spawn all unassigned tickets from:',
+              choices: columnChoices,
+            },
+          ])
+          targetColumn = selectedColumn
+        }
+
+        // Verify column exists
+        const matchedColumn = columnNames.find(
+          c => c.toLowerCase() === targetColumn!.toLowerCase()
+        )
+
+        if (!matchedColumn) {
+          await storage.close()
+          db.close()
+          this.error(
+            `Column "${targetColumn}" not found.\n` +
+            `Available columns: ${columnNames.join(', ')}`
+          )
+        }
+
+        ticketsToSpawn = unassignedTickets.filter(t => t.column === matchedColumn)
+
+        if (ticketsToSpawn.length === 0) {
+          await storage.close()
+          db.close()
+          this.log(styles.muted(`No unassigned tickets in column "${matchedColumn}".`))
+          return
+        }
+
+        this.log('')
+        this.log(styles.header(`🚀 Spawn All from: ${matchedColumn}`))
+
+      } else {
+        // MANY MODE: First pick column (or all), then multi-select tickets
+
+        // Build column choices with counts
+        const columnChoices: Array<{ name: string; value: string }> = [
+          { name: '🌐 All columns (select from anywhere)', value: '__ALL__' },
+        ]
+        for (const name of columnNames) {
+          const count = unassignedTickets.filter(t => t.column === name).length
+          if (count > 0) {
+            columnChoices.push({
+              name: `${name} (${count} unassigned)`,
+              value: name,
+            })
+          }
+        }
+
+        const { manyColumn } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'manyColumn',
+            message: 'Select from which column:',
+            choices: columnChoices,
+          },
+        ])
+
+        // Filter tickets based on column selection
+        const ticketsForSelection = manyColumn === '__ALL__'
+          ? unassignedTickets
+          : unassignedTickets.filter(t => t.column === manyColumn)
+
+        if (ticketsForSelection.length === 0) {
+          await storage.close()
+          db.close()
+          this.log(styles.muted('No unassigned tickets in that column.'))
+          return
+        }
+
+        // Group tickets by column for display
+        const ticketsByColumn = new Map<string, typeof unassignedTickets>()
+        for (const ticket of ticketsForSelection) {
+          const col = ticket.column || 'No Column'
+          if (!ticketsByColumn.has(col)) {
+            ticketsByColumn.set(col, [])
+          }
+          ticketsByColumn.get(col)!.push(ticket)
+        }
+
+        // Build choices with column separators
+        const choices: Array<{ name: string; value: string } | inquirer.Separator> = []
+        for (const [column, tickets] of ticketsByColumn) {
+          if (manyColumn === '__ALL__') {
+            choices.push(new inquirer.Separator(`── ${column} ──`))
+          }
+          for (const ticket of tickets) {
+            choices.push({
+              name: `${ticket.id} - ${ticket.title}`,
+              value: ticket.id,
+            })
+          }
+        }
+
+        const { selectedTicketIds } = await inquirer.prompt([
+          {
+            type: 'checkbox',
+            name: 'selectedTicketIds',
+            message: 'Select tickets to spawn (space to toggle, enter to confirm):',
+            choices,
+            validate: (input: string[]) => {
+              if (input.length === 0) {
+                return 'Please select at least one ticket'
+              }
+              return true
+            },
+          },
+        ])
+
+        ticketsToSpawn = unassignedTickets.filter(t => selectedTicketIds.includes(t.id))
+
+        this.log('')
+        this.log(styles.header(`🚀 Spawn Many: ${ticketsToSpawn.length} tickets`))
+      }
+
+      // Apply limit if specified
+      if (flags.limit && flags.limit > 0) {
+        ticketsToSpawn = ticketsToSpawn.slice(0, flags.limit)
+      }
+
+      this.log('')
+
+      // Check agent availability
       if (availableAgents.length === 0) {
         await storage.close()
         db.close()
-        this.error('No available agents. All agents are busy with other work.')
+        this.error(
+          'No available agents. All agents are busy with other work.\n' +
+          'Use "prlt agent add" to add more agents, or wait for current work to complete.'
+        )
+      }
+
+      // Warn if more tickets than agents
+      if (ticketsToSpawn.length > availableAgents.length) {
+        this.log(styles.warning(`⚠️  ${ticketsToSpawn.length} tickets selected but only ${availableAgents.length} agents available.`))
+        this.log(styles.muted(`   Only ${availableAgents.length} tickets will be spawned. Add more agents with "prlt agent add".`))
+        this.log('')
+
+        const { proceed } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'proceed',
+            message: `Spawn ${availableAgents.length} tickets now? (${ticketsToSpawn.length - availableAgents.length} will remain unassigned)`,
+            default: true,
+          },
+        ])
+
+        if (!proceed) {
+          await storage.close()
+          db.close()
+          this.log(styles.muted('Cancelled.'))
+          return
+        }
+
+        // Limit to available agents
+        ticketsToSpawn = ticketsToSpawn.slice(0, availableAgents.length)
       }
 
       this.log(styles.muted(`Available agents: ${availableAgents.map(a => a.name).join(', ')}`))
