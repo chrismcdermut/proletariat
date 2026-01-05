@@ -221,6 +221,26 @@ export class SQLiteStorage implements PMOStorage {
         // Column may already exist
       }
     }
+
+    // Migration: Add position column to actions table
+    if (tableExists(T.actions)) {
+      const actionsColumns = this.db.pragma(`table_info(${T.actions})`) as Array<{ name: string }>
+      const actionsColumnNames = actionsColumns.map(c => c.name)
+      if (!actionsColumnNames.includes('position')) {
+        try {
+          this.db.exec(`ALTER TABLE ${T.actions} ADD COLUMN position INTEGER NOT NULL DEFAULT 0`)
+          // Update existing builtin actions with correct positions
+          const positionMap: Record<string, number> = {
+            groom: 0, implement: 1, continue: 2, test: 3, review: 4, revise: 5
+          }
+          for (const [id, pos] of Object.entries(positionMap)) {
+            this.db.prepare(`UPDATE ${T.actions} SET position = ? WHERE id = ?`).run(pos, id)
+          }
+        } catch {
+          // Column may already exist
+        }
+      }
+    }
   }
 
   /**
@@ -451,6 +471,7 @@ export class SQLiteStorage implements PMOStorage {
    * These are reusable agent prompts for common work patterns.
    */
   private seedBuiltinActions(): void {
+    // Ordered by typical workflow: groom → implement → continue → test → review → revise
     const builtinActions = [
       {
         id: 'groom',
@@ -466,7 +487,8 @@ export class SQLiteStorage implements PMOStorage {
 Do NOT implement the ticket - only improve its definition so it's ready to be worked on.`,
         suggestedForCategories: ['backlog'],
         defaultMoveToCategory: 'unstarted',
-        modifiesCode: false,  // No code changes
+        modifiesCode: false,
+        position: 0,
       },
       {
         id: 'implement',
@@ -483,6 +505,7 @@ When complete, the ticket should be ready for code review.`,
         suggestedForCategories: ['unstarted', 'started'],
         defaultMoveToCategory: 'started',
         modifiesCode: true,
+        position: 1,
       },
       {
         id: 'continue',
@@ -496,20 +519,7 @@ When complete, the ticket should be ready for code review.`,
         suggestedForCategories: ['started'],
         defaultMoveToCategory: 'started',
         modifiesCode: true,
-      },
-      {
-        id: 'revise',
-        name: 'Revise',
-        description: 'Address PR feedback and review comments',
-        prompt: `Address the feedback on this ticket's pull request:
-- Review all comments and requested changes carefully
-- Make the necessary code changes to address each point
-- Respond to questions with explanations
-- Push updates to the PR branch
-- Mark resolved conversations as resolved`,
-        suggestedForCategories: ['completed'],
-        defaultMoveToCategory: 'started',
-        modifiesCode: true,
+        position: 2,
       },
       {
         id: 'test',
@@ -523,6 +533,7 @@ When complete, the ticket should be ready for code review.`,
 - Ensure all tests pass`,
         suggestedForCategories: ['started', 'completed'],
         modifiesCode: true,
+        position: 3,
       },
       {
         id: 'review',
@@ -537,13 +548,29 @@ When complete, the ticket should be ready for code review.`,
 
 Output a review summary with your findings and any concerns.`,
         suggestedForCategories: ['started', 'completed'],
-        modifiesCode: false,  // Read-only review
+        modifiesCode: false,
+        position: 4,
+      },
+      {
+        id: 'revise',
+        name: 'Revise',
+        description: 'Address PR feedback and review comments',
+        prompt: `Address the feedback on this ticket's pull request:
+- Review all comments and requested changes carefully
+- Make the necessary code changes to address each point
+- Respond to questions with explanations
+- Push updates to the PR branch
+- Mark resolved conversations as resolved`,
+        suggestedForCategories: ['completed'],
+        defaultMoveToCategory: 'started',
+        modifiesCode: true,
+        position: 5,
       },
     ]
 
     const insertAction = this.db.prepare(`
-      INSERT OR IGNORE INTO ${T.actions} (id, name, description, prompt, suggested_for_categories, default_move_to_category, modifies_code, is_builtin, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+      INSERT OR IGNORE INTO ${T.actions} (id, name, description, prompt, suggested_for_categories, default_move_to_category, modifies_code, is_builtin, position, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
     `)
 
     const now = new Date().toISOString()
@@ -556,6 +583,7 @@ Output a review summary with your findings and any concerns.`,
         JSON.stringify(action.suggestedForCategories),
         action.defaultMoveToCategory || null,
         action.modifiesCode ? 1 : 0,
+        action.position,
         now
       )
     }
@@ -3130,7 +3158,7 @@ Output a review summary with your findings and any concerns.`,
       sql += ` WHERE ${conditions.join(' AND ')}`
     }
 
-    sql += ' ORDER BY is_builtin DESC, name ASC'
+    sql += ' ORDER BY is_builtin DESC, position ASC, name ASC'
 
     const rows = this.db.prepare(sql).all(...params) as ActionRow[]
 
