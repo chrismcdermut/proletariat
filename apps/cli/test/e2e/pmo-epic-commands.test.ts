@@ -493,10 +493,27 @@ function setupTestDatabase(db: Database.Database) {
       title TEXT NOT NULL,
       description TEXT,
       status TEXT NOT NULL DEFAULT 'active',
+      position INTEGER NOT NULL DEFAULT 0,
       file_path TEXT,
+      spec_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE
+    );
+
+    -- Workflow statuses table
+    CREATE TABLE IF NOT EXISTS pmo_statuses (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      color TEXT,
+      description TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
+      UNIQUE(project_id, name)
     );
 
     -- Tickets table
@@ -508,8 +525,10 @@ function setupTestDatabase(db: Database.Database) {
       priority TEXT,
       category TEXT,
       status TEXT NOT NULL DEFAULT 'backlog',
+      status_id TEXT,
       owner TEXT,
       assignee TEXT,
+      branch TEXT,
       spec_id TEXT,
       epic_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -517,6 +536,7 @@ function setupTestDatabase(db: Database.Database) {
       last_synced_from_spec TIMESTAMP,
       last_synced_from_board TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (status_id) REFERENCES pmo_statuses(id),
       FOREIGN KEY (spec_id) REFERENCES pmo_specs(id) ON DELETE SET NULL,
       FOREIGN KEY (epic_id) REFERENCES pmo_epics(id) ON DELETE SET NULL
     );
@@ -602,6 +622,22 @@ function setupTestDatabase(db: Database.Database) {
     `).run(col.id, col.name, col.position);
   }
 
+  // Workflow statuses (kanban template)
+  const statuses = [
+    { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
+    { id: 'status-todo', name: 'Todo', category: 'unstarted', position: 0 },
+    { id: 'status-in-progress', name: 'In Progress', category: 'started', position: 0 },
+    { id: 'status-done', name: 'Done', category: 'completed', position: 0 },
+    { id: 'status-canceled', name: 'Canceled', category: 'canceled', position: 0 },
+  ];
+
+  for (const status of statuses) {
+    db.prepare(`
+      INSERT INTO pmo_statuses (id, project_id, name, category, position, is_default)
+      VALUES (?, 'test-project', ?, ?, ?, ?)
+    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
+  }
+
   // Create HQ config file (required for findPMO to work)
   const proletariatDir = path.join(process.cwd(), '.proletariat');
   const configPath = path.join(proletariatDir, 'config.json');
@@ -616,18 +652,28 @@ function setupTestDatabase(db: Database.Database) {
   fs.mkdirSync(pmoPath, { recursive: true });
 }
 
+let epicCounter = 0;
 function createTestEpic(db: Database.Database, id: string, title: string, status: string) {
+  epicCounter++;
   db.prepare(`
-    INSERT INTO pmo_epics (id, project_id, title, status, file_path)
-    VALUES (?, 'test-project', ?, ?, ?)
-  `).run(id, title, status, `pmo/projects/test-project/epics/${status}/${id}.md`);
+    INSERT INTO pmo_epics (id, project_id, title, status, position, file_path)
+    VALUES (?, 'test-project', ?, ?, ?, ?)
+  `).run(id, title, status, epicCounter, `pmo/projects/test-project/epics/${status}/${id}.md`);
 }
 
 function createTestTicket(db: Database.Database, id: string, title: string, epicId: string, status: string) {
+  // Map status to status_id
+  const statusToId: Record<string, string> = {
+    'backlog': 'status-backlog',
+    'in_progress': 'status-in-progress',
+    'done': 'status-done',
+  };
+  const statusId = statusToId[status] || 'status-backlog';
+
   db.prepare(`
-    INSERT INTO pmo_tickets (id, project_id, title, epic_id, status)
-    VALUES (?, 'test-project', ?, ?, ?)
-  `).run(id, title, epicId, status);
+    INSERT INTO pmo_tickets (id, project_id, title, epic_id, status, status_id)
+    VALUES (?, 'test-project', ?, ?, ?, ?)
+  `).run(id, title, epicId, status, statusId);
 
   // Also add to board_tickets for proper board integration
   db.prepare(`

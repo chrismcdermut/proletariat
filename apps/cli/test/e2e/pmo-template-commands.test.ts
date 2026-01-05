@@ -344,6 +344,21 @@ function setupTestDatabase(db: Database.Database) {
       PRIMARY KEY (project_id, id)
     );
 
+    -- Workflow statuses table
+    CREATE TABLE IF NOT EXISTS pmo_statuses (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      color TEXT,
+      description TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
+      UNIQUE(project_id, name)
+    );
+
     -- Specs table (must be before tickets and epics due to FK)
     CREATE TABLE IF NOT EXISTS pmo_specs (
       id TEXT PRIMARY KEY,
@@ -433,6 +448,7 @@ function setupTestDatabase(db: Database.Database) {
       category TEXT,
       status TEXT NOT NULL DEFAULT 'backlog',
       status_id TEXT,
+      branch TEXT,
       owner TEXT,
       assignee TEXT,
       spec_id TEXT,
@@ -442,6 +458,7 @@ function setupTestDatabase(db: Database.Database) {
       last_synced_from_spec TIMESTAMP,
       last_synced_from_board TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (status_id) REFERENCES pmo_statuses(id),
       FOREIGN KEY (spec_id) REFERENCES pmo_specs(id) ON DELETE SET NULL,
       FOREIGN KEY (epic_id) REFERENCES pmo_epics(id) ON DELETE SET NULL
     );
@@ -551,21 +568,6 @@ function setupTestDatabase(db: Database.Database) {
       FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE
     );
 
-    -- Workflow statuses table
-    CREATE TABLE IF NOT EXISTS pmo_statuses (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      UNIQUE(project_id, name)
-    );
-
     -- Workflow templates table
     CREATE TABLE IF NOT EXISTS pmo_templates (
       id TEXT PRIMARY KEY,
@@ -656,6 +658,22 @@ function setupTestDatabase(db: Database.Database) {
       INSERT INTO pmo_columns (id, project_id, name, position)
       VALUES (?, 'default', ?, ?)
     `).run(col.id, col.name, col.position);
+  }
+
+  // Seed default statuses for test project
+  const statuses = [
+    { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
+    { id: 'status-todo', name: 'Todo', category: 'unstarted', position: 0 },
+    { id: 'status-in-progress', name: 'In Progress', category: 'started', position: 0 },
+    { id: 'status-done', name: 'Done', category: 'completed', position: 0 },
+    { id: 'status-canceled', name: 'Canceled', category: 'canceled', position: 0 },
+  ];
+
+  for (const status of statuses) {
+    db.prepare(`
+      INSERT INTO pmo_statuses (id, project_id, name, category, position, is_default)
+      VALUES (?, 'default', ?, ?, ?, ?)
+    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
   }
 
   // Create HQ config file (required for findPMO to work)
