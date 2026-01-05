@@ -24,6 +24,9 @@ describe('PMO SQLite Storage', () => {
       name: 'Test Board',
       columns: ['Backlog', 'In Progress', 'Done'],
     });
+
+    // Apply default workflow template (required for ticket creation)
+    await storage.applyTemplate('default', 'kanban');
   });
 
   afterEach(async () => {
@@ -362,6 +365,7 @@ describe('PMO SQLite Storage', () => {
                 id: 'ticket-1',
                 title: 'Imported ticket',
                 status: 'backlog' as const,
+                statusId: 'status-backlog',
                 column: 'Backlog',
                 position: 0,
                 priority: 'HIGH',
