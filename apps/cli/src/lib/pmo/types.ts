@@ -205,6 +205,26 @@ export interface PhaseTemplatePhase {
   isDefault?: boolean
 }
 
+// =============================================================================
+// Work Action Types
+// =============================================================================
+
+/**
+ * Work action - defines what an agent should do with a ticket.
+ * Actions are reusable prompts that can be applied to any ticket.
+ */
+export interface WorkAction {
+  id: string
+  name: string
+  description?: string
+  prompt: string                              // The actual prompt sent to agent
+  suggestedForCategories?: StateCategory[]    // When to suggest this action
+  defaultMoveToCategory?: StateCategory       // Where to move ticket after
+  modifiesCode: boolean                       // Whether this action modifies code (needs branch)
+  isBuiltin: boolean
+  createdAt: Date
+}
+
 /**
  * Board represents a project's kanban board view.
  * This is what gets rendered to board.md and displayed in the UI.
@@ -240,6 +260,7 @@ export interface Ticket {
   statusId?: string           // Reference to WorkflowStatus in project's configuration
   owner?: string              // Human responsible for ticket
   assignee?: string           // Who's executing (human or agent)
+  branch?: string             // Git branch for this ticket's work (reused across actions)
 
   // Relationships
   specId?: string     // Which spec defined this ticket
@@ -444,6 +465,12 @@ export interface PhaseTemplateFilter {
   search?: string
 }
 
+export interface WorkActionFilter {
+  isBuiltin?: boolean
+  suggestedFor?: StateCategory    // Filter to actions suggested for this category
+  search?: string
+}
+
 export interface ProjectFilter {
   phaseId?: string
   isArchived?: boolean
@@ -578,6 +605,14 @@ export interface PMOStorage {
   savePhaseTemplate(name: string, description?: string): Promise<PhaseTemplate>
   updatePhaseTemplate(id: string, changes: { name?: string; description?: string }): Promise<PhaseTemplate>
   deletePhaseTemplate(id: string): Promise<void>
+
+  // Work Action Operations
+  listActions(filter?: WorkActionFilter): Promise<WorkAction[]>
+  getAction(id: string): Promise<WorkAction | null>
+  createAction(action: Partial<WorkAction>): Promise<WorkAction>
+  updateAction(id: string, changes: Partial<WorkAction>): Promise<WorkAction>
+  deleteAction(id: string): Promise<void>
+  getSuggestedAction(category: StateCategory): Promise<WorkAction | null>
 
   // Project Operations
   getProject(id: string): Promise<Project | null>

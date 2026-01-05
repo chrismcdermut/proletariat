@@ -33,6 +33,8 @@ import {
   SyncStatus,
   TemplateFilter,
   Ticket,
+  WorkAction,
+  WorkActionFilter,
   TicketFilter,
   WorkflowStatus,
   WorkflowTemplate,
@@ -107,6 +109,7 @@ export class SQLiteStorage implements PMOStorage {
     this.seedBuiltinTemplates()
     this.seedBuiltinPhases()
     this.seedBuiltinPhaseTemplates()
+    this.seedBuiltinActions()
 
     // Validate schema matches expected columns (catches drift early)
     validateTicketSchema(this.db)
@@ -428,6 +431,121 @@ export class SQLiteStorage implements PMOStorage {
         template.name,
         template.description,
         JSON.stringify(template.phases),
+        now
+      )
+    }
+  }
+
+  /**
+   * Seed built-in work actions.
+   * These are reusable agent prompts for common work patterns.
+   */
+  private seedBuiltinActions(): void {
+    const builtinActions = [
+      {
+        id: 'groom',
+        name: 'Groom',
+        description: 'Flesh out ticket with requirements and acceptance criteria',
+        prompt: `Analyze this ticket and improve its definition:
+- Add detailed requirements if missing or vague
+- Add clear, testable acceptance criteria
+- Break down into subtasks if the work is complex
+- Estimate complexity (S/M/L/XL) if not already set
+- Flag any ambiguities or missing information that need clarification
+
+Do NOT implement the ticket - only improve its definition so it's ready to be worked on.`,
+        suggestedForCategories: ['backlog'],
+        defaultMoveToCategory: 'unstarted',
+        modifiesCode: false,  // No code changes
+      },
+      {
+        id: 'implement',
+        name: 'Implement',
+        description: 'Write code to implement the ticket requirements',
+        prompt: `Implement this ticket according to its requirements and acceptance criteria:
+- Follow the acceptance criteria exactly
+- Write clean, well-tested code
+- Create atomic commits with clear messages
+- Update documentation if the changes affect it
+- Run tests to verify the implementation
+
+When complete, the ticket should be ready for code review.`,
+        suggestedForCategories: ['unstarted', 'started'],
+        defaultMoveToCategory: 'started',
+        modifiesCode: true,
+      },
+      {
+        id: 'continue',
+        name: 'Continue',
+        description: 'Continue working from where you left off',
+        prompt: `Continue working on this ticket from where you left off.
+- Review existing commits and changes to understand current state
+- Check what subtasks remain incomplete
+- Complete the remaining work
+- Ensure all acceptance criteria are met`,
+        suggestedForCategories: ['started'],
+        defaultMoveToCategory: 'started',
+        modifiesCode: true,
+      },
+      {
+        id: 'revise',
+        name: 'Revise',
+        description: 'Address PR feedback and review comments',
+        prompt: `Address the feedback on this ticket's pull request:
+- Review all comments and requested changes carefully
+- Make the necessary code changes to address each point
+- Respond to questions with explanations
+- Push updates to the PR branch
+- Mark resolved conversations as resolved`,
+        suggestedForCategories: ['completed'],
+        defaultMoveToCategory: 'started',
+        modifiesCode: true,
+      },
+      {
+        id: 'test',
+        name: 'Write Tests',
+        description: 'Add comprehensive tests for the implementation',
+        prompt: `Write comprehensive tests for this ticket's implementation:
+- Add unit tests for core functionality
+- Add integration tests where appropriate
+- Cover edge cases and error handling
+- Aim for good coverage of the changed code
+- Ensure all tests pass`,
+        suggestedForCategories: ['started', 'completed'],
+        modifiesCode: true,
+      },
+      {
+        id: 'review',
+        name: 'Code Review',
+        description: 'Review the implementation for issues',
+        prompt: `Review this ticket's implementation thoroughly:
+- Check for bugs, edge cases, and potential issues
+- Look for security vulnerabilities
+- Verify it meets all acceptance criteria
+- Check code quality and maintainability
+- Suggest improvements if appropriate
+
+Output a review summary with your findings and any concerns.`,
+        suggestedForCategories: ['started', 'completed'],
+        modifiesCode: false,  // Read-only review
+      },
+    ]
+
+    const insertAction = this.db.prepare(`
+      INSERT OR IGNORE INTO ${T.actions} (id, name, description, prompt, suggested_for_categories, default_move_to_category, modifies_code, is_builtin, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+    `)
+
+    const now = new Date().toISOString()
+    for (const action of builtinActions) {
+      insertAction.run(
+        action.id,
+        action.name,
+        action.description,
+        action.prompt,
+        JSON.stringify(action.suggestedForCategories),
+        action.defaultMoveToCategory || null,
+        action.modifiesCode ? 1 : 0,
         now
       )
     }
@@ -929,6 +1047,10 @@ export class SQLiteStorage implements PMOStorage {
       updates.push('assignee = ?')
       params.push(changes.assignee)
     }
+    if (changes.branch !== undefined) {
+      updates.push('branch = ?')
+      params.push(changes.branch)
+    }
     if (changes.specId !== undefined) {
       updates.push('spec_id = ?')
       params.push(changes.specId)
@@ -1167,6 +1289,7 @@ export class SQLiteStorage implements PMOStorage {
       status: string
       owner: string | null
       assignee: string | null
+      branch: string | null
       spec_id: string | null
       epic_id: string | null
       column_id: string | null
@@ -2923,6 +3046,217 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   // ===========================================================================
+  // Work Action Operations
+  // ===========================================================================
+
+  async listActions(filter?: WorkActionFilter): Promise<WorkAction[]> {
+    type ActionRow = {
+      id: string
+      name: string
+      description: string | null
+      prompt: string
+      suggested_for_categories: string | null
+      default_move_to_category: string | null
+      modifies_code: number
+      is_builtin: number
+      created_at: string
+    }
+
+    let sql = `SELECT * FROM ${T.actions}`
+    const conditions: string[] = []
+    const params: unknown[] = []
+
+    if (filter?.isBuiltin !== undefined) {
+      conditions.push('is_builtin = ?')
+      params.push(filter.isBuiltin ? 1 : 0)
+    }
+
+    if (filter?.suggestedFor) {
+      conditions.push('suggested_for_categories LIKE ?')
+      params.push(`%"${filter.suggestedFor}"%`)
+    }
+
+    if (filter?.search) {
+      conditions.push('(name LIKE ? OR description LIKE ?)')
+      params.push(`%${filter.search}%`, `%${filter.search}%`)
+    }
+
+    if (conditions.length > 0) {
+      sql += ` WHERE ${conditions.join(' AND ')}`
+    }
+
+    sql += ' ORDER BY is_builtin DESC, name ASC'
+
+    const rows = this.db.prepare(sql).all(...params) as ActionRow[]
+
+    return rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      description: row.description || undefined,
+      prompt: row.prompt,
+      suggestedForCategories: row.suggested_for_categories
+        ? JSON.parse(row.suggested_for_categories) as StateCategory[]
+        : undefined,
+      defaultMoveToCategory: row.default_move_to_category as StateCategory | undefined,
+      modifiesCode: row.modifies_code === 1,
+      isBuiltin: row.is_builtin === 1,
+      createdAt: new Date(row.created_at),
+    }))
+  }
+
+  async getAction(id: string): Promise<WorkAction | null> {
+    type ActionRow = {
+      id: string
+      name: string
+      description: string | null
+      prompt: string
+      suggested_for_categories: string | null
+      default_move_to_category: string | null
+      modifies_code: number
+      is_builtin: number
+      created_at: string
+    }
+
+    const row = this.db.prepare(`SELECT * FROM ${T.actions} WHERE id = ?`).get(id) as ActionRow | undefined
+
+    if (!row) return null
+
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description || undefined,
+      prompt: row.prompt,
+      suggestedForCategories: row.suggested_for_categories
+        ? JSON.parse(row.suggested_for_categories) as StateCategory[]
+        : undefined,
+      defaultMoveToCategory: row.default_move_to_category as StateCategory | undefined,
+      modifiesCode: row.modifies_code === 1,
+      isBuiltin: row.is_builtin === 1,
+      createdAt: new Date(row.created_at),
+    }
+  }
+
+  async createAction(action: Partial<WorkAction>): Promise<WorkAction> {
+    if (!action.name) {
+      throw new PMOError('INVALID', 'Action name is required')
+    }
+    if (!action.prompt) {
+      throw new PMOError('INVALID', 'Action prompt is required')
+    }
+
+    const id = action.id || slugify(action.name)
+
+    // Check for duplicate name
+    const existing = this.db.prepare(`SELECT id FROM ${T.actions} WHERE LOWER(name) = LOWER(?)`).get(action.name)
+    if (existing) {
+      throw new PMOError('CONFLICT', `Action with name "${action.name}" already exists`)
+    }
+
+    const now = new Date().toISOString()
+    const modifiesCode = action.modifiesCode !== false  // Default to true
+
+    this.db.prepare(`
+      INSERT INTO ${T.actions} (id, name, description, prompt, suggested_for_categories, default_move_to_category, modifies_code, is_builtin, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      action.name,
+      action.description || null,
+      action.prompt,
+      action.suggestedForCategories ? JSON.stringify(action.suggestedForCategories) : null,
+      action.defaultMoveToCategory || null,
+      modifiesCode ? 1 : 0,
+      action.isBuiltin ? 1 : 0,
+      now
+    )
+
+    return {
+      id,
+      name: action.name,
+      description: action.description,
+      prompt: action.prompt,
+      suggestedForCategories: action.suggestedForCategories,
+      defaultMoveToCategory: action.defaultMoveToCategory,
+      modifiesCode,
+      isBuiltin: action.isBuiltin || false,
+      createdAt: new Date(now),
+    }
+  }
+
+  async updateAction(id: string, changes: Partial<WorkAction>): Promise<WorkAction> {
+    const existing = await this.getAction(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Action not found: ${id}`)
+    }
+
+    if (existing.isBuiltin) {
+      throw new PMOError('INVALID', 'Cannot modify built-in actions')
+    }
+
+    // Check for duplicate name if name is changing
+    if (changes.name && changes.name.toLowerCase() !== existing.name.toLowerCase()) {
+      const dup = this.db.prepare(`SELECT id FROM ${T.actions} WHERE LOWER(name) = LOWER(?) AND id != ?`).get(changes.name, id)
+      if (dup) {
+        throw new PMOError('CONFLICT', `Action "${changes.name}" already exists`)
+      }
+    }
+
+    const updates: string[] = []
+    const params: unknown[] = []
+
+    if (changes.name !== undefined) {
+      updates.push('name = ?')
+      params.push(changes.name)
+    }
+    if (changes.description !== undefined) {
+      updates.push('description = ?')
+      params.push(changes.description || null)
+    }
+    if (changes.prompt !== undefined) {
+      updates.push('prompt = ?')
+      params.push(changes.prompt)
+    }
+    if (changes.suggestedForCategories !== undefined) {
+      updates.push('suggested_for_categories = ?')
+      params.push(changes.suggestedForCategories ? JSON.stringify(changes.suggestedForCategories) : null)
+    }
+    if (changes.defaultMoveToCategory !== undefined) {
+      updates.push('default_move_to_category = ?')
+      params.push(changes.defaultMoveToCategory || null)
+    }
+    if (changes.modifiesCode !== undefined) {
+      updates.push('modifies_code = ?')
+      params.push(changes.modifiesCode ? 1 : 0)
+    }
+
+    if (updates.length > 0) {
+      params.push(id)
+      this.db.prepare(`UPDATE ${T.actions} SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+    }
+
+    return (await this.getAction(id))!
+  }
+
+  async deleteAction(id: string): Promise<void> {
+    const existing = await this.getAction(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Action not found: ${id}`)
+    }
+
+    if (existing.isBuiltin) {
+      throw new PMOError('INVALID', 'Cannot delete built-in actions')
+    }
+
+    this.db.prepare(`DELETE FROM ${T.actions} WHERE id = ?`).run(id)
+  }
+
+  async getSuggestedAction(category: StateCategory): Promise<WorkAction | null> {
+    const actions = await this.listActions({ suggestedFor: category })
+    // Return first matching action (built-ins first due to ordering)
+    return actions.length > 0 ? actions[0] : null
+  }
+
+  // ===========================================================================
   // Extended Project Operations
   // ===========================================================================
 
@@ -3272,6 +3606,7 @@ export class SQLiteStorage implements PMOStorage {
       status: string
       owner: string | null
       assignee: string | null
+      branch: string | null
       spec_id: string | null
       epic_id: string | null
       column_id: string
@@ -3305,6 +3640,7 @@ export class SQLiteStorage implements PMOStorage {
           status: string
           owner: string | null
           assignee: string | null
+          branch: string | null
           spec_id: string | null
           epic_id: string | null
           column_id: string | null
@@ -3331,6 +3667,7 @@ export class SQLiteStorage implements PMOStorage {
     status: string
     owner: string | null
     assignee: string | null
+    branch: string | null
     spec_id: string | null
     epic_id: string | null
     column_id: string | null
@@ -3379,6 +3716,7 @@ export class SQLiteStorage implements PMOStorage {
       status: row.status as Ticket['status'],
       owner: row.owner || undefined,
       assignee: row.assignee || undefined,
+      branch: row.branch || undefined,
       specId: row.spec_id || undefined,
       epicId: row.epic_id || undefined,
       subtasks: subtasks.map((st) => ({

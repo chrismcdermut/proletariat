@@ -139,6 +139,11 @@ export interface ExecutionContext {
   hqPath?: string // HQ root path for storing execution artifacts
   pmoPath?: string // PMO path for mounting into container
   createPR?: boolean // Whether to create a PR when work is ready (chosen at work start)
+  // Action context (what the agent should do)
+  actionId?: string       // Action ID (e.g., 'implement', 'groom')
+  actionName?: string     // Action name for display
+  actionPrompt?: string   // The action prompt (instruction for agent)
+  modifiesCode?: boolean  // Whether this action modifies code (needs branch)
   // PR feedback context (for work revise)
   prFeedback?: string // Formatted PR feedback markdown
   isRevision?: boolean // Whether this is a revision (addressing PR feedback)

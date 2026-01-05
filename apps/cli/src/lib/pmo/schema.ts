@@ -33,6 +33,7 @@ export const PMO_TABLES = {
   templates: 'pmo_templates',
   phases: 'pmo_phases',  // Project lifecycle phases (workspace-scoped)
   phase_templates: 'pmo_phase_templates',  // Phase configuration templates
+  actions: 'pmo_actions',  // Work actions (reusable agent prompts)
 } as const;
 
 // =============================================================================
@@ -88,6 +89,7 @@ export const PMO_TABLE_SCHEMAS = {
       status_id TEXT,
       owner TEXT,
       assignee TEXT,
+      branch TEXT,
       spec_id TEXT,
       epic_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -311,6 +313,19 @@ export const PMO_TABLE_SCHEMAS = {
       phases TEXT NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
+
+  actions: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.actions} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      prompt TEXT NOT NULL,
+      suggested_for_categories TEXT,
+      default_move_to_category TEXT,
+      modifies_code INTEGER NOT NULL DEFAULT 1,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
 } as const;
 
 // =============================================================================
@@ -386,6 +401,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.cache_metadata,
   PMO_TABLE_SCHEMAS.settings,
   PMO_TABLE_SCHEMAS.agent_work,  // Execution tracking
+  PMO_TABLE_SCHEMAS.actions,  // Work actions (reusable agent prompts)
   PMO_INDEXES,
 ].join(';\n');
 
@@ -404,6 +420,7 @@ export const EXPECTED_TICKET_COLUMNS = [
   'status_id',
   'owner',
   'assignee',
+  'branch',
   'spec_id',
   'epic_id',
   'created_at',
