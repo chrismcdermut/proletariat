@@ -205,3 +205,153 @@ export function arraysEqual<T>(a: T[], b: T[]): boolean {
   const sortedB = [...b].sort()
   return sortedA.every((val, idx) => val === sortedB[idx])
 }
+
+// =============================================================================
+// Commit Namespace Settings
+// =============================================================================
+
+/**
+ * Default commit namespace configuration.
+ *
+ * - namespace: The prefix to add to commit messages (e.g., "[prlt]")
+ * - includeAgent: Whether to include the agent name in the namespace (e.g., "[prlt:altman]")
+ * - format: Template for formatting commit messages with namespace
+ * - enabled: Whether to apply the namespace prefix to commits
+ */
+export const DEFAULT_COMMIT_NAMESPACE_CONFIG = {
+  namespace: '[prlt]',
+  includeAgent: false,
+  format: '{namespace} {message}',
+  enabled: true,
+} as const;
+
+export type CommitNamespaceConfigKey = keyof typeof DEFAULT_COMMIT_NAMESPACE_CONFIG;
+
+/**
+ * Get a commit namespace setting from pmo_settings with fallback to default.
+ *
+ * Settings keys:
+ * - commit_namespace: The prefix to add to commits (e.g., "[prlt]" or "[agent]")
+ * - commit_include_agent: Whether to include agent name in namespace (true/false)
+ * - commit_format: Template for formatting messages (e.g., "{namespace} {message}")
+ * - commit_enabled: Whether namespace prefixing is enabled (true/false)
+ *
+ * @param db - Database instance
+ * @param configKey - Key of the config option (namespace, includeAgent, format, enabled)
+ * @returns The configured value, or the default if not set
+ */
+export function getCommitNamespaceSetting<K extends CommitNamespaceConfigKey>(
+  db: DatabaseLike,
+  configKey: K
+): typeof DEFAULT_COMMIT_NAMESPACE_CONFIG[K] {
+  const settingKey = `commit_${configKey === 'includeAgent' ? 'include_agent' : configKey}`;
+
+  const row = db.prepare(
+    `SELECT value FROM pmo_settings WHERE key = ?`
+  ).get(settingKey) as { value: string } | undefined;
+
+  if (!row) {
+    return DEFAULT_COMMIT_NAMESPACE_CONFIG[configKey];
+  }
+
+  // Parse boolean values
+  if (configKey === 'includeAgent' || configKey === 'enabled') {
+    return (row.value === 'true') as typeof DEFAULT_COMMIT_NAMESPACE_CONFIG[K];
+  }
+
+  return row.value as typeof DEFAULT_COMMIT_NAMESPACE_CONFIG[K];
+}
+
+/**
+ * Set a commit namespace setting in pmo_settings.
+ *
+ * @param db - Database instance
+ * @param configKey - Key of the config option (namespace, includeAgent, format, enabled)
+ * @param value - Value to set
+ */
+export function setCommitNamespaceSetting<K extends CommitNamespaceConfigKey>(
+  db: DatabaseLike,
+  configKey: K,
+  value: typeof DEFAULT_COMMIT_NAMESPACE_CONFIG[K]
+): void {
+  const settingKey = `commit_${configKey === 'includeAgent' ? 'include_agent' : configKey}`;
+  const valueStr = String(value);
+
+  db.prepare(`
+    INSERT INTO pmo_settings (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = ?
+  `).run(settingKey, valueStr, valueStr);
+}
+
+/**
+ * Get all commit namespace settings as an object.
+ *
+ * @param db - Database instance
+ * @returns Object with all commit namespace settings
+ */
+export function getAllCommitNamespaceSettings(db: DatabaseLike): {
+  namespace: string;
+  includeAgent: boolean;
+  format: string;
+  enabled: boolean;
+} {
+  return {
+    namespace: getCommitNamespaceSetting(db, 'namespace'),
+    includeAgent: getCommitNamespaceSetting(db, 'includeAgent'),
+    format: getCommitNamespaceSetting(db, 'format'),
+    enabled: getCommitNamespaceSetting(db, 'enabled'),
+  };
+}
+
+/**
+ * Build a commit message with the configured namespace prefix.
+ *
+ * Uses the commit namespace settings to format the message:
+ * - If enabled=false, returns the original message unchanged
+ * - If includeAgent=true and agentName is provided, includes agent name in namespace
+ * - Applies the format template to construct the final message
+ *
+ * @param db - Database instance
+ * @param message - The original commit message
+ * @param agentName - Optional agent name to include in namespace
+ * @returns The formatted commit message with namespace prefix
+ *
+ * @example
+ * // With namespace="[prlt]", includeAgent=false, format="{namespace} {message}"
+ * buildCommitMessage(db, "feat: add login") // "[prlt] feat: add login"
+ *
+ * @example
+ * // With namespace="[prlt]", includeAgent=true, format="{namespace} {message}"
+ * buildCommitMessage(db, "feat: add login", "altman") // "[prlt:altman] feat: add login"
+ */
+export function buildCommitMessage(
+  db: DatabaseLike,
+  message: string,
+  agentName?: string
+): string {
+  const settings = getAllCommitNamespaceSettings(db);
+
+  // If namespace is disabled, return original message
+  if (!settings.enabled) {
+    return message;
+  }
+
+  // Build the namespace prefix
+  let namespace = settings.namespace;
+  if (settings.includeAgent && agentName) {
+    // Insert agent name into namespace, e.g., "[prlt]" -> "[prlt:altman]"
+    // Handle different namespace formats
+    if (namespace.endsWith(']')) {
+      namespace = namespace.slice(0, -1) + ':' + agentName + ']';
+    } else if (namespace.endsWith(')')) {
+      namespace = namespace.slice(0, -1) + ':' + agentName + ')';
+    } else {
+      namespace = namespace + ':' + agentName;
+    }
+  }
+
+  // Apply the format template
+  return settings.format
+    .replace('{namespace}', namespace)
+    .replace('{message}', message);
+}

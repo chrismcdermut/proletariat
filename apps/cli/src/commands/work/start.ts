@@ -5,7 +5,7 @@ import { execSync } from 'node:child_process'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
-import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
+import { getWorkColumnSetting, findColumnByName, getAllCommitNamespaceSettings } from '../../lib/pmo/utils.js'
 import { StateCategory, WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
@@ -463,8 +463,21 @@ export default class WorkStart extends Command {
       }
 
       // Build execution context with full ticket details
-      // HQ path is parent of pmoPath (pmoPath is <hq>/pmo)
-      const hqPath = path.dirname(pmoPath)
+      // HQ path comes from workspaceInfo (not derived from pmoPath since pmo can be nested in repos)
+      const hqPath = workspaceInfo.path
+
+      // Load commit namespace settings from PMO database
+      const pmoDatabasePath = path.join(pmoPath, 'pmo.db')
+      let commitNamespaceSettings: ExecutionContext['commitNamespace'] | undefined
+      if (fs.existsSync(pmoDatabasePath)) {
+        const pmoDb = new Database(pmoDatabasePath)
+        try {
+          commitNamespaceSettings = getAllCommitNamespaceSettings(pmoDb)
+        } finally {
+          pmoDb.close()
+        }
+      }
+
       const context: ExecutionContext = {
         ticketId: ticket.id,
         ticketTitle: ticket.title,
@@ -488,6 +501,8 @@ export default class WorkStart extends Command {
         actionName: selectedAction?.name || (customPrompt ? 'Custom' : undefined),
         actionPrompt: customPrompt || selectedAction?.prompt,
         modifiesCode: customPrompt ? true : selectedAction?.modifiesCode ?? true,
+        // Commit namespace settings
+        commitNamespace: commitNamespaceSettings,
       }
 
       // Check if agent has devcontainer config
@@ -1201,6 +1216,18 @@ export default class WorkStart extends Command {
     // Get default action for batch mode (use 'implement')
     const defaultAction = await storage.getAction('implement')
 
+    // Load commit namespace settings from PMO database
+    const pmoDatabasePath = path.join(pmoPath, 'pmo.db')
+    let commitNamespaceSettings: ExecutionContext['commitNamespace'] | undefined
+    if (fs.existsSync(pmoDatabasePath)) {
+      const pmoDb = new Database(pmoDatabasePath)
+      try {
+        commitNamespaceSettings = getAllCommitNamespaceSettings(pmoDb)
+      } finally {
+        pmoDb.close()
+      }
+    }
+
     // Build context
     const context: ExecutionContext = {
       ticketId: ticket.id,
@@ -1226,6 +1253,8 @@ export default class WorkStart extends Command {
       actionName: defaultAction?.name,
       actionPrompt: defaultAction?.prompt,
       modifiesCode: defaultAction?.modifiesCode ?? true,
+      // Commit namespace settings
+      commitNamespace: commitNamespaceSettings,
     }
 
     // Use devcontainer by default if available
