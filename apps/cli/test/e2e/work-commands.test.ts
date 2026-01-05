@@ -382,6 +382,20 @@ function setupTestDatabase(db: Database.Database) {
       FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS pmo_statuses (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      color TEXT,
+      description TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
+      UNIQUE(project_id, name)
+    );
+
     CREATE TABLE IF NOT EXISTS pmo_tickets (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -390,12 +404,18 @@ function setupTestDatabase(db: Database.Database) {
       priority TEXT DEFAULT 'MEDIUM',
       category TEXT DEFAULT 'feature',
       status TEXT DEFAULT 'backlog',
+      status_id TEXT,
       owner TEXT,
       assignee TEXT,
+      branch TEXT,
       spec_id TEXT,
+      epic_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE
+      last_synced_from_spec TEXT,
+      last_synced_from_board TEXT,
+      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (status_id) REFERENCES pmo_statuses(id)
     );
 
     CREATE TABLE IF NOT EXISTS pmo_board_tickets (
@@ -468,20 +488,58 @@ function setupTestDatabase(db: Database.Database) {
     `).run(col.id, col.name, col.position);
   }
 
+  // Workflow statuses (kanban template)
+  const statuses = [
+    { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
+    { id: 'status-todo', name: 'Todo', category: 'unstarted', position: 0 },
+    { id: 'status-in-progress', name: 'In Progress', category: 'started', position: 0 },
+    { id: 'status-in-review', name: 'In Review', category: 'started', position: 1 },
+    { id: 'status-done', name: 'Done', category: 'completed', position: 0 },
+    { id: 'status-canceled', name: 'Canceled', category: 'canceled', position: 0 },
+  ];
+
+  for (const status of statuses) {
+    db.prepare(`
+      INSERT INTO pmo_statuses (id, project_id, name, category, position, is_default)
+      VALUES (?, 'test-project', ?, ?, ?, ?)
+    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
+  }
+
   // Create PMO directory structure
   const pmoPath = path.join(process.cwd(), 'pmo/projects/test-project');
   fs.mkdirSync(pmoPath, { recursive: true });
 }
 
 let ticketCounter = 0;
-function createTicket(db: Database.Database, title: string, columnId: string): string {
+function createTicket(db: Database.Database, title: string, columnOrStatus: string): string {
   ticketCounter++;
   const ticketId = `TKT-${String(ticketCounter).padStart(3, '0')}`;
 
+  // Map input to actual column ID (columns: backlog, planned, in-progress, done)
+  const toColumnId: Record<string, string> = {
+    'backlog': 'backlog',
+    'planned': 'planned',
+    'in-progress': 'in-progress',
+    'in-review': 'in-progress',  // in-review uses in-progress column
+    'done': 'done',
+  };
+
+  // Map input to status
+  const toStatusId: Record<string, string> = {
+    'backlog': 'status-backlog',
+    'planned': 'status-todo',
+    'in-progress': 'status-in-progress',
+    'in-review': 'status-in-review',
+    'done': 'status-done',
+  };
+
+  const columnId = toColumnId[columnOrStatus] || 'backlog';
+  const statusId = toStatusId[columnOrStatus] || 'status-backlog';
+
   db.prepare(`
-    INSERT INTO pmo_tickets (id, project_id, title, status)
-    VALUES (?, 'test-project', ?, ?)
-  `).run(ticketId, title, columnId === 'done' ? 'done' : 'active');
+    INSERT INTO pmo_tickets (id, project_id, title, status, status_id)
+    VALUES (?, 'test-project', ?, ?, ?)
+  `).run(ticketId, title, columnOrStatus === 'done' ? 'done' : 'active', statusId);
 
   db.prepare(`
     INSERT INTO pmo_board_tickets (project_id, ticket_id, column_id, position)

@@ -3769,16 +3769,7 @@ Output a review summary with your findings and any concerns.`,
       metadata[m.key] = m.value
     }
 
-    // Get spec path for backward compat
-    let specPath: string | undefined
-    if (row.spec_id) {
-      const specRow = this.db
-        .prepare(`SELECT path FROM ${T.specs} WHERE id = ?`)
-        .get(row.spec_id) as { path: string } | undefined
-      if (specRow) {
-        specPath = specRow.path
-      }
-    }
+    // Note: specs field is deprecated - use specId and getSpecsForTicket() instead
 
     // Get status info
     let statusName: string | undefined
@@ -3831,7 +3822,7 @@ Output a review summary with your findings and any concerns.`,
       // DEPRECATED fields for backward compat
       column: row.column_name || undefined,
       position: row.position !== null ? row.position : undefined,
-      specs: specPath ? [specPath] : [],
+      specs: [],  // Deprecated - use specId and getSpecsForTicket()
     }
   }
 

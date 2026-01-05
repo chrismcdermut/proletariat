@@ -249,11 +249,8 @@ describe('PMO Action Commands E2E Tests', () => {
       expect(output.toLowerCase()).to.contain('not found');
     });
 
-    it('should error when no changes specified', () => {
-      const output = exec('action update updatable');
-
-      expect(output.toLowerCase()).to.contain('must provide');
-    });
+    // Note: "no flags" now enters interactive mode instead of erroring
+    // Interactive mode tests are handled separately
 
     it('should not allow updating built-in actions', () => {
       const output = exec('action update groom --name "New Groom"');
@@ -316,6 +313,7 @@ function setupTestDatabase(db: Database.Database) {
       default_move_to_category TEXT,
       modifies_code INTEGER NOT NULL DEFAULT 1,
       is_builtin INTEGER NOT NULL DEFAULT 0,
+      position INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -395,7 +393,7 @@ function setupTestDatabase(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_pmo_tickets_project ON pmo_tickets(project_id);
   `);
 
-  // Seed built-in actions
+  // Seed built-in actions (in workflow order)
   const builtinActions = [
     {
       id: 'groom',
@@ -405,6 +403,7 @@ function setupTestDatabase(db: Database.Database) {
       suggestedForCategories: ['backlog'],
       defaultMoveToCategory: 'unstarted',
       modifiesCode: false,
+      position: 0,
     },
     {
       id: 'implement',
@@ -414,6 +413,7 @@ function setupTestDatabase(db: Database.Database) {
       suggestedForCategories: ['unstarted', 'started'],
       defaultMoveToCategory: 'started',
       modifiesCode: true,
+      position: 1,
     },
     {
       id: 'continue',
@@ -423,6 +423,25 @@ function setupTestDatabase(db: Database.Database) {
       suggestedForCategories: ['started'],
       defaultMoveToCategory: 'started',
       modifiesCode: true,
+      position: 2,
+    },
+    {
+      id: 'test',
+      name: 'Write Tests',
+      description: 'Add comprehensive tests for the implementation',
+      prompt: 'Write comprehensive tests...',
+      suggestedForCategories: ['started', 'completed'],
+      modifiesCode: true,
+      position: 3,
+    },
+    {
+      id: 'review',
+      name: 'Code Review',
+      description: 'Review the implementation for issues',
+      prompt: 'Review this ticket...',
+      suggestedForCategories: ['started', 'completed'],
+      modifiesCode: false,
+      position: 4,
     },
     {
       id: 'revise',
@@ -432,29 +451,14 @@ function setupTestDatabase(db: Database.Database) {
       suggestedForCategories: ['completed'],
       defaultMoveToCategory: 'started',
       modifiesCode: true,
-    },
-    {
-      id: 'test',
-      name: 'Write Tests',
-      description: 'Add comprehensive tests for the implementation',
-      prompt: 'Write comprehensive tests...',
-      suggestedForCategories: ['started', 'completed'],
-      modifiesCode: true,
-    },
-    {
-      id: 'review',
-      name: 'Code Review',
-      description: 'Review the implementation for issues',
-      prompt: 'Review this ticket...',
-      suggestedForCategories: ['started', 'completed'],
-      modifiesCode: false,
+      position: 5,
     },
   ];
 
   for (const action of builtinActions) {
     db.prepare(`
-      INSERT INTO pmo_actions (id, name, description, prompt, suggested_for_categories, default_move_to_category, modifies_code, is_builtin)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+      INSERT INTO pmo_actions (id, name, description, prompt, suggested_for_categories, default_move_to_category, modifies_code, is_builtin, position)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
     `).run(
       action.id,
       action.name,
@@ -462,7 +466,8 @@ function setupTestDatabase(db: Database.Database) {
       action.prompt,
       JSON.stringify(action.suggestedForCategories),
       action.defaultMoveToCategory || null,
-      action.modifiesCode ? 1 : 0
+      action.modifiesCode ? 1 : 0,
+      action.position
     );
   }
 
