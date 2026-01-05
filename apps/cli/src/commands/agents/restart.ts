@@ -4,6 +4,7 @@ import { promisify } from 'util';
 import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { isDockerRunning } from '../../lib/execution/runners.js';
 
 const execAsync = promisify(exec);
 
@@ -80,6 +81,11 @@ export default class AgentsRestart extends Command {
     if (agentsToRestart.length === 0) {
       this.log(colors.warning('No agents to restart'));
       return;
+    }
+
+    // Check if Docker is running before attempting container operations
+    if (!isDockerRunning()) {
+      this.error('Docker is not running. Please start Docker Desktop and try again.');
     }
 
     this.log(colors.primary(`🔄 Restarting ${agentsToRestart.length} agent container(s)...\n`));

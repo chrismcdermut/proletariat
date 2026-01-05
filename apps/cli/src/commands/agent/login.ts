@@ -5,6 +5,7 @@ import { execSync } from 'child_process';
 import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { isDockerRunning } from '../../lib/execution/runners.js';
 
 export default class Login extends Command {
   static description = 'Authenticate Claude Code inside an agent container (one-time setup)';
@@ -25,6 +26,11 @@ export default class Login extends Command {
 
   async run(): Promise<void> {
     const { args } = await this.parse(Login);
+
+    // Check if Docker is running before attempting container operations
+    if (!isDockerRunning()) {
+      this.error('Docker is not running. Please start Docker Desktop and try again.');
+    }
 
     try {
       // Get workspace information

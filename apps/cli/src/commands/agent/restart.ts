@@ -2,6 +2,7 @@ import { Args, Command } from '@oclif/core';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { colors } from '../../lib/colors.js';
+import { isDockerRunning } from '../../lib/execution/runners.js';
 
 const execAsync = promisify(exec);
 
@@ -22,6 +23,11 @@ export default class AgentRestart extends Command {
   async run(): Promise<void> {
     const { args } = await this.parse(AgentRestart);
     const agentName = args.name;
+
+    // Check if Docker is running before attempting container operations
+    if (!isDockerRunning()) {
+      this.error('Docker is not running. Please start Docker Desktop and try again.');
+    }
 
     this.log(colors.primary(`🔄 Restarting agent: ${agentName}\n`));
 

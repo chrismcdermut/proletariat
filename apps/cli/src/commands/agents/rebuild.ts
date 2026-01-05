@@ -5,6 +5,7 @@ import * as path from 'path';
 import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { isDockerRunning } from '../../lib/execution/runners.js';
 
 const execAsync = promisify(exec);
 
@@ -85,6 +86,11 @@ export default class AgentsRebuild extends Command {
     if (agentsToRebuild.length === 0) {
       this.log(colors.warning('No agents to rebuild'));
       return;
+    }
+
+    // Check if Docker is running before attempting to build containers
+    if (!isDockerRunning()) {
+      this.error('Docker is not running. Please start Docker Desktop and try again.');
     }
 
     this.log(colors.primary(`🔨 Rebuilding ${agentsToRebuild.length} agent container(s)...\n`));

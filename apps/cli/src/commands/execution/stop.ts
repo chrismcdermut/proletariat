@@ -6,6 +6,7 @@ import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
+import { isDockerRunning } from '../../lib/execution/runners.js'
 
 export default class ExecutionStop extends Command {
   static description = 'Stop a running execution'
@@ -148,16 +149,22 @@ export default class ExecutionStop extends Command {
             break
 
           case 'docker':
+          case 'devcontainer':
             if (execution.containerId) {
-              try {
-                const cmd = flags.force
-                  ? `docker kill ${execution.containerId}`
-                  : `docker stop ${execution.containerId}`
-                execSync(cmd, { stdio: 'pipe' })
+              if (!isDockerRunning()) {
+                this.warn('Docker is not running. Cannot stop container.')
                 stopped = true
-              } catch {
-                // Container may have already stopped
-                stopped = true
+              } else {
+                try {
+                  const cmd = flags.force
+                    ? `docker kill ${execution.containerId}`
+                    : `docker stop ${execution.containerId}`
+                  execSync(cmd, { stdio: 'pipe' })
+                  stopped = true
+                } catch {
+                  // Container may have already stopped
+                  stopped = true
+                }
               }
             }
             break

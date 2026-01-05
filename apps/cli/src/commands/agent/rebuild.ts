@@ -4,6 +4,7 @@ import { promisify } from 'util';
 import * as path from 'path';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { isDockerRunning } from '../../lib/execution/runners.js';
 
 const execAsync = promisify(exec);
 
@@ -37,6 +38,11 @@ export default class AgentRebuild extends Command {
     const workspaceInfo = getWorkspaceInfo();
     if (!workspaceInfo) {
       this.error('Not in a proletariat workspace. Run `prlt init` first.');
+    }
+
+    // Check if Docker is running before attempting to build container
+    if (!isDockerRunning()) {
+      this.error('Docker is not running. Please start Docker Desktop and try again.');
     }
 
     this.log(colors.primary(`🔨 Rebuilding agent: ${agentName}\n`));
