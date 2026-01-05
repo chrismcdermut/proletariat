@@ -1,10 +1,10 @@
 import { Command, Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../lib/pmo/index.js';
-import { styles } from '../../lib/styles.js';
+import { getPMOContext } from '../../../lib/pmo/index.js';
+import { styles } from '../../../lib/styles.js';
 
-export default class TemplateDelete extends Command {
-  static description = 'Delete a workflow template';
+export default class StatusTemplateDelete extends Command {
+  static description = 'Delete a workflow status template';
 
   static examples = [
     '<%= config.bin %> <%= command.id %> my-template',
@@ -27,7 +27,7 @@ export default class TemplateDelete extends Command {
   };
 
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(TemplateDelete);
+    const { args, flags } = await this.parse(StatusTemplateDelete);
 
     const { storage } = await getPMOContext(
       undefined,

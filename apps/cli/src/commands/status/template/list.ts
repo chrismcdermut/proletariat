@@ -1,10 +1,10 @@
 import { Command, Flags } from '@oclif/core';
-import { getPMOContext } from '../../lib/pmo/index.js';
-import { styles } from '../../lib/styles.js';
-import { StateCategory, WorkflowTemplate } from '../../lib/pmo/types.js';
+import { getPMOContext } from '../../../lib/pmo/index.js';
+import { styles } from '../../../lib/styles.js';
+import { StateCategory, WorkflowTemplate } from '../../../lib/pmo/types.js';
 
-export default class TemplateList extends Command {
-  static description = 'List available workflow templates';
+export default class StatusTemplateList extends Command {
+  static description = 'List available workflow status templates';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
@@ -28,7 +28,7 @@ export default class TemplateList extends Command {
   };
 
   async run(): Promise<void> {
-    const { flags } = await this.parse(TemplateList);
+    const { flags } = await this.parse(StatusTemplateList);
 
     const { storage } = await getPMOContext(
       undefined,
@@ -55,7 +55,7 @@ export default class TemplateList extends Command {
         return;
       }
 
-      this.log(`\n📋 ${styles.emphasis('Workflow Templates')}`);
+      this.log(`\n📋 ${styles.emphasis('Status Templates')}`);
       this.log('═'.repeat(60));
 
       // Group by builtin vs custom
@@ -79,7 +79,7 @@ export default class TemplateList extends Command {
       }
 
       this.log('');
-      this.log(styles.muted('Apply a template: prlt template apply <template-id>'));
+      this.log(styles.muted('Apply a template: prlt status template apply <template-id>'));
       this.log('');
 
       await storage.close();

@@ -1,10 +1,10 @@
 import { Command, Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../lib/pmo/index.js';
-import { styles } from '../../lib/styles.js';
+import { getPMOContext } from '../../../lib/pmo/index.js';
+import { styles } from '../../../lib/styles.js';
 
-export default class TemplateApply extends Command {
-  static description = 'Apply a workflow template to a project';
+export default class StatusTemplateApply extends Command {
+  static description = 'Apply a workflow status template to a project';
 
   static examples = [
     '<%= config.bin %> <%= command.id %> kanban',
@@ -32,7 +32,7 @@ export default class TemplateApply extends Command {
   };
 
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(TemplateApply);
+    const { args, flags } = await this.parse(StatusTemplateApply);
 
     const { storage, projectName, projectId } = await getPMOContext(
       flags.project,
@@ -45,7 +45,7 @@ export default class TemplateApply extends Command {
       const template = await storage.getTemplate(args.template);
       if (!template) {
         await storage.close();
-        this.error(`Template not found: ${args.template}\nRun 'prlt template list' to see available templates.`);
+        this.error(`Template not found: ${args.template}\nRun 'prlt status template list' to see available templates.`);
       }
 
       // Check if project has existing statuses

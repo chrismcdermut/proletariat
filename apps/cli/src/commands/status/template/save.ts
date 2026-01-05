@@ -1,9 +1,9 @@
 import { Command, Flags, Args } from '@oclif/core';
-import { getPMOContext } from '../../lib/pmo/index.js';
-import { styles } from '../../lib/styles.js';
+import { getPMOContext } from '../../../lib/pmo/index.js';
+import { styles } from '../../../lib/styles.js';
 
-export default class TemplateCreate extends Command {
-  static description = 'Create a new workflow template from a project\'s statuses';
+export default class StatusTemplateSave extends Command {
+  static description = 'Save current project workflow as a reusable template';
 
   static examples = [
     '<%= config.bin %> <%= command.id %> "My Custom Workflow"',
@@ -30,7 +30,7 @@ export default class TemplateCreate extends Command {
   };
 
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(TemplateCreate);
+    const { args, flags } = await this.parse(StatusTemplateSave);
 
     const { storage, projectName, projectId } = await getPMOContext(
       flags.project,
@@ -43,7 +43,7 @@ export default class TemplateCreate extends Command {
       const statuses = await storage.listStatuses(projectId);
       if (statuses.length === 0) {
         await storage.close();
-        this.error(`Project "${projectName}" has no statuses to save.\nApply a template first: prlt template apply kanban`);
+        this.error(`Project "${projectName}" has no statuses to save.\nApply a template first: prlt status template apply kanban`);
       }
 
       // Save as template
@@ -58,7 +58,7 @@ export default class TemplateCreate extends Command {
       }
       this.log(styles.muted(`  Statuses: ${template.statuses.length}`));
       this.log('');
-      this.log(styles.muted(`Apply to a project: prlt template apply ${template.id}`));
+      this.log(styles.muted(`Apply to a project: prlt status template apply ${template.id}`));
     } catch (error) {
       await storage.close();
       if (error instanceof Error && error.message.includes('already exists')) {
