@@ -2,8 +2,8 @@ import { Command, Flags, Args } from '@oclif/core';
 import { getPMOContext } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class TemplateSave extends Command {
-  static description = 'Save a project\'s statuses as a reusable template';
+export default class TemplateCreate extends Command {
+  static description = 'Create a new workflow template from a project\'s statuses';
 
   static examples = [
     '<%= config.bin %> <%= command.id %> "My Custom Workflow"',
@@ -21,7 +21,7 @@ export default class TemplateSave extends Command {
   static flags = {
     project: Flags.string({
       char: 'P',
-      description: 'Project ID to save statuses from (default: "default")',
+      description: 'Project ID to copy statuses from (default: current project)',
     }),
     description: Flags.string({
       char: 'd',
@@ -30,7 +30,7 @@ export default class TemplateSave extends Command {
   };
 
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(TemplateSave);
+    const { args, flags } = await this.parse(TemplateCreate);
 
     const { storage, projectName, projectId } = await getPMOContext(
       flags.project,
@@ -51,14 +51,14 @@ export default class TemplateSave extends Command {
 
       await storage.close();
 
-      this.log(styles.success(`\nSaved template "${styles.emphasis(template.name)}"`));
+      this.log(styles.success(`\nCreated template "${styles.emphasis(template.name)}"`));
       this.log(styles.muted(`  ID: ${template.id}`));
       if (template.description) {
         this.log(styles.muted(`  Description: ${template.description}`));
       }
       this.log(styles.muted(`  Statuses: ${template.statuses.length}`));
       this.log('');
-      this.log(styles.muted(`Apply to another project: prlt template apply ${template.id}`));
+      this.log(styles.muted(`Apply to a project: prlt template apply ${template.id}`));
     } catch (error) {
       await storage.close();
       if (error instanceof Error && error.message.includes('already exists')) {

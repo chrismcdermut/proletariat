@@ -181,6 +181,31 @@ export interface ProjectPhase {
 }
 
 /**
+ * Phase template - a preset phase configuration.
+ * Templates are copied when applied, not referenced.
+ */
+export interface PhaseTemplate {
+  id: string
+  name: string
+  description?: string
+  isBuiltin: boolean        // System-provided vs user-created
+  phases: PhaseTemplatePhase[]
+  createdAt: Date
+}
+
+/**
+ * Phase definition within a template (reusable across workspaces)
+ */
+export interface PhaseTemplatePhase {
+  name: string
+  category: StateCategory
+  position: number
+  color?: string
+  description?: string
+  isDefault?: boolean
+}
+
+/**
  * Board represents a project's kanban board view.
  * This is what gets rendered to board.md and displayed in the UI.
  */
@@ -414,6 +439,11 @@ export interface PhaseFilter {
   search?: string
 }
 
+export interface PhaseTemplateFilter {
+  isBuiltin?: boolean
+  search?: string
+}
+
 export interface ProjectFilter {
   phaseId?: string
   isArchived?: boolean
@@ -540,6 +570,14 @@ export interface PMOStorage {
   deletePhase(id: string): Promise<void>
   reorderPhase(id: string, newPosition: number): Promise<ProjectPhase>
   getDefaultPhase(): Promise<ProjectPhase | null>
+
+  // Phase Template Operations
+  listPhaseTemplates(filter?: PhaseTemplateFilter): Promise<PhaseTemplate[]>
+  getPhaseTemplate(id: string): Promise<PhaseTemplate | null>
+  applyPhaseTemplate(templateId: string): Promise<ProjectPhase[]>
+  savePhaseTemplate(name: string, description?: string): Promise<PhaseTemplate>
+  updatePhaseTemplate(id: string, changes: { name?: string; description?: string }): Promise<PhaseTemplate>
+  deletePhaseTemplate(id: string): Promise<void>
 
   // Project Operations
   getProject(id: string): Promise<Project | null>

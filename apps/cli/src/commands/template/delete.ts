@@ -1,19 +1,19 @@
-import { Command, Args, Flags } from '@oclif/core';
+import { Command, Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { getPMOContext } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class PhaseDelete extends Command {
-  static description = 'Delete a project lifecycle phase';
+export default class TemplateDelete extends Command {
+  static description = 'Delete a workflow template';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> on-hold',
-    '<%= config.bin %> <%= command.id %> on-hold --force',
+    '<%= config.bin %> <%= command.id %> my-template',
+    '<%= config.bin %> <%= command.id %> my-template --force',
   ];
 
   static args = {
     id: Args.string({
-      description: 'Phase ID',
+      description: 'Template ID',
       required: true,
     }),
   };
@@ -27,44 +27,49 @@ export default class PhaseDelete extends Command {
   };
 
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(PhaseDelete);
+    const { args, flags } = await this.parse(TemplateDelete);
 
     const { storage } = await getPMOContext(
       undefined,
       (msg) => this.log(styles.muted(msg)),
-      false  // Phases are workspace-scoped, no project selection needed
+      false
     );
 
     try {
-      const phase = await storage.getPhase(args.id);
-      if (!phase) {
+      const template = await storage.getTemplate(args.id);
+      if (!template) {
         await storage.close();
-        this.error(`Phase "${args.id}" not found.`);
+        this.error(`Template "${args.id}" not found.`);
+      }
+
+      if (template.isBuiltin) {
+        await storage.close();
+        this.error('Cannot delete built-in templates.');
       }
 
       if (!flags.force) {
         const { confirm } = await inquirer.prompt<{ confirm: boolean }>([{
           type: 'confirm',
           name: 'confirm',
-          message: `Delete phase "${phase.name}"?`,
+          message: `Delete template "${template.name}"?`,
           default: false,
         }]);
 
         if (!confirm) {
-          this.log(styles.muted('Cancelled.'));
           await storage.close();
+          this.log(styles.muted('Cancelled.'));
           return;
         }
       }
 
-      await storage.deletePhase(args.id);
+      await storage.deleteTemplate(args.id);
 
       await storage.close();
 
-      this.log(styles.success(`\nDeleted phase "${phase.name}"`));
+      this.log(styles.success(`\nDeleted template "${template.name}"`));
     } catch (error) {
       await storage.close();
-      if (error instanceof Error && error.message.includes('are using it')) {
+      if (error instanceof Error && error.message.includes('Cannot delete')) {
         this.error(error.message);
       }
       throw error;

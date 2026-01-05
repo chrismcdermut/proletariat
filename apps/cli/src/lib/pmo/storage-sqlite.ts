@@ -16,6 +16,9 @@ import {
   Epic,
   EpicFilter,
   PhaseFilter,
+  PhaseTemplate,
+  PhaseTemplateFilter,
+  PhaseTemplatePhase,
   PMOError,
   PMOStorage,
   Project,
@@ -103,6 +106,7 @@ export class SQLiteStorage implements PMOStorage {
     // Seed built-in templates and phases AFTER tables are created
     this.seedBuiltinTemplates()
     this.seedBuiltinPhases()
+    this.seedBuiltinPhaseTemplates()
 
     // Validate schema matches expected columns (catches drift early)
     validateTicketSchema(this.db)
@@ -336,6 +340,94 @@ export class SQLiteStorage implements PMOStorage {
         phase.position,
         phase.description || null,
         phase.isDefault ? 1 : 0,
+        now
+      )
+    }
+  }
+
+  /**
+   * Seed built-in phase templates.
+   * These are system-provided templates for project lifecycle phases.
+   */
+  private seedBuiltinPhaseTemplates(): void {
+    type TemplatePhase = {
+      name: string
+      category: StateCategory
+      position: number
+      description?: string
+      isDefault?: boolean
+    }
+
+    const builtinPhaseTemplates: Array<{
+      id: string
+      name: string
+      description: string
+      phases: TemplatePhase[]
+    }> = [
+      {
+        id: 'default',
+        name: 'Default',
+        description: 'Standard project lifecycle phases',
+        phases: [
+          { name: 'Idea', category: 'backlog', position: 0, description: 'Project concept, not yet planned', isDefault: true },
+          { name: 'Planned', category: 'unstarted', position: 0, description: 'Scheduled for work but not started' },
+          { name: 'Active', category: 'started', position: 0, description: 'Work is in progress' },
+          { name: 'Completed', category: 'completed', position: 0, description: 'Project finished successfully' },
+          { name: 'Canceled', category: 'canceled', position: 0, description: 'Project won\'t be completed' },
+        ],
+      },
+      {
+        id: 'agile',
+        name: 'Agile',
+        description: 'Agile/Scrum project phases',
+        phases: [
+          { name: 'Backlog', category: 'backlog', position: 0, description: 'Not yet prioritized' },
+          { name: 'Groomed', category: 'unstarted', position: 0, description: 'Ready to be picked up' },
+          { name: 'In Sprint', category: 'started', position: 0, description: 'Actively being worked on', isDefault: true },
+          { name: 'Done', category: 'completed', position: 0, description: 'Sprint work completed' },
+          { name: 'Dropped', category: 'canceled', position: 0, description: 'Removed from backlog' },
+        ],
+      },
+      {
+        id: 'product',
+        name: 'Product',
+        description: 'Product development lifecycle',
+        phases: [
+          { name: 'Discovery', category: 'backlog', position: 0, description: 'Research and exploration' },
+          { name: 'Definition', category: 'unstarted', position: 0, description: 'Requirements and specs', isDefault: true },
+          { name: 'Development', category: 'started', position: 0, description: 'Building the product' },
+          { name: 'Launch', category: 'completed', position: 0, description: 'Shipped to users' },
+          { name: 'Growth', category: 'completed', position: 1, description: 'Post-launch iteration' },
+          { name: 'Sunset', category: 'canceled', position: 0, description: 'End of life' },
+        ],
+      },
+      {
+        id: 'startup',
+        name: 'Startup',
+        description: 'Lean startup methodology',
+        phases: [
+          { name: 'Hypothesis', category: 'backlog', position: 0, description: 'Untested idea' },
+          { name: 'Validated', category: 'unstarted', position: 0, description: 'Problem validated', isDefault: true },
+          { name: 'Building', category: 'started', position: 0, description: 'MVP in progress' },
+          { name: 'Measuring', category: 'started', position: 1, description: 'Collecting feedback' },
+          { name: 'Scaling', category: 'completed', position: 0, description: 'Growth phase' },
+          { name: 'Pivoted', category: 'canceled', position: 0, description: 'Changed direction' },
+        ],
+      },
+    ]
+
+    const insertTemplate = this.db.prepare(`
+      INSERT OR IGNORE INTO ${T.phase_templates} (id, name, description, is_builtin, phases, created_at)
+      VALUES (?, ?, ?, 1, ?, ?)
+    `)
+
+    const now = new Date().toISOString()
+    for (const template of builtinPhaseTemplates) {
+      insertTemplate.run(
+        template.id,
+        template.name,
+        template.description,
+        JSON.stringify(template.phases),
         now
       )
     }
@@ -2280,6 +2372,44 @@ export class SQLiteStorage implements PMOStorage {
     }
   }
 
+  async updateTemplate(id: string, changes: { name?: string; description?: string }): Promise<WorkflowTemplate> {
+    const existing = await this.getTemplate(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Template not found: ${id}`)
+    }
+
+    if (existing.isBuiltin) {
+      throw new PMOError('INVALID', 'Cannot modify built-in templates')
+    }
+
+    // Check for duplicate name if name is changing
+    if (changes.name && changes.name.toLowerCase() !== existing.name.toLowerCase()) {
+      const dup = this.db.prepare(`SELECT id FROM ${T.templates} WHERE LOWER(name) = LOWER(?) AND id != ?`).get(changes.name, id)
+      if (dup) {
+        throw new PMOError('CONFLICT', `Template "${changes.name}" already exists`)
+      }
+    }
+
+    const updates: string[] = []
+    const params: unknown[] = []
+
+    if (changes.name !== undefined) {
+      updates.push('name = ?')
+      params.push(changes.name)
+    }
+    if (changes.description !== undefined) {
+      updates.push('description = ?')
+      params.push(changes.description || null)
+    }
+
+    if (updates.length > 0) {
+      params.push(id)
+      this.db.prepare(`UPDATE ${T.templates} SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+    }
+
+    return (await this.getTemplate(id))!
+  }
+
   async deleteTemplate(id: string): Promise<void> {
     const existing = await this.getTemplate(id)
     if (!existing) {
@@ -2405,6 +2535,11 @@ export class SQLiteStorage implements PMOStorage {
 
     const id = phase.id || slugify(phase.name)
     const now = new Date().toISOString()
+
+    // If setting as default, unset other defaults first
+    if (phase.isDefault) {
+      this.db.prepare(`UPDATE ${T.phases} SET is_default = 0`).run()
+    }
 
     this.db.prepare(`
       INSERT INTO ${T.phases} (id, name, category, position, color, description, is_default, created_at)
@@ -2578,6 +2713,216 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   // ===========================================================================
+  // Phase Template Operations
+  // ===========================================================================
+
+  async listPhaseTemplates(filter?: PhaseTemplateFilter): Promise<PhaseTemplate[]> {
+    type TemplateRow = {
+      id: string
+      name: string
+      description: string | null
+      is_builtin: number
+      phases: string
+      created_at: string
+    }
+
+    let sql = `SELECT * FROM ${T.phase_templates}`
+    const conditions: string[] = []
+    const params: unknown[] = []
+
+    if (filter?.isBuiltin !== undefined) {
+      conditions.push('is_builtin = ?')
+      params.push(filter.isBuiltin ? 1 : 0)
+    }
+
+    if (filter?.search) {
+      conditions.push('(name LIKE ? OR description LIKE ?)')
+      params.push(`%${filter.search}%`, `%${filter.search}%`)
+    }
+
+    if (conditions.length > 0) {
+      sql += ` WHERE ${conditions.join(' AND ')}`
+    }
+
+    sql += ' ORDER BY is_builtin DESC, name ASC'
+
+    const rows = this.db.prepare(sql).all(...params) as TemplateRow[]
+
+    return rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      description: row.description || undefined,
+      isBuiltin: row.is_builtin === 1,
+      phases: JSON.parse(row.phases) as PhaseTemplatePhase[],
+      createdAt: new Date(row.created_at),
+    }))
+  }
+
+  async getPhaseTemplate(id: string): Promise<PhaseTemplate | null> {
+    type TemplateRow = {
+      id: string
+      name: string
+      description: string | null
+      is_builtin: number
+      phases: string
+      created_at: string
+    }
+
+    const row = this.db.prepare(`SELECT * FROM ${T.phase_templates} WHERE id = ?`).get(id) as TemplateRow | undefined
+
+    if (!row) return null
+
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description || undefined,
+      isBuiltin: row.is_builtin === 1,
+      phases: JSON.parse(row.phases) as PhaseTemplatePhase[],
+      createdAt: new Date(row.created_at),
+    }
+  }
+
+  async applyPhaseTemplate(templateId: string): Promise<ProjectPhase[]> {
+    const template = await this.getPhaseTemplate(templateId)
+    if (!template) {
+      throw new PMOError('NOT_FOUND', `Phase template not found: ${templateId}`)
+    }
+
+    // Delete existing phases
+    this.db.prepare(`DELETE FROM ${T.phases}`).run()
+
+    // Create phases from template
+    const createdPhases: ProjectPhase[] = []
+    const now = new Date().toISOString()
+
+    for (const templatePhase of template.phases) {
+      const id = slugify(templatePhase.name)
+
+      this.db.prepare(`
+        INSERT INTO ${T.phases} (id, name, category, position, color, description, is_default, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        templatePhase.name,
+        templatePhase.category,
+        templatePhase.position,
+        templatePhase.color || null,
+        templatePhase.description || null,
+        templatePhase.isDefault ? 1 : 0,
+        now
+      )
+
+      createdPhases.push({
+        id,
+        name: templatePhase.name,
+        category: templatePhase.category,
+        position: templatePhase.position,
+        color: templatePhase.color,
+        description: templatePhase.description,
+        isDefault: templatePhase.isDefault,
+        createdAt: new Date(now),
+      })
+    }
+
+    return createdPhases
+  }
+
+  async savePhaseTemplate(name: string, description?: string): Promise<PhaseTemplate> {
+    // Get current phases from workspace
+    const phases = await this.listPhases()
+    if (phases.length === 0) {
+      throw new PMOError('INVALID', 'No phases configured to save as template')
+    }
+
+    // Check for duplicate template name
+    const existing = this.db.prepare(`
+      SELECT id FROM ${T.phase_templates}
+      WHERE LOWER(name) = LOWER(?)
+    `).get(name) as { id: string } | undefined
+    if (existing) {
+      throw new PMOError('CONFLICT', `Phase template with name "${name}" already exists`)
+    }
+
+    const id = slugify(name)
+    const now = new Date().toISOString()
+
+    // Convert phases to template format
+    const templatePhases: PhaseTemplatePhase[] = phases.map(p => ({
+      name: p.name,
+      category: p.category,
+      position: p.position,
+      color: p.color,
+      description: p.description,
+      isDefault: p.isDefault,
+    }))
+
+    this.db.prepare(`
+      INSERT INTO ${T.phase_templates} (id, name, description, is_builtin, phases, created_at)
+      VALUES (?, ?, ?, 0, ?, ?)
+    `).run(id, name, description || null, JSON.stringify(templatePhases), now)
+
+    return {
+      id,
+      name,
+      description,
+      isBuiltin: false,
+      phases: templatePhases,
+      createdAt: new Date(now),
+    }
+  }
+
+  async updatePhaseTemplate(id: string, changes: { name?: string; description?: string }): Promise<PhaseTemplate> {
+    const existing = await this.getPhaseTemplate(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Phase template not found: ${id}`)
+    }
+
+    if (existing.isBuiltin) {
+      throw new PMOError('INVALID', 'Cannot modify built-in phase templates')
+    }
+
+    // Check for duplicate name if name is changing
+    if (changes.name && changes.name.toLowerCase() !== existing.name.toLowerCase()) {
+      const dup = this.db.prepare(`SELECT id FROM ${T.phase_templates} WHERE LOWER(name) = LOWER(?) AND id != ?`).get(changes.name, id)
+      if (dup) {
+        throw new PMOError('CONFLICT', `Phase template "${changes.name}" already exists`)
+      }
+    }
+
+    const updates: string[] = []
+    const params: unknown[] = []
+
+    if (changes.name !== undefined) {
+      updates.push('name = ?')
+      params.push(changes.name)
+    }
+    if (changes.description !== undefined) {
+      updates.push('description = ?')
+      params.push(changes.description || null)
+    }
+
+    if (updates.length > 0) {
+      params.push(id)
+      this.db.prepare(`UPDATE ${T.phase_templates} SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+    }
+
+    return (await this.getPhaseTemplate(id))!
+  }
+
+  async deletePhaseTemplate(id: string): Promise<void> {
+    const existing = await this.getPhaseTemplate(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Phase template not found: ${id}`)
+    }
+
+    if (existing.isBuiltin) {
+      throw new PMOError('INVALID', 'Cannot delete built-in phase templates')
+    }
+
+    this.db.prepare(`DELETE FROM ${T.phase_templates} WHERE id = ?`).run(id)
+  }
+
+  // ===========================================================================
   // Extended Project Operations
   // ===========================================================================
 
@@ -2658,15 +3003,14 @@ export class SQLiteStorage implements PMOStorage {
     const conditions: string[] = []
     const params: unknown[] = []
 
-    // By default, don't show archived projects unless explicitly requested
-    if (filter?.isArchived === undefined) {
-      conditions.push('is_archived = 0')
-    } else if (filter.isArchived === true) {
+    // Filter by archived status if explicitly specified
+    // undefined means show all, true means only archived, false means only non-archived
+    if (filter?.isArchived === true) {
       conditions.push('is_archived = 1')
-    } else if (filter.isArchived === false) {
+    } else if (filter?.isArchived === false) {
       conditions.push('is_archived = 0')
     }
-    // If isArchived is null, show all
+    // If isArchived is undefined, show all projects
 
     if (filter?.phaseId) {
       conditions.push('phase_id = ?')

@@ -32,6 +32,7 @@ export const PMO_TABLES = {
   statuses: 'pmo_statuses',
   templates: 'pmo_templates',
   phases: 'pmo_phases',  // Project lifecycle phases (workspace-scoped)
+  phase_templates: 'pmo_phase_templates',  // Phase configuration templates
 } as const;
 
 // =============================================================================
@@ -299,6 +300,17 @@ export const PMO_TABLE_SCHEMAS = {
       is_default INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
+
+  // Phase templates (preset phase configurations)
+  phase_templates: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.phase_templates} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      phases TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
 } as const;
 
 // =============================================================================
@@ -353,6 +365,7 @@ export const PMO_INDEXES = `
  */
 export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.phases,  // Project phases (before projects for FK)
+  PMO_TABLE_SCHEMAS.phase_templates,  // Phase templates (for preset phase configurations)
   PMO_TABLE_SCHEMAS.projects,
   PMO_TABLE_SCHEMAS.initiatives,
   PMO_TABLE_SCHEMAS.columns,

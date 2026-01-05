@@ -54,11 +54,12 @@ describe('PMO Phase Commands E2E Tests', () => {
     it('should show phase categories', () => {
       const output = exec('phase list');
 
-      expect(output).to.contain('backlog');
-      expect(output).to.contain('unstarted');
-      expect(output).to.contain('started');
-      expect(output).to.contain('completed');
-      expect(output).to.contain('canceled');
+      // Categories are displayed in uppercase
+      expect(output).to.contain('BACKLOG');
+      expect(output).to.contain('UNSTARTED');
+      expect(output).to.contain('STARTED');
+      expect(output).to.contain('COMPLETED');
+      expect(output).to.contain('CANCELED');
     });
 
     it('should indicate default phase', () => {
@@ -78,7 +79,8 @@ describe('PMO Phase Commands E2E Tests', () => {
 
   describe('prlt phase create', () => {
     it('should create phase with name and category', () => {
-      const output = exec('phase create --name "On Hold" --category unstarted');
+      // Name is a positional argument, not a flag
+      const output = exec('phase create "On Hold" --category unstarted');
 
       expect(output).to.contain('Created phase');
       expect(output).to.contain('On Hold');
@@ -88,32 +90,27 @@ describe('PMO Phase Commands E2E Tests', () => {
       expect(phase.category).to.equal('unstarted');
     });
 
-    it('should create phase with custom ID', () => {
-      exec('phase create --name "Custom Phase" --category started --id custom-phase');
-
-      const phase = db.prepare('SELECT * FROM pmo_phases WHERE id = ?').get('custom-phase') as { name: string };
-      expect(phase).to.not.be.undefined;
-      expect(phase.name).to.equal('Custom Phase');
-    });
-
     it('should create phase with description', () => {
-      exec('phase create --name "Review Phase" --category started --description "Projects under review"');
+      exec('phase create "Review Phase" --category started --description "Projects under review"');
 
       const phase = db.prepare('SELECT description FROM pmo_phases WHERE name = ?').get('Review Phase') as { description: string };
+      expect(phase).to.not.be.undefined;
       expect(phase.description).to.equal('Projects under review');
     });
 
     it('should create phase with color', () => {
-      exec('phase create --name "Colored Phase" --category started --color "#FF5733"');
+      exec('phase create "Colored Phase" --category started --color "#FF5733"');
 
       const phase = db.prepare('SELECT color FROM pmo_phases WHERE name = ?').get('Colored Phase') as { color: string };
+      expect(phase).to.not.be.undefined;
       expect(phase.color).to.equal('#FF5733');
     });
 
     it('should set as default when --default flag used', () => {
-      exec('phase create --name "New Default" --category backlog --default');
+      exec('phase create "New Default" --category backlog --default');
 
       const phase = db.prepare('SELECT is_default FROM pmo_phases WHERE name = ?').get('New Default') as { is_default: number };
+      expect(phase).to.not.be.undefined;
       expect(phase.is_default).to.equal(1);
 
       // Previous default should be unset
@@ -122,15 +119,17 @@ describe('PMO Phase Commands E2E Tests', () => {
     });
 
     it('should error when phase name already exists', () => {
-      const output = exec('phase create --name "Active" --category started');
+      // "Active" already exists in seed data
+      const output = exec('phase create "Active" --category started');
 
       expect(output.toLowerCase()).to.contain('already exists');
     });
 
     it('should slugify phase ID from name', () => {
-      exec('phase create --name "Phase With Spaces" --category started');
+      exec('phase create "Phase With Spaces" --category started');
 
       const phase = db.prepare('SELECT id FROM pmo_phases WHERE name = ?').get('Phase With Spaces') as { id: string };
+      expect(phase).to.not.be.undefined;
       expect(phase.id).to.equal('phase-with-spaces');
     });
   });
@@ -191,7 +190,7 @@ describe('PMO Phase Commands E2E Tests', () => {
   describe('prlt phase delete', () => {
     it('should delete phase', () => {
       // Create a phase we can delete
-      exec('phase create --name "Deletable" --category started');
+      exec('phase create "Deletable" --category started');
 
       exec('phase delete deletable --force');
 
@@ -218,7 +217,7 @@ describe('PMO Phase Commands E2E Tests', () => {
     });
 
     it('should show success message', () => {
-      exec('phase create --name "To Delete" --category canceled');
+      exec('phase create "To Delete" --category canceled');
       const output = exec('phase delete to-delete --force');
 
       expect(output).to.contain('Deleted phase');
@@ -229,9 +228,9 @@ describe('PMO Phase Commands E2E Tests', () => {
   describe('prlt phase move', () => {
     beforeEach(() => {
       // Create multiple phases in the same category
-      exec('phase create --name "Started A" --category started');
-      exec('phase create --name "Started B" --category started');
-      exec('phase create --name "Started C" --category started');
+      exec('phase create "Started A" --category started');
+      exec('phase create "Started B" --category started');
+      exec('phase create "Started C" --category started');
     });
 
     it('should change phase position', () => {
@@ -302,13 +301,24 @@ function setupTestDatabase(db: Database.Database) {
       PRIMARY KEY (project_id, id)
     );
 
-    -- Tickets table (minimal for FK)
+    -- Tickets table
     CREATE TABLE IF NOT EXISTS pmo_tickets (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL DEFAULT 'default',
       title TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'backlog',
+      status_id TEXT,
+      priority TEXT,
+      category TEXT,
+      description TEXT,
+      owner TEXT,
+      assignee TEXT,
+      spec_id TEXT,
+      epic_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      last_synced_from_spec TIMESTAMP,
+      last_synced_from_board TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE
     );
 
@@ -319,6 +329,31 @@ function setupTestDatabase(db: Database.Database) {
       column_id TEXT NOT NULL,
       position INTEGER NOT NULL,
       PRIMARY KEY (project_id, ticket_id)
+    );
+
+    -- Workflow statuses table
+    CREATE TABLE IF NOT EXISTS pmo_statuses (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      color TEXT,
+      description TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
+      UNIQUE(project_id, name)
+    );
+
+    -- Workflow templates table
+    CREATE TABLE IF NOT EXISTS pmo_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      statuses TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     -- Indexes

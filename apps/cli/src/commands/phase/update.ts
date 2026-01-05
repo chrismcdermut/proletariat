@@ -53,7 +53,7 @@ export default class PhaseUpdate extends Command {
     const { storage } = await getPMOContext(
       undefined,
       (msg) => this.log(styles.muted(msg)),
-      true
+      false  // Phases are workspace-scoped, no project selection needed
     );
 
     try {

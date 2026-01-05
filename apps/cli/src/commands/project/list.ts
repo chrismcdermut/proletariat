@@ -79,6 +79,10 @@ export default class ProjectList extends Command {
       const title = flags.archived ? 'Archived Projects' : flags.all ? 'All Projects' : 'Projects';
       this.log(styles.title(`\n${title}\n`));
 
+      // Get ticket counts using listProjectSummaries
+      const summaries = await storage.listProjectSummaries();
+      const ticketCountMap = new Map<string, number>(summaries.map(s => [s.id, s.ticketCount]));
+
       for (const project of projects) {
         const isDefault = project.id === 'default';
         const markers: string[] = [];
@@ -89,6 +93,10 @@ export default class ProjectList extends Command {
 
         this.log(`  ${styles.emphasis(project.name)}${markerStr}`);
         this.log(styles.muted(`    ID: ${project.id}`));
+
+        // Show ticket count
+        const ticketCount = ticketCountMap.get(project.id) ?? 0;
+        this.log(styles.muted(`    Tickets: ${ticketCount}`));
 
         // Show phase if set
         if (project.phaseId) {
