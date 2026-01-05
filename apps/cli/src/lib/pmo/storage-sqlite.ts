@@ -213,73 +213,12 @@ export class SQLiteStorage implements PMOStorage {
       }
     }
 
-    // Migration: Update ticket statuses to Linear-style values
-    // Old statuses: backlog, ready, in_progress, blocked, review, done, cancelled
-    // New statuses: backlog, planned, in_progress, done, canceled
-    // Mapping:
-    //   - 'ready' -> 'planned' (scheduled for work)
-    //   - 'blocked' -> 'planned' (move back to planned, blocking is now via dependencies)
-    //   - 'review' -> 'in_progress' (still being worked on, review is implicit)
-    //   - 'cancelled' -> 'canceled' (spelling change to match Linear)
-    this.db.exec(`UPDATE ${T.tickets} SET status = 'planned' WHERE status = 'ready'`)
-    this.db.exec(`UPDATE ${T.tickets} SET status = 'planned' WHERE status = 'blocked'`)
-    this.db.exec(`UPDATE ${T.tickets} SET status = 'in_progress' WHERE status = 'review'`)
-    this.db.exec(`UPDATE ${T.tickets} SET status = 'canceled' WHERE status = 'cancelled'`)
-
     // Migration: Add branch column to tickets table
     if (!ticketsColumnNames.includes('branch')) {
       try {
         this.db.exec(`ALTER TABLE ${T.tickets} ADD COLUMN branch TEXT`)
       } catch {
         // Column may already exist
-      }
-    }
-
-    // Migration: Populate status_id for tickets based on status string
-    // This maps the legacy status enum to the new WorkflowStatus foreign key
-    this.migrateTicketStatusToStatusId()
-  }
-
-  /**
-   * Migrate ticket.status (string enum) to ticket.status_id (foreign key).
-   * Maps each ticket's status to a WorkflowStatus in the same project/category.
-   */
-  private migrateTicketStatusToStatusId(): void {
-    // Map old status values to StateCategory
-    const statusToCategory: Record<string, StateCategory> = {
-      'backlog': 'backlog',
-      'planned': 'unstarted',
-      'in_progress': 'started',
-      'done': 'completed',
-      'canceled': 'canceled',
-    }
-
-    // Find tickets with null status_id
-    const ticketsToMigrate = this.db.prepare(`
-      SELECT id, project_id, status FROM ${T.tickets}
-      WHERE status_id IS NULL
-    `).all() as Array<{ id: string; project_id: string; status: string }>
-
-    if (ticketsToMigrate.length === 0) return
-
-    const updateStmt = this.db.prepare(`
-      UPDATE ${T.tickets} SET status_id = ? WHERE id = ?
-    `)
-
-    for (const ticket of ticketsToMigrate) {
-      const category = statusToCategory[ticket.status]
-      if (!category) continue
-
-      // Find the first status in this project matching the category
-      const matchingStatus = this.db.prepare(`
-        SELECT id FROM ${T.statuses}
-        WHERE project_id = ? AND category = ?
-        ORDER BY position ASC
-        LIMIT 1
-      `).get(ticket.project_id, category) as { id: string } | undefined
-
-      if (matchingStatus) {
-        updateStmt.run(matchingStatus.id, ticket.id)
       }
     }
   }
@@ -1021,31 +960,32 @@ Output a review summary with your findings and any concerns.`,
     // Get spec_id (changed from specs array to single specId)
     const specId = ticket.specId || (ticket.specs && ticket.specs.length > 0 ? ticket.specs[0] : null)
 
-    // Determine status and status_id
-    const status = ticket.status || 'backlog'
-    let statusId = ticket.statusId || null
-
-    // If no statusId provided, try to find matching status in project
+    // Get status_id - use provided or get project's default status
+    let statusId = ticket.statusId
     if (!statusId) {
-      // Map status string to category
-      const statusToCategory: Record<string, StateCategory> = {
-        'backlog': 'backlog',
-        'planned': 'unstarted',
-        'in_progress': 'started',
-        'done': 'completed',
-        'canceled': 'canceled',
-      }
-      const category = statusToCategory[status]
-      if (category) {
-        // Find default status or first status in category
-        const matchingStatus = this.db.prepare(`
+      const defaultStatus = await this.getDefaultStatus(projectId)
+      if (defaultStatus) {
+        statusId = defaultStatus.id
+      } else {
+        // Fall back to first status in backlog category
+        const firstStatus = this.db.prepare(`
           SELECT id FROM ${T.statuses}
-          WHERE project_id = ? AND category = ?
-          ORDER BY is_default DESC, position ASC
+          WHERE project_id = ?
+          ORDER BY
+            CASE category
+              WHEN 'backlog' THEN 1
+              WHEN 'unstarted' THEN 2
+              WHEN 'started' THEN 3
+              WHEN 'completed' THEN 4
+              WHEN 'canceled' THEN 5
+            END,
+            position ASC
           LIMIT 1
-        `).get(projectId, category) as { id: string } | undefined
-        if (matchingStatus) {
-          statusId = matchingStatus.id
+        `).get(projectId) as { id: string } | undefined
+        if (firstStatus) {
+          statusId = firstStatus.id
+        } else {
+          throw new PMOError('NOT_FOUND', 'No statuses found. Apply a workflow template first.')
         }
       }
     }
@@ -1054,16 +994,15 @@ Output a review summary with your findings and any concerns.`,
     this.db.prepare(`
       INSERT INTO ${T.tickets} (
         id, project_id, title, description, priority, category,
-        status, status_id, owner, assignee, spec_id, epic_id,
+        status_id, owner, assignee, spec_id, epic_id,
         created_at, updated_at, last_synced_from_spec, last_synced_from_board
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, projectId, title,
       ticket.description || null,
       ticket.priority || null,
       ticket.category || null,
-      status,
       statusId,
       ticket.owner || null,
       ticket.assignee || null,
@@ -1135,10 +1074,6 @@ Output a review summary with your findings and any concerns.`,
     if (changes.category !== undefined) {
       updates.push('category = ?')
       params.push(changes.category)
-    }
-    if (changes.status !== undefined) {
-      updates.push('status = ?')
-      params.push(changes.status)
     }
     if (changes.statusId !== undefined) {
       updates.push('status_id = ?')
@@ -1341,13 +1276,18 @@ Output a review summary with your findings and any concerns.`,
       FROM ${T.tickets} t
       LEFT JOIN ${T.board_tickets} bt ON t.id = bt.ticket_id AND t.project_id = bt.project_id
       LEFT JOIN ${T.columns} c ON bt.project_id = c.project_id AND bt.column_id = c.id
+      LEFT JOIN ${T.statuses} s ON t.status_id = s.id
       WHERE t.project_id = ?
     `
     const params: unknown[] = [projectId]
 
-    if (filter?.status) {
-      query += ' AND t.status = ?'
-      params.push(filter.status)
+    if (filter?.statusId) {
+      query += ' AND t.status_id = ?'
+      params.push(filter.statusId)
+    }
+    if (filter?.statusCategory) {
+      query += ' AND s.category = ?'
+      params.push(filter.statusCategory)
     }
     if (filter?.priority) {
       query += ' AND t.priority = ?'
@@ -1391,8 +1331,7 @@ Output a review summary with your findings and any concerns.`,
       description: string | null
       priority: string | null
       category: string | null
-      status: string
-      status_id: string | null
+      status_id: string
       owner: string | null
       assignee: string | null
       branch: string | null
@@ -3709,8 +3648,7 @@ Output a review summary with your findings and any concerns.`,
       description: string | null
       priority: string | null
       category: string | null
-      status: string
-      status_id: string | null
+      status_id: string
       owner: string | null
       assignee: string | null
       branch: string | null
@@ -3744,8 +3682,7 @@ Output a review summary with your findings and any concerns.`,
           description: string | null
           priority: string | null
           category: string | null
-          status: string
-          status_id: string | null
+          status_id: string
           owner: string | null
           assignee: string | null
           branch: string | null
@@ -3772,8 +3709,7 @@ Output a review summary with your findings and any concerns.`,
     description: string | null
     priority: string | null
     category: string | null
-    status: string
-    status_id: string | null
+    status_id: string
     owner: string | null
     assignee: string | null
     branch: string | null
@@ -3816,14 +3752,39 @@ Output a review summary with your findings and any concerns.`,
       }
     }
 
+    // Get status info
+    let statusName: string | undefined
+    let statusCategory: StateCategory | undefined
+    if (row.status_id) {
+      const statusRow = this.db
+        .prepare(`SELECT name, category FROM ${T.statuses} WHERE id = ?`)
+        .get(row.status_id) as { name: string; category: StateCategory } | undefined
+      if (statusRow) {
+        statusName = statusRow.name
+        statusCategory = statusRow.category
+      }
+    }
+
+    // Map category to deprecated status enum for backward compat
+    const categoryToStatus: Record<StateCategory, string> = {
+      'backlog': 'backlog',
+      'unstarted': 'planned',
+      'started': 'in_progress',
+      'completed': 'done',
+      'canceled': 'canceled',
+    }
+    const status = statusCategory ? categoryToStatus[statusCategory] : 'backlog'
+
     return {
       id: row.id,
       title: row.title,
       description: row.description || undefined,
       priority: row.priority || undefined,
       category: row.category || undefined,
-      status: row.status as Ticket['status'],
-      statusId: row.status_id || undefined,
+      statusId: row.status_id,
+      statusName,
+      statusCategory,
+      status,
       owner: row.owner || undefined,
       assignee: row.assignee || undefined,
       branch: row.branch || undefined,

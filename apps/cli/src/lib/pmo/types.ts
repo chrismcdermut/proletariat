@@ -67,24 +67,10 @@ export interface Epic {
 }
 
 /**
- * Ticket lifecycle status (Linear-style workflow)
- *
- * @deprecated Use StatusId reference to project's workflow configuration instead.
- * This flat enum is maintained for backward compatibility during migration.
- *
- * Linear-inspired states that map to board columns:
- * - backlog: Not yet scheduled (can be pulled into planned)
- * - planned: Scheduled for work but not started
- * - in_progress: Actively being worked on
- * - done: Completed successfully
- * - canceled: Won't be done (intentionally spelled with one 'l' to match Linear)
+ * @deprecated TicketStatus enum removed. Use statusId reference to WorkflowStatus instead.
+ * Kept as type alias for backward compatibility during transition.
  */
-export type TicketStatus =
-  | 'backlog'      // Not yet scheduled
-  | 'planned'      // Scheduled for work
-  | 'in_progress'  // Actively being worked on
-  | 'done'         // Completed
-  | 'canceled'     // Won't do
+export type TicketStatus = string
 
 // =============================================================================
 // Workflow Types (Two-Tier State/Status Model)
@@ -256,8 +242,14 @@ export interface Ticket {
   category?: string
 
   // Workflow state
-  status: TicketStatus        // @deprecated - use statusId instead
-  statusId?: string           // Reference to WorkflowStatus in project's configuration
+  statusId: string            // Reference to WorkflowStatus in project's configuration
+  statusName?: string         // Resolved status name (for display)
+  statusCategory?: StateCategory  // Resolved status category
+  /**
+   * @deprecated Use statusCategory for logic, statusName for display
+   * This is a temporary alias that maps old status values to categories
+   */
+  status?: TicketStatus
   owner?: string              // Human responsible for ticket
   assignee?: string           // Who's executing (human or agent)
   branch?: string             // Git branch for this ticket's work (reused across actions)
@@ -421,7 +413,8 @@ export interface PMOConfig {
 // =============================================================================
 
 export interface TicketFilter {
-  status?: TicketStatus
+  statusId?: string           // Filter by status ID
+  statusCategory?: StateCategory  // Filter by status category
   priority?: string
   category?: string
   owner?: string
