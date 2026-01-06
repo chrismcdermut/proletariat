@@ -50,7 +50,7 @@ export function ensureEpicDirs(pmoPath: string, projectId: string = 'default'): 
 export interface TicketInfo {
   id: string;
   title: string;
-  status: string;
+  status?: string;  // Optional: use statusName or column from ticket
   priority?: string;
 }
 

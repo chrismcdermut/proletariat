@@ -28,6 +28,7 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+.claude/
 
 # Temporary files
 *.tmp
@@ -42,6 +43,3 @@ pmo/projects/*/board.md
 # (none excluded - we want to track these)
 # Temporary prompt files for agent execution
 .prlt-prompt-*.txt
-
-# Claude Code
-.claude/

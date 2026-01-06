@@ -128,7 +128,7 @@ export default class TicketCreate extends Command {
           const ticketInfos = epicTickets.map(t => ({
             id: t.id,
             title: t.title,
-            status: t.status,
+            status: t.statusName || t.column || 'Unknown',
             priority: t.priority,
           }));
           updateEpicTicketsSection(pmoPath, ticketData.epicId, epic.status, ticketInfos, projectId);

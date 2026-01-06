@@ -7,7 +7,9 @@ domain: board
 
 ## Overview
 
-Boards are kanban views for organizing tickets into columns. Each project has one board. Boards sync bidirectionally between SQLite and markdown files (kanban.md).
+Boards are kanban views for organizing tickets into columns. Each project has one board. Board columns correspond directly to the project's workflow statuses (see [Workflow](workflow.md)) - moving a ticket to a column updates its status, and vice versa.
+
+Boards sync bidirectionally between SQLite and markdown files (kanban.md).
 
 ## Abilities
 
@@ -73,6 +75,7 @@ kanban-plugin: basic
 
 ## Related Domains
 
+- [Workflow](workflow.md) - Board columns = workflow statuses
 - [Tickets](tickets.md) - Tickets displayed on board
 - [Projects](projects.md) - Each project has one board
 - [Settings](settings.md) - Column mappings for work lifecycle

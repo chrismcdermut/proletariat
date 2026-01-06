@@ -54,3 +54,7 @@ When a spec changes (new requirements, bug fixes), create new tickets/epics to i
 ## Ownership
 
 Specs are owned by the product/technical vision. They represent the canonical source of truth for what the system should do. Implementation may lag behind specs, but specs always represent the target state.
+
+---
+
+Last updated: 2025-12-27

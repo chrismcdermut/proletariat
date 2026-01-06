@@ -17,20 +17,43 @@ export interface PMOContext {
   projectName: string;
 }
 
+export interface GetPMOContextOptions {
+  projectId?: string;
+  logger?: (msg: string) => void;
+  promptIfMultiple?: boolean;
+  filterEmptyProjects?: boolean;  // Hide projects with no tickets (for work commands)
+}
+
 /**
  * Get PMO context (path, storage, columns) without requiring config.json
  * Reads everything from workspace.db instead
  *
- * @param projectId - Optional project ID (defaults to 'default' or HQ name, or prompts if multiple projects)
- * @param logger - Optional logging function
- * @param promptIfMultiple - Whether to prompt user to select project if multiple exist (default: false)
+ * @param options - Configuration options
+ * @param options.projectId - Optional project ID (defaults to 'default' or HQ name, or prompts if multiple projects)
+ * @param options.logger - Optional logging function
+ * @param options.promptIfMultiple - Whether to prompt user to select project if multiple exist (default: false)
+ * @param options.filterEmptyProjects - Hide projects with no tickets in picker (default: false)
  * @returns PMO context with storage and metadata
  */
 export async function getPMOContext(
-  projectId?: string,
+  projectId?: string | GetPMOContextOptions,
   logger?: (msg: string) => void,
   promptIfMultiple: boolean = false
 ): Promise<PMOContext> {
+  // Support both old signature and new options object
+  let options: GetPMOContextOptions;
+  if (typeof projectId === 'object' && projectId !== null) {
+    options = projectId;
+  } else {
+    options = { projectId, logger, promptIfMultiple };
+  }
+
+  const {
+    projectId: projectIdOpt,
+    logger: loggerOpt,
+    promptIfMultiple: promptIfMultipleOpt = false,
+    filterEmptyProjects = false,
+  } = options;
   // Find PMO
   const pmoPath = findPMO();
   if (!pmoPath) {
@@ -41,29 +64,50 @@ export async function getPMOContext(
   const dbPath = getWorkspaceDbPath(pmoPath);
 
   // If no project ID specified, try to auto-detect from config or prompt if multiple exist
-  let resolvedProjectId = projectId;
+  let resolvedProjectId = projectIdOpt;
   if (!resolvedProjectId) {
     // Check if there are multiple projects
     const db = new Database(dbPath);
-    const projects = db.prepare('SELECT id, name FROM pmo_projects ORDER BY created_at').all() as Array<{ id: string; name: string }>;
+
+    // Get projects with ticket counts
+    const projects = db.prepare(`
+      SELECT
+        p.id,
+        p.name,
+        (SELECT COUNT(*) FROM pmo_tickets WHERE project_id = p.id) as ticket_count
+      FROM pmo_projects p
+      ORDER BY created_at
+    `).all() as Array<{ id: string; name: string; ticket_count: number }>;
     db.close();
 
     if (projects.length === 0) {
       throw new Error('No projects found. Run "prlt pmo init" first.');
     }
 
-    if (promptIfMultiple && projects.length > 1) {
-      // Prompt user to select project
+    // Filter to only projects with tickets if requested
+    let filteredProjects = projects;
+    if (filterEmptyProjects) {
+      filteredProjects = projects.filter(p => p.ticket_count > 0);
+      if (filteredProjects.length === 0) {
+        throw new Error('No projects with tickets found. Create a ticket first with "prlt ticket create".');
+      }
+    }
+
+    if (promptIfMultipleOpt && filteredProjects.length > 1) {
+      // Prompt user to select project (with ticket counts)
       const { selectedProjectId } = await inquirer.prompt([{
         type: 'list',
         name: 'selectedProjectId',
         message: 'Select project:',
-        choices: projects.map(p => ({ name: p.name, value: p.id })),
+        choices: filteredProjects.map(p => ({
+          name: filterEmptyProjects ? `${p.name} (${p.ticket_count} tickets)` : p.name,
+          value: p.id,
+        })),
       }]);
       resolvedProjectId = selectedProjectId;
-    } else if (projects.length === 1) {
-      // Only one project, use it
-      resolvedProjectId = projects[0].id;
+    } else if (filteredProjects.length === 1) {
+      // Only one project (or one with tickets), use it
+      resolvedProjectId = filteredProjects[0].id;
     } else {
       // Multiple projects but no prompt, try to use HQ name
       const hqRoot = path.dirname(path.dirname(dbPath)); // dbPath is at {hq}/.proletariat/workspace.db
@@ -79,7 +123,7 @@ export async function getPMOContext(
           // Ignore errors, fall back to first project
         }
       }
-      resolvedProjectId = resolvedProjectId || projects[0].id;
+      resolvedProjectId = resolvedProjectId || filteredProjects[0].id;
     }
   }
 
@@ -93,7 +137,7 @@ export async function getPMOContext(
   const storage = getStorageWithAutoSync(
     pmoPath,
     storageType,
-    logger,
+    loggerOpt,
     resolvedProjectId
   );
 

@@ -2,7 +2,7 @@ import { Command, Args } from '@oclif/core';
 import * as fs from 'fs';
 import * as path from 'path';
 import inquirer from 'inquirer';
-import { SQLiteStorage, findPMO } from '../../lib/pmo/index.js';
+import { SQLiteStorage, findPMO, Subtask } from '../../lib/pmo/index.js';
 import { styles, getColumnStyle, getColumnEmoji, formatPriority, formatCategory } from '../../lib/styles.js';
 
 export default class ProjectView extends Command {
@@ -63,7 +63,7 @@ export default class ProjectView extends Command {
 
       storage.setCurrentProject(projectId!);
 
-      const project = await storage.getProject(projectId!);
+      const project = await storage.getProjectBoard(projectId!);
       if (!project) {
         await storage.close();
         this.error(`Project "${projectId}" not found.`);
@@ -90,7 +90,7 @@ export default class ProjectView extends Command {
 
             // Show subtasks if any
             if (ticket.subtasks.length > 0) {
-              const done = ticket.subtasks.filter(s => s.done).length;
+              const done = ticket.subtasks.filter((s: Subtask) => s.done).length;
               const total = ticket.subtasks.length;
               this.log(styles.muted(`      [${done}/${total}] subtasks`));
             }

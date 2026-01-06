@@ -73,7 +73,7 @@ export default class EpicView extends Command {
       }
 
       const tickets = await storage.getTicketsForEpic(epicId!);
-      const doneTickets = tickets.filter((t: Ticket) => t.status === 'done').length;
+      const doneTickets = tickets.filter((t: Ticket) => t.statusCategory === 'completed').length;
       const percent = tickets.length > 0 ? Math.round((doneTickets / tickets.length) * 100) : 0;
 
       // Get linked spec if any
@@ -103,13 +103,11 @@ export default class EpicView extends Command {
       if (tickets.length > 0) {
         this.log(`\n🎫 Tickets (${tickets.length}):`);
         for (const ticket of tickets) {
-          const icon = ticket.status === 'done' ? '✅' :
-                       ticket.status === 'in_progress' ? '🚧' :
-                       ticket.status === 'blocked' ? '🔴' : '📋';
-          const statusLabel = ticket.status === 'done' ? 'Done' :
-                             ticket.status === 'in_progress' ? 'In Progress' :
-                             ticket.status === 'blocked' ? 'Blocked' :
-                             ticket.column || ticket.status;
+          const icon = ticket.statusCategory === 'completed' ? '✅' :
+                       ticket.statusCategory === 'started' ? '🚧' :
+                       ticket.statusCategory === 'unstarted' ? '📋' :
+                       ticket.statusCategory === 'canceled' ? '🚫' : '📥';
+          const statusLabel = ticket.statusName || ticket.column || 'Unknown';
           this.log(`  ${icon} ${ticket.id}: ${ticket.title} [${statusLabel}]`);
         }
       } else {
