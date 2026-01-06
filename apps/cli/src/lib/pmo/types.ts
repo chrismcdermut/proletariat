@@ -328,7 +328,6 @@ export interface Ticket {
   // Use BoardTicket table for authoritative board position
   column?: string     // Column name (from board view)
   position?: number   // Position in column (from board view)
-  specs?: string[]    // Spec paths (backward compat - use specId instead)
 }
 
 /**
@@ -375,12 +374,48 @@ export interface AcceptanceCriterion {
 }
 
 /**
+ * Ticket dependency types for same-entity relationships
+ */
+export type TicketDependencyType = 'blocks' | 'relates_to' | 'duplicates'
+
+/**
  * Ticket dependency for scheduling.
- * Represents a "blocked by" relationship between tickets.
+ * Represents a dependency relationship between tickets.
  */
 export interface TicketDependency {
   ticketId: string
-  blockedByTicketId: string
+  dependsOnTicketId: string
+  dependencyType: TicketDependencyType
+  createdAt?: Date
+}
+
+/**
+ * Spec dependency types
+ */
+export type SpecDependencyType = 'depends_on' | 'relates_to' | 'duplicates'
+
+/**
+ * Spec dependency for design ordering.
+ */
+export interface SpecDependency {
+  specId: string
+  dependsOnSpecId: string
+  dependencyType: SpecDependencyType
+  createdAt?: Date
+}
+
+/**
+ * Epic dependency types
+ */
+export type EpicDependencyType = 'blocks' | 'relates_to' | 'duplicates'
+
+/**
+ * Epic dependency for phased work.
+ */
+export interface EpicDependency {
+  epicId: string
+  dependsOnEpicId: string
+  dependencyType: EpicDependencyType
   createdAt?: Date
 }
 
@@ -416,15 +451,6 @@ export interface Spec {
   context?: string
   createdAt: Date
   updatedAt: Date
-}
-
-/**
- * Spec dependency - one spec depends on another
- */
-export interface SpecDependency {
-  specId: string
-  dependsOn: string
-  createdAt?: Date
 }
 
 // =============================================================================
@@ -613,6 +639,11 @@ export interface PMOStorage {
   removeSpecDependency(specId: string, dependsOnId: string): Promise<void>
   getSpecDependencies(specId: string): Promise<Spec[]>
   getSpecDependents(specId: string): Promise<Spec[]>
+  // Project-Spec associations (many-to-many, specs are global)
+  linkProjectToSpec(projectId: string, specId: string): Promise<void>
+  unlinkProjectFromSpec(projectId: string, specId: string): Promise<void>
+  getSpecsForProject(projectId: string): Promise<Spec[]>
+  getProjectsForSpec(specId: string): Promise<Project[]>
 
   // Epic Operations
   createEpic(epic: Partial<Epic>): Promise<Epic>

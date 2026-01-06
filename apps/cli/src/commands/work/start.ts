@@ -186,6 +186,40 @@ export default class WorkStart extends Command {
         this.error(`Ticket "${ticketId}" not found.`)
       }
 
+      // Check if ticket is blocked by dependencies
+      const isBlocked = await storage.isTicketBlocked(ticketId!)
+      if (isBlocked && !flags.force) {
+        const blockers = await storage.getTicketBlockers(ticketId!)
+        const incompleteBlockers = blockers.filter(b => b.status !== 'done' && b.status !== 'canceled')
+
+        this.log('')
+        this.log(styles.warning(`⚠️  ${ticketId} is blocked by:`))
+        for (const blocker of incompleteBlockers) {
+          this.log(styles.muted(`   - ${blocker.id}: ${blocker.title} (${blocker.status})`))
+        }
+        this.log('')
+
+        const { startAnyway } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'startAnyway',
+            message: 'Start anyway?',
+            choices: [
+              { name: 'No, cancel', value: false },
+              { name: 'Yes, start despite blockers', value: true },
+            ],
+            default: false,
+          },
+        ])
+
+        if (!startAnyway) {
+          await storage.close()
+          db.close()
+          this.log(styles.muted('Cancelled.'))
+          return
+        }
+      }
+
       // Check assignee - prompt if not set
       let agentName = ticket.assignee
       if (!agentName) {

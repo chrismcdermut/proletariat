@@ -19,6 +19,8 @@ import {
   Column,
   Conflict,
   Epic,
+  EpicDependency,
+  EpicDependencyType,
   EpicFilter,
   PhaseFilter,
   PhaseTemplate,
@@ -30,6 +32,8 @@ import {
   ProjectFilter,
   ProjectPhase,
   Spec,
+  SpecDependency,
+  SpecDependencyType,
   SpecFilter,
   StateCategory,
   STATE_CATEGORY_ORDER,
@@ -38,9 +42,11 @@ import {
   SyncStatus,
   TemplateFilter,
   Ticket,
+  TicketDependency,
+  TicketDependencyType,
+  TicketFilter,
   WorkAction,
   WorkActionFilter,
-  TicketFilter,
   WorkflowStatus,
   WorkflowTemplate,
   WorkflowTemplateStatus,
@@ -140,32 +146,34 @@ export class SQLiteStorage implements PMOStorage {
     }
 
     // Migration: Update specs table to new simplified schema
-    const specsColumns = this.db.pragma(`table_info(${T.specs})`) as Array<{ name: string }>
-    const specsColumnNames = specsColumns.map(c => c.name)
+    if (tableExists(T.specs)) {
+      const specsColumns = this.db.pragma(`table_info(${T.specs})`) as Array<{ name: string }>
+      const specsColumnNames = specsColumns.map(c => c.name)
 
-    // New columns for simplified spec schema
-    const newColumns = [
-      { name: 'type', sql: 'type TEXT' },
-      { name: 'tags', sql: 'tags TEXT' },
-      { name: 'depends_on', sql: 'depends_on TEXT' },
-      { name: 'problem', sql: 'problem TEXT' },
-      { name: 'solution', sql: 'solution TEXT' },
-      { name: 'decisions', sql: 'decisions TEXT' },
-      { name: 'not_now', sql: 'not_now TEXT' },
-      { name: 'ui_ux', sql: 'ui_ux TEXT' },
-      { name: 'acceptance_criteria', sql: 'acceptance_criteria TEXT' },
-      { name: 'open_questions', sql: 'open_questions TEXT' },
-      { name: 'requirements_functional', sql: 'requirements_functional TEXT' },
-      { name: 'requirements_technical', sql: 'requirements_technical TEXT' },
-      { name: 'context', sql: 'context TEXT' },
-    ]
+      // New columns for simplified spec schema
+      const newColumns = [
+        { name: 'type', sql: 'type TEXT' },
+        { name: 'tags', sql: 'tags TEXT' },
+        { name: 'depends_on', sql: 'depends_on TEXT' },
+        { name: 'problem', sql: 'problem TEXT' },
+        { name: 'solution', sql: 'solution TEXT' },
+        { name: 'decisions', sql: 'decisions TEXT' },
+        { name: 'not_now', sql: 'not_now TEXT' },
+        { name: 'ui_ux', sql: 'ui_ux TEXT' },
+        { name: 'acceptance_criteria', sql: 'acceptance_criteria TEXT' },
+        { name: 'open_questions', sql: 'open_questions TEXT' },
+        { name: 'requirements_functional', sql: 'requirements_functional TEXT' },
+        { name: 'requirements_technical', sql: 'requirements_technical TEXT' },
+        { name: 'context', sql: 'context TEXT' },
+      ]
 
-    for (const col of newColumns) {
-      if (!specsColumnNames.includes(col.name)) {
-        try {
-          this.db.exec(`ALTER TABLE ${T.specs} ADD COLUMN ${col.sql}`)
-        } catch {
-          // Column may already exist
+      for (const col of newColumns) {
+        if (!specsColumnNames.includes(col.name)) {
+          try {
+            this.db.exec(`ALTER TABLE ${T.specs} ADD COLUMN ${col.sql}`)
+          } catch {
+            // Column may already exist
+          }
         }
       }
     }
@@ -990,8 +998,8 @@ Output a review summary with your findings and any concerns.`,
 
     const now = Date.now()
 
-    // Get spec_id (changed from specs array to single specId)
-    const specId = ticket.specId || (ticket.specs && ticket.specs.length > 0 ? ticket.specs[0] : null)
+    // Get spec_id (single spec per ticket)
+    const specId = ticket.specId || null
 
     // Get status_id - use provided or get project's default status
     let statusId = ticket.statusId
@@ -1831,6 +1839,62 @@ Output a review summary with your findings and any concerns.`,
   }
 
   // ===========================================================================
+  // Project-Spec Association Operations (Many-to-Many)
+  // ===========================================================================
+
+  async linkProjectToSpec(projectId: string, specId: string): Promise<void> {
+    // Verify project exists
+    const project = await this.getProject(projectId)
+    if (!project) {
+      throw new PMOError('NOT_FOUND', `Project "${projectId}" not found`)
+    }
+
+    // Verify spec exists
+    const spec = await this.getSpec(specId)
+    if (!spec) {
+      throw new PMOError('NOT_FOUND', `Spec "${specId}" not found`)
+    }
+
+    this.db.prepare(`
+      INSERT OR IGNORE INTO ${T.project_specs} (project_id, spec_id)
+      VALUES (?, ?)
+    `).run(projectId, specId)
+  }
+
+  async unlinkProjectFromSpec(projectId: string, specId: string): Promise<void> {
+    this.db.prepare(`
+      DELETE FROM ${T.project_specs}
+      WHERE project_id = ? AND spec_id = ?
+    `).run(projectId, specId)
+  }
+
+  async getSpecsForProject(projectId: string): Promise<Spec[]> {
+    const rows = this.db.prepare(`
+      SELECT spec_id FROM ${T.project_specs} WHERE project_id = ?
+    `).all(projectId) as Array<{ spec_id: string }>
+
+    const specs: Spec[] = []
+    for (const row of rows) {
+      const spec = await this.getSpec(row.spec_id)
+      if (spec) specs.push(spec)
+    }
+    return specs
+  }
+
+  async getProjectsForSpec(specId: string): Promise<Project[]> {
+    const rows = this.db.prepare(`
+      SELECT project_id FROM ${T.project_specs} WHERE spec_id = ?
+    `).all(specId) as Array<{ project_id: string }>
+
+    const projects: Project[] = []
+    for (const row of rows) {
+      const project = await this.getProject(row.project_id)
+      if (project) projects.push(project)
+    }
+    return projects
+  }
+
+  // ===========================================================================
   // Epic Operations
   // ===========================================================================
 
@@ -2086,6 +2150,366 @@ Output a review summary with your findings and any concerns.`,
   }
 
   // ===========================================================================
+  // Ticket Dependency Operations
+  // ===========================================================================
+
+  /**
+   * Create a dependency between two tickets.
+   * @throws PMOError if tickets don't exist or dependency already exists
+   */
+  async createTicketDependency(
+    ticketId: string,
+    dependsOnTicketId: string,
+    dependencyType: TicketDependencyType = 'blocks'
+  ): Promise<TicketDependency> {
+    // Validate tickets exist
+    const ticket = await this.getTicket(ticketId)
+    if (!ticket) throw new PMOError('NOT_FOUND', `Ticket not found: ${ticketId}`)
+
+    const dependsOnTicket = await this.getTicket(dependsOnTicketId)
+    if (!dependsOnTicket) throw new PMOError('NOT_FOUND', `Ticket not found: ${dependsOnTicketId}`)
+
+    try {
+      this.db.prepare(`
+        INSERT INTO ${T.ticket_dependencies} (ticket_id, depends_on_ticket_id, dependency_type)
+        VALUES (?, ?, ?)
+      `).run(ticketId, dependsOnTicketId, dependencyType)
+
+      return {
+        ticketId,
+        dependsOnTicketId,
+        dependencyType,
+        createdAt: new Date(),
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.includes('UNIQUE constraint')) {
+        throw new PMOError('CONFLICT', 'Dependency already exists')
+      }
+      if (error instanceof Error && error.message.includes('CHECK constraint')) {
+        throw new PMOError('INVALID', 'Cannot create self-dependency')
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Delete a ticket dependency.
+   */
+  async deleteTicketDependency(
+    ticketId: string,
+    dependsOnTicketId: string,
+    dependencyType?: TicketDependencyType
+  ): Promise<void> {
+    let query = `DELETE FROM ${T.ticket_dependencies} WHERE ticket_id = ? AND depends_on_ticket_id = ?`
+    const params: unknown[] = [ticketId, dependsOnTicketId]
+
+    if (dependencyType) {
+      query += ' AND dependency_type = ?'
+      params.push(dependencyType)
+    }
+
+    const result = this.db.prepare(query).run(...params)
+    if (result.changes === 0) {
+      throw new PMOError('NOT_FOUND', 'Dependency not found')
+    }
+  }
+
+  /**
+   * List dependencies for a ticket.
+   */
+  async listTicketDependencies(ticketId: string): Promise<TicketDependency[]> {
+    const rows = this.db.prepare(`
+      SELECT ticket_id, depends_on_ticket_id, dependency_type, created_at
+      FROM ${T.ticket_dependencies}
+      WHERE ticket_id = ?
+      ORDER BY created_at DESC
+    `).all(ticketId) as Array<{
+      ticket_id: string
+      depends_on_ticket_id: string
+      dependency_type: string
+      created_at: string
+    }>
+
+    return rows.map(row => ({
+      ticketId: row.ticket_id,
+      dependsOnTicketId: row.depends_on_ticket_id,
+      dependencyType: row.dependency_type as TicketDependencyType,
+      createdAt: new Date(row.created_at),
+    }))
+  }
+
+  /**
+   * Get tickets that this ticket depends on (blockers).
+   */
+  async getTicketBlockers(ticketId: string): Promise<Ticket[]> {
+    type TicketRow = {
+      id: string
+      title: string
+      description: string | null
+      priority: string | null
+      category: string | null
+      status_id: string
+      owner: string | null
+      assignee: string | null
+      branch: string | null
+      spec_id: string | null
+      epic_id: string | null
+      column_id: string | null
+      column_name: string | null
+      position: number | null
+      created_at: string
+      updated_at: string
+      last_synced_from_spec: string | null
+      last_synced_from_board: string | null
+    }
+
+    const rows = this.db.prepare(`
+      SELECT t.*, bt.column_id, c.name as column_name, bt.position
+      FROM ${T.tickets} t
+      JOIN ${T.ticket_dependencies} d ON t.id = d.depends_on_ticket_id
+      LEFT JOIN ${T.board_tickets} bt ON t.id = bt.ticket_id
+      LEFT JOIN ${T.columns} c ON bt.column_id = c.id AND bt.project_id = c.project_id
+      WHERE d.ticket_id = ? AND d.dependency_type = 'blocks'
+    `).all(ticketId) as TicketRow[]
+
+    return Promise.all(rows.map(row => this.rowToTicket(row)))
+  }
+
+  /**
+   * Get tickets that depend on this ticket (blocking).
+   */
+  async getTicketsBlockedBy(ticketId: string): Promise<Ticket[]> {
+    type TicketRow = {
+      id: string
+      title: string
+      description: string | null
+      priority: string | null
+      category: string | null
+      status_id: string
+      owner: string | null
+      assignee: string | null
+      branch: string | null
+      spec_id: string | null
+      epic_id: string | null
+      column_id: string | null
+      column_name: string | null
+      position: number | null
+      created_at: string
+      updated_at: string
+      last_synced_from_spec: string | null
+      last_synced_from_board: string | null
+    }
+
+    const rows = this.db.prepare(`
+      SELECT t.*, bt.column_id, c.name as column_name, bt.position
+      FROM ${T.tickets} t
+      JOIN ${T.ticket_dependencies} d ON t.id = d.ticket_id
+      LEFT JOIN ${T.board_tickets} bt ON t.id = bt.ticket_id
+      LEFT JOIN ${T.columns} c ON bt.column_id = c.id AND bt.project_id = c.project_id
+      WHERE d.depends_on_ticket_id = ? AND d.dependency_type = 'blocks'
+    `).all(ticketId) as TicketRow[]
+
+    return Promise.all(rows.map(row => this.rowToTicket(row)))
+  }
+
+  /**
+   * Check if a ticket is blocked by incomplete dependencies.
+   */
+  async isTicketBlocked(ticketId: string): Promise<boolean> {
+    const blockers = await this.getTicketBlockers(ticketId)
+    return blockers.some(t => t.status !== 'done' && t.status !== 'canceled')
+  }
+
+  // ===========================================================================
+  // Spec Dependency Operations
+  // ===========================================================================
+
+  /**
+   * Create a dependency between two specs.
+   */
+  async createSpecDependency(
+    specId: string,
+    dependsOnSpecId: string,
+    dependencyType: SpecDependencyType = 'depends_on'
+  ): Promise<SpecDependency> {
+    // Validate specs exist
+    const spec = await this.getSpec(specId)
+    if (!spec) throw new PMOError('NOT_FOUND', `Spec not found: ${specId}`)
+
+    const dependsOnSpec = await this.getSpec(dependsOnSpecId)
+    if (!dependsOnSpec) throw new PMOError('NOT_FOUND', `Spec not found: ${dependsOnSpecId}`)
+
+    try {
+      this.db.prepare(`
+        INSERT INTO ${T.spec_dependencies} (spec_id, depends_on_spec_id, dependency_type)
+        VALUES (?, ?, ?)
+      `).run(specId, dependsOnSpecId, dependencyType)
+
+      return {
+        specId,
+        dependsOnSpecId,
+        dependencyType,
+        createdAt: new Date(),
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.includes('UNIQUE constraint')) {
+        throw new PMOError('CONFLICT', 'Dependency already exists')
+      }
+      if (error instanceof Error && error.message.includes('CHECK constraint')) {
+        throw new PMOError('INVALID', 'Cannot create self-dependency')
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Delete a spec dependency.
+   */
+  async deleteSpecDependency(
+    specId: string,
+    dependsOnSpecId: string,
+    dependencyType?: SpecDependencyType
+  ): Promise<void> {
+    let query = `DELETE FROM ${T.spec_dependencies} WHERE spec_id = ? AND depends_on_spec_id = ?`
+    const params: unknown[] = [specId, dependsOnSpecId]
+
+    if (dependencyType) {
+      query += ' AND dependency_type = ?'
+      params.push(dependencyType)
+    }
+
+    const result = this.db.prepare(query).run(...params)
+    if (result.changes === 0) {
+      throw new PMOError('NOT_FOUND', 'Dependency not found')
+    }
+  }
+
+  /**
+   * List dependencies for a spec.
+   */
+  async listSpecDependencies(specId: string): Promise<SpecDependency[]> {
+    const rows = this.db.prepare(`
+      SELECT spec_id, depends_on_spec_id, dependency_type, created_at
+      FROM ${T.spec_dependencies}
+      WHERE spec_id = ?
+      ORDER BY created_at DESC
+    `).all(specId) as Array<{
+      spec_id: string
+      depends_on_spec_id: string
+      dependency_type: string
+      created_at: string
+    }>
+
+    return rows.map(row => ({
+      specId: row.spec_id,
+      dependsOnSpecId: row.depends_on_spec_id,
+      dependencyType: row.dependency_type as SpecDependencyType,
+      createdAt: new Date(row.created_at),
+    }))
+  }
+
+  // ===========================================================================
+  // Epic Dependency Operations
+  // ===========================================================================
+
+  /**
+   * Create a dependency between two epics.
+   */
+  async createEpicDependency(
+    epicId: string,
+    dependsOnEpicId: string,
+    dependencyType: EpicDependencyType = 'blocks'
+  ): Promise<EpicDependency> {
+    // Validate epics exist
+    const epic = await this.getEpic(epicId)
+    if (!epic) throw new PMOError('NOT_FOUND', `Epic not found: ${epicId}`)
+
+    const dependsOnEpic = await this.getEpic(dependsOnEpicId)
+    if (!dependsOnEpic) throw new PMOError('NOT_FOUND', `Epic not found: ${dependsOnEpicId}`)
+
+    try {
+      this.db.prepare(`
+        INSERT INTO ${T.epic_dependencies} (epic_id, depends_on_epic_id, dependency_type)
+        VALUES (?, ?, ?)
+      `).run(epicId, dependsOnEpicId, dependencyType)
+
+      return {
+        epicId,
+        dependsOnEpicId,
+        dependencyType,
+        createdAt: new Date(),
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.includes('UNIQUE constraint')) {
+        throw new PMOError('CONFLICT', 'Dependency already exists')
+      }
+      if (error instanceof Error && error.message.includes('CHECK constraint')) {
+        throw new PMOError('INVALID', 'Cannot create self-dependency')
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Delete an epic dependency.
+   */
+  async deleteEpicDependency(
+    epicId: string,
+    dependsOnEpicId: string,
+    dependencyType?: EpicDependencyType
+  ): Promise<void> {
+    let query = `DELETE FROM ${T.epic_dependencies} WHERE epic_id = ? AND depends_on_epic_id = ?`
+    const params: unknown[] = [epicId, dependsOnEpicId]
+
+    if (dependencyType) {
+      query += ' AND dependency_type = ?'
+      params.push(dependencyType)
+    }
+
+    const result = this.db.prepare(query).run(...params)
+    if (result.changes === 0) {
+      throw new PMOError('NOT_FOUND', 'Dependency not found')
+    }
+  }
+
+  /**
+   * List dependencies for an epic.
+   */
+  async listEpicDependencies(epicId: string): Promise<EpicDependency[]> {
+    const rows = this.db.prepare(`
+      SELECT epic_id, depends_on_epic_id, dependency_type, created_at
+      FROM ${T.epic_dependencies}
+      WHERE epic_id = ?
+      ORDER BY created_at DESC
+    `).all(epicId) as Array<{
+      epic_id: string
+      depends_on_epic_id: string
+      dependency_type: string
+      created_at: string
+    }>
+
+    return rows.map(row => ({
+      epicId: row.epic_id,
+      dependsOnEpicId: row.depends_on_epic_id,
+      dependencyType: row.dependency_type as EpicDependencyType,
+      createdAt: new Date(row.created_at),
+    }))
+  }
+
+  /**
+   * Check if an epic is blocked by incomplete dependencies.
+   */
+  async isEpicBlocked(epicId: string): Promise<boolean> {
+    const rows = this.db.prepare(`
+      SELECT e.status FROM ${T.epics} e
+      JOIN ${T.epic_dependencies} d ON e.id = d.depends_on_epic_id
+      WHERE d.epic_id = ? AND d.dependency_type = 'blocks'
+    `).all(epicId) as Array<{ status: string }>
+
+    return rows.some(r => r.status !== 'complete' && r.status !== 'dropped')
+  }
+
+  // ===========================================================================
   // Workflow Status Operations
   // ===========================================================================
 
@@ -2126,7 +2550,6 @@ Output a review summary with your findings and any concerns.`,
       createdAt: new Date(row.created_at),
     }))
   }
-
   async getStatus(id: string): Promise<WorkflowStatus | null> {
     const row = this.db.prepare(`
       SELECT * FROM ${T.statuses} WHERE id = ?
@@ -4292,7 +4715,6 @@ Output a review summary with your findings and any concerns.`,
       // DEPRECATED fields for backward compat
       column: row.column_name || undefined,
       position: row.position !== null ? row.position : undefined,
-      specs: [],  // Deprecated - use specId and getSpecsForTicket()
     }
   }
 

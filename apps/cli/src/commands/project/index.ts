@@ -24,6 +24,7 @@ export default class Project extends Command {
         { name: 'Create new project', value: 'create' },
         { name: 'List all projects', value: 'list' },
         { name: 'View project board', value: 'view' },
+        { name: 'Manage project specs', value: 'spec' },
         { name: 'Delete project', value: 'delete' },
         new inquirer.Separator(),
         { name: 'Cancel', value: 'cancel' },
@@ -44,6 +45,9 @@ export default class Project extends Command {
         break;
       case 'view':
         await this.config.runCommand('project:view', []);
+        break;
+      case 'spec':
+        await this.config.runCommand('project:spec', []);
         break;
       case 'delete':
         await this.config.runCommand('project:delete', []);

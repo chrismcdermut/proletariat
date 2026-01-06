@@ -400,4 +400,237 @@ describe('PMO SQLite Storage', () => {
       await newStorage.close();
     });
   });
+
+  describe('Ticket Dependency Operations', () => {
+    let ticket1Id: string;
+    let ticket2Id: string;
+    let ticket3Id: string;
+
+    beforeEach(async () => {
+      const ticket1 = await storage.createTicket({ title: 'Ticket 1', column: 'Backlog' });
+      const ticket2 = await storage.createTicket({ title: 'Ticket 2', column: 'Backlog' });
+      const ticket3 = await storage.createTicket({ title: 'Ticket 3', column: 'Backlog' });
+      ticket1Id = ticket1.id;
+      ticket2Id = ticket2.id;
+      ticket3Id = ticket3.id;
+    });
+
+    it('creates a blocking dependency', async () => {
+      const dep = await storage.createTicketDependency(ticket1Id, ticket2Id, 'blocks');
+
+      expect(dep.ticketId).to.equal(ticket1Id);
+      expect(dep.dependsOnTicketId).to.equal(ticket2Id);
+      expect(dep.dependencyType).to.equal('blocks');
+    });
+
+    it('creates a relates_to dependency', async () => {
+      const dep = await storage.createTicketDependency(ticket1Id, ticket2Id, 'relates_to');
+      expect(dep.dependencyType).to.equal('relates_to');
+    });
+
+    it('creates a duplicates dependency', async () => {
+      const dep = await storage.createTicketDependency(ticket1Id, ticket2Id, 'duplicates');
+      expect(dep.dependencyType).to.equal('duplicates');
+    });
+
+    it('defaults to blocks type', async () => {
+      const dep = await storage.createTicketDependency(ticket1Id, ticket2Id);
+      expect(dep.dependencyType).to.equal('blocks');
+    });
+
+    it('prevents self-dependency', async () => {
+      try {
+        await storage.createTicketDependency(ticket1Id, ticket1Id);
+        expect.fail('Should have thrown');
+      } catch (error: unknown) {
+        expect((error as Error).message).to.include('self-dependency');
+      }
+    });
+
+    it('prevents duplicate dependencies', async () => {
+      await storage.createTicketDependency(ticket1Id, ticket2Id, 'blocks');
+      try {
+        await storage.createTicketDependency(ticket1Id, ticket2Id, 'blocks');
+        expect.fail('Should have thrown');
+      } catch (error: unknown) {
+        expect((error as Error).message).to.include('already exists');
+      }
+    });
+
+    it('validates source ticket exists', async () => {
+      try {
+        await storage.createTicketDependency('non-existent', ticket2Id);
+        expect.fail('Should have thrown');
+      } catch (error: unknown) {
+        expect((error as Error).message).to.include('not found');
+      }
+    });
+
+    it('validates target ticket exists', async () => {
+      try {
+        await storage.createTicketDependency(ticket1Id, 'non-existent');
+        expect.fail('Should have thrown');
+      } catch (error: unknown) {
+        expect((error as Error).message).to.include('not found');
+      }
+    });
+
+    it('deletes a dependency', async () => {
+      await storage.createTicketDependency(ticket1Id, ticket2Id, 'blocks');
+      await storage.deleteTicketDependency(ticket1Id, ticket2Id, 'blocks');
+
+      const deps = await storage.listTicketDependencies(ticket1Id);
+      expect(deps).to.have.length(0);
+    });
+
+    it('lists dependencies for a ticket', async () => {
+      await storage.createTicketDependency(ticket1Id, ticket2Id, 'blocks');
+      await storage.createTicketDependency(ticket1Id, ticket3Id, 'relates_to');
+
+      const deps = await storage.listTicketDependencies(ticket1Id);
+      expect(deps).to.have.length(2);
+    });
+
+    it('gets blockers for a ticket', async () => {
+      await storage.createTicketDependency(ticket1Id, ticket2Id, 'blocks');
+      await storage.createTicketDependency(ticket1Id, ticket3Id, 'relates_to');
+
+      const blockers = await storage.getTicketBlockers(ticket1Id);
+      expect(blockers).to.have.length(1);
+      expect(blockers[0].id).to.equal(ticket2Id);
+    });
+
+    it('gets tickets blocked by a ticket', async () => {
+      await storage.createTicketDependency(ticket1Id, ticket2Id, 'blocks');
+      await storage.createTicketDependency(ticket3Id, ticket2Id, 'blocks');
+
+      const blocked = await storage.getTicketsBlockedBy(ticket2Id);
+      expect(blocked).to.have.length(2);
+    });
+
+    it('checks if ticket is blocked (incomplete blocker)', async () => {
+      await storage.createTicketDependency(ticket1Id, ticket2Id, 'blocks');
+
+      const isBlocked = await storage.isTicketBlocked(ticket1Id);
+      expect(isBlocked).to.be.true;
+    });
+
+    it('checks if ticket is not blocked (blocker complete)', async () => {
+      await storage.createTicketDependency(ticket1Id, ticket2Id, 'blocks');
+      await storage.updateTicket(ticket2Id, { status: 'done' });
+
+      const isBlocked = await storage.isTicketBlocked(ticket1Id);
+      expect(isBlocked).to.be.false;
+    });
+
+    it('checks if ticket is not blocked (no blockers)', async () => {
+      const isBlocked = await storage.isTicketBlocked(ticket1Id);
+      expect(isBlocked).to.be.false;
+    });
+  });
+
+  describe('Spec Dependency Operations', () => {
+    let spec1Id: string;
+    let spec2Id: string;
+
+    beforeEach(async () => {
+      const spec1 = await storage.createSpec({ id: 'spec-1', path: 'specs/1.md', title: 'Spec 1' });
+      const spec2 = await storage.createSpec({ id: 'spec-2', path: 'specs/2.md', title: 'Spec 2' });
+      spec1Id = spec1.id;
+      spec2Id = spec2.id;
+    });
+
+    it('creates a depends_on dependency', async () => {
+      const dep = await storage.createSpecDependency(spec1Id, spec2Id, 'depends_on');
+
+      expect(dep.specId).to.equal(spec1Id);
+      expect(dep.dependsOnSpecId).to.equal(spec2Id);
+      expect(dep.dependencyType).to.equal('depends_on');
+    });
+
+    it('creates a relates_to dependency', async () => {
+      const dep = await storage.createSpecDependency(spec1Id, spec2Id, 'relates_to');
+      expect(dep.dependencyType).to.equal('relates_to');
+    });
+
+    it('defaults to depends_on type', async () => {
+      const dep = await storage.createSpecDependency(spec1Id, spec2Id);
+      expect(dep.dependencyType).to.equal('depends_on');
+    });
+
+    it('deletes a dependency', async () => {
+      await storage.createSpecDependency(spec1Id, spec2Id);
+      await storage.deleteSpecDependency(spec1Id, spec2Id);
+
+      const deps = await storage.listSpecDependencies(spec1Id);
+      expect(deps).to.have.length(0);
+    });
+
+    it('lists dependencies for a spec', async () => {
+      await storage.createSpecDependency(spec1Id, spec2Id);
+
+      const deps = await storage.listSpecDependencies(spec1Id);
+      expect(deps).to.have.length(1);
+    });
+  });
+
+  describe('Epic Dependency Operations', () => {
+    let epic1Id: string;
+    let epic2Id: string;
+
+    beforeEach(async () => {
+      const epic1 = await storage.createEpic({ title: 'Epic 1' });
+      const epic2 = await storage.createEpic({ title: 'Epic 2' });
+      epic1Id = epic1.id;
+      epic2Id = epic2.id;
+    });
+
+    it('creates a blocking dependency', async () => {
+      const dep = await storage.createEpicDependency(epic1Id, epic2Id, 'blocks');
+
+      expect(dep.epicId).to.equal(epic1Id);
+      expect(dep.dependsOnEpicId).to.equal(epic2Id);
+      expect(dep.dependencyType).to.equal('blocks');
+    });
+
+    it('creates a relates_to dependency', async () => {
+      const dep = await storage.createEpicDependency(epic1Id, epic2Id, 'relates_to');
+      expect(dep.dependencyType).to.equal('relates_to');
+    });
+
+    it('defaults to blocks type', async () => {
+      const dep = await storage.createEpicDependency(epic1Id, epic2Id);
+      expect(dep.dependencyType).to.equal('blocks');
+    });
+
+    it('deletes a dependency', async () => {
+      await storage.createEpicDependency(epic1Id, epic2Id);
+      await storage.deleteEpicDependency(epic1Id, epic2Id);
+
+      const deps = await storage.listEpicDependencies(epic1Id);
+      expect(deps).to.have.length(0);
+    });
+
+    it('lists dependencies for an epic', async () => {
+      await storage.createEpicDependency(epic1Id, epic2Id);
+
+      const deps = await storage.listEpicDependencies(epic1Id);
+      expect(deps).to.have.length(1);
+    });
+
+    it('checks if epic is blocked (incomplete blocker)', async () => {
+      await storage.createEpicDependency(epic1Id, epic2Id, 'blocks');
+
+      const isBlocked = await storage.isEpicBlocked(epic1Id);
+      expect(isBlocked).to.be.true;
+    });
+
+    it('checks if epic is not blocked (blocker complete)', async () => {
+      await storage.createEpicDependency(epic1Id, epic2Id, 'blocks');
+      await storage.updateEpic(epic2Id, { status: 'complete' });
+
+      const isBlocked = await storage.isEpicBlocked(epic1Id);
+      expect(isBlocked).to.be.false;
+    });
+  });
 });

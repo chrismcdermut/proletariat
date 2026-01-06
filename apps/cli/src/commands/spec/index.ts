@@ -25,7 +25,8 @@ export default class Spec extends Command {
         { name: 'List all specs', value: 'list' },
         { name: 'View spec', value: 'view' },
         { name: 'Generate tickets from spec', value: 'generate' },
-        { name: 'Link ticket to spec', value: 'link' },
+        { name: 'Assign ticket to spec', value: 'ticket' },
+        { name: 'Manage dependencies', value: 'link' },
         new inquirer.Separator(),
         { name: 'Cancel', value: 'cancel' },
       ],
@@ -48,6 +49,9 @@ export default class Spec extends Command {
         break;
       case 'generate':
         await this.config.runCommand('spec:generate-tickets', []);
+        break;
+      case 'ticket':
+        await this.config.runCommand('spec:ticket', []);
         break;
       case 'link':
         await this.config.runCommand('spec:link', []);
