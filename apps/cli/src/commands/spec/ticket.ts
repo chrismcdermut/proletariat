@@ -109,15 +109,20 @@ export default class SpecTicket extends Command {
     }
 
     // Check if already linked
-    if (ticket.specs && ticket.specs.includes(specId)) {
+    if (ticket.specId === specId) {
       this.log(styles.warning(`Ticket "${ticketId}" is already linked to spec "${specId}"`));
       await storage.close();
       return;
     }
 
-    // Add spec to ticket
-    const updatedSpecs = [...(ticket.specs || []), specId];
-    await storage.updateTicket(ticketId, { specs: updatedSpecs });
+    // Warn if ticket already has a different spec
+    if (ticket.specId && ticket.specId !== specId) {
+      this.log(styles.warning(`Ticket "${ticketId}" is currently linked to spec "${ticket.specId}"`));
+      this.log(styles.muted(`This will replace the existing spec link.`));
+    }
+
+    // Set spec on ticket (single spec per ticket)
+    await storage.updateTicket(ticketId, { specId });
 
     // Auto-export to board.md
     await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));

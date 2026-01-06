@@ -328,7 +328,6 @@ export interface Ticket {
   // Use BoardTicket table for authoritative board position
   column?: string     // Column name (from board view)
   position?: number   // Position in column (from board view)
-  specs?: string[]    // Spec paths (backward compat - use specId instead)
 }
 
 /**
@@ -640,6 +639,11 @@ export interface PMOStorage {
   removeSpecDependency(specId: string, dependsOnId: string): Promise<void>
   getSpecDependencies(specId: string): Promise<Spec[]>
   getSpecDependents(specId: string): Promise<Spec[]>
+  // Project-Spec associations (many-to-many, specs are global)
+  linkProjectToSpec(projectId: string, specId: string): Promise<void>
+  unlinkProjectFromSpec(projectId: string, specId: string): Promise<void>
+  getSpecsForProject(projectId: string): Promise<Spec[]>
+  getProjectsForSpec(specId: string): Promise<Project[]>
 
   // Epic Operations
   createEpic(epic: Partial<Epic>): Promise<Epic>

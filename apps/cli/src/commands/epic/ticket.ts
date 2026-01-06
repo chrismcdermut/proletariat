@@ -224,6 +224,57 @@ export default class EpicTicket extends Command {
             this.log(styles.warning(`  ${ticketId} was linked to ${currentEpic?.title || currentEpicId}, reassigning`));
           }
 
+          // Reconciliation: Check spec consistency between ticket and epic
+          const ticketSpecId = ticket.specId;
+          const epicSpecId = epic.specId;
+
+          if (ticketSpecId && epicSpecId && ticketSpecId !== epicSpecId) {
+            // Both have specs but they differ - warn user
+            this.log(styles.warning(`  ⚠️  Spec mismatch: ticket has "${ticketSpecId}", epic has "${epicSpecId}"`));
+            const { action } = await inquirer.prompt([{
+              type: 'list',
+              name: 'action',
+              message: `How to reconcile spec for ${ticketId}?`,
+              choices: [
+                { name: `Keep ticket spec (${ticketSpecId})`, value: 'keep_ticket' },
+                { name: `Use epic spec (${epicSpecId})`, value: 'use_epic' },
+                { name: 'Skip this ticket', value: 'skip' },
+              ],
+            }]);
+
+            if (action === 'skip') {
+              this.log(styles.muted(`  Skipping ${ticketId}`));
+              continue;
+            }
+
+            if (action === 'use_epic') {
+              // Update ticket to use epic's spec
+              db.prepare(`
+                UPDATE pmo_tickets
+                SET spec_id = ?, updated_at = ?
+                WHERE id = ?
+              `).run(epicSpecId, Date.now(), ticketId);
+              this.log(styles.muted(`  Updated ${ticketId} to use spec "${epicSpecId}"`));
+            }
+          } else if (!ticketSpecId && epicSpecId) {
+            // Ticket has no spec but epic does - offer to inherit
+            const { inherit } = await inquirer.prompt([{
+              type: 'confirm',
+              name: 'inherit',
+              message: `${ticketId} has no spec. Inherit epic's spec "${epicSpecId}"?`,
+              default: true,
+            }]);
+
+            if (inherit) {
+              db.prepare(`
+                UPDATE pmo_tickets
+                SET spec_id = ?, updated_at = ?
+                WHERE id = ?
+              `).run(epicSpecId, Date.now(), ticketId);
+              this.log(styles.muted(`  Assigned spec "${epicSpecId}" to ${ticketId}`));
+            }
+          }
+
           db.prepare(`
             UPDATE pmo_tickets
             SET epic_id = ?, updated_at = ?

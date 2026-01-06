@@ -25,8 +25,10 @@ export default class Ticket extends Command {
         { name: 'List all tickets', value: 'list' },
         { name: 'View ticket details', value: 'view' },
         { name: 'Edit ticket', value: 'edit' },
-        { name: 'Move ticket', value: 'move' },
+        { name: 'Move ticket (column)', value: 'move' },
+        { name: 'Move to different project', value: 'project' },
         { name: 'Assign to epic', value: 'epic' },
+        { name: 'Assign to spec', value: 'spec' },
         { name: 'Manage dependencies', value: 'link' },
         new inquirer.Separator('──────────────'),
         { name: 'Delete ticket', value: 'delete' },
@@ -55,8 +57,14 @@ export default class Ticket extends Command {
       case 'move':
         await this.config.runCommand('ticket:move', []);
         break;
+      case 'project':
+        await this.config.runCommand('ticket:project', []);
+        break;
       case 'epic':
         await this.config.runCommand('ticket:epic', []);
+        break;
+      case 'spec':
+        await this.config.runCommand('ticket:spec', []);
         break;
       case 'link':
         await this.config.runCommand('ticket:link', []);

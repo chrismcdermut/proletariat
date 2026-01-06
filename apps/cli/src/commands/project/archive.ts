@@ -1,8 +1,6 @@
 import { Command, Args, Flags } from '@oclif/core';
-import * as fs from 'fs';
-import * as path from 'path';
 import inquirer from 'inquirer';
-import { SQLiteStorage, findPMO } from '../../lib/pmo/index.js';
+import { findPMO, getPMOContext } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
 export default class ProjectArchive extends Command {
@@ -36,14 +34,10 @@ export default class ProjectArchive extends Command {
       this.error('PMO not found. Run "prlt pmo init" first.');
     }
 
-    const hqPath = path.dirname(pmoPath);
-    const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
-
-    if (!fs.existsSync(dbPath)) {
-      this.error('Database not found. Run "prlt init" first.');
-    }
-
-    const storage = new SQLiteStorage(dbPath);
+    const { storage } = await getPMOContext(
+      undefined,
+      (msg) => this.log(styles.muted(msg))
+    );
 
     try {
       const project = await storage.getProject(args.id);

@@ -998,8 +998,8 @@ Output a review summary with your findings and any concerns.`,
 
     const now = Date.now()
 
-    // Get spec_id (changed from specs array to single specId)
-    const specId = ticket.specId || (ticket.specs && ticket.specs.length > 0 ? ticket.specs[0] : null)
+    // Get spec_id (single spec per ticket)
+    const specId = ticket.specId || null
 
     // Get status_id - use provided or get project's default status
     let statusId = ticket.statusId
@@ -1836,6 +1836,62 @@ Output a review summary with your findings and any concerns.`,
       if (spec) specs.push(spec)
     }
     return specs
+  }
+
+  // ===========================================================================
+  // Project-Spec Association Operations (Many-to-Many)
+  // ===========================================================================
+
+  async linkProjectToSpec(projectId: string, specId: string): Promise<void> {
+    // Verify project exists
+    const project = await this.getProject(projectId)
+    if (!project) {
+      throw new PMOError('NOT_FOUND', `Project "${projectId}" not found`)
+    }
+
+    // Verify spec exists
+    const spec = await this.getSpec(specId)
+    if (!spec) {
+      throw new PMOError('NOT_FOUND', `Spec "${specId}" not found`)
+    }
+
+    this.db.prepare(`
+      INSERT OR IGNORE INTO ${T.project_specs} (project_id, spec_id)
+      VALUES (?, ?)
+    `).run(projectId, specId)
+  }
+
+  async unlinkProjectFromSpec(projectId: string, specId: string): Promise<void> {
+    this.db.prepare(`
+      DELETE FROM ${T.project_specs}
+      WHERE project_id = ? AND spec_id = ?
+    `).run(projectId, specId)
+  }
+
+  async getSpecsForProject(projectId: string): Promise<Spec[]> {
+    const rows = this.db.prepare(`
+      SELECT spec_id FROM ${T.project_specs} WHERE project_id = ?
+    `).all(projectId) as Array<{ spec_id: string }>
+
+    const specs: Spec[] = []
+    for (const row of rows) {
+      const spec = await this.getSpec(row.spec_id)
+      if (spec) specs.push(spec)
+    }
+    return specs
+  }
+
+  async getProjectsForSpec(specId: string): Promise<Project[]> {
+    const rows = this.db.prepare(`
+      SELECT project_id FROM ${T.project_specs} WHERE spec_id = ?
+    `).all(specId) as Array<{ project_id: string }>
+
+    const projects: Project[] = []
+    for (const row of rows) {
+      const project = await this.getProject(row.project_id)
+      if (project) projects.push(project)
+    }
+    return projects
   }
 
   // ===========================================================================
@@ -4659,7 +4715,6 @@ Output a review summary with your findings and any concerns.`,
       // DEPRECATED fields for backward compat
       column: row.column_name || undefined,
       position: row.position !== null ? row.position : undefined,
-      specs: [],  // Deprecated - use specId and getSpecsForTicket()
     }
   }
 

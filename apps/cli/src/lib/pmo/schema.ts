@@ -27,6 +27,7 @@ export const PMO_TABLES = {
   ticket_assignments: 'pmo_ticket_assignments',
   epics: 'pmo_epics',
   epic_dependencies: 'pmo_epic_dependencies',
+  project_specs: 'pmo_project_specs',  // Many-to-many: projects ↔ specs (specs are global)
   cache_metadata: 'pmo_cache_metadata',
   settings: 'pmo_settings',
   agent_work: 'agent_work',
@@ -261,6 +262,15 @@ export const PMO_TABLE_SCHEMAS = {
       CHECK (epic_id != depends_on_epic_id)
     )`,
 
+  // Project-to-spec associations (many-to-many, specs are global living documents)
+  project_specs: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.project_specs} (
+      project_id TEXT NOT NULL REFERENCES ${PMO_TABLES.projects}(id) ON DELETE CASCADE,
+      spec_id TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE CASCADE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (project_id, spec_id)
+    )`,
+
   cache_metadata: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.cache_metadata} (
       key TEXT PRIMARY KEY,
@@ -392,6 +402,8 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_spec_deps_depends_on ON ${PMO_TABLES.spec_dependencies}(depends_on_spec_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_deps_depends_on ON ${PMO_TABLES.ticket_dependencies}(depends_on_ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_epic_deps_depends_on ON ${PMO_TABLES.epic_dependencies}(depends_on_epic_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_project_specs_spec ON ${PMO_TABLES.project_specs}(spec_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_project_specs_project ON ${PMO_TABLES.project_specs}(project_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_paths_ticket ON ${PMO_TABLES.ticket_affected_paths}(ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_criteria_ticket ON ${PMO_TABLES.ticket_acceptance_criteria}(ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_id ON ${PMO_TABLES.tickets}(status_id);
@@ -427,6 +439,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.spec_dependencies,  // Spec-to-spec dependencies
   PMO_TABLE_SCHEMAS.epics,  // Must be before tickets (FK reference)
   PMO_TABLE_SCHEMAS.epic_dependencies,  // Epic-to-epic dependencies
+  PMO_TABLE_SCHEMAS.project_specs,  // Many-to-many project ↔ spec associations
   PMO_TABLE_SCHEMAS.tickets,
   PMO_TABLE_SCHEMAS.board_tickets,
   PMO_TABLE_SCHEMAS.board_views,  // Saved board view configurations
