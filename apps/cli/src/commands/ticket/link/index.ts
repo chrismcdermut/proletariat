@@ -88,77 +88,76 @@ export default class TicketLink extends Command {
         return
       }
 
-      // Interactive mode: show menu
-      const allTickets = await storage.listTickets()
-      const otherTickets = allTickets.filter(t => t.id !== ticketId)
+      // Interactive mode: show menu in a loop
+      let continueLoop = true
+      while (continueLoop) {
+        const allTickets = await storage.listTickets()
+        const otherTickets = allTickets.filter(t => t.id !== ticketId)
 
-      const { action } = await inquirer.prompt([{
-        type: 'list',
-        name: 'action',
-        message: `Dependencies for ${ticket.id}:`,
-        choices: [
-          { name: 'View dependencies', value: 'view' },
-          { name: 'Add blocking dependency (blocked by...)', value: 'blocks' },
-          { name: 'Add relates_to dependency', value: 'relates_to' },
-          { name: 'Add duplicates dependency', value: 'duplicates' },
-          new inquirer.Separator(),
-          { name: 'Remove dependency', value: 'remove' },
-          { name: 'Cancel', value: 'cancel' },
-        ],
-      }])
-
-      if (action === 'cancel') {
-        await storage.close()
-        return
-      }
-
-      if (action === 'view') {
-        await this.viewDependencies(storage, ticketId!, ticket, flags.all)
-        await storage.close()
-        return
-      }
-
-      if (action === 'remove') {
-        const dependencies = await storage.listTicketDependencies(ticketId!)
-        if (dependencies.length === 0) {
-          this.log(styles.muted('\nNo dependencies to remove.'))
-          await storage.close()
-          return
-        }
-        const choices = await Promise.all(dependencies.map(async dep => {
-          const depTicket = await storage.getTicket(dep.dependsOnTicketId)
-          return {
-            name: `${dep.dependsOnTicketId} - ${depTicket?.title || 'Unknown'} (${dep.dependencyType})`,
-            value: { targetId: dep.dependsOnTicketId, type: dep.dependencyType }
-          }
-        }))
-        const { selected } = await inquirer.prompt([{
+        const { action } = await inquirer.prompt([{
           type: 'list',
-          name: 'selected',
-          message: 'Select dependency to remove:',
-          choices,
+          name: 'action',
+          message: `Dependencies for ${ticket.id}:`,
+          choices: [
+            { name: 'View dependencies', value: 'view' },
+            { name: 'Add blocking dependency (blocked by...)', value: 'blocks' },
+            { name: 'Add relates_to dependency', value: 'relates_to' },
+            { name: 'Add duplicates dependency', value: 'duplicates' },
+            new inquirer.Separator(),
+            { name: 'Remove dependency', value: 'remove' },
+            { name: 'Done', value: 'done' },
+          ],
         }])
-        await storage.deleteTicketDependency(ticketId!, selected.targetId, selected.type)
-        await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
-        this.log(styles.success(`\n✅ Removed dependency: ${ticketId} → ${selected.targetId}`))
-        await storage.close()
-        return
+
+        if (action === 'done') {
+          continueLoop = false
+          continue
+        }
+
+        if (action === 'view') {
+          await this.viewDependencies(storage, ticketId!, ticket, flags.all)
+          continue
+        }
+
+        if (action === 'remove') {
+          const dependencies = await storage.listTicketDependencies(ticketId!)
+          if (dependencies.length === 0) {
+            this.log(styles.muted('\nNo dependencies to remove.'))
+            continue
+          }
+          const choices = await Promise.all(dependencies.map(async dep => {
+            const depTicket = await storage.getTicket(dep.dependsOnTicketId)
+            return {
+              name: `${dep.dependsOnTicketId} - ${depTicket?.title || 'Unknown'} (${dep.dependencyType})`,
+              value: { targetId: dep.dependsOnTicketId, type: dep.dependencyType }
+            }
+          }))
+          const { selected } = await inquirer.prompt([{
+            type: 'list',
+            name: 'selected',
+            message: 'Select dependency to remove:',
+            choices,
+          }])
+          await storage.deleteTicketDependency(ticketId!, selected.targetId, selected.type)
+          await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
+          this.log(styles.success(`\n✅ Removed dependency: ${ticketId} → ${selected.targetId}`))
+          continue
+        }
+
+        // Add dependency
+        if (otherTickets.length === 0) {
+          this.log(styles.muted('\nNo other tickets to link to.'))
+          continue
+        }
+        const { targetId } = await inquirer.prompt([{
+          type: 'list',
+          name: 'targetId',
+          message: `Select ticket that ${ticketId} ${action === 'blocks' ? 'is blocked by' : action === 'relates_to' ? 'relates to' : 'duplicates'}:`,
+          choices: otherTickets.map(t => ({ name: `${t.id} - ${t.title}`, value: t.id })),
+        }])
+        await this.addDependency(storage, pmoPath, ticketId!, targetId, action as TicketDependencyType, ticket.title)
       }
 
-      // Add dependency
-      if (otherTickets.length === 0) {
-        this.log(styles.muted('\nNo other tickets to link to.'))
-        await storage.close()
-        return
-      }
-      const { targetId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'targetId',
-        message: `Select ticket that ${ticketId} ${action === 'blocks' ? 'is blocked by' : action === 'relates_to' ? 'relates to' : 'duplicates'}:`,
-        choices: otherTickets.map(t => ({ name: `${t.id} - ${t.title}`, value: t.id })),
-      }])
-      const targetTicket = await storage.getTicket(targetId)
-      await this.addDependency(storage, pmoPath, ticketId!, targetId, action as TicketDependencyType, ticket.title)
       await storage.close()
     } catch (error) {
       await storage.close()

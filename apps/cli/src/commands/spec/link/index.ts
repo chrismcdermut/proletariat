@@ -62,75 +62,75 @@ export default class SpecLink extends Command {
         return
       }
 
-      // Interactive mode: show menu
-      const allSpecs = await storage.listSpecs()
-      const otherSpecs = allSpecs.filter(s => s.id !== specId)
+      // Interactive mode: show menu in a loop
+      let continueLoop = true
+      while (continueLoop) {
+        const allSpecs = await storage.listSpecs()
+        const otherSpecs = allSpecs.filter(s => s.id !== specId)
 
-      const { action } = await inquirer.prompt([{
-        type: 'list',
-        name: 'action',
-        message: `Dependencies for ${spec.id}:`,
-        choices: [
-          { name: 'View dependencies', value: 'view' },
-          { name: 'Add depends_on dependency', value: 'depends_on' },
-          { name: 'Add relates_to dependency', value: 'relates_to' },
-          { name: 'Add duplicates dependency', value: 'duplicates' },
-          new inquirer.Separator(),
-          { name: 'Remove dependency', value: 'remove' },
-          { name: 'Cancel', value: 'cancel' },
-        ],
-      }])
-
-      if (action === 'cancel') {
-        await storage.close()
-        return
-      }
-
-      if (action === 'view') {
-        await this.viewDependencies(storage, specId!, spec, flags.all)
-        await storage.close()
-        return
-      }
-
-      if (action === 'remove') {
-        const dependencies = await storage.listSpecDependencies(specId!)
-        if (dependencies.length === 0) {
-          this.log(styles.muted('\nNo dependencies to remove.'))
-          await storage.close()
-          return
-        }
-        const choices = await Promise.all(dependencies.map(async dep => {
-          const depSpec = await storage.getSpec(dep.dependsOnSpecId)
-          return {
-            name: `${dep.dependsOnSpecId} - ${depSpec?.title || 'Unknown'} (${dep.dependencyType})`,
-            value: { targetId: dep.dependsOnSpecId, type: dep.dependencyType }
-          }
-        }))
-        const { selected } = await inquirer.prompt([{
+        const { action } = await inquirer.prompt([{
           type: 'list',
-          name: 'selected',
-          message: 'Select dependency to remove:',
-          choices,
+          name: 'action',
+          message: `Dependencies for ${spec.id}:`,
+          choices: [
+            { name: 'View dependencies', value: 'view' },
+            { name: 'Add depends_on dependency', value: 'depends_on' },
+            { name: 'Add relates_to dependency', value: 'relates_to' },
+            { name: 'Add duplicates dependency', value: 'duplicates' },
+            new inquirer.Separator(),
+            { name: 'Remove dependency', value: 'remove' },
+            { name: 'Done', value: 'done' },
+          ],
         }])
-        await storage.deleteSpecDependency(specId!, selected.targetId, selected.type)
-        this.log(styles.success(`\n✅ Removed dependency: ${specId} → ${selected.targetId}`))
-        await storage.close()
-        return
+
+        if (action === 'done') {
+          continueLoop = false
+          continue
+        }
+
+        if (action === 'view') {
+          await this.viewDependencies(storage, specId!, spec, flags.all)
+          continue
+        }
+
+        if (action === 'remove') {
+          const dependencies = await storage.listSpecDependencies(specId!)
+          if (dependencies.length === 0) {
+            this.log(styles.muted('\nNo dependencies to remove.'))
+            continue
+          }
+          const choices = await Promise.all(dependencies.map(async dep => {
+            const depSpec = await storage.getSpec(dep.dependsOnSpecId)
+            return {
+              name: `${dep.dependsOnSpecId} - ${depSpec?.title || 'Unknown'} (${dep.dependencyType})`,
+              value: { targetId: dep.dependsOnSpecId, type: dep.dependencyType }
+            }
+          }))
+          const { selected } = await inquirer.prompt([{
+            type: 'list',
+            name: 'selected',
+            message: 'Select dependency to remove:',
+            choices,
+          }])
+          await storage.deleteSpecDependency(specId!, selected.targetId, selected.type)
+          this.log(styles.success(`\n✅ Removed dependency: ${specId} → ${selected.targetId}`))
+          continue
+        }
+
+        // Add dependency
+        if (otherSpecs.length === 0) {
+          this.log(styles.muted('\nNo other specs to link to.'))
+          continue
+        }
+        const { targetId } = await inquirer.prompt([{
+          type: 'list',
+          name: 'targetId',
+          message: `Select spec that ${specId} ${action === 'depends_on' ? 'depends on' : action === 'relates_to' ? 'relates to' : 'duplicates'}:`,
+          choices: otherSpecs.map(s => ({ name: `${s.id} - ${s.title}`, value: s.id })),
+        }])
+        await this.addDependency(storage, specId!, targetId, action as SpecDependencyType, spec.title)
       }
 
-      // Add dependency
-      if (otherSpecs.length === 0) {
-        this.log(styles.muted('\nNo other specs to link to.'))
-        await storage.close()
-        return
-      }
-      const { targetId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'targetId',
-        message: `Select spec that ${specId} ${action === 'depends_on' ? 'depends on' : action === 'relates_to' ? 'relates to' : 'duplicates'}:`,
-        choices: otherSpecs.map(s => ({ name: `${s.id} - ${s.title}`, value: s.id })),
-      }])
-      await this.addDependency(storage, specId!, targetId, action as SpecDependencyType, spec.title)
       await storage.close()
     } catch (error) {
       await storage.close()

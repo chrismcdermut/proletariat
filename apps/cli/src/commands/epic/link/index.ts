@@ -88,76 +88,76 @@ export default class EpicLink extends Command {
         return
       }
 
-      // Interactive mode: show menu
-      const allEpics = await storage.listEpics()
-      const otherEpics = allEpics.filter(e => e.id !== epicId)
+      // Interactive mode: show menu in a loop
+      let continueLoop = true
+      while (continueLoop) {
+        const allEpics = await storage.listEpics()
+        const otherEpics = allEpics.filter(e => e.id !== epicId)
 
-      const { action } = await inquirer.prompt([{
-        type: 'list',
-        name: 'action',
-        message: `Dependencies for ${epic.id}:`,
-        choices: [
-          { name: 'View dependencies', value: 'view' },
-          { name: 'Add blocking dependency (blocked by...)', value: 'blocks' },
-          { name: 'Add relates_to dependency', value: 'relates_to' },
-          { name: 'Add duplicates dependency', value: 'duplicates' },
-          new inquirer.Separator(),
-          { name: 'Remove dependency', value: 'remove' },
-          { name: 'Cancel', value: 'cancel' },
-        ],
-      }])
-
-      if (action === 'cancel') {
-        await storage.close()
-        return
-      }
-
-      if (action === 'view') {
-        await this.viewDependencies(storage, epicId!, epic, flags.all)
-        await storage.close()
-        return
-      }
-
-      if (action === 'remove') {
-        const dependencies = await storage.listEpicDependencies(epicId!)
-        if (dependencies.length === 0) {
-          this.log(styles.muted('\nNo dependencies to remove.'))
-          await storage.close()
-          return
-        }
-        const choices = await Promise.all(dependencies.map(async dep => {
-          const depEpic = await storage.getEpic(dep.dependsOnEpicId)
-          return {
-            name: `${dep.dependsOnEpicId} - ${depEpic?.title || 'Unknown'} (${dep.dependencyType})`,
-            value: { targetId: dep.dependsOnEpicId, type: dep.dependencyType }
-          }
-        }))
-        const { selected } = await inquirer.prompt([{
+        const { action } = await inquirer.prompt([{
           type: 'list',
-          name: 'selected',
-          message: 'Select dependency to remove:',
-          choices,
+          name: 'action',
+          message: `Dependencies for ${epic.id}:`,
+          choices: [
+            { name: 'View dependencies', value: 'view' },
+            { name: 'Add blocking dependency (blocked by...)', value: 'blocks' },
+            { name: 'Add relates_to dependency', value: 'relates_to' },
+            { name: 'Add duplicates dependency', value: 'duplicates' },
+            new inquirer.Separator(),
+            { name: 'Remove dependency', value: 'remove' },
+            { name: 'Done', value: 'done' },
+          ],
         }])
-        await storage.deleteEpicDependency(epicId!, selected.targetId, selected.type)
-        await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
-        this.log(styles.success(`\n✅ Removed dependency: ${epicId} → ${selected.targetId}`))
-        await storage.close()
-        return
+
+        if (action === 'done') {
+          continueLoop = false
+          continue
+        }
+
+        if (action === 'view') {
+          await this.viewDependencies(storage, epicId!, epic, flags.all)
+          continue
+        }
+
+        if (action === 'remove') {
+          const dependencies = await storage.listEpicDependencies(epicId!)
+          if (dependencies.length === 0) {
+            this.log(styles.muted('\nNo dependencies to remove.'))
+            continue
+          }
+          const choices = await Promise.all(dependencies.map(async dep => {
+            const depEpic = await storage.getEpic(dep.dependsOnEpicId)
+            return {
+              name: `${dep.dependsOnEpicId} - ${depEpic?.title || 'Unknown'} (${dep.dependencyType})`,
+              value: { targetId: dep.dependsOnEpicId, type: dep.dependencyType }
+            }
+          }))
+          const { selected } = await inquirer.prompt([{
+            type: 'list',
+            name: 'selected',
+            message: 'Select dependency to remove:',
+            choices,
+          }])
+          await storage.deleteEpicDependency(epicId!, selected.targetId, selected.type)
+          await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
+          this.log(styles.success(`\n✅ Removed dependency: ${epicId} → ${selected.targetId}`))
+          continue
+        }
+
+        // Add dependency
+        if (otherEpics.length === 0) {
+          this.log(styles.muted('\nNo other epics to link to.'))
+          continue
+        }
+        const { targetId } = await inquirer.prompt([{
+          type: 'list',
+          name: 'targetId',
+          message: `Select epic that ${epicId} ${action === 'blocks' ? 'is blocked by' : action === 'relates_to' ? 'relates to' : 'duplicates'}:`,
+          choices: otherEpics.map(e => ({ name: `${e.id} - ${e.title}`, value: e.id })),
+        }])
+        await this.addDependency(storage, pmoPath, epicId!, targetId, action as EpicDependencyType, epic.title)
       }
 
-      // Add dependency
-      if (otherEpics.length === 0) {
-        this.log(styles.muted('\nNo other epics to link to.'))
-        await storage.close()
-        return
-      }
-      const { targetId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'targetId',
-        message: `Select epic that ${epicId} ${action === 'blocks' ? 'is blocked by' : action === 'relates_to' ? 'relates to' : 'duplicates'}:`,
-        choices: otherEpics.map(e => ({ name: `${e.id} - ${e.title}`, value: e.id })),
-      }])
-      await this.addDependency(storage, pmoPath, epicId!, targetId, action as EpicDependencyType, epic.title)
       await storage.close()
     } catch (error) {
       await storage.close()
