@@ -6,7 +6,7 @@ import {
   validateAgentNames,
   addAgentsToWorkspace
 } from '../../lib/agents/commands.js';
-import { ensureBuiltinThemes, BUILTIN_THEMES, isValidAgentName } from '../../lib/themes.js';
+import { ensureBuiltinThemes, BUILTIN_THEMES, isValidAgentName, normalizeAgentName } from '../../lib/themes.js';
 import {
   getTheme,
   getThemes,
@@ -136,15 +136,28 @@ export default class Add extends Command {
             message: 'Enter custom agent names (space-separated):',
             validate: (input: string) => {
               if (!input.trim()) return 'Please enter at least one name';
-              const names = input.trim().split(/\s+/);
-              const invalid = names.filter(n => !isValidAgentName(n));
-              if (invalid.length > 0) {
-                return `Invalid names: ${invalid.join(', ')}. Use lowercase alphanumeric with hyphens/underscores.`;
-              }
+              const names = input.trim().split(/\s+/).map(normalizeAgentName).filter(n => n);
+              if (names.length === 0) return 'No valid names after normalization';
               return true;
             }
           }]);
-          agentNames = customNames.trim().split(/\s+/);
+          // Normalize and filter custom names
+          const rawNames = customNames.trim().split(/\s+/);
+          const normalizedCustom = rawNames.map((n: string) => ({
+            original: n,
+            normalized: normalizeAgentName(n)
+          })).filter((x: { original: string; normalized: string }) => x.normalized && isValidAgentName(x.normalized));
+
+          // Show normalizations
+          const changed = normalizedCustom.filter((x: { original: string; normalized: string }) => x.original !== x.normalized);
+          if (changed.length > 0) {
+            this.log(chalk.blue('Normalized names:'));
+            for (const { original, normalized } of changed) {
+              this.log(chalk.dim(`   ${original} → ${normalized}`));
+            }
+          }
+
+          agentNames = normalizedCustom.map((x: { original: string; normalized: string }) => x.normalized);
         }
 
         if (themedSelections.length > 0) {

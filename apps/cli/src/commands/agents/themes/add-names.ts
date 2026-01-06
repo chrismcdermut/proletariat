@@ -1,7 +1,7 @@
 import { Command, Args } from '@oclif/core';
 import chalk from 'chalk';
 import { getWorkspaceInfo } from '../../../lib/agents/commands.js';
-import { isValidAgentName } from '../../../lib/themes.js';
+import { isValidAgentName, normalizeAgentName } from '../../../lib/themes.js';
 import { getTheme, addThemeNames, getThemeNames } from '../../../lib/database/index.js';
 
 export default class ThemesAddNames extends Command {
@@ -34,31 +34,36 @@ export default class ThemesAddNames extends Command {
       }
 
       // Get names from remaining arguments (skip the theme arg)
-      const names = (argv as string[]).slice(1);
+      const rawNames = (argv as string[]).slice(1);
 
-      if (names.length === 0) {
+      if (rawNames.length === 0) {
         this.error('Please provide at least one name to add.');
       }
 
-      // Validate names
+      // Normalize and validate names
       const validNames: string[] = [];
-      const invalidNames: string[] = [];
+      const normalized: { original: string; normalized: string }[] = [];
 
-      for (const name of names) {
-        if (isValidAgentName(name)) {
-          validNames.push(name);
-        } else {
-          invalidNames.push(name);
+      for (const name of rawNames) {
+        const normalizedName = normalizeAgentName(name);
+        if (normalizedName && isValidAgentName(normalizedName)) {
+          validNames.push(normalizedName);
+          if (normalizedName !== name) {
+            normalized.push({ original: name, normalized: normalizedName });
+          }
         }
       }
 
-      if (invalidNames.length > 0) {
-        this.log(chalk.red(`Invalid names: ${invalidNames.join(', ')}`));
-        this.log(chalk.yellow('Names must be lowercase alphanumeric with optional hyphens/underscores.'));
+      if (validNames.length === 0) {
+        this.error('No valid names to add after normalization.');
       }
 
-      if (validNames.length === 0) {
-        this.error('No valid names to add.');
+      // Show normalizations
+      if (normalized.length > 0) {
+        this.log(chalk.blue('Normalized names:'));
+        for (const { original, normalized: norm } of normalized) {
+          this.log(chalk.dim(`   ${original} → ${norm}`));
+        }
       }
 
       // Add names to theme

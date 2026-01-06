@@ -20,6 +20,20 @@ export function isValidAgentName(name: string): boolean {
 }
 
 /**
+ * Normalize a name to valid agent name format:
+ * - Convert to lowercase
+ * - Replace spaces with dashes
+ * - Remove any invalid characters
+ */
+export function normalizeAgentName(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '-')           // spaces to dashes
+    .replace(/[^a-z0-9-_]/g, '');   // remove invalid chars
+}
+
+/**
  * Get suggested agent names (for interactive selection when no theme)
  */
 export function getSuggestedAgentNames(): string[] {
