@@ -15,6 +15,7 @@ export const PMO_TABLES = {
   columns: 'pmo_columns',
   tickets: 'pmo_tickets',
   board_tickets: 'pmo_board_tickets',
+  board_views: 'pmo_board_views',  // Saved board view configurations
   subtasks: 'pmo_subtasks',
   ticket_metadata: 'pmo_ticket_metadata',
   ticket_dependencies: 'pmo_ticket_dependencies',
@@ -112,6 +113,23 @@ export const PMO_TABLE_SCHEMAS = {
       FOREIGN KEY (project_id) REFERENCES ${PMO_TABLES.projects}(id) ON DELETE CASCADE,
       FOREIGN KEY (ticket_id) REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
       FOREIGN KEY (project_id, column_id) REFERENCES ${PMO_TABLES.columns}(project_id, id) ON DELETE CASCADE
+    )`,
+
+  // Board views - saved filter/display configurations for projects
+  board_views: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.board_views} (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      filters TEXT NOT NULL DEFAULT '{}',
+      group_by TEXT,
+      sort_by TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES ${PMO_TABLES.projects}(id) ON DELETE CASCADE,
+      UNIQUE(project_id, name)
     )`,
 
   subtasks: `
@@ -369,6 +387,8 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_projects_archived ON ${PMO_TABLES.projects}(is_archived);
   CREATE INDEX IF NOT EXISTS idx_pmo_phases_category ON ${PMO_TABLES.phases}(category);
   CREATE INDEX IF NOT EXISTS idx_pmo_phases_position ON ${PMO_TABLES.phases}(category, position);
+  CREATE INDEX IF NOT EXISTS idx_pmo_board_views_project ON ${PMO_TABLES.board_views}(project_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_board_views_default ON ${PMO_TABLES.board_views}(project_id, is_default);
 `;
 
 // =============================================================================
@@ -392,6 +412,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.epics,  // Must be before tickets (FK reference)
   PMO_TABLE_SCHEMAS.tickets,
   PMO_TABLE_SCHEMAS.board_tickets,
+  PMO_TABLE_SCHEMAS.board_views,  // Saved board view configurations
   PMO_TABLE_SCHEMAS.subtasks,
   PMO_TABLE_SCHEMAS.ticket_metadata,
   PMO_TABLE_SCHEMAS.ticket_dependencies,  // Agent execution: dependency tracking
