@@ -132,12 +132,12 @@ export default class WorkStart extends Command {
       this.error('Not in a workspace. Run "prlt init" first.')
     }
 
-    // Get PMO context
-    const { pmoPath, storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    )
+    // Get PMO context (filter out projects with no tickets)
+    const { pmoPath, storage } = await getPMOContext({
+      logger: (msg) => this.log(styles.muted(msg)),
+      promptIfMultiple: true,
+      filterEmptyProjects: true,
+    })
 
     // Open database for execution storage
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')

@@ -275,8 +275,10 @@ export function getStorageWithAutoSync(
 
   const storage = new SQLiteStorage(dbPath, projectId);
 
-  // Auto-sync if board.md has changes
-  autoSyncFromBoard(pmoPath, storage, logger, projectId);
+  // DISABLED: Markdown→DB sync was causing data corruption (uppercase ID parsing bug)
+  // DB is now the source of truth. Changes only flow DB→markdown via autoExportToBoard.
+  // To re-enable: uncomment the line below
+  // autoSyncFromBoard(pmoPath, storage, logger, projectId);
 
   return storage;
 }

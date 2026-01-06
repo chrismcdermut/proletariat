@@ -41,7 +41,7 @@ export {
   getEpicsPath,
 } from './create-spec-folders.js';
 export { findPMO } from './find-pmo.js';
-export { getPMOContext, type PMOContext } from './pmo-context.js';
+export { getPMOContext, type PMOContext, type GetPMOContextOptions } from './pmo-context.js';
 export {
   PMO_TABLES,
   PMO_TABLE_SCHEMAS,

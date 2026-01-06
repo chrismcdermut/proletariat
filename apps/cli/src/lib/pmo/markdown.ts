@@ -67,7 +67,8 @@ export function parseBoard(markdown: string, projectId: string = 'default'): Boa
     }
 
     // Ticket: - [ ] **ID** [[ID]] Title or - [ ] Title
-    const ticketMatch = line.match(/^- \[[ x]\] (?:\*\*([a-z0-9-]+)\*\* \[\[\1\]\] )?(.+)$/)
+    // Note: ID pattern is case-insensitive to handle both TKT-054 and tkt-054
+    const ticketMatch = line.match(/^- \[[ x]\] (?:\*\*([a-zA-Z0-9-]+)\*\* \[\[\1\]\] )?(.+)$/i)
     if (ticketMatch && currentColumn) {
       // Save previous ticket's description
       if (currentTicket && descriptionLines.length > 0) {
