@@ -137,6 +137,43 @@ export default class EpicSpec extends Command {
         this.log(styles.muted(`This will replace the existing spec link.`));
       }
 
+      // Reconciliation: Check if epic's tickets have different specs
+      const epicTickets = await storage.getTicketsForEpic(epicId!);
+      const ticketsWithDifferentSpec = epicTickets.filter(t => t.specId && t.specId !== specId);
+
+      if (ticketsWithDifferentSpec.length > 0) {
+        this.log(styles.warning(`\n⚠️  ${ticketsWithDifferentSpec.length} ticket(s) in this epic have different specs:`));
+        for (const t of ticketsWithDifferentSpec.slice(0, 5)) {
+          this.log(styles.muted(`   - ${t.id}: spec "${t.specId}"`));
+        }
+        if (ticketsWithDifferentSpec.length > 5) {
+          this.log(styles.muted(`   ... and ${ticketsWithDifferentSpec.length - 5} more`));
+        }
+
+        const { action } = await inquirer.prompt([{
+          type: 'list',
+          name: 'action',
+          message: 'How to handle spec mismatch?',
+          choices: [
+            { name: 'Update epic only (tickets keep their specs)', value: 'epic_only' },
+            { name: `Update epic AND align all tickets to "${specId}"`, value: 'align_all' },
+            { name: 'Cancel', value: 'cancel' },
+          ],
+        }]);
+
+        if (action === 'cancel') {
+          await storage.close();
+          return;
+        }
+
+        if (action === 'align_all') {
+          for (const t of ticketsWithDifferentSpec) {
+            await storage.updateTicket(t.id, { specId });
+            this.log(styles.muted(`   Updated ${t.id} to spec "${specId}"`));
+          }
+        }
+      }
+
       // Link spec to epic
       await storage.updateEpic(epicId!, { specId });
       await storage.close();

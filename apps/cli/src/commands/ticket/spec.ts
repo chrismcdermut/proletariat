@@ -152,6 +152,33 @@ export default class TicketSpec extends Command {
         this.log(styles.muted(`This will replace the existing spec link.`));
       }
 
+      // Reconciliation: Check if ticket's epic has a different spec
+      if (ticket.epicId) {
+        const epic = await storage.getEpic(ticket.epicId);
+        if (epic?.specId && epic.specId !== specId) {
+          this.log(styles.warning(`\n⚠️  Epic "${ticket.epicId}" uses spec "${epic.specId}", but you're assigning "${specId}" to this ticket.`));
+          const { action } = await inquirer.prompt([{
+            type: 'list',
+            name: 'action',
+            message: 'How to handle spec mismatch?',
+            choices: [
+              { name: `Proceed anyway (ticket will have different spec than epic)`, value: 'proceed' },
+              { name: `Use epic's spec instead (${epic.specId})`, value: 'use_epic' },
+              { name: 'Cancel', value: 'cancel' },
+            ],
+          }]);
+
+          if (action === 'cancel') {
+            await storage.close();
+            return;
+          }
+
+          if (action === 'use_epic') {
+            specId = epic.specId;
+          }
+        }
+      }
+
       // Link spec to ticket
       await storage.updateTicket(ticketId!, { specId });
       await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
