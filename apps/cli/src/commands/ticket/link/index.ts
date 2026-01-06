@@ -18,7 +18,7 @@ export default class TicketLink extends Command {
   static args = {
     id: Args.string({
       description: 'Ticket ID',
-      required: true,
+      required: false,
     }),
   }
 
@@ -56,9 +56,26 @@ export default class TicketLink extends Command {
     )
 
     try {
-      const ticket = await storage.getTicket(args.id)
+      let ticketId = args.id
+      if (!ticketId) {
+        const tickets = await storage.listTickets()
+        if (tickets.length === 0) {
+          this.log(styles.muted('\nNo tickets found.'))
+          await storage.close()
+          return
+        }
+        const { selected } = await inquirer.prompt([{
+          type: 'list',
+          name: 'selected',
+          message: 'Select ticket to manage dependencies:',
+          choices: tickets.map(t => ({ name: `${t.id} - ${t.title}`, value: t.id })),
+        }])
+        ticketId = selected
+      }
+
+      const ticket = await storage.getTicket(ticketId!)
       if (!ticket) {
-        this.error(`Ticket not found: ${args.id}`)
+        this.error(`Ticket not found: ${ticketId}`)
       }
 
       // If a dependency flag is provided, add the dependency
@@ -73,13 +90,13 @@ export default class TicketLink extends Command {
         }
 
         try {
-          await storage.createTicketDependency(args.id, targetId!, dependencyType)
+          await storage.createTicketDependency(ticketId!, targetId!, dependencyType)
           await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
 
           const typeLabel = dependencyType === 'blocks' ? 'is blocked by' :
                             dependencyType === 'relates_to' ? 'relates to' : 'duplicates'
 
-          this.log(styles.success(`\n✅ ${styles.emphasis(args.id)} ${typeLabel} ${styles.emphasis(targetId!)}`))
+          this.log(styles.success(`\n✅ ${styles.emphasis(ticketId!)} ${typeLabel} ${styles.emphasis(targetId!)}`))
           this.log(styles.muted(`   ${ticket.title}`))
           this.log(styles.muted(`   ${typeLabel} ${targetTicket.title}`))
         } catch (error) {
@@ -99,9 +116,9 @@ export default class TicketLink extends Command {
       }
 
       // Otherwise, list dependencies
-      const dependencies = await storage.listTicketDependencies(args.id)
-      const blockers = await storage.getTicketBlockers(args.id)
-      const isBlocked = await storage.isTicketBlocked(args.id)
+      const dependencies = await storage.listTicketDependencies(ticketId!)
+      const blockers = await storage.getTicketBlockers(ticketId!)
+      const isBlocked = await storage.isTicketBlocked(ticketId!)
 
       this.log(`\n${styles.emphasis(ticket.id)}: ${ticket.title}`)
 
@@ -131,7 +148,7 @@ export default class TicketLink extends Command {
 
       // Optionally show tickets blocked BY this ticket
       if (flags.all) {
-        const blockedBy = await storage.getTicketsBlockedBy(args.id)
+        const blockedBy = await storage.getTicketsBlockedBy(ticketId!)
         if (blockedBy.length > 0) {
           this.log(styles.muted('\n  Blocking:'))
           for (const blocked of blockedBy) {

@@ -1,4 +1,5 @@
 import { Args, Command, Flags } from '@oclif/core'
+import inquirer from 'inquirer'
 import { getPMOContext, autoExportToBoard } from '../../../lib/pmo/index.js'
 import { styles } from '../../../lib/styles.js'
 import { EpicDependencyType } from '../../../lib/pmo/types.js'
@@ -17,7 +18,7 @@ export default class EpicLink extends Command {
   static args = {
     id: Args.string({
       description: 'Epic ID',
-      required: true,
+      required: false,
     }),
   }
 
@@ -55,9 +56,26 @@ export default class EpicLink extends Command {
     )
 
     try {
-      const epic = await storage.getEpic(args.id)
+      let epicId = args.id
+      if (!epicId) {
+        const epics = await storage.listEpics()
+        if (epics.length === 0) {
+          this.log(styles.muted('\nNo epics found.'))
+          await storage.close()
+          return
+        }
+        const { selected } = await inquirer.prompt([{
+          type: 'list',
+          name: 'selected',
+          message: 'Select epic to manage dependencies:',
+          choices: epics.map(e => ({ name: `${e.id} - ${e.title}`, value: e.id })),
+        }])
+        epicId = selected
+      }
+
+      const epic = await storage.getEpic(epicId!)
       if (!epic) {
-        this.error(`Epic not found: ${args.id}`)
+        this.error(`Epic not found: ${epicId}`)
       }
 
       // If a dependency flag is provided, add the dependency
@@ -72,13 +90,13 @@ export default class EpicLink extends Command {
         }
 
         try {
-          await storage.createEpicDependency(args.id, targetId!, dependencyType)
+          await storage.createEpicDependency(epicId!, targetId!, dependencyType)
           await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
 
           const typeLabel = dependencyType === 'blocks' ? 'is blocked by' :
                             dependencyType === 'relates_to' ? 'relates to' : 'duplicates'
 
-          this.log(styles.success(`\n✅ ${styles.emphasis(args.id)} ${typeLabel} ${styles.emphasis(targetId!)}`))
+          this.log(styles.success(`\n✅ ${styles.emphasis(epicId!)} ${typeLabel} ${styles.emphasis(targetId!)}`))
           this.log(styles.muted(`   ${epic.title}`))
           this.log(styles.muted(`   ${typeLabel} ${targetEpic.title}`))
         } catch (error) {
@@ -98,8 +116,8 @@ export default class EpicLink extends Command {
       }
 
       // Otherwise, list dependencies
-      const dependencies = await storage.listEpicDependencies(args.id)
-      const isBlocked = await storage.isEpicBlocked(args.id)
+      const dependencies = await storage.listEpicDependencies(epicId!)
+      const isBlocked = await storage.isEpicBlocked(epicId!)
 
       this.log(`\n${styles.emphasis(epic.id)}: ${epic.title}`)
 
@@ -138,9 +156,9 @@ export default class EpicLink extends Command {
         const blocking: Array<{ epic: typeof epic; type: string }> = []
 
         for (const otherEpic of allEpics) {
-          if (otherEpic.id === args.id) continue
+          if (otherEpic.id === epicId) continue
           const otherDeps = await storage.listEpicDependencies(otherEpic.id)
-          const blockingDep = otherDeps.find(d => d.dependsOnEpicId === args.id)
+          const blockingDep = otherDeps.find(d => d.dependsOnEpicId === epicId)
           if (blockingDep) {
             blocking.push({ epic: otherEpic, type: blockingDep.dependencyType })
           }

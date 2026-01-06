@@ -1,4 +1,5 @@
 import { Args, Command, Flags } from '@oclif/core'
+import inquirer from 'inquirer'
 import { getPMOContext } from '../../../lib/pmo/index.js'
 import { styles } from '../../../lib/styles.js'
 import { SpecDependencyType } from '../../../lib/pmo/types.js'
@@ -15,7 +16,7 @@ export default class SpecLink extends Command {
   ]
 
   static args = {
-    id: Args.string({ description: 'Spec ID', required: true }),
+    id: Args.string({ description: 'Spec ID', required: false }),
   }
 
   static flags = {
@@ -31,8 +32,25 @@ export default class SpecLink extends Command {
     const { storage } = await getPMOContext(flags.project, (msg) => this.log(styles.muted(msg)), true)
 
     try {
-      const spec = await storage.getSpec(args.id)
-      if (!spec) this.error(`Spec not found: ${args.id}`)
+      let specId = args.id
+      if (!specId) {
+        const specs = await storage.listSpecs()
+        if (specs.length === 0) {
+          this.log(styles.muted('\nNo specs found.'))
+          await storage.close()
+          return
+        }
+        const { selected } = await inquirer.prompt([{
+          type: 'list',
+          name: 'selected',
+          message: 'Select spec to manage dependencies:',
+          choices: specs.map(s => ({ name: `${s.id} - ${s.title}`, value: s.id })),
+        }])
+        specId = selected
+      }
+
+      const spec = await storage.getSpec(specId!)
+      if (!spec) this.error(`Spec not found: ${specId}`)
 
       // If a dependency flag is provided, add the dependency
       if (flags.depends || flags.relates || flags.duplicates) {
@@ -44,10 +62,10 @@ export default class SpecLink extends Command {
         if (!targetSpec) this.error(`Spec not found: ${targetId}`)
 
         try {
-          await storage.createSpecDependency(args.id, targetId!, dependencyType)
+          await storage.createSpecDependency(specId!, targetId!, dependencyType)
           const typeLabel = dependencyType === 'depends_on' ? 'depends on' :
                             dependencyType === 'relates_to' ? 'relates to' : 'duplicates'
-          this.log(styles.success(`\n✅ ${styles.emphasis(args.id)} ${typeLabel} ${styles.emphasis(targetId!)}`))
+          this.log(styles.success(`\n✅ ${styles.emphasis(specId!)} ${typeLabel} ${styles.emphasis(targetId!)}`))
           this.log(styles.muted(`   ${spec.title} ${typeLabel} ${targetSpec.title}`))
         } catch (error) {
           if (error instanceof Error && error.message.includes('already exists')) this.error('Dependency already exists')
@@ -58,7 +76,7 @@ export default class SpecLink extends Command {
       }
 
       // Otherwise, list dependencies
-      const dependencies = await storage.listSpecDependencies(args.id)
+      const dependencies = await storage.listSpecDependencies(specId!)
       this.log(`\n${styles.emphasis(spec.id)}: ${spec.title}`)
 
       const dependsOn = dependencies.filter(d => d.dependencyType === 'depends_on')
@@ -83,9 +101,9 @@ export default class SpecLink extends Command {
         const allSpecs = await storage.listSpecs()
         const dependedBy: Array<{ spec: typeof spec; type: string }> = []
         for (const otherSpec of allSpecs) {
-          if (otherSpec.id === args.id) continue
+          if (otherSpec.id === specId) continue
           const otherDeps = await storage.listSpecDependencies(otherSpec.id)
-          const dep = otherDeps.find(d => d.dependsOnSpecId === args.id)
+          const dep = otherDeps.find(d => d.dependsOnSpecId === specId)
           if (dep) dependedBy.push({ spec: otherSpec, type: dep.dependencyType })
         }
         if (dependedBy.length > 0) {
