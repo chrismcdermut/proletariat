@@ -1,6 +1,9 @@
 import { Command } from '@oclif/core';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
+import { getWorkspaceInfo } from '../../../lib/agents/commands.js';
+import { ensureBuiltinThemes } from '../../../lib/themes.js';
+import { getThemes, getThemeNames } from '../../../lib/database/index.js';
 
 export default class Themes extends Command {
   static description = 'Manage agent naming themes';
@@ -61,25 +64,80 @@ export default class Themes extends Command {
           break;
         }
         case 'add-names': {
-          // Prompt for theme and names interactively
-          const { theme, names } = await inquirer.prompt([
-            {
+          // Get available themes and show a selection list
+          const workspaceInfo = getWorkspaceInfo();
+          ensureBuiltinThemes(workspaceInfo.path);
+          const themes = getThemes(workspaceInfo.path);
+
+          if (themes.length === 0) {
+            this.log(chalk.yellow('No themes found. Create one first.'));
+            return;
+          }
+
+          // Build choices with theme info
+          const themeChoices = themes.map(t => {
+            const names = getThemeNames(workspaceInfo.path, t.id);
+            const available = names.filter(n => !n.used).length;
+            const builtinTag = t.builtin ? chalk.dim(' [built-in]') : '';
+            return {
+              name: `${t.display_name}${builtinTag} ${chalk.dim(`(${available} names available)`)}`,
+              value: t.id
+            };
+          });
+
+          // Add option to create new theme
+          themeChoices.push(new inquirer.Separator() as any);
+          themeChoices.push({ name: chalk.green('+ Create new theme'), value: '__create_new__' });
+
+          const { selectedTheme } = await inquirer.prompt([{
+            type: 'list',
+            name: 'selectedTheme',
+            message: 'Select theme to add names to:',
+            choices: themeChoices
+          }]);
+
+          // If they want to create a new theme first
+          if (selectedTheme === '__create_new__') {
+            const { themeName } = await inquirer.prompt([{
               type: 'input',
-              name: 'theme',
-              message: 'Theme ID to add names to:',
-              validate: (input: string) => input.trim() ? true : 'Theme ID is required'
-            },
-            {
+              name: 'themeName',
+              message: 'Theme name (lowercase with hyphens):',
+              validate: (input: string) => {
+                if (!input.trim()) return 'Theme name is required';
+                if (!/^[a-z0-9][a-z0-9-]*$/.test(input.trim())) {
+                  return 'Must be lowercase alphanumeric with optional hyphens';
+                }
+                return true;
+              }
+            }]);
+            const { default: CreateCommand } = await import('./create.js');
+            const createCmd = new CreateCommand([themeName.trim()], this.config);
+            await createCmd.run();
+
+            // Now prompt for names to add to the new theme
+            const { names } = await inquirer.prompt([{
               type: 'input',
               name: 'names',
               message: 'Names to add (space-separated):',
               validate: (input: string) => input.trim() ? true : 'At least one name is required'
-            }
-          ]);
-          const args = [theme.trim(), ...names.trim().split(/\s+/)];
-          const { default: AddNamesCommand } = await import('./add-names.js');
-          const cmd = new AddNamesCommand(args, this.config);
-          await cmd.run();
+            }]);
+            const args = [themeName.trim(), ...names.trim().split(/\s+/)];
+            const { default: AddNamesCommand } = await import('./add-names.js');
+            const cmd = new AddNamesCommand(args, this.config);
+            await cmd.run();
+          } else {
+            // Prompt for names to add
+            const { names } = await inquirer.prompt([{
+              type: 'input',
+              name: 'names',
+              message: 'Names to add (space-separated):',
+              validate: (input: string) => input.trim() ? true : 'At least one name is required'
+            }]);
+            const args = [selectedTheme, ...names.trim().split(/\s+/)];
+            const { default: AddNamesCommand } = await import('./add-names.js');
+            const cmd = new AddNamesCommand(args, this.config);
+            await cmd.run();
+          }
           break;
         }
         default:
