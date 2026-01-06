@@ -78,94 +78,179 @@ export default class TicketLink extends Command {
         this.error(`Ticket not found: ${ticketId}`)
       }
 
-      // If a dependency flag is provided, add the dependency
+      // If a dependency flag is provided, add the dependency directly
       if (flags.blocks || flags.relates || flags.duplicates) {
         const targetId = flags.blocks || flags.relates || flags.duplicates
         const dependencyType: TicketDependencyType = flags.blocks ? 'blocks' :
                                                       flags.relates ? 'relates_to' : 'duplicates'
-
-        const targetTicket = await storage.getTicket(targetId!)
-        if (!targetTicket) {
-          this.error(`Ticket not found: ${targetId}`)
-        }
-
-        try {
-          await storage.createTicketDependency(ticketId!, targetId!, dependencyType)
-          await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
-
-          const typeLabel = dependencyType === 'blocks' ? 'is blocked by' :
-                            dependencyType === 'relates_to' ? 'relates to' : 'duplicates'
-
-          this.log(styles.success(`\n✅ ${styles.emphasis(ticketId!)} ${typeLabel} ${styles.emphasis(targetId!)}`))
-          this.log(styles.muted(`   ${ticket.title}`))
-          this.log(styles.muted(`   ${typeLabel} ${targetTicket.title}`))
-        } catch (error) {
-          if (error instanceof Error) {
-            if (error.message.includes('already exists')) {
-              this.error('Dependency already exists')
-            }
-            if (error.message.includes('self-dependency')) {
-              this.error('Cannot create self-dependency')
-            }
-          }
-          throw error
-        }
-
+        await this.addDependency(storage, pmoPath, ticketId!, targetId!, dependencyType, ticket.title)
         await storage.close()
         return
       }
 
-      // Otherwise, list dependencies
-      const dependencies = await storage.listTicketDependencies(ticketId!)
-      const blockers = await storage.getTicketBlockers(ticketId!)
-      const isBlocked = await storage.isTicketBlocked(ticketId!)
+      // Interactive mode: show menu
+      const allTickets = await storage.listTickets()
+      const otherTickets = allTickets.filter(t => t.id !== ticketId)
 
-      this.log(`\n${styles.emphasis(ticket.id)}: ${ticket.title}`)
+      const { action } = await inquirer.prompt([{
+        type: 'list',
+        name: 'action',
+        message: `Dependencies for ${ticket.id}:`,
+        choices: [
+          { name: 'View dependencies', value: 'view' },
+          { name: 'Add blocking dependency (blocked by...)', value: 'blocks' },
+          { name: 'Add relates_to dependency', value: 'relates_to' },
+          { name: 'Add duplicates dependency', value: 'duplicates' },
+          new inquirer.Separator(),
+          { name: 'Remove dependency', value: 'remove' },
+          { name: 'Cancel', value: 'cancel' },
+        ],
+      }])
 
-      if (isBlocked) {
-        this.log(styles.warning('  Status: BLOCKED'))
+      if (action === 'cancel') {
+        await storage.close()
+        return
       }
 
-      if (blockers.length > 0) {
-        this.log(styles.muted('\n  Blocked by:'))
-        for (const blocker of blockers) {
-          const status = blocker.status === 'done' ? styles.success('done') : styles.warning(blocker.status)
-          this.log(`    - ${blocker.id}: ${blocker.title} (${status})`)
+      if (action === 'view') {
+        await this.viewDependencies(storage, ticketId!, ticket, flags.all)
+        await storage.close()
+        return
+      }
+
+      if (action === 'remove') {
+        const dependencies = await storage.listTicketDependencies(ticketId!)
+        if (dependencies.length === 0) {
+          this.log(styles.muted('\nNo dependencies to remove.'))
+          await storage.close()
+          return
         }
-      }
-
-      // Show other dependency types
-      const otherDeps = dependencies.filter(d => d.dependencyType !== 'blocks')
-      if (otherDeps.length > 0) {
-        this.log(styles.muted('\n  Related:'))
-        for (const dep of otherDeps) {
-          const relatedTicket = await storage.getTicket(dep.dependsOnTicketId)
-          if (relatedTicket) {
-            this.log(`    - ${dep.dependencyType}: ${relatedTicket.id} - ${relatedTicket.title}`)
+        const choices = await Promise.all(dependencies.map(async dep => {
+          const depTicket = await storage.getTicket(dep.dependsOnTicketId)
+          return {
+            name: `${dep.dependsOnTicketId} - ${depTicket?.title || 'Unknown'} (${dep.dependencyType})`,
+            value: { targetId: dep.dependsOnTicketId, type: dep.dependencyType }
           }
-        }
+        }))
+        const { selected } = await inquirer.prompt([{
+          type: 'list',
+          name: 'selected',
+          message: 'Select dependency to remove:',
+          choices,
+        }])
+        await storage.deleteTicketDependency(ticketId!, selected.targetId, selected.type)
+        await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
+        this.log(styles.success(`\n✅ Removed dependency: ${ticketId} → ${selected.targetId}`))
+        await storage.close()
+        return
       }
 
-      // Optionally show tickets blocked BY this ticket
-      if (flags.all) {
-        const blockedBy = await storage.getTicketsBlockedBy(ticketId!)
-        if (blockedBy.length > 0) {
-          this.log(styles.muted('\n  Blocking:'))
-          for (const blocked of blockedBy) {
-            this.log(`    - ${blocked.id}: ${blocked.title} (${blocked.status})`)
-          }
-        }
+      // Add dependency
+      if (otherTickets.length === 0) {
+        this.log(styles.muted('\nNo other tickets to link to.'))
+        await storage.close()
+        return
       }
-
-      if (dependencies.length === 0 && blockers.length === 0) {
-        this.log(styles.muted('\n  No dependencies.'))
-      }
-
-      this.log('')
+      const { targetId } = await inquirer.prompt([{
+        type: 'list',
+        name: 'targetId',
+        message: `Select ticket that ${ticketId} ${action === 'blocks' ? 'is blocked by' : action === 'relates_to' ? 'relates to' : 'duplicates'}:`,
+        choices: otherTickets.map(t => ({ name: `${t.id} - ${t.title}`, value: t.id })),
+      }])
+      const targetTicket = await storage.getTicket(targetId)
+      await this.addDependency(storage, pmoPath, ticketId!, targetId, action as TicketDependencyType, ticket.title)
       await storage.close()
     } catch (error) {
       await storage.close()
       throw error
     }
+  }
+
+  private async addDependency(
+    storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
+    pmoPath: string,
+    ticketId: string,
+    targetId: string,
+    dependencyType: TicketDependencyType,
+    ticketTitle: string
+  ): Promise<void> {
+    const targetTicket = await storage.getTicket(targetId)
+    if (!targetTicket) {
+      this.error(`Ticket not found: ${targetId}`)
+    }
+
+    try {
+      await storage.createTicketDependency(ticketId, targetId, dependencyType)
+      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
+
+      const typeLabel = dependencyType === 'blocks' ? 'is blocked by' :
+                        dependencyType === 'relates_to' ? 'relates to' : 'duplicates'
+
+      this.log(styles.success(`\n✅ ${styles.emphasis(ticketId)} ${typeLabel} ${styles.emphasis(targetId)}`))
+      this.log(styles.muted(`   ${ticketTitle}`))
+      this.log(styles.muted(`   ${typeLabel} ${targetTicket.title}`))
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message.includes('already exists')) {
+          this.error('Dependency already exists')
+        }
+        if (error.message.includes('self-dependency')) {
+          this.error('Cannot create self-dependency')
+        }
+      }
+      throw error
+    }
+  }
+
+  private async viewDependencies(
+    storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
+    ticketId: string,
+    ticket: { id: string; title: string },
+    showAll: boolean
+  ): Promise<void> {
+    const dependencies = await storage.listTicketDependencies(ticketId)
+    const blockers = await storage.getTicketBlockers(ticketId)
+    const isBlocked = await storage.isTicketBlocked(ticketId)
+
+    this.log(`\n${styles.emphasis(ticket.id)}: ${ticket.title}`)
+
+    if (isBlocked) {
+      this.log(styles.warning('  Status: BLOCKED'))
+    }
+
+    if (blockers.length > 0) {
+      this.log(styles.muted('\n  Blocked by:'))
+      for (const blocker of blockers) {
+        const status = blocker.status === 'done' ? styles.success('done') : styles.warning(blocker.status)
+        this.log(`    - ${blocker.id}: ${blocker.title} (${status})`)
+      }
+    }
+
+    const otherDeps = dependencies.filter(d => d.dependencyType !== 'blocks')
+    if (otherDeps.length > 0) {
+      this.log(styles.muted('\n  Related:'))
+      for (const dep of otherDeps) {
+        const relatedTicket = await storage.getTicket(dep.dependsOnTicketId)
+        if (relatedTicket) {
+          this.log(`    - ${dep.dependencyType}: ${relatedTicket.id} - ${relatedTicket.title}`)
+        }
+      }
+    }
+
+    if (showAll) {
+      const blockedBy = await storage.getTicketsBlockedBy(ticketId)
+      if (blockedBy.length > 0) {
+        this.log(styles.muted('\n  Blocking:'))
+        for (const blocked of blockedBy) {
+          this.log(`    - ${blocked.id}: ${blocked.title} (${blocked.status})`)
+        }
+      }
+    }
+
+    if (dependencies.length === 0 && blockers.length === 0) {
+      this.log(styles.muted('\n  No dependencies.'))
+    }
+
+    this.log('')
   }
 }

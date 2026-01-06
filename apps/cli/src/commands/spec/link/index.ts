@@ -52,69 +52,171 @@ export default class SpecLink extends Command {
       const spec = await storage.getSpec(specId!)
       if (!spec) this.error(`Spec not found: ${specId}`)
 
-      // If a dependency flag is provided, add the dependency
+      // If a dependency flag is provided, add the dependency directly
       if (flags.depends || flags.relates || flags.duplicates) {
         const targetId = flags.depends || flags.relates || flags.duplicates
         const dependencyType: SpecDependencyType = flags.depends ? 'depends_on' :
                                                     flags.relates ? 'relates_to' : 'duplicates'
-
-        const targetSpec = await storage.getSpec(targetId!)
-        if (!targetSpec) this.error(`Spec not found: ${targetId}`)
-
-        try {
-          await storage.createSpecDependency(specId!, targetId!, dependencyType)
-          const typeLabel = dependencyType === 'depends_on' ? 'depends on' :
-                            dependencyType === 'relates_to' ? 'relates to' : 'duplicates'
-          this.log(styles.success(`\n✅ ${styles.emphasis(specId!)} ${typeLabel} ${styles.emphasis(targetId!)}`))
-          this.log(styles.muted(`   ${spec.title} ${typeLabel} ${targetSpec.title}`))
-        } catch (error) {
-          if (error instanceof Error && error.message.includes('already exists')) this.error('Dependency already exists')
-          if (error instanceof Error && error.message.includes('self-dependency')) this.error('Cannot create self-dependency')
-          throw error
-        }
-        await storage.close(); return
+        await this.addDependency(storage, specId!, targetId!, dependencyType, spec.title)
+        await storage.close()
+        return
       }
 
-      // Otherwise, list dependencies
-      const dependencies = await storage.listSpecDependencies(specId!)
-      this.log(`\n${styles.emphasis(spec.id)}: ${spec.title}`)
+      // Interactive mode: show menu
+      const allSpecs = await storage.listSpecs()
+      const otherSpecs = allSpecs.filter(s => s.id !== specId)
 
-      const dependsOn = dependencies.filter(d => d.dependencyType === 'depends_on')
-      if (dependsOn.length > 0) {
-        this.log(styles.muted('\n  Depends on:'))
-        for (const dep of dependsOn) {
+      const { action } = await inquirer.prompt([{
+        type: 'list',
+        name: 'action',
+        message: `Dependencies for ${spec.id}:`,
+        choices: [
+          { name: 'View dependencies', value: 'view' },
+          { name: 'Add depends_on dependency', value: 'depends_on' },
+          { name: 'Add relates_to dependency', value: 'relates_to' },
+          { name: 'Add duplicates dependency', value: 'duplicates' },
+          new inquirer.Separator(),
+          { name: 'Remove dependency', value: 'remove' },
+          { name: 'Cancel', value: 'cancel' },
+        ],
+      }])
+
+      if (action === 'cancel') {
+        await storage.close()
+        return
+      }
+
+      if (action === 'view') {
+        await this.viewDependencies(storage, specId!, spec, flags.all)
+        await storage.close()
+        return
+      }
+
+      if (action === 'remove') {
+        const dependencies = await storage.listSpecDependencies(specId!)
+        if (dependencies.length === 0) {
+          this.log(styles.muted('\nNo dependencies to remove.'))
+          await storage.close()
+          return
+        }
+        const choices = await Promise.all(dependencies.map(async dep => {
           const depSpec = await storage.getSpec(dep.dependsOnSpecId)
-          if (depSpec) this.log(`    - ${depSpec.id}: ${depSpec.title}`)
-        }
+          return {
+            name: `${dep.dependsOnSpecId} - ${depSpec?.title || 'Unknown'} (${dep.dependencyType})`,
+            value: { targetId: dep.dependsOnSpecId, type: dep.dependencyType }
+          }
+        }))
+        const { selected } = await inquirer.prompt([{
+          type: 'list',
+          name: 'selected',
+          message: 'Select dependency to remove:',
+          choices,
+        }])
+        await storage.deleteSpecDependency(specId!, selected.targetId, selected.type)
+        this.log(styles.success(`\n✅ Removed dependency: ${specId} → ${selected.targetId}`))
+        await storage.close()
+        return
       }
 
-      const otherDeps = dependencies.filter(d => d.dependencyType !== 'depends_on')
-      if (otherDeps.length > 0) {
-        this.log(styles.muted('\n  Related:'))
-        for (const dep of otherDeps) {
-          const relatedSpec = await storage.getSpec(dep.dependsOnSpecId)
-          if (relatedSpec) this.log(`    - ${dep.dependencyType}: ${relatedSpec.id} - ${relatedSpec.title}`)
-        }
+      // Add dependency
+      if (otherSpecs.length === 0) {
+        this.log(styles.muted('\nNo other specs to link to.'))
+        await storage.close()
+        return
       }
-
-      if (flags.all) {
-        const allSpecs = await storage.listSpecs()
-        const dependedBy: Array<{ spec: typeof spec; type: string }> = []
-        for (const otherSpec of allSpecs) {
-          if (otherSpec.id === specId) continue
-          const otherDeps = await storage.listSpecDependencies(otherSpec.id)
-          const dep = otherDeps.find(d => d.dependsOnSpecId === specId)
-          if (dep) dependedBy.push({ spec: otherSpec, type: dep.dependencyType })
-        }
-        if (dependedBy.length > 0) {
-          this.log(styles.muted('\n  Depended by:'))
-          for (const { spec: depSpec, type } of dependedBy) this.log(`    - ${depSpec.id}: ${depSpec.title} (${type})`)
-        }
-      }
-
-      if (dependencies.length === 0) this.log(styles.muted('\n  No dependencies.'))
-      this.log('')
+      const { targetId } = await inquirer.prompt([{
+        type: 'list',
+        name: 'targetId',
+        message: `Select spec that ${specId} ${action === 'depends_on' ? 'depends on' : action === 'relates_to' ? 'relates to' : 'duplicates'}:`,
+        choices: otherSpecs.map(s => ({ name: `${s.id} - ${s.title}`, value: s.id })),
+      }])
+      await this.addDependency(storage, specId!, targetId, action as SpecDependencyType, spec.title)
       await storage.close()
-    } catch (error) { await storage.close(); throw error }
+    } catch (error) {
+      await storage.close()
+      throw error
+    }
+  }
+
+  private async addDependency(
+    storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
+    specId: string,
+    targetId: string,
+    dependencyType: SpecDependencyType,
+    specTitle: string
+  ): Promise<void> {
+    const targetSpec = await storage.getSpec(targetId)
+    if (!targetSpec) {
+      this.error(`Spec not found: ${targetId}`)
+    }
+
+    try {
+      await storage.createSpecDependency(specId, targetId, dependencyType)
+
+      const typeLabel = dependencyType === 'depends_on' ? 'depends on' :
+                        dependencyType === 'relates_to' ? 'relates to' : 'duplicates'
+
+      this.log(styles.success(`\n✅ ${styles.emphasis(specId)} ${typeLabel} ${styles.emphasis(targetId)}`))
+      this.log(styles.muted(`   ${specTitle}`))
+      this.log(styles.muted(`   ${typeLabel} ${targetSpec.title}`))
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message.includes('already exists')) {
+          this.error('Dependency already exists')
+        }
+        if (error.message.includes('self-dependency')) {
+          this.error('Cannot create self-dependency')
+        }
+      }
+      throw error
+    }
+  }
+
+  private async viewDependencies(
+    storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
+    specId: string,
+    spec: { id: string; title: string },
+    showAll: boolean
+  ): Promise<void> {
+    const dependencies = await storage.listSpecDependencies(specId)
+
+    this.log(`\n${styles.emphasis(spec.id)}: ${spec.title}`)
+
+    const dependsOn = dependencies.filter(d => d.dependencyType === 'depends_on')
+    if (dependsOn.length > 0) {
+      this.log(styles.muted('\n  Depends on:'))
+      for (const dep of dependsOn) {
+        const depSpec = await storage.getSpec(dep.dependsOnSpecId)
+        if (depSpec) this.log(`    - ${depSpec.id}: ${depSpec.title}`)
+      }
+    }
+
+    const otherDeps = dependencies.filter(d => d.dependencyType !== 'depends_on')
+    if (otherDeps.length > 0) {
+      this.log(styles.muted('\n  Related:'))
+      for (const dep of otherDeps) {
+        const relatedSpec = await storage.getSpec(dep.dependsOnSpecId)
+        if (relatedSpec) this.log(`    - ${dep.dependencyType}: ${relatedSpec.id} - ${relatedSpec.title}`)
+      }
+    }
+
+    if (showAll) {
+      const allSpecs = await storage.listSpecs()
+      const dependedBy: Array<{ spec: typeof spec; type: string }> = []
+      for (const otherSpec of allSpecs) {
+        if (otherSpec.id === specId) continue
+        const otherDeps = await storage.listSpecDependencies(otherSpec.id)
+        const dep = otherDeps.find(d => d.dependsOnSpecId === specId)
+        if (dep) dependedBy.push({ spec: otherSpec, type: dep.dependencyType })
+      }
+      if (dependedBy.length > 0) {
+        this.log(styles.muted('\n  Depended by:'))
+        for (const { spec: depSpec, type } of dependedBy) this.log(`    - ${depSpec.id}: ${depSpec.title} (${type})`)
+      }
+    }
+
+    if (dependencies.length === 0) this.log(styles.muted('\n  No dependencies.'))
+
+    this.log('')
   }
 }
