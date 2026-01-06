@@ -11,24 +11,24 @@ import * as path from 'path'
 import {
   Board,
   BoardConfig,
-  CircularDependencyError,
   Column,
   Conflict,
-  CreateDependencyInput,
-  DependencyEntityType,
-  DependencyFilter,
-  DependencyType,
-  EntityDependency,
   Epic,
+  EpicDependency,
+  EpicDependencyType,
   EpicFilter,
   PMOError,
   PMOStorage,
   Spec,
+  SpecDependency,
+  SpecDependencyType,
   SpecFilter,
   Subtask,
   SyncResult,
   SyncStatus,
   Ticket,
+  TicketDependency,
+  TicketDependencyType,
   TicketFilter,
 } from './types.js'
 import { generateBoardMarkdown } from './markdown.js'
@@ -1566,97 +1566,58 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   // ===========================================================================
-  // Cross-Entity Dependency Operations
+  // Ticket Dependency Operations
   // ===========================================================================
 
   /**
-   * Create a dependency between two entities.
-   * Validates that neither a self-link nor a duplicate exists.
-   * For 'blocks' type, also checks for circular dependencies.
+   * Create a dependency between two tickets.
+   * @throws PMOError if tickets don't exist or dependency already exists
    */
-  async createDependency(input: CreateDependencyInput): Promise<EntityDependency> {
-    // Validate entities exist
-    await this.validateEntityExists(input.sourceType, input.sourceId)
-    await this.validateEntityExists(input.targetType, input.targetId)
+  async createTicketDependency(
+    ticketId: string,
+    dependsOnTicketId: string,
+    dependencyType: TicketDependencyType = 'blocks'
+  ): Promise<TicketDependency> {
+    // Validate tickets exist
+    const ticket = await this.getTicket(ticketId)
+    if (!ticket) throw new PMOError('NOT_FOUND', `Ticket not found: ${ticketId}`)
 
-    // Check for circular dependencies if this is a blocking relationship
-    if (input.dependencyType === 'blocks') {
-      await this.checkCircularDependency(
-        input.sourceType,
-        input.sourceId,
-        input.targetType,
-        input.targetId
-      )
-    }
-
-    const now = Date.now()
+    const dependsOnTicket = await this.getTicket(dependsOnTicketId)
+    if (!dependsOnTicket) throw new PMOError('NOT_FOUND', `Ticket not found: ${dependsOnTicketId}`)
 
     try {
-      const result = this.db.prepare(`
-        INSERT INTO ${T.entity_dependencies} (
-          source_type, source_id, target_type, target_id,
-          dependency_type, created_at, created_by, notes
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        input.sourceType,
-        input.sourceId,
-        input.targetType,
-        input.targetId,
-        input.dependencyType,
-        now,
-        input.createdBy || null,
-        input.notes || null
-      )
+      this.db.prepare(`
+        INSERT INTO ${T.ticket_dependencies} (ticket_id, depends_on_ticket_id, dependency_type)
+        VALUES (?, ?, ?)
+      `).run(ticketId, dependsOnTicketId, dependencyType)
 
       return {
-        id: result.lastInsertRowid as number,
-        sourceType: input.sourceType,
-        sourceId: input.sourceId,
-        targetType: input.targetType,
-        targetId: input.targetId,
-        dependencyType: input.dependencyType,
-        createdAt: new Date(now),
-        createdBy: input.createdBy,
-        notes: input.notes,
+        ticketId,
+        dependsOnTicketId,
+        dependencyType,
+        createdAt: new Date(),
       }
     } catch (error: unknown) {
-      if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
+      if (error instanceof Error && error.message.includes('UNIQUE constraint')) {
         throw new PMOError('CONFLICT', 'Dependency already exists')
+      }
+      if (error instanceof Error && error.message.includes('CHECK constraint')) {
+        throw new PMOError('VALIDATION', 'Cannot create self-dependency')
       }
       throw error
     }
   }
 
   /**
-   * Delete a dependency by its ID.
+   * Delete a ticket dependency.
    */
-  async deleteDependency(id: number): Promise<void> {
-    const result = this.db.prepare(`
-      DELETE FROM ${T.entity_dependencies} WHERE id = ?
-    `).run(id)
-
-    if (result.changes === 0) {
-      throw new PMOError('NOT_FOUND', `Dependency not found: ${id}`)
-    }
-  }
-
-  /**
-   * Delete a dependency by source and target.
-   */
-  async deleteDependencyByEntities(
-    sourceType: DependencyEntityType,
-    sourceId: string,
-    targetType: DependencyEntityType,
-    targetId: string,
-    dependencyType?: DependencyType
+  async deleteTicketDependency(
+    ticketId: string,
+    dependsOnTicketId: string,
+    dependencyType?: TicketDependencyType
   ): Promise<void> {
-    let query = `
-      DELETE FROM ${T.entity_dependencies}
-      WHERE source_type = ? AND source_id = ?
-        AND target_type = ? AND target_id = ?
-    `
-    const params: unknown[] = [sourceType, sourceId, targetType, targetId]
+    let query = `DELETE FROM ${T.ticket_dependencies} WHERE ticket_id = ? AND depends_on_ticket_id = ?`
+    const params: unknown[] = [ticketId, dependsOnTicketId]
 
     if (dependencyType) {
       query += ' AND dependency_type = ?'
@@ -1664,350 +1625,262 @@ export class SQLiteStorage implements PMOStorage {
     }
 
     const result = this.db.prepare(query).run(...params)
-
     if (result.changes === 0) {
       throw new PMOError('NOT_FOUND', 'Dependency not found')
     }
   }
 
   /**
-   * Get a dependency by its ID.
+   * List dependencies for a ticket.
    */
-  async getDependency(id: number): Promise<EntityDependency | null> {
-    const row = this.db.prepare(`
-      SELECT * FROM ${T.entity_dependencies} WHERE id = ?
-    `).get(id) as DependencyRow | undefined
+  async listTicketDependencies(ticketId: string): Promise<TicketDependency[]> {
+    const rows = this.db.prepare(`
+      SELECT ticket_id, depends_on_ticket_id, dependency_type, created_at
+      FROM ${T.ticket_dependencies}
+      WHERE ticket_id = ?
+      ORDER BY created_at DESC
+    `).all(ticketId) as Array<{
+      ticket_id: string
+      depends_on_ticket_id: string
+      dependency_type: string
+      created_at: string
+    }>
 
-    if (!row) return null
-    return this.rowToDependency(row)
-  }
-
-  /**
-   * List dependencies with optional filtering.
-   */
-  async listDependencies(filter?: DependencyFilter): Promise<EntityDependency[]> {
-    let query = `SELECT * FROM ${T.entity_dependencies} WHERE 1=1`
-    const params: unknown[] = []
-
-    if (filter?.entityId && filter?.entityType) {
-      // Match either source or target
-      query += ` AND ((source_type = ? AND source_id = ?) OR (target_type = ? AND target_id = ?))`
-      params.push(filter.entityType, filter.entityId, filter.entityType, filter.entityId)
-    } else {
-      if (filter?.sourceType) {
-        query += ' AND source_type = ?'
-        params.push(filter.sourceType)
-      }
-      if (filter?.sourceId) {
-        query += ' AND source_id = ?'
-        params.push(filter.sourceId)
-      }
-      if (filter?.targetType) {
-        query += ' AND target_type = ?'
-        params.push(filter.targetType)
-      }
-      if (filter?.targetId) {
-        query += ' AND target_id = ?'
-        params.push(filter.targetId)
-      }
-    }
-
-    if (filter?.dependencyType) {
-      query += ' AND dependency_type = ?'
-      params.push(filter.dependencyType)
-    }
-
-    query += ' ORDER BY created_at DESC'
-
-    const rows = this.db.prepare(query).all(...params) as DependencyRow[]
-    return rows.map(row => this.rowToDependency(row))
-  }
-
-  /**
-   * Get all entities that block the given entity.
-   */
-  async getBlockers(entityType: DependencyEntityType, entityId: string): Promise<EntityDependency[]> {
-    return this.listDependencies({
-      targetType: entityType,
-      targetId: entityId,
-      dependencyType: 'blocks',
-    })
-  }
-
-  /**
-   * Get all entities that are blocked by the given entity.
-   */
-  async getBlocking(entityType: DependencyEntityType, entityId: string): Promise<EntityDependency[]> {
-    return this.listDependencies({
-      sourceType: entityType,
-      sourceId: entityId,
-      dependencyType: 'blocks',
-    })
-  }
-
-  /**
-   * Check if an entity is blocked by any incomplete dependencies.
-   */
-  async isBlocked(entityType: DependencyEntityType, entityId: string): Promise<boolean> {
-    const blockers = await this.getBlockers(entityType, entityId)
-
-    for (const blocker of blockers) {
-      const isComplete = await this.isEntityComplete(blocker.sourceType, blocker.sourceId)
-      if (!isComplete) {
-        return true
-      }
-    }
-
-    return false
-  }
-
-  /**
-   * Get the dependency graph for visualization.
-   * Returns all dependencies involving the given entities.
-   */
-  async getDependencyGraph(
-    entityType?: DependencyEntityType,
-    entityId?: string
-  ): Promise<{
-    nodes: Array<{ type: DependencyEntityType; id: string; title: string; status?: string }>
-    edges: EntityDependency[]
-  }> {
-    // Get all relevant dependencies
-    let deps: EntityDependency[]
-    if (entityType && entityId) {
-      // Get dependencies for specific entity and traverse
-      deps = await this.getTransitiveDependencies(entityType, entityId)
-    } else {
-      // Get all dependencies
-      deps = await this.listDependencies()
-    }
-
-    // Collect unique nodes
-    const nodeMap = new Map<string, { type: DependencyEntityType; id: string; title: string; status?: string }>()
-
-    for (const dep of deps) {
-      const sourceKey = `${dep.sourceType}:${dep.sourceId}`
-      const targetKey = `${dep.targetType}:${dep.targetId}`
-
-      if (!nodeMap.has(sourceKey)) {
-        const info = await this.getEntityInfo(dep.sourceType, dep.sourceId)
-        nodeMap.set(sourceKey, {
-          type: dep.sourceType,
-          id: dep.sourceId,
-          title: info.title,
-          status: info.status,
-        })
-      }
-
-      if (!nodeMap.has(targetKey)) {
-        const info = await this.getEntityInfo(dep.targetType, dep.targetId)
-        nodeMap.set(targetKey, {
-          type: dep.targetType,
-          id: dep.targetId,
-          title: info.title,
-          status: info.status,
-        })
-      }
-    }
-
-    return {
-      nodes: Array.from(nodeMap.values()),
-      edges: deps,
-    }
-  }
-
-  /**
-   * Get all transitive dependencies for an entity (follows blocking chains).
-   */
-  private async getTransitiveDependencies(
-    entityType: DependencyEntityType,
-    entityId: string
-  ): Promise<EntityDependency[]> {
-    const visited = new Set<string>()
-    const result: EntityDependency[] = []
-    const queue: Array<{ type: DependencyEntityType; id: string }> = [{ type: entityType, id: entityId }]
-
-    while (queue.length > 0) {
-      const current = queue.shift()!
-      const key = `${current.type}:${current.id}`
-
-      if (visited.has(key)) continue
-      visited.add(key)
-
-      // Get all dependencies where this entity is involved
-      const deps = await this.listDependencies({
-        entityType: current.type,
-        entityId: current.id,
-      })
-
-      for (const dep of deps) {
-        result.push(dep)
-
-        // Add connected entities to queue
-        const sourceKey = `${dep.sourceType}:${dep.sourceId}`
-        const targetKey = `${dep.targetType}:${dep.targetId}`
-
-        if (!visited.has(sourceKey)) {
-          queue.push({ type: dep.sourceType, id: dep.sourceId })
-        }
-        if (!visited.has(targetKey)) {
-          queue.push({ type: dep.targetType, id: dep.targetId })
-        }
-      }
-    }
-
-    return result
-  }
-
-  /**
-   * Check if adding a dependency would create a circular blocking chain.
-   */
-  private async checkCircularDependency(
-    sourceType: DependencyEntityType,
-    sourceId: string,
-    targetType: DependencyEntityType,
-    targetId: string
-  ): Promise<void> {
-    // If source would block target, check if target already blocks source (directly or transitively)
-    const path = await this.findBlockingPath(targetType, targetId, sourceType, sourceId)
-
-    if (path.length > 0) {
-      // Add the new link to show the complete cycle
-      path.push(`${sourceType}:${sourceId}`)
-      throw new CircularDependencyError(path)
-    }
-  }
-
-  /**
-   * Find a blocking path from start to end entity.
-   * Returns the path if found, empty array if no path exists.
-   */
-  private async findBlockingPath(
-    startType: DependencyEntityType,
-    startId: string,
-    endType: DependencyEntityType,
-    endId: string
-  ): Promise<string[]> {
-    const visited = new Set<string>()
-    const queue: Array<{ type: DependencyEntityType; id: string; path: string[] }> = [
-      { type: startType, id: startId, path: [`${startType}:${startId}`] }
-    ]
-
-    while (queue.length > 0) {
-      const current = queue.shift()!
-      const key = `${current.type}:${current.id}`
-
-      if (visited.has(key)) continue
-      visited.add(key)
-
-      // Check if we've reached the destination
-      if (current.type === endType && current.id === endId) {
-        return current.path
-      }
-
-      // Get all entities that this entity blocks
-      const blocking = await this.getBlocking(current.type, current.id)
-
-      for (const dep of blocking) {
-        const nextKey = `${dep.targetType}:${dep.targetId}`
-        if (!visited.has(nextKey)) {
-          queue.push({
-            type: dep.targetType,
-            id: dep.targetId,
-            path: [...current.path, nextKey],
-          })
-        }
-      }
-    }
-
-    return []
-  }
-
-  /**
-   * Validate that an entity exists.
-   */
-  private async validateEntityExists(entityType: DependencyEntityType, entityId: string): Promise<void> {
-    let exists = false
-
-    switch (entityType) {
-      case 'ticket':
-        exists = !!(await this.getTicket(entityId))
-        break
-      case 'epic':
-        exists = !!(await this.getEpic(entityId))
-        break
-      case 'spec':
-        exists = !!(await this.getSpec(entityId))
-        break
-    }
-
-    if (!exists) {
-      throw new PMOError('NOT_FOUND', `${entityType} not found: ${entityId}`)
-    }
-  }
-
-  /**
-   * Check if an entity is complete (for blocking logic).
-   */
-  private async isEntityComplete(entityType: DependencyEntityType, entityId: string): Promise<boolean> {
-    switch (entityType) {
-      case 'ticket': {
-        const ticket = await this.getTicket(entityId)
-        return ticket?.status === 'done' || ticket?.status === 'cancelled'
-      }
-      case 'epic': {
-        const epic = await this.getEpic(entityId)
-        return epic?.status === 'complete' || epic?.status === 'dropped'
-      }
-      case 'spec': {
-        const spec = await this.getSpec(entityId)
-        return spec?.status === 'deprecated'
-      }
-      default:
-        return false
-    }
-  }
-
-  /**
-   * Get basic info about an entity for graph display.
-   */
-  private async getEntityInfo(
-    entityType: DependencyEntityType,
-    entityId: string
-  ): Promise<{ title: string; status?: string }> {
-    switch (entityType) {
-      case 'ticket': {
-        const ticket = await this.getTicket(entityId)
-        return { title: ticket?.title || entityId, status: ticket?.status }
-      }
-      case 'epic': {
-        const epic = await this.getEpic(entityId)
-        return { title: epic?.title || entityId, status: epic?.status }
-      }
-      case 'spec': {
-        const spec = await this.getSpec(entityId)
-        return { title: spec?.title || entityId, status: spec?.status }
-      }
-      default:
-        return { title: entityId }
-    }
-  }
-
-  /**
-   * Convert a database row to an EntityDependency.
-   */
-  private rowToDependency(row: DependencyRow): EntityDependency {
-    return {
-      id: row.id,
-      sourceType: row.source_type as DependencyEntityType,
-      sourceId: row.source_id,
-      targetType: row.target_type as DependencyEntityType,
-      targetId: row.target_id,
-      dependencyType: row.dependency_type as DependencyType,
+    return rows.map(row => ({
+      ticketId: row.ticket_id,
+      dependsOnTicketId: row.depends_on_ticket_id,
+      dependencyType: row.dependency_type as TicketDependencyType,
       createdAt: new Date(row.created_at),
-      createdBy: row.created_by || undefined,
-      notes: row.notes || undefined,
+    }))
+  }
+
+  /**
+   * Get tickets that this ticket depends on (blockers).
+   */
+  async getTicketBlockers(ticketId: string): Promise<Ticket[]> {
+    const rows = this.db.prepare(`
+      SELECT t.*, bt.column_id, c.name as column_name, bt.position
+      FROM ${T.tickets} t
+      JOIN ${T.ticket_dependencies} d ON t.id = d.depends_on_ticket_id
+      LEFT JOIN ${T.board_tickets} bt ON t.id = bt.ticket_id
+      LEFT JOIN ${T.columns} c ON bt.column_id = c.id AND bt.project_id = c.project_id
+      WHERE d.ticket_id = ? AND d.dependency_type = 'blocks'
+    `).all(ticketId) as TicketRow[]
+
+    return Promise.all(rows.map(row => this.rowToTicket(row)))
+  }
+
+  /**
+   * Get tickets that depend on this ticket (blocking).
+   */
+  async getTicketsBlockedBy(ticketId: string): Promise<Ticket[]> {
+    const rows = this.db.prepare(`
+      SELECT t.*, bt.column_id, c.name as column_name, bt.position
+      FROM ${T.tickets} t
+      JOIN ${T.ticket_dependencies} d ON t.id = d.ticket_id
+      LEFT JOIN ${T.board_tickets} bt ON t.id = bt.ticket_id
+      LEFT JOIN ${T.columns} c ON bt.column_id = c.id AND bt.project_id = c.project_id
+      WHERE d.depends_on_ticket_id = ? AND d.dependency_type = 'blocks'
+    `).all(ticketId) as TicketRow[]
+
+    return Promise.all(rows.map(row => this.rowToTicket(row)))
+  }
+
+  /**
+   * Check if a ticket is blocked by incomplete dependencies.
+   */
+  async isTicketBlocked(ticketId: string): Promise<boolean> {
+    const blockers = await this.getTicketBlockers(ticketId)
+    return blockers.some(t => t.status !== 'done' && t.status !== 'cancelled')
+  }
+
+  // ===========================================================================
+  // Spec Dependency Operations
+  // ===========================================================================
+
+  /**
+   * Create a dependency between two specs.
+   */
+  async createSpecDependency(
+    specId: string,
+    dependsOnSpecId: string,
+    dependencyType: SpecDependencyType = 'depends_on'
+  ): Promise<SpecDependency> {
+    // Validate specs exist
+    const spec = await this.getSpec(specId)
+    if (!spec) throw new PMOError('NOT_FOUND', `Spec not found: ${specId}`)
+
+    const dependsOnSpec = await this.getSpec(dependsOnSpecId)
+    if (!dependsOnSpec) throw new PMOError('NOT_FOUND', `Spec not found: ${dependsOnSpecId}`)
+
+    try {
+      this.db.prepare(`
+        INSERT INTO ${T.spec_dependencies} (spec_id, depends_on_spec_id, dependency_type)
+        VALUES (?, ?, ?)
+      `).run(specId, dependsOnSpecId, dependencyType)
+
+      return {
+        specId,
+        dependsOnSpecId,
+        dependencyType,
+        createdAt: new Date(),
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.includes('UNIQUE constraint')) {
+        throw new PMOError('CONFLICT', 'Dependency already exists')
+      }
+      if (error instanceof Error && error.message.includes('CHECK constraint')) {
+        throw new PMOError('VALIDATION', 'Cannot create self-dependency')
+      }
+      throw error
     }
+  }
+
+  /**
+   * Delete a spec dependency.
+   */
+  async deleteSpecDependency(
+    specId: string,
+    dependsOnSpecId: string,
+    dependencyType?: SpecDependencyType
+  ): Promise<void> {
+    let query = `DELETE FROM ${T.spec_dependencies} WHERE spec_id = ? AND depends_on_spec_id = ?`
+    const params: unknown[] = [specId, dependsOnSpecId]
+
+    if (dependencyType) {
+      query += ' AND dependency_type = ?'
+      params.push(dependencyType)
+    }
+
+    const result = this.db.prepare(query).run(...params)
+    if (result.changes === 0) {
+      throw new PMOError('NOT_FOUND', 'Dependency not found')
+    }
+  }
+
+  /**
+   * List dependencies for a spec.
+   */
+  async listSpecDependencies(specId: string): Promise<SpecDependency[]> {
+    const rows = this.db.prepare(`
+      SELECT spec_id, depends_on_spec_id, dependency_type, created_at
+      FROM ${T.spec_dependencies}
+      WHERE spec_id = ?
+      ORDER BY created_at DESC
+    `).all(specId) as Array<{
+      spec_id: string
+      depends_on_spec_id: string
+      dependency_type: string
+      created_at: string
+    }>
+
+    return rows.map(row => ({
+      specId: row.spec_id,
+      dependsOnSpecId: row.depends_on_spec_id,
+      dependencyType: row.dependency_type as SpecDependencyType,
+      createdAt: new Date(row.created_at),
+    }))
+  }
+
+  // ===========================================================================
+  // Epic Dependency Operations
+  // ===========================================================================
+
+  /**
+   * Create a dependency between two epics.
+   */
+  async createEpicDependency(
+    epicId: string,
+    dependsOnEpicId: string,
+    dependencyType: EpicDependencyType = 'blocks'
+  ): Promise<EpicDependency> {
+    // Validate epics exist
+    const epic = await this.getEpic(epicId)
+    if (!epic) throw new PMOError('NOT_FOUND', `Epic not found: ${epicId}`)
+
+    const dependsOnEpic = await this.getEpic(dependsOnEpicId)
+    if (!dependsOnEpic) throw new PMOError('NOT_FOUND', `Epic not found: ${dependsOnEpicId}`)
+
+    try {
+      this.db.prepare(`
+        INSERT INTO ${T.epic_dependencies} (epic_id, depends_on_epic_id, dependency_type)
+        VALUES (?, ?, ?)
+      `).run(epicId, dependsOnEpicId, dependencyType)
+
+      return {
+        epicId,
+        dependsOnEpicId,
+        dependencyType,
+        createdAt: new Date(),
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.includes('UNIQUE constraint')) {
+        throw new PMOError('CONFLICT', 'Dependency already exists')
+      }
+      if (error instanceof Error && error.message.includes('CHECK constraint')) {
+        throw new PMOError('VALIDATION', 'Cannot create self-dependency')
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Delete an epic dependency.
+   */
+  async deleteEpicDependency(
+    epicId: string,
+    dependsOnEpicId: string,
+    dependencyType?: EpicDependencyType
+  ): Promise<void> {
+    let query = `DELETE FROM ${T.epic_dependencies} WHERE epic_id = ? AND depends_on_epic_id = ?`
+    const params: unknown[] = [epicId, dependsOnEpicId]
+
+    if (dependencyType) {
+      query += ' AND dependency_type = ?'
+      params.push(dependencyType)
+    }
+
+    const result = this.db.prepare(query).run(...params)
+    if (result.changes === 0) {
+      throw new PMOError('NOT_FOUND', 'Dependency not found')
+    }
+  }
+
+  /**
+   * List dependencies for an epic.
+   */
+  async listEpicDependencies(epicId: string): Promise<EpicDependency[]> {
+    const rows = this.db.prepare(`
+      SELECT epic_id, depends_on_epic_id, dependency_type, created_at
+      FROM ${T.epic_dependencies}
+      WHERE epic_id = ?
+      ORDER BY created_at DESC
+    `).all(epicId) as Array<{
+      epic_id: string
+      depends_on_epic_id: string
+      dependency_type: string
+      created_at: string
+    }>
+
+    return rows.map(row => ({
+      epicId: row.epic_id,
+      dependsOnEpicId: row.depends_on_epic_id,
+      dependencyType: row.dependency_type as EpicDependencyType,
+      createdAt: new Date(row.created_at),
+    }))
+  }
+
+  /**
+   * Check if an epic is blocked by incomplete dependencies.
+   */
+  async isEpicBlocked(epicId: string): Promise<boolean> {
+    const rows = this.db.prepare(`
+      SELECT e.status FROM ${T.epics} e
+      JOIN ${T.epic_dependencies} d ON e.id = d.depends_on_epic_id
+      WHERE d.epic_id = ? AND d.dependency_type = 'blocks'
+    `).all(epicId) as Array<{ status: string }>
+
+    return rows.some(r => r.status !== 'complete' && r.status !== 'dropped')
   }
 
   // ===========================================================================
@@ -2349,23 +2222,4 @@ export class SQLiteStorage implements PMOStorage {
       WHERE id = ?
     `).run(Date.now(), this.currentProjectId)
   }
-}
-
-// =============================================================================
-// Helper Types
-// =============================================================================
-
-/**
- * Database row type for entity dependencies
- */
-interface DependencyRow {
-  id: number
-  source_type: string
-  source_id: string
-  target_type: string
-  target_id: string
-  dependency_type: string
-  created_at: string
-  created_by: string | null
-  notes: string | null
 }

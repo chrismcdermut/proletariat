@@ -25,11 +25,10 @@ export const PMO_TABLES = {
   ticket_specs: 'pmo_ticket_specs',
   ticket_assignments: 'pmo_ticket_assignments',
   epics: 'pmo_epics',
+  epic_dependencies: 'pmo_epic_dependencies',
   cache_metadata: 'pmo_cache_metadata',
   settings: 'pmo_settings',
   agent_work: 'agent_work',
-  // Cross-entity dependency system
-  entity_dependencies: 'pmo_entity_dependencies',
 } as const;
 
 // =============================================================================
@@ -120,14 +119,15 @@ export const PMO_TABLE_SCHEMAS = {
       PRIMARY KEY (ticket_id, key)
     )`,
 
-  // Agent execution support: ticket dependencies for scheduling
+  // Ticket-to-ticket dependencies (blocks, relates_to, duplicates)
   ticket_dependencies: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.ticket_dependencies} (
-      ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
-      blocked_by_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
+      ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE RESTRICT,
+      depends_on_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE RESTRICT,
+      dependency_type TEXT NOT NULL DEFAULT 'blocks' CHECK (dependency_type IN ('blocks', 'relates_to', 'duplicates')),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (ticket_id, blocked_by_ticket_id),
-      CHECK (ticket_id != blocked_by_ticket_id)
+      PRIMARY KEY (ticket_id, depends_on_ticket_id, dependency_type),
+      CHECK (ticket_id != depends_on_ticket_id)
     )`,
 
   // Agent execution support: file/path scope hints
@@ -176,13 +176,15 @@ export const PMO_TABLE_SCHEMAS = {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
 
+  // Spec-to-spec dependencies (depends_on, relates_to, duplicates)
   spec_dependencies: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.spec_dependencies} (
-      spec_id TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE CASCADE,
-      depends_on TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE CASCADE,
+      spec_id TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE RESTRICT,
+      depends_on_spec_id TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE RESTRICT,
+      dependency_type TEXT NOT NULL DEFAULT 'depends_on' CHECK (dependency_type IN ('depends_on', 'relates_to', 'duplicates')),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (spec_id, depends_on),
-      CHECK (spec_id != depends_on)
+      PRIMARY KEY (spec_id, depends_on_spec_id, dependency_type),
+      CHECK (spec_id != depends_on_spec_id)
     )`,
 
   ticket_specs: `
@@ -214,6 +216,17 @@ export const PMO_TABLE_SCHEMAS = {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES ${PMO_TABLES.projects}(id) ON DELETE CASCADE,
       FOREIGN KEY (spec_id) REFERENCES ${PMO_TABLES.specs}(id) ON DELETE SET NULL
+    )`,
+
+  // Epic-to-epic dependencies (blocks, relates_to, duplicates)
+  epic_dependencies: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.epic_dependencies} (
+      epic_id TEXT NOT NULL REFERENCES ${PMO_TABLES.epics}(id) ON DELETE RESTRICT,
+      depends_on_epic_id TEXT NOT NULL REFERENCES ${PMO_TABLES.epics}(id) ON DELETE RESTRICT,
+      dependency_type TEXT NOT NULL DEFAULT 'blocks' CHECK (dependency_type IN ('blocks', 'relates_to', 'duplicates')),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (epic_id, depends_on_epic_id, dependency_type),
+      CHECK (epic_id != depends_on_epic_id)
     )`,
 
   cache_metadata: `
@@ -250,22 +263,6 @@ export const PMO_TABLE_SCHEMAS = {
       exit_code INTEGER,
       FOREIGN KEY (ticket_id) REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE
     )`,
-
-  // Cross-entity dependency system: supports ticket, epic, and spec dependencies
-  entity_dependencies: `
-    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.entity_dependencies} (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      source_type TEXT NOT NULL CHECK (source_type IN ('ticket', 'epic', 'spec')),
-      source_id TEXT NOT NULL,
-      target_type TEXT NOT NULL CHECK (target_type IN ('ticket', 'epic', 'spec')),
-      target_id TEXT NOT NULL,
-      dependency_type TEXT NOT NULL CHECK (dependency_type IN ('blocks', 'relates_to', 'duplicates')),
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      created_by TEXT,
-      notes TEXT,
-      UNIQUE(source_type, source_id, target_type, target_id, dependency_type),
-      CHECK (NOT (source_type = target_type AND source_id = target_id))
-    )`,
 } as const;
 
 // =============================================================================
@@ -295,13 +292,11 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_agent_work_ticket ON ${PMO_TABLES.agent_work}(ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_specs_status ON ${PMO_TABLES.specs}(status);
   CREATE INDEX IF NOT EXISTS idx_pmo_specs_type ON ${PMO_TABLES.specs}(type);
-  CREATE INDEX IF NOT EXISTS idx_pmo_spec_deps_depends_on ON ${PMO_TABLES.spec_dependencies}(depends_on);
-  CREATE INDEX IF NOT EXISTS idx_pmo_ticket_deps_blocked_by ON ${PMO_TABLES.ticket_dependencies}(blocked_by_ticket_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_spec_deps_depends_on ON ${PMO_TABLES.spec_dependencies}(depends_on_spec_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_ticket_deps_depends_on ON ${PMO_TABLES.ticket_dependencies}(depends_on_ticket_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_epic_deps_depends_on ON ${PMO_TABLES.epic_dependencies}(depends_on_epic_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_paths_ticket ON ${PMO_TABLES.ticket_affected_paths}(ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_criteria_ticket ON ${PMO_TABLES.ticket_acceptance_criteria}(ticket_id);
-  CREATE INDEX IF NOT EXISTS idx_pmo_entity_deps_source ON ${PMO_TABLES.entity_dependencies}(source_type, source_id);
-  CREATE INDEX IF NOT EXISTS idx_pmo_entity_deps_target ON ${PMO_TABLES.entity_dependencies}(target_type, target_id);
-  CREATE INDEX IF NOT EXISTS idx_pmo_entity_deps_type ON ${PMO_TABLES.entity_dependencies}(dependency_type);
 `;
 
 // =============================================================================
@@ -317,13 +312,14 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.initiatives,
   PMO_TABLE_SCHEMAS.columns,
   PMO_TABLE_SCHEMAS.specs,  // Must be before tickets (FK reference)
-  PMO_TABLE_SCHEMAS.spec_dependencies,  // Spec dependency graph
+  PMO_TABLE_SCHEMAS.spec_dependencies,  // Spec-to-spec dependencies
   PMO_TABLE_SCHEMAS.epics,  // Must be before tickets (FK reference)
+  PMO_TABLE_SCHEMAS.epic_dependencies,  // Epic-to-epic dependencies
   PMO_TABLE_SCHEMAS.tickets,
   PMO_TABLE_SCHEMAS.board_tickets,
   PMO_TABLE_SCHEMAS.subtasks,
   PMO_TABLE_SCHEMAS.ticket_metadata,
-  PMO_TABLE_SCHEMAS.ticket_dependencies,  // Agent execution: dependency tracking (legacy)
+  PMO_TABLE_SCHEMAS.ticket_dependencies,  // Ticket-to-ticket dependencies
   PMO_TABLE_SCHEMAS.ticket_affected_paths,  // Agent execution: scope hints
   PMO_TABLE_SCHEMAS.ticket_acceptance_criteria,  // Agent execution: structured criteria
   PMO_TABLE_SCHEMAS.ticket_specs,
@@ -331,7 +327,6 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.cache_metadata,
   PMO_TABLE_SCHEMAS.settings,
   PMO_TABLE_SCHEMAS.agent_work,  // Execution tracking
-  PMO_TABLE_SCHEMAS.entity_dependencies,  // Cross-entity dependency system
   PMO_INDEXES,
 ].join(';\n');
 

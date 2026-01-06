@@ -178,84 +178,49 @@ export interface AcceptanceCriterion {
 }
 
 /**
+ * Ticket dependency types for same-entity relationships
+ */
+export type TicketDependencyType = 'blocks' | 'relates_to' | 'duplicates'
+
+/**
  * Ticket dependency for scheduling.
- * Represents a "blocked by" relationship between tickets.
- * @deprecated Use EntityDependency instead for cross-entity dependencies
+ * Represents a dependency relationship between tickets.
  */
 export interface TicketDependency {
   ticketId: string
-  blockedByTicketId: string
+  dependsOnTicketId: string
+  dependencyType: TicketDependencyType
   createdAt?: Date
 }
 
-// =============================================================================
-// Cross-Entity Dependency System
-// =============================================================================
+/**
+ * Spec dependency types
+ */
+export type SpecDependencyType = 'depends_on' | 'relates_to' | 'duplicates'
 
 /**
- * Entity types that can participate in dependencies
+ * Spec dependency for design ordering.
  */
-export type DependencyEntityType = 'ticket' | 'epic' | 'spec'
-
-/**
- * Dependency relationship types
- */
-export type DependencyType = 'blocks' | 'relates_to' | 'duplicates'
-
-/**
- * A cross-entity dependency link.
- * Supports ticket-to-ticket, epic-to-epic, and cross-entity dependencies.
- */
-export interface EntityDependency {
-  id: number
-  sourceType: DependencyEntityType
-  sourceId: string
-  targetType: DependencyEntityType
-  targetId: string
-  dependencyType: DependencyType
-  createdAt: Date
-  createdBy?: string
-  notes?: string
+export interface SpecDependency {
+  specId: string
+  dependsOnSpecId: string
+  dependencyType: SpecDependencyType
+  createdAt?: Date
 }
 
 /**
- * Input for creating a dependency
+ * Epic dependency types
  */
-export interface CreateDependencyInput {
-  sourceType: DependencyEntityType
-  sourceId: string
-  targetType: DependencyEntityType
-  targetId: string
-  dependencyType: DependencyType
-  createdBy?: string
-  notes?: string
-}
+export type EpicDependencyType = 'blocks' | 'relates_to' | 'duplicates'
 
 /**
- * Filter for listing dependencies
+ * Epic dependency for phased work.
  */
-export interface DependencyFilter {
-  sourceType?: DependencyEntityType
-  sourceId?: string
-  targetType?: DependencyEntityType
-  targetId?: string
-  dependencyType?: DependencyType
-  /** Include dependencies where entity is either source or target */
-  entityId?: string
-  entityType?: DependencyEntityType
-}
-
-/**
- * Error thrown when a circular dependency is detected
- */
-export class CircularDependencyError extends Error {
-  constructor(
-    public path: string[],
-    message?: string
-  ) {
-    super(message || `Circular dependency detected: ${path.join(' → ')}`)
-    this.name = 'CircularDependencyError'
-  }
+export interface EpicDependency {
+  epicId: string
+  dependsOnEpicId: string
+  dependencyType: EpicDependencyType
+  createdAt?: Date
 }
 
 /**
