@@ -1,7 +1,7 @@
 import { Command, Args, Flags } from '@oclif/core';
 import chalk from 'chalk';
-import { getWorkspaceInfo } from '../../lib/agents/commands.js';
-import { createTheme, getTheme } from '../../lib/database/index.js';
+import { getWorkspaceInfo } from '../../../lib/agents/commands.js';
+import { createTheme, getTheme } from '../../../lib/database/index.js';
 
 export default class ThemesCreate extends Command {
   static description = 'Create a custom agent theme';
@@ -68,7 +68,7 @@ export default class ThemesCreate extends Command {
         this.log(chalk.gray(`   ${theme.description}`));
       }
       this.log('');
-      this.log(chalk.blue('Add names with: prlt themes add-names ' + name + ' <names...>'));
+      this.log(chalk.blue('Add names with: prlt agents themes add-names ' + name + ' <names...>'));
 
     } catch (error) {
       this.error(error instanceof Error ? error.message : String(error));

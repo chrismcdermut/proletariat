@@ -1,8 +1,8 @@
 import { Command } from '@oclif/core';
 import chalk from 'chalk';
-import { getWorkspaceInfo } from '../../lib/agents/commands.js';
-import { ensureBuiltinThemes } from '../../lib/themes.js';
-import { getThemes, getThemeNames } from '../../lib/database/index.js';
+import { getWorkspaceInfo } from '../../../lib/agents/commands.js';
+import { ensureBuiltinThemes } from '../../../lib/themes.js';
+import { getThemes, getThemeNames } from '../../../lib/database/index.js';
 
 export default class ThemesList extends Command {
   static description = 'List available agent themes';

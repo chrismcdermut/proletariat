@@ -1,8 +1,8 @@
 import { Command, Args } from '@oclif/core';
 import chalk from 'chalk';
-import { getWorkspaceInfo } from '../../lib/agents/commands.js';
-import { isValidAgentName } from '../../lib/themes.js';
-import { getTheme, addThemeNames, getThemeNames } from '../../lib/database/index.js';
+import { getWorkspaceInfo } from '../../../lib/agents/commands.js';
+import { isValidAgentName } from '../../../lib/themes.js';
+import { getTheme, addThemeNames, getThemeNames } from '../../../lib/database/index.js';
 
 export default class ThemesAddNames extends Command {
   static description = 'Add names to a theme';
@@ -30,7 +30,7 @@ export default class ThemesAddNames extends Command {
       // Validate theme exists
       const theme = getTheme(workspaceInfo.path, args.theme);
       if (!theme) {
-        this.error(`Theme "${args.theme}" not found. Run "prlt themes list" to see available themes.`);
+        this.error(`Theme "${args.theme}" not found. Run "prlt agents themes list" to see available themes.`);
       }
 
       // Get names from remaining arguments (skip the theme arg)
