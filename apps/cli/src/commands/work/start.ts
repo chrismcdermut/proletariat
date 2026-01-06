@@ -1002,10 +1002,13 @@ export default class WorkStart extends Command {
     // Confirm before batch spawning
     const { confirm } = await inquirer.prompt([
       {
-        type: 'confirm',
+        type: 'list',
         name: 'confirm',
         message: `Start work on ${backlogTickets.length} tickets using ${availableAgents.length} available agents?`,
-        default: true,
+        choices: [
+          { name: 'Yes', value: true },
+          { name: 'No', value: false },
+        ],
       },
     ])
 

@@ -203,18 +203,24 @@ export function autoSyncFromBoard(
 
 /**
  * Auto-export database to board.md after write operations
+ *
+ * DISABLED: Markdown sync is disabled. DB is the sole source of truth.
+ * To re-enable, uncomment the function body below.
  */
 export async function autoExportToBoard(
-  pmoPath: string,
-  storage: SQLiteStorage,
-  logger?: (msg: string) => void,
-  projectId?: string
+  _pmoPath: string,
+  _storage: SQLiteStorage,
+  _logger?: (msg: string) => void,
+  _projectId?: string
 ): Promise<void> {
-  const pid = projectId ?? storage.getCurrentProjectId();
-  const boardPath = getBoardPath(pmoPath, pid);
+  // DISABLED: Markdown export disabled - DB is source of truth
+  // Uncomment below to re-enable:
+  /*
+  const pid = _projectId ?? _storage.getCurrentProjectId();
+  const boardPath = getBoardPath(_pmoPath, pid);
 
   // Generate markdown from current database state
-  const markdown = await storage.getBoardMarkdown();
+  const markdown = await _storage.getBoardMarkdown();
 
   // Write to board.md
   fs.writeFileSync(boardPath, markdown);
@@ -222,11 +228,12 @@ export async function autoExportToBoard(
   // Update sync metadata with new mtime and content hash
   const stats = fs.statSync(boardPath);
   const contentHash = computeHash(markdown);
-  updateSyncMetadata(storage, stats.mtimeMs, contentHash);
+  updateSyncMetadata(_storage, stats.mtimeMs, contentHash);
 
-  if (logger) {
-    logger(`📤 Auto-exported to ${path.basename(boardPath)}`);
+  if (_logger) {
+    _logger(`📤 Auto-exported to ${path.basename(boardPath)}`);
   }
+  */
 }
 
 /**

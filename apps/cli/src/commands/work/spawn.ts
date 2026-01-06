@@ -47,7 +47,6 @@ export default class WorkSpawn extends Command {
       char: 'm',
       description: 'Runtime mode for spawned agents',
       options: ['foreground', 'background', 'tmux', 'terminal', 'devcontainer', 'docker', 'vm'],
-      default: 'background',
     }),
     executor: Flags.string({
       char: 'e',
@@ -344,10 +343,13 @@ export default class WorkSpawn extends Command {
 
         const { proceed } = await inquirer.prompt([
           {
-            type: 'confirm',
+            type: 'list',
             name: 'proceed',
             message: `Spawn ${availableAgents.length} tickets now? (${ticketsToSpawn.length - availableAgents.length} will remain unassigned)`,
-            default: true,
+            choices: [
+              { name: 'Yes', value: true },
+              { name: 'No', value: false },
+            ],
           },
         ])
 
@@ -370,10 +372,13 @@ export default class WorkSpawn extends Command {
       if (!flags.yes) {
         const { confirm } = await inquirer.prompt([
           {
-            type: 'confirm',
+            type: 'list',
             name: 'confirm',
             message: `Spawn ${ticketsToSpawn.length} tickets using ${availableAgents.length} available agents?`,
-            default: true,
+            choices: [
+              { name: 'Yes', value: true },
+              { name: 'No', value: false },
+            ],
           },
         ])
 
@@ -448,6 +453,7 @@ export default class WorkSpawn extends Command {
       }
 
       // Batch mode settings - prompt once for all tickets
+      let batchMode = flags.mode
       let batchOutput = flags.output
       let batchSkipPermissions = flags['skip-permissions']
       let batchCreatePr = flags['create-pr']
@@ -456,6 +462,24 @@ export default class WorkSpawn extends Command {
       if (!flags['per-ticket']) {
         this.log(styles.header('Batch Settings (applies to all tickets)'))
         this.log('')
+
+        // Prompt for runtime mode if not provided
+        if (!batchMode) {
+          const { selectedMode } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'selectedMode',
+              message: 'Where should agents run?',
+              choices: [
+                { name: '🖥️  terminal     - New terminal window (recommended)', value: 'terminal' },
+                { name: '📺 foreground  - Current terminal', value: 'foreground' },
+                { name: '🔲 tmux        - Tmux pane/window', value: 'tmux' },
+                { name: '📦 background  - Detached (logs to file)', value: 'background' },
+              ],
+            },
+          ])
+          batchMode = selectedMode
+        }
 
         // Prompt for output mode if not provided
         if (!batchOutput) {
@@ -528,13 +552,13 @@ export default class WorkSpawn extends Command {
 
           if (flags['per-ticket']) {
             // Per-ticket mode: only pass mode flag, let start prompt for the rest
-            startArgs.push('--mode', flags.mode)
+            if (batchMode) startArgs.push('--mode', batchMode)
             if (flags.executor) startArgs.push('--executor', flags.executor)
             if (flags['run-on-host']) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
           } else {
             // Batch mode: pass all settings to skip prompts
-            startArgs.push('--mode', flags.mode)
+            if (batchMode) startArgs.push('--mode', batchMode)
             if (flags.executor) startArgs.push('--executor', flags.executor)
             if (flags['run-on-host']) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
