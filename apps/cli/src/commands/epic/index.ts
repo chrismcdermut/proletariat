@@ -25,7 +25,8 @@ export default class Epic extends Command {
         { name: 'List all epics', value: 'list' },
         { name: 'View epic', value: 'view' },
         { name: 'Show progress', value: 'progress' },
-        { name: 'Link tickets to epic', value: 'link' },
+        { name: 'Assign tickets to epic', value: 'ticket' },
+        { name: 'Manage dependencies', value: 'link' },
         new inquirer.Separator(),
         { name: 'Archive epic (complete)', value: 'archive' },
         { name: 'Activate epic', value: 'activate' },
@@ -52,6 +53,9 @@ export default class Epic extends Command {
         break;
       case 'progress':
         await this.config.runCommand('epic:progress', []);
+        break;
+      case 'ticket':
+        await this.config.runCommand('epic:ticket', []);
         break;
       case 'link':
         await this.config.runCommand('epic:link', []);

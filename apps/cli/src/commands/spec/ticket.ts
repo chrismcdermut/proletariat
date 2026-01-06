@@ -5,8 +5,8 @@ import inquirer from 'inquirer';
 import { findPMO, getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class SpecLink extends Command {
-  static description = 'Link a ticket to a spec document';
+export default class SpecTicket extends Command {
+  static description = 'Assign a ticket to a spec document';
 
   static examples = [
     '<%= config.bin %> <%= command.id %> PRLT-001 user-authentication',
@@ -40,7 +40,7 @@ export default class SpecLink extends Command {
   };
 
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(SpecLink);
+    const { args, flags } = await this.parse(SpecTicket);
 
     const pmoPath = findPMO();
     if (!pmoPath) {
