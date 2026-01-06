@@ -11,10 +11,12 @@ import * as path from 'path'
 import {
   Board,
   BoardConfig,
+  BoardView,
   Column,
   Conflict,
   Epic,
   EpicFilter,
+  GroupBy,
   PhaseFilter,
   PhaseTemplate,
   PhaseTemplateFilter,
@@ -24,6 +26,8 @@ import {
   Project,
   ProjectFilter,
   ProjectPhase,
+  SortBy,
+  SortDirection,
   Spec,
   SpecFilter,
   StateCategory,
@@ -33,6 +37,8 @@ import {
   SyncStatus,
   TemplateFilter,
   Ticket,
+  ViewFilter,
+  ViewType,
   WorkAction,
   WorkActionFilter,
   TicketFilter,
@@ -46,6 +52,22 @@ import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from './schema.js'
 
 // Use shared table names
 const T = PMO_TABLES
+
+// Database row type for views table
+interface DbViewRow {
+  id: string
+  project_id: string
+  name: string
+  type: string
+  filter: string
+  group_by: string
+  sort_by: string
+  sort_direction: string
+  is_default: number
+  position: number
+  created_at: string
+  updated_at: string
+}
 
 // =============================================================================
 // SQLite Storage Class
@@ -3508,6 +3530,281 @@ Output a review summary with your findings and any concerns.`,
   async status(): Promise<SyncStatus> {
     // SQLite is local-only, always in sync
     return { ahead: 0, behind: 0, conflicts: false }
+  }
+
+  // ===========================================================================
+  // Board View Operations (Linear/Notion style)
+  // ===========================================================================
+
+  async listViews(projectId: string): Promise<BoardView[]> {
+    const rows = this.db
+      .prepare(
+        `
+      SELECT * FROM ${T.views}
+      WHERE project_id = ?
+      ORDER BY position, name
+    `
+      )
+      .all(projectId) as DbViewRow[]
+
+    return rows.map((row) => this.mapDbViewToView(row))
+  }
+
+  async getView(id: string): Promise<BoardView | null> {
+    const row = this.db.prepare(`SELECT * FROM ${T.views} WHERE id = ?`).get(id) as DbViewRow | undefined
+
+    return row ? this.mapDbViewToView(row) : null
+  }
+
+  async createView(view: Partial<BoardView>): Promise<BoardView> {
+    const projectId = view.projectId || this.currentProjectId
+    const id = view.id || generateEntityId(this.db, 'view')
+    const name = view.name || 'New View'
+    const type = view.type || 'kanban'
+    const filter = view.filter || {}
+    const groupBy = view.groupBy || 'status'
+    const sortBy = view.sortBy || 'position'
+    const sortDirection = view.sortDirection || 'asc'
+    const isDefault = view.isDefault ?? false
+    const now = new Date().toISOString()
+
+    // Get next position
+    const maxPos = this.db
+      .prepare(`SELECT MAX(position) as max FROM ${T.views} WHERE project_id = ?`)
+      .get(projectId) as { max: number | null }
+    const position = view.position ?? (maxPos.max ?? -1) + 1
+
+    // If this is default, unset other defaults
+    if (isDefault) {
+      this.db.prepare(`UPDATE ${T.views} SET is_default = 0 WHERE project_id = ?`).run(projectId)
+    }
+
+    this.db
+      .prepare(
+        `
+      INSERT INTO ${T.views} (id, project_id, name, type, filter, group_by, sort_by, sort_direction, is_default, position, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+      )
+      .run(id, projectId, name, type, JSON.stringify(filter), groupBy, sortBy, sortDirection, isDefault ? 1 : 0, position, now, now)
+
+    return this.getView(id) as Promise<BoardView>
+  }
+
+  async updateView(id: string, changes: Partial<BoardView>): Promise<BoardView> {
+    const existing = await this.getView(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `View not found: ${id}`)
+    }
+
+    const updates: string[] = []
+    const values: (string | number)[] = []
+
+    if (changes.name !== undefined) {
+      updates.push('name = ?')
+      values.push(changes.name)
+    }
+    if (changes.type !== undefined) {
+      updates.push('type = ?')
+      values.push(changes.type)
+    }
+    if (changes.filter !== undefined) {
+      updates.push('filter = ?')
+      values.push(JSON.stringify(changes.filter))
+    }
+    if (changes.groupBy !== undefined) {
+      updates.push('group_by = ?')
+      values.push(changes.groupBy)
+    }
+    if (changes.sortBy !== undefined) {
+      updates.push('sort_by = ?')
+      values.push(changes.sortBy)
+    }
+    if (changes.sortDirection !== undefined) {
+      updates.push('sort_direction = ?')
+      values.push(changes.sortDirection)
+    }
+    if (changes.position !== undefined) {
+      updates.push('position = ?')
+      values.push(changes.position)
+    }
+    if (changes.isDefault !== undefined) {
+      // If setting as default, unset other defaults first
+      if (changes.isDefault) {
+        this.db.prepare(`UPDATE ${T.views} SET is_default = 0 WHERE project_id = ?`).run(existing.projectId)
+      }
+      updates.push('is_default = ?')
+      values.push(changes.isDefault ? 1 : 0)
+    }
+
+    if (updates.length > 0) {
+      updates.push('updated_at = ?')
+      values.push(new Date().toISOString())
+      values.push(id)
+
+      this.db.prepare(`UPDATE ${T.views} SET ${updates.join(', ')} WHERE id = ?`).run(...values)
+    }
+
+    return this.getView(id) as Promise<BoardView>
+  }
+
+  async deleteView(id: string): Promise<void> {
+    const result = this.db.prepare(`DELETE FROM ${T.views} WHERE id = ?`).run(id)
+    if (result.changes === 0) {
+      throw new PMOError('NOT_FOUND', `View not found: ${id}`)
+    }
+  }
+
+  async getDefaultView(projectId: string): Promise<BoardView | null> {
+    const row = this.db
+      .prepare(`SELECT * FROM ${T.views} WHERE project_id = ? AND is_default = 1`)
+      .get(projectId) as DbViewRow | undefined
+
+    return row ? this.mapDbViewToView(row) : null
+  }
+
+  async getBoardWithView(
+    viewId?: string
+  ): Promise<{ board: Board; view: BoardView | null; totalTickets: number; filteredTickets: number }> {
+    // Get base board
+    const board = await this.getBoard()
+
+    // Get view if specified
+    let view: BoardView | null = null
+    if (viewId) {
+      view = await this.getView(viewId)
+    }
+
+    // Count total tickets
+    const totalTickets = board.columns.reduce((sum, col) => sum + col.tickets.length, 0)
+
+    // If no view or no filters, return board as-is
+    if (!view || Object.keys(view.filter).length === 0) {
+      return { board, view, totalTickets, filteredTickets: totalTickets }
+    }
+
+    // Apply filters to board
+    const filteredBoard = this.applyViewFilters(board, view)
+    const filteredTickets = filteredBoard.columns.reduce((sum, col) => sum + col.tickets.length, 0)
+
+    // Apply sorting
+    const sortedBoard = this.applyViewSorting(filteredBoard, view)
+
+    return { board: sortedBoard, view, totalTickets, filteredTickets }
+  }
+
+  private applyViewFilters(board: Board, view: BoardView): Board {
+    const filter = view.filter
+
+    const filteredColumns = board.columns.map((column) => {
+      let tickets = [...column.tickets]
+
+      // Filter by assignee
+      if (filter.assignee && filter.assignee.length > 0) {
+        tickets = tickets.filter((t) => {
+          if (filter.assignee!.includes('unassigned')) {
+            return !t.assignee || filter.assignee!.includes(t.assignee)
+          }
+          return t.assignee && filter.assignee!.includes(t.assignee)
+        })
+      }
+
+      // Filter by priority
+      if (filter.priority && filter.priority.length > 0) {
+        tickets = tickets.filter((t) => t.priority && filter.priority!.map((p) => p.toUpperCase()).includes(t.priority.toUpperCase()))
+      }
+
+      // Filter by status category
+      if (filter.statusCategory && filter.statusCategory.length > 0) {
+        tickets = tickets.filter((t) => t.statusCategory && filter.statusCategory!.includes(t.statusCategory))
+      }
+
+      // Filter by status ID
+      if (filter.statusId && filter.statusId.length > 0) {
+        tickets = tickets.filter((t) => filter.statusId!.includes(t.statusId))
+      }
+
+      // Filter by search text
+      if (filter.search) {
+        const searchLower = filter.search.toLowerCase()
+        tickets = tickets.filter(
+          (t) =>
+            t.title.toLowerCase().includes(searchLower) ||
+            t.id.toLowerCase().includes(searchLower) ||
+            (t.description && t.description.toLowerCase().includes(searchLower))
+        )
+      }
+
+      return { ...column, tickets }
+    })
+
+    // Filter by column names
+    let columnsToShow = filteredColumns
+    if (filter.column && filter.column.length > 0) {
+      columnsToShow = filteredColumns.filter((c) => filter.column!.includes(c.name))
+    }
+
+    return { ...board, columns: columnsToShow }
+  }
+
+  private applyViewSorting(board: Board, view: BoardView): Board {
+    const { sortBy, sortDirection } = view
+    const multiplier = sortDirection === 'desc' ? -1 : 1
+
+    const sortedColumns = board.columns.map((column) => {
+      const sortedTickets = [...column.tickets].sort((a, b) => {
+        let comparison = 0
+
+        switch (sortBy) {
+          case 'priority': {
+            const priorityOrder: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 }
+            const aPriority = priorityOrder[(a.priority || 'MEDIUM').toUpperCase()] ?? 1
+            const bPriority = priorityOrder[(b.priority || 'MEDIUM').toUpperCase()] ?? 1
+            comparison = aPriority - bPriority
+            break
+          }
+          case 'created':
+            comparison = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+            break
+          case 'updated':
+            comparison = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime()
+            break
+          case 'title':
+            comparison = a.title.localeCompare(b.title)
+            break
+          case 'assignee':
+            comparison = (a.assignee || '').localeCompare(b.assignee || '')
+            break
+          case 'position':
+          default:
+            comparison = (a.position || 0) - (b.position || 0)
+            break
+        }
+
+        return comparison * multiplier
+      })
+
+      return { ...column, tickets: sortedTickets }
+    })
+
+    return { ...board, columns: sortedColumns }
+  }
+
+  private mapDbViewToView(row: DbViewRow): BoardView {
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      name: row.name,
+      type: row.type as ViewType,
+      filter: JSON.parse(row.filter || '{}') as ViewFilter,
+      groupBy: row.group_by as GroupBy,
+      sortBy: row.sort_by as SortBy,
+      sortDirection: row.sort_direction as SortDirection,
+      isDefault: row.is_default === 1,
+      position: row.position,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+    }
   }
 
   // ===========================================================================

@@ -34,6 +34,8 @@ export const PMO_TABLES = {
   phases: 'pmo_phases',  // Project lifecycle phases (workspace-scoped)
   phase_templates: 'pmo_phase_templates',  // Phase configuration templates
   actions: 'pmo_actions',  // Work actions (reusable agent prompts)
+  // Board view tables
+  views: 'pmo_views',  // Saved board views (Linear/Notion style)
 } as const;
 
 // =============================================================================
@@ -327,6 +329,25 @@ export const PMO_TABLE_SCHEMAS = {
       position INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
+
+  // Board views - saved filter/sort/group configurations (Linear/Notion style)
+  views: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.views} (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'kanban',
+      filter TEXT NOT NULL DEFAULT '{}',
+      group_by TEXT NOT NULL DEFAULT 'status',
+      sort_by TEXT NOT NULL DEFAULT 'position',
+      sort_direction TEXT NOT NULL DEFAULT 'asc',
+      is_default INTEGER NOT NULL DEFAULT 0,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES ${PMO_TABLES.projects}(id) ON DELETE CASCADE,
+      UNIQUE(project_id, name)
+    )`,
 } as const;
 
 // =============================================================================
@@ -369,6 +390,8 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_projects_archived ON ${PMO_TABLES.projects}(is_archived);
   CREATE INDEX IF NOT EXISTS idx_pmo_phases_category ON ${PMO_TABLES.phases}(category);
   CREATE INDEX IF NOT EXISTS idx_pmo_phases_position ON ${PMO_TABLES.phases}(category, position);
+  CREATE INDEX IF NOT EXISTS idx_pmo_views_project ON ${PMO_TABLES.views}(project_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_views_default ON ${PMO_TABLES.views}(project_id, is_default);
 `;
 
 // =============================================================================
@@ -403,6 +426,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.settings,
   PMO_TABLE_SCHEMAS.agent_work,  // Execution tracking
   PMO_TABLE_SCHEMAS.actions,  // Work actions (reusable agent prompts)
+  PMO_TABLE_SCHEMAS.views,  // Board views (Linear/Notion style saved filters)
   PMO_INDEXES,
 ].join(';\n');
 

@@ -222,6 +222,70 @@ export interface Board {
   updatedAt: Date
 }
 
+// =============================================================================
+// Board View Types (Linear/Notion style: one board, multiple views)
+// =============================================================================
+
+/**
+ * View type determines the layout style
+ */
+export type ViewType = 'kanban' | 'list' | 'table'
+
+/**
+ * Group by options - determines how tickets are grouped
+ */
+export type GroupBy = 'status' | 'assignee' | 'priority' | 'category' | 'none'
+
+/**
+ * Sort by options - determines how tickets are ordered
+ */
+export type SortBy = 'priority' | 'created' | 'updated' | 'title' | 'assignee' | 'position'
+
+/**
+ * Sort direction
+ */
+export type SortDirection = 'asc' | 'desc'
+
+/**
+ * View filter configuration - saved filter settings for a view
+ */
+export interface ViewFilter {
+  assignee?: string[]       // Filter by assignee(s), 'unassigned' for null
+  priority?: string[]       // Filter by priority level(s)
+  statusCategory?: StateCategory[]  // Filter by status category
+  statusId?: string[]       // Filter by specific status ID(s)
+  column?: string[]         // Filter by column name(s)
+  search?: string           // Free text search
+}
+
+/**
+ * BoardView represents a saved view configuration for a project's board.
+ * Views are filter/sort/group presets that render the same underlying board data.
+ * Similar to Linear's "Views" or Notion's "Database views".
+ */
+export interface BoardView {
+  id: string
+  projectId: string
+  name: string              // Display name (e.g., "My Tasks", "High Priority")
+  type: ViewType            // Layout type
+  filter: ViewFilter        // Filter configuration
+  groupBy: GroupBy          // How to group tickets
+  sortBy: SortBy            // How to sort tickets
+  sortDirection: SortDirection
+  isDefault: boolean        // Default view for the project
+  position: number          // Order in view list
+  createdAt: Date
+  updatedAt: Date
+}
+
+/**
+ * Filter for listing views
+ */
+export interface ViewFilter2 {
+  projectId?: string
+  search?: string
+}
+
 export interface Column {
   id: string
   name: string
@@ -614,6 +678,15 @@ export interface PMOStorage {
   listProjects(filter?: ProjectFilter): Promise<Project[]>
   archiveProject(id: string): Promise<Project>
   unarchiveProject(id: string): Promise<Project>
+
+  // Board View Operations (Linear/Notion style)
+  listViews(projectId: string): Promise<BoardView[]>
+  getView(id: string): Promise<BoardView | null>
+  createView(view: Partial<BoardView>): Promise<BoardView>
+  updateView(id: string, changes: Partial<BoardView>): Promise<BoardView>
+  deleteView(id: string): Promise<void>
+  getDefaultView(projectId: string): Promise<BoardView | null>
+  getBoardWithView(viewId?: string): Promise<{ board: Board; view: BoardView | null; totalTickets: number; filteredTickets: number }>
 
   // Sync Operations
   pull(): Promise<SyncResult>

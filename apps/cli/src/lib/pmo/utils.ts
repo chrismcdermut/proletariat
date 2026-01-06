@@ -45,6 +45,7 @@ export const ENTITY_PREFIXES = {
   epic: 'EPIC',
   spec: 'SPEC',
   project: 'PROJ',
+  view: 'VIEW',
 } as const;
 
 export type EntityType = keyof typeof ENTITY_PREFIXES;
