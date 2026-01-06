@@ -3,7 +3,7 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { DEFAULT_AGENTS_DIR, isValidAgentName, getSuggestedAgentNames } from '../themes.js';
+import { DEFAULT_AGENTS_DIR, isValidAgentName, getSuggestedAgentNames, normalizeAgentName, BUILTIN_THEMES } from '../themes.js';
 import { getWorkspaceRepositories } from '../database/index.js';
 import { styles } from '../styles.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
@@ -261,25 +261,149 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
 }
 
 /**
- * Prompt user for agent selection
+ * Result from agent prompt including optional theme info
+ */
+export interface AgentPromptResult {
+  agents: string[];
+  customTheme?: {
+    name: string;
+    displayName: string;
+    names: string[];
+  };
+}
+
+/**
+ * Prompt user for agent selection with theme options
  */
 export async function promptForAgents(): Promise<string[]> {
+  const result = await promptForAgentsWithTheme();
+  return result.agents;
+}
+
+/**
+ * Prompt user for agent selection with theme options (returns full result)
+ */
+export async function promptForAgentsWithTheme(): Promise<AgentPromptResult> {
   const { addAgents } = await inquirer.prompt([{
     type: 'list',
     name: 'addAgents',
     message: 'Add agents now?',
     choices: [
-      { name: 'Yes', value: true },
-      { name: 'No', value: false }
+      { name: 'Yes, pick from a theme', value: 'theme' },
+      { name: 'Yes, enter custom names', value: 'custom' },
+      { name: 'Yes, create a custom theme', value: 'create-theme' },
+      { name: 'No, I\'ll add agents later', value: 'no' }
     ],
-    default: true,
+    default: 'theme',
   }]);
 
-  if (!addAgents) {
-    return [];
+  if (addAgents === 'no') {
+    return { agents: [] };
   }
 
-  return await promptAgentNames([]);
+  if (addAgents === 'custom') {
+    const agents = await promptAgentNames([]);
+    return { agents };
+  }
+
+  if (addAgents === 'create-theme') {
+    // Create a custom theme
+    const { themeName } = await inquirer.prompt([{
+      type: 'input',
+      name: 'themeName',
+      message: 'Theme name (e.g., "Greek Gods", "Star Wars"):',
+      validate: (input: string) => input.trim() ? true : 'Theme name is required'
+    }]);
+
+    // Normalize theme ID
+    const themeId = themeName.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const displayName = themeName.trim();
+
+    if (themeName.trim() !== themeId) {
+      console.log(chalk.blue(`Theme ID: ${themeId}`));
+    }
+
+    // Prompt for names to add to the theme
+    const { themeNames } = await inquirer.prompt([{
+      type: 'input',
+      name: 'themeNames',
+      message: 'Enter names for this theme (space-separated):',
+      validate: (input: string) => {
+        if (!input.trim()) return 'Please enter at least one name';
+        return true;
+      }
+    }]);
+
+    // Normalize names
+    const rawNames = themeNames.trim().split(/\s+/);
+    const normalizedNames = rawNames.map((n: string) => normalizeAgentName(n)).filter((n: string) => n && isValidAgentName(n));
+
+    if (normalizedNames.length === 0) {
+      console.log(chalk.yellow('No valid names after normalization.'));
+      return { agents: [] };
+    }
+
+    // Show normalized names
+    const changed = rawNames.filter((n: string, i: number) => n !== normalizedNames[i]);
+    if (changed.length > 0) {
+      console.log(chalk.blue('Normalized names:'));
+      rawNames.forEach((n: string, i: number) => {
+        if (n !== normalizedNames[i] && normalizedNames[i]) {
+          console.log(chalk.dim(`   ${n} → ${normalizedNames[i]}`));
+        }
+      });
+    }
+
+    // Now select which agents to create from the theme
+    const { selected } = await inquirer.prompt([{
+      type: 'checkbox',
+      name: 'selected',
+      message: 'Select agents to create now:',
+      choices: normalizedNames.map((name: string) => ({ name, value: name, checked: true })),
+      validate: (input) => input.length > 0 || 'Please select at least one agent'
+    }]);
+
+    return {
+      agents: selected,
+      customTheme: {
+        name: themeId,
+        displayName,
+        names: normalizedNames
+      }
+    };
+  }
+
+  // Theme selection mode
+  // Build theme choices
+  const themeChoices = BUILTIN_THEMES.map(t => ({
+    name: `${t.displayName} (${t.names.length} names)`,
+    value: t.id
+  }));
+
+  const { selectedTheme } = await inquirer.prompt([{
+    type: 'list',
+    name: 'selectedTheme',
+    message: 'Select a theme:',
+    choices: themeChoices
+  }]);
+
+  // Get the theme
+  const theme = BUILTIN_THEMES.find(t => t.id === selectedTheme);
+  if (!theme) {
+    return { agents: [] };
+  }
+
+  // Select names from the theme
+  const { selected } = await inquirer.prompt([{
+    type: 'checkbox',
+    name: 'selected',
+    message: `Select agents from ${theme.displayName}:`,
+    choices: theme.names.map(name => ({ name, value: name })),
+    pageSize: 15,
+    validate: (input) => input.length > 0 || 'Please select at least one agent'
+  }]);
+
+  return { agents: selected };
 }
 
 /**

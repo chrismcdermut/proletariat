@@ -16,7 +16,9 @@ import {
   createWorkspaceDatabase,
   addRepositoriesToDatabase,
   addAgentsToDatabase,
-  getWorkspaceConfig
+  getWorkspaceConfig,
+  createTheme,
+  addThemeNames
 } from '../database/index.js';
 
 export interface HQConfig {
@@ -40,6 +42,12 @@ export interface InitOptions {
   repos?: Array<{ path: string; action: 'move' | 'clone' }>;
   // PMO options (from shared promptForPMOSetup)
   pmoSetup?: PMOSetupResult;
+  // Custom theme created during init
+  customTheme?: {
+    name: string;
+    displayName: string;
+    names: string[];
+  };
 }
 
 /**
@@ -244,6 +252,7 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
     selectedAgents,
     repos,
     pmoSetup,
+    customTheme,
   } = options;
 
   // All these fields are required for HQ type
@@ -256,6 +265,18 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
 
   // Create database and workspace configuration
   initializeWorkspaceDatabase(hqPath, options);
+
+  // Save custom theme if one was created during init
+  if (customTheme) {
+    createTheme(hqPath, {
+      id: customTheme.name,
+      name: customTheme.name,
+      displayName: customTheme.displayName,
+      builtin: false,
+    });
+    addThemeNames(hqPath, customTheme.name, customTheme.names);
+    console.log(chalk.blue(`Created custom theme: ${customTheme.displayName}`));
+  }
 
   // Handle repositories first - add to file system AND database
   // (PMO location might depend on repos existing)

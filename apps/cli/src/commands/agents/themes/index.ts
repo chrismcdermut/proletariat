@@ -63,6 +63,27 @@ export default class Themes extends Command {
           const { default: CreateCommand } = await import('./create.js');
           const cmd = new CreateCommand([normalized], this.config);
           await cmd.run();
+
+          // Prompt to add names immediately
+          const { addNamesNow } = await inquirer.prompt([{
+            type: 'confirm',
+            name: 'addNamesNow',
+            message: 'Add names to this theme now?',
+            default: true
+          }]);
+
+          if (addNamesNow) {
+            const { names } = await inquirer.prompt([{
+              type: 'input',
+              name: 'names',
+              message: 'Enter names (space-separated):',
+              validate: (input: string) => input.trim() ? true : 'At least one name is required'
+            }]);
+            const args = [normalized, ...names.trim().split(/\s+/)];
+            const { default: AddNamesCommand } = await import('./add-names.js');
+            const addCmd = new AddNamesCommand(args, this.config);
+            await addCmd.run();
+          }
           break;
         }
         case 'add-names': {

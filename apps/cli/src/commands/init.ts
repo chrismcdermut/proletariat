@@ -10,7 +10,7 @@ import {
   createWorkspaceOnly,
   showNextSteps
 } from '../lib/init/index.js';
-import { promptForAgents } from '../lib/agents/index.js';
+import { promptForAgentsWithTheme, AgentPromptResult } from '../lib/agents/index.js';
 import { promptForRepositories } from '../lib/repos/index.js';
 import { promptForPMOSetup } from '../lib/pmo/index.js';
 
@@ -34,14 +34,14 @@ export default class Init extends Command {
       // Step 2: Choose location
       const workspacePath = await promptForWorkspaceLocation();
 
-      // Step 3: Add agents
-      const selectedAgents = await promptForAgents();
+      // Step 3: Add agents (with theme options)
+      const agentResult = await promptForAgentsWithTheme();
 
       // Create workspace
-      await createWorkspaceOnly(selectedAgents, workspacePath);
+      await createWorkspaceOnly(agentResult.agents, workspacePath);
 
       // Show next steps
-      const options = { workspaceType, selectedAgents };
+      const options = { workspaceType, selectedAgents: agentResult.agents };
       await showNextSteps(options, workspacePath);
 
     } else {
@@ -57,8 +57,8 @@ export default class Init extends Command {
       // Step 4: Determine location
       const hqPath = await promptForHQLocation(hqName, addSuffix);
 
-      // Step 5: Add agents
-      const selectedAgents = await promptForAgents();
+      // Step 5: Add agents (with theme options)
+      const agentResult = await promptForAgentsWithTheme();
 
       // Step 6: Add repositories
       const repos = await promptForRepositories(process.cwd(), []);
@@ -74,9 +74,10 @@ export default class Init extends Command {
         hqName,
         hqPath,
         addSuffix,
-        selectedAgents,
+        selectedAgents: agentResult.agents,
         repos,
         pmoSetup,
+        customTheme: agentResult.customTheme,
       };
 
       // Initialize the HQ
