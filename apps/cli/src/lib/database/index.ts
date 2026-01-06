@@ -288,10 +288,13 @@ export function addRepositoriesToDatabase(workspacePath: string, repos: { name: 
 }
 
 /**
- * Add agents to database
+ * Add agents to database (case-insensitive uniqueness)
  */
 export function addAgentsToDatabase(workspacePath: string, agentNames: string[], themeId?: string): void {
   const db = openWorkspaceDatabase(workspacePath);
+
+  // Check for existing agents (case-insensitive)
+  const checkExisting = db.prepare('SELECT name FROM agents WHERE LOWER(name) = LOWER(?)');
 
   const insertAgent = db.prepare(`
     INSERT OR REPLACE INTO agents (name, theme_id, created_at)
@@ -311,6 +314,12 @@ export function addAgentsToDatabase(workspacePath: string, agentNames: string[],
 
   const transaction = db.transaction(() => {
     for (const agentName of agentNames) {
+      // Skip if agent already exists (case-insensitive check)
+      const existing = checkExisting.get(agentName) as { name: string } | undefined;
+      if (existing) {
+        continue; // Agent already exists with same name (different case)
+      }
+
       const now = new Date().toISOString();
 
       // Add agent
@@ -472,18 +481,26 @@ export function getAvailableThemeNames(workspacePath: string, themeId: string): 
 }
 
 /**
- * Add names to a theme
+ * Add names to a theme (case-insensitive uniqueness)
  */
 export function addThemeNames(workspacePath: string, themeId: string, names: string[]): void {
   const db = openWorkspaceDatabase(workspacePath);
 
+  // Check for existing name (case-insensitive)
+  const checkExisting = db.prepare('SELECT name FROM agent_theme_names WHERE theme_id = ? AND LOWER(name) = LOWER(?)');
+
   const insertName = db.prepare(`
-    INSERT OR IGNORE INTO agent_theme_names (theme_id, name, used)
+    INSERT INTO agent_theme_names (theme_id, name, used)
     VALUES (?, ?, 0)
   `);
 
   const transaction = db.transaction(() => {
     for (const name of names) {
+      // Skip if name already exists (case-insensitive)
+      const existing = checkExisting.get(themeId, name) as { name: string } | undefined;
+      if (existing) {
+        continue;
+      }
       insertName.run(themeId, name);
     }
   });

@@ -13,24 +13,31 @@ export const DEFAULT_AGENTS_DIR = 'agents';
 
 /**
  * Validate an agent name
- * Agent names must be lowercase alphanumeric with optional hyphens/underscores
+ * Agent names must be alphanumeric with optional hyphens/underscores (case-insensitive for uniqueness)
  */
 export function isValidAgentName(name: string): boolean {
-  return /^[a-z0-9][a-z0-9_-]*$/.test(name);
+  return /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(name);
 }
 
 /**
  * Normalize a name to valid agent name format:
- * - Convert to lowercase
+ * - Trim whitespace
  * - Replace spaces with dashes
  * - Remove any invalid characters
+ * Note: Preserves case - uniqueness is enforced case-insensitively elsewhere
  */
 export function normalizeAgentName(name: string): string {
   return name
-    .toLowerCase()
     .trim()
-    .replace(/\s+/g, '-')           // spaces to dashes
-    .replace(/[^a-z0-9-_]/g, '');   // remove invalid chars
+    .replace(/\s+/g, '-')              // spaces to dashes
+    .replace(/[^a-zA-Z0-9-_]/g, '');   // remove invalid chars
+}
+
+/**
+ * Get the canonical (lowercase) form of a name for uniqueness comparisons
+ */
+export function canonicalAgentName(name: string): string {
+  return name.toLowerCase();
 }
 
 /**

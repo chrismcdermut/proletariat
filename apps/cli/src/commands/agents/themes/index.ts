@@ -49,17 +49,19 @@ export default class Themes extends Command {
           const { themeName } = await inquirer.prompt([{
             type: 'input',
             name: 'themeName',
-            message: 'Theme name (lowercase with hyphens):',
+            message: 'Theme name:',
             validate: (input: string) => {
               if (!input.trim()) return 'Theme name is required';
-              if (!/^[a-z0-9][a-z0-9-]*$/.test(input.trim())) {
-                return 'Must be lowercase alphanumeric with optional hyphens';
-              }
               return true;
             }
           }]);
+          // Normalize: lowercase, spaces to dashes
+          const normalized = themeName.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+          if (themeName.trim() !== normalized) {
+            this.log(chalk.blue(`Normalized: ${themeName.trim()} → ${normalized}`));
+          }
           const { default: CreateCommand } = await import('./create.js');
-          const cmd = new CreateCommand([themeName.trim()], this.config);
+          const cmd = new CreateCommand([normalized], this.config);
           await cmd.run();
           break;
         }
@@ -101,17 +103,19 @@ export default class Themes extends Command {
             const { themeName } = await inquirer.prompt([{
               type: 'input',
               name: 'themeName',
-              message: 'Theme name (lowercase with hyphens):',
+              message: 'Theme name:',
               validate: (input: string) => {
                 if (!input.trim()) return 'Theme name is required';
-                if (!/^[a-z0-9][a-z0-9-]*$/.test(input.trim())) {
-                  return 'Must be lowercase alphanumeric with optional hyphens';
-                }
                 return true;
               }
             }]);
+            // Normalize: lowercase, spaces to dashes
+            const normalizedTheme = themeName.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+            if (themeName.trim() !== normalizedTheme) {
+              this.log(chalk.blue(`Normalized: ${themeName.trim()} → ${normalizedTheme}`));
+            }
             const { default: CreateCommand } = await import('./create.js');
-            const createCmd = new CreateCommand([themeName.trim()], this.config);
+            const createCmd = new CreateCommand([normalizedTheme], this.config);
             await createCmd.run();
 
             // Now prompt for names to add to the new theme
@@ -121,7 +125,7 @@ export default class Themes extends Command {
               message: 'Names to add (space-separated):',
               validate: (input: string) => input.trim() ? true : 'At least one name is required'
             }]);
-            const args = [themeName.trim(), ...names.trim().split(/\s+/)];
+            const args = [normalizedTheme, ...names.trim().split(/\s+/)];
             const { default: AddNamesCommand } = await import('./add-names.js');
             const cmd = new AddNamesCommand(args, this.config);
             await cmd.run();
