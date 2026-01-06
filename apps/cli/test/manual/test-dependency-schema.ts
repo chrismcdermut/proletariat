@@ -61,11 +61,16 @@ async function testStorageMethods() {
 
   const storage = new SQLiteStorage(dbPath)
 
-  // Initialize board with columns
+  // Initialize board with columns and apply workflow template
   await storage.init({
     name: 'Test Board',
     columns: ['Backlog', 'In Progress', 'Done'],
   })
+
+  // Apply a workflow template to get statuses (required for ticket creation)
+  // The default project ID is 'default' - apply the 'kanban' workflow template
+  const projectId = storage.getCurrentProjectId()
+  await storage.applyTemplate(projectId, 'kanban')
 
   // Test ticket dependencies
   console.log('--- Ticket Dependencies ---')
@@ -85,7 +90,12 @@ async function testStorageMethods() {
   const isBlocked = await storage.isTicketBlocked(ticket1.id)
   console.log('✓ Is ticket blocked:', isBlocked)
 
-  await storage.updateTicket(ticket2.id, { status: 'done' })
+  // Get the 'Done' status ID from the applied template
+  const statuses = await storage.listStatuses(projectId)
+  const doneStatus = statuses.find(s => s.category === 'completed')
+  if (!doneStatus) throw new Error('No completed status found')
+
+  await storage.updateTicket(ticket2.id, { statusId: doneStatus.id })
   const isBlockedAfter = await storage.isTicketBlocked(ticket1.id)
   console.log('✓ Is ticket blocked after completing blocker:', isBlockedAfter)
 

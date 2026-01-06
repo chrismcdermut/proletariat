@@ -454,15 +454,6 @@ export interface Spec {
   updatedAt: Date
 }
 
-/**
- * Spec dependency - one spec depends on another
- */
-export interface SpecDependency {
-  specId: string
-  dependsOn: string
-  createdAt?: Date
-}
-
 // =============================================================================
 // Configuration Types
 // =============================================================================

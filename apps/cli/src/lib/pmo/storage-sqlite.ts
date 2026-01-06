@@ -2130,7 +2130,7 @@ Output a review summary with your findings and any concerns.`,
         throw new PMOError('CONFLICT', 'Dependency already exists')
       }
       if (error instanceof Error && error.message.includes('CHECK constraint')) {
-        throw new PMOError('VALIDATION', 'Cannot create self-dependency')
+        throw new PMOError('INVALID', 'Cannot create self-dependency')
       }
       throw error
     }
@@ -2186,6 +2186,27 @@ Output a review summary with your findings and any concerns.`,
    * Get tickets that this ticket depends on (blockers).
    */
   async getTicketBlockers(ticketId: string): Promise<Ticket[]> {
+    type TicketRow = {
+      id: string
+      title: string
+      description: string | null
+      priority: string | null
+      category: string | null
+      status_id: string
+      owner: string | null
+      assignee: string | null
+      branch: string | null
+      spec_id: string | null
+      epic_id: string | null
+      column_id: string | null
+      column_name: string | null
+      position: number | null
+      created_at: string
+      updated_at: string
+      last_synced_from_spec: string | null
+      last_synced_from_board: string | null
+    }
+
     const rows = this.db.prepare(`
       SELECT t.*, bt.column_id, c.name as column_name, bt.position
       FROM ${T.tickets} t
@@ -2202,6 +2223,27 @@ Output a review summary with your findings and any concerns.`,
    * Get tickets that depend on this ticket (blocking).
    */
   async getTicketsBlockedBy(ticketId: string): Promise<Ticket[]> {
+    type TicketRow = {
+      id: string
+      title: string
+      description: string | null
+      priority: string | null
+      category: string | null
+      status_id: string
+      owner: string | null
+      assignee: string | null
+      branch: string | null
+      spec_id: string | null
+      epic_id: string | null
+      column_id: string | null
+      column_name: string | null
+      position: number | null
+      created_at: string
+      updated_at: string
+      last_synced_from_spec: string | null
+      last_synced_from_board: string | null
+    }
+
     const rows = this.db.prepare(`
       SELECT t.*, bt.column_id, c.name as column_name, bt.position
       FROM ${T.tickets} t
@@ -2219,7 +2261,7 @@ Output a review summary with your findings and any concerns.`,
    */
   async isTicketBlocked(ticketId: string): Promise<boolean> {
     const blockers = await this.getTicketBlockers(ticketId)
-    return blockers.some(t => t.status !== 'done' && t.status !== 'cancelled')
+    return blockers.some(t => t.status !== 'done' && t.status !== 'canceled')
   }
 
   // ===========================================================================
@@ -2258,7 +2300,7 @@ Output a review summary with your findings and any concerns.`,
         throw new PMOError('CONFLICT', 'Dependency already exists')
       }
       if (error instanceof Error && error.message.includes('CHECK constraint')) {
-        throw new PMOError('VALIDATION', 'Cannot create self-dependency')
+        throw new PMOError('INVALID', 'Cannot create self-dependency')
       }
       throw error
     }
@@ -2346,7 +2388,7 @@ Output a review summary with your findings and any concerns.`,
         throw new PMOError('CONFLICT', 'Dependency already exists')
       }
       if (error instanceof Error && error.message.includes('CHECK constraint')) {
-        throw new PMOError('VALIDATION', 'Cannot create self-dependency')
+        throw new PMOError('INVALID', 'Cannot create self-dependency')
       }
       throw error
     }
