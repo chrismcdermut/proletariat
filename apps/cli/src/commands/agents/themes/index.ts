@@ -13,7 +13,7 @@ export default class Themes extends Command {
 
   async run(): Promise<void> {
     this.log(chalk.bold('\nAgent Themes'));
-    this.log(chalk.gray('Optional themed name pools for your agents.\n'));
+    this.log(chalk.dim('Optional themed name pools for your agents.\n'));
 
     const { action } = await inquirer.prompt([{
       type: 'list',
@@ -29,7 +29,7 @@ export default class Themes extends Command {
     }]);
 
     if (action === 'cancel') {
-      this.log(chalk.gray('Cancelled.'));
+      this.log(chalk.dim('Cancelled.'));
       return;
     }
 
@@ -42,14 +42,43 @@ export default class Themes extends Command {
           break;
         }
         case 'create': {
+          // Prompt for theme name interactively
+          const { themeName } = await inquirer.prompt([{
+            type: 'input',
+            name: 'themeName',
+            message: 'Theme name (lowercase with hyphens):',
+            validate: (input: string) => {
+              if (!input.trim()) return 'Theme name is required';
+              if (!/^[a-z0-9][a-z0-9-]*$/.test(input.trim())) {
+                return 'Must be lowercase alphanumeric with optional hyphens';
+              }
+              return true;
+            }
+          }]);
           const { default: CreateCommand } = await import('./create.js');
-          const cmd = new CreateCommand([], this.config);
+          const cmd = new CreateCommand([themeName.trim()], this.config);
           await cmd.run();
           break;
         }
         case 'add-names': {
+          // Prompt for theme and names interactively
+          const { theme, names } = await inquirer.prompt([
+            {
+              type: 'input',
+              name: 'theme',
+              message: 'Theme ID to add names to:',
+              validate: (input: string) => input.trim() ? true : 'Theme ID is required'
+            },
+            {
+              type: 'input',
+              name: 'names',
+              message: 'Names to add (space-separated):',
+              validate: (input: string) => input.trim() ? true : 'At least one name is required'
+            }
+          ]);
+          const args = [theme.trim(), ...names.trim().split(/\s+/)];
           const { default: AddNamesCommand } = await import('./add-names.js');
-          const cmd = new AddNamesCommand([], this.config);
+          const cmd = new AddNamesCommand(args, this.config);
           await cmd.run();
           break;
         }
