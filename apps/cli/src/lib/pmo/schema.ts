@@ -26,6 +26,8 @@ export const PMO_TABLES = {
   ticket_specs: 'pmo_ticket_specs',
   ticket_assignments: 'pmo_ticket_assignments',
   epics: 'pmo_epics',
+  epic_dependencies: 'pmo_epic_dependencies',
+  project_specs: 'pmo_project_specs',  // Many-to-many: projects ↔ specs (specs are global)
   cache_metadata: 'pmo_cache_metadata',
   settings: 'pmo_settings',
   agent_work: 'agent_work',
@@ -150,14 +152,15 @@ export const PMO_TABLE_SCHEMAS = {
       PRIMARY KEY (ticket_id, key)
     )`,
 
-  // Agent execution support: ticket dependencies for scheduling
+  // Ticket-to-ticket dependencies (blocks, relates_to, duplicates)
   ticket_dependencies: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.ticket_dependencies} (
-      ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
-      blocked_by_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
+      ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE RESTRICT,
+      depends_on_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE RESTRICT,
+      dependency_type TEXT NOT NULL DEFAULT 'blocks' CHECK (dependency_type IN ('blocks', 'relates_to', 'duplicates')),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (ticket_id, blocked_by_ticket_id),
-      CHECK (ticket_id != blocked_by_ticket_id)
+      PRIMARY KEY (ticket_id, depends_on_ticket_id, dependency_type),
+      CHECK (ticket_id != depends_on_ticket_id)
     )`,
 
   // Agent execution support: file/path scope hints
@@ -206,13 +209,15 @@ export const PMO_TABLE_SCHEMAS = {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
 
+  // Spec-to-spec dependencies (depends_on, relates_to, duplicates)
   spec_dependencies: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.spec_dependencies} (
-      spec_id TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE CASCADE,
-      depends_on TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE CASCADE,
+      spec_id TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE RESTRICT,
+      depends_on_spec_id TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE RESTRICT,
+      dependency_type TEXT NOT NULL DEFAULT 'depends_on' CHECK (dependency_type IN ('depends_on', 'relates_to', 'duplicates')),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (spec_id, depends_on),
-      CHECK (spec_id != depends_on)
+      PRIMARY KEY (spec_id, depends_on_spec_id, dependency_type),
+      CHECK (spec_id != depends_on_spec_id)
     )`,
 
   ticket_specs: `
@@ -244,6 +249,26 @@ export const PMO_TABLE_SCHEMAS = {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES ${PMO_TABLES.projects}(id) ON DELETE CASCADE,
       FOREIGN KEY (spec_id) REFERENCES ${PMO_TABLES.specs}(id) ON DELETE SET NULL
+    )`,
+
+  // Epic-to-epic dependencies (blocks, relates_to, duplicates)
+  epic_dependencies: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.epic_dependencies} (
+      epic_id TEXT NOT NULL REFERENCES ${PMO_TABLES.epics}(id) ON DELETE RESTRICT,
+      depends_on_epic_id TEXT NOT NULL REFERENCES ${PMO_TABLES.epics}(id) ON DELETE RESTRICT,
+      dependency_type TEXT NOT NULL DEFAULT 'blocks' CHECK (dependency_type IN ('blocks', 'relates_to', 'duplicates')),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (epic_id, depends_on_epic_id, dependency_type),
+      CHECK (epic_id != depends_on_epic_id)
+    )`,
+
+  // Project-to-spec associations (many-to-many, specs are global living documents)
+  project_specs: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.project_specs} (
+      project_id TEXT NOT NULL REFERENCES ${PMO_TABLES.projects}(id) ON DELETE CASCADE,
+      spec_id TEXT NOT NULL REFERENCES ${PMO_TABLES.specs}(id) ON DELETE CASCADE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (project_id, spec_id)
     )`,
 
   cache_metadata: `
@@ -374,8 +399,11 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_agent_work_ticket ON ${PMO_TABLES.agent_work}(ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_specs_status ON ${PMO_TABLES.specs}(status);
   CREATE INDEX IF NOT EXISTS idx_pmo_specs_type ON ${PMO_TABLES.specs}(type);
-  CREATE INDEX IF NOT EXISTS idx_pmo_spec_deps_depends_on ON ${PMO_TABLES.spec_dependencies}(depends_on);
-  CREATE INDEX IF NOT EXISTS idx_pmo_ticket_deps_blocked_by ON ${PMO_TABLES.ticket_dependencies}(blocked_by_ticket_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_spec_deps_depends_on ON ${PMO_TABLES.spec_dependencies}(depends_on_spec_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_ticket_deps_depends_on ON ${PMO_TABLES.ticket_dependencies}(depends_on_ticket_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_epic_deps_depends_on ON ${PMO_TABLES.epic_dependencies}(depends_on_epic_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_project_specs_spec ON ${PMO_TABLES.project_specs}(spec_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_project_specs_project ON ${PMO_TABLES.project_specs}(project_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_paths_ticket ON ${PMO_TABLES.ticket_affected_paths}(ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_criteria_ticket ON ${PMO_TABLES.ticket_acceptance_criteria}(ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_id ON ${PMO_TABLES.tickets}(status_id);
@@ -408,14 +436,16 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.templates,  // Workflow templates (before statuses for seeding)
   PMO_TABLE_SCHEMAS.statuses,  // Workflow statuses per project
   PMO_TABLE_SCHEMAS.specs,  // Must be before tickets (FK reference)
-  PMO_TABLE_SCHEMAS.spec_dependencies,  // Spec dependency graph
+  PMO_TABLE_SCHEMAS.spec_dependencies,  // Spec-to-spec dependencies
   PMO_TABLE_SCHEMAS.epics,  // Must be before tickets (FK reference)
+  PMO_TABLE_SCHEMAS.epic_dependencies,  // Epic-to-epic dependencies
+  PMO_TABLE_SCHEMAS.project_specs,  // Many-to-many project ↔ spec associations
   PMO_TABLE_SCHEMAS.tickets,
   PMO_TABLE_SCHEMAS.board_tickets,
   PMO_TABLE_SCHEMAS.board_views,  // Saved board view configurations
   PMO_TABLE_SCHEMAS.subtasks,
   PMO_TABLE_SCHEMAS.ticket_metadata,
-  PMO_TABLE_SCHEMAS.ticket_dependencies,  // Agent execution: dependency tracking
+  PMO_TABLE_SCHEMAS.ticket_dependencies,  // Ticket-to-ticket dependencies
   PMO_TABLE_SCHEMAS.ticket_affected_paths,  // Agent execution: scope hints
   PMO_TABLE_SCHEMAS.ticket_acceptance_criteria,  // Agent execution: structured criteria
   PMO_TABLE_SCHEMAS.ticket_specs,
