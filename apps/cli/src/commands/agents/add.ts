@@ -3,13 +3,13 @@ import chalk from 'chalk';
 import inquirer from 'inquirer';
 import {
   getWorkspaceInfo,
-  selectAgentsInteractively,
   validateAgentNames,
   addAgentsToWorkspace
 } from '../../lib/agents/commands.js';
-import { ensureBuiltinThemes, BUILTIN_THEMES } from '../../lib/themes.js';
+import { ensureBuiltinThemes, BUILTIN_THEMES, isValidAgentName } from '../../lib/themes.js';
 import {
   getTheme,
+  getThemes,
   getAvailableThemeNames,
   markThemeNameUsed
 } from '../../lib/database/index.js';
@@ -54,7 +54,7 @@ export default class Add extends Command {
       let agentNames = argv as string[];
       let themeId: string | undefined;
 
-      // Theme mode: pick from a theme
+      // Theme mode: pick from a specific theme
       if (flags.theme) {
         // Ensure built-in themes are seeded
         ensureBuiltinThemes(workspaceInfo.path);
@@ -90,16 +90,80 @@ export default class Add extends Command {
           markThemeNameUsed(workspaceInfo.path, themeId, name);
         }
       }
-      // Non-theme mode: direct names or interactive
+      // Interactive mode: show themes and available names
       else if (agentNames.length === 0) {
-        try {
-          agentNames = await selectAgentsInteractively(workspaceInfo, 'Enter agent names to add');
-          if (agentNames.length === 0) {
-            this.log(chalk.yellow('No agents specified.'));
-            return;
+        // Ensure built-in themes are seeded
+        ensureBuiltinThemes(workspaceInfo.path);
+
+        // Get all themes with available names
+        const themes = getThemes(workspaceInfo.path);
+        const themesWithNames = themes.map(t => ({
+          theme: t,
+          names: getAvailableThemeNames(workspaceInfo.path, t.id)
+        })).filter(t => t.names.length > 0);
+
+        // Build choices: themes with their available names, plus custom option
+        const choices: any[] = [];
+
+        for (const { theme, names } of themesWithNames) {
+          choices.push(new inquirer.Separator(`── ${theme.display_name} ──`));
+          for (const name of names) {
+            choices.push({ name: `  ${name}`, value: { name, themeId: theme.id } });
           }
-        } catch (error) {
-          this.error(error instanceof Error ? error.message : String(error));
+        }
+
+        choices.push(new inquirer.Separator('──────────────'));
+        choices.push({ name: chalk.blue('Enter custom name(s)...'), value: '__custom__' });
+
+        const { selection } = await inquirer.prompt([{
+          type: 'checkbox',
+          name: 'selection',
+          message: 'Select agent names to add:',
+          choices,
+          pageSize: 20,
+          validate: (input) => input.length > 0 || 'Please select at least one name or choose custom'
+        }]);
+
+        // Check if custom was selected
+        const hasCustom = selection.some((s: any) => s === '__custom__');
+        const themedSelections = selection.filter((s: any) => s !== '__custom__');
+
+        if (hasCustom) {
+          // Prompt for custom names
+          const { customNames } = await inquirer.prompt([{
+            type: 'input',
+            name: 'customNames',
+            message: 'Enter custom agent names (space-separated):',
+            validate: (input: string) => {
+              if (!input.trim()) return 'Please enter at least one name';
+              const names = input.trim().split(/\s+/);
+              const invalid = names.filter(n => !isValidAgentName(n));
+              if (invalid.length > 0) {
+                return `Invalid names: ${invalid.join(', ')}. Use lowercase alphanumeric with hyphens/underscores.`;
+              }
+              return true;
+            }
+          }]);
+          agentNames = customNames.trim().split(/\s+/);
+        }
+
+        if (themedSelections.length > 0) {
+          // Mark themed names as used and collect them
+          for (const sel of themedSelections) {
+            markThemeNameUsed(workspaceInfo.path, sel.themeId, sel.name);
+            agentNames.push(sel.name);
+          }
+          // Use the first theme if all from same theme, otherwise no theme tracking
+          const themeIds: string[] = themedSelections.map((s: any) => s.themeId);
+          const uniqueThemes = [...new Set(themeIds)];
+          if (uniqueThemes.length === 1) {
+            themeId = uniqueThemes[0];
+          }
+        }
+
+        if (agentNames.length === 0) {
+          this.log(chalk.yellow('No agents specified.'));
+          return;
         }
       }
 
