@@ -262,12 +262,15 @@ export function getBranchType(category?: string): string {
 
 /**
  * Generate branch name for agent work.
- * Format: {type}/{agent}/{ticket-id}-{slug}
+ * Format: {type}/{coder}/{ticket-id}-{slug}
+ *
+ * The coderName is the human who owns the HQ/spawned the agent,
+ * providing clearer ownership in shared repos.
  */
 export function generateBranchName(
   ticketId: string,
   ticketTitle: string,
-  agentName: string,
+  coderName: string,
   category?: string
 ): string {
   const type = getBranchType(category)
@@ -278,7 +281,7 @@ export function generateBranchName(
     .substring(0, 30)
     .replace(/-+$/, '')
 
-  return `${type}/${agentName}/${ticketId}-${slug}`
+  return `${type}/${coderName}/${ticketId}-${slug}`
 }
 
 // =============================================================================

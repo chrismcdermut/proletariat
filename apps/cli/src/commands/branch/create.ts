@@ -1,5 +1,8 @@
 import { Command, Args, Flags } from '@oclif/core'
+import * as fs from 'fs'
+import * as path from 'path'
 import inquirer from 'inquirer'
+import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import {
   BRANCH_TYPES,
@@ -18,6 +21,7 @@ import {
   fetchOrigin,
   checkoutBranch,
 } from '../../lib/branch/index.js'
+import { getCoderName, getGitUserName } from '../../lib/execution/config.js'
 
 export default class BranchCreate extends Command {
   static description = 'Create a new branch with conventional naming'
@@ -121,14 +125,17 @@ export default class BranchCreate extends Command {
         )
       }
 
-      if (flags.coder && !isKebabCase(flags.coder)) {
+      // Use provided coder name or fall back to configured default
+      const coderName = flags.coder || this.getDefaultCoderName()
+
+      if (coderName && !isKebabCase(coderName)) {
         this.error(
-          `Coder name must be kebab-case: "${flags.coder}"\n` +
+          `Coder name must be kebab-case: "${coderName}"\n` +
             `Example: chris, chris-m, team-alpha`
         )
       }
 
-      branchName = buildBranchName(type, description, flags.coder)
+      branchName = buildBranchName(type, description, coderName)
     } else {
       // Interactive wizard
       const wizardResult = await this.runWizard()
@@ -215,10 +222,46 @@ export default class BranchCreate extends Command {
     }
   }
 
+  /**
+   * Get the default coder name from workspace config or git.
+   */
+  private getDefaultCoderName(): string | undefined {
+    // Try to get from workspace database
+    let currentDir = process.cwd()
+    while (currentDir !== '/') {
+      const dbPath = path.join(currentDir, '.proletariat', 'workspace.db')
+      if (fs.existsSync(dbPath)) {
+        try {
+          const db = new Database(dbPath)
+          const coderName = getCoderName(db)
+          db.close()
+          if (coderName) {
+            return coderName
+          }
+        } catch {
+          // Ignore errors and try git config
+        }
+        break
+      }
+      currentDir = path.dirname(currentDir)
+    }
+
+    // Fall back to git config user.name
+    const gitUserName = getGitUserName()
+    if (gitUserName) {
+      return gitUserName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+    }
+
+    return undefined
+  }
+
   private async runWizard(): Promise<string | null> {
     this.log('')
     this.log(styles.header('🌿 Create New Branch'))
     this.log('')
+
+    // Get default coder name from config or git
+    const defaultCoderName = this.getDefaultCoderName()
 
     // Select type
     const typeChoices = [
@@ -243,12 +286,15 @@ export default class BranchCreate extends Command {
       },
     ])
 
-    // Enter coder (optional)
+    // Enter coder (defaults to configured name if available)
     const { coder } = await inquirer.prompt([
       {
         type: 'input',
         name: 'coder',
-        message: 'Enter coder name (optional, press enter to skip):',
+        message: defaultCoderName
+          ? `Enter coder name (default: ${defaultCoderName}):`
+          : 'Enter coder name (optional, press enter to skip):',
+        default: defaultCoderName,
         validate: (input: string) => {
           if (input && !isKebabCase(input)) {
             return 'Coder name must be kebab-case (lowercase, hyphens only)'
