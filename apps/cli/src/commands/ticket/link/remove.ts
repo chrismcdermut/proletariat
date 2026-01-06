@@ -4,13 +4,14 @@ import { getPMOContext, autoExportToBoard } from '../../../lib/pmo/index.js'
 import { styles } from '../../../lib/styles.js'
 import { TicketDependencyType } from '../../../lib/pmo/types.js'
 
-export default class TicketDependRemove extends Command {
+export default class TicketLinkRemove extends Command {
   static description = 'Remove a dependency from a ticket'
 
   static examples = [
     '<%= config.bin %> <%= command.id %> TKT-001 TKT-002',
     '<%= config.bin %> <%= command.id %> TKT-001 TKT-002 --type blocks',
     '<%= config.bin %> <%= command.id %> TKT-001 --all',
+    '<%= config.bin %> <%= command.id %> TKT-001         # Interactive selection',
   ]
 
   static args = {
@@ -18,8 +19,8 @@ export default class TicketDependRemove extends Command {
       description: 'Ticket ID',
       required: true,
     }),
-    'depends-on': Args.string({
-      description: 'Ticket ID to remove dependency from',
+    target: Args.string({
+      description: 'Target ticket ID to unlink',
       required: false,
     }),
   }
@@ -31,7 +32,7 @@ export default class TicketDependRemove extends Command {
     }),
     type: Flags.string({
       char: 't',
-      description: 'Dependency type to remove (removes all types if not specified)',
+      description: 'Dependency type to remove',
       options: ['blocks', 'relates_to', 'duplicates'],
     }),
     all: Flags.boolean({
@@ -42,7 +43,7 @@ export default class TicketDependRemove extends Command {
   }
 
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(TicketDependRemove)
+    const { args, flags } = await this.parse(TicketLinkRemove)
 
     const { storage, pmoPath } = await getPMOContext(
       flags.project,
@@ -51,19 +52,15 @@ export default class TicketDependRemove extends Command {
     )
 
     try {
-      const ticketId = args.id
-
-      // Validate ticket exists
-      const ticket = await storage.getTicket(ticketId)
+      const ticket = await storage.getTicket(args.id)
       if (!ticket) {
-        this.error(`Ticket not found: ${ticketId}`)
+        this.error(`Ticket not found: ${args.id}`)
       }
 
-      // Get existing dependencies
-      const dependencies = await storage.listTicketDependencies(ticketId)
+      const dependencies = await storage.listTicketDependencies(args.id)
 
       if (dependencies.length === 0) {
-        this.log(styles.muted(`\nTicket ${ticketId} has no dependencies.`))
+        this.log(styles.muted(`\nTicket ${args.id} has no dependencies.`))
         await storage.close()
         return
       }
@@ -73,7 +70,7 @@ export default class TicketDependRemove extends Command {
         const { confirmed } = await inquirer.prompt([{
           type: 'confirm',
           name: 'confirmed',
-          message: `Remove all ${dependencies.length} dependencies from ${ticketId}?`,
+          message: `Remove all ${dependencies.length} dependencies from ${args.id}?`,
           default: false,
         }])
 
@@ -84,20 +81,20 @@ export default class TicketDependRemove extends Command {
         }
 
         for (const dep of dependencies) {
-          await storage.deleteTicketDependency(ticketId, dep.dependsOnTicketId, dep.dependencyType)
+          await storage.deleteTicketDependency(args.id, dep.dependsOnTicketId, dep.dependencyType)
         }
 
         await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
         await storage.close()
 
-        this.log(styles.success(`\n✅ Removed ${dependencies.length} dependencies from ${ticketId}`))
+        this.log(styles.success(`\n✅ Removed ${dependencies.length} dependencies from ${args.id}`))
         return
       }
 
-      let dependsOnId = args['depends-on']
+      let targetId = args.target
 
       // If no target provided, prompt for selection
-      if (!dependsOnId) {
+      if (!targetId) {
         const choices = await Promise.all(dependencies.map(async (dep) => {
           const depTicket = await storage.getTicket(dep.dependsOnTicketId)
           return {
@@ -112,28 +109,27 @@ export default class TicketDependRemove extends Command {
           message: 'Select dependency to remove:',
           choices,
         }])
-        dependsOnId = selected
+        targetId = selected
       }
 
       // Find the dependency
-      const dep = dependencies.find(d => d.dependsOnTicketId === dependsOnId)
+      const dep = dependencies.find(d => d.dependsOnTicketId === targetId)
       if (!dep) {
-        this.error(`No dependency found from ${ticketId} to ${dependsOnId}`)
+        this.error(`No dependency found from ${args.id} to ${targetId}`)
       }
 
-      // Remove specific dependency
       const dependencyType = flags.type as TicketDependencyType | undefined
-      await storage.deleteTicketDependency(ticketId, dependsOnId!, dependencyType)
+      await storage.deleteTicketDependency(args.id, targetId!, dependencyType)
 
       await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
-      await storage.close()
 
-      const depTicket = await storage.getTicket(dependsOnId!)
-      this.log(styles.success(`\n✅ Removed dependency: ${ticketId} → ${dependsOnId}`))
+      const depTicket = await storage.getTicket(targetId!)
+      this.log(styles.success(`\n✅ Removed dependency: ${args.id} → ${targetId}`))
       if (depTicket) {
-        this.log(styles.muted(`   ${ticket.title} no longer depends on ${depTicket.title}`))
+        this.log(styles.muted(`   ${ticket.title} no longer linked to ${depTicket.title}`))
       }
 
+      await storage.close()
     } catch (error) {
       await storage.close()
       throw error

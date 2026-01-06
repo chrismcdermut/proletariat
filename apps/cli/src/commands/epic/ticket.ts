@@ -4,8 +4,8 @@ import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { Ticket } from '../../lib/pmo/types.js';
 
-export default class EpicLink extends Command {
-  static description = 'Link tickets to an epic, or link epic to a spec';
+export default class EpicTicket extends Command {
+  static description = 'Assign tickets to an epic, or link epic to a spec (parent-child)';
 
   static examples = [
     '<%= config.bin %> <%= command.id %> EPIC-001 TKT-001 TKT-002',
@@ -50,7 +50,7 @@ export default class EpicLink extends Command {
   };
 
   async run(): Promise<void> {
-    const { args, flags, argv } = await this.parse(EpicLink);
+    const { args, flags, argv } = await this.parse(EpicTicket);
 
     const { storage, pmoPath } = await getPMOContext(
       flags.project,

@@ -1,13 +1,17 @@
 import { Args, Command, Flags } from '@oclif/core'
-import { getPMOContext } from '../../../lib/pmo/index.js'
+import { getPMOContext, autoExportToBoard } from '../../../lib/pmo/index.js'
 import { styles } from '../../../lib/styles.js'
+import { EpicDependencyType } from '../../../lib/pmo/types.js'
 
-export default class EpicDepend extends Command {
-  static description = 'List dependencies for an epic'
+export default class EpicLink extends Command {
+  static description = 'Manage epic dependencies (links)'
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> EPIC-001',
-    '<%= config.bin %> <%= command.id %> EPIC-001 --all',
+    '<%= config.bin %> <%= command.id %> EPIC-001                     # List dependencies',
+    '<%= config.bin %> <%= command.id %> EPIC-001 --blocks EPIC-002   # EPIC-001 is blocked by EPIC-002',
+    '<%= config.bin %> <%= command.id %> EPIC-001 --relates EPIC-002  # EPIC-001 relates to EPIC-002',
+    '<%= config.bin %> <%= command.id %> EPIC-001 --duplicates EPIC-002',
+    '<%= config.bin %> <%= command.id %> EPIC-001 --all               # Show all links',
   ]
 
   static args = {
@@ -22,6 +26,18 @@ export default class EpicDepend extends Command {
       char: 'P',
       description: 'Project ID (default: "default")',
     }),
+    blocks: Flags.string({
+      char: 'b',
+      description: 'Add blocking dependency: this epic is blocked by TARGET',
+    }),
+    relates: Flags.string({
+      char: 'r',
+      description: 'Add relates_to dependency',
+    }),
+    duplicates: Flags.string({
+      char: 'd',
+      description: 'Add duplicates dependency',
+    }),
     all: Flags.boolean({
       char: 'a',
       description: 'Show all dependencies (blockers and blocking)',
@@ -30,9 +46,9 @@ export default class EpicDepend extends Command {
   }
 
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(EpicDepend)
+    const { args, flags } = await this.parse(EpicLink)
 
-    const { storage } = await getPMOContext(
+    const { storage, pmoPath } = await getPMOContext(
       flags.project,
       (msg) => this.log(styles.muted(msg)),
       true
@@ -44,7 +60,44 @@ export default class EpicDepend extends Command {
         this.error(`Epic not found: ${args.id}`)
       }
 
-      // Get dependencies
+      // If a dependency flag is provided, add the dependency
+      if (flags.blocks || flags.relates || flags.duplicates) {
+        const targetId = flags.blocks || flags.relates || flags.duplicates
+        const dependencyType: EpicDependencyType = flags.blocks ? 'blocks' :
+                                                    flags.relates ? 'relates_to' : 'duplicates'
+
+        const targetEpic = await storage.getEpic(targetId!)
+        if (!targetEpic) {
+          this.error(`Epic not found: ${targetId}`)
+        }
+
+        try {
+          await storage.createEpicDependency(args.id, targetId!, dependencyType)
+          await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
+
+          const typeLabel = dependencyType === 'blocks' ? 'is blocked by' :
+                            dependencyType === 'relates_to' ? 'relates to' : 'duplicates'
+
+          this.log(styles.success(`\n✅ ${styles.emphasis(args.id)} ${typeLabel} ${styles.emphasis(targetId!)}`))
+          this.log(styles.muted(`   ${epic.title}`))
+          this.log(styles.muted(`   ${typeLabel} ${targetEpic.title}`))
+        } catch (error) {
+          if (error instanceof Error) {
+            if (error.message.includes('already exists')) {
+              this.error('Dependency already exists')
+            }
+            if (error.message.includes('self-dependency')) {
+              this.error('Cannot create self-dependency')
+            }
+          }
+          throw error
+        }
+
+        await storage.close()
+        return
+      }
+
+      // Otherwise, list dependencies
       const dependencies = await storage.listEpicDependencies(args.id)
       const isBlocked = await storage.isEpicBlocked(args.id)
 
@@ -81,7 +134,6 @@ export default class EpicDepend extends Command {
 
       // Optionally show epics blocked BY this epic
       if (flags.all) {
-        // Get all epics and find ones that depend on this epic
         const allEpics = await storage.listEpics()
         const blocking: Array<{ epic: typeof epic; type: string }> = []
 
