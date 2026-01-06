@@ -147,12 +147,12 @@ export interface ExecutionContext {
   // PR feedback context (for work revise)
   prFeedback?: string // Formatted PR feedback markdown
   isRevision?: boolean // Whether this is a revision (addressing PR feedback)
-  // Commit namespace settings (loaded from config)
-  commitNamespace?: {
-    namespace: string    // e.g., "[prlt]"
-    includeAgent: boolean // Whether to include agent name
-    format: string       // e.g., "{namespace} {message}"
-    enabled: boolean     // Whether namespace is enabled
+  // Conventional commit settings (loaded from config)
+  commitConfig?: {
+    types: string[]           // Allowed commit types (feat, fix, etc.)
+    requireScope: boolean     // Whether scope is required
+    scopeFormat: 'agent' | 'ticket' | 'none'  // What to use as scope
+    enforced: boolean         // Whether to enforce conventional commits
   }
 }
 

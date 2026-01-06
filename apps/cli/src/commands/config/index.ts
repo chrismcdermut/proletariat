@@ -4,7 +4,8 @@ import Database from 'better-sqlite3';
 import { getPMOContext } from '../../lib/pmo/index.js';
 import {
   DEFAULT_WORK_COLUMNS,
-  DEFAULT_COMMIT_NAMESPACE_CONFIG,
+  DEFAULT_COMMIT_CONFIG,
+  CONVENTIONAL_COMMIT_TYPES,
 } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
 
@@ -28,25 +29,25 @@ const CONFIG_SETTINGS = {
     default: DEFAULT_WORK_COLUMNS.done,
     category: 'columns',
   },
-  // Commit namespace settings
-  commit_namespace: {
-    description: 'Prefix for agent commit messages (e.g., "[prlt]")',
-    default: DEFAULT_COMMIT_NAMESPACE_CONFIG.namespace,
+  // Conventional commit settings
+  commit_types: {
+    description: `Allowed commit types (comma-separated, or "all"). Available: ${Object.keys(CONVENTIONAL_COMMIT_TYPES).join(', ')}`,
+    default: DEFAULT_COMMIT_CONFIG.types,
     category: 'commit',
   },
-  commit_include_agent: {
-    description: 'Include agent name in commit namespace (true/false)',
-    default: String(DEFAULT_COMMIT_NAMESPACE_CONFIG.includeAgent),
+  commit_require_scope: {
+    description: 'Require scope in commits (true/false)',
+    default: String(DEFAULT_COMMIT_CONFIG.requireScope),
     category: 'commit',
   },
-  commit_format: {
-    description: 'Format template for commit messages',
-    default: DEFAULT_COMMIT_NAMESPACE_CONFIG.format,
+  commit_scope_format: {
+    description: 'Scope format: "agent" (agent name), "ticket" (ticket ID), or "none"',
+    default: DEFAULT_COMMIT_CONFIG.scopeFormat,
     category: 'commit',
   },
-  commit_enabled: {
-    description: 'Enable commit namespace prefixing (true/false)',
-    default: String(DEFAULT_COMMIT_NAMESPACE_CONFIG.enabled),
+  commit_enforced: {
+    description: 'Enforce conventional commit format (true/false)',
+    default: String(DEFAULT_COMMIT_CONFIG.enforced),
     category: 'commit',
   },
 } as const;

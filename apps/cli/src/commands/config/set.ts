@@ -2,6 +2,7 @@ import { Command, Args } from '@oclif/core';
 import * as path from 'path';
 import Database from 'better-sqlite3';
 import { getPMOContext } from '../../lib/pmo/index.js';
+import { CONVENTIONAL_COMMIT_TYPES } from '../../lib/pmo/utils.js';
 import { CONFIG_SETTINGS } from './index.js';
 import { styles } from '../../lib/styles.js';
 
@@ -9,8 +10,9 @@ export default class ConfigSet extends Command {
   static description = 'Set a configuration value';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> commit_namespace "[myteam]"',
-    '<%= config.bin %> <%= command.id %> commit_include_agent true',
+    '<%= config.bin %> <%= command.id %> commit_types "feat,fix,docs,chore"',
+    '<%= config.bin %> <%= command.id %> commit_types all',
+    '<%= config.bin %> <%= command.id %> commit_scope_format agent',
     '<%= config.bin %> <%= command.id %> column_done "Completed"',
   ];
 
@@ -37,7 +39,7 @@ export default class ConfigSet extends Command {
     }
 
     // Validate boolean values
-    if (args.key === 'commit_include_agent' || args.key === 'commit_enabled') {
+    if (args.key === 'commit_require_scope' || args.key === 'commit_enforced') {
       const lowerValue = args.value.toLowerCase();
       if (lowerValue !== 'true' && lowerValue !== 'false') {
         this.error(`Value for "${args.key}" must be "true" or "false"`);
@@ -46,10 +48,25 @@ export default class ConfigSet extends Command {
       args.value = lowerValue;
     }
 
-    // Validate commit_format contains required placeholders
-    if (args.key === 'commit_format') {
-      if (!args.value.includes('{message}')) {
-        this.error('commit_format must include {message} placeholder');
+    // Validate commit_types
+    if (args.key === 'commit_types') {
+      if (args.value !== 'all') {
+        const types = args.value.split(',').map(t => t.trim());
+        const validTypes = Object.keys(CONVENTIONAL_COMMIT_TYPES);
+        const invalidTypes = types.filter(t => !validTypes.includes(t));
+        if (invalidTypes.length > 0) {
+          this.error(
+            `Invalid commit type(s): ${invalidTypes.join(', ')}\n\nValid types: ${validTypes.join(', ')}`
+          );
+        }
+      }
+    }
+
+    // Validate commit_scope_format
+    if (args.key === 'commit_scope_format') {
+      const validFormats = ['agent', 'ticket', 'none'];
+      if (!validFormats.includes(args.value)) {
+        this.error(`Value for commit_scope_format must be one of: ${validFormats.join(', ')}`);
       }
     }
 

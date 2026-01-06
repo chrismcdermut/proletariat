@@ -5,7 +5,7 @@ import { execSync } from 'node:child_process'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
-import { getWorkColumnSetting, findColumnByName, getAllCommitNamespaceSettings } from '../../lib/pmo/utils.js'
+import { getWorkColumnSetting, findColumnByName, getAllCommitConfigSettings } from '../../lib/pmo/utils.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
@@ -238,13 +238,13 @@ export default class WorkRevise extends Command {
       // Get branch from ticket metadata or current branch
       const branch = (ticket.metadata?.pr_branch as string) || this.getCurrentBranch(worktreePath)
 
-      // Load commit namespace settings from PMO database
+      // Load conventional commit settings from PMO database
       const pmoDatabasePath = path.join(pmoPath, 'pmo.db')
-      let commitNamespaceSettings: ExecutionContext['commitNamespace'] | undefined
+      let commitConfigSettings: ExecutionContext['commitConfig'] | undefined
       if (fs.existsSync(pmoDatabasePath)) {
         const pmoDb = new Database(pmoDatabasePath)
         try {
-          commitNamespaceSettings = getAllCommitNamespaceSettings(pmoDb)
+          commitConfigSettings = getAllCommitConfigSettings(pmoDb)
         } finally {
           pmoDb.close()
         }
@@ -267,8 +267,8 @@ export default class WorkRevise extends Command {
         // Revision-specific context
         isRevision: true,
         prFeedback: formattedFeedback,
-        // Commit namespace settings
-        commitNamespace: commitNamespaceSettings,
+        // Conventional commit settings
+        commitConfig: commitConfigSettings,
       }
 
       // Determine execution mode (simplified from work start)

@@ -207,74 +207,107 @@ export function arraysEqual<T>(a: T[], b: T[]): boolean {
 }
 
 // =============================================================================
-// Commit Namespace Settings
+// Conventional Commit Settings
 // =============================================================================
 
 /**
- * Default commit namespace configuration.
- *
- * - namespace: The prefix to add to commit messages (e.g., "[prlt]")
- * - includeAgent: Whether to include the agent name in the namespace (e.g., "[prlt:altman]")
- * - format: Template for formatting commit messages with namespace
- * - enabled: Whether to apply the namespace prefix to commits
+ * Standard conventional commit types with descriptions.
  */
-export const DEFAULT_COMMIT_NAMESPACE_CONFIG = {
-  namespace: '[prlt]',
-  includeAgent: false,
-  format: '{namespace} {message}',
-  enabled: true,
+export const CONVENTIONAL_COMMIT_TYPES = {
+  feat: 'New feature or functionality',
+  fix: 'Bug fix',
+  docs: 'Documentation changes',
+  style: 'Code style changes (formatting, whitespace)',
+  refactor: 'Code refactoring (no functional change)',
+  perf: 'Performance improvements',
+  test: 'Test additions or corrections',
+  build: 'Build system or dependency changes',
+  ci: 'CI/CD configuration changes',
+  chore: 'Maintenance tasks',
+  revert: 'Revert a previous commit',
 } as const;
 
-export type CommitNamespaceConfigKey = keyof typeof DEFAULT_COMMIT_NAMESPACE_CONFIG;
+export type ConventionalCommitType = keyof typeof CONVENTIONAL_COMMIT_TYPES;
 
 /**
- * Get a commit namespace setting from pmo_settings with fallback to default.
+ * Default conventional commit configuration.
+ *
+ * - types: Allowed commit types (comma-separated or 'all')
+ * - requireScope: Whether scope is required in commits
+ * - scopeFormat: What to use as scope ('agent', 'ticket', 'none')
+ * - requireBody: Whether commit body is required
+ * - enforced: Whether to enforce conventional commits
+ */
+export const DEFAULT_COMMIT_CONFIG = {
+  types: 'feat,fix,docs,refactor,test,chore',
+  requireScope: false,
+  scopeFormat: 'none' as 'agent' | 'ticket' | 'none',
+  enforced: true,
+} as const;
+
+export type CommitConfigKey = 'types' | 'requireScope' | 'scopeFormat' | 'enforced';
+
+/**
+ * Get a commit config setting from pmo_settings with fallback to default.
  *
  * Settings keys:
- * - commit_namespace: The prefix to add to commits (e.g., "[prlt]" or "[agent]")
- * - commit_include_agent: Whether to include agent name in namespace (true/false)
- * - commit_format: Template for formatting messages (e.g., "{namespace} {message}")
- * - commit_enabled: Whether namespace prefixing is enabled (true/false)
+ * - commit_types: Allowed types (comma-separated, e.g., "feat,fix,docs")
+ * - commit_require_scope: Whether scope is required (true/false)
+ * - commit_scope_format: Scope format ('agent', 'ticket', 'none')
+ * - commit_enforced: Whether conventional commits are enforced (true/false)
  *
  * @param db - Database instance
- * @param configKey - Key of the config option (namespace, includeAgent, format, enabled)
+ * @param configKey - Key of the config option
  * @returns The configured value, or the default if not set
  */
-export function getCommitNamespaceSetting<K extends CommitNamespaceConfigKey>(
+export function getCommitConfigSetting(
   db: DatabaseLike,
-  configKey: K
-): typeof DEFAULT_COMMIT_NAMESPACE_CONFIG[K] {
-  const settingKey = `commit_${configKey === 'includeAgent' ? 'include_agent' : configKey}`;
+  configKey: CommitConfigKey
+): string | boolean {
+  const keyMap: Record<CommitConfigKey, string> = {
+    types: 'commit_types',
+    requireScope: 'commit_require_scope',
+    scopeFormat: 'commit_scope_format',
+    enforced: 'commit_enforced',
+  };
 
+  const settingKey = keyMap[configKey];
   const row = db.prepare(
     `SELECT value FROM pmo_settings WHERE key = ?`
   ).get(settingKey) as { value: string } | undefined;
 
   if (!row) {
-    return DEFAULT_COMMIT_NAMESPACE_CONFIG[configKey];
+    return DEFAULT_COMMIT_CONFIG[configKey];
   }
 
   // Parse boolean values
-  if (configKey === 'includeAgent' || configKey === 'enabled') {
-    return (row.value === 'true') as typeof DEFAULT_COMMIT_NAMESPACE_CONFIG[K];
+  if (configKey === 'requireScope' || configKey === 'enforced') {
+    return row.value === 'true';
   }
 
-  return row.value as typeof DEFAULT_COMMIT_NAMESPACE_CONFIG[K];
+  return row.value;
 }
 
 /**
- * Set a commit namespace setting in pmo_settings.
+ * Set a commit config setting in pmo_settings.
  *
  * @param db - Database instance
- * @param configKey - Key of the config option (namespace, includeAgent, format, enabled)
+ * @param configKey - Key of the config option
  * @param value - Value to set
  */
-export function setCommitNamespaceSetting<K extends CommitNamespaceConfigKey>(
+export function setCommitConfigSetting(
   db: DatabaseLike,
-  configKey: K,
-  value: typeof DEFAULT_COMMIT_NAMESPACE_CONFIG[K]
+  configKey: CommitConfigKey,
+  value: string | boolean
 ): void {
-  const settingKey = `commit_${configKey === 'includeAgent' ? 'include_agent' : configKey}`;
+  const keyMap: Record<CommitConfigKey, string> = {
+    types: 'commit_types',
+    requireScope: 'commit_require_scope',
+    scopeFormat: 'commit_scope_format',
+    enforced: 'commit_enforced',
+  };
+
+  const settingKey = keyMap[configKey];
   const valueStr = String(value);
 
   db.prepare(`
@@ -284,74 +317,53 @@ export function setCommitNamespaceSetting<K extends CommitNamespaceConfigKey>(
 }
 
 /**
- * Get all commit namespace settings as an object.
+ * Get all commit config settings as an object.
  *
  * @param db - Database instance
- * @returns Object with all commit namespace settings
+ * @returns Object with all commit config settings
  */
-export function getAllCommitNamespaceSettings(db: DatabaseLike): {
-  namespace: string;
-  includeAgent: boolean;
-  format: string;
-  enabled: boolean;
+export function getAllCommitConfigSettings(db: DatabaseLike): {
+  types: string[];
+  requireScope: boolean;
+  scopeFormat: 'agent' | 'ticket' | 'none';
+  enforced: boolean;
 } {
+  const typesStr = getCommitConfigSetting(db, 'types') as string;
+  const types = typesStr === 'all'
+    ? Object.keys(CONVENTIONAL_COMMIT_TYPES)
+    : typesStr.split(',').map(t => t.trim()).filter(Boolean);
+
   return {
-    namespace: getCommitNamespaceSetting(db, 'namespace'),
-    includeAgent: getCommitNamespaceSetting(db, 'includeAgent'),
-    format: getCommitNamespaceSetting(db, 'format'),
-    enabled: getCommitNamespaceSetting(db, 'enabled'),
+    types,
+    requireScope: getCommitConfigSetting(db, 'requireScope') as boolean,
+    scopeFormat: getCommitConfigSetting(db, 'scopeFormat') as 'agent' | 'ticket' | 'none',
+    enforced: getCommitConfigSetting(db, 'enforced') as boolean,
   };
 }
 
 /**
- * Build a commit message with the configured namespace prefix.
- *
- * Uses the commit namespace settings to format the message:
- * - If enabled=false, returns the original message unchanged
- * - If includeAgent=true and agentName is provided, includes agent name in namespace
- * - Applies the format template to construct the final message
+ * Get the allowed commit types as an array.
  *
  * @param db - Database instance
- * @param message - The original commit message
- * @param agentName - Optional agent name to include in namespace
- * @returns The formatted commit message with namespace prefix
- *
- * @example
- * // With namespace="[prlt]", includeAgent=false, format="{namespace} {message}"
- * buildCommitMessage(db, "feat: add login") // "[prlt] feat: add login"
- *
- * @example
- * // With namespace="[prlt]", includeAgent=true, format="{namespace} {message}"
- * buildCommitMessage(db, "feat: add login", "altman") // "[prlt:altman] feat: add login"
+ * @returns Array of allowed commit type strings
  */
-export function buildCommitMessage(
-  db: DatabaseLike,
-  message: string,
-  agentName?: string
-): string {
-  const settings = getAllCommitNamespaceSettings(db);
-
-  // If namespace is disabled, return original message
-  if (!settings.enabled) {
-    return message;
+export function getAllowedCommitTypes(db: DatabaseLike): string[] {
+  const typesStr = getCommitConfigSetting(db, 'types') as string;
+  if (typesStr === 'all') {
+    return Object.keys(CONVENTIONAL_COMMIT_TYPES);
   }
+  return typesStr.split(',').map(t => t.trim()).filter(Boolean);
+}
 
-  // Build the namespace prefix
-  let namespace = settings.namespace;
-  if (settings.includeAgent && agentName) {
-    // Insert agent name into namespace, e.g., "[prlt]" -> "[prlt:altman]"
-    // Handle different namespace formats
-    if (namespace.endsWith(']')) {
-      namespace = namespace.slice(0, -1) + ':' + agentName + ']';
-    } else if (namespace.endsWith(')')) {
-      namespace = namespace.slice(0, -1) + ':' + agentName + ')';
-    } else {
-      namespace = namespace + ':' + agentName;
-    }
-  }
-
-  // Apply the format template
-  return settings.format
-    .replace('{namespace}', namespace)
-    .replace('{message}', message);
+/**
+ * Format commit types with descriptions for display.
+ *
+ * @param types - Array of commit type strings
+ * @returns Formatted string with types and descriptions
+ */
+export function formatCommitTypesForPrompt(types: string[]): string {
+  return types.map(type => {
+    const desc = CONVENTIONAL_COMMIT_TYPES[type as ConventionalCommitType];
+    return desc ? `- ${type}: ${desc}` : `- ${type}`;
+  }).join('\n');
 }

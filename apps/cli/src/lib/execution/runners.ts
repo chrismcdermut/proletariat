@@ -115,23 +115,21 @@ function buildPrompt(context: ExecutionContext): string {
     prompt += `2. Push your changes: \`git push\`\n`
     prompt += `\nThe PR will be updated automatically.`
   } else {
-    // Build commit message example with namespace if configured
-    let commitExample = 'Your descriptive commit message'
-    if (context.commitNamespace?.enabled) {
-      let namespace = context.commitNamespace.namespace
-      if (context.commitNamespace.includeAgent && context.agentName) {
-        // Insert agent name into namespace
-        if (namespace.endsWith(']')) {
-          namespace = namespace.slice(0, -1) + ':' + context.agentName + ']'
-        } else if (namespace.endsWith(')')) {
-          namespace = namespace.slice(0, -1) + ':' + context.agentName + ')'
-        } else {
-          namespace = namespace + ':' + context.agentName
-        }
+    // Build commit message example based on conventional commit config
+    let commitExample = 'feat: add new feature'
+    let scopePart = ''
+
+    if (context.commitConfig?.enforced) {
+      // Build scope if required
+      if (context.commitConfig.scopeFormat === 'agent' && context.agentName) {
+        scopePart = `(${context.agentName})`
+      } else if (context.commitConfig.scopeFormat === 'ticket') {
+        scopePart = `(${context.ticketId})`
       }
-      commitExample = context.commitNamespace.format
-        .replace('{namespace}', namespace)
-        .replace('{message}', 'Your descriptive commit message')
+
+      // Build example with first allowed type
+      const exampleType = context.commitConfig.types[0] || 'feat'
+      commitExample = `${exampleType}${scopePart}: describe your change`
     }
 
     prompt += `1. **Commit your work** in each repository directory you modified:\n`
@@ -142,15 +140,24 @@ function buildPrompt(context: ExecutionContext): string {
     prompt += `   git push\n`
     prompt += `   \`\`\`\n`
 
-    // Add namespace instruction if enabled
-    if (context.commitNamespace?.enabled) {
-      prompt += `\n   **Commit Message Format:** All commits should use the namespace prefix: \`${context.commitNamespace.namespace}\`\n`
-      if (context.commitNamespace.includeAgent) {
-        prompt += `   Include agent name in prefix, e.g., \`${commitExample.split(' ')[0]}\`\n`
+    // Add conventional commit instructions if enforced
+    if (context.commitConfig?.enforced) {
+      prompt += `\n   **Commit Message Format (Conventional Commits):**\n`
+      prompt += `   Use format: \`<type>${scopePart}: <description>\`\n\n`
+      prompt += `   Allowed types:\n`
+      for (const type of context.commitConfig.types) {
+        prompt += `   - \`${type}\`\n`
       }
+      if (context.commitConfig.requireScope && context.commitConfig.scopeFormat !== 'none') {
+        prompt += `\n   Scope is required: use ${context.commitConfig.scopeFormat === 'agent' ? 'agent name' : 'ticket ID'} in parentheses.\n`
+      }
+      prompt += `\n   Examples:\n`
+      prompt += `   - \`feat${scopePart}: add user authentication\`\n`
+      prompt += `   - \`fix${scopePart}: resolve login redirect bug\`\n`
+      prompt += `   - \`docs${scopePart}: update API documentation\`\n`
     }
 
-    prompt += `2. **Mark work as ready** by running:\n`
+    prompt += `\n2. **Mark work as ready** by running:\n`
     // Build the work ready command with the appropriate PR flag
     const prFlag = context.createPR ? ' --pr' : ' --no-pr'
     prompt += `   \`\`\`bash\n   prlt work ready ${context.ticketId}${prFlag}\n   \`\`\`\n`
