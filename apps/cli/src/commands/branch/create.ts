@@ -381,10 +381,13 @@ export default class BranchCreate extends Command {
     // Confirm or allow edit
     const { confirmed } = await inquirer.prompt([
       {
-        type: 'confirm',
+        type: 'list',
         name: 'confirmed',
         message: 'Use this branch name?',
-        default: true,
+        choices: [
+          { name: 'Yes', value: true },
+          { name: 'No, let me edit', value: false },
+        ],
       },
     ])
 
