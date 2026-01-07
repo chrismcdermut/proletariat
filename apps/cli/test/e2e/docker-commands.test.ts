@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename)
 
 /**
  * End-to-end tests for Docker Management Commands
- * Tests: prlt docker status, list, logs, stop, shell, restart, clean, prune
+ * Tests: prlt docker status, list, logs, start, stop, shell, restart, sync, clean, prune
  *
  * Note: These tests run without Docker available, so they test
  * the "Docker not running" code paths. Full Docker integration
@@ -327,6 +327,67 @@ describe('Docker Commands E2E Tests', () => {
   })
 
   /**
+   * prlt docker start
+   */
+  describe('prlt docker start', () => {
+    it('should show help with --help flag', () => {
+      const output = exec('docker start --help')
+
+      expect(output).to.contain('Start a stopped container')
+      expect(output).to.contain('USAGE')
+    })
+
+    it('should require a target argument', () => {
+      const output = exec('docker start')
+
+      const validOutput =
+        output.includes('Missing required arg') ||
+        output.includes('target') ||
+        output.includes('Docker is not running')
+      expect(validOutput).to.be.true
+    })
+
+    it('should accept execution ID format', () => {
+      const output = exec('docker start WORK-001')
+
+      // Should process the command (may fail due to no Docker or no execution)
+      const validOutput =
+        output.includes('Docker is not running') ||
+        output.includes('not found') ||
+        output.includes('Started') ||
+        output.includes('already running') ||
+        output.includes('Failed to start') ||
+        output.includes('Start Container')
+      expect(validOutput).to.be.true
+    })
+  })
+
+  /**
+   * prlt docker sync
+   */
+  describe('prlt docker sync', () => {
+    it('should show help with --help flag', () => {
+      const output = exec('docker sync --help')
+
+      expect(output).to.contain('Sync container status from Docker into the database')
+      expect(output).to.contain('USAGE')
+    })
+
+    it('should handle missing workspace gracefully', () => {
+      const output = exec('docker sync')
+
+      // When run outside workspace, should indicate workspace required
+      // or if Docker isn't running, show that message
+      const validOutput =
+        output.includes('Not in a workspace') ||
+        output.includes('Docker is not running') ||
+        output.includes('Syncing Containers') ||
+        output.includes('Sync complete')
+      expect(validOutput).to.be.true
+    })
+  })
+
+  /**
    * prlt docker prune
    */
   describe('prlt docker prune', () => {
@@ -391,9 +452,11 @@ describe('Docker Commands E2E Tests', () => {
       expect(output).to.contain('prlt docker status')
       expect(output).to.contain('prlt docker list')
       expect(output).to.contain('prlt docker logs')
+      expect(output).to.contain('prlt docker start')
       expect(output).to.contain('prlt docker stop')
       expect(output).to.contain('prlt docker shell')
       expect(output).to.contain('prlt docker restart')
+      expect(output).to.contain('prlt docker sync')
       expect(output).to.contain('prlt docker clean')
       expect(output).to.contain('prlt docker prune')
     })
