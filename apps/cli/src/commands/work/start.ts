@@ -113,17 +113,6 @@ export default class WorkStart extends Command {
   async run(): Promise<void> {
     const { args, flags } = await this.parse(WorkStart)
 
-    // Early Docker check - fail fast if Docker is needed but not running
-    // This avoids user going through ticket/agent selection only to fail at the end
-    if (!flags['run-on-host'] && !isDockerRunning()) {
-      this.error(
-        'Docker is not running.\n\n' +
-        'Docker is required for devcontainer execution (recommended for agent sandboxing).\n' +
-        'Please start Docker Desktop and try again.\n\n' +
-        'Alternatively, use --run-on-host to run directly on your machine (bypasses sandbox).'
-      )
-    }
-
     // Get workspace info (for agent worktree paths)
     let workspaceInfo
     try {
@@ -504,67 +493,103 @@ export default class WorkStart extends Command {
       const useDevcontainer = hasDevcontainer && !flags['run-on-host']
 
       // Determine runtime mode
-      let mode: RuntimeMode
+      let mode: RuntimeMode = 'terminal'
       let displayMode: DisplayMode = 'terminal'
       let environment: ExecutionEnvironment = 'host'
       let sandboxed = false  // Whether --dangerously-skip-permissions is NOT used
 
       if (hasDevcontainer && !flags.mode && !flags['run-on-host']) {
         // Agent has devcontainer - prompt for environment choice
-        const { selectedEnvironment } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedEnvironment',
-            message: 'Where should the agent run?',
-            choices: [
-              { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
-              { name: '💻 host (runs directly on your machine)', value: 'host' },
-            ],
-            default: 'devcontainer',
-          },
-        ])
+        // Loop to allow re-selection if Docker isn't running
+        let environmentSelected = false
+        while (!environmentSelected) {
+          const { selectedEnvironment } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'selectedEnvironment',
+              message: 'Where should the agent run?',
+              choices: [
+                { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
+                { name: '💻 host (runs directly on your machine)', value: 'host' },
+                { name: '✗  cancel', value: 'cancel' },
+              ],
+              default: 'devcontainer',
+            },
+          ])
 
-        if (selectedEnvironment === 'devcontainer') {
-          environment = 'devcontainer'
-          // Pick display mode for devcontainer
-          const { selectedDisplay } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedDisplay',
-              message: 'How should the agent output be displayed?',
-              choices: [
-                { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
-                { name: 'foreground   - Run in current terminal', value: 'foreground' },
-                { name: 'tmux         - New tmux pane/window', value: 'tmux' },
-                { name: 'background   - Detached process, logs to file', value: 'background' },
-              ],
-              default: 'terminal',
-            },
-          ])
-          displayMode = selectedDisplay as DisplayMode
-          mode = 'devcontainer'
-        } else {
-          // User chose host - fall through to host mode selection
-          environment = 'host'
-          const { selectedMode } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedMode',
-              message: 'Select execution mode:',
-              choices: [
-                { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
-                { name: 'foreground   - Run in current terminal', value: 'foreground' },
-                { name: 'tmux         - New tmux pane/window', value: 'tmux' },
-                { name: 'background   - Detached process, logs to file', value: 'background' },
-              ],
-              default: DEFAULT_EXECUTION_CONFIG.defaultMode,
-            },
-          ])
-          mode = selectedMode as RuntimeMode
-          displayMode = mode as DisplayMode
+          if (selectedEnvironment === 'cancel') {
+            await storage.close()
+            db.close()
+            this.log(styles.muted('Cancelled.'))
+            return
+          }
+
+          if (selectedEnvironment === 'devcontainer') {
+            // Check Docker is running before proceeding with devcontainer
+            if (!isDockerRunning()) {
+              this.log('')
+              this.warn(
+                'Docker is not running.\n' +
+                'Docker is required for devcontainer execution.\n' +
+                'Please start Docker Desktop or select "host" to run directly on your machine.'
+              )
+              this.log('')
+              continue  // Re-prompt for environment selection
+            }
+            environment = 'devcontainer'
+            // Pick display mode for devcontainer
+            const { selectedDisplay } = await inquirer.prompt([
+              {
+                type: 'list',
+                name: 'selectedDisplay',
+                message: 'How should the agent output be displayed?',
+                choices: [
+                  { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
+                  { name: 'foreground   - Run in current terminal', value: 'foreground' },
+                  { name: 'tmux         - New tmux pane/window', value: 'tmux' },
+                  { name: 'background   - Detached process, logs to file', value: 'background' },
+                ],
+                default: 'terminal',
+              },
+            ])
+            displayMode = selectedDisplay as DisplayMode
+            mode = 'devcontainer'
+            environmentSelected = true
+          } else {
+            // User chose host - fall through to host mode selection
+            environment = 'host'
+            const { selectedMode } = await inquirer.prompt([
+              {
+                type: 'list',
+                name: 'selectedMode',
+                message: 'Select execution mode:',
+                choices: [
+                  { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
+                  { name: 'foreground   - Run in current terminal', value: 'foreground' },
+                  { name: 'tmux         - New tmux pane/window', value: 'tmux' },
+                  { name: 'background   - Detached process, logs to file', value: 'background' },
+                ],
+                default: DEFAULT_EXECUTION_CONFIG.defaultMode,
+              },
+            ])
+            mode = selectedMode as RuntimeMode
+            displayMode = mode as DisplayMode
+            environmentSelected = true
+          }
         }
       } else if (useDevcontainer) {
         // Devcontainer with explicit mode flag
+        // Check Docker is running before proceeding
+        if (!isDockerRunning()) {
+          await storage.close()
+          db.close()
+          this.error(
+            'Docker is not running.\n\n' +
+            'Docker is required for devcontainer execution.\n' +
+            'Please start Docker Desktop and try again.\n\n' +
+            'Alternatively, use --run-on-host to run directly on your machine.'
+          )
+        }
         environment = 'devcontainer'
         if (flags.mode && ['terminal', 'foreground', 'background', 'tmux'].includes(flags.mode)) {
           displayMode = flags.mode as DisplayMode
@@ -578,6 +603,16 @@ export default class WorkStart extends Command {
           mode = flags.mode as RuntimeMode
           // Set environment based on mode
           if (mode === 'docker') {
+            // Check Docker is running
+            if (!isDockerRunning()) {
+              await storage.close()
+              db.close()
+              this.error(
+                'Docker is not running.\n\n' +
+                'Docker is required for docker mode.\n' +
+                'Please start Docker Desktop and try again.'
+              )
+            }
             environment = 'docker'
           } else if (mode === 'vm') {
             environment = 'vm'
@@ -590,34 +625,60 @@ export default class WorkStart extends Command {
             ? 'Select execution mode (--run-on-host: bypassing devcontainer):'
             : 'Select execution mode (no devcontainer - running on host):'
 
-          const { selectedMode } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedMode',
-              message: warningMsg,
-              choices: [
-                { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
-                { name: 'foreground   - Run in current terminal', value: 'foreground' },
-                { name: 'tmux         - New tmux pane/window', value: 'tmux' },
-                { name: 'background   - Detached process, logs to file', value: 'background' },
-                new inquirer.Separator('── Sandboxed (requires setup) ──'),
-                { name: 'docker       - Container with worktree mounted', value: 'docker' },
-                new inquirer.Separator('── Remote ──'),
-                { name: 'vm           - Remote VM via SSH', value: 'vm' },
-              ],
-              default: DEFAULT_EXECUTION_CONFIG.defaultMode,
-            },
-          ])
-          mode = selectedMode as RuntimeMode
-          // Set environment based on mode
-          if (mode === 'docker') {
-            environment = 'docker'
-          } else if (mode === 'vm') {
-            environment = 'vm'
-          } else {
-            environment = 'host'
+          // Loop to allow re-selection if Docker isn't running for docker mode
+          let modeSelected = false
+          while (!modeSelected) {
+            const { selectedMode } = await inquirer.prompt([
+              {
+                type: 'list',
+                name: 'selectedMode',
+                message: warningMsg,
+                choices: [
+                  { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
+                  { name: 'foreground   - Run in current terminal', value: 'foreground' },
+                  { name: 'tmux         - New tmux pane/window', value: 'tmux' },
+                  { name: 'background   - Detached process, logs to file', value: 'background' },
+                  new inquirer.Separator('── Sandboxed (requires setup) ──'),
+                  { name: 'docker       - Container with worktree mounted', value: 'docker' },
+                  new inquirer.Separator('── Remote ──'),
+                  { name: 'vm           - Remote VM via SSH', value: 'vm' },
+                  new inquirer.Separator(''),
+                  { name: '✗  cancel', value: 'cancel' },
+                ],
+                default: DEFAULT_EXECUTION_CONFIG.defaultMode,
+              },
+            ])
+
+            if (selectedMode === 'cancel') {
+              await storage.close()
+              db.close()
+              this.log(styles.muted('Cancelled.'))
+              return
+            }
+
+            mode = selectedMode as RuntimeMode
+            // Set environment based on mode
+            if (mode === 'docker') {
+              // Check Docker is running
+              if (!isDockerRunning()) {
+                this.log('')
+                this.warn(
+                  'Docker is not running.\n' +
+                  'Docker is required for docker mode.\n' +
+                  'Please start Docker Desktop or select a different mode.'
+                )
+                this.log('')
+                continue  // Re-prompt for mode selection
+              }
+              environment = 'docker'
+            } else if (mode === 'vm') {
+              environment = 'vm'
+            } else {
+              environment = 'host'
+            }
+            displayMode = mode as DisplayMode
+            modeSelected = true
           }
-          displayMode = mode as DisplayMode
         }
       }
 

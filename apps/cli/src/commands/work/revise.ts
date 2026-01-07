@@ -76,16 +76,6 @@ export default class WorkRevise extends Command {
       this.error('GitHub CLI (gh) is required for fetching PR feedback.\nRun: prlt gh login')
     }
 
-    // Early Docker check
-    if (!flags['run-on-host'] && !isDockerRunning()) {
-      this.error(
-        'Docker is not running.\n\n' +
-        'Docker is required for devcontainer execution (recommended for agent sandboxing).\n' +
-        'Please start Docker Desktop and try again.\n\n' +
-        'Alternatively, use --run-on-host to run directly on your machine (bypasses sandbox).'
-      )
-    }
-
     // Get workspace info
     let workspaceInfo
     try {
@@ -264,23 +254,69 @@ export default class WorkRevise extends Command {
       let environment: ExecutionEnvironment = 'host'
       let sandboxed = false
 
-      if (hasDevcontainer && !flags['run-on-host']) {
-        environment = 'devcontainer'
-        mode = 'devcontainer'
+      if (hasDevcontainer && !flags.mode && !flags['run-on-host']) {
+        // Agent has devcontainer - prompt for environment choice
+        // Loop to allow re-selection if Docker isn't running
+        let environmentSelected = false
+        while (!environmentSelected) {
+          const { selectedEnvironment } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'selectedEnvironment',
+              message: 'Where should the agent run?',
+              choices: [
+                { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
+                { name: '💻 host (runs directly on your machine)', value: 'host' },
+                { name: '✗  cancel', value: 'cancel' },
+              ],
+              default: 'devcontainer',
+            },
+          ])
 
-        const { selectedDisplay } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedDisplay',
-            message: 'How should the agent output be displayed?',
-            choices: [
-              { name: 'terminal     - New terminal window', value: 'terminal' },
-              { name: 'foreground   - Run in current terminal', value: 'foreground' },
-            ],
-            default: 'terminal',
-          },
-        ])
-        displayMode = selectedDisplay as DisplayMode
+          if (selectedEnvironment === 'cancel') {
+            await storage.close()
+            db.close()
+            this.log(styles.muted('Cancelled.'))
+            return
+          }
+
+          if (selectedEnvironment === 'devcontainer') {
+            // Check Docker is running before proceeding with devcontainer
+            if (!isDockerRunning()) {
+              this.log('')
+              this.warn(
+                'Docker is not running.\n' +
+                'Docker is required for devcontainer execution.\n' +
+                'Please start Docker Desktop or select "host" to run directly on your machine.'
+              )
+              this.log('')
+              continue  // Re-prompt for environment selection
+            }
+            environment = 'devcontainer'
+            mode = 'devcontainer'
+
+            const { selectedDisplay } = await inquirer.prompt([
+              {
+                type: 'list',
+                name: 'selectedDisplay',
+                message: 'How should the agent output be displayed?',
+                choices: [
+                  { name: 'terminal     - New terminal window', value: 'terminal' },
+                  { name: 'foreground   - Run in current terminal', value: 'foreground' },
+                ],
+                default: 'terminal',
+              },
+            ])
+            displayMode = selectedDisplay as DisplayMode
+            environmentSelected = true
+          } else {
+            // User chose host
+            environment = 'host'
+            mode = 'terminal'
+            displayMode = 'terminal'
+            environmentSelected = true
+          }
+        }
       } else if (flags.mode) {
         mode = flags.mode as RuntimeMode
         displayMode = mode as DisplayMode

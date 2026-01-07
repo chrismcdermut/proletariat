@@ -6,7 +6,8 @@ import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
-import { isDockerRunning } from '../../lib/execution/runners.js'
+import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
+import { promptBatchExecutionSettings } from '../../lib/execution/spawner.js'
 
 export default class WorkSpawn extends Command {
   static description = 'Spawn work for multiple tickets by column (batch mode)'
@@ -96,16 +97,6 @@ export default class WorkSpawn extends Command {
 
   async run(): Promise<void> {
     const { flags } = await this.parse(WorkSpawn)
-
-    // Early Docker check - fail fast if Docker is needed but not running
-    if (!flags['run-on-host'] && !isDockerRunning()) {
-      this.error(
-        'Docker is not running.\n\n' +
-        'Docker is required for devcontainer execution (recommended for agent sandboxing).\n' +
-        'Please start Docker Desktop and try again.\n\n' +
-        'Alternatively, use --run-on-host to run directly on your machine (bypasses sandbox).'
-      )
-    }
 
     // Get workspace info (for agent worktree paths)
     let workspaceInfo
@@ -452,86 +443,48 @@ export default class WorkSpawn extends Command {
         return
       }
 
-      // Batch mode settings - prompt once for all tickets
+      // Check if any assigned agents have devcontainer configs
+      const agentsWithDevcontainer = assignments.filter(({ agent }) => {
+        const agentDir = path.join(workspaceInfo.agentsPath, agent.name)
+        return hasDevcontainerConfig(agentDir)
+      })
+      const hasAnyDevcontainer = agentsWithDevcontainer.length > 0
+
+      // Batch settings - use shared prompt function
       let batchMode = flags.mode
       let batchOutput = flags.output
-      let batchSkipPermissions = flags['skip-permissions']
-      let batchCreatePr = flags['create-pr']
-      let batchNoPr = flags['no-pr']
+      let batchSkipPermissions = flags['skip-permissions'] ?? false
+      let batchCreatePr = flags['create-pr'] ?? false
+      let batchRunOnHost = flags['run-on-host'] ?? false
 
       if (!flags['per-ticket']) {
         this.log(styles.header('Batch Settings (applies to all tickets)'))
         this.log('')
 
-        // Prompt for runtime mode if not provided
-        if (!batchMode) {
-          const { selectedMode } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedMode',
-              message: 'Where should agents run?',
-              choices: [
-                { name: '🖥️  terminal     - New terminal window (recommended)', value: 'terminal' },
-                { name: '📺 foreground  - Current terminal', value: 'foreground' },
-                { name: '🔲 tmux        - Tmux pane/window', value: 'tmux' },
-                { name: '📦 background  - Detached (logs to file)', value: 'background' },
-              ],
-            },
-          ])
-          batchMode = selectedMode
+        const batchSettings = await promptBatchExecutionSettings({
+          hasDevcontainer: hasAnyDevcontainer,
+          mode: flags.mode,
+          output: flags.output,
+          skipPermissions: flags['skip-permissions'],
+          createPR: flags['create-pr'],
+          noPR: flags['no-pr'],
+          runOnHost: flags['run-on-host'],
+          warn: (msg) => this.warn(msg),
+          log: (msg) => this.log(msg),
+        })
+
+        if (batchSettings.cancelled) {
+          await storage.close()
+          db.close()
+          this.log(styles.muted('Cancelled.'))
+          return
         }
 
-        // Prompt for output mode if not provided
-        if (!batchOutput) {
-          const { selectedOutput } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedOutput',
-              message: 'How should Claude display output?',
-              choices: [
-                { name: 'interactive  - Watch Claude work in real-time', value: 'interactive' },
-                { name: 'print        - Show final result only', value: 'print' },
-              ],
-              default: 'interactive',
-            },
-          ])
-          batchOutput = selectedOutput
-        }
-
-        // Prompt for permissions mode if not provided
-        if (!batchSkipPermissions) {
-          const { permissionMode } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'permissionMode',
-              message: 'Permission mode for Claude Code:',
-              choices: [
-                { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
-                { name: '⚠️  danger - Skip permission checks', value: 'danger' },
-              ],
-              default: 'safe',
-            },
-          ])
-          batchSkipPermissions = permissionMode === 'danger'
-        }
-
-        // Prompt for PR creation if not provided
-        if (!batchCreatePr && !batchNoPr) {
-          const { prChoice } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'prChoice',
-              message: 'Create pull requests when work is ready?',
-              choices: [
-                { name: '✓ Yes - Create PR for each ticket', value: 'yes' },
-                { name: '✗ No  - Just move tickets to review', value: 'no' },
-              ],
-              default: 'yes',
-            },
-          ])
-          batchCreatePr = prChoice === 'yes'
-          batchNoPr = prChoice === 'no'
-        }
+        batchRunOnHost = batchSettings.runOnHost
+        batchMode = batchSettings.displayMode
+        batchOutput = batchSettings.outputMode
+        batchSkipPermissions = batchSettings.skipPermissions
+        batchCreatePr = batchSettings.createPR
 
         this.log('')
       }
@@ -554,18 +507,18 @@ export default class WorkSpawn extends Command {
             // Per-ticket mode: only pass mode flag, let start prompt for the rest
             if (batchMode) startArgs.push('--mode', batchMode)
             if (flags.executor) startArgs.push('--executor', flags.executor)
-            if (flags['run-on-host']) startArgs.push('--run-on-host')
+            if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
           } else {
             // Batch mode: pass all settings to skip prompts
             if (batchMode) startArgs.push('--mode', batchMode)
             if (flags.executor) startArgs.push('--executor', flags.executor)
-            if (flags['run-on-host']) startArgs.push('--run-on-host')
+            if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
             if (batchOutput) startArgs.push('--output', batchOutput)
             if (batchSkipPermissions) startArgs.push('--skip-permissions')
             if (batchCreatePr) startArgs.push('--create-pr')
-            if (batchNoPr) startArgs.push('--no-pr')
+            if (!batchCreatePr) startArgs.push('--no-pr')
           }
 
           await this.config.runCommand('work:start', startArgs)

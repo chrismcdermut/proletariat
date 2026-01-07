@@ -9,6 +9,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { execSync } from 'child_process'
 import Database from 'better-sqlite3'
+import inquirer from 'inquirer'
 import { SQLiteStorage } from '../pmo/storage-sqlite.js'
 import { autoExportToBoard } from '../pmo/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../pmo/utils.js'
@@ -18,9 +19,11 @@ import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig } from './config.js'
 import { runExecution, isDockerRunning } from './runners.js'
+import { isGHInstalled, isGHAuthenticated } from '../pr/index.js'
 import {
   RuntimeMode,
   DisplayMode,
+  OutputMode,
   ExecutorType,
   ExecutionContext,
   ExecutionEnvironment,
@@ -598,6 +601,187 @@ export async function spawnForColumn(
   }
 
   return result
+}
+
+// =============================================================================
+// Batch Execution Settings Prompts
+// =============================================================================
+
+export interface BatchExecutionOptions {
+  /** Whether any agents have devcontainer configs */
+  hasDevcontainer: boolean
+  /** Pre-set mode from flag */
+  mode?: string
+  /** Pre-set output from flag */
+  output?: string
+  /** Pre-set skip-permissions from flag */
+  skipPermissions?: boolean
+  /** Pre-set create-pr from flag */
+  createPR?: boolean
+  /** Pre-set no-pr from flag */
+  noPR?: boolean
+  /** Pre-set run-on-host from flag */
+  runOnHost?: boolean
+  /** Warn function */
+  warn: (msg: string) => void
+  /** Log function */
+  log: (msg: string) => void
+}
+
+export interface BatchExecutionResult {
+  /** Whether to run on host (pass --run-on-host to work:start) */
+  runOnHost: boolean
+  /** Display mode (terminal, foreground, tmux, background) */
+  displayMode: DisplayMode
+  /** Output mode (interactive, print) */
+  outputMode: OutputMode
+  /** Whether to skip permission checks */
+  skipPermissions: boolean
+  /** Whether to create PR when work is ready */
+  createPR: boolean
+  /** Whether user cancelled */
+  cancelled: boolean
+}
+
+/**
+ * Prompt for batch execution settings in a consistent way.
+ * Used by work start (batch mode) and work spawn commands.
+ */
+export async function promptBatchExecutionSettings(
+  options: BatchExecutionOptions
+): Promise<BatchExecutionResult> {
+  const { hasDevcontainer, warn, log } = options
+
+  let runOnHost = options.runOnHost ?? false
+  let displayMode: DisplayMode = (options.mode as DisplayMode) || 'terminal'
+  let outputMode: OutputMode = (options.output as OutputMode) || 'interactive'
+  let skipPermissions = options.skipPermissions ?? false
+  let createPR = options.createPR ?? false
+
+  // 1. Environment selection (devcontainer vs host)
+  if (hasDevcontainer && !options.runOnHost && !options.mode) {
+    let environmentSelected = false
+    while (!environmentSelected) {
+      const { selectedEnvironment } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selectedEnvironment',
+          message: 'Where should agents run?',
+          choices: [
+            { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
+            { name: '💻 host (runs directly on your machine)', value: 'host' },
+            { name: '✗  cancel', value: 'cancel' },
+          ],
+          default: 'devcontainer',
+        },
+      ])
+
+      if (selectedEnvironment === 'cancel') {
+        return { runOnHost: false, displayMode: 'terminal', outputMode: 'interactive', skipPermissions: false, createPR: false, cancelled: true }
+      }
+
+      if (selectedEnvironment === 'devcontainer') {
+        if (!isDockerRunning()) {
+          log('')
+          warn(
+            'Docker is not running.\n' +
+            'Docker is required for devcontainer execution.\n' +
+            'Please start Docker Desktop or select "host" to run directly on your machine.'
+          )
+          log('')
+          continue
+        }
+        runOnHost = false
+        environmentSelected = true
+      } else {
+        runOnHost = true
+        environmentSelected = true
+      }
+    }
+  }
+
+  // 2. Display mode selection
+  if (!options.mode) {
+    const { selectedMode } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'selectedMode',
+        message: 'How should agents be displayed?',
+        choices: [
+          { name: '🖥️  terminal     - New terminal window (recommended)', value: 'terminal' },
+          { name: '📺 foreground  - Current terminal', value: 'foreground' },
+          { name: '🔲 tmux        - Tmux pane/window', value: 'tmux' },
+          { name: '📦 background  - Detached (logs to file)', value: 'background' },
+        ],
+      },
+    ])
+    displayMode = selectedMode as DisplayMode
+  }
+
+  // 3. Output mode selection
+  if (!options.output) {
+    const { selectedOutput } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'selectedOutput',
+        message: 'How should Claude display output?',
+        choices: [
+          { name: 'interactive  - Watch Claude work in real-time', value: 'interactive' },
+          { name: 'print        - Show final result only', value: 'print' },
+        ],
+        default: 'interactive',
+      },
+    ])
+    outputMode = selectedOutput as OutputMode
+  }
+
+  // 4. Permission mode selection
+  if (options.skipPermissions === undefined) {
+    const { permissionMode } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'permissionMode',
+        message: 'Permission mode for Claude Code:',
+        choices: [
+          { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+          { name: '⚠️  danger - Skip permission checks', value: 'danger' },
+        ],
+        default: 'safe',
+      },
+    ])
+    skipPermissions = permissionMode === 'danger'
+  }
+
+  // 5. PR creation selection
+  if (options.createPR === undefined && options.noPR === undefined) {
+    const ghAvailable = isGHInstalled() && isGHAuthenticated()
+    if (ghAvailable) {
+      const { prChoice } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'prChoice',
+          message: 'Create pull requests when work is ready?',
+          choices: [
+            { name: '✓ Yes - Create PR for each ticket', value: 'yes' },
+            { name: '✗ No  - Just move tickets to review', value: 'no' },
+          ],
+          default: 'yes',
+        },
+      ])
+      createPR = prChoice === 'yes'
+    }
+  } else if (options.createPR) {
+    createPR = true
+  }
+
+  return {
+    runOnHost,
+    displayMode,
+    outputMode,
+    skipPermissions,
+    createPR,
+    cancelled: false,
+  }
 }
 
 // =============================================================================
