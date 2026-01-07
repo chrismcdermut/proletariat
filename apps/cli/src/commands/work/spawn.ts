@@ -6,6 +6,8 @@ import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
+import { isDockerRunning } from '../../lib/execution/runners.js'
+import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 
 export default class WorkSpawn extends Command {
   static description = 'Spawn work for multiple tickets by column (batch mode)'
@@ -450,18 +452,70 @@ export default class WorkSpawn extends Command {
       let batchSkipPermissions = flags['skip-permissions']
       let batchCreatePr = flags['create-pr']
       let batchNoPr = flags['no-pr']
+      let batchRunOnHost = flags['run-on-host']
+
+      // Check if any agent has devcontainer config
+      const hasDevcontainer = availableAgents.some(agent => {
+        const agentDir = path.join(workspaceInfo.agentsPath, agent.name)
+        return hasDevcontainerConfig(agentDir)
+      })
 
       if (!flags['per-ticket']) {
         this.log(styles.header('Batch Settings (applies to all tickets)'))
         this.log('')
 
-        // Prompt for runtime mode if not provided
+        // Prompt for environment (devcontainer vs host) if devcontainer available
+        if (hasDevcontainer && !batchRunOnHost && !batchMode) {
+          let environmentSelected = false
+          while (!environmentSelected) {
+            const { selectedEnvironment } = await inquirer.prompt([
+              {
+                type: 'list',
+                name: 'selectedEnvironment',
+                message: 'Where should agents run?',
+                choices: [
+                  { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
+                  { name: '💻 host (runs directly on your machine)', value: 'host' },
+                  { name: '✗  cancel', value: 'cancel' },
+                ],
+                default: 'devcontainer',
+              },
+            ])
+
+            if (selectedEnvironment === 'cancel') {
+              await storage.close()
+              db.close()
+              this.log(styles.muted('Cancelled.'))
+              return
+            }
+
+            if (selectedEnvironment === 'devcontainer') {
+              if (!isDockerRunning()) {
+                this.log('')
+                this.warn(
+                  'Docker is not running.\n' +
+                  'Docker is required for devcontainer execution.\n' +
+                  'Please start Docker Desktop or select "host" to run directly on your machine.'
+                )
+                this.log('')
+                continue
+              }
+              batchMode = 'devcontainer'
+              environmentSelected = true
+            } else {
+              batchRunOnHost = true
+              environmentSelected = true
+            }
+          }
+        }
+
+        // Prompt for display mode if not already set (for host mode or devcontainer)
         if (!batchMode) {
           const { selectedMode } = await inquirer.prompt([
             {
               type: 'list',
               name: 'selectedMode',
-              message: 'Where should agents run?',
+              message: 'How should agent output be displayed?',
               choices: [
                 { name: '🖥️  terminal     - New terminal window (recommended)', value: 'terminal' },
                 { name: '📺 foreground  - Current terminal', value: 'foreground' },
@@ -546,13 +600,13 @@ export default class WorkSpawn extends Command {
             // Per-ticket mode: only pass mode flag, let start prompt for the rest
             if (batchMode) startArgs.push('--mode', batchMode)
             if (flags.executor) startArgs.push('--executor', flags.executor)
-            if (flags['run-on-host']) startArgs.push('--run-on-host')
+            if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
           } else {
             // Batch mode: pass all settings to skip prompts
             if (batchMode) startArgs.push('--mode', batchMode)
             if (flags.executor) startArgs.push('--executor', flags.executor)
-            if (flags['run-on-host']) startArgs.push('--run-on-host')
+            if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
             if (batchOutput) startArgs.push('--output', batchOutput)
             if (batchSkipPermissions) startArgs.push('--skip-permissions')
