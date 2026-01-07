@@ -26,6 +26,8 @@ export default class Tickets extends Command {
         new inquirer.Separator(),
         { name: '👤 Reassign tickets (change assignee)', value: 'reassign' },
         { name: '🔗 Link tickets to epic', value: 'link' },
+        { name: '📄 Link tickets to spec', value: 'spec' },
+        { name: '📁 Move tickets to project', value: 'project' },
         { name: '✏️  Update tickets (priority/category)', value: 'update' },
         new inquirer.Separator(),
         { name: '🗑️  Delete multiple tickets', value: 'delete' },
@@ -76,6 +78,18 @@ export default class Tickets extends Command {
         case 'link': {
           const { default: LinkCommand } = await import('./link.js');
           const cmd = new LinkCommand([], this.config);
+          await cmd.run();
+          break;
+        }
+        case 'spec': {
+          const { default: SpecCommand } = await import('./spec.js');
+          const cmd = new SpecCommand([], this.config);
+          await cmd.run();
+          break;
+        }
+        case 'project': {
+          const { default: ProjectCommand } = await import('./project.js');
+          const cmd = new ProjectCommand([], this.config);
           await cmd.run();
           break;
         }

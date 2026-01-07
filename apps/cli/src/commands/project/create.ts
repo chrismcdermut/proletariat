@@ -2,7 +2,7 @@ import { Command, Flags, Args } from '@oclif/core';
 import * as fs from 'fs';
 import * as path from 'path';
 import inquirer from 'inquirer';
-import { SQLiteStorage, createBoardContent, createSpecFolders, findPMO } from '../../lib/pmo/index.js';
+import { createBoardContent, createSpecFolders, findPMO, getPMOContext } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { slugify } from '../../lib/pmo/utils.js';
 
@@ -55,14 +55,7 @@ export default class ProjectCreate extends Command {
       this.error('PMO not found. Run "prlt pmo init" first.');
     }
 
-    const hqPath = path.dirname(pmoPath);
-    const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
-
-    if (!fs.existsSync(dbPath)) {
-      this.error('Database not found. Run "prlt init" first.');
-    }
-
-    // Get project data
+    // Get project data first (before storage so prompts work)
     let projectData: {
       name: string;
       id?: string;
@@ -83,7 +76,11 @@ export default class ProjectCreate extends Command {
 
     const projectId = projectData.id || slugify(projectData.name);
 
-    const storage = new SQLiteStorage(dbPath);
+    // Use getPMOContext to get properly resolved storage
+    const { storage } = await getPMOContext(
+      undefined,
+      (msg) => this.log(styles.muted(msg))
+    );
 
     try {
       // Check if project already exists

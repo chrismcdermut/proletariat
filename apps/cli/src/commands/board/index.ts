@@ -185,8 +185,8 @@ export default class Board extends Command {
       this.log(styles.muted(`     Subtasks: ${done}/${total} (${progress}%)`));
     }
 
-    if (ticket.specs && ticket.specs.length > 0) {
-      this.log(styles.muted(`     Specs: ${ticket.specs.join(', ')}`));
+    if (ticket.specId) {
+      this.log(styles.muted(`     Spec: ${ticket.specId}`));
     }
   }
 

@@ -222,6 +222,58 @@ export interface Board {
   updatedAt: Date
 }
 
+/**
+ * BoardView represents a saved, filtered view of a project's board.
+ * Allows users to save common filter configurations like "My Tasks" or "High Priority".
+ */
+export interface BoardView {
+  id: string
+  projectId: string
+  name: string                    // Display name (e.g., "My Tasks", "High Priority")
+  description?: string            // Optional description of what this view shows
+  isDefault?: boolean             // Whether this is the project's default view
+  filters: BoardViewFilters       // Filter configuration
+  groupBy?: BoardViewGroupBy      // Optional grouping
+  sortBy?: BoardViewSortBy        // Optional sorting
+  createdAt: Date
+  updatedAt: Date
+}
+
+/**
+ * Filter configuration for a board view.
+ * All filters are optional - unset filters show all items.
+ */
+export interface BoardViewFilters {
+  assignee?: string               // Filter by assignee (or "unassigned")
+  owner?: string                  // Filter by owner
+  priority?: string               // Filter by priority (HIGH, MEDIUM, LOW)
+  statusCategory?: StateCategory  // Filter by status category
+  statusId?: string               // Filter by specific status
+  columnIds?: string[]            // Filter to specific columns
+  epicId?: string                 // Filter to tickets in an epic
+  search?: string                 // Text search in title/description
+}
+
+/**
+ * Grouping options for board view
+ */
+export type BoardViewGroupBy =
+  | 'assignee'    // Group by who's working on it
+  | 'priority'    // Group by priority level
+  | 'epic'        // Group by epic
+  | 'status'      // Group by workflow status
+  | 'category'    // Group by ticket category
+
+/**
+ * Sorting options for board view
+ */
+export type BoardViewSortBy =
+  | 'priority'    // Sort by priority (HIGH first)
+  | 'created'     // Sort by creation date
+  | 'updated'     // Sort by last update
+  | 'title'       // Sort alphabetically by title
+  | 'assignee'    // Sort by assignee name
+
 export interface Column {
   id: string
   name: string
@@ -276,7 +328,6 @@ export interface Ticket {
   // Use BoardTicket table for authoritative board position
   column?: string     // Column name (from board view)
   position?: number   // Position in column (from board view)
-  specs?: string[]    // Spec paths (backward compat - use specId instead)
 }
 
 /**
@@ -323,12 +374,48 @@ export interface AcceptanceCriterion {
 }
 
 /**
+ * Ticket dependency types for same-entity relationships
+ */
+export type TicketDependencyType = 'blocks' | 'relates_to' | 'duplicates'
+
+/**
  * Ticket dependency for scheduling.
- * Represents a "blocked by" relationship between tickets.
+ * Represents a dependency relationship between tickets.
  */
 export interface TicketDependency {
   ticketId: string
-  blockedByTicketId: string
+  dependsOnTicketId: string
+  dependencyType: TicketDependencyType
+  createdAt?: Date
+}
+
+/**
+ * Spec dependency types
+ */
+export type SpecDependencyType = 'depends_on' | 'relates_to' | 'duplicates'
+
+/**
+ * Spec dependency for design ordering.
+ */
+export interface SpecDependency {
+  specId: string
+  dependsOnSpecId: string
+  dependencyType: SpecDependencyType
+  createdAt?: Date
+}
+
+/**
+ * Epic dependency types
+ */
+export type EpicDependencyType = 'blocks' | 'relates_to' | 'duplicates'
+
+/**
+ * Epic dependency for phased work.
+ */
+export interface EpicDependency {
+  epicId: string
+  dependsOnEpicId: string
+  dependencyType: EpicDependencyType
   createdAt?: Date
 }
 
@@ -364,15 +451,6 @@ export interface Spec {
   context?: string
   createdAt: Date
   updatedAt: Date
-}
-
-/**
- * Spec dependency - one spec depends on another
- */
-export interface SpecDependency {
-  specId: string
-  dependsOn: string
-  createdAt?: Date
 }
 
 // =============================================================================
@@ -470,6 +548,12 @@ export interface ProjectFilter {
   search?: string
 }
 
+export interface BoardViewFilter {
+  projectId?: string
+  isDefault?: boolean
+  search?: string
+}
+
 // =============================================================================
 // Result Types
 // =============================================================================
@@ -555,6 +639,11 @@ export interface PMOStorage {
   removeSpecDependency(specId: string, dependsOnId: string): Promise<void>
   getSpecDependencies(specId: string): Promise<Spec[]>
   getSpecDependents(specId: string): Promise<Spec[]>
+  // Project-Spec associations (many-to-many, specs are global)
+  linkProjectToSpec(projectId: string, specId: string): Promise<void>
+  unlinkProjectFromSpec(projectId: string, specId: string): Promise<void>
+  getSpecsForProject(projectId: string): Promise<Spec[]>
+  getProjectsForSpec(specId: string): Promise<Project[]>
 
   // Epic Operations
   createEpic(epic: Partial<Epic>): Promise<Epic>
@@ -614,6 +703,15 @@ export interface PMOStorage {
   listProjects(filter?: ProjectFilter): Promise<Project[]>
   archiveProject(id: string): Promise<Project>
   unarchiveProject(id: string): Promise<Project>
+
+  // Board View Operations
+  listBoardViews(filter?: BoardViewFilter): Promise<BoardView[]>
+  getBoardView(id: string): Promise<BoardView | null>
+  createBoardView(view: Partial<BoardView>): Promise<BoardView>
+  updateBoardView(id: string, changes: Partial<BoardView>): Promise<BoardView>
+  deleteBoardView(id: string): Promise<void>
+  getDefaultBoardView(projectId: string): Promise<BoardView | null>
+  getBoardWithView(viewId?: string, filters?: BoardViewFilters): Promise<Board>
 
   // Sync Operations
   pull(): Promise<SyncResult>

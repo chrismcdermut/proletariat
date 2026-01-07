@@ -29,12 +29,6 @@ export const colors = {
   
   // Agent-specific
   agentName: chalk.bold.cyan,
-  agentStatus: {
-    active: chalk.green,
-    inactive: chalk.red,
-    working: chalk.blue,
-    idle: chalk.yellow
-  },
   
   // Repository status
   repoClean: chalk.green,

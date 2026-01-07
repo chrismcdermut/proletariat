@@ -10,6 +10,7 @@ export default class Agents extends Command {
     '<%= config.bin %> <%= command.id %> status',
     '<%= config.bin %> <%= command.id %> add',
     '<%= config.bin %> <%= command.id %> remove',
+    '<%= config.bin %> <%= command.id %> themes list',
     '<%= config.bin %> <%= command.id %> restart',
     '<%= config.bin %> <%= command.id %> rebuild',
     '<%= config.bin %> <%= command.id %> shell',
@@ -30,6 +31,7 @@ export default class Agents extends Command {
         new inquirer.Separator('── Manage ──'),
         { name: '➕ Add agents', value: 'add' },
         { name: '➖ Remove agents', value: 'remove' },
+        { name: '🎨 Manage themes', value: 'themes' },
         new inquirer.Separator('── Containers ──'),
         { name: '🐚 Open shell', value: 'shell' },
         { name: '🔄 Restart', value: 'restart' },
@@ -88,6 +90,12 @@ export default class Agents extends Command {
         case 'shell': {
           const { default: ShellCommand } = await import('./shell.js');
           const cmd = new ShellCommand([], this.config);
+          await cmd.run();
+          break;
+        }
+        case 'themes': {
+          const { default: ThemesCommand } = await import('./themes/index.js');
+          const cmd = new ThemesCommand([], this.config);
           await cmd.run();
           break;
         }
