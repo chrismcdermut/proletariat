@@ -227,26 +227,18 @@ export default class DockerClean extends Command {
           )
         )
 
-        // Determine if orphaned
-        let reason = ''
+        // Skip healthy containers (running with active execution)
+        if (isRunning && hasActiveExecution) continue
 
-        if (isStopped) {
-          // Stopped containers
-          if (hasActiveExecution) {
-            // Has active execution but container is stopped - orphaned
-            reason = 'Container stopped but execution active'
-          } else if (includeAllStopped) {
-            // --all flag: include all stopped devcontainers
-            reason = 'Stopped devcontainer'
-          } else {
-            continue // Not orphaned if just stopped
-          }
-        } else if (isRunning && !hasActiveExecution) {
-          // Running container without active execution
-          reason = 'No active execution'
-        } else {
-          continue // Has active execution and is running - not orphaned
-        }
+        // Skip normal stopped containers unless --all flag
+        if (isStopped && !hasActiveExecution && !includeAllStopped) continue
+
+        // Remaining containers are orphaned - determine reason
+        const reason = isStopped
+          ? hasActiveExecution
+            ? 'Container stopped but execution active'
+            : 'Stopped devcontainer'
+          : 'No active execution'
 
         orphaned.push({
           id,
