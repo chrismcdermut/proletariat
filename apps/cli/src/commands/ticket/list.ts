@@ -1,5 +1,5 @@
-import { Command, Flags } from '@oclif/core';
-import { Ticket, getPMOContext } from '../../lib/pmo/index.js';
+import { Flags } from '@oclif/core';
+import { Ticket, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
   styles,
   formatPriority,
@@ -9,7 +9,7 @@ import {
   divider,
 } from '../../lib/styles.js';
 
-export default class TicketList extends Command {
+export default class TicketList extends PMOCommand {
   static description = 'List tickets from the PMO board';
 
   static examples = [
@@ -22,10 +22,7 @@ export default class TicketList extends Command {
   ];
 
   static flags = {
-    project: Flags.string({
-      char: 'P',
-      description: 'Project ID (prompts if multiple exist)',
-    }),
+    ...pmoBaseFlags,
     column: Flags.string({
       char: 'c',
       description: 'Filter by column',
@@ -55,64 +52,51 @@ export default class TicketList extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { flags } = await this.parse(TicketList);
 
-    // Get PMO context (prompts for project if multiple exist and no --project flag)
-    const { storage } = await getPMOContext(
-      flags.project,
-      (msg) => this.log(styles.muted(msg)),
-      true // prompt if multiple projects
-    );
+    // Build filter
+    const filter: {
+      column?: string;
+      priority?: string;
+      category?: string;
+      search?: string;
+    } = {};
 
-    try {
-      // Build filter
-      const filter: {
-        column?: string;
-        priority?: string;
-        category?: string;
-        search?: string;
-      } = {};
+    if (flags.column) {
+      filter.column = flags.column;
+    }
+    if (flags.priority) {
+      filter.priority = flags.priority;
+    }
+    if (flags.category) {
+      filter.category = flags.category;
+    }
+    if (flags.search) {
+      filter.search = flags.search;
+    }
 
-      if (flags.column) {
-        filter.column = flags.column;
-      }
-      if (flags.priority) {
-        filter.priority = flags.priority;
-      }
-      if (flags.category) {
-        filter.category = flags.category;
-      }
-      if (flags.search) {
-        filter.search = flags.search;
-      }
+    const tickets = await this.storage.listTickets(filter);
+    const board = await this.storage.getBoard();
 
-      const tickets = await storage.listTickets(filter);
-      const board = await storage.getBoard();
-      await storage.close();
+    if (tickets.length === 0) {
+      this.log(styles.warning('No tickets found.'));
+      return;
+    }
 
-      if (tickets.length === 0) {
-        this.log(styles.warning('No tickets found.'));
-        return;
-      }
+    // Extract column names from board
+    const columns = board.columns.map(col => col.name);
 
-      // Extract column names from board
-      const columns = board.columns.map(col => col.name);
-
-      // Output based on format
-      switch (flags.format) {
-        case 'json':
-          this.log(JSON.stringify(tickets, null, 2));
-          break;
-        case 'compact':
-          this.outputCompact(tickets, columns, flags.all);
-          break;
-        default:
-          this.outputTable(tickets, columns, flags.all);
-      }
-    } catch (error) {
-      await storage.close();
-      throw error;
+    // Output based on format
+    switch (flags.format) {
+      case 'json':
+        this.log(JSON.stringify(tickets, null, 2));
+        break;
+      case 'compact':
+        this.outputCompact(tickets, columns, flags.all);
+        break;
+      default:
+        this.outputTable(tickets, columns, flags.all);
     }
   }
 
