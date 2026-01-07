@@ -1,7 +1,7 @@
 import { Command, Args } from '@oclif/core';
-import * as path from 'path';
+import * as path from 'node:path';
 import inquirer from 'inquirer';
-import { colors, format } from '../../lib/colors.js';
+import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 
 export default class Visit extends Command {

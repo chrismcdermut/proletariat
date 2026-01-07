@@ -2,7 +2,6 @@ import { Args, Command, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { getPMOContext } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
-import { Epic } from '../../lib/pmo/types.js';
 
 export default class EpicReorder extends Command {
   static description = 'Reorder epic priority/rank';
@@ -50,7 +49,7 @@ export default class EpicReorder extends Command {
   async run(): Promise<void> {
     const { args, flags } = await this.parse(EpicReorder);
 
-    const { storage, projectName } = await getPMOContext(
+    const { storage } = await getPMOContext(
       flags.project,
       (msg) => this.log(styles.muted(msg)),
       true

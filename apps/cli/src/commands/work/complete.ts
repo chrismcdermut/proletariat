@@ -1,5 +1,5 @@
 import { Command, Args } from '@oclif/core';
-import * as path from 'path';
+import * as path from 'node:path';
 import Database from 'better-sqlite3';
 import inquirer from 'inquirer';
 import {
@@ -33,7 +33,7 @@ export default class WorkComplete extends Command {
     let workspaceInfo;
     try {
       workspaceInfo = getWorkspaceInfo();
-    } catch (error) {
+    } catch {
       this.error('Not in a workspace. Run "prlt init" first.');
     }
 

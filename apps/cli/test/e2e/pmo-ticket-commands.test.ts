@@ -1,10 +1,10 @@
 import { expect } from 'chai';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import { execSync } from 'child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { execSync } from 'node:child_process';
 import Database from 'better-sqlite3';
-import { fileURLToPath } from 'url';
+import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -476,8 +476,8 @@ describe('PMO Ticket Commands E2E Tests', () => {
       exec('ticket create --title "Bulk 2" --column "SHIP BL"');
       exec('ticket create --title "Bulk 3" --column "SHIP BL"');
 
-      const ticket1 = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bulk 1');
-      const ticket2 = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bulk 2');
+      db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bulk 1');
+      db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bulk 2');
 
       // Note: This would be interactive in real usage, so we test the underlying function
       // In a real E2E test, you'd use a tool to interact with prompts

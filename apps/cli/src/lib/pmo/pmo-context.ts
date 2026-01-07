@@ -1,5 +1,5 @@
-import * as path from 'path';
-import * as fs from 'fs';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
 import inquirer from 'inquirer';
 import Database from 'better-sqlite3';
 import { SQLiteStorage, getStorageWithAutoSync, getWorkspaceDbPath } from './index.js';

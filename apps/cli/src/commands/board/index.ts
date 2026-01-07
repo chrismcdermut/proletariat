@@ -1,7 +1,6 @@
-import { Command, Args, Flags } from '@oclif/core';
-import * as fs from 'fs';
-import * as path from 'path';
-import { execSync } from 'child_process';
+import { Command } from '@oclif/core';
+import * as fs from 'node:fs';
+import { execSync } from 'node:child_process';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import {
@@ -11,7 +10,6 @@ import {
   findAddedTickets,
   findRemovedTickets,
   findModifiedTickets,
-  getStorageWithAutoSync,
   findPMO,
   getPMOContext,
   getBoardPath,
@@ -207,7 +205,6 @@ export default class Board extends Command {
     const storage = await this.getStorage(pmoPath, projectId);
 
     try {
-      const currentProjectId = storage.getCurrentProjectId();
       const markdown = await storage.getBoardMarkdown();
       await storage.close();
 

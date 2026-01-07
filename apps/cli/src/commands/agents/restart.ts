@@ -1,6 +1,6 @@
 import { Args, Flags } from '@oclif/core';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
 import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
@@ -35,7 +35,7 @@ export default class AgentsRestart extends DockerCommand {
   static strict = false;
 
   async run(): Promise<void> {
-    const { args, argv, flags } = await this.parse(AgentsRestart);
+    const { argv, flags } = await this.parse(AgentsRestart);
 
     // Get workspace info
     const workspaceInfo = getWorkspaceInfo();

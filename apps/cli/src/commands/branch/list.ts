@@ -1,7 +1,6 @@
 import { Command, Flags } from '@oclif/core'
 import { styles } from '../../lib/styles.js'
 import {
-  BranchType,
   BRANCH_TYPES,
   listBranches,
   isGitRepo,

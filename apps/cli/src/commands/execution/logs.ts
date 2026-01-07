@@ -1,7 +1,7 @@
 import { Command, Args, Flags } from '@oclif/core'
-import * as fs from 'fs'
-import * as path from 'path'
-import { spawn } from 'child_process'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import { spawn } from 'node:child_process'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
@@ -44,7 +44,7 @@ export default class ExecutionLogs extends Command {
     let workspaceInfo
     try {
       workspaceInfo = getWorkspaceInfo()
-    } catch (error) {
+    } catch {
       this.error('Not in a workspace. Run "prlt init" first.')
     }
 

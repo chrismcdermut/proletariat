@@ -116,7 +116,7 @@ export default class TicketList extends Command {
     }
   }
 
-  private outputTable(tickets: Ticket[], columns: string[], showAll: boolean): void {
+  private outputTable(tickets: Ticket[], columns: string[], _showAll: boolean): void {
     // Group tickets by column
     const byColumn: Record<string, Ticket[]> = {};
     for (const col of columns) {
@@ -170,7 +170,7 @@ export default class TicketList extends Command {
     this.log(styles.emphasis(`Total: ${tickets.length} ticket${tickets.length === 1 ? '' : 's'}`));
   }
 
-  private outputCompact(tickets: Ticket[], columns: string[], showAll: boolean): void {
+  private outputCompact(tickets: Ticket[], columns: string[], _showAll: boolean): void {
     // Group by column
     const byColumn: Record<string, Ticket[]> = {};
     for (const col of columns) {

@@ -1,7 +1,7 @@
 import { Command } from '@oclif/core';
 import chalk from 'chalk';
-import * as path from 'path';
-import * as fs from 'fs';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
 import {
   getWorkspaceInfo,
   getAllAgentsStatus

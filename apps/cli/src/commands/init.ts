@@ -10,7 +10,7 @@ import {
   createWorkspaceOnly,
   showNextSteps
 } from '../lib/init/index.js';
-import { promptForAgentsWithTheme, AgentPromptResult } from '../lib/agents/index.js';
+import { promptForAgentsWithTheme } from '../lib/agents/index.js';
 import { promptForRepositories } from '../lib/repos/index.js';
 import { promptForPMOSetup } from '../lib/pmo/index.js';
 

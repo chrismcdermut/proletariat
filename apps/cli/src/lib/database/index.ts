@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { DEFAULT_AGENTS_DIR } from '../themes.js';
 import { PMO_SCHEMA_SQL } from '../pmo/schema.js';
 

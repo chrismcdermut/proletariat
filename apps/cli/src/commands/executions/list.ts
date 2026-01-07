@@ -1,5 +1,5 @@
 import { Command, Flags } from '@oclif/core'
-import * as path from 'path'
+import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
@@ -40,7 +40,7 @@ export default class ExecutionsList extends Command {
     let workspaceInfo
     try {
       workspaceInfo = getWorkspaceInfo()
-    } catch (error) {
+    } catch {
       this.error('Not in a workspace. Run "prlt init" first.')
     }
 

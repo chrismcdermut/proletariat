@@ -1,6 +1,6 @@
 import { Command, Args, Flags } from '@oclif/core'
-import * as path from 'path'
-import { execSync } from 'child_process'
+import * as path from 'node:path'
+import { execSync } from 'node:child_process'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
@@ -39,7 +39,7 @@ export default class ExecutionStop extends Command {
     let workspaceInfo
     try {
       workspaceInfo = getWorkspaceInfo()
-    } catch (error) {
+    } catch {
       this.error('Not in a workspace. Run "prlt init" first.')
     }
 
@@ -119,7 +119,7 @@ export default class ExecutionStop extends Command {
               try {
                 process.kill(parseInt(execution.pid), signal)
                 stopped = true
-              } catch (e) {
+              } catch {
                 // Process may have already exited
                 stopped = true
               }

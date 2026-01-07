@@ -6,8 +6,6 @@
  */
 
 import Database from 'better-sqlite3'
-import * as fs from 'fs'
-import * as path from 'path'
 import {
   Board,
   BoardConfig,
@@ -17,7 +15,6 @@ import {
   BoardViewGroupBy,
   BoardViewSortBy,
   Column,
-  Conflict,
   Epic,
   EpicDependency,
   EpicDependencyType,
@@ -148,7 +145,7 @@ export class SQLiteStorage implements PMOStorage {
     // Migration: Update specs table to new simplified schema
     if (tableExists(T.specs)) {
       const specsColumns = this.db.pragma(`table_info(${T.specs})`) as Array<{ name: string }>
-      const specsColumnNames = specsColumns.map(c => c.name)
+      const specsColumnNames = new Set(specsColumns.map(c => c.name))
 
       // New columns for simplified spec schema
       const newColumns = [
@@ -168,7 +165,7 @@ export class SQLiteStorage implements PMOStorage {
       ]
 
       for (const col of newColumns) {
-        if (!specsColumnNames.includes(col.name)) {
+        if (!specsColumnNames.has(col.name)) {
           try {
             this.db.exec(`ALTER TABLE ${T.specs} ADD COLUMN ${col.sql}`)
           } catch {
@@ -180,9 +177,9 @@ export class SQLiteStorage implements PMOStorage {
 
     // Migration: Add status_id column to tickets table (for workflow statuses)
     const ticketsColumns = this.db.pragma(`table_info(${T.tickets})`) as Array<{ name: string }>
-    const ticketsColumnNames = ticketsColumns.map(c => c.name)
+    const ticketsColumnNames = new Set(ticketsColumns.map(c => c.name))
 
-    if (!ticketsColumnNames.includes('status_id')) {
+    if (!ticketsColumnNames.has('status_id')) {
       try {
         this.db.exec(`ALTER TABLE ${T.tickets} ADD COLUMN status_id TEXT`)
       } catch {
@@ -192,9 +189,9 @@ export class SQLiteStorage implements PMOStorage {
 
     // Migration: Add status and target_date columns to projects table
     const projectsColumns = this.db.pragma(`table_info(${T.projects})`) as Array<{ name: string }>
-    const projectsColumnNames = projectsColumns.map(c => c.name)
+    const projectsColumnNames = new Set(projectsColumns.map(c => c.name))
 
-    if (!projectsColumnNames.includes('status')) {
+    if (!projectsColumnNames.has('status')) {
       try {
         this.db.exec(`ALTER TABLE ${T.projects} ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`)
       } catch {
@@ -202,7 +199,7 @@ export class SQLiteStorage implements PMOStorage {
       }
     }
 
-    if (!projectsColumnNames.includes('target_date')) {
+    if (!projectsColumnNames.has('target_date')) {
       try {
         this.db.exec(`ALTER TABLE ${T.projects} ADD COLUMN target_date TIMESTAMP`)
       } catch {
@@ -210,7 +207,7 @@ export class SQLiteStorage implements PMOStorage {
       }
     }
 
-    if (!projectsColumnNames.includes('phase_id')) {
+    if (!projectsColumnNames.has('phase_id')) {
       try {
         this.db.exec(`ALTER TABLE ${T.projects} ADD COLUMN phase_id TEXT`)
       } catch {
@@ -218,7 +215,7 @@ export class SQLiteStorage implements PMOStorage {
       }
     }
 
-    if (!projectsColumnNames.includes('is_archived')) {
+    if (!projectsColumnNames.has('is_archived')) {
       try {
         this.db.exec(`ALTER TABLE ${T.projects} ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0`)
       } catch {
@@ -227,7 +224,7 @@ export class SQLiteStorage implements PMOStorage {
     }
 
     // Migration: Add branch column to tickets table
-    if (!ticketsColumnNames.includes('branch')) {
+    if (!ticketsColumnNames.has('branch')) {
       try {
         this.db.exec(`ALTER TABLE ${T.tickets} ADD COLUMN branch TEXT`)
       } catch {
@@ -4102,7 +4099,6 @@ Output a review summary with your findings and any concerns.`,
    */
   async getBoardWithView(viewId?: string, filters?: BoardViewFilters): Promise<Board> {
     let viewFilters: BoardViewFilters = {}
-    let viewGroupBy: BoardViewGroupBy | undefined
     let viewSortBy: BoardViewSortBy | undefined
 
     // Load view if specified
@@ -4110,7 +4106,6 @@ Output a review summary with your findings and any concerns.`,
       const view = await this.getBoardView(viewId)
       if (view) {
         viewFilters = view.filters
-        viewGroupBy = view.groupBy
         viewSortBy = view.sortBy
       }
     }

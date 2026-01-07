@@ -18,12 +18,11 @@
  * (computer/VM clock depending on where the filesystem resides)
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import * as crypto from 'crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as crypto from 'node:crypto';
 import { SQLiteStorage } from './storage-sqlite.js';
-import { parseBoard, generateBoardMarkdown } from './markdown.js';
-import { Board } from './types.js';
+import { parseBoard } from './markdown.js';
 
 /**
  * Get the board path for a project

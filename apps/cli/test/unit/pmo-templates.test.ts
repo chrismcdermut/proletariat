@@ -120,7 +120,7 @@ describe('PMO Board Templates', () => {
 
     it('uses default emoji for unknown columns', () => {
       // Custom template would use default emoji
-      const templates = getBoardTemplates();
+      getBoardTemplates();
       // Temporarily test with a hypothetical column
       const content = createBoardContent('kanban');
 

@@ -508,8 +508,8 @@ export const EXPECTED_TICKET_COLUMNS = [
  */
 export function validateTicketSchema(db: { pragma: (sql: string) => unknown }): void {
   const columns = db.pragma(`table_info(${PMO_TABLES.tickets})`) as Array<{ name: string }>;
-  const actualColumns = columns.map((c) => c.name);
-  const missing = EXPECTED_TICKET_COLUMNS.filter((c) => !actualColumns.includes(c));
+  const actualColumns = new Set(columns.map((c) => c.name));
+  const missing = EXPECTED_TICKET_COLUMNS.filter((c) => !actualColumns.has(c));
 
   if (missing.length > 0) {
     throw new Error(

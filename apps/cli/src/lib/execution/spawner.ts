@@ -5,9 +5,9 @@
  * Used by `work start`, `work spawn`, and `work watch` commands.
  */
 
-import * as fs from 'fs'
-import * as path from 'path'
-import { execSync } from 'child_process'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import { execSync } from 'node:child_process'
 import Database from 'better-sqlite3'
 import { SQLiteStorage } from '../pmo/storage-sqlite.js'
 import { autoExportToBoard } from '../pmo/index.js'
@@ -454,8 +454,8 @@ export async function spawnForColumn(
     allTickets = allTickets.filter(t => options.ticketIds!.includes(t.id))
 
     // Check if any requested tickets weren't found
-    const foundIds = allTickets.map(t => t.id)
-    const notFoundIds = options.ticketIds.filter(id => !foundIds.includes(id))
+    const foundIds = new Set(allTickets.map(t => t.id))
+    const notFoundIds = options.ticketIds.filter(id => !foundIds.has(id))
     for (const id of notFoundIds) {
       result.skipped.push({
         ticketId: id,

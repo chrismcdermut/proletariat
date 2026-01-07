@@ -1,6 +1,6 @@
 import { Command, Flags, Args } from '@oclif/core';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import inquirer from 'inquirer';
 import { findPMO, getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';

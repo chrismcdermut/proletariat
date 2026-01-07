@@ -1,9 +1,8 @@
 import { Command, Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { colors, format } from '../../lib/colors.js';
-import { 
-  getWorkspaceInfo, 
-  selectExistingAgentsInteractively,
+import {
+  getWorkspaceInfo,
   removeAgentsFromWorkspace
 } from '../../lib/agents/commands.js';
 

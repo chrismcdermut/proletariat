@@ -1,7 +1,7 @@
 // Git-based PMO workflow example
-import { execSync } from 'child_process';
-import * as fs from 'fs';
-import * as path from 'path';
+import { execSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 interface Ticket {
   id: string;
@@ -20,7 +20,7 @@ class GitPMO {
   private syncFromRemote() {
     try {
       execSync('git pull origin main', { cwd: this.pmoPath, stdio: 'pipe' });
-    } catch (error) {
+    } catch {
       console.warn('Git pull failed, continuing...');
     }
   }
@@ -31,7 +31,7 @@ class GitPMO {
       execSync('git add .', { cwd: this.pmoPath, stdio: 'pipe' });
       execSync(`git commit -m "${message}"`, { cwd: this.pmoPath, stdio: 'pipe' });
       execSync('git push origin main', { cwd: this.pmoPath, stdio: 'pipe' });
-    } catch (error) {
+    } catch {
       console.warn('Git push failed, changes saved locally');
     }
   }
@@ -159,13 +159,13 @@ ${this.renderTicketsInColumn(tickets, 'done')}
     return changes;
   }
 
-  private parseTicketFile(content: string): Ticket {
+  private parseTicketFile(_content: string): Ticket {
     // Parse markdown ticket file back to Ticket object
     // Implementation details...
     throw new Error('Not implemented');
   }
 
-  private updateTicketFile(ticketId: string, updates: Partial<Ticket>): void {
+  private updateTicketFile(_ticketId: string, _updates: Partial<Ticket>): void {
     // Update specific ticket file
     // Implementation details...  
   }

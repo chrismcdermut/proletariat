@@ -1,6 +1,6 @@
 import { Command, Args, Flags } from '@oclif/core';
-import * as path from 'path';
-import * as fs from 'fs';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
 import Database from 'better-sqlite3';
 import inquirer from 'inquirer';
 import {
@@ -65,7 +65,7 @@ export default class WorkReady extends Command {
     let workspaceInfo;
     try {
       workspaceInfo = getWorkspaceInfo();
-    } catch (error) {
+    } catch {
       this.error('Not in a workspace. Run "prlt init" first.');
     }
 

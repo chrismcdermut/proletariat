@@ -1,5 +1,5 @@
 import { Command, Args, Flags } from '@oclif/core';
-import * as path from 'path';
+import * as path from 'node:path';
 import Database from 'better-sqlite3';
 import inquirer from 'inquirer';
 import { getPMOContext } from '../../lib/pmo/index.js';
@@ -131,7 +131,7 @@ export default class PRLink extends Command {
 
       // Get PR number
       let prNumber = flags.pr;
-      let prUrl = flags.url;
+      const prUrl = flags.url;
 
       if (prUrl) {
         // Extract PR number from URL

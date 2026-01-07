@@ -1,9 +1,7 @@
 import {
-  openWorkspaceDatabase,
   createTheme,
   addThemeNames,
   getThemes,
-  AgentTheme
 } from './database/index.js';
 
 /**

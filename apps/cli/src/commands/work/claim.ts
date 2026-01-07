@@ -172,7 +172,7 @@ export default class WorkClaim extends Command {
 
   private getCurrentUser(): string {
     try {
-      const { execSync } = require('child_process')
+      const { execSync } = require('node:child_process')
       const name = execSync('git config user.name', { encoding: 'utf-8' }).trim()
       if (name) return name
     } catch {

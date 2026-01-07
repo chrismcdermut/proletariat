@@ -1,5 +1,5 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { SQLiteStorage } from './storage-sqlite.js';
@@ -396,7 +396,6 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
     boardTemplate,
     boardName,
     columns,
-    storageType = 'sqlite',
   } = options;
 
   console.log(chalk.blue('Creating PMO structure...'));
