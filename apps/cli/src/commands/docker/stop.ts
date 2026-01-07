@@ -74,18 +74,14 @@ export default class DockerStop extends Command {
 
       // Check if container is running
       if (!isContainerRunning(result.containerId)) {
-        this.log('')
-        this.log(styles.warning(`Container ${result.displayName} is not running`))
-        this.log('')
+        this.log(`\n${styles.warning(`Container ${result.displayName} is not running`)}\n`)
         db.close()
         return
       }
 
-      this.log('')
-      this.log(styles.header(`Stop Container`))
+      this.log(`\n${styles.header('Stop Container')}`)
       this.log(styles.muted(`Target: ${result.displayName}`))
-      this.log(styles.muted(`Container: ${result.containerId.substring(0, 12)}`))
-      this.log('')
+      this.log(styles.muted(`Container: ${result.containerId.substring(0, 12)}\n`))
 
       // Confirm
       if (!flags.force) {
@@ -99,8 +95,7 @@ export default class DockerStop extends Command {
         ])
 
         if (!confirm) {
-          this.log(styles.muted('Aborted.'))
-          this.log('')
+          this.log(`${styles.muted('Aborted.')}\n`)
           db.close()
           return
         }
@@ -120,12 +115,10 @@ export default class DockerStop extends Command {
           executionStorage.updateStatus(result.executionId, 'stopped')
         }
 
-        this.log(styles.success(`Container stopped successfully`))
+        this.log(`${styles.success('Container stopped successfully')}\n`)
       } catch (error) {
-        this.log(styles.error(`Failed to stop container: ${error instanceof Error ? error.message : error}`))
+        this.log(`${styles.error(`Failed to stop container: ${error instanceof Error ? error.message : error}`)}\n`)
       }
-
-      this.log('')
       db.close()
     } catch (error) {
       db.close()

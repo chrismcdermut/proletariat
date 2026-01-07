@@ -78,11 +78,9 @@ export default class DockerRestart extends Command {
         this.error(`Container ${result.displayName} does not exist`)
       }
 
-      this.log('')
-      this.log(styles.header(`Restart Container`))
+      this.log(`\n${styles.header('Restart Container')}`)
       this.log(styles.muted(`Target: ${result.displayName}`))
-      this.log(styles.muted(`Container: ${result.containerId.substring(0, 12)}`))
-      this.log('')
+      this.log(styles.muted(`Container: ${result.containerId.substring(0, 12)}\n`))
 
       // Confirm
       if (!flags.force) {
@@ -96,8 +94,7 @@ export default class DockerRestart extends Command {
         ])
 
         if (!confirm) {
-          this.log(styles.muted('Aborted.'))
-          this.log('')
+          this.log(`${styles.muted('Aborted.')}\n`)
           db.close()
           return
         }
@@ -112,12 +109,10 @@ export default class DockerRestart extends Command {
           timeout: (flags.time + 30) * 1000, // Extra time for startup
         })
 
-        this.log(styles.success(`Container restarted successfully`))
+        this.log(`${styles.success('Container restarted successfully')}\n`)
       } catch (error) {
-        this.log(styles.error(`Failed to restart container: ${error instanceof Error ? error.message : error}`))
+        this.log(`${styles.error(`Failed to restart container: ${error instanceof Error ? error.message : error}`)}\n`)
       }
-
-      this.log('')
       db.close()
     } catch (error) {
       db.close()

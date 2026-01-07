@@ -43,10 +43,8 @@ export default class DockerList extends Command {
 
     // Check Docker status first
     if (!isDockerRunning()) {
-      this.log('')
-      this.log(styles.error('Docker is not running'))
-      this.log(styles.muted('Start Docker Desktop or the Docker daemon first.'))
-      this.log('')
+      this.log(`\n${styles.error('Docker is not running')}`)
+      this.log(`${styles.muted('Start Docker Desktop or the Docker daemon first.')}\n`)
       return
     }
 
@@ -80,8 +78,7 @@ export default class DockerList extends Command {
       // Get running docker containers
       const runningContainers = this.getDockerContainers(workspaceInfo.agentsPath, flags.all)
 
-      this.log('')
-      this.log(styles.header('Docker Containers'))
+      this.log(`\n${styles.header('Docker Containers')}`)
       this.log('='.repeat(100))
 
       // Display active executions from database
@@ -153,11 +150,9 @@ export default class DockerList extends Command {
         this.log(styles.muted('\nNo running containers found.'))
       }
 
-      this.log('')
-      this.log(styles.muted('Commands:'))
+      this.log(`\n${styles.muted('Commands:')}`)
       this.log(styles.muted('  prlt docker status    Check Docker daemon status'))
-      this.log(styles.muted('  prlt docker clean     Remove orphaned containers'))
-      this.log('')
+      this.log(`${styles.muted('  prlt docker clean     Remove orphaned containers')}\n`)
 
       db.close()
     } catch (error) {

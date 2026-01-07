@@ -68,21 +68,17 @@ export default class DockerStart extends Command {
 
       // Check if container is already running
       if (isContainerRunning(result.containerId)) {
-        this.log('')
-        this.log(styles.warning(`Container ${result.displayName} is already running`))
-        this.log('')
+        this.log(`\n${styles.warning(`Container ${result.displayName} is already running`)}\n`)
         db.close()
         return
       }
 
-      this.log('')
-      this.log(styles.header(`Start Container`))
+      this.log(`\n${styles.header('Start Container')}`)
       this.log(styles.muted(`Target: ${result.displayName}`))
-      this.log(styles.muted(`Container: ${result.containerId.substring(0, 12)}`))
-      this.log('')
+      this.log(styles.muted(`Container: ${result.containerId.substring(0, 12)}\n`))
 
       // Start container
-      this.log(styles.muted(`Starting container...`))
+      this.log(styles.muted('Starting container...'))
 
       try {
         const attachFlag = flags.attach ? '-a' : ''
@@ -95,12 +91,10 @@ export default class DockerStart extends Command {
           executionStorage.updateStatus(result.executionId, 'running')
         }
 
-        this.log(styles.success(`Container started successfully`))
+        this.log(`${styles.success('Container started successfully')}\n`)
       } catch (error) {
-        this.log(styles.error(`Failed to start container: ${error instanceof Error ? error.message : error}`))
+        this.log(`${styles.error(`Failed to start container: ${error instanceof Error ? error.message : error}`)}\n`)
       }
-
-      this.log('')
       db.close()
     } catch (error) {
       db.close()

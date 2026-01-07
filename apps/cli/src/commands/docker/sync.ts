@@ -42,10 +42,8 @@ export default class DockerSync extends Command {
       // Get devcontainers from Docker
       const dockerContainers = this.getDockerContainers()
 
-      this.log('')
-      this.log(styles.header('Syncing Containers'))
-      this.log(styles.muted(`Found ${dockerContainers.length} devcontainers in Docker`))
-      this.log('')
+      this.log(`\n${styles.header('Syncing Containers')}`)
+      this.log(styles.muted(`Found ${dockerContainers.length} devcontainers in Docker\n`))
 
       // Add agent name from image (only used for new containers)
       const containersWithAgent = dockerContainers.map(c => ({
@@ -56,11 +54,10 @@ export default class DockerSync extends Command {
       // Sync with database
       const result = containerStorage.syncFromDocker(containersWithAgent)
 
-      this.log(styles.success(`✓ Sync complete`))
+      this.log(styles.success('✓ Sync complete'))
       this.log(styles.muted(`  Added: ${result.added}`))
       this.log(styles.muted(`  Updated: ${result.updated}`))
-      this.log(styles.muted(`  Marked removed: ${result.removed}`))
-      this.log('')
+      this.log(styles.muted(`  Marked removed: ${result.removed}\n`))
 
       // Show current containers
       const containers = containerStorage.listContainers({ limit: 20 })
@@ -87,6 +84,8 @@ export default class DockerSync extends Command {
             styles.muted(container.dockerId.substring(0, 12))
           )
         }
+        this.log('')
+      } else {
         this.log('')
       }
 

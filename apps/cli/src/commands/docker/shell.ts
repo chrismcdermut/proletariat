@@ -80,12 +80,10 @@ export default class DockerShell extends Command {
         this.error(`Container ${result.displayName} is not running. Start it first or use 'docker restart'.`)
       }
 
-      this.log('')
-      this.log(styles.header(`Shell into ${result.displayName}`))
+      this.log(`\n${styles.header(`Shell into ${result.displayName}`)}`)
       this.log(styles.muted(`Container: ${result.containerId.substring(0, 12)}`))
       this.log(styles.muted(`Shell: ${flags.shell}`))
-      this.log('─'.repeat(50))
-      this.log('')
+      this.log('─'.repeat(50) + '\n')
 
       db.close()
 

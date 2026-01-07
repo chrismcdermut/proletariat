@@ -94,11 +94,9 @@ export default class DockerLogs extends Command {
 
       dockerArgs.push(result.containerId)
 
-      this.log('')
-      this.log(styles.header(`Logs for ${result.displayName}`))
+      this.log(`\n${styles.header(`Logs for ${result.displayName}`)}`)
       this.log(styles.muted(`Container: ${result.containerId}`))
-      this.log('─'.repeat(60))
-      this.log('')
+      this.log('─'.repeat(60) + '\n')
 
       db.close()
 

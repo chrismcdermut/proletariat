@@ -43,8 +43,7 @@ export default class DockerPrune extends Command {
       this.error('Docker is not running. Start Docker Desktop or the Docker daemon first.')
     }
 
-    this.log('')
-    this.log(styles.header('Docker Prune'))
+    this.log(`\n${styles.header('Docker Prune')}`)
     this.log('─'.repeat(60))
 
     // Get current disk usage
@@ -72,11 +71,9 @@ export default class DockerPrune extends Command {
     if (flags.volumes) {
       this.log(styles.warning('  • Unused volumes (DATA LOSS POSSIBLE)'))
     }
-    this.log('')
 
     if (flags['dry-run']) {
-      this.log(styles.warning('[DRY RUN] Would prune the above resources'))
-      this.log('')
+      this.log(`\n${styles.warning('[DRY RUN] Would prune the above resources')}\n`)
 
       // Show what would be removed
       this.showPrunePreview(flags.all, flags.volumes)
@@ -99,15 +96,13 @@ export default class DockerPrune extends Command {
       ])
 
       if (!confirm) {
-        this.log(styles.muted('Aborted.'))
-        this.log('')
+        this.log(`${styles.muted('Aborted.')}\n`)
         return
       }
     }
 
     // Run prune
-    this.log(styles.muted('Pruning Docker resources...'))
-    this.log('')
+    this.log(`\n${styles.muted('Pruning Docker resources...')}\n`)
 
     try {
       // Prune containers
@@ -153,8 +148,7 @@ export default class DockerPrune extends Command {
         this.log(styles.muted(volumeResult.trim()))
       }
 
-      this.log('')
-      this.log(styles.success('Docker prune completed'))
+      this.log(`\n${styles.success('Docker prune completed')}`)
 
       // Show new disk usage
       this.log(styles.subheader('\nNew Docker disk usage:'))

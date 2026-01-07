@@ -48,10 +48,8 @@ export default class DockerClean extends Command {
 
     // Check Docker status first
     if (!isDockerRunning()) {
-      this.log('')
-      this.log(styles.error('Docker is not running'))
-      this.log(styles.muted('Start Docker Desktop or the Docker daemon first.'))
-      this.log('')
+      this.log(`\n${styles.error('Docker is not running')}`)
+      this.log(`${styles.muted('Start Docker Desktop or the Docker daemon first.')}\n`)
       return
     }
 
@@ -82,17 +80,14 @@ export default class DockerClean extends Command {
         flags.all
       )
 
-      this.log('')
-
       if (orphanedContainers.length === 0) {
-        this.log(styles.success('No orphaned containers found.'))
-        this.log('')
+        this.log(`\n${styles.success('No orphaned containers found.')}\n`)
         db.close()
         return
       }
 
       // Display orphaned containers
-      this.log(styles.header('Orphaned Containers'))
+      this.log(`\n${styles.header('Orphaned Containers')}`)
       this.log('='.repeat(80))
       this.log(styles.muted(
         padEnd('Container ID', 15) +
@@ -111,11 +106,8 @@ export default class DockerClean extends Command {
         )
       }
 
-      this.log('')
-
       if (flags['dry-run']) {
-        this.log(styles.warning(`[DRY RUN] Would remove ${orphanedContainers.length} container(s)`))
-        this.log('')
+        this.log(`\n${styles.warning(`[DRY RUN] Would remove ${orphanedContainers.length} container(s)`)}\n`)
         db.close()
         return
       }
@@ -132,8 +124,7 @@ export default class DockerClean extends Command {
         ])
 
         if (!confirm) {
-          this.log(styles.muted('Aborted.'))
-          this.log('')
+          this.log(`\n${styles.muted('Aborted.')}\n`)
           db.close()
           return
         }
@@ -167,9 +158,8 @@ export default class DockerClean extends Command {
         }
       }
 
-      this.log('')
       if (removed > 0) {
-        this.log(styles.success(`Removed ${removed} container(s)`))
+        this.log(`\n${styles.success(`Removed ${removed} container(s)`)}`)
       }
       if (failed > 0) {
         this.log(styles.error(`Failed to remove ${failed} container(s)`))
