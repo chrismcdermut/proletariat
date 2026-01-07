@@ -7,6 +7,7 @@ import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
+import { sanitizeContainerId } from '../../lib/docker/resolve.js'
 
 interface OrphanedContainer {
   id: string
@@ -28,6 +29,7 @@ export default class DockerClean extends Command {
   static flags = {
     force: Flags.boolean({
       char: 'f',
+      aliases: ['yes', 'y'],
       description: 'Skip confirmation prompt',
       default: false,
     }),
@@ -136,10 +138,12 @@ export default class DockerClean extends Command {
 
       for (const container of orphanedContainers) {
         try {
+          const safeId = sanitizeContainerId(container.id)
+
           // Stop container if running
           if (container.status.includes('Up')) {
             this.log(styles.muted(`Stopping ${container.id}...`))
-            execSync(`docker stop ${container.id}`, {
+            execSync(`docker stop ${safeId}`, {
               stdio: ['pipe', 'pipe', 'pipe'],
               timeout: 30000,
             })
@@ -147,7 +151,7 @@ export default class DockerClean extends Command {
 
           // Remove container
           this.log(styles.muted(`Removing ${container.id}...`))
-          execSync(`docker rm ${container.id}`, {
+          execSync(`docker rm ${safeId}`, {
             stdio: ['pipe', 'pipe', 'pipe'],
           })
 

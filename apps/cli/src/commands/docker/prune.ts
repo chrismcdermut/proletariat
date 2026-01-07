@@ -17,6 +17,7 @@ export default class DockerPrune extends Command {
   static flags = {
     force: Flags.boolean({
       char: 'f',
+      aliases: ['yes', 'y'],
       description: 'Skip confirmation prompt',
       default: false,
     }),

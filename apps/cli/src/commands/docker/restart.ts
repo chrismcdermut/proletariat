@@ -7,7 +7,7 @@ import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
-import { resolveContainerId, containerExists } from '../../lib/docker/resolve.js'
+import { resolveContainerId, containerExists, sanitizeContainerId } from '../../lib/docker/resolve.js'
 
 export default class DockerRestart extends Command {
   static description = 'Restart a container (by execution ID, agent name, or container ID)'
@@ -21,6 +21,7 @@ export default class DockerRestart extends Command {
   static flags = {
     force: Flags.boolean({
       char: 'f',
+      aliases: ['yes', 'y'],
       description: 'Skip confirmation prompt',
       default: false,
     }),
@@ -104,7 +105,8 @@ export default class DockerRestart extends Command {
       this.log(styles.muted(`Restarting container (timeout: ${flags.time}s)...`))
 
       try {
-        execSync(`docker restart -t ${flags.time} ${result.containerId}`, {
+        const safeId = sanitizeContainerId(result.containerId)
+        execSync(`docker restart -t ${flags.time} ${safeId}`, {
           stdio: ['pipe', 'pipe', 'pipe'],
           timeout: (flags.time + 30) * 1000, // Extra time for startup
         })

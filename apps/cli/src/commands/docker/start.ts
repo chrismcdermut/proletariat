@@ -6,7 +6,7 @@ import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
-import { resolveContainerId, isContainerRunning } from '../../lib/docker/resolve.js'
+import { resolveContainerId, isContainerRunning, sanitizeContainerId } from '../../lib/docker/resolve.js'
 
 export default class DockerStart extends Command {
   static description = 'Start a stopped container (by execution ID, agent name, or container ID)'
@@ -82,7 +82,8 @@ export default class DockerStart extends Command {
 
       try {
         const attachFlag = flags.attach ? '-a' : ''
-        execSync(`docker start ${attachFlag} ${result.containerId}`, {
+        const safeId = sanitizeContainerId(result.containerId)
+        execSync(`docker start ${attachFlag} ${safeId}`, {
           stdio: flags.attach ? 'inherit' : ['pipe', 'pipe', 'pipe'],
         })
 

@@ -8,6 +8,28 @@
 import { execSync } from 'child_process'
 import { ExecutionStorage } from '../execution/storage.js'
 
+/**
+ * Validate and sanitize a container ID to prevent shell injection.
+ * Docker container IDs are 64-character hex strings (or 12-char short form).
+ * Container names can contain alphanumeric, underscore, hyphen, and period.
+ *
+ * @throws Error if the ID contains invalid characters
+ */
+export function sanitizeContainerId(id: string): string {
+  // Docker IDs/names: alphanumeric, underscore, hyphen, period only
+  // This prevents shell injection via characters like ; | & $ ` etc.
+  if (!/^[a-zA-Z0-9_.-]+$/.test(id)) {
+    throw new Error(`Invalid container ID: contains disallowed characters`)
+  }
+
+  // Reasonable length check (full SHA is 64, short is 12, names vary)
+  if (id.length > 128) {
+    throw new Error(`Invalid container ID: too long`)
+  }
+
+  return id
+}
+
 export interface ResolveResult {
   containerId: string | null
   executionId?: string
@@ -128,7 +150,10 @@ export function resolveContainerId(
  */
 function resolveDockerContainerId(partialId: string): string | null {
   try {
-    const output = execSync(`docker ps -aq --filter "id=${partialId}" --no-trunc`, {
+    // Sanitize before using in shell command
+    const safeId = sanitizeContainerId(partialId)
+
+    const output = execSync(`docker ps -aq --filter "id=${safeId}" --no-trunc`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim()
@@ -140,7 +165,7 @@ function resolveDockerContainerId(partialId: string): string | null {
     }
 
     // Also try by name
-    const byName = execSync(`docker ps -aq --filter "name=${partialId}" --no-trunc`, {
+    const byName = execSync(`docker ps -aq --filter "name=${safeId}" --no-trunc`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim()
@@ -162,7 +187,8 @@ function resolveDockerContainerId(partialId: string): string | null {
  */
 export function isContainerRunning(containerId: string): boolean {
   try {
-    const output = execSync(`docker inspect -f '{{.State.Running}}' ${containerId}`, {
+    const safeId = sanitizeContainerId(containerId)
+    const output = execSync(`docker inspect -f '{{.State.Running}}' ${safeId}`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim()
@@ -178,7 +204,8 @@ export function isContainerRunning(containerId: string): boolean {
  */
 export function containerExists(containerId: string): boolean {
   try {
-    execSync(`docker inspect ${containerId}`, {
+    const safeId = sanitizeContainerId(containerId)
+    execSync(`docker inspect ${safeId}`, {
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     return true

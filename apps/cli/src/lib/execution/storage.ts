@@ -563,6 +563,7 @@ export class ContainerStorage {
   /**
    * Sync container status from Docker
    * Updates status for all known containers based on Docker state
+   * Wrapped in a transaction for consistency
    */
   syncFromDocker(dockerContainers: Array<{
     id: string
@@ -577,40 +578,45 @@ export class ContainerStorage {
     // Create a set of docker IDs currently running
     const activeDockerIds = new Set(dockerContainers.map(c => c.id.substring(0, 12)))
 
-    // Update or add containers from Docker
-    for (const dc of dockerContainers) {
-      const status: ContainerStatus = dc.status.startsWith('Up') ? 'running' :
-                                      dc.status.includes('Paused') ? 'paused' : 'exited'
+    // Wrap all operations in a transaction for atomicity
+    const syncTransaction = this.db.transaction(() => {
+      // Update or add containers from Docker
+      for (const dc of dockerContainers) {
+        const status: ContainerStatus = dc.status.startsWith('Up') ? 'running' :
+                                        dc.status.includes('Paused') ? 'paused' : 'exited'
 
-      const existing = this.getContainerByDockerId(dc.id)
-      if (existing) {
-        this.db.prepare(`
-          UPDATE ${T.containers}
-          SET docker_name = ?, image = ?, status = ?, last_seen_at = ?
-          WHERE docker_id LIKE ? || '%'
-        `).run(dc.name, dc.image, status, now, dc.id)
-        updated++
-      } else {
-        this.upsertContainer({
-          agentName: dc.agentName,
-          dockerId: dc.id,
-          dockerName: dc.name,
-          image: dc.image,
-          status,
-        })
-        added++
+        const existing = this.getContainerByDockerId(dc.id)
+        if (existing) {
+          this.db.prepare(`
+            UPDATE ${T.containers}
+            SET docker_name = ?, image = ?, status = ?, last_seen_at = ?
+            WHERE docker_id LIKE ? || '%'
+          `).run(dc.name, dc.image, status, now, dc.id)
+          updated++
+        } else {
+          this.upsertContainer({
+            agentName: dc.agentName,
+            dockerId: dc.id,
+            dockerName: dc.name,
+            image: dc.image,
+            status,
+          })
+          added++
+        }
       }
-    }
 
-    // Mark containers not in Docker as removed
-    const knownContainers = this.listContainers()
-    for (const container of knownContainers) {
-      if (!activeDockerIds.has(container.dockerId.substring(0, 12)) &&
-          container.status !== 'removed') {
-        this.markRemoved(container.dockerId)
-        removed++
+      // Mark containers not in Docker as removed
+      const knownContainers = this.listContainers()
+      for (const container of knownContainers) {
+        if (!activeDockerIds.has(container.dockerId.substring(0, 12)) &&
+            container.status !== 'removed') {
+          this.markRemoved(container.dockerId)
+          removed++
+        }
       }
-    }
+    })
+
+    syncTransaction()
 
     return { added, updated, removed }
   }
