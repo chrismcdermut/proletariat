@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename)
 
 /**
  * End-to-end tests for Docker Management Commands
- * Tests: prlt docker status, prlt docker list, prlt docker clean
+ * Tests: prlt docker status, list, logs, stop, shell, restart, clean, prune
  *
  * Note: These tests run without Docker available, so they test
  * the "Docker not running" code paths. Full Docker integration
@@ -177,6 +177,200 @@ describe('Docker Commands E2E Tests', () => {
   })
 
   /**
+   * prlt docker logs
+   */
+  describe('prlt docker logs', () => {
+    it('should show help with --help flag', () => {
+      const output = exec('docker logs --help')
+
+      expect(output).to.contain('View logs from a container')
+      expect(output).to.contain('--follow')
+      expect(output).to.contain('--tail')
+      expect(output).to.contain('USAGE')
+    })
+
+    it('should accept --follow flag without unknown flag error', () => {
+      const output = exec('docker logs --follow --help')
+
+      expect(output).to.not.contain('Unknown flag')
+    })
+
+    it('should accept --tail flag without unknown flag error', () => {
+      const output = exec('docker logs --tail 50 --help')
+
+      expect(output).to.not.contain('Unknown flag')
+    })
+
+    it('should require a target argument', () => {
+      const output = exec('docker logs')
+
+      // Should indicate missing argument
+      const validOutput =
+        output.includes('Missing required arg') ||
+        output.includes('target') ||
+        output.includes('Docker is not running')
+      expect(validOutput).to.be.true
+    })
+
+    it('should accept execution ID format', () => {
+      const output = exec('docker logs WORK-001')
+
+      // Should process the command (may fail due to no Docker or no execution)
+      const validOutput =
+        output.includes('Docker is not running') ||
+        output.includes('not found') ||
+        output.includes('Logs for')
+      expect(validOutput).to.be.true
+    })
+  })
+
+  /**
+   * prlt docker stop
+   */
+  describe('prlt docker stop', () => {
+    it('should show help with --help flag', () => {
+      const output = exec('docker stop --help')
+
+      expect(output).to.contain('Stop a running container')
+      expect(output).to.contain('--force')
+      expect(output).to.contain('--time')
+      expect(output).to.contain('USAGE')
+    })
+
+    it('should accept --force flag without unknown flag error', () => {
+      const output = exec('docker stop --force --help')
+
+      expect(output).to.not.contain('Unknown flag')
+    })
+
+    it('should accept --time flag without unknown flag error', () => {
+      const output = exec('docker stop --time 30 --help')
+
+      expect(output).to.not.contain('Unknown flag')
+    })
+
+    it('should require a target argument', () => {
+      const output = exec('docker stop')
+
+      const validOutput =
+        output.includes('Missing required arg') ||
+        output.includes('target') ||
+        output.includes('Docker is not running')
+      expect(validOutput).to.be.true
+    })
+  })
+
+  /**
+   * prlt docker shell
+   */
+  describe('prlt docker shell', () => {
+    it('should show help with --help flag', () => {
+      const output = exec('docker shell --help')
+
+      expect(output).to.contain('Open a shell in a running container')
+      expect(output).to.contain('--shell')
+      expect(output).to.contain('--user')
+      expect(output).to.contain('USAGE')
+    })
+
+    it('should accept --shell flag without unknown flag error', () => {
+      const output = exec('docker shell --shell /bin/bash --help')
+
+      expect(output).to.not.contain('Unknown flag')
+    })
+
+    it('should accept --user flag without unknown flag error', () => {
+      const output = exec('docker shell --user root --help')
+
+      expect(output).to.not.contain('Unknown flag')
+    })
+
+    it('should require a target argument', () => {
+      const output = exec('docker shell')
+
+      const validOutput =
+        output.includes('Missing required arg') ||
+        output.includes('target') ||
+        output.includes('Docker is not running')
+      expect(validOutput).to.be.true
+    })
+  })
+
+  /**
+   * prlt docker restart
+   */
+  describe('prlt docker restart', () => {
+    it('should show help with --help flag', () => {
+      const output = exec('docker restart --help')
+
+      expect(output).to.contain('Restart a container')
+      expect(output).to.contain('--force')
+      expect(output).to.contain('--time')
+      expect(output).to.contain('USAGE')
+    })
+
+    it('should accept --force flag without unknown flag error', () => {
+      const output = exec('docker restart --force --help')
+
+      expect(output).to.not.contain('Unknown flag')
+    })
+
+    it('should require a target argument', () => {
+      const output = exec('docker restart')
+
+      const validOutput =
+        output.includes('Missing required arg') ||
+        output.includes('target') ||
+        output.includes('Docker is not running')
+      expect(validOutput).to.be.true
+    })
+  })
+
+  /**
+   * prlt docker prune
+   */
+  describe('prlt docker prune', () => {
+    it('should show help with --help flag', () => {
+      const output = exec('docker prune --help')
+
+      expect(output).to.contain('Remove unused Docker resources')
+      expect(output).to.contain('--force')
+      expect(output).to.contain('--dry-run')
+      expect(output).to.contain('--all')
+      expect(output).to.contain('--volumes')
+      expect(output).to.contain('USAGE')
+    })
+
+    it('should accept --dry-run flag without unknown flag error', () => {
+      const output = exec('docker prune --dry-run --help')
+
+      expect(output).to.not.contain('Unknown flag')
+    })
+
+    it('should accept --all flag without unknown flag error', () => {
+      const output = exec('docker prune --all --help')
+
+      expect(output).to.not.contain('Unknown flag')
+    })
+
+    it('should accept --volumes flag without unknown flag error', () => {
+      const output = exec('docker prune --volumes --help')
+
+      expect(output).to.not.contain('Unknown flag')
+    })
+
+    it('should handle Docker not running gracefully', () => {
+      const output = exec('docker prune --force')
+
+      const validOutput =
+        output.includes('Docker is not running') ||
+        output.includes('Docker Prune') ||
+        output.includes('prune completed')
+      expect(validOutput).to.be.true
+    })
+  })
+
+  /**
    * prlt docker (main menu)
    */
   describe('prlt docker', () => {
@@ -196,7 +390,12 @@ describe('Docker Commands E2E Tests', () => {
       // Examples section shows full command syntax
       expect(output).to.contain('prlt docker status')
       expect(output).to.contain('prlt docker list')
+      expect(output).to.contain('prlt docker logs')
+      expect(output).to.contain('prlt docker stop')
+      expect(output).to.contain('prlt docker shell')
+      expect(output).to.contain('prlt docker restart')
       expect(output).to.contain('prlt docker clean')
+      expect(output).to.contain('prlt docker prune')
     })
   })
 

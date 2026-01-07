@@ -9,7 +9,12 @@ export default class Docker extends Command {
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> docker status',
     '<%= config.bin %> docker list',
+    '<%= config.bin %> docker logs WORK-001',
+    '<%= config.bin %> docker stop kalanick',
+    '<%= config.bin %> docker shell WORK-001',
+    '<%= config.bin %> docker restart abc123',
     '<%= config.bin %> docker clean',
+    '<%= config.bin %> docker prune',
   ]
 
   async run(): Promise<void> {
@@ -25,7 +30,13 @@ export default class Docker extends Command {
         choices: [
           { name: 'Check Docker status', value: 'status' },
           { name: 'List containers', value: 'list' },
+          { name: 'View container logs', value: 'logs' },
+          { name: 'Stop a container', value: 'stop' },
+          { name: 'Shell into container', value: 'shell' },
+          { name: 'Restart a container', value: 'restart' },
+          new inquirer.Separator(),
           { name: 'Clean orphaned containers', value: 'clean' },
+          { name: 'Prune unused resources', value: 'prune' },
           new inquirer.Separator(),
           { name: 'Exit', value: 'exit' },
         ],
@@ -36,6 +47,22 @@ export default class Docker extends Command {
       return
     }
 
-    await this.config.runCommand(`docker:${action}`, [])
+    // Commands that require a target
+    const targetCommands = ['logs', 'stop', 'shell', 'restart']
+
+    if (targetCommands.includes(action)) {
+      const { target } = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'target',
+          message: 'Enter execution ID (WORK-XXX), agent name, or container ID:',
+          validate: (input: string) => input.trim().length > 0 || 'Target is required',
+        },
+      ])
+
+      await this.config.runCommand(`docker:${action}`, [target.trim()])
+    } else {
+      await this.config.runCommand(`docker:${action}`, [])
+    }
   }
 }
