@@ -280,15 +280,22 @@ export default class BranchCreate extends Command {
     // Get default owner name from config or GitHub
     const defaultOwnerName = this.getDefaultOwnerName()
 
-    // Try to load tickets from PMO
-    let tickets: Array<{ id: string; title: string; category?: string; status?: string }> = []
+    // Try to load tickets from PMO (across all projects)
+    let tickets: Array<{ id: string; title: string; category?: string; status?: string; projectName?: string }> = []
     try {
-      const { storage } = await getPMOContext()
-      const allTickets = await storage.listTickets()
-      // Filter to actionable tickets (todo, in-progress, backlog)
-      tickets = allTickets.filter(t =>
-        !t.status || ['todo', 'in-progress', 'backlog', 'in_progress'].includes(t.status.toLowerCase())
-      )
+      const { storage } = await getPMOContext({ promptIfMultiple: false })
+
+      // Get all projects and their tickets
+      const projects = await storage.listProjects()
+      for (const project of projects) {
+        storage.setCurrentProject(project.id)
+        const projectTickets = await storage.listTickets()
+        // Filter to actionable tickets (todo, in-progress, backlog)
+        const actionable = projectTickets.filter(t =>
+          !t.status || ['todo', 'in-progress', 'backlog', 'in_progress'].includes(t.status.toLowerCase())
+        )
+        tickets.push(...actionable.map(t => ({ ...t, projectName: project.name })))
+      }
       await storage.close()
     } catch {
       // No PMO context - that's fine, just skip ticket selection
@@ -319,12 +326,15 @@ export default class BranchCreate extends Command {
    * Wizard flow for creating branch from a ticket.
    */
   private async runTicketWizard(
-    tickets: Array<{ id: string; title: string; category?: string; status?: string }>,
+    tickets: Array<{ id: string; title: string; category?: string; status?: string; projectName?: string }>,
     defaultOwnerName: string | undefined
   ): Promise<string | null> {
-    // Select ticket
+    // Select ticket (show project name if multiple projects)
+    const hasMultipleProjects = new Set(tickets.map(t => t.projectName)).size > 1
     const ticketChoices = tickets.map(t => ({
-      name: `${t.id} - ${t.title.substring(0, 50)}${t.title.length > 50 ? '...' : ''} ${styles.muted(`[${t.status || 'todo'}]`)}`,
+      name: hasMultipleProjects
+        ? `${t.id} - ${t.title.substring(0, 40)}${t.title.length > 40 ? '...' : ''} ${styles.muted(`[${t.projectName}]`)}`
+        : `${t.id} - ${t.title.substring(0, 50)}${t.title.length > 50 ? '...' : ''} ${styles.muted(`[${t.status || 'todo'}]`)}`,
       value: t,
     }))
 
