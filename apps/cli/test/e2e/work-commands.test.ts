@@ -15,7 +15,11 @@ const __dirname = path.dirname(__filename);
  * Spec: execute-commands.md
  *
  * SKIPPED: Tests need workspace environment setup that isn't working in test context.
- * See ticket TKT-041 for implementation tracking.
+ * The work commands require a properly initialized HQ environment with:
+ * - .proletariat/config.json with type: 'hq'
+ * - Proper PMO initialization
+ * - Valid ticket/execution state
+ * These tests verify database operations directly rather than CLI commands.
  */
 describe.skip('Work Commands E2E Tests', () => {
   let testDir: string;
