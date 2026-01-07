@@ -5,7 +5,6 @@ import {
   findHQRoot,
   promptSelectMultipleRepos,
   removeRepository,
-  getWorkspaceRepoInfo
 } from '../../lib/repos/index.js';
 
 export default class Remove extends Command {

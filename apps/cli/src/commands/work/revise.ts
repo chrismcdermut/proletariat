@@ -1,7 +1,7 @@
 import { Command, Args, Flags } from '@oclif/core'
-import * as fs from 'fs'
-import * as path from 'path'
-import { execSync } from 'child_process'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import { execSync } from 'node:child_process'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
@@ -21,7 +21,7 @@ import {
 } from '../../lib/execution/types.js'
 import { runExecution, isDockerRunning } from '../../lib/execution/runners.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
-import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference } from '../../lib/execution/config.js'
+import { loadExecutionConfig, getTerminalApp, getShell, hasTerminalPreference, hasShellPreference } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import {
   isGHInstalled,

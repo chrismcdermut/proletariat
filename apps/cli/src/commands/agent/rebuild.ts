@@ -1,7 +1,7 @@
 import { Args, Flags } from '@oclif/core';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import * as path from 'path';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+import * as path from 'node:path';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { DockerCommand } from '../../lib/commands/docker-command.js';
@@ -59,7 +59,7 @@ export default class AgentRebuild extends DockerCommand {
         buildCommand.push('--no-cache');
       }
 
-      const { stdout, stderr } = await execAsync(buildCommand.join(' '));
+      const { stderr } = await execAsync(buildCommand.join(' '));
 
       if (stderr && !stderr.includes('WARNING')) {
         this.log(colors.textMuted(`  ${stderr.trim()}`));

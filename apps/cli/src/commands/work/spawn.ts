@@ -1,5 +1,5 @@
 import { Command, Flags } from '@oclif/core'
-import * as path from 'path'
+import * as path from 'node:path'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'

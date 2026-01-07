@@ -1,10 +1,10 @@
 import { expect } from 'chai';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import { execSync } from 'child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { execSync } from 'node:child_process';
 import Database from 'better-sqlite3';
-import { fileURLToPath } from 'url';
+import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -88,7 +88,7 @@ describe.skip('Work Commands E2E Tests', () => {
     it('should only show in-progress tickets in dropdown', () => {
       // Create tickets in different columns
       createTicket(db, 'Backlog ticket', 'backlog');
-      const inProgressId = createTicket(db, 'In Progress ticket', 'in-progress');
+      createTicket(db, 'In Progress ticket', 'in-progress');
       createTicket(db, 'Done ticket', 'done');
 
       // Running without ID triggers selection - in test mode, verify state

@@ -1,25 +1,21 @@
 import { Command, Flags } from '@oclif/core';
-import * as fs from 'fs';
-import * as path from 'path';
-import { execSync } from 'child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { execSync } from 'node:child_process';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import Database from 'better-sqlite3';
 import {
   SQLiteStorage,
   getColumnsForTemplate,
-  createBoardContent,
-  createSpecFolders,
   createPMO,
   promptForPMOLocation,
   promptForBoardTemplate,
   promptForBoardName,
   promptForCustomColumns,
   determinePMOPath,
-  detectRepos,
   PMOLocation,
 } from '../../lib/pmo/index.js';
-import { slugify } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
 import { isGHInstalled, isGHAuthenticated, getGHUsername, isGHTokenInEnv } from '../../lib/pr/index.js';
 
@@ -331,7 +327,7 @@ export default class PMOInit extends Command {
 
       this.log(chalk.green('  ✓ Git repository initialized'));
       this.log(styles.muted('    Add remote: cd pmo && git remote add origin <url>'));
-    } catch (error) {
+    } catch {
       this.log(chalk.yellow('  ⚠ Git initialization failed (continuing without git)'));
       this.log(styles.muted('    You can initialize git manually: cd pmo && git init'));
     }

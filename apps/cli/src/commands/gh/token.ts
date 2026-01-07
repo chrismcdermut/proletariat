@@ -1,6 +1,5 @@
 import { Command } from '@oclif/core';
-import { execSync } from 'child_process';
-import * as os from 'os';
+import { execSync } from 'node:child_process';
 import chalk from 'chalk';
 import { styles } from '../../lib/styles.js';
 import { isGHInstalled, isGHAuthenticated, isGHTokenInEnv } from '../../lib/pr/index.js';
@@ -41,7 +40,6 @@ export default class GHToken extends Command {
 
     // Detect shell
     const shell = process.env.SHELL || '/bin/zsh';
-    const shellName = shell.includes('zsh') ? 'zsh' : shell.includes('bash') ? 'bash' : 'shell';
     const rcFile = shell.includes('zsh') ? '~/.zshrc' : shell.includes('bash') ? '~/.bashrc' : '~/.profile';
 
     this.log(chalk.yellow('  ⚠ GH_TOKEN not set'));

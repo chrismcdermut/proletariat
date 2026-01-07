@@ -1,7 +1,7 @@
 import { Command, Args, Flags } from '@oclif/core'
-import * as fs from 'fs'
-import * as path from 'path'
-import { execSync } from 'child_process'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import { execSync } from 'node:child_process'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
@@ -117,7 +117,7 @@ export default class WorkStart extends Command {
     let workspaceInfo
     try {
       workspaceInfo = getWorkspaceInfo()
-    } catch (error) {
+    } catch {
       this.error('Not in a workspace. Run "prlt init" first.')
     }
 

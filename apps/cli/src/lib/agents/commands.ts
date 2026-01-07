@@ -1,10 +1,9 @@
 /**
  * Shared utilities for agent commands - implementing DRY principles
  */
-import * as fs from 'fs';
-import * as path from 'path';
-import { execSync } from 'child_process';
-import chalk from 'chalk';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { execSync } from 'node:child_process';
 import inquirer from 'inquirer';
 import {
   getWorkspaceConfig,
@@ -122,8 +121,8 @@ export { isValidAgentName } from '../themes.js';
  * Get suggested agent names (not yet added to workspace)
  */
 export function getAvailableAgentSuggestions(workspaceInfo: WorkspaceInfo): string[] {
-  const existingAgentNames = workspaceInfo.agents.map(a => a.name);
-  return getSuggestedAgentNames().filter(name => !existingAgentNames.includes(name));
+  const existingAgentNames = new Set(workspaceInfo.agents.map(a => a.name));
+  return getSuggestedAgentNames().filter(name => !existingAgentNames.has(name));
 }
 
 /**
@@ -149,7 +148,7 @@ export async function selectAgentsInteractively(workspaceInfo: WorkspaceInfo, me
     },
   }]);
 
-  return agentNames.trim().split(/\s+/).filter((n: string) => n);
+  return agentNames.trim().split(/\s+/).filter(Boolean);
 }
 
 /**
@@ -320,8 +319,8 @@ export async function addAgentsToWorkspace(workspaceInfo: WorkspaceInfo, agentNa
   const { createAgentWorktrees } = await import('./index.js');
 
   // Filter out existing agents
-  const existingNames = workspaceInfo.agents.map(a => a.name);
-  const newAgents = agentNames.filter(name => !existingNames.includes(name));
+  const existingNames = new Set(workspaceInfo.agents.map(a => a.name));
+  const newAgents = agentNames.filter(name => !existingNames.has(name));
 
   if (newAgents.length === 0) {
     return [];
@@ -410,7 +409,7 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
       }
       
       removed.push(agentName);
-    } catch (error) {
+    } catch {
       failed.push(agentName);
     }
   }

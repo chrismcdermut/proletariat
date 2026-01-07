@@ -1,10 +1,10 @@
 import { expect } from 'chai';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import { execSync } from 'child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { execSync } from 'node:child_process';
 import { runCommand } from '@oclif/test';
-import { fileURLToPath } from 'url';
+import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,7 +41,7 @@ describe('prlt init', () => {
         const { stdout } = await runCommand(['init', '--help'], { root });
         expect(stdout).to.contain('Initialize an HQ');
         expect(stdout).to.contain('USAGE');
-      } catch (error) {
+      } catch {
         // Skip help test if command fails to run
         console.log('Skipping help test - command not available in test context');
       }

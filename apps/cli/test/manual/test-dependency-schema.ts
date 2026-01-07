@@ -4,9 +4,9 @@
  */
 
 import Database from 'better-sqlite3'
-import * as fs from 'fs'
-import * as os from 'os'
-import * as path from 'path'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import { PMO_SCHEMA_SQL, PMO_TABLES } from '../../src/lib/pmo/schema.js'
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js'
 
@@ -76,7 +76,7 @@ async function testStorageMethods() {
   console.log('--- Ticket Dependencies ---')
   const ticket1 = await storage.createTicket({ title: 'Ticket 1', column: 'Backlog' })
   const ticket2 = await storage.createTicket({ title: 'Ticket 2', column: 'Backlog' })
-  const ticket3 = await storage.createTicket({ title: 'Ticket 3', column: 'Backlog' })
+  await storage.createTicket({ title: 'Ticket 3', column: 'Backlog' })
 
   const ticketDep = await storage.createTicketDependency(ticket1.id, ticket2.id, 'blocks')
   console.log('✓ Created ticket dependency:', ticketDep.ticketId, 'blocks', ticketDep.dependsOnTicketId)

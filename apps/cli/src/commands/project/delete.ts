@@ -1,8 +1,8 @@
 import { Command, Args, Flags } from '@oclif/core';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import inquirer from 'inquirer';
-import { getSpecFolderPath, findPMO, getPMOContext } from '../../lib/pmo/index.js';
+import { findPMO, getPMOContext } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
 export default class ProjectDelete extends Command {

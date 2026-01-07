@@ -26,7 +26,7 @@ export default class Complete extends Command {
     this.log(colors.primary('✅ Complete Multiple Tickets\n'));
 
     // Get PMO context (prompts for project if multiple exist)
-    const { pmoPath, storage, projectName } = await getPMOContext(
+    const { pmoPath, storage } = await getPMOContext(
       undefined,
       (msg) => this.log(styles.muted(msg)),
       true

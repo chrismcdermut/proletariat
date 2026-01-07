@@ -72,7 +72,7 @@ export default class ActionUpdate extends Command {
       const hasFlags = flags.name || flags.prompt || flags.description !== undefined ||
                        flags['suggested-for'] || flags['move-to'] !== undefined;
 
-      let changes: {
+      const changes: {
         name?: string
         prompt?: string
         description?: string

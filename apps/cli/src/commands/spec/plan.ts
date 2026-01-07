@@ -1,6 +1,6 @@
 import { Command, Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js';
+import { getPMOContext } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
 export default class SpecPlan extends Command {
@@ -33,7 +33,7 @@ export default class SpecPlan extends Command {
     const { args, flags } = await this.parse(SpecPlan);
 
     // Get PMO context
-    const { storage, pmoPath } = await getPMOContext(
+    const { storage } = await getPMOContext(
       undefined,
       (msg) => this.log(styles.muted(msg)),
       true

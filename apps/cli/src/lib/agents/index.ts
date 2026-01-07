@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { execSync } from 'child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { execSync } from 'node:child_process';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { DEFAULT_AGENTS_DIR, isValidAgentName, getSuggestedAgentNames, normalizeAgentName, BUILTIN_THEMES } from '../themes.js';
@@ -33,7 +33,7 @@ export function findHQRoot(startDir: string = process.cwd()): string | null {
         if (config && config.type === 'hq') {
           return currentDir;
         }
-      } catch (error) {
+      } catch {
         // Ignore database errors and continue searching
       }
     }
@@ -70,7 +70,7 @@ export async function promptAgentNames(existingAgents: string[] = []): Promise<s
     },
   }]);
 
-  return agentNames.trim().split(/\s+/).filter((n: string) => n);
+  return agentNames.trim().split(/\s+/).filter(Boolean);
 }
 
 export interface CreateAgentOptions {
@@ -127,7 +127,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
                   cwd: sourceRepo,
                   stdio: 'inherit'
                 });
-              } catch (error) {
+              } catch {
                 // Branch might already exist, try to use it or clean up
                 console.log(chalk.yellow(`  Branch ${branchName} already exists, attempting to reuse or clean up...`));
                 try {
@@ -136,7 +136,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
                     cwd: sourceRepo,
                     stdio: 'inherit'
                   });
-                } catch (secondError) {
+                } catch {
                   // If that fails too, clean up the orphaned branch and try again
                   try {
                     execSync(`git branch -D ${branchName}`, {
@@ -215,7 +215,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
             cwd: sourceRepo,
             stdio: 'inherit'
           });
-        } catch (error) {
+        } catch {
           // Branch might already exist, try to use it or clean up
           console.log(chalk.yellow(`  Branch ${branchName} already exists, attempting to reuse or clean up...`));
           try {
@@ -224,7 +224,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
               cwd: sourceRepo,
               stdio: 'inherit'
             });
-          } catch (secondError) {
+          } catch {
             // If that fails too, clean up the orphaned branch and try again
             try {
               execSync(`git branch -D ${branchName}`, {
@@ -420,11 +420,11 @@ export async function addAgentsToHQ(
 
   // Get existing agents from database
   const existingAgents = getWorkspaceAgents(hqPath);
-  const existingAgentNames = existingAgents.map(a => a.name);
+  const existingAgentNames = new Set(existingAgents.map(a => a.name));
 
   // Filter out already existing agents
   const newAgents = agents.filter(name => {
-    if (existingAgentNames.includes(name)) {
+    if (existingAgentNames.has(name)) {
       console.log(chalk.yellow(`Agent ${name} already exists`));
       return false;
     }

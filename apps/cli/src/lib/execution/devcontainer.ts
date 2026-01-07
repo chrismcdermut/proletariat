@@ -5,8 +5,8 @@
  * Uses a custom Dockerfile with network firewall for security sandboxing.
  */
 
-import * as fs from 'fs'
-import * as path from 'path'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG } from './types.js'
 
 export interface DevcontainerOptions {

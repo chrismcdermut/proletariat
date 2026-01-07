@@ -1,6 +1,6 @@
 import { Command, Flags } from '@oclif/core';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import chalk from 'chalk';
 import { runWatcherForeground } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';

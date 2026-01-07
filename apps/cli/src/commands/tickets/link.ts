@@ -32,7 +32,7 @@ export default class Link extends Command {
     this.log(colors.primary('🔗 Link Tickets to Epic\n'));
 
     // Get PMO context (prompts for project if multiple exist)
-    const { pmoPath, storage, projectName } = await getPMOContext(
+    const { pmoPath, storage } = await getPMOContext(
       undefined,
       (msg) => this.log(styles.muted(msg)),
       true

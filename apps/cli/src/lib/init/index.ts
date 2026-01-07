@@ -1,22 +1,19 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { execSync } from 'child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { execSync } from 'node:child_process';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { DEFAULT_AGENTS_DIR, ensureBuiltinThemes } from '../themes.js';
-import { addAgentsToHQ, createAgentWorktrees } from '../agents/index.js';
-import { addRepositoriesToHQ, updateHQRepos, isInGitRepo } from '../repos/index.js';
+import { createAgentWorktrees } from '../agents/index.js';
+import { addRepositoriesToHQ, isInGitRepo } from '../repos/index.js';
 import {
   createPMO,
-  promptForPMOSetup,
   PMOSetupResult,
-  PMOLocation,
 } from '../pmo/index.js';
 import {
   createWorkspaceDatabase,
   addRepositoriesToDatabase,
   addAgentsToDatabase,
-  getWorkspaceConfig,
   createTheme,
   addThemeNames,
   setActiveTheme
@@ -105,10 +102,10 @@ export function validateHQLocation(location: string): boolean {
     if (normalizedPath.startsWith(normalizedGitRoot)) {
       return false; // Inside a git repo
     }
-  } catch (error) {
+  } catch {
     // Not in a git repo - this is fine
   }
-  
+
   return true;
 }
 

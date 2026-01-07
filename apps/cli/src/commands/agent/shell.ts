@@ -1,16 +1,15 @@
 import { Command, Args } from '@oclif/core';
-import * as path from 'path';
-import * as fs from 'fs';
-import { execSync, spawn } from 'child_process';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
+import { execSync, spawn } from 'node:child_process';
 import inquirer from 'inquirer';
 import Database from 'better-sqlite3';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js';
 import { getTerminalApp } from '../../lib/execution/config.js';
-import { TerminalApp, DisplayMode } from '../../lib/execution/types.js';
+import { TerminalApp } from '../../lib/execution/types.js';
 import { isDockerRunning } from '../../lib/execution/runners.js';
-import * as os from 'os';
 
 export default class Shell extends Command {
   static description = 'Open an interactive shell in an agent workspace';

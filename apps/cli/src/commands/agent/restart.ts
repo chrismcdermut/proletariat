@@ -1,6 +1,6 @@
 import { Args } from '@oclif/core';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
 import { colors } from '../../lib/colors.js';
 import { DockerCommand } from '../../lib/commands/docker-command.js';
 

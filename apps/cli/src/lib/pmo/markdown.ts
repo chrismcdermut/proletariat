@@ -4,7 +4,7 @@
  * Handles conversion between Obsidian Kanban markdown format and Board objects.
  */
 
-import { Board, Column, Subtask, Ticket } from './types.js'
+import { Board, Column, Ticket } from './types.js'
 import { slugify } from './utils.js'
 
 // =============================================================================

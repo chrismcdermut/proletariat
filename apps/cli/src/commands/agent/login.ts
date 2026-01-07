@@ -1,7 +1,7 @@
 import { Args } from '@oclif/core';
-import * as path from 'path';
-import * as fs from 'fs';
-import { execSync } from 'child_process';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
+import { execSync } from 'node:child_process';
 import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
@@ -80,7 +80,7 @@ export default class Login extends DockerCommand {
           `docker ps --filter "label=devcontainer.local_folder=${agentDir}" --format "{{.ID}}"`,
           { encoding: 'utf-8' }
         ).trim();
-      } catch (error) {
+      } catch {
         this.error('Failed to find running container. Make sure the agent container is running.');
       }
 
@@ -99,7 +99,7 @@ export default class Login extends DockerCommand {
             `docker ps --filter "label=devcontainer.local_folder=${agentDir}" --format "{{.ID}}"`,
             { encoding: 'utf-8' }
           ).trim();
-        } catch (error) {
+        } catch {
           this.error('Failed to start container.');
         }
       }

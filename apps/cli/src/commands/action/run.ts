@@ -2,7 +2,7 @@ import { Command, Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { getPMOContext } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
-import { StateCategory, Ticket, WorkAction } from '../../lib/pmo/types.js';
+import { StateCategory, Ticket } from '../../lib/pmo/types.js';
 
 export default class ActionRun extends Command {
   static description = 'Run an action on one or more tickets (bulk action support)';

@@ -1,5 +1,4 @@
 import { Command } from '@oclif/core';
-import chalk from 'chalk';
 import { colors, format } from '../../lib/colors.js';
 import {
   findHQRoot,

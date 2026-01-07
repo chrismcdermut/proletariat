@@ -4,10 +4,8 @@ import {
   findHQRoot,
   promptSelectRepo,
   getWorkspaceRepoInfo,
-  getRepoStatus
 } from '../../lib/repos/index.js';
 import { openWorkspaceDatabase } from '../../lib/database/index.js';
-import * as path from 'path';
 
 export default class View extends Command {
   static description = 'View detailed information about a repository';
