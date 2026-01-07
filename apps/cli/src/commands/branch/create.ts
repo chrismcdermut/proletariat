@@ -22,6 +22,8 @@ import {
   checkoutBranch,
 } from '../../lib/branch/index.js'
 import { getCoderName, getGitUserName, getGitHubUsername } from '../../lib/execution/config.js'
+import { getBranchType } from '../../lib/execution/types.js'
+import { getPMOContext } from '../../lib/pmo/index.js'
 
 export default class BranchCreate extends Command {
   static description = 'Create a new branch with conventional naming'
@@ -278,6 +280,124 @@ export default class BranchCreate extends Command {
     // Get default owner name from config or GitHub
     const defaultOwnerName = this.getDefaultOwnerName()
 
+    // Try to load tickets from PMO
+    let tickets: Array<{ id: string; title: string; category?: string; status?: string }> = []
+    try {
+      const { storage } = await getPMOContext()
+      const allTickets = await storage.listTickets()
+      // Filter to actionable tickets (todo, in-progress, backlog)
+      tickets = allTickets.filter(t =>
+        !t.status || ['todo', 'in-progress', 'backlog', 'in_progress'].includes(t.status.toLowerCase())
+      )
+      await storage.close()
+    } catch {
+      // No PMO context - that's fine, just skip ticket selection
+    }
+
+    // First choice: from ticket or custom
+    const hasTickets = tickets.length > 0
+    const { mode } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'mode',
+        message: 'Create branch:',
+        choices: [
+          ...(hasTickets ? [{ name: `📋 From ticket (${tickets.length} available)`, value: 'ticket' }] : []),
+          { name: '✏️  Custom branch name', value: 'custom' },
+        ],
+      },
+    ])
+
+    if (mode === 'ticket' && hasTickets) {
+      return this.runTicketWizard(tickets, defaultOwnerName)
+    }
+
+    return this.runCustomWizard(defaultOwnerName)
+  }
+
+  /**
+   * Wizard flow for creating branch from a ticket.
+   */
+  private async runTicketWizard(
+    tickets: Array<{ id: string; title: string; category?: string; status?: string }>,
+    defaultOwnerName: string | undefined
+  ): Promise<string | null> {
+    // Select ticket
+    const ticketChoices = tickets.map(t => ({
+      name: `${t.id} - ${t.title.substring(0, 50)}${t.title.length > 50 ? '...' : ''} ${styles.muted(`[${t.status || 'todo'}]`)}`,
+      value: t,
+    }))
+
+    const { ticket } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'ticket',
+        message: 'Select ticket:',
+        choices: ticketChoices,
+        pageSize: 15,
+      },
+    ])
+
+    // Get owner (defaults to GitHub username)
+    const { owner } = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'owner',
+        message: defaultOwnerName
+          ? `Owner (default: ${defaultOwnerName}):`
+          : 'Owner (optional):',
+        default: defaultOwnerName,
+        validate: (input: string) => {
+          if (input && !isKebabCase(input)) {
+            return 'Owner must be kebab-case (lowercase, hyphens only)'
+          }
+          return true
+        },
+      },
+    ])
+
+    // Auto-generate branch name from ticket
+    const type = getBranchType(ticket.category) as BranchType
+    const slug = toKebabCase(ticket.title).substring(0, 20).replace(/-+$/, '')
+
+    const branchName = buildBranchName(type, slug, {
+      ticketId: ticket.id,
+      owner: owner || undefined,
+    })
+
+    this.log('')
+    this.log(styles.muted(`   Generated: ${branchName}`))
+
+    // Confirm or allow edit
+    const { confirmed } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'confirmed',
+        message: 'Use this branch name?',
+        default: true,
+      },
+    ])
+
+    if (!confirmed) {
+      // Allow manual edit
+      const { customName } = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'customName',
+          message: 'Enter branch name:',
+          default: branchName,
+        },
+      ])
+      return customName
+    }
+
+    return branchName
+  }
+
+  /**
+   * Wizard flow for creating a custom branch (no ticket).
+   */
+  private async runCustomWizard(defaultOwnerName: string | undefined): Promise<string | null> {
     // Select type
     const typeChoices = [
       new inquirer.Separator('── Development ──'),
@@ -301,33 +421,18 @@ export default class BranchCreate extends Command {
       },
     ])
 
-    // Ask for optional ticket ID (puts ticket first in branch name)
-    const { ticketId } = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'ticketId',
-        message: 'Ticket ID (optional, e.g., TKT-001):',
-        validate: (input: string) => {
-          if (input && !/^[A-Z]+-\d+$/.test(input)) {
-            return 'Ticket ID must be format: ABC-123 (uppercase letters, dash, numbers)'
-          }
-          return true
-        },
-      },
-    ])
-
     // Enter owner (defaults to GitHub username)
     const { owner } = await inquirer.prompt([
       {
         type: 'input',
         name: 'owner',
         message: defaultOwnerName
-          ? `Enter owner name (default: ${defaultOwnerName}):`
-          : 'Enter owner name (optional, press enter to skip):',
+          ? `Owner (default: ${defaultOwnerName}):`
+          : 'Owner (optional):',
         default: defaultOwnerName,
         validate: (input: string) => {
           if (input && !isKebabCase(input)) {
-            return 'Owner name must be kebab-case (lowercase, hyphens only)'
+            return 'Owner must be kebab-case (lowercase, hyphens only)'
           }
           return true
         },
@@ -339,7 +444,7 @@ export default class BranchCreate extends Command {
       {
         type: 'input',
         name: 'description',
-        message: 'Enter description (kebab-case):',
+        message: 'Description (kebab-case):',
         validate: (input: string) => {
           if (!input.trim()) {
             return 'Description is required'
@@ -359,7 +464,6 @@ export default class BranchCreate extends Command {
     ])
 
     return buildBranchName(type, description, {
-      ticketId: ticketId || undefined,
       owner: owner || undefined,
     })
   }
