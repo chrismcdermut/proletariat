@@ -21,7 +21,7 @@ import {
   fetchOrigin,
   checkoutBranch,
 } from '../../lib/branch/index.js'
-import { getCoderName, getGitUserName } from '../../lib/execution/config.js'
+import { getCoderName, getGitUserName, getGitHubUsername } from '../../lib/execution/config.js'
 
 export default class BranchCreate extends Command {
   static description = 'Create a new branch with conventional naming'
@@ -29,8 +29,9 @@ export default class BranchCreate extends Command {
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> feat/chris/add-user-auth',
+    '<%= config.bin %> <%= command.id %> TKT-001/feat/chris/add-user-auth',
     '<%= config.bin %> <%= command.id %> -t feat -c chris -d add-user-auth',
-    '<%= config.bin %> <%= command.id %> -t fix -d login-bug',
+    '<%= config.bin %> <%= command.id %> -t feat -T TKT-001 -d add-user-auth',
   ]
 
   static args = {
@@ -41,14 +42,18 @@ export default class BranchCreate extends Command {
   }
 
   static flags = {
+    ticket: Flags.string({
+      char: 'T',
+      description: 'Ticket ID (e.g., TKT-001) - puts ticket first in branch name',
+    }),
     type: Flags.string({
       char: 't',
       description: 'Branch type',
       options: Object.keys(BRANCH_TYPES),
     }),
-    coder: Flags.string({
+    owner: Flags.string({
       char: 'c',
-      description: 'Coder/agent identifier',
+      description: 'Owner/coder identifier (defaults to GitHub username)',
     }),
     description: Flags.string({
       char: 'd',
@@ -125,17 +130,20 @@ export default class BranchCreate extends Command {
         )
       }
 
-      // Use provided coder name or fall back to configured default
-      const coderName = flags.coder || this.getDefaultCoderName()
+      // Use provided owner name or fall back to configured default
+      const ownerName = flags.owner || this.getDefaultOwnerName()
 
-      if (coderName && !isKebabCase(coderName)) {
+      if (ownerName && !isKebabCase(ownerName)) {
         this.error(
-          `Coder name must be kebab-case: "${coderName}"\n` +
+          `Owner name must be kebab-case: "${ownerName}"\n` +
             `Example: chris, chris-m, team-alpha`
         )
       }
 
-      branchName = buildBranchName(type, description, coderName)
+      branchName = buildBranchName(type, description, {
+        ticketId: flags.ticket,
+        owner: ownerName,
+      })
     } else {
       // Interactive wizard
       const wizardResult = await this.runWizard()
@@ -223,9 +231,10 @@ export default class BranchCreate extends Command {
   }
 
   /**
-   * Get the default coder name from workspace config or git.
+   * Get the default owner name.
+   * Priority: workspace config > GitHub username > git user.name
    */
-  private getDefaultCoderName(): string | undefined {
+  private getDefaultOwnerName(): string | undefined {
     // Try to get from workspace database
     let currentDir = process.cwd()
     while (currentDir !== '/') {
@@ -239,14 +248,20 @@ export default class BranchCreate extends Command {
             return coderName
           }
         } catch {
-          // Ignore errors and try git config
+          // Ignore errors and try other methods
         }
         break
       }
       currentDir = path.dirname(currentDir)
     }
 
-    // Fall back to git config user.name
+    // Try GitHub username (most reliable)
+    const ghUsername = getGitHubUsername()
+    if (ghUsername) {
+      return ghUsername
+    }
+
+    // Fall back to git config user.name (normalized)
     const gitUserName = getGitUserName()
     if (gitUserName) {
       return gitUserName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
@@ -260,8 +275,8 @@ export default class BranchCreate extends Command {
     this.log(styles.header('🌿 Create New Branch'))
     this.log('')
 
-    // Get default coder name from config or git
-    const defaultCoderName = this.getDefaultCoderName()
+    // Get default owner name from config or GitHub
+    const defaultOwnerName = this.getDefaultOwnerName()
 
     // Select type
     const typeChoices = [
@@ -286,18 +301,33 @@ export default class BranchCreate extends Command {
       },
     ])
 
-    // Enter coder (defaults to configured name if available)
-    const { coder } = await inquirer.prompt([
+    // Ask for optional ticket ID (puts ticket first in branch name)
+    const { ticketId } = await inquirer.prompt([
       {
         type: 'input',
-        name: 'coder',
-        message: defaultCoderName
-          ? `Enter coder name (default: ${defaultCoderName}):`
-          : 'Enter coder name (optional, press enter to skip):',
-        default: defaultCoderName,
+        name: 'ticketId',
+        message: 'Ticket ID (optional, e.g., TKT-001):',
+        validate: (input: string) => {
+          if (input && !/^[A-Z]+-\d+$/.test(input)) {
+            return 'Ticket ID must be format: ABC-123 (uppercase letters, dash, numbers)'
+          }
+          return true
+        },
+      },
+    ])
+
+    // Enter owner (defaults to GitHub username)
+    const { owner } = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'owner',
+        message: defaultOwnerName
+          ? `Enter owner name (default: ${defaultOwnerName}):`
+          : 'Enter owner name (optional, press enter to skip):',
+        default: defaultOwnerName,
         validate: (input: string) => {
           if (input && !isKebabCase(input)) {
-            return 'Coder name must be kebab-case (lowercase, hyphens only)'
+            return 'Owner name must be kebab-case (lowercase, hyphens only)'
           }
           return true
         },
@@ -328,6 +358,9 @@ export default class BranchCreate extends Command {
       },
     ])
 
-    return buildBranchName(type, description, coder || undefined)
+    return buildBranchName(type, description, {
+      ticketId: ticketId || undefined,
+      owner: owner || undefined,
+    })
   }
 }

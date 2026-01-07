@@ -87,7 +87,7 @@ export default class BranchList extends Command {
       styles.muted(
         padEnd('Name', 35) +
           padEnd('Type', 8) +
-          padEnd('Coder', 12) +
+          padEnd('Owner', 12) +
           padEnd('Description', 25) +
           'Status'
       )
@@ -99,7 +99,7 @@ export default class BranchList extends Command {
       const marker = branch.current ? '* ' : '  '
       const nameStyle = branch.current ? styles.success : (s: string) => s
       const typeDisplay = branch.type || '-'
-      const coderDisplay = branch.coder || '-'
+      const ownerDisplay = branch.owner || '-'
       const descDisplay = branch.description || '-'
 
       let status = 'local'
@@ -114,7 +114,7 @@ export default class BranchList extends Command {
         marker +
           nameStyle(padEnd(branch.name.substring(0, 33), 33)) +
           padEnd(typeDisplay, 8) +
-          padEnd(coderDisplay.substring(0, 10), 12) +
+          padEnd(ownerDisplay.substring(0, 10), 12) +
           padEnd(descDisplay.substring(0, 23), 25) +
           styles.muted(status)
       )

@@ -70,8 +70,10 @@ export function isValidBranchType(type: string): type is BranchType {
 }
 
 export interface BranchParts {
+  ticketId?: string
   type: BranchType
-  coder?: string
+  owner?: string
+  agent?: string
   description: string
 }
 
@@ -81,19 +83,81 @@ export interface ValidationResult {
   error?: string
 }
 
+// Ticket ID pattern (e.g., TKT-001, PROJ-123)
+const TICKET_ID_REGEX = /^[A-Z]+-\d+$/
+
+/**
+ * Check if a string looks like a ticket ID.
+ */
+export function isTicketId(str: string): boolean {
+  return TICKET_ID_REGEX.test(str)
+}
+
 /**
  * Parse and validate a branch name against conventional format.
+ *
+ * Supported formats:
+ * - {ticketId}/{type}/{owner}/{agent}/{description} - full format with ticket
+ * - {ticketId}/{type}/{owner}/{description} - ticket format without agent (manual)
+ * - {type}/{owner}/{description} - legacy format without ticket
+ * - {type}/{description} - minimal format
  */
 export function validateBranchName(name: string): ValidationResult {
   const parts = name.split('/')
 
-  if (parts.length < 2 || parts.length > 3) {
+  if (parts.length < 2 || parts.length > 5) {
     return {
       valid: false,
-      error: 'Branch name must have format: {type}/{description} or {type}/{coder}/{description}',
+      error: 'Branch name must have 2-5 parts separated by /',
     }
   }
 
+  // Check if first part is a ticket ID
+  const hasTicket = isTicketId(parts[0])
+
+  if (hasTicket) {
+    // Ticket-first format: {ticketId}/{type}/{owner}/{agent?}/{description}
+    const ticketId = parts[0]
+    const type = parts[1]
+
+    if (!isValidBranchType(type)) {
+      return {
+        valid: false,
+        error: `Unknown branch type: "${type}". Valid types: ${Object.keys(BRANCH_TYPES).join(', ')}`,
+      }
+    }
+
+    if (parts.length === 3) {
+      // {ticketId}/{type}/{description}
+      return {
+        valid: true,
+        parts: { ticketId, type: type as BranchType, description: parts[2] },
+      }
+    }
+
+    if (parts.length === 4) {
+      // {ticketId}/{type}/{owner}/{description}
+      return {
+        valid: true,
+        parts: { ticketId, type: type as BranchType, owner: parts[2], description: parts[3] },
+      }
+    }
+
+    if (parts.length === 5) {
+      // {ticketId}/{type}/{owner}/{agent}/{description}
+      return {
+        valid: true,
+        parts: { ticketId, type: type as BranchType, owner: parts[2], agent: parts[3], description: parts[4] },
+      }
+    }
+
+    return {
+      valid: false,
+      error: 'Invalid ticket branch format. Expected: {ticketId}/{type}/{owner}/{description} or {ticketId}/{type}/{owner}/{agent}/{description}',
+    }
+  }
+
+  // Legacy format without ticket: {type}/{owner?}/{description}
   const type = parts[0]
   if (!isValidBranchType(type)) {
     return {
@@ -113,18 +177,18 @@ export function validateBranchName(name: string): ValidationResult {
     }
     return {
       valid: true,
-      parts: { type, description },
+      parts: { type: type as BranchType, description },
     }
   }
 
-  // {type}/{coder}/{description}
-  const coder = parts[1]
+  // {type}/{owner}/{description}
+  const owner = parts[1]
   const description = parts[2]
 
-  if (!isKebabCase(coder)) {
+  if (!isKebabCase(owner)) {
     return {
       valid: false,
-      error: `Coder name must be kebab-case: "${coder}"`,
+      error: `Owner name must be kebab-case: "${owner}"`,
     }
   }
 
@@ -137,16 +201,44 @@ export function validateBranchName(name: string): ValidationResult {
 
   return {
     valid: true,
-    parts: { type, coder, description },
+    parts: { type: type as BranchType, owner, description },
   }
 }
 
 /**
  * Build a branch name from parts.
+ *
+ * Formats:
+ * - With ticket + agent: {ticketId}/{type}/{owner}/{agent}/{description}
+ * - With ticket (manual): {ticketId}/{type}/{owner}/{description}
+ * - Without ticket: {type}/{owner}/{description}
+ * - Minimal: {type}/{description}
  */
-export function buildBranchName(type: BranchType, description: string, coder?: string): string {
-  if (coder) {
-    return `${type}/${coder}/${description}`
+export function buildBranchName(
+  type: BranchType,
+  description: string,
+  options?: {
+    ticketId?: string
+    owner?: string
+    agent?: string
+  }
+): string {
+  const { ticketId, owner, agent } = options || {}
+
+  if (ticketId) {
+    // Ticket-first format
+    if (agent && owner) {
+      return `${ticketId}/${type}/${owner}/${agent}/${description}`
+    }
+    if (owner) {
+      return `${ticketId}/${type}/${owner}/${description}`
+    }
+    return `${ticketId}/${type}/${description}`
+  }
+
+  // Legacy format without ticket
+  if (owner) {
+    return `${type}/${owner}/${description}`
   }
   return `${type}/${description}`
 }
@@ -170,8 +262,10 @@ export function toKebabCase(str: string): string {
 export interface BranchInfo {
   name: string
   current: boolean
+  ticketId?: string
   type?: BranchType
-  coder?: string
+  owner?: string
+  agent?: string
   description?: string
   tracking?: string
 }
@@ -217,8 +311,10 @@ export function listBranches(cwd?: string, includeRemote = false): BranchInfo[] 
       branches.push({
         name,
         current,
+        ticketId: validation.parts?.ticketId,
         type: validation.parts?.type,
-        coder: validation.parts?.coder,
+        owner: validation.parts?.owner,
+        agent: validation.parts?.agent,
         description: validation.parts?.description,
         tracking: tracking || undefined,
       })

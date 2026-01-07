@@ -51,9 +51,15 @@ export default class BranchValidate extends Command {
       } else {
         this.log(styles.success(`✅ Current branch '${branchName}' is valid`))
       }
+      if (result.parts.ticketId) {
+        this.log(styles.muted(`   Ticket: ${result.parts.ticketId}`))
+      }
       this.log(styles.muted(`   Type: ${result.parts.type}`))
-      if (result.parts.coder) {
-        this.log(styles.muted(`   Coder: ${result.parts.coder}`))
+      if (result.parts.owner) {
+        this.log(styles.muted(`   Owner: ${result.parts.owner}`))
+      }
+      if (result.parts.agent) {
+        this.log(styles.muted(`   Agent: ${result.parts.agent}`))
       }
       this.log(styles.muted(`   Description: ${result.parts.description}`))
     } else {
@@ -61,7 +67,7 @@ export default class BranchValidate extends Command {
       if (result.error) {
         this.log(styles.muted(`   ${result.error}`))
       }
-      this.log(styles.muted(`   Expected: {type}/{coder?}/{description}`))
+      this.log(styles.muted(`   Expected: {ticketId?}/{type}/{owner?}/{description}`))
       this.log(styles.muted(`   Types: ${Object.keys(BRANCH_TYPES).join(', ')}`))
     }
 
