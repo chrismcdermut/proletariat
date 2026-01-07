@@ -9,7 +9,7 @@ import {
 /**
  * Default workspace directory for agents
  */
-export const DEFAULT_AGENTS_DIR = 'agents';
+export const DEFAULT_AGENTS_DIR = 'staff';
 
 /**
  * Validate an agent name

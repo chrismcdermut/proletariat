@@ -265,6 +265,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
  */
 export interface AgentPromptResult {
   agents: string[];
+  themeId?: string;  // Selected theme ID (builtin or custom)
   customTheme?: {
     name: string;
     displayName: string;
@@ -365,6 +366,7 @@ export async function promptForAgentsWithTheme(): Promise<AgentPromptResult> {
 
     return {
       agents: selected,
+      themeId: themeId,  // Custom theme ID
       customTheme: {
         name: themeId,
         displayName,
@@ -403,7 +405,7 @@ export async function promptForAgentsWithTheme(): Promise<AgentPromptResult> {
     validate: (input) => input.length > 0 || 'Please select at least one agent'
   }]);
 
-  return { agents: selected };
+  return { agents: selected, themeId: selectedTheme };
 }
 
 /**

@@ -11,7 +11,8 @@ import {
   getTheme,
   getThemes,
   getAvailableThemeNames,
-  markThemeNameUsed
+  markThemeNameUsed,
+  getActiveTheme
 } from '../../lib/database/index.js';
 
 export default class Add extends Command {
@@ -90,87 +91,134 @@ export default class Add extends Command {
           markThemeNameUsed(workspaceInfo.path, themeId, name);
         }
       }
-      // Interactive mode: show themes and available names
+      // Interactive mode: show names from workspace's active theme
       else if (agentNames.length === 0) {
         // Ensure built-in themes are seeded
         ensureBuiltinThemes(workspaceInfo.path);
 
-        // Get all themes with available names
-        const themes = getThemes(workspaceInfo.path);
-        const themesWithNames = themes.map(t => ({
-          theme: t,
-          names: getAvailableThemeNames(workspaceInfo.path, t.id)
-        })).filter(t => t.names.length > 0);
+        // Check if workspace has an active theme
+        const activeTheme = getActiveTheme(workspaceInfo.path);
 
-        // Build choices: themes with their available names, plus custom option
-        const choices: any[] = [];
+        if (activeTheme) {
+          // Workspace has a theme - show names from it directly
+          themeId = activeTheme.id;
+          const availableNames = getAvailableThemeNames(workspaceInfo.path, activeTheme.id);
 
-        for (const { theme, names } of themesWithNames) {
-          choices.push(new inquirer.Separator(`── ${theme.display_name} ──`));
-          for (const name of names) {
-            choices.push({ name: `  ${name}`, value: { name, themeId: theme.id } });
+          if (availableNames.length === 0) {
+            this.log(chalk.yellow(`No available names in ${activeTheme.display_name}. All names are in use.`));
+            this.log(chalk.blue('Use --theme to pick from a different theme, or enter names directly.'));
+            return;
           }
-        }
 
-        choices.push(new inquirer.Separator('──────────────'));
-        choices.push({ name: chalk.blue('Enter custom name(s)...'), value: '__custom__' });
+          // Add custom option at the end
+          const choices = [
+            ...availableNames.map(name => ({ name, value: name })),
+            new inquirer.Separator(),
+            { name: chalk.blue('Enter custom name(s)...'), value: '__custom__' }
+          ];
 
-        const { selection } = await inquirer.prompt([{
-          type: 'checkbox',
-          name: 'selection',
-          message: 'Select agent names to add:',
-          choices,
-          pageSize: 20,
-          validate: (input) => input.length > 0 || 'Please select at least one name or choose custom'
-        }]);
-
-        // Check if custom was selected
-        const hasCustom = selection.some((s: any) => s === '__custom__');
-        const themedSelections = selection.filter((s: any) => s !== '__custom__');
-
-        if (hasCustom) {
-          // Prompt for custom names
-          const { customNames } = await inquirer.prompt([{
-            type: 'input',
-            name: 'customNames',
-            message: 'Enter custom agent names (space-separated):',
-            validate: (input: string) => {
-              if (!input.trim()) return 'Please enter at least one name';
-              const names = input.trim().split(/\s+/).map(normalizeAgentName).filter(n => n);
-              if (names.length === 0) return 'No valid names after normalization';
-              return true;
-            }
+          const { selected } = await inquirer.prompt([{
+            type: 'checkbox',
+            name: 'selected',
+            message: `Select agents from ${activeTheme.display_name}:`,
+            choices,
+            pageSize: 20,
+            validate: (input) => input.length > 0 || 'Please select at least one name'
           }]);
-          // Normalize and filter custom names
-          const rawNames = customNames.trim().split(/\s+/);
-          const normalizedCustom = rawNames.map((n: string) => ({
-            original: n,
-            normalized: normalizeAgentName(n)
-          })).filter((x: { original: string; normalized: string }) => x.normalized && isValidAgentName(x.normalized));
 
-          // Show normalizations
-          const changed = normalizedCustom.filter((x: { original: string; normalized: string }) => x.original !== x.normalized);
-          if (changed.length > 0) {
-            this.log(chalk.blue('Normalized names:'));
-            for (const { original, normalized } of changed) {
-              this.log(chalk.dim(`   ${original} → ${normalized}`));
+          // Check if custom was selected
+          const hasCustom = selected.includes('__custom__');
+          const themedSelections = selected.filter((s: string) => s !== '__custom__');
+
+          if (hasCustom) {
+            const { customNames } = await inquirer.prompt([{
+              type: 'input',
+              name: 'customNames',
+              message: 'Enter custom agent names (space-separated):',
+              validate: (input: string) => {
+                if (!input.trim()) return 'Please enter at least one name';
+                return true;
+              }
+            }]);
+            const rawNames = customNames.trim().split(/\s+/);
+            const normalizedCustom = rawNames.map((n: string) => normalizeAgentName(n)).filter((n: string) => n && isValidAgentName(n));
+            agentNames.push(...normalizedCustom);
+          }
+
+          if (themedSelections.length > 0) {
+            agentNames.push(...themedSelections);
+            // Mark themed names as used
+            for (const name of themedSelections) {
+              markThemeNameUsed(workspaceInfo.path, activeTheme.id, name);
             }
           }
+        } else {
+          // No active theme - prompt to pick one or enter custom names
+          const themes = getThemes(workspaceInfo.path);
+          const themesWithNames = themes.map(t => ({
+            theme: t,
+            availableCount: getAvailableThemeNames(workspaceInfo.path, t.id).length
+          })).filter(t => t.availableCount > 0);
 
-          agentNames = normalizedCustom.map((x: { original: string; normalized: string }) => x.normalized);
-        }
+          // Build theme selection choices
+          const themeChoices: any[] = themesWithNames.map(({ theme, availableCount }) => ({
+            name: `${theme.display_name} ${chalk.dim(`(${availableCount} available)`)}`,
+            value: theme.id
+          }));
+          themeChoices.push(new inquirer.Separator());
+          themeChoices.push({ name: chalk.blue('Enter custom name(s)'), value: '__custom__' });
 
-        if (themedSelections.length > 0) {
-          // Mark themed names as used and collect them
-          for (const sel of themedSelections) {
-            markThemeNameUsed(workspaceInfo.path, sel.themeId, sel.name);
-            agentNames.push(sel.name);
-          }
-          // Use the first theme if all from same theme, otherwise no theme tracking
-          const themeIds: string[] = themedSelections.map((s: any) => s.themeId);
-          const uniqueThemes = [...new Set(themeIds)];
-          if (uniqueThemes.length === 1) {
-            themeId = uniqueThemes[0];
+          const { selectedTheme } = await inquirer.prompt([{
+            type: 'list',
+            name: 'selectedTheme',
+            message: 'No theme set. Select a theme or enter custom names:',
+            choices: themeChoices
+          }]);
+
+          if (selectedTheme === '__custom__') {
+            const { customNames } = await inquirer.prompt([{
+              type: 'input',
+              name: 'customNames',
+              message: 'Enter custom agent names (space-separated):',
+              validate: (input: string) => {
+                if (!input.trim()) return 'Please enter at least one name';
+                return true;
+              }
+            }]);
+            const rawNames = customNames.trim().split(/\s+/);
+            const normalizedCustom = rawNames.map((n: string) => ({
+              original: n,
+              normalized: normalizeAgentName(n)
+            })).filter((x: { original: string; normalized: string }) => x.normalized && isValidAgentName(x.normalized));
+
+            const changed = normalizedCustom.filter((x: { original: string; normalized: string }) => x.original !== x.normalized);
+            if (changed.length > 0) {
+              this.log(chalk.blue('Normalized names:'));
+              for (const { original, normalized } of changed) {
+                this.log(chalk.dim(`   ${original} → ${normalized}`));
+              }
+            }
+
+            agentNames = normalizedCustom.map((x: { original: string; normalized: string }) => x.normalized);
+          } else {
+            themeId = selectedTheme;
+            const theme = getTheme(workspaceInfo.path, selectedTheme);
+            const availableNames = getAvailableThemeNames(workspaceInfo.path, selectedTheme);
+
+            const { selected } = await inquirer.prompt([{
+              type: 'checkbox',
+              name: 'selected',
+              message: `Select agents from ${theme?.display_name}:`,
+              choices: availableNames.map(name => ({ name, value: name })),
+              pageSize: 20,
+              validate: (input) => input.length > 0 || 'Please select at least one name'
+            }]);
+
+            agentNames = selected;
+
+            for (const name of agentNames) {
+              markThemeNameUsed(workspaceInfo.path, selectedTheme, name);
+            }
           }
         }
 

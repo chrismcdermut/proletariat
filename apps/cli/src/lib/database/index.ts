@@ -9,6 +9,7 @@ export interface WorkspaceConfig {
   type: 'hq' | 'workspace';
   workspace_name: string;
   has_pmo: boolean;
+  active_theme_id: string | null;
   created_at: string;
 }
 
@@ -61,7 +62,9 @@ CREATE TABLE IF NOT EXISTS workspace (
   type TEXT NOT NULL CHECK (type IN ('hq', 'workspace')),
   workspace_name TEXT NOT NULL,
   has_pmo BOOLEAN DEFAULT FALSE,
-  created_at TEXT NOT NULL
+  active_theme_id TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (active_theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
 );
 
 -- Repository management
@@ -133,16 +136,71 @@ CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
  * Migrate existing database to add theme support
  */
 function migrateToThemeSupport(db: Database.Database): void {
-  // Check if theme_id column exists in agents table
-  const columns = db.pragma('table_info(agents)') as Array<{ name: string }>;
-  const hasThemeId = columns.some(c => c.name === 'theme_id');
+  // Check if agents table exists
+  const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'").get();
+  if (!tableExists) {
+    return; // No agents table yet, nothing to migrate
+  }
 
-  if (!hasThemeId) {
-    // Add theme_id column to existing agents table
+  const agentColumns = db.pragma('table_info(agents)') as Array<{ name: string; notnull: number }>;
+
+  // Check for old 'theme' column (was NOT NULL in old schema)
+  const hasOldTheme = agentColumns.some(c => c.name === 'theme');
+  const hasThemeId = agentColumns.some(c => c.name === 'theme_id');
+  const hasStatus = agentColumns.some(c => c.name === 'status');
+
+  // Need to recreate table if we have old columns (theme, status, etc)
+  if (hasOldTheme || hasStatus) {
+    // Migrate from old schema to new clean schema
+    // Need to disable foreign keys temporarily for table recreation
+    db.pragma('foreign_keys = OFF');
+
+    // Drop old indexes first
+    db.exec(`
+      DROP INDEX IF EXISTS idx_agents_status;
+      DROP INDEX IF EXISTS idx_agents_theme;
+    `);
+
+    db.exec(`
+      -- Create new agents table with correct schema
+      CREATE TABLE IF NOT EXISTS agents_new (
+        name TEXT PRIMARY KEY,
+        theme_id TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
+      );
+
+      -- Copy data from old table (theme column becomes theme_id if it exists)
+      INSERT OR IGNORE INTO agents_new (name, theme_id, created_at)
+      SELECT name, ${hasThemeId ? 'theme_id' : 'NULL'}, created_at FROM agents;
+
+      -- Drop old table
+      DROP TABLE agents;
+
+      -- Rename new table
+      ALTER TABLE agents_new RENAME TO agents;
+
+      -- Recreate index
+      CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
+    `);
+
+    // Clean up old themes table if it exists (replaced by agent_themes)
+    db.exec('DROP TABLE IF EXISTS themes;');
+
+    db.pragma('foreign_keys = ON');
+  } else if (!hasThemeId && agentColumns.length > 0) {
+    // Just add theme_id column to existing agents table
     db.exec('ALTER TABLE agents ADD COLUMN theme_id TEXT REFERENCES agent_themes(id) ON DELETE SET NULL');
   }
 
-  // Create theme tables if they don't exist (handled by CREATE_TABLES_SQL)
+  // Check if active_theme_id column exists in workspace table
+  const workspaceColumns = db.pragma('table_info(workspace)') as Array<{ name: string }>;
+  const hasActiveThemeId = workspaceColumns.some(c => c.name === 'active_theme_id');
+
+  if (!hasActiveThemeId && workspaceColumns.length > 0) {
+    // Add active_theme_id column to existing workspace table
+    db.exec('ALTER TABLE workspace ADD COLUMN active_theme_id TEXT REFERENCES agent_themes(id) ON DELETE SET NULL');
+  }
 }
 
 /**
@@ -260,6 +318,72 @@ export function getWorkspaceConfig(workspacePath: string): WorkspaceConfig | nul
 }
 
 /**
+ * Get the active theme for a workspace
+ * Auto-detects theme from existing agents if not explicitly set
+ */
+export function getActiveTheme(workspacePath: string): AgentTheme | null {
+  const config = getWorkspaceConfig(workspacePath);
+
+  // If explicitly set, use that
+  if (config?.active_theme_id) {
+    return getTheme(workspacePath, config.active_theme_id);
+  }
+
+  // Auto-detect from existing agents
+  const agents = getWorkspaceAgents(workspacePath);
+  if (agents.length === 0) {
+    return null;
+  }
+
+  // Check if any agent has a theme_id set
+  const themedAgent = agents.find(a => a.theme_id);
+  if (themedAgent?.theme_id) {
+    const theme = getTheme(workspacePath, themedAgent.theme_id);
+    if (theme) {
+      // Auto-set it for future use
+      setActiveTheme(workspacePath, themedAgent.theme_id);
+      return theme;
+    }
+  }
+
+  // Check if agent names match any builtin theme
+  const themes = getThemes(workspacePath);
+  for (const theme of themes) {
+    const themeNames = getThemeNames(workspacePath, theme.id);
+    const themeNameSet = new Set(themeNames.map(n => n.name.toLowerCase()));
+
+    // If any existing agent matches this theme's names
+    const matchingAgent = agents.find(a => themeNameSet.has(a.name.toLowerCase()));
+    if (matchingAgent) {
+      // Auto-set it for future use
+      setActiveTheme(workspacePath, theme.id);
+      return theme;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Set the active theme for a workspace
+ */
+export function setActiveTheme(workspacePath: string, themeId: string | null): void {
+  const db = openWorkspaceDatabase(workspacePath);
+
+  if (themeId) {
+    // Validate theme exists
+    const theme = db.prepare('SELECT id FROM agent_themes WHERE id = ?').get(themeId);
+    if (!theme) {
+      db.close();
+      throw new Error(`Theme "${themeId}" not found`);
+    }
+  }
+
+  db.prepare('UPDATE workspace SET active_theme_id = ? WHERE id = 1').run(themeId);
+  db.close();
+}
+
+/**
  * Add repositories to database
  */
 export function addRepositoriesToDatabase(workspacePath: string, repos: { name: string; path: string; source_url?: string; action?: 'clone' | 'move' | 'link' }[]): void {
@@ -364,6 +488,16 @@ export function getWorkspaceRepositories(workspacePath: string): Repository[] {
   const repos = db.prepare('SELECT * FROM repositories ORDER BY added_at').all() as Repository[];
   db.close();
   return repos;
+}
+
+/**
+ * Get worktrees for a specific agent
+ */
+export function getAgentWorktrees(workspacePath: string, agentName: string): AgentWorktree[] {
+  const db = openWorkspaceDatabase(workspacePath);
+  const worktrees = db.prepare('SELECT * FROM agent_worktrees WHERE agent_name = ?').all(agentName) as AgentWorktree[];
+  db.close();
+  return worktrees;
 }
 
 
@@ -474,10 +608,26 @@ export function getThemeNames(workspacePath: string, themeId: string, includeUse
 
 /**
  * Get available (unused) names for a theme
+ * Also excludes names that match existing agents (case-insensitive)
  */
 export function getAvailableThemeNames(workspacePath: string, themeId: string): string[] {
-  const names = getThemeNames(workspacePath, themeId, false);
-  return names.map(n => n.name);
+  const db = openWorkspaceDatabase(workspacePath);
+
+  // Get unused theme names
+  const names = db.prepare(
+    'SELECT name FROM agent_theme_names WHERE theme_id = ? AND used = 0 ORDER BY name'
+  ).all(themeId) as { name: string }[];
+
+  // Get existing agent names (lowercase for comparison)
+  const existingAgents = db.prepare('SELECT LOWER(name) as name FROM agents').all() as { name: string }[];
+  const existingSet = new Set(existingAgents.map(a => a.name));
+
+  db.close();
+
+  // Filter out names that match existing agents
+  return names
+    .map(n => n.name)
+    .filter(name => !existingSet.has(name.toLowerCase()));
 }
 
 /**

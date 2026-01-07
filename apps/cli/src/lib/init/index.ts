@@ -3,7 +3,7 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { DEFAULT_AGENTS_DIR } from '../themes.js';
+import { DEFAULT_AGENTS_DIR, ensureBuiltinThemes } from '../themes.js';
 import { addAgentsToHQ, createAgentWorktrees } from '../agents/index.js';
 import { addRepositoriesToHQ, updateHQRepos, isInGitRepo } from '../repos/index.js';
 import {
@@ -18,7 +18,8 @@ import {
   addAgentsToDatabase,
   getWorkspaceConfig,
   createTheme,
-  addThemeNames
+  addThemeNames,
+  setActiveTheme
 } from '../database/index.js';
 
 export interface HQConfig {
@@ -42,6 +43,8 @@ export interface InitOptions {
   repos?: Array<{ path: string; action: 'move' | 'clone' }>;
   // PMO options (from shared promptForPMOSetup)
   pmoSetup?: PMOSetupResult;
+  // Selected theme ID (becomes workspace's active theme)
+  themeId?: string;
   // Custom theme created during init
   customTheme?: {
     name: string;
@@ -252,6 +255,7 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
     selectedAgents,
     repos,
     pmoSetup,
+    themeId,
     customTheme,
   } = options;
 
@@ -266,6 +270,9 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
   // Create database and workspace configuration
   initializeWorkspaceDatabase(hqPath, options);
 
+  // Ensure builtin themes exist
+  ensureBuiltinThemes(hqPath);
+
   // Save custom theme if one was created during init
   if (customTheme) {
     createTheme(hqPath, {
@@ -276,6 +283,11 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
     });
     addThemeNames(hqPath, customTheme.name, customTheme.names);
     console.log(chalk.blue(`Created custom theme: ${customTheme.displayName}`));
+  }
+
+  // Set active theme if one was selected
+  if (themeId) {
+    setActiveTheme(hqPath, themeId);
   }
 
   // Handle repositories first - add to file system AND database

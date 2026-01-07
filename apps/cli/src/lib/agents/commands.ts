@@ -10,6 +10,7 @@ import {
   getWorkspaceConfig,
   getWorkspaceAgents,
   getWorkspaceRepositories,
+  getAgentWorktrees,
   addAgentsToDatabase,
   removeAgentsFromDatabase,
   Agent,
@@ -174,12 +175,24 @@ export async function selectExistingAgentsInteractively(workspaceInfo: Workspace
  * Get detailed status for a specific agent
  */
 export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string): AgentStatus {
-  const agentDir = path.join(workspaceInfo.agentsPath, agentName);
-  const dirExists = fs.existsSync(agentDir);
-
   // Agent exists if it's in the database - the source of truth
   const agentRecord = workspaceInfo.agents.find(a => a.name === agentName);
   const exists = !!agentRecord;
+
+  // Get worktrees from database to find actual agent location
+  const worktrees = getAgentWorktrees(workspaceInfo.path, agentName);
+
+  // Derive agent directory from worktree path, or fall back to default
+  let agentDir = path.join(workspaceInfo.agentsPath, agentName);
+  if (worktrees.length > 0) {
+    // worktree_path is like "agents/staff/altman/proletariat-altman"
+    // Agent dir is the parent: "agents/staff/altman"
+    const worktreePath = worktrees[0].worktree_path;
+    const agentDirRelative = path.dirname(worktreePath);
+    agentDir = path.join(workspaceInfo.path, agentDirRelative);
+  }
+
+  const dirExists = fs.existsSync(agentDir);
 
   const status: AgentStatus = {
     name: agentName,
@@ -207,11 +220,9 @@ export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string):
     // Ignore git reading errors
   }
 
-  // Get repository status
-  status.repositories = workspaceInfo.repositories.map(repo => {
-    // Worktree naming convention: {repoName}-{agentName}
-    const worktreeDirName = `${repo.name}-${agentName}`;
-    const repoPath = path.join(agentDir, worktreeDirName);
+  // Get repository status from database worktrees
+  status.repositories = worktrees.map(worktree => {
+    const repoPath = path.join(workspaceInfo.path, worktree.worktree_path);
     const repoExists = fs.existsSync(repoPath);
 
     let repoStatus = 'missing';
@@ -244,7 +255,7 @@ export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string):
     }
 
     return {
-      name: repo.name,
+      name: worktree.repo_name,
       status: repoStatus,
       commitsAhead
     };

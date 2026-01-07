@@ -77,6 +77,7 @@ export default class Init extends Command {
         selectedAgents: agentResult.agents,
         repos,
         pmoSetup,
+        themeId: agentResult.themeId,
         customTheme: agentResult.customTheme,
       };
 
