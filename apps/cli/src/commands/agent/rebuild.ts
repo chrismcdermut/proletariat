@@ -1,13 +1,14 @@
-import { Args, Command, Flags } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { DockerCommand } from '../../lib/commands/docker-command.js';
 
 const execAsync = promisify(exec);
 
-export default class AgentRebuild extends Command {
+export default class AgentRebuild extends DockerCommand {
   static description = 'Rebuild a specific agent devcontainer image';
 
   static examples = [

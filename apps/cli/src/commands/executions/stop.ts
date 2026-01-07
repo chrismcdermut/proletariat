@@ -5,6 +5,7 @@ import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
+import { isDockerRunning } from '../../lib/execution/runners.js'
 
 export default class ExecutionsStop extends Command {
   static description = 'Stop multiple running executions'
@@ -122,14 +123,19 @@ export default class ExecutionsStop extends Command {
 
             case 'docker':
               if (execution.containerId) {
-                try {
-                  const cmd = flags.force
-                    ? `docker kill ${execution.containerId}`
-                    : `docker stop ${execution.containerId}`
-                  execSync(cmd, { stdio: 'pipe' })
+                if (!isDockerRunning()) {
+                  this.log(styles.warning(`   ${execution.id}: Docker is not running, cannot stop container`))
                   success = true
-                } catch {
-                  success = true // Container may have already stopped
+                } else {
+                  try {
+                    const cmd = flags.force
+                      ? `docker kill ${execution.containerId}`
+                      : `docker stop ${execution.containerId}`
+                    execSync(cmd, { stdio: 'pipe' })
+                    success = true
+                  } catch {
+                    success = true // Container may have already stopped
+                  }
                 }
               } else {
                 success = true
@@ -140,14 +146,19 @@ export default class ExecutionsStop extends Command {
               // For devcontainer mode, try to stop the container
               // The container name is typically based on the agent directory
               if (execution.containerId) {
-                try {
-                  const cmd = flags.force
-                    ? `docker kill ${execution.containerId}`
-                    : `docker stop ${execution.containerId}`
-                  execSync(cmd, { stdio: 'pipe' })
+                if (!isDockerRunning()) {
+                  this.log(styles.warning(`   ${execution.id}: Docker is not running, cannot stop container`))
                   success = true
-                } catch {
-                  success = true
+                } else {
+                  try {
+                    const cmd = flags.force
+                      ? `docker kill ${execution.containerId}`
+                      : `docker stop ${execution.containerId}`
+                    execSync(cmd, { stdio: 'pipe' })
+                    success = true
+                  } catch {
+                    success = true
+                  }
                 }
               } else {
                 success = true

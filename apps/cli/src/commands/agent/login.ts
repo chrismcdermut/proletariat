@@ -1,12 +1,13 @@
-import { Command, Args } from '@oclif/core';
+import { Args } from '@oclif/core';
 import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { DockerCommand } from '../../lib/commands/docker-command.js';
 
-export default class Login extends Command {
+export default class Login extends DockerCommand {
   static description = 'Authenticate Claude Code inside an agent container (one-time setup)';
 
   static examples = [

@@ -1,11 +1,12 @@
-import { Args, Command } from '@oclif/core';
+import { Args } from '@oclif/core';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { colors } from '../../lib/colors.js';
+import { DockerCommand } from '../../lib/commands/docker-command.js';
 
 const execAsync = promisify(exec);
 
-export default class AgentRestart extends Command {
+export default class AgentRestart extends DockerCommand {
   static description = 'Restart a specific agent devcontainer';
 
   static examples = [
