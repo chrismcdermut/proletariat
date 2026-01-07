@@ -13,8 +13,8 @@ const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, '../..');
 
 /**
- * PARTIALLY SKIPPED: Some init tests have bugs unrelated to TKT-040.
- * See ticket TKT-041 for implementation tracking.
+ * Tests for prlt init command
+ * Updated for TKT-042: Themes are now optional, not required
  */
 describe('prlt init', () => {
   let testDir: string;
@@ -51,40 +51,26 @@ describe('prlt init', () => {
   // SKIPPED: Init tests have bugs unrelated to TKT-040. See TKT-041.
   describe.skip('HQ creation', () => {
     it('should create basic HQ structure outside git repo', async () => {
-      // Mock inquirer responses for HQ creation
-      const mockAnswers = {
-        workspaceType: 'hq',
-        name: 'test-company',
-        addSuffix: true,
-        location: path.join(testDir, 'test-company-hq'),
-        theme: 'toyotas',
-        addAgents: false,
-        addCurrentRepo: false,
-        addMoreRepos: false,
-        includePMO: false
-      };
-
       // Since we can't easily mock inquirer in integration tests,
       // let's test the underlying functions directly
       const { createHQStructure } = await import('../../src/lib/init/index.js');
       const { createWorkspaceDatabase, getWorkspaceConfig } = await import('../../src/lib/database/index.js');
-      const { THEMES } = await import('../../src/lib/themes.js');
-      
+      const { DEFAULT_AGENTS_DIR } = await import('../../src/lib/themes.js');
+
       const hqPath = path.join(testDir, 'test-company-hq');
-      const theme = 'toyotas';
 
-      // Create HQ structure
-      createHQStructure(hqPath, theme);
+      // Create HQ structure (no longer takes theme param)
+      createHQStructure(hqPath);
 
-      // Create database
-      const db = createWorkspaceDatabase(hqPath, 'hq', theme, THEMES[theme].workspaceDir, false);
+      // Create database (signature: workspacePath, type, workspaceName, hasPMO)
+      const db = createWorkspaceDatabase(hqPath, 'hq', 'test-company', false);
       db.close();
 
       // Verify directory structure was created
       expect(fs.existsSync(hqPath)).to.be.true;
       expect(fs.existsSync(path.join(hqPath, '.proletariat'))).to.be.true;
       expect(fs.existsSync(path.join(hqPath, 'repos'))).to.be.true;
-      expect(fs.existsSync(path.join(hqPath, 'agents', THEMES[theme].workspaceDir))).to.be.true;
+      expect(fs.existsSync(path.join(hqPath, 'agents', DEFAULT_AGENTS_DIR))).to.be.true;
 
       // Verify config files exist
       const configPath = path.join(hqPath, '.proletariat', 'config.json');
@@ -96,8 +82,7 @@ describe('prlt init', () => {
       const config = getWorkspaceConfig(hqPath);
       expect(config).to.not.be.null;
       expect(config!.type).to.equal('hq');
-      expect(config!.theme).to.equal(theme);
-      expect(config!.workspace_name).to.equal(THEMES[theme].workspaceDir);
+      expect(config!.workspace_name).to.equal('test-company');
       expect(config!.has_pmo).to.be.false;
     });
 
@@ -108,11 +93,11 @@ describe('prlt init', () => {
       execSync('git config user.name "Test User"', { cwd: testDir });
 
       const { validateHQLocation } = await import('../../src/lib/init/index.js');
-      
+
       // Test that function correctly identifies location inside git repo
       const insideRepo = path.join(testDir, 'inside-repo');
       const result = validateHQLocation(insideRepo);
-      
+
       // The validation should detect that this would be inside the git repo
       expect(result).to.be.false;
     });
@@ -125,7 +110,7 @@ describe('prlt init', () => {
       execSync('git init', { cwd: testDir });
       execSync('git config user.email "test@example.com"', { cwd: testDir });
       execSync('git config user.name "Test User"', { cwd: testDir });
-      
+
       // Create an initial commit
       fs.writeFileSync(path.join(testDir, 'README.md'), '# Test Repo');
       execSync('git add README.md', { cwd: testDir });
@@ -133,12 +118,12 @@ describe('prlt init', () => {
 
       const { createWorkspaceOnly } = await import('../../src/lib/init/index.js');
       const { getWorkspaceConfig } = await import('../../src/lib/database/index.js');
-      
-      const workspacePath = path.join(path.dirname(testDir), 'garage');
-      const theme = 'toyotas';
+
+      const workspacePath = path.join(path.dirname(testDir), 'staff');
       const selectedAgents: string[] = [];
 
-      await createWorkspaceOnly(theme, selectedAgents, workspacePath);
+      // createWorkspaceOnly signature: (selectedAgents, workspacePath)
+      await createWorkspaceOnly(selectedAgents, workspacePath);
 
       // Verify workspace structure
       expect(fs.existsSync(workspacePath)).to.be.true;
@@ -154,7 +139,6 @@ describe('prlt init', () => {
       const config = getWorkspaceConfig(workspacePath);
       expect(config).to.not.be.null;
       expect(config!.type).to.equal('workspace');
-      expect(config!.theme).to.equal('toyotas');
     });
   });
 
@@ -165,67 +149,62 @@ describe('prlt init', () => {
       execSync('git init', { cwd: testDir });
       execSync('git config user.email "test@example.com"', { cwd: testDir });
       execSync('git config user.name "Test User"', { cwd: testDir });
-      
+
       fs.writeFileSync(path.join(testDir, 'README.md'), '# Test Repo');
       execSync('git add README.md', { cwd: testDir });
       execSync('git commit -m "Initial commit"', { cwd: testDir });
 
       const { createAgentWorktrees } = await import('../../src/lib/agents/index.js');
-      
-      const workspacePath = path.join(path.dirname(testDir), 'garage');
+
+      const workspacePath = path.join(path.dirname(testDir), 'staff');
       fs.mkdirSync(workspacePath, { recursive: true });
 
       const agents = ['camry', 'tacoma'];
-      await createAgentWorktrees(workspacePath, agents);
+      // Pass skipDevcontainer: true to avoid devcontainer creation in tests
+      await createAgentWorktrees(workspacePath, agents, undefined, { skipDevcontainer: true });
 
       // Verify agent directories and worktrees
+      const repoName = path.basename(testDir);
       for (const agent of agents) {
         const agentDir = path.join(workspacePath, agent);
-        const worktreeDir = path.join(agentDir, path.basename(testDir));
-        
+        // Worktree is now named {repoName}-{agentName}
+        const worktreeDir = path.join(agentDir, `${repoName}-${agent}`);
+
         expect(fs.existsSync(agentDir)).to.be.true;
         expect(fs.existsSync(worktreeDir)).to.be.true;
-        expect(fs.existsSync(path.join(agentDir, '.proletariat', 'config.json'))).to.be.true;
 
         // Verify it's a proper git worktree
         expect(fs.existsSync(path.join(worktreeDir, '.git'))).to.be.true;
         expect(fs.existsSync(path.join(worktreeDir, 'README.md'))).to.be.true;
-
-        // Verify agent config
-        const agentConfig = JSON.parse(fs.readFileSync(
-          path.join(agentDir, '.proletariat', 'config.json'), 
-          'utf-8'
-        ));
-        expect(agentConfig.type).to.equal('agent');
-        expect(agentConfig.agentName).to.equal(agent);
-        expect(agentConfig.branch).to.equal(`agent-${agent}`);
       }
     });
   });
 
   describe('theme validation', () => {
-    it('should work with all supported themes', async () => {
-      const { THEMES } = await import('../../src/lib/themes.js');
-      const { createHQStructure } = await import('../../src/lib/init/index.js');
+    it('should have valid built-in themes', async () => {
+      const { BUILTIN_THEMES } = await import('../../src/lib/themes.js');
 
-      for (const [themeName, themeConfig] of Object.entries(THEMES)) {
-        const hqPath = path.join(testDir, `test-${themeName}-hq`);
-        
-        createHQStructure(hqPath, themeName);
-        
-        expect(fs.existsSync(path.join(hqPath, 'agents', themeConfig.workspaceDir))).to.be.true;
+      expect(BUILTIN_THEMES).to.be.an('array');
+      expect(BUILTIN_THEMES.length).to.be.greaterThan(0);
+
+      for (const theme of BUILTIN_THEMES) {
+        expect(theme.id).to.be.a('string');
+        expect(theme.name).to.be.a('string');
+        expect(theme.displayName).to.be.a('string');
+        expect(theme.names).to.be.an('array');
+        expect(theme.names.length).to.be.greaterThan(0);
       }
     });
 
-    it('should have valid agent lists for all themes', async () => {
-      const { THEMES } = await import('../../src/lib/themes.js');
+    it('should create HQ structure with default agents directory', async () => {
+      const { createHQStructure } = await import('../../src/lib/init/index.js');
+      const { DEFAULT_AGENTS_DIR } = await import('../../src/lib/themes.js');
 
-      for (const [themeName, themeConfig] of Object.entries(THEMES)) {
-        expect(themeConfig.agents).to.be.an('array');
-        expect(themeConfig.agents.length).to.be.greaterThan(0);
-        expect(themeConfig.workspaceDir).to.be.a('string');
-        expect(themeConfig.workspaceDir.length).to.be.greaterThan(0);
-      }
+      const hqPath = path.join(testDir, 'test-hq');
+
+      createHQStructure(hqPath);
+
+      expect(fs.existsSync(path.join(hqPath, 'agents', DEFAULT_AGENTS_DIR))).to.be.true;
     });
   });
 });

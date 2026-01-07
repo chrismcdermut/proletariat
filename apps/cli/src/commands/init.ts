@@ -1,19 +1,18 @@
 import { Command } from '@oclif/core';
 import chalk from 'chalk';
-import { 
+import {
   promptForWorkspaceType,
-  promptForHQName, 
-  promptForHQSuffix, 
+  promptForHQName,
+  promptForHQSuffix,
   promptForHQLocation,
   promptForWorkspaceLocation,
   initializeHQ,
   createWorkspaceOnly,
-  showNextSteps 
+  showNextSteps
 } from '../lib/init/index.js';
-import { promptForAgents } from '../lib/agents/index.js';
+import { promptForAgentsWithTheme, AgentPromptResult } from '../lib/agents/index.js';
 import { promptForRepositories } from '../lib/repos/index.js';
 import { promptForPMOSetup } from '../lib/pmo/index.js';
-import { promptForTheme } from '../lib/themes/index.js';
 
 export default class Init extends Command {
   static description = 'Initialize an HQ (headquarters) for managing repositories, agents, and projects';
@@ -32,20 +31,17 @@ export default class Init extends Command {
       // Simplified workspace-only flow
       console.log(chalk.blue('\n🔧 Setting up workspace...\n'));
 
-      // Step 2: Choose theme
-      const theme = await promptForTheme();
+      // Step 2: Choose location
+      const workspacePath = await promptForWorkspaceLocation();
 
-      // Step 3: Choose location
-      const workspacePath = await promptForWorkspaceLocation(theme);
-
-      // Step 4: Add agents
-      const selectedAgents = await promptForAgents(theme);
+      // Step 3: Add agents (with theme options)
+      const agentResult = await promptForAgentsWithTheme();
 
       // Create workspace
-      await createWorkspaceOnly(theme, selectedAgents, workspacePath);
+      await createWorkspaceOnly(agentResult.agents, workspacePath);
 
       // Show next steps
-      const options = { workspaceType, theme, selectedAgents };
+      const options = { workspaceType, selectedAgents: agentResult.agents };
       await showNextSteps(options, workspacePath);
 
     } else {
@@ -61,16 +57,13 @@ export default class Init extends Command {
       // Step 4: Determine location
       const hqPath = await promptForHQLocation(hqName, addSuffix);
 
-      // Step 5: Choose theme
-      const theme = await promptForTheme();
+      // Step 5: Add agents (with theme options)
+      const agentResult = await promptForAgentsWithTheme();
 
-      // Step 6: Add agents
-      const selectedAgents = await promptForAgents(theme);
-
-      // Step 7: Add repositories
+      // Step 6: Add repositories
       const repos = await promptForRepositories(process.cwd(), []);
 
-      // Step 8: PMO setup (uses shared prompt from lib/pmo)
+      // Step 7: PMO setup (uses shared prompt from lib/pmo)
       // Pass hqPath so it can detect repos and offer location choices
       // Pass hqName so default board name is {hqname}-kanban
       const pmoSetup = await promptForPMOSetup(hqPath, hqName);
@@ -80,11 +73,12 @@ export default class Init extends Command {
         workspaceType,
         hqName,
         hqPath,
-        theme,
         addSuffix,
-        selectedAgents,
+        selectedAgents: agentResult.agents,
         repos,
         pmoSetup,
+        themeId: agentResult.themeId,
+        customTheme: agentResult.customTheme,
       };
 
       // Initialize the HQ

@@ -3,7 +3,7 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { THEMES } from '../themes.js';
+import { DEFAULT_AGENTS_DIR, isValidAgentName, getSuggestedAgentNames, normalizeAgentName, BUILTIN_THEMES } from '../themes.js';
 import { getWorkspaceRepositories } from '../database/index.js';
 import { styles } from '../styles.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
@@ -11,7 +11,6 @@ import { createDevcontainerConfig } from '../execution/devcontainer.js';
 export interface HQConfig {
   type: 'hq';
   created: string;
-  theme: string;
   workspaceName: string;
   hasPMO: boolean;
   agents: string[];
@@ -45,36 +44,33 @@ export function findHQRoot(startDir: string = process.cwd()): string | null {
 }
 
 /**
- * Prompt user to select agents from theme
+ * Prompt user to enter agent names
  */
-export async function selectAgentsFromTheme(theme: string, existingAgents: string[] = []): Promise<string[]> {
-  const themeConfig = THEMES[theme];
-  if (!themeConfig) {
-    throw new Error(`Unknown theme: ${theme}`);
-  }
+export async function promptAgentNames(existingAgents: string[] = []): Promise<string[]> {
+  const suggestions = getSuggestedAgentNames().filter(n => !existingAgents.includes(n));
 
-  // Filter out already existing agents
-  const availableAgents = themeConfig.agents.filter(a => !existingAgents.includes(a));
-  
-  if (availableAgents.length === 0) {
-    console.log(chalk.yellow('All agents from this theme are already added.'));
-    return [];
-  }
-
-  const { selected } = await inquirer.prompt([{
-    type: 'checkbox',
-    name: 'selected',
-    message: 'Select agents (SPACE to select, ENTER when done):',
-    choices: availableAgents.map(a => ({ name: a, value: a })),
-    validate: (choices) => {
-      if (choices.length === 0) {
-        return 'No agents selected. Press SPACE to select agents, or ENTER to continue with none.';
+  const { agentNames } = await inquirer.prompt([{
+    type: 'input',
+    name: 'agentNames',
+    message: `Enter agent names (space-separated, e.g., "${suggestions.slice(0, 2).join(' ')}"):`,
+    validate: (input: string) => {
+      if (!input.trim()) {
+        return 'Please enter at least one agent name';
+      }
+      const names = input.trim().split(/\s+/);
+      const invalid = names.filter(n => !isValidAgentName(n));
+      if (invalid.length > 0) {
+        return `Invalid agent names: ${invalid.join(', ')}. Names must be lowercase alphanumeric with optional hyphens/underscores.`;
+      }
+      const duplicates = names.filter(n => existingAgents.includes(n));
+      if (duplicates.length > 0) {
+        return `These agents already exist: ${duplicates.join(', ')}`;
       }
       return true;
     },
   }]);
 
-  return selected;
+  return agentNames.trim().split(/\s+/).filter((n: string) => n);
 }
 
 export interface CreateAgentOptions {
@@ -265,25 +261,151 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
 }
 
 /**
- * Prompt user for agent selection
+ * Result from agent prompt including optional theme info
  */
-export async function promptForAgents(theme: string): Promise<string[]> {
+export interface AgentPromptResult {
+  agents: string[];
+  themeId?: string;  // Selected theme ID (builtin or custom)
+  customTheme?: {
+    name: string;
+    displayName: string;
+    names: string[];
+  };
+}
+
+/**
+ * Prompt user for agent selection with theme options
+ */
+export async function promptForAgents(): Promise<string[]> {
+  const result = await promptForAgentsWithTheme();
+  return result.agents;
+}
+
+/**
+ * Prompt user for agent selection with theme options (returns full result)
+ */
+export async function promptForAgentsWithTheme(): Promise<AgentPromptResult> {
   const { addAgents } = await inquirer.prompt([{
     type: 'list',
     name: 'addAgents',
     message: 'Add agents now?',
     choices: [
-      { name: 'Yes', value: true },
-      { name: 'No', value: false }
+      { name: 'Yes, pick from a theme', value: 'theme' },
+      { name: 'Yes, enter custom names', value: 'custom' },
+      { name: 'Yes, create a custom theme', value: 'create-theme' },
+      { name: 'No, I\'ll add agents later', value: 'no' }
     ],
-    default: true,
+    default: 'theme',
   }]);
 
-  if (!addAgents) {
-    return [];
+  if (addAgents === 'no') {
+    return { agents: [] };
   }
 
-  return await selectAgentsFromTheme(theme, []);
+  if (addAgents === 'custom') {
+    const agents = await promptAgentNames([]);
+    return { agents };
+  }
+
+  if (addAgents === 'create-theme') {
+    // Create a custom theme
+    const { themeName } = await inquirer.prompt([{
+      type: 'input',
+      name: 'themeName',
+      message: 'Theme name (e.g., "Greek Gods", "Star Wars"):',
+      validate: (input: string) => input.trim() ? true : 'Theme name is required'
+    }]);
+
+    // Normalize theme ID
+    const themeId = themeName.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const displayName = themeName.trim();
+
+    if (themeName.trim() !== themeId) {
+      console.log(chalk.blue(`Theme ID: ${themeId}`));
+    }
+
+    // Prompt for names to add to the theme
+    const { themeNames } = await inquirer.prompt([{
+      type: 'input',
+      name: 'themeNames',
+      message: 'Enter names for this theme (space-separated):',
+      validate: (input: string) => {
+        if (!input.trim()) return 'Please enter at least one name';
+        return true;
+      }
+    }]);
+
+    // Normalize names
+    const rawNames = themeNames.trim().split(/\s+/);
+    const normalizedNames = rawNames.map((n: string) => normalizeAgentName(n)).filter((n: string) => n && isValidAgentName(n));
+
+    if (normalizedNames.length === 0) {
+      console.log(chalk.yellow('No valid names after normalization.'));
+      return { agents: [] };
+    }
+
+    // Show normalized names
+    const changed = rawNames.filter((n: string, i: number) => n !== normalizedNames[i]);
+    if (changed.length > 0) {
+      console.log(chalk.blue('Normalized names:'));
+      rawNames.forEach((n: string, i: number) => {
+        if (n !== normalizedNames[i] && normalizedNames[i]) {
+          console.log(chalk.dim(`   ${n} → ${normalizedNames[i]}`));
+        }
+      });
+    }
+
+    // Now select which agents to create from the theme
+    const { selected } = await inquirer.prompt([{
+      type: 'checkbox',
+      name: 'selected',
+      message: 'Select agents to create now:',
+      choices: normalizedNames.map((name: string) => ({ name, value: name, checked: true })),
+      validate: (input) => input.length > 0 || 'Please select at least one agent'
+    }]);
+
+    return {
+      agents: selected,
+      themeId: themeId,  // Custom theme ID
+      customTheme: {
+        name: themeId,
+        displayName,
+        names: normalizedNames
+      }
+    };
+  }
+
+  // Theme selection mode
+  // Build theme choices
+  const themeChoices = BUILTIN_THEMES.map(t => ({
+    name: `${t.displayName} (${t.names.length} names)`,
+    value: t.id
+  }));
+
+  const { selectedTheme } = await inquirer.prompt([{
+    type: 'list',
+    name: 'selectedTheme',
+    message: 'Select a theme:',
+    choices: themeChoices
+  }]);
+
+  // Get the theme
+  const theme = BUILTIN_THEMES.find(t => t.id === selectedTheme);
+  if (!theme) {
+    return { agents: [] };
+  }
+
+  // Select names from the theme
+  const { selected } = await inquirer.prompt([{
+    type: 'checkbox',
+    name: 'selected',
+    message: `Select agents from ${theme.displayName}:`,
+    choices: theme.names.map(name => ({ name, value: name })),
+    pageSize: 15,
+    validate: (input) => input.length > 0 || 'Please select at least one agent'
+  }]);
+
+  return { agents: selected, themeId: selectedTheme };
 }
 
 /**
@@ -291,16 +413,15 @@ export async function promptForAgents(theme: string): Promise<string[]> {
  */
 export async function addAgentsToHQ(
   hqPath: string,
-  agents: string[],
-  theme: string
+  agents: string[]
 ): Promise<void> {
   // Import database functions for getting/adding agents
   const { getWorkspaceAgents, addAgentsToDatabase } = await import('../database/index.js');
-  
+
   // Get existing agents from database
   const existingAgents = getWorkspaceAgents(hqPath);
   const existingAgentNames = existingAgents.map(a => a.name);
-  
+
   // Filter out already existing agents
   const newAgents = agents.filter(name => {
     if (existingAgentNames.includes(name)) {
@@ -316,12 +437,11 @@ export async function addAgentsToHQ(
   }
 
   // Create worktrees
-  const themeConfig = THEMES[theme];
-  const workspacePath = path.join(hqPath, 'agents', themeConfig.workspaceDir);
+  const workspacePath = path.join(hqPath, 'agents', DEFAULT_AGENTS_DIR);
   await createAgentWorktrees(workspacePath, newAgents, hqPath);
 
   // Add agents to database
-  addAgentsToDatabase(hqPath, newAgents, theme);
-  
+  addAgentsToDatabase(hqPath, newAgents);
+
   console.log(chalk.green(`\n🎉 Added ${newAgents.length} agent(s) successfully!`));
 }

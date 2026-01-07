@@ -534,8 +534,8 @@ describe('PMO SQLite Storage', () => {
     let spec2Id: string;
 
     beforeEach(async () => {
-      const spec1 = await storage.createSpec({ id: 'spec-1', path: 'specs/1.md', title: 'Spec 1' });
-      const spec2 = await storage.createSpec({ id: 'spec-2', path: 'specs/2.md', title: 'Spec 2' });
+      const spec1 = await storage.createSpec({ id: 'spec-1', title: 'Spec 1' });
+      const spec2 = await storage.createSpec({ id: 'spec-2', title: 'Spec 2' });
       spec1Id = spec1.id;
       spec2Id = spec2.id;
     });
