@@ -111,51 +111,18 @@ function buildPrompt(context: ExecutionContext): string {
   // For revisions, just tell agent to push changes
   if (context.isRevision) {
     prompt += `After addressing the feedback:\n`
-    prompt += `1. Commit your changes in each repository you modified\n`
+    prompt += `1. Commit your changes using \`prlt commit "your message"\`\n`
     prompt += `2. Push your changes: \`git push\`\n`
     prompt += `\nThe PR will be updated automatically.`
   } else {
-    // Build commit message example based on conventional commit config
-    let commitExample = 'feat: add new feature'
-    let scopePart = ''
-
-    if (context.commitConfig?.enforced) {
-      // Build scope if required
-      if (context.commitConfig.scopeFormat === 'agent' && context.agentName) {
-        scopePart = `(${context.agentName})`
-      } else if (context.commitConfig.scopeFormat === 'ticket') {
-        scopePart = `(${context.ticketId})`
-      }
-
-      // Build example with first allowed type
-      const exampleType = context.commitConfig.types[0] || 'feat'
-      commitExample = `${exampleType}${scopePart}: describe your change`
-    }
-
     prompt += `1. **Commit your work** in each repository directory you modified:\n`
     prompt += `   \`\`\`bash\n`
     prompt += `   cd /workspace/<repo-name>\n`
     prompt += `   git add -A\n`
-    prompt += `   git commit -m "${commitExample}"\n`
+    prompt += `   prlt commit "describe your change"\n`
     prompt += `   git push\n`
     prompt += `   \`\`\`\n`
-
-    // Add conventional commit instructions if enforced
-    if (context.commitConfig?.enforced) {
-      prompt += `\n   **Commit Message Format (Conventional Commits):**\n`
-      prompt += `   Use format: \`<type>${scopePart}: <description>\`\n\n`
-      prompt += `   Allowed types:\n`
-      for (const type of context.commitConfig.types) {
-        prompt += `   - \`${type}\`\n`
-      }
-      if (context.commitConfig.requireScope && context.commitConfig.scopeFormat !== 'none') {
-        prompt += `\n   Scope is required: use ${context.commitConfig.scopeFormat === 'agent' ? 'agent name' : 'ticket ID'} in parentheses.\n`
-      }
-      prompt += `\n   Examples:\n`
-      prompt += `   - \`feat${scopePart}: add user authentication\`\n`
-      prompt += `   - \`fix${scopePart}: resolve login redirect bug\`\n`
-      prompt += `   - \`docs${scopePart}: update API documentation\`\n`
-    }
+    prompt += `   This formats your commit as a conventional commit with the ticket ID.\n`
 
     prompt += `\n2. **Mark work as ready** by running:\n`
     // Build the work ready command with the appropriate PR flag

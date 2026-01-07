@@ -147,13 +147,6 @@ export interface ExecutionContext {
   // PR feedback context (for work revise)
   prFeedback?: string // Formatted PR feedback markdown
   isRevision?: boolean // Whether this is a revision (addressing PR feedback)
-  // Conventional commit settings (loaded from config)
-  commitConfig?: {
-    types: string[]           // Allowed commit types (feat, fix, etc.)
-    requireScope: boolean     // Whether scope is required
-    scopeFormat: 'agent' | 'ticket' | 'none'  // What to use as scope
-    enforced: boolean         // Whether to enforce conventional commits
-  }
 }
 
 // =============================================================================

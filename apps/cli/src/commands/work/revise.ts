@@ -5,7 +5,7 @@ import { execSync } from 'node:child_process'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
-import { getWorkColumnSetting, findColumnByName, getAllCommitConfigSettings } from '../../lib/pmo/utils.js'
+import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
@@ -238,18 +238,6 @@ export default class WorkRevise extends Command {
       // Get branch from ticket metadata or current branch
       const branch = (ticket.metadata?.pr_branch as string) || this.getCurrentBranch(worktreePath)
 
-      // Load conventional commit settings from PMO database
-      const pmoDatabasePath = path.join(pmoPath, 'pmo.db')
-      let commitConfigSettings: ExecutionContext['commitConfig'] | undefined
-      if (fs.existsSync(pmoDatabasePath)) {
-        const pmoDb = new Database(pmoDatabasePath)
-        try {
-          commitConfigSettings = getAllCommitConfigSettings(pmoDb)
-        } finally {
-          pmoDb.close()
-        }
-      }
-
       // Build execution context
       const hqPath = path.dirname(pmoPath)
       const context: ExecutionContext = {
@@ -267,8 +255,6 @@ export default class WorkRevise extends Command {
         // Revision-specific context
         isRevision: true,
         prFeedback: formattedFeedback,
-        // Conventional commit settings
-        commitConfig: commitConfigSettings,
       }
 
       // Determine execution mode (simplified from work start)

@@ -5,7 +5,7 @@ import { execSync } from 'node:child_process'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
-import { getWorkColumnSetting, findColumnByName, getAllCommitConfigSettings } from '../../lib/pmo/utils.js'
+import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { StateCategory, WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
@@ -466,18 +466,6 @@ export default class WorkStart extends Command {
       // HQ path comes from workspaceInfo (not derived from pmoPath since pmo can be nested in repos)
       const hqPath = workspaceInfo.path
 
-      // Load conventional commit settings from PMO database
-      const pmoDatabasePath = path.join(pmoPath, 'pmo.db')
-      let commitConfigSettings: ExecutionContext['commitConfig'] | undefined
-      if (fs.existsSync(pmoDatabasePath)) {
-        const pmoDb = new Database(pmoDatabasePath)
-        try {
-          commitConfigSettings = getAllCommitConfigSettings(pmoDb)
-        } finally {
-          pmoDb.close()
-        }
-      }
-
       const context: ExecutionContext = {
         ticketId: ticket.id,
         ticketTitle: ticket.title,
@@ -501,8 +489,6 @@ export default class WorkStart extends Command {
         actionName: selectedAction?.name || (customPrompt ? 'Custom' : undefined),
         actionPrompt: customPrompt || selectedAction?.prompt,
         modifiesCode: customPrompt ? true : selectedAction?.modifiesCode ?? true,
-        // Conventional commit settings
-        commitConfig: commitConfigSettings,
       }
 
       // Check if agent has devcontainer config
