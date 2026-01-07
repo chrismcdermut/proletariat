@@ -362,6 +362,7 @@ export default class WorkStart extends Command {
         ticket.id,
         ticket.title,
         coderName,
+        assignedAgent,
         ticket.category
       )
       const isExistingBranch = !!ticket.branch
@@ -1174,7 +1175,7 @@ export default class WorkStart extends Command {
     const coderName = await getOrPromptCoderName(db)
 
     // Use ticket's existing branch or generate a new one
-    const branch = ticket.branch || generateBranchName(ticket.id, ticket.title, coderName, ticket.category)
+    const branch = ticket.branch || generateBranchName(ticket.id, ticket.title, coderName, agentName, ticket.category)
     const isExistingBranch = !!ticket.branch
 
     // Get epic and spec info

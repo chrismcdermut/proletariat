@@ -214,6 +214,7 @@ export async function spawnAgentForTicket(
     ticket.id,
     ticket.title,
     coderName,
+    agentName,
     ticket.category
   )
 

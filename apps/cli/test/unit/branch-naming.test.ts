@@ -3,43 +3,56 @@ import { generateBranchName, getBranchType, CATEGORY_TO_BRANCH_TYPE } from '../.
 
 describe('Branch Naming', () => {
   describe('generateBranchName', () => {
-    it('generates branch with coder name and ticket info', () => {
-      const branch = generateBranchName('TKT-001', 'Implement authentication', 'chris');
-      expect(branch).to.equal('feat/chris/TKT-001-implement-authentication');
+    it('generates branch with ticket ID first, then type/owner/agent/slug', () => {
+      const branch = generateBranchName('TKT-001', 'Implement authentication', 'chris', 'altman');
+      expect(branch).to.equal('TKT-001/feat/chris/altman/implement-authentica');
     });
 
     it('includes category-based branch type', () => {
-      const branch = generateBranchName('TKT-002', 'Fix login bug', 'chris', 'bug');
-      expect(branch).to.equal('fix/chris/TKT-002-fix-login-bug');
+      const branch = generateBranchName('TKT-002', 'Fix login bug', 'chris', 'altman', 'bug');
+      expect(branch).to.equal('TKT-002/fix/chris/altman/fix-login-bug');
     });
 
-    it('truncates long titles to 30 characters', () => {
+    it('truncates long titles to 20 characters', () => {
       const longTitle = 'This is a very long ticket title that should be truncated';
-      const branch = generateBranchName('TKT-003', longTitle, 'chris');
-      // Slug should be max 30 chars
-      const slug = branch.split('/')[2].replace('TKT-003-', '');
-      expect(slug.length).to.be.at.most(30);
+      const branch = generateBranchName('TKT-003', longTitle, 'chris', 'altman');
+      // Slug should be max 20 chars
+      const parts = branch.split('/');
+      const slug = parts[4]; // TKT-003/feat/chris/altman/slug
+      expect(slug.length).to.be.at.most(20);
     });
 
     it('removes special characters from title', () => {
-      const branch = generateBranchName('TKT-004', 'Fix bug #123 (urgent!)', 'chris');
-      expect(branch).to.equal('feat/chris/TKT-004-fix-bug-123-urgent');
+      const branch = generateBranchName('TKT-004', 'Fix bug #123 (urgent!)', 'chris', 'altman');
+      expect(branch).to.equal('TKT-004/feat/chris/altman/fix-bug-123-urgent');
     });
 
-    it('handles various coder name formats', () => {
-      expect(generateBranchName('TKT-001', 'Test', 'chris')).to.include('/chris/');
-      expect(generateBranchName('TKT-001', 'Test', 'chris-m')).to.include('/chris-m/');
-      expect(generateBranchName('TKT-001', 'Test', 'team-alpha')).to.include('/team-alpha/');
+    it('handles various owner name formats', () => {
+      expect(generateBranchName('TKT-001', 'Test', 'chris', 'altman')).to.include('/chris/');
+      expect(generateBranchName('TKT-001', 'Test', 'chris-m', 'altman')).to.include('/chris-m/');
+      expect(generateBranchName('TKT-001', 'Test', 'team-alpha', 'altman')).to.include('/team-alpha/');
+    });
+
+    it('handles various agent name formats', () => {
+      expect(generateBranchName('TKT-001', 'Test', 'chris', 'altman')).to.include('/altman/');
+      expect(generateBranchName('TKT-001', 'Test', 'chris', 'claude-agent')).to.include('/claude-agent/');
+      expect(generateBranchName('TKT-001', 'Test', 'chris', 'codex')).to.include('/codex/');
     });
 
     it('defaults to feat branch type when no category', () => {
-      const branch = generateBranchName('TKT-001', 'New feature', 'chris');
-      expect(branch).to.match(/^feat\//);
+      const branch = generateBranchName('TKT-001', 'New feature', 'chris', 'altman');
+      expect(branch).to.match(/^TKT-001\/feat\//);
     });
 
     it('removes trailing hyphens from slug', () => {
-      const branch = generateBranchName('TKT-001', 'Test - title', 'chris');
+      const branch = generateBranchName('TKT-001', 'Test - title', 'chris', 'altman');
       expect(branch).not.to.match(/-$/);
+    });
+
+    it('places ticket ID first for easy filtering', () => {
+      const branch = generateBranchName('TKT-054', 'Update branch naming', 'chris', 'altman', 'chore');
+      expect(branch).to.match(/^TKT-054\//);
+      expect(branch).to.equal('TKT-054/chore/chris/altman/update-branch-naming');
     });
   });
 
