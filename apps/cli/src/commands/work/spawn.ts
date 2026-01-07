@@ -97,14 +97,25 @@ export default class WorkSpawn extends Command {
   async run(): Promise<void> {
     const { flags } = await this.parse(WorkSpawn)
 
-    // Early Docker check - fail fast if Docker is needed but not running
+    // Early Docker check - prompt for confirmation if Docker not running
     if (!flags['run-on-host'] && !isDockerRunning()) {
-      this.error(
-        'Docker is not running.\n\n' +
-        'Docker is required for devcontainer execution (recommended for agent sandboxing).\n' +
-        'Please start Docker Desktop and try again.\n\n' +
-        'Alternatively, use --run-on-host to run directly on your machine (bypasses sandbox).'
-      )
+      const { confirmHostExecution } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'confirmHostExecution',
+          message: 'Docker is not running. Run on host without sandbox?',
+          default: false,
+        },
+      ])
+
+      if (!confirmHostExecution) {
+        // Wait for Docker to start instead of exiting
+        this.log(styles.muted('\nWaiting for Docker to start... (Ctrl+C to cancel)'))
+        while (!isDockerRunning()) {
+          await new Promise(resolve => setTimeout(resolve, 2000))
+        }
+        this.log(styles.success('Docker detected! Continuing...\n'))
+      }
     }
 
     // Get workspace info (for agent worktree paths)

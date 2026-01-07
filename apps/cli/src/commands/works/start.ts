@@ -70,6 +70,10 @@ export default class WorksStart extends Command {
       description: 'Create PR when work is ready',
       default: false,
     }),
+    'run-on-host': Flags.boolean({
+      description: 'Run on host even if devcontainer exists (bypasses sandbox)',
+      default: false,
+    }),
   }
 
   async run(): Promise<void> {
@@ -189,13 +193,26 @@ export default class WorksStart extends Command {
         return hasDevcontainerConfig(agentDir)
       })
 
-      // Docker check
+      // Docker check - require explicit confirmation for host execution when Docker unavailable
       const dockerRunning = isDockerRunning()
-      if (hasDevcontainer && !dockerRunning) {
-        this.warn(
-          'Docker is not running. Agents will run on host instead of devcontainer.\n' +
-          'Start Docker Desktop for sandboxed execution.'
-        )
+      if (hasDevcontainer && !dockerRunning && !flags['run-on-host']) {
+        const { confirmHostExecution } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'confirmHostExecution',
+            message: 'Docker is not running. Run on host without sandbox?',
+            default: false,
+          },
+        ])
+
+        if (!confirmHostExecution) {
+          // Wait for Docker to start instead of exiting
+          this.log(styles.muted('\nWaiting for Docker to start... (Ctrl+C to cancel)'))
+          while (!isDockerRunning()) {
+            await new Promise(resolve => setTimeout(resolve, 2000))
+          }
+          this.log(styles.success('Docker detected! Continuing...\n'))
+        }
       }
 
       // Prompt for environment and display mode if not provided
