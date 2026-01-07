@@ -24,6 +24,7 @@ import {
 import { getCoderName, getGitUserName, getGitHubUsername } from '../../lib/execution/config.js'
 import { getBranchType } from '../../lib/execution/types.js'
 import { getPMOContext } from '../../lib/pmo/index.js'
+import { detectAgentName } from '../../lib/agents/index.js'
 
 export default class BranchCreate extends Command {
   static description = 'Create a new branch with conventional naming'
@@ -369,10 +370,12 @@ export default class BranchCreate extends Command {
     // Auto-generate branch name from ticket
     const type = getBranchType(ticket.category) as BranchType
     const slug = toKebabCase(ticket.title).substring(0, 20).replace(/-+$/, '')
+    const agentName = detectAgentName()
 
     const branchName = buildBranchName(type, slug, {
       ticketId: ticket.id,
       owner: owner || undefined,
+      agent: agentName || undefined,
     })
 
     this.log('')
