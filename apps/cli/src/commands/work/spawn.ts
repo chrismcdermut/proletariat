@@ -135,35 +135,54 @@ export default class WorkSpawn extends Command {
         return hasDevcontainerConfig(agentDir)
       })
 
-      // Docker check
-      const dockerRunning = isDockerRunning()
-      if (hasDevcontainer && !dockerRunning) {
-        this.warn(
-          'Docker is not running. Agents will run on host instead of devcontainer.\n' +
-          'Start Docker Desktop for sandboxed execution.'
-        )
-      }
-
       // Prompt for environment and display mode if not provided
       let environment: ExecutionEnvironment = 'host'
       let displayMode: DisplayMode = 'background'
 
       if (!flags.mode) {
-        if (hasDevcontainer && dockerRunning) {
-          // Prompt for environment choice
-          const { selectedEnvironment } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedEnvironment',
-              message: 'Where should agents run?',
-              choices: [
-                { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
-                { name: '💻 host (runs directly on your machine)', value: 'host' },
-              ],
-              default: 'devcontainer',
-            },
-          ])
-          environment = selectedEnvironment
+        if (hasDevcontainer) {
+          // Prompt for environment choice with Docker check loop
+          let environmentSelected = false
+          while (!environmentSelected) {
+            const { selectedEnvironment } = await inquirer.prompt([
+              {
+                type: 'list',
+                name: 'selectedEnvironment',
+                message: 'Where should agents run?',
+                choices: [
+                  { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
+                  { name: '💻 host (runs directly on your machine)', value: 'host' },
+                  { name: '✗  cancel', value: 'cancel' },
+                ],
+                default: 'devcontainer',
+              },
+            ])
+
+            if (selectedEnvironment === 'cancel') {
+              await storage.close()
+              db.close()
+              this.log(styles.muted('Cancelled.'))
+              return
+            }
+
+            if (selectedEnvironment === 'devcontainer') {
+              if (!isDockerRunning()) {
+                this.log('')
+                this.warn(
+                  'Docker is not running.\n' +
+                  'Docker is required for devcontainer execution.\n' +
+                  'Please start Docker Desktop or select "host" to run directly on your machine.'
+                )
+                this.log('')
+                continue
+              }
+              environment = 'devcontainer'
+              environmentSelected = true
+            } else {
+              environment = 'host'
+              environmentSelected = true
+            }
+          }
         }
 
         // Prompt for display mode
@@ -184,7 +203,8 @@ export default class WorkSpawn extends Command {
         displayMode = selectedDisplay as DisplayMode
       } else {
         displayMode = flags.mode as DisplayMode
-        environment = hasDevcontainer && dockerRunning ? 'devcontainer' : 'host'
+        // When mode is provided via flag, check Docker and use devcontainer if available
+        environment = hasDevcontainer && isDockerRunning() ? 'devcontainer' : 'host'
       }
 
       // Prompt for execution settings (terminal, output mode, permissions, PR creation)
