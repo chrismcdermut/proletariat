@@ -22,7 +22,7 @@ import {
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
 import { runExecution, isDockerRunning } from '../../lib/execution/runners.js'
-import { ExecutionStorage } from '../../lib/execution/storage.js'
+import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
 import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js'
@@ -974,6 +974,17 @@ export default class WorkStart extends Command {
           sessionId: result.sessionId,
           logPath: result.logPath,
         })
+
+        // Track container in containers table (for devcontainer mode)
+        if (mode === 'devcontainer' && result.containerId) {
+          const containerStorage = new ContainerStorage(db)
+          containerStorage.upsertContainer({
+            agentName: context.agentName,
+            dockerId: result.containerId,
+            status: 'running',
+            currentExecutionId: execution.id,
+          })
+        }
 
         this.log('')
         this.log(styles.success(`✓ Work started (${execution.id})`))

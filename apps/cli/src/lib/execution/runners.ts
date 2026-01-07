@@ -835,6 +835,11 @@ export async function runDevcontainer(
       }
     }
 
+    // Override containerId with the real Docker container ID (not the placeholder)
+    if (result.success && containerId) {
+      result.containerId = containerId
+    }
+
     return result
   } catch (error) {
     // Clean up any orphaned prompt files on error

@@ -31,6 +31,7 @@ export const PMO_TABLES = {
   cache_metadata: 'pmo_cache_metadata',
   settings: 'pmo_settings',
   agent_work: 'agent_work',
+  containers: 'containers',  // Docker containers per agent
   // Workflow tables
   statuses: 'pmo_statuses',
   templates: 'pmo_templates',
@@ -306,6 +307,22 @@ export const PMO_TABLE_SCHEMAS = {
       FOREIGN KEY (ticket_id) REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE
     )`,
 
+  // Docker containers (per-agent, reused across executions)
+  containers: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.containers} (
+      id TEXT PRIMARY KEY,
+      agent_name TEXT NOT NULL,
+      docker_id TEXT NOT NULL,
+      docker_name TEXT,
+      image TEXT,
+      status TEXT NOT NULL DEFAULT 'unknown',
+      current_execution_id TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (agent_name) REFERENCES agents(name) ON DELETE CASCADE,
+      FOREIGN KEY (current_execution_id) REFERENCES ${PMO_TABLES.agent_work}(id) ON DELETE SET NULL
+    )`,
+
   // Workflow status per project (two-tier: category -> status)
   statuses: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.statuses} (
@@ -397,6 +414,9 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_agent_work_agent ON ${PMO_TABLES.agent_work}(agent_name);
   CREATE INDEX IF NOT EXISTS idx_agent_work_status ON ${PMO_TABLES.agent_work}(status);
   CREATE INDEX IF NOT EXISTS idx_agent_work_ticket ON ${PMO_TABLES.agent_work}(ticket_id);
+  CREATE INDEX IF NOT EXISTS idx_containers_agent ON ${PMO_TABLES.containers}(agent_name);
+  CREATE INDEX IF NOT EXISTS idx_containers_docker_id ON ${PMO_TABLES.containers}(docker_id);
+  CREATE INDEX IF NOT EXISTS idx_containers_status ON ${PMO_TABLES.containers}(status);
   CREATE INDEX IF NOT EXISTS idx_pmo_specs_status ON ${PMO_TABLES.specs}(status);
   CREATE INDEX IF NOT EXISTS idx_pmo_specs_type ON ${PMO_TABLES.specs}(type);
   CREATE INDEX IF NOT EXISTS idx_pmo_spec_deps_depends_on ON ${PMO_TABLES.spec_dependencies}(depends_on_spec_id);
@@ -453,6 +473,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.cache_metadata,
   PMO_TABLE_SCHEMAS.settings,
   PMO_TABLE_SCHEMAS.agent_work,  // Execution tracking
+  PMO_TABLE_SCHEMAS.containers,  // Docker containers per agent
   PMO_TABLE_SCHEMAS.actions,  // Work actions (reusable agent prompts)
   PMO_INDEXES,
 ].join(';\n');

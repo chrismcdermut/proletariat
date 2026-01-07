@@ -83,6 +83,9 @@
       "agent": {
         "description": "Manage agents (workers)"
       },
+      "docker": {
+        "description": "Manage Docker containers used by agents"
+      },
       "ticket": {
         "description": "Manage PMO tickets"
       },
