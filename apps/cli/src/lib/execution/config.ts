@@ -404,6 +404,22 @@ export async function promptExecutionSettings(
 // =============================================================================
 
 /**
+ * Get GitHub username via gh CLI.
+ * Returns null if gh is not installed or not authenticated.
+ */
+export function getGitHubUsername(): string | null {
+  try {
+    const username = execSync('gh api user --jq .login', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim()
+    return username || null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Get git config user.name as default coder name.
  * Returns null if git user.name is not configured.
  */
@@ -478,8 +494,8 @@ export async function promptCoderName(db: Database.Database): Promise<string> {
 }
 
 /**
- * Get coder name, prompting if not set.
- * This ensures the coder name is always available for branch naming.
+ * Get coder name, auto-detecting from GitHub if not set.
+ * Priority: saved setting > GitHub username > git user.name > prompt
  */
 export async function getOrPromptCoderName(db: Database.Database): Promise<string> {
   // If already set, return it
@@ -488,6 +504,27 @@ export async function getOrPromptCoderName(db: Database.Database): Promise<strin
     return existing
   }
 
-  // First time - prompt user
+  // Try GitHub username first (most reliable for branch naming)
+  const ghUsername = getGitHubUsername()
+  if (ghUsername) {
+    saveCoderName(db, ghUsername)
+    return ghUsername
+  }
+
+  // Fall back to git user.name (normalized to kebab-case)
+  const gitUserName = getGitUserName()
+  if (gitUserName) {
+    const normalized = gitUserName
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+    if (normalized) {
+      saveCoderName(db, normalized)
+      return normalized
+    }
+  }
+
+  // Last resort - prompt user
   return promptCoderName(db)
 }
