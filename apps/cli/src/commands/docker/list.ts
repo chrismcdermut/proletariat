@@ -4,7 +4,7 @@ import * as path from 'path'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
-import { ExecutionStorage } from '../../lib/execution/storage.js'
+import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 
 interface ContainerInfo {
@@ -68,10 +68,14 @@ export default class DockerList extends Command {
     }
 
     const executionStorage = new ExecutionStorage(db)
+    const containerStorage = new ContainerStorage(db)
 
     try {
-      // Get containers tracked in agent_work
-      const trackedContainers = this.getTrackedContainers(executionStorage)
+      // Get containers tracked in agent_work (executions)
+      const trackedExecutions = this.getTrackedContainers(executionStorage)
+
+      // Get containers from containers table (source of truth for agent names)
+      const dbContainers = containerStorage.listContainers({ limit: 50 })
 
       // Get running docker containers
       const runningContainers = this.getDockerContainers(workspaceInfo.agentsPath, flags.all)
@@ -80,42 +84,41 @@ export default class DockerList extends Command {
       this.log(styles.header('Docker Containers'))
       this.log('='.repeat(100))
 
-      // Display tracked containers from database
-      if (trackedContainers.length > 0) {
-        this.log(styles.subheader('\nTracked Containers (from agent_work):'))
+      // Display active executions from database
+      const activeExecutions = trackedExecutions.filter(e => e.status === 'running' || e.status === 'starting')
+      if (activeExecutions.length > 0) {
+        this.log(styles.subheader('\nActive Executions:'))
         this.log(styles.muted(
           padEnd('ID', 15) +
           padEnd('Agent', 15) +
-          padEnd('Ticket', 10) +
+          padEnd('Ticket', 12) +
           padEnd('Status', 12) +
-          'Container ID'
+          'Container'
         ))
         this.log('-'.repeat(80))
 
-        for (const exec of trackedContainers) {
+        for (const exec of activeExecutions) {
           const statusColor = getStatusColor(exec.status)
-          const containerId = exec.containerId || styles.muted('none')
+          const containerId = exec.containerId ? exec.containerId.substring(0, 12) : styles.muted('none')
 
-          // Check if container is actually running
+          // Check if container is actually running in Docker
           let containerStatus = ''
           if (exec.containerId) {
             const isRunning = runningContainers.some(c => c.id.startsWith(exec.containerId!.substring(0, 12)))
-            containerStatus = isRunning ? styles.success(' (running)') : styles.warning(' (stopped)')
+            containerStatus = isRunning ? styles.success(' (up)') : styles.warning(' (down)')
           }
 
           this.log(
             padEnd(exec.id, 15) +
             padEnd(exec.agentName, 15) +
-            padEnd(exec.ticketId, 10) +
+            padEnd(exec.ticketId, 12) +
             statusColor(padEnd(exec.status, 12)) +
             containerId + containerStatus
           )
         }
-      } else {
-        this.log(styles.muted('\nNo containers tracked in agent_work table.'))
       }
 
-      // Display running containers
+      // Display containers from DB (with agent names - source of truth)
       const filteredContainers = flags.running
         ? runningContainers.filter(c => c.status.includes('Up'))
         : runningContainers
@@ -124,19 +127,23 @@ export default class DockerList extends Command {
         this.log(styles.subheader('\nDocker Containers' + (flags.all ? ' (all)' : ' (devcontainers)') + ':'))
         this.log(styles.muted(
           padEnd('Container ID', 15) +
-          padEnd('Name', 35) +
-          padEnd('Status', 20) +
+          padEnd('Agent', 15) +
+          padEnd('Status', 15) +
           'Uptime'
         ))
-        this.log('-'.repeat(90))
+        this.log('-'.repeat(70))
 
         for (const container of filteredContainers) {
           const statusColor = container.status.includes('Up') ? styles.success : styles.muted
 
+          // Look up agent name from DB (source of truth)
+          const dbContainer = dbContainers.find(c => c.dockerId.startsWith(container.id.substring(0, 12)))
+          const agentName = dbContainer?.agentName || this.extractAgentFromImage(container.image) || container.name
+
           this.log(
             padEnd(container.id, 15) +
-            padEnd(truncate(container.name, 33), 35) +
-            statusColor(padEnd(container.status, 20)) +
+            padEnd(agentName, 15) +
+            statusColor(padEnd(container.status, 15)) +
             styles.muted(container.uptime)
           )
         }
@@ -207,6 +214,14 @@ export default class DockerList extends Command {
     } catch {
       return []
     }
+  }
+
+  /**
+   * Extract agent name from devcontainer image name (fallback only)
+   */
+  private extractAgentFromImage(image: string): string | null {
+    const match = image.match(/^vsc-([^-]+)-/)
+    return match ? match[1] : null
   }
 }
 
