@@ -20,13 +20,13 @@ interface FormatContext {
 export const COMMIT_FORMATS = {
   'conventional': {
     description: 'Conventional commits with ticket as scope',
-    example: 'feat(TKT-053): add login',
+    example: '{type}({ticket}): {message}',
     format: (ctx: FormatContext) =>
       ctx.ticketId ? `${ctx.type}(${ctx.ticketId}): ${ctx.message}` : `${ctx.type}: ${ctx.message}`,
   },
   'full-context': {
     description: 'Ticket, type, and agent prefix',
-    example: 'TKT-053/feat/bezos: add login',
+    example: '{ticket}/{type}/{agent}: {message}',
     format: (ctx: FormatContext) => {
       if (ctx.ticketId && ctx.agent) return `${ctx.ticketId}/${ctx.type}/${ctx.agent}: ${ctx.message}`
       if (ctx.ticketId) return `${ctx.ticketId}/${ctx.type}: ${ctx.message}`
@@ -35,13 +35,13 @@ export const COMMIT_FORMATS = {
   },
   'ticket-first': {
     description: 'Ticket ID first, then type',
-    example: 'TKT-053: feat: add login',
+    example: '{ticket}: {type}: {message}',
     format: (ctx: FormatContext) =>
       ctx.ticketId ? `${ctx.ticketId}: ${ctx.type}: ${ctx.message}` : `${ctx.type}: ${ctx.message}`,
   },
   'with-agent': {
     description: 'Ticket and agent prefix',
-    example: 'TKT-053/bezos: add login',
+    example: '{ticket}/{agent}: {message}',
     format: (ctx: FormatContext) => {
       if (ctx.ticketId && ctx.agent) return `${ctx.ticketId}/${ctx.agent}: ${ctx.message}`
       if (ctx.ticketId) return `${ctx.ticketId}: ${ctx.message}`
@@ -50,19 +50,19 @@ export const COMMIT_FORMATS = {
   },
   'ticket-suffix': {
     description: 'Type first, ticket at end in brackets',
-    example: 'feat: add login [TKT-053]',
+    example: '{type}: {message} [{ticket}]',
     format: (ctx: FormatContext) =>
       ctx.ticketId ? `${ctx.type}: ${ctx.message} [${ctx.ticketId}]` : `${ctx.type}: ${ctx.message}`,
   },
   'ticket-only': {
     description: 'Just ticket ID prefix, no type',
-    example: 'TKT-053: add login',
+    example: '{ticket}: {message}',
     format: (ctx: FormatContext) =>
       ctx.ticketId ? `${ctx.ticketId}: ${ctx.message}` : ctx.message,
   },
   'simple': {
     description: 'Type and message only, no ticket',
-    example: 'feat: add login',
+    example: '{type}: {message}',
     format: (ctx: FormatContext) =>
       `${ctx.type}: ${ctx.message}`,
   },
@@ -169,44 +169,7 @@ export default class Commit extends Command {
       return
     }
 
-    // Interactive mode if no message provided
-    const isInteractive = !args.message
-    let message = args.message
-    let selectedFormat = flags.format
-
-    if (isInteractive) {
-      // Prompt for format if not specified
-      if (!selectedFormat) {
-        const formatChoices = Object.entries(COMMIT_FORMATS).map(([name, preset]) => ({
-          name: `${name}${name === DEFAULT_COMMIT_FORMAT ? ' (default)' : ''} - ${preset.example}`,
-          value: name,
-        }))
-
-        const { chosenFormat } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'chosenFormat',
-            message: 'Commit format:',
-            choices: formatChoices,
-            default: DEFAULT_COMMIT_FORMAT,
-          },
-        ])
-        selectedFormat = chosenFormat
-      }
-
-      // Prompt for message
-      const { inputMessage } = await inquirer.prompt([
-        {
-          type: 'input',
-          name: 'inputMessage',
-          message: 'Commit message:',
-          validate: (input: string) => input.trim() ? true : 'Message cannot be empty',
-        },
-      ])
-      message = inputMessage.trim()
-    }
-
-    // Get current branch
+    // Get current branch first (needed for dynamic examples)
     const branch = getCurrentBranch()
     if (!branch) {
       this.error('Not in a git repository or could not determine current branch')
@@ -238,6 +201,44 @@ export default class Commit extends Command {
           `Valid types: ${validTypes.join(', ')}`
         )
       }
+    }
+
+    // Interactive mode if no message provided
+    const isInteractive = !args.message
+    let message = args.message
+    let selectedFormat = flags.format
+
+    if (isInteractive) {
+      // Prompt for format if not specified - show dynamic examples based on current branch
+      if (!selectedFormat) {
+        const exampleCtx = { type: commitType, ticketId, agent, message: '...' }
+        const formatChoices = Object.entries(COMMIT_FORMATS).map(([name, preset]) => ({
+          name: `${name}${name === DEFAULT_COMMIT_FORMAT ? ' (default)' : ''} → ${preset.format(exampleCtx)}`,
+          value: name,
+        }))
+
+        const { chosenFormat } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'chosenFormat',
+            message: 'Commit format:',
+            choices: formatChoices,
+            default: DEFAULT_COMMIT_FORMAT,
+          },
+        ])
+        selectedFormat = chosenFormat
+      }
+
+      // Prompt for message
+      const { inputMessage } = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'inputMessage',
+          message: 'Commit message:',
+          validate: (input: string) => input.trim() ? true : 'Message cannot be empty',
+        },
+      ])
+      message = inputMessage.trim()
     }
 
     // Get format preset
