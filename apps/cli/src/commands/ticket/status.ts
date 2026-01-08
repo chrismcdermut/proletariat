@@ -1,9 +1,9 @@
-import { Command, Args } from '@oclif/core';
+import { Args } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles, formatPriority, formatCategory } from '../../lib/styles.js';
 
-export default class TicketStatus extends Command {
+export default class TicketStatus extends PMOCommand {
   static description = 'Show ticket status and details';
 
   static examples = [
@@ -18,76 +18,64 @@ export default class TicketStatus extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  static flags = {
+    ...pmoBaseFlags,
+  };
+
+  async execute(): Promise<void> {
     const { args } = await this.parse(TicketStatus);
 
-    // Get PMO context (prompts for project if multiple exist)
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      true // prompt if multiple projects
-    );
+    // Get ticketId - prompt if not provided
+    let ticketId = args.ticketId;
 
-    try {
-      // Get ticketId - prompt if not provided
-      let ticketId = args.ticketId;
+    if (!ticketId) {
+      // Get all tickets for selection
+      const allTickets = await this.storage.listTickets();
 
-      if (!ticketId) {
-        // Get all tickets for selection
-        const allTickets = await storage.listTickets();
-
-        if (allTickets.length === 0) {
-          await storage.close();
-          this.error('No tickets found. Create a ticket first with "prlt ticket create".');
-        }
-
-        const { selectedTicketId } = await inquirer.prompt([{
-          type: 'list',
-          name: 'selectedTicketId',
-          message: 'Select ticket to view:',
-          choices: allTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.column})`,
-            value: t.id,
-          })),
-        }]);
-        ticketId = selectedTicketId;
+      if (allTickets.length === 0) {
+        this.error('No tickets found. Create a ticket first with "prlt ticket create".');
       }
 
-      // Get ticket
-      const ticket = await storage.getTicket(ticketId!);
-      if (!ticket) {
-        await storage.close();
-        this.error(`Ticket "${ticketId}" not found.`);
-      }
-
-      await storage.close();
-
-      // Display ticket status
-      this.log('');
-      this.log(styles.emphasis(`🎫 ${ticket.id}: ${ticket.title}`));
-      this.log('');
-      this.log(`   ${styles.muted('Column:')}    ${ticket.column}`);
-      this.log(`   ${styles.muted('Priority:')}  ${formatPriority(ticket.priority)}`);
-      if (ticket.category) {
-        this.log(`   ${styles.muted('Category:')}  ${formatCategory(ticket.category)}`);
-      }
-      if (ticket.description) {
-        this.log(`   ${styles.muted('Description:')}`);
-        this.log(`   ${ticket.description.split('\n').map((line: string) => `   ${line}`).join('\n')}`);
-      }
-      if (ticket.subtasks && ticket.subtasks.length > 0) {
-        const completedSubtasks = ticket.subtasks.filter((s: { done: boolean }) => s.done).length;
-        this.log(`   ${styles.muted('Subtasks:')}   ${completedSubtasks}/${ticket.subtasks.length} completed`);
-        ticket.subtasks.forEach((subtask: { title: string; done: boolean }) => {
-          const icon = subtask.done ? '☑' : '☐';
-          this.log(`     ${icon} ${subtask.title}`);
-        });
-      }
-      this.log('');
-    } catch (error) {
-      await storage.close();
-      throw error;
+      const { selectedTicketId } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selectedTicketId',
+        message: 'Select ticket to view:',
+        choices: allTickets.map(t => ({
+          name: `${t.id} - ${t.title} (${t.column})`,
+          value: t.id,
+        })),
+      }]);
+      ticketId = selectedTicketId;
     }
+
+    // Get ticket
+    const ticket = await this.storage.getTicket(ticketId!);
+    if (!ticket) {
+      this.error(`Ticket "${ticketId}" not found.`);
+    }
+
+    // Display ticket status
+    this.log('');
+    this.log(styles.emphasis(`🎫 ${ticket.id}: ${ticket.title}`));
+    this.log('');
+    this.log(`   ${styles.muted('Column:')}    ${ticket.column}`);
+    this.log(`   ${styles.muted('Priority:')}  ${formatPriority(ticket.priority)}`);
+    if (ticket.category) {
+      this.log(`   ${styles.muted('Category:')}  ${formatCategory(ticket.category)}`);
+    }
+    if (ticket.description) {
+      this.log(`   ${styles.muted('Description:')}`);
+      this.log(`   ${ticket.description.split('\n').map((line: string) => `   ${line}`).join('\n')}`);
+    }
+    if (ticket.subtasks && ticket.subtasks.length > 0) {
+      const completedSubtasks = ticket.subtasks.filter((s: { done: boolean }) => s.done).length;
+      this.log(`   ${styles.muted('Subtasks:')}   ${completedSubtasks}/${ticket.subtasks.length} completed`);
+      ticket.subtasks.forEach((subtask: { title: string; done: boolean }) => {
+        const icon = subtask.done ? '☑' : '☐';
+        this.log(`     ${icon} ${subtask.title}`);
+      });
+    }
+    this.log('');
   }
 
 }

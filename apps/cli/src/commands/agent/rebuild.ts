@@ -1,13 +1,15 @@
-import { Args, Command, Flags } from '@oclif/core';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import * as path from 'path';
+import { Args, Flags } from '@oclif/core';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+import * as path from 'node:path';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { isDockerRunning } from '../../lib/execution/runners.js';
 
 const execAsync = promisify(exec);
 
-export default class AgentRebuild extends Command {
+export default class AgentRebuild extends PMOCommand {
   static description = 'Rebuild a specific agent devcontainer image';
 
   static examples = [
@@ -23,13 +25,23 @@ export default class AgentRebuild extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     'no-cache': Flags.boolean({
       description: 'Build without using cache',
       default: false,
     }),
   };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
+    // Check Docker is running
+    if (!isDockerRunning()) {
+      this.error('Docker is not running. Please start Docker Desktop and try again.');
+    }
+
     const { args, flags } = await this.parse(AgentRebuild);
     const agentName = args.name;
 
@@ -58,7 +70,7 @@ export default class AgentRebuild extends Command {
         buildCommand.push('--no-cache');
       }
 
-      const { stdout, stderr } = await execAsync(buildCommand.join(' '));
+      const { stderr } = await execAsync(buildCommand.join(' '));
 
       if (stderr && !stderr.includes('WARNING')) {
         this.log(colors.textMuted(`  ${stderr.trim()}`));

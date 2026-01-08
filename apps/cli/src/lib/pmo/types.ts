@@ -30,6 +30,10 @@ export interface Project {
   name: string
   template?: string
   description?: string
+  status: ProjectStatus       // @deprecated - use phaseId instead
+  phaseId?: string            // Reference to ProjectPhase
+  isArchived: boolean         // Soft-delete flag (hidden from default views)
+  targetDate?: Date           // Optional end date for time-bounded projects
   initiativeId?: string
   createdAt: Date
   updatedAt: Date
@@ -63,16 +67,149 @@ export interface Epic {
 }
 
 /**
- * Ticket lifecycle status (independent of board column position)
+ * @deprecated TicketStatus enum removed. Use statusId reference to WorkflowStatus instead.
+ * Kept as type alias for backward compatibility during transition.
  */
-export type TicketStatus =
-  | 'backlog'    // Not started
-  | 'ready'      // Ready to start
-  | 'in_progress' // Being worked on
-  | 'blocked'    // Can't proceed
-  | 'review'     // Needs review
-  | 'done'       // Completed
-  | 'cancelled'  // Won't do
+export type TicketStatus = string
+
+// =============================================================================
+// Workflow Types (Two-Tier State/Status Model)
+// =============================================================================
+
+/**
+ * Fixed state categories - the semantic buckets that statuses belong to.
+ * These cannot be added, removed, or reordered.
+ *
+ * Order: backlog < unstarted < started < completed < canceled
+ */
+export type StateCategory =
+  | 'backlog'     // Not yet scheduled for work
+  | 'unstarted'   // Scheduled but work hasn't begun
+  | 'started'     // Work is actively in progress
+  | 'completed'   // Work finished successfully
+  | 'canceled'    // Work won't be done
+
+/**
+ * State category order for sorting columns/statuses
+ */
+export const STATE_CATEGORY_ORDER: readonly StateCategory[] = [
+  'backlog',
+  'unstarted',
+  'started',
+  'completed',
+  'canceled',
+] as const
+
+/**
+ * Customizable status within a project.
+ * Each status belongs to exactly one StateCategory.
+ * Status names must be unique within a project.
+ */
+export interface WorkflowStatus {
+  id: string
+  projectId: string
+  name: string              // Display name, unique within project
+  category: StateCategory   // Which category this belongs to
+  position: number          // Order within category (0-indexed)
+  color?: string            // Hex color for UI
+  description?: string      // Tooltip/help text
+  isDefault?: boolean       // Default status for new tickets
+  createdAt: Date
+}
+
+/**
+ * Workflow template - a preset status configuration.
+ * Templates are copied when applied, not referenced.
+ */
+export interface WorkflowTemplate {
+  id: string
+  name: string
+  description?: string
+  isBuiltin: boolean        // System-provided vs user-created
+  statuses: WorkflowTemplateStatus[]
+  createdAt: Date
+}
+
+/**
+ * Status definition within a template (no projectId since templates are reusable)
+ */
+export interface WorkflowTemplateStatus {
+  name: string
+  category: StateCategory
+  position: number
+  color?: string
+}
+
+/**
+ * Project lifecycle status (fixed, not customizable)
+ * @deprecated Use phaseId reference to workspace's phase configuration instead.
+ */
+export type ProjectStatus =
+  | 'draft'       // Planning phase, not yet active
+  | 'active'      // Work is happening
+  | 'completed'   // Project finished
+  | 'archived'    // Legacy - now use isArchived flag instead
+
+/**
+ * Project lifecycle phase (workspace-scoped, customizable)
+ * Each phase belongs to exactly one StateCategory.
+ * Phase names must be unique within a workspace.
+ */
+export interface ProjectPhase {
+  id: string
+  name: string              // Display name, unique within workspace
+  category: StateCategory   // Which category this belongs to
+  position: number          // Order within category (0-indexed)
+  color?: string            // Hex color for UI
+  description?: string      // Tooltip/help text
+  isDefault?: boolean       // Default phase for new projects
+  createdAt: Date
+}
+
+/**
+ * Phase template - a preset phase configuration.
+ * Templates are copied when applied, not referenced.
+ */
+export interface PhaseTemplate {
+  id: string
+  name: string
+  description?: string
+  isBuiltin: boolean        // System-provided vs user-created
+  phases: PhaseTemplatePhase[]
+  createdAt: Date
+}
+
+/**
+ * Phase definition within a template (reusable across workspaces)
+ */
+export interface PhaseTemplatePhase {
+  name: string
+  category: StateCategory
+  position: number
+  color?: string
+  description?: string
+  isDefault?: boolean
+}
+
+// =============================================================================
+// Work Action Types
+// =============================================================================
+
+/**
+ * Work action - defines what an agent should do with a ticket.
+ * Actions are reusable prompts that can be applied to any ticket.
+ */
+export interface WorkAction {
+  id: string
+  name: string
+  description?: string
+  prompt: string                              // The actual prompt sent to agent
+  suggestedForCategories?: StateCategory[]    // When to suggest this action
+  defaultMoveToCategory?: StateCategory       // Where to move ticket after
+  modifiesCode: boolean                       // Whether this action modifies code (needs branch)
+  isBuiltin: boolean
+  createdAt: Date
+}
 
 /**
  * Board represents a project's kanban board view.
@@ -84,6 +221,58 @@ export interface Board {
   columns: Column[]
   updatedAt: Date
 }
+
+/**
+ * BoardView represents a saved, filtered view of a project's board.
+ * Allows users to save common filter configurations like "My Tasks" or "High Priority".
+ */
+export interface BoardView {
+  id: string
+  projectId: string
+  name: string                    // Display name (e.g., "My Tasks", "High Priority")
+  description?: string            // Optional description of what this view shows
+  isDefault?: boolean             // Whether this is the project's default view
+  filters: BoardViewFilters       // Filter configuration
+  groupBy?: BoardViewGroupBy      // Optional grouping
+  sortBy?: BoardViewSortBy        // Optional sorting
+  createdAt: Date
+  updatedAt: Date
+}
+
+/**
+ * Filter configuration for a board view.
+ * All filters are optional - unset filters show all items.
+ */
+export interface BoardViewFilters {
+  assignee?: string               // Filter by assignee (or "unassigned")
+  owner?: string                  // Filter by owner
+  priority?: string               // Filter by priority (HIGH, MEDIUM, LOW)
+  statusCategory?: StateCategory  // Filter by status category
+  statusId?: string               // Filter by specific status
+  columnIds?: string[]            // Filter to specific columns
+  epicId?: string                 // Filter to tickets in an epic
+  search?: string                 // Text search in title/description
+}
+
+/**
+ * Grouping options for board view
+ */
+export type BoardViewGroupBy =
+  | 'assignee'    // Group by who's working on it
+  | 'priority'    // Group by priority level
+  | 'epic'        // Group by epic
+  | 'status'      // Group by workflow status
+  | 'category'    // Group by ticket category
+
+/**
+ * Sorting options for board view
+ */
+export type BoardViewSortBy =
+  | 'priority'    // Sort by priority (HIGH first)
+  | 'created'     // Sort by creation date
+  | 'updated'     // Sort by last update
+  | 'title'       // Sort alphabetically by title
+  | 'assignee'    // Sort by assignee name
 
 export interface Column {
   id: string
@@ -105,14 +294,23 @@ export interface Ticket {
   category?: string
 
   // Workflow state
-  status: TicketStatus
-  owner?: string      // Human responsible for ticket
-  assignee?: string   // Who's executing (human or agent)
+  statusId: string            // Reference to WorkflowStatus in project's configuration
+  statusName?: string         // Resolved status name (for display)
+  statusCategory?: StateCategory  // Resolved status category
+  /**
+   * @deprecated Use statusCategory for logic, statusName for display
+   * This is a temporary alias that maps old status values to categories
+   */
+  status?: TicketStatus
+  owner?: string              // Human responsible for ticket
+  assignee?: string           // Who's executing (human or agent)
+  branch?: string             // Git branch for this ticket's work (reused across actions)
 
   // Relationships
   specId?: string     // Which spec defined this ticket
   epicId?: string     // Which epic this ticket belongs to
   subtasks: Subtask[]
+  labels: string[]    // Tags/labels for categorization
   metadata: Record<string, string>
 
   // Agent execution support (populated from related tables)
@@ -131,7 +329,6 @@ export interface Ticket {
   // Use BoardTicket table for authoritative board position
   column?: string     // Column name (from board view)
   position?: number   // Position in column (from board view)
-  specs?: string[]    // Spec paths (backward compat - use specId instead)
 }
 
 /**
@@ -148,6 +345,46 @@ export interface Subtask {
   id: string
   title: string
   done: boolean
+}
+
+// =============================================================================
+// Ticket Template Types
+// =============================================================================
+
+/**
+ * Subtask definition within a ticket template
+ */
+export interface TicketTemplateSubtask {
+  title: string
+}
+
+/**
+ * Ticket template - a reusable configuration for creating tickets.
+ * Templates can be built-in (system-provided) or custom (user-created).
+ */
+export interface TicketTemplate {
+  id: string
+  name: string
+  description?: string
+  isBuiltin: boolean               // System-provided vs user-created
+  titlePattern?: string            // Default title pattern (e.g., "[BUG] ")
+  descriptionTemplate?: string     // Default description markdown
+  defaultPriority?: string         // Default priority (URGENT, HIGH, MEDIUM, LOW)
+  defaultCategory?: string         // Default category (bug, feature, etc.)
+  defaultStatusId?: string         // Default workflow status
+  defaultAssignee?: string         // Default assignee
+  defaultOwner?: string            // Default owner
+  defaultLabels: string[]          // Default labels
+  suggestedSubtasks: TicketTemplateSubtask[]  // Subtasks to create with ticket
+  createdAt: Date
+}
+
+/**
+ * Filter options for listing ticket templates
+ */
+export interface TicketTemplateFilter {
+  isBuiltin?: boolean
+  search?: string
 }
 
 /**
@@ -178,12 +415,48 @@ export interface AcceptanceCriterion {
 }
 
 /**
+ * Ticket dependency types for same-entity relationships
+ */
+export type TicketDependencyType = 'blocks' | 'relates_to' | 'duplicates'
+
+/**
  * Ticket dependency for scheduling.
- * Represents a "blocked by" relationship between tickets.
+ * Represents a dependency relationship between tickets.
  */
 export interface TicketDependency {
   ticketId: string
-  blockedByTicketId: string
+  dependsOnTicketId: string
+  dependencyType: TicketDependencyType
+  createdAt?: Date
+}
+
+/**
+ * Spec dependency types
+ */
+export type SpecDependencyType = 'depends_on' | 'relates_to' | 'duplicates'
+
+/**
+ * Spec dependency for design ordering.
+ */
+export interface SpecDependency {
+  specId: string
+  dependsOnSpecId: string
+  dependencyType: SpecDependencyType
+  createdAt?: Date
+}
+
+/**
+ * Epic dependency types
+ */
+export type EpicDependencyType = 'blocks' | 'relates_to' | 'duplicates'
+
+/**
+ * Epic dependency for phased work.
+ */
+export interface EpicDependency {
+  epicId: string
+  dependsOnEpicId: string
+  dependencyType: EpicDependencyType
   createdAt?: Date
 }
 
@@ -219,15 +492,6 @@ export interface Spec {
   context?: string
   createdAt: Date
   updatedAt: Date
-}
-
-/**
- * Spec dependency - one spec depends on another
- */
-export interface SpecDependency {
-  specId: string
-  dependsOn: string
-  createdAt?: Date
 }
 
 // =============================================================================
@@ -268,7 +532,8 @@ export interface PMOConfig {
 // =============================================================================
 
 export interface TicketFilter {
-  status?: TicketStatus
+  statusId?: string           // Filter by status ID
+  statusCategory?: StateCategory  // Filter by status category
   priority?: string
   category?: string
   owner?: string
@@ -288,6 +553,45 @@ export interface SpecFilter {
 
 export interface EpicFilter {
   status?: EpicStatus
+  search?: string
+}
+
+export interface StatusFilter {
+  projectId?: string
+  category?: StateCategory
+  search?: string
+}
+
+export interface TemplateFilter {
+  isBuiltin?: boolean
+  search?: string
+}
+
+export interface PhaseFilter {
+  category?: StateCategory
+  search?: string
+}
+
+export interface PhaseTemplateFilter {
+  isBuiltin?: boolean
+  search?: string
+}
+
+export interface WorkActionFilter {
+  isBuiltin?: boolean
+  suggestedFor?: StateCategory    // Filter to actions suggested for this category
+  search?: string
+}
+
+export interface ProjectFilter {
+  phaseId?: string
+  isArchived?: boolean
+  search?: string
+}
+
+export interface BoardViewFilter {
+  projectId?: string
+  isDefault?: boolean
   search?: string
 }
 
@@ -376,6 +680,11 @@ export interface PMOStorage {
   removeSpecDependency(specId: string, dependsOnId: string): Promise<void>
   getSpecDependencies(specId: string): Promise<Spec[]>
   getSpecDependents(specId: string): Promise<Spec[]>
+  // Project-Spec associations (many-to-many, specs are global)
+  linkProjectToSpec(projectId: string, specId: string): Promise<void>
+  unlinkProjectFromSpec(projectId: string, specId: string): Promise<void>
+  getSpecsForProject(projectId: string): Promise<Spec[]>
+  getProjectsForSpec(specId: string): Promise<Project[]>
 
   // Epic Operations
   createEpic(epic: Partial<Epic>): Promise<Epic>
@@ -386,6 +695,72 @@ export interface PMOStorage {
   getTicketsForEpic(epicId: string): Promise<Ticket[]>
   linkTicketToEpic(ticketId: string, epicId: string): Promise<void>
   unlinkTicketFromEpic(ticketId: string): Promise<void>
+
+  // Workflow Status Operations
+  listStatuses(projectId: string): Promise<WorkflowStatus[]>
+  getStatus(id: string): Promise<WorkflowStatus | null>
+  createStatus(status: Partial<WorkflowStatus>): Promise<WorkflowStatus>
+  updateStatus(id: string, changes: Partial<WorkflowStatus>): Promise<WorkflowStatus>
+  deleteStatus(id: string): Promise<void>
+  reorderStatus(id: string, newPosition: number): Promise<WorkflowStatus>
+  getDefaultStatus(projectId: string): Promise<WorkflowStatus | null>
+
+  // Workflow Template Operations
+  listTemplates(filter?: TemplateFilter): Promise<WorkflowTemplate[]>
+  getTemplate(id: string): Promise<WorkflowTemplate | null>
+  applyTemplate(projectId: string, templateId: string): Promise<WorkflowStatus[]>
+  saveTemplate(name: string, projectId: string, description?: string): Promise<WorkflowTemplate>
+  deleteTemplate(id: string): Promise<void>
+
+  // Ticket Template Operations
+  listTicketTemplates(filter?: TicketTemplateFilter): Promise<TicketTemplate[]>
+  getTicketTemplate(id: string): Promise<TicketTemplate | null>
+  createTicketTemplate(template: Partial<TicketTemplate> & { name: string }): Promise<TicketTemplate>
+  createTicketTemplateFromTicket(ticketId: string, name: string, description?: string): Promise<TicketTemplate>
+  updateTicketTemplate(id: string, changes: Partial<TicketTemplate>): Promise<TicketTemplate>
+  deleteTicketTemplate(id: string): Promise<void>
+
+  // Project Phase Operations (workspace-scoped)
+  listPhases(filter?: PhaseFilter): Promise<ProjectPhase[]>
+  getPhase(id: string): Promise<ProjectPhase | null>
+  createPhase(phase: Partial<ProjectPhase>): Promise<ProjectPhase>
+  updatePhase(id: string, changes: Partial<ProjectPhase>): Promise<ProjectPhase>
+  deletePhase(id: string): Promise<void>
+  reorderPhase(id: string, newPosition: number): Promise<ProjectPhase>
+  getDefaultPhase(): Promise<ProjectPhase | null>
+
+  // Phase Template Operations
+  listPhaseTemplates(filter?: PhaseTemplateFilter): Promise<PhaseTemplate[]>
+  getPhaseTemplate(id: string): Promise<PhaseTemplate | null>
+  applyPhaseTemplate(templateId: string): Promise<ProjectPhase[]>
+  savePhaseTemplate(name: string, description?: string): Promise<PhaseTemplate>
+  updatePhaseTemplate(id: string, changes: { name?: string; description?: string }): Promise<PhaseTemplate>
+  deletePhaseTemplate(id: string): Promise<void>
+
+  // Work Action Operations
+  listActions(filter?: WorkActionFilter): Promise<WorkAction[]>
+  getAction(id: string): Promise<WorkAction | null>
+  createAction(action: Partial<WorkAction>): Promise<WorkAction>
+  updateAction(id: string, changes: Partial<WorkAction>): Promise<WorkAction>
+  deleteAction(id: string): Promise<void>
+  getSuggestedAction(category: StateCategory): Promise<WorkAction | null>
+
+  // Project Operations
+  getProject(id: string): Promise<Project | null>
+  createProject(project: Partial<Project> & { template?: string }): Promise<Board>
+  updateProject(id: string, changes: Partial<Project>): Promise<Project>
+  listProjects(filter?: ProjectFilter): Promise<Project[]>
+  archiveProject(id: string): Promise<Project>
+  unarchiveProject(id: string): Promise<Project>
+
+  // Board View Operations
+  listBoardViews(filter?: BoardViewFilter): Promise<BoardView[]>
+  getBoardView(id: string): Promise<BoardView | null>
+  createBoardView(view: Partial<BoardView>): Promise<BoardView>
+  updateBoardView(id: string, changes: Partial<BoardView>): Promise<BoardView>
+  deleteBoardView(id: string): Promise<void>
+  getDefaultBoardView(projectId: string): Promise<BoardView | null>
+  getBoardWithView(viewId?: string, filters?: BoardViewFilters): Promise<Board>
 
   // Sync Operations
   pull(): Promise<SyncResult>

@@ -1,9 +1,8 @@
 import { Command, Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { colors, format } from '../../lib/colors.js';
-import { 
-  getWorkspaceInfo, 
-  selectExistingAgentsInteractively,
+import {
+  getWorkspaceInfo,
   removeAgentsFromWorkspace
 } from '../../lib/agents/commands.js';
 
@@ -64,9 +63,9 @@ export default class Remove extends Command {
       }
 
       // Filter to only existing agents
-      const existingAgentNames = workspaceInfo.agents.map(a => a.name);
+      const existingAgentNames = new Set(workspaceInfo.agents.map(a => a.name));
       const agentsToRemove = agentNames.filter(name => {
-        if (!existingAgentNames.includes(name)) {
+        if (!existingAgentNames.has(name)) {
           this.log(colors.warning(`Agent ${name} not found`));
           return false;
         }

@@ -7,7 +7,9 @@ domain: projects
 
 ## Overview
 
-Projects are containers for tickets and boards. Each workspace can have multiple projects. A "default" project is auto-created and cannot be deleted.
+Projects are the primary container for work. Each project has a kanban board, a workflow configuration (status set), and contains tickets. Projects can represent either time-bounded efforts (like Linear's Projects) or ongoing workstreams.
+
+Each workspace can have multiple projects. A "default" project is auto-created and cannot be deleted.
 
 ## Abilities
 
@@ -28,10 +30,27 @@ Projects are containers for tickets and boards. Each workspace can have multiple
 | id | string | auto | - | Project identifier (slug) |
 | name | string | ✓ | - | Display name |
 | description | string | | "" | Project description |
-| template | string | | "kanban" | Board template used |
+| status | enum | | active | Project lifecycle: draft, active, completed, archived |
+| template | string | | "kanban" | Workflow template used to seed status configuration |
+| target_date | timestamp | | null | Optional end date for time-bounded projects |
 | initiative_id | ref | | null | Parent initiative |
 | created_at | timestamp | auto | now | Creation time |
 | updated_at | timestamp | auto | now | Last modified |
+
+### Project Lifecycle
+
+Projects have a fixed status lifecycle (separate from ticket statuses):
+
+```
+┌───────┐     ┌────────┐     ┌───────────┐     ┌──────────┐
+│ draft │ ──▶ │ active │ ──▶ │ completed │ ──▶ │ archived │
+└───────┘     └────────┘     └───────────┘     └──────────┘
+```
+
+- **draft**: Planning phase, defining scope and tickets
+- **active**: Work is actively happening
+- **completed**: Project goals achieved, may still reference for history
+- **archived**: Soft-deleted, hidden from default views
 
 ## Business Rules
 
@@ -56,6 +75,7 @@ Projects are containers for tickets and boards. Each workspace can have multiple
 
 ## Related Domains
 
-- [Board](board.md) - Each project has one board
+- [Workflow](workflow.md) - Projects own a status configuration for their tickets
+- [Board](board.md) - Each project has one board (columns = statuses)
 - [Tickets](tickets.md) - Tickets belong to projects
-- [Epics](epics.md) - Epics belong to projects
+- [Epics](epics.md) - **Deprecated**: Projects now serve as the primary grouping mechanism, similar to Linear. Epic functionality may be removed in a future version.

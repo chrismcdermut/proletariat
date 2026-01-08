@@ -1,12 +1,9 @@
-import { Command, Args, Flags } from '@oclif/core';
-import * as path from 'path';
-import * as fs from 'fs';
+import { Args, Flags } from '@oclif/core';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
 import Database from 'better-sqlite3';
 import inquirer from 'inquirer';
-import {
-  getPMOContext,
-  autoExportToBoard,
-} from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
@@ -26,7 +23,7 @@ import {
   generatePRBody,
 } from '../../lib/pr/index.js';
 
-export default class WorkReady extends Command {
+export default class WorkReady extends PMOCommand {
   static description = 'Mark work as ready for review (moves ticket to In Review column)';
 
   static examples = [
@@ -44,6 +41,7 @@ export default class WorkReady extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     pr: Flags.boolean({
       description: 'Create a pull request for this work',
       default: false,
@@ -58,23 +56,16 @@ export default class WorkReady extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkReady);
 
     // Get workspace info for execution storage
     let workspaceInfo;
     try {
       workspaceInfo = getWorkspaceInfo();
-    } catch (error) {
+    } catch {
       this.error('Not in a workspace. Run "prlt init" first.');
     }
-
-    // Get PMO context (prompts for project if multiple exist)
-    const { pmoPath, storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      true // prompt if multiple projects
-    );
 
     // Open database for execution storage
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db');
@@ -87,13 +78,12 @@ export default class WorkReady extends Command {
 
       if (!ticketId) {
         // Get all in-progress tickets for selection
-        const allTickets = await storage.listTickets();
+        const allTickets = await this.storage.listTickets();
         const inProgressTickets = allTickets.filter(t =>
           t.column && t.column.toLowerCase().includes('progress')
         );
 
         if (inProgressTickets.length === 0) {
-          await storage.close();
           db.close();
           this.log(styles.info('No in-progress work found.'));
           return;
@@ -112,32 +102,32 @@ export default class WorkReady extends Command {
       }
 
       // Get ticket
-      const ticket = await storage.getTicket(ticketId!);
+      const ticket = await this.storage.getTicket(ticketId!);
       if (!ticket) {
-        await storage.close();
         db.close();
         this.error(`Ticket "${ticketId}" not found.`);
       }
 
       // Get configured column name (from pmo_settings or default)
-      const targetColumnName = getWorkColumnSetting(db, 'review');
-      const board = await storage.getBoard();
+      // In Linear-style workflow, "ready" moves ticket to Done (review is implicit via PR)
+      const targetColumnName = getWorkColumnSetting(db, 'done');
+      const board = await this.storage.getBoard();
       const columnNames = board.columns.map(col => col.name);
-      const reviewColumn = findColumnByName(columnNames, targetColumnName);
+      const doneColumn = findColumnByName(columnNames, targetColumnName);
 
-      if (!reviewColumn) {
-        await storage.close();
+      if (!doneColumn) {
         db.close();
-        this.error(`No "${targetColumnName}" column found in board configuration. Configure with: prlt config set column_review <column-name>`);
+        this.error(`No "${targetColumnName}" column found in board configuration. Configure with: prlt config set column_done <column-name>`);
       }
 
       const previousColumn = ticket.column;
 
-      // Move to Review column
-      await storage.moveTicket(ticketId!, reviewColumn);
+      // Update ticket status to done and move to Done column
+      await this.storage.updateTicket(ticketId!, { status: 'done' });
+      await this.storage.moveTicket(ticketId!, doneColumn);
 
       // Auto-export to board.md if configured
-      await autoExportToBoard(pmoPath, storage);
+      await autoExportToBoard(this.pmoPath, this.storage);
 
       // Mark any running executions for this ticket as completed
       const runningExecution = executionStorage.getRunningExecution(ticketId!);
@@ -186,7 +176,7 @@ export default class WorkReady extends Command {
         prUrl = await this.handlePRCreation(ticket, flags.draft, branch, worktreePath);
         if (prUrl) {
           // Store PR URL in ticket metadata
-          await storage.updateTicket(ticketId!, {
+          await this.storage.updateTicket(ticketId!, {
             metadata: {
               ...ticket.metadata,
               pr_url: prUrl,
@@ -195,18 +185,16 @@ export default class WorkReady extends Command {
         }
       }
 
-      await storage.close();
       db.close();
 
-      this.log(styles.success(`👀 Work ready for review: ${ticketId}`));
+      this.log(styles.success(`Work ready: ${ticketId}`));
       this.log(styles.muted(`   Title: ${ticket.title}`));
       this.log(styles.muted(`   From: ${previousColumn}`));
-      this.log(styles.muted(`   To: ${reviewColumn}`));
+      this.log(styles.muted(`   To: ${doneColumn}`));
       if (prUrl) {
         this.log(styles.muted(`   PR: ${prUrl}`));
       }
     } catch (error) {
-      await storage.close();
       db.close();
       throw error;
     }

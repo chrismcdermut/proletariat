@@ -5,8 +5,8 @@
  * in the PMO folder structure.
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { Epic, EpicStatus } from './types.js';
 
 /**
@@ -50,7 +50,7 @@ export function ensureEpicDirs(pmoPath: string, projectId: string = 'default'): 
 export interface TicketInfo {
   id: string;
   title: string;
-  status: string;
+  status?: string;  // Optional: use statusName or column from ticket
   priority?: string;
 }
 

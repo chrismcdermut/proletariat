@@ -10,9 +10,9 @@
  * - Graceful shutdown handling
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import * as crypto from 'crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as crypto from 'node:crypto';
 import { watch, FSWatcher } from 'chokidar';
 import { SQLiteStorage } from './storage-sqlite.js';
 import { parseBoard } from './markdown.js';
@@ -191,7 +191,7 @@ export function startWatcher(
   /**
    * Handle file change with debouncing
    */
-  function handleChange(eventPath: string) {
+  function handleChange(_eventPath: string) {
     if (!isRunning) return;
 
     // Clear existing timer

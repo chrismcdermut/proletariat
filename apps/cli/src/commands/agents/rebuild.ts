@@ -1,14 +1,15 @@
-import { Args, Command, Flags } from '@oclif/core';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import * as path from 'path';
+import { Args, Flags } from '@oclif/core';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+import * as path from 'node:path';
 import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { DockerCommand } from '../../lib/commands/docker-command.js';
 
 const execAsync = promisify(exec);
 
-export default class AgentsRebuild extends Command {
+export default class AgentsRebuild extends DockerCommand {
   static description = 'Rebuild agent devcontainer images';
 
   static examples = [
@@ -39,7 +40,7 @@ export default class AgentsRebuild extends Command {
   static strict = false;
 
   async run(): Promise<void> {
-    const { args, argv, flags } = await this.parse(AgentsRebuild);
+    const { argv, flags } = await this.parse(AgentsRebuild);
 
     // Get workspace info
     const workspaceInfo = getWorkspaceInfo();
@@ -95,7 +96,6 @@ export default class AgentsRebuild extends Command {
     for (const agentName of agentsToRebuild) {
       try {
         const agentDir = path.join(agentsPath, agentName);
-        const devcontainerPath = path.join(agentDir, '.devcontainer');
 
         this.log(colors.textSecondary(`  ${agentName}: Building devcontainer...`));
 
@@ -110,7 +110,7 @@ export default class AgentsRebuild extends Command {
           buildCommand.push('--no-cache');
         }
 
-        const { stdout, stderr } = await execAsync(buildCommand.join(' '));
+        const { stderr } = await execAsync(buildCommand.join(' '));
 
         if (stderr && !stderr.includes('WARNING')) {
           this.log(colors.textMuted(`    ${stderr.trim()}`));

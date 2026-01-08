@@ -1,11 +1,11 @@
-import { Command, Flags, Args } from '@oclif/core';
+import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { slugify } from '../../lib/pmo/utils.js';
 import { SpecType, SpecStatus } from '../../lib/pmo/types.js';
 
-export default class SpecCreate extends Command {
+export default class SpecCreate extends PMOCommand {
   static description = 'Create a new spec';
 
   static examples = [
@@ -22,6 +22,7 @@ export default class SpecCreate extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     title: Flags.string({
       char: 't',
       description: 'Spec title',
@@ -46,15 +47,8 @@ export default class SpecCreate extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(SpecCreate);
-
-    // Get PMO context
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    );
 
     // Get spec data
     let specData: {
@@ -79,15 +73,13 @@ export default class SpecCreate extends Command {
     const specId = slugify(specData.title);
 
     // Create spec in database
-    const spec = await storage.createSpec({
+    const spec = await this.storage.createSpec({
       id: specId,
       title: specData.title,
       status: specData.status,
       type: specData.type,
       problem: specData.problem,
     });
-
-    await storage.close();
 
     this.log(styles.success(`\n✅ Created spec "${styles.emphasis(spec.title)}"`));
     this.log(styles.muted(`  ID: ${spec.id}`));

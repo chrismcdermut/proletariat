@@ -1,20 +1,22 @@
-import { Command } from '@oclif/core';
 import inquirer from 'inquirer';
-import { findPMO } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 
-export default class Spec extends Command {
+export default class Spec extends PMOCommand {
   static description = 'Interactive menu for spec operations';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
   ];
 
-  async run(): Promise<void> {
-    const pmoPath = findPMO();
-    if (!pmoPath) {
-      this.error('PMO not found. Run "prlt pmo init" first.');
-    }
+  static flags = {
+    ...pmoBaseFlags,
+  };
 
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',
@@ -25,7 +27,8 @@ export default class Spec extends Command {
         { name: 'List all specs', value: 'list' },
         { name: 'View spec', value: 'view' },
         { name: 'Generate tickets from spec', value: 'generate' },
-        { name: 'Link ticket to spec', value: 'link' },
+        { name: 'Assign ticket to spec', value: 'ticket' },
+        { name: 'Manage dependencies', value: 'link' },
         new inquirer.Separator(),
         { name: 'Cancel', value: 'cancel' },
       ],
@@ -48,6 +51,9 @@ export default class Spec extends Command {
         break;
       case 'generate':
         await this.config.runCommand('spec:generate-tickets', []);
+        break;
+      case 'ticket':
+        await this.config.runCommand('spec:ticket', []);
         break;
       case 'link':
         await this.config.runCommand('spec:link', []);

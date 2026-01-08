@@ -4,10 +4,10 @@
  * Implementations for each runtime mode (foreground, background, tmux, terminal, docker, vm).
  */
 
-import { spawn, execSync, ChildProcess } from 'child_process'
-import * as fs from 'fs'
-import * as path from 'path'
-import * as os from 'os'
+import { spawn, execSync } from 'node:child_process'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import * as os from 'node:os'
 import {
   RuntimeMode,
   DisplayMode,
@@ -59,6 +59,13 @@ function buildPrompt(context: ExecutionContext): string {
     prompt += `## Original Ticket Context\n\n`
   }
 
+  // Action instruction (what the agent should do)
+  if (context.actionPrompt) {
+    prompt += `# Action: ${context.actionName || 'Work'}\n\n`
+    prompt += context.actionPrompt
+    prompt += `\n\n---\n\n`
+  }
+
   prompt += `# Ticket: ${context.ticketId}\n\n`
   prompt += `**Title:** ${context.ticketTitle}\n\n`
 
@@ -104,7 +111,7 @@ function buildPrompt(context: ExecutionContext): string {
   // For revisions, just tell agent to push changes
   if (context.isRevision) {
     prompt += `After addressing the feedback:\n`
-    prompt += `1. Commit your changes in each repository you modified\n`
+    prompt += `1. Commit your changes using \`prlt commit "your message"\`\n`
     prompt += `2. Push your changes: \`git push\`\n`
     prompt += `\nThe PR will be updated automatically.`
   } else {
@@ -112,10 +119,12 @@ function buildPrompt(context: ExecutionContext): string {
     prompt += `   \`\`\`bash\n`
     prompt += `   cd /workspace/<repo-name>\n`
     prompt += `   git add -A\n`
-    prompt += `   git commit -m "Your descriptive commit message"\n`
+    prompt += `   prlt commit "describe your change"\n`
     prompt += `   git push\n`
     prompt += `   \`\`\`\n`
-    prompt += `2. **Mark work as ready** by running:\n`
+    prompt += `   This formats your commit as a conventional commit with the ticket ID.\n`
+
+    prompt += `\n2. **Mark work as ready** by running:\n`
     // Build the work ready command with the appropriate PR flag
     const prFlag = context.createPR ? ' --pr' : ' --no-pr'
     prompt += `   \`\`\`bash\n   prlt work ready ${context.ticketId}${prFlag}\n   \`\`\`\n`
@@ -826,6 +835,11 @@ export async function runDevcontainer(
       } catch {
         // Ignore cleanup errors
       }
+    }
+
+    // Override containerId with the real Docker container ID (not the placeholder)
+    if (result.success && containerId) {
+      result.containerId = containerId
     }
 
     return result

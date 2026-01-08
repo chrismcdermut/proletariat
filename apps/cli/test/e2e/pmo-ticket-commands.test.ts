@@ -1,10 +1,10 @@
 import { expect } from 'chai';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import { execSync } from 'child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { execSync } from 'node:child_process';
 import Database from 'better-sqlite3';
-import { fileURLToPath } from 'url';
+import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -476,8 +476,8 @@ describe('PMO Ticket Commands E2E Tests', () => {
       exec('ticket create --title "Bulk 2" --column "SHIP BL"');
       exec('ticket create --title "Bulk 3" --column "SHIP BL"');
 
-      const ticket1 = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bulk 1');
-      const ticket2 = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bulk 2');
+      db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bulk 1');
+      db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bulk 2');
 
       // Note: This would be interactive in real usage, so we test the underlying function
       // In a real E2E test, you'd use a tool to interact with prompts
@@ -632,12 +632,28 @@ function setupTestDatabase(db: Database.Database) {
       title TEXT NOT NULL,
       description TEXT,
       status TEXT NOT NULL DEFAULT 'active',
+      position INTEGER NOT NULL DEFAULT 0,
       file_path TEXT,
       spec_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
       FOREIGN KEY (spec_id) REFERENCES pmo_specs(id) ON DELETE SET NULL
+    );
+
+    -- Workflow statuses table
+    CREATE TABLE IF NOT EXISTS pmo_statuses (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      color TEXT,
+      description TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
+      UNIQUE(project_id, name)
     );
 
     -- Tickets table
@@ -649,8 +665,10 @@ function setupTestDatabase(db: Database.Database) {
       priority TEXT,
       category TEXT,
       status TEXT NOT NULL DEFAULT 'backlog',
+      status_id TEXT,
       owner TEXT,
       assignee TEXT,
+      branch TEXT,
       spec_id TEXT,
       epic_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -658,6 +676,7 @@ function setupTestDatabase(db: Database.Database) {
       last_synced_from_spec TIMESTAMP,
       last_synced_from_board TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (status_id) REFERENCES pmo_statuses(id),
       FOREIGN KEY (spec_id) REFERENCES pmo_specs(id) ON DELETE SET NULL,
       FOREIGN KEY (epic_id) REFERENCES pmo_epics(id) ON DELETE SET NULL
     );
@@ -801,6 +820,23 @@ function setupTestDatabase(db: Database.Database) {
       INSERT INTO pmo_columns (id, project_id, name, position)
       VALUES (?, 'test-project', ?, ?)
     `).run(col.id, col.name, col.position);
+  }
+
+  // Workflow statuses (kanban template)
+  const statuses = [
+    { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
+    { id: 'status-todo', name: 'Todo', category: 'unstarted', position: 0 },
+    { id: 'status-in-progress', name: 'In Progress', category: 'started', position: 0 },
+    { id: 'status-in-review', name: 'In Review', category: 'started', position: 1 },
+    { id: 'status-done', name: 'Done', category: 'completed', position: 0 },
+    { id: 'status-canceled', name: 'Canceled', category: 'canceled', position: 0 },
+  ];
+
+  for (const status of statuses) {
+    db.prepare(`
+      INSERT INTO pmo_statuses (id, project_id, name, category, position, is_default)
+      VALUES (?, 'test-project', ?, ?, ?, ?)
+    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
   }
 
   // Create HQ config file (required for findPMO to work)

@@ -1,20 +1,22 @@
-import { Command } from '@oclif/core';
 import inquirer from 'inquirer';
-import { findPMO } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 
-export default class Epic extends Command {
+export default class Epic extends PMOCommand {
   static description = 'Interactive menu for epic operations';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
   ];
 
-  async run(): Promise<void> {
-    const pmoPath = findPMO();
-    if (!pmoPath) {
-      this.error('PMO not found. Run "prlt pmo init" first.');
-    }
+  static flags = {
+    ...pmoBaseFlags,
+  };
 
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',
@@ -25,11 +27,14 @@ export default class Epic extends Command {
         { name: 'List all epics', value: 'list' },
         { name: 'View epic', value: 'view' },
         { name: 'Show progress', value: 'progress' },
-        { name: 'Link tickets to epic', value: 'link' },
+        { name: 'Assign tickets to epic', value: 'ticket' },
+        { name: 'Assign spec to epic', value: 'spec' },
+        { name: 'Manage dependencies', value: 'link' },
         new inquirer.Separator(),
         { name: 'Archive epic (complete)', value: 'archive' },
         { name: 'Activate epic', value: 'activate' },
-        { name: 'Move epic', value: 'move' },
+        { name: 'Reorder epic', value: 'move' },
+        { name: 'Move to different project', value: 'project' },
         new inquirer.Separator(),
         { name: 'Cancel', value: 'cancel' },
       ],
@@ -53,6 +58,12 @@ export default class Epic extends Command {
       case 'progress':
         await this.config.runCommand('epic:progress', []);
         break;
+      case 'ticket':
+        await this.config.runCommand('epic:ticket', []);
+        break;
+      case 'spec':
+        await this.config.runCommand('epic:spec', []);
+        break;
       case 'link':
         await this.config.runCommand('epic:link', []);
         break;
@@ -64,6 +75,9 @@ export default class Epic extends Command {
         break;
       case 'move':
         await this.config.runCommand('epic:move', []);
+        break;
+      case 'project':
+        await this.config.runCommand('epic:project', []);
         break;
     }
   }

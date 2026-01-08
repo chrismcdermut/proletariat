@@ -5,7 +5,7 @@
  * Uses the `gh` CLI for GitHub operations.
  */
 
-import { execSync, spawnSync } from 'child_process';
+import { execSync, spawnSync } from 'node:child_process';
 
 // =============================================================================
 // Types

@@ -1,12 +1,12 @@
-import { Command, Flags, Args } from '@oclif/core';
-import * as fs from 'fs';
-import * as path from 'path';
+import { Flags, Args } from '@oclif/core';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import inquirer from 'inquirer';
-import { findPMO, getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class SpecLink extends Command {
-  static description = 'Link a ticket to a spec document';
+export default class SpecTicket extends PMOCommand {
+  static description = 'Assign a ticket to a spec document';
 
   static examples = [
     '<%= config.bin %> <%= command.id %> PRLT-001 user-authentication',
@@ -25,6 +25,7 @@ export default class SpecLink extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     ticket: Flags.string({
       char: 't',
       description: 'Ticket ID',
@@ -33,31 +34,15 @@ export default class SpecLink extends Command {
       char: 's',
       description: 'Spec ID (filename without .md)',
     }),
-    project: Flags.string({
-      char: 'p',
-      description: 'Project ID (will prompt if not specified)',
-    }),
   };
 
-  async run(): Promise<void> {
-    const { args, flags } = await this.parse(SpecLink);
-
-    const pmoPath = findPMO();
-    if (!pmoPath) {
-      this.error('PMO not found. Run "prlt pmo init" first.');
-    }
-
-    // Get PMO context (prompt for project if multiple exist)
-    const { projectId, projectName, storage } = await getPMOContext(
-      flags.project,
-      (msg) => this.log(styles.muted(msg)),
-      true // prompt if multiple projects
-    );
+  async execute(): Promise<void> {
+    const { args, flags } = await this.parse(SpecTicket);
 
     // Get ticket ID
     let ticketId = args.ticketId || flags.ticket;
     if (!ticketId) {
-      const tickets = await storage.listTickets();
+      const tickets = await this.storage.listTickets();
       if (tickets.length === 0) {
         this.error('No tickets found. Create one first with: prlt ticket create');
       }
@@ -76,15 +61,15 @@ export default class SpecLink extends Command {
     }
 
     // Get ticket
-    const ticket = await storage.getTicket(ticketId);
+    const ticket = await this.storage.getTicket(ticketId);
     if (!ticket) {
-      this.error(`Ticket "${ticketId}" not found in project "${projectName}"`);
+      this.error(`Ticket "${ticketId}" not found in project "${this.projectName}"`);
     }
 
     // Get spec ID
     let specId = args.specId || flags.spec;
     if (!specId) {
-      const specs = await this.listAvailableSpecs(pmoPath, projectId);
+      const specs = await this.listAvailableSpecs(this.pmoPath, this.projectId);
       if (specs.length === 0) {
         this.error('No specs found. Create one first with: prlt spec create');
       }
@@ -103,26 +88,28 @@ export default class SpecLink extends Command {
     }
 
     // Verify spec exists
-    const specPath = this.findSpecFile(pmoPath, projectId, specId);
+    const specPath = this.findSpecFile(this.pmoPath, this.projectId, specId);
     if (!specPath) {
-      this.error(`Spec "${specId}" not found in project "${projectName}"`);
+      this.error(`Spec "${specId}" not found in project "${this.projectName}"`);
     }
 
     // Check if already linked
-    if (ticket.specs && ticket.specs.includes(specId)) {
+    if (ticket.specId === specId) {
       this.log(styles.warning(`Ticket "${ticketId}" is already linked to spec "${specId}"`));
-      await storage.close();
       return;
     }
 
-    // Add spec to ticket
-    const updatedSpecs = [...(ticket.specs || []), specId];
-    await storage.updateTicket(ticketId, { specs: updatedSpecs });
+    // Warn if ticket already has a different spec
+    if (ticket.specId && ticket.specId !== specId) {
+      this.log(styles.warning(`Ticket "${ticketId}" is currently linked to spec "${ticket.specId}"`));
+      this.log(styles.muted(`This will replace the existing spec link.`));
+    }
+
+    // Set spec on ticket (single spec per ticket)
+    await this.storage.updateTicket(ticketId, { specId });
 
     // Auto-export to board.md
-    await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
-
-    await storage.close();
+    await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
 
     this.log(styles.success(`\n✅ Linked ticket "${styles.emphasis(ticketId)}" to spec "${styles.emphasis(specId)}"`));
     this.log(styles.muted(`\nView ticket:`));

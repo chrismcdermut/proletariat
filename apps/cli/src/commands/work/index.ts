@@ -1,20 +1,22 @@
-import { Command } from '@oclif/core';
 import inquirer from 'inquirer';
-import { findPMO } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 
-export default class Work extends Command {
+export default class Work extends PMOCommand {
   static description = 'Interactive menu for work operations (ownership, assignment, execution)';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
   ];
 
-  async run(): Promise<void> {
-    const pmoPath = findPMO();
-    if (!pmoPath) {
-      this.error('PMO not found. Run "prlt pmo init" first.');
-    }
+  static flags = {
+    ...pmoBaseFlags,
+  };
 
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',
@@ -26,8 +28,8 @@ export default class Work extends Command {
         { name: 'Assign work to agent/person', value: 'assign' },
         { name: 'Take ownership (accountable)', value: 'own' },
         new inquirer.Separator('── Execution ──'),
-        { name: 'Start work (launch agent)', value: 'start' },
-        { name: 'Spawn multiple agents (bulk)', value: 'spawn' },
+        { name: 'Start work (launch single agent)', value: 'start' },
+        { name: 'Spawn work (batch by column)', value: 'spawn' },
         { name: 'Watch column (auto-spawn)', value: 'watch' },
         { name: 'Mark work ready for review', value: 'ready' },
         { name: 'Mark work complete', value: 'complete' },
@@ -55,7 +57,7 @@ export default class Work extends Command {
         await this.config.runCommand('work:start', []);
         break;
       case 'spawn':
-        await this.config.runCommand('works:start', []);
+        await this.config.runCommand('work:spawn', []);
         break;
       case 'watch':
         await this.config.runCommand('work:watch', []);

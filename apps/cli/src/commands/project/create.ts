@@ -1,12 +1,12 @@
-import { Command, Flags, Args } from '@oclif/core';
-import * as fs from 'fs';
-import * as path from 'path';
+import { Flags, Args } from '@oclif/core';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import inquirer from 'inquirer';
-import { SQLiteStorage, createBoardContent, createSpecFolders, findPMO } from '../../lib/pmo/index.js';
+import { createBoardContent, createSpecFolders, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { slugify } from '../../lib/pmo/utils.js';
 
-export default class ProjectCreate extends Command {
+export default class ProjectCreate extends PMOCommand {
   static description = 'Create a new project in the PMO';
 
   static examples = [
@@ -23,6 +23,7 @@ export default class ProjectCreate extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     name: Flags.string({
       char: 'n',
       description: 'Project name',
@@ -36,8 +37,8 @@ export default class ProjectCreate extends Command {
     }),
     template: Flags.string({
       char: 't',
-      description: 'Board template',
-      options: ['kanban', 'scrum', 'founder'],
+      description: 'Workflow template',
+      options: ['kanban', 'linear', 'bug-smash', '5-tool-founder', 'gtm'],
       default: 'kanban',
     }),
     interactive: Flags.boolean({
@@ -47,22 +48,14 @@ export default class ProjectCreate extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(ProjectCreate);
 
-    const pmoPath = findPMO();
-    if (!pmoPath) {
-      this.error('PMO not found. Run "prlt pmo init" first.');
-    }
-
-    const hqPath = path.dirname(pmoPath);
-    const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
-
-    if (!fs.existsSync(dbPath)) {
-      this.error('Database not found. Run "prlt init" first.');
-    }
-
-    // Get project data
+    // Get project data first (before storage so prompts work)
     let projectData: {
       name: string;
       id?: string;
@@ -83,49 +76,44 @@ export default class ProjectCreate extends Command {
 
     const projectId = projectData.id || slugify(projectData.name);
 
-    const storage = new SQLiteStorage(dbPath);
-
-    try {
-      // Check if project already exists
-      const existing = await storage.getProject(projectId);
-      if (existing) {
-        await storage.close();
-        this.error(`Project "${projectId}" already exists.`);
-      }
-
-      // Create project in database
-      const project = await storage.createProject({
-        id: projectId,
-        name: projectData.name,
-        description: projectData.description,
-        template: projectData.template,
-      });
-
-      // Create project folder structure: pmo/projects/{projectId}/
-      const projectPath = path.join(pmoPath, 'projects', projectId);
-      fs.mkdirSync(projectPath, { recursive: true });
-
-      // Create kanban.md in project directory with project name as board name
-      const boardContent = createBoardContent(projectData.template, projectData.name);
-      const boardPath = path.join(projectPath, 'kanban.md');
-      fs.writeFileSync(boardPath, boardContent);
-
-      // Create spec folders in project directory
-      const specsPath = createSpecFolders(pmoPath, projectId);
-
-      await storage.close();
-
-      this.log(styles.success(`\nCreated project "${styles.emphasis(project.name)}"`));
-      this.log(styles.muted(`  ID: ${project.id}`));
-      this.log(styles.muted(`  Board: ${path.relative(process.cwd(), boardPath)}`));
-      this.log(styles.muted(`  Specs: ${path.relative(process.cwd(), specsPath)}/`));
-      this.log(styles.muted(`\nSwitch to this project:`));
-      this.log(styles.muted(`  prlt ticket list --project ${project.id}`));
-      this.log(styles.muted(`  prlt project view ${project.id}`));
-    } catch (error) {
-      await storage.close();
-      throw error;
+    // Check if project already exists
+    const existing = await this.storage.getProject(projectId);
+    if (existing) {
+      this.error(`Project "${projectId}" already exists.`);
     }
+
+    // Create project in database
+    const project = await this.storage.createProject({
+      id: projectId,
+      name: projectData.name,
+      description: projectData.description,
+      template: projectData.template,
+    });
+
+    // Create project folder structure: pmo/projects/{projectId}/
+    const projectPath = path.join(this.pmoPath, 'projects', projectId);
+    fs.mkdirSync(projectPath, { recursive: true });
+
+    // Create kanban.md in project directory with project name as board name
+    const boardContent = createBoardContent(projectData.template, projectData.name);
+    const boardPath = path.join(projectPath, 'kanban.md');
+    fs.writeFileSync(boardPath, boardContent);
+
+    // Create spec folders in project directory
+    const specsPath = createSpecFolders(this.pmoPath, projectId);
+
+    // Get the statuses that were created
+    const statuses = await this.storage.listStatuses(projectId);
+
+    this.log(styles.success(`\nCreated project "${styles.emphasis(project.name)}"`));
+    this.log(styles.muted(`  ID: ${project.id}`));
+    this.log(styles.muted(`  Template: ${projectData.template}`));
+    this.log(styles.muted(`  Statuses: ${statuses.map(s => s.name).join(' → ')}`));
+    this.log(styles.muted(`  Board: ${path.relative(process.cwd(), boardPath)}`));
+    this.log(styles.muted(`  Specs: ${path.relative(process.cwd(), specsPath)}/`));
+    this.log(styles.muted(`\nSwitch to this project:`));
+    this.log(styles.muted(`  prlt ticket list --project ${project.id}`));
+    this.log(styles.muted(`  prlt project view ${project.id}`));
   }
 
   private async promptProjectData(flags: {
@@ -167,11 +155,13 @@ export default class ProjectCreate extends Command {
       {
         type: 'list',
         name: 'template',
-        message: 'Board template:',
+        message: 'Workflow template:',
         choices: [
-          { name: 'Kanban (Backlog, In Progress, Done)', value: 'kanban' },
-          { name: 'Scrum (+ In Review, Blocked)', value: 'scrum' },
-          { name: '5-Tool Founder (SHIP/GROW/SUPPORT/BIZOPS/STRATEGY + workflow)', value: 'founder' },
+          { name: 'Kanban - Backlog → To Do → In Progress → Done', value: 'kanban' },
+          { name: 'Linear - Backlog, Triage, Todo, In Progress, In Review, Done', value: 'linear' },
+          { name: 'Bug Smash - Reported → Confirmed → Fixing → Verifying → Fixed', value: 'bug-smash' },
+          { name: '5-Tool Founder - Ideas → Next Up → Building → Shipping → Shipped', value: '5-tool-founder' },
+          { name: 'GTM - Ideation → Planning → In Development → Ready to Launch → Launched', value: 'gtm' },
         ],
         default: flags.template || 'kanban',
       },

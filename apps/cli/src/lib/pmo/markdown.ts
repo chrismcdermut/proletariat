@@ -4,7 +4,7 @@
  * Handles conversion between Obsidian Kanban markdown format and Board objects.
  */
 
-import { Board, Column, Subtask, Ticket } from './types.js'
+import { Board, Column, Ticket } from './types.js'
 import { slugify } from './utils.js'
 
 // =============================================================================
@@ -67,7 +67,8 @@ export function parseBoard(markdown: string, projectId: string = 'default'): Boa
     }
 
     // Ticket: - [ ] **ID** [[ID]] Title or - [ ] Title
-    const ticketMatch = line.match(/^- \[[ x]\] (?:\*\*([a-z0-9-]+)\*\* \[\[\1\]\] )?(.+)$/)
+    // Note: ID pattern is case-insensitive to handle both TKT-054 and tkt-054
+    const ticketMatch = line.match(/^- \[[ x]\] (?:\*\*([a-zA-Z0-9-]+)\*\* \[\[\1\]\] )?(.+)$/i)
     if (ticketMatch && currentColumn) {
       // Save previous ticket's description
       if (currentTicket && descriptionLines.length > 0) {
@@ -81,11 +82,12 @@ export function parseBoard(markdown: string, projectId: string = 'default'): Boa
       currentTicket = {
         id,
         title: title.trim(),
-        status: 'backlog', // Default status when parsing from board
+        statusId: '',  // Will be resolved when syncing to DB
+        statusCategory: 'backlog', // Default status category when parsing from board
         column: currentColumn.name,
         position: currentColumn.tickets.length,
-        specs: [],
         subtasks: [],
+        labels: [],
         metadata: {},
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -108,10 +110,12 @@ export function parseBoard(markdown: string, projectId: string = 'default'): Boa
         case 'Category':
           currentTicket.category = trimmedValue
           break
-        case 'Specs': {
-          // Parse specs: [[spec-1]], [[spec-2]]
-          const specMatches = trimmedValue.matchAll(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)
-          currentTicket.specs = Array.from(specMatches, (m) => m[1])
+        case 'Spec': {
+          // Parse spec: [[spec-id]] (single spec per ticket)
+          const specMatch = trimmedValue.match(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/)
+          if (specMatch) {
+            currentTicket.specId = specMatch[1]
+          }
           break
         }
         default:
@@ -190,13 +194,8 @@ export function generateBoardMarkdown(board: Board): string {
       if (ticket.category) {
         lines.push(`      **Category:** ${ticket.category}`)
       }
-      if (ticket.specs && ticket.specs.length > 0) {
-        for (const specPath of ticket.specs) {
-          // Extract spec ID from path (e.g., "projects/.../pmo-work-commands.md" -> "pmo-work-commands")
-          const specId = specPath.split('/').pop()?.replace('.md', '') || specPath
-          // Use wikilink alias syntax: [[path|display-text]]
-          lines.push(`      **Spec:** [[${specPath}|${specId}]]`)
-        }
+      if (ticket.specId) {
+        lines.push(`      **Spec:** [[${ticket.specId}]]`)
       }
       for (const [key, value] of Object.entries(ticket.metadata)) {
         lines.push(`      **${key}:** ${value}`)
@@ -284,7 +283,7 @@ function ticketsEqual(a: Ticket, b: Ticket): boolean {
     a.priority === b.priority &&
     a.category === b.category &&
     a.description === b.description &&
-    JSON.stringify(a.specs) === JSON.stringify(b.specs) &&
+    a.specId === b.specId &&
     JSON.stringify(a.subtasks) === JSON.stringify(b.subtasks) &&
     JSON.stringify(a.metadata) === JSON.stringify(b.metadata)
   )

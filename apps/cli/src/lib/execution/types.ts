@@ -139,6 +139,11 @@ export interface ExecutionContext {
   hqPath?: string // HQ root path for storing execution artifacts
   pmoPath?: string // PMO path for mounting into container
   createPR?: boolean // Whether to create a PR when work is ready (chosen at work start)
+  // Action context (what the agent should do)
+  actionId?: string       // Action ID (e.g., 'implement', 'groom')
+  actionName?: string     // Action name for display
+  actionPrompt?: string   // The action prompt (instruction for agent)
+  modifiesCode?: boolean  // Whether this action modifies code (needs branch)
   // PR feedback context (for work revise)
   prFeedback?: string // Formatted PR feedback markdown
   isRevision?: boolean // Whether this is a revision (addressing PR feedback)
@@ -257,11 +262,18 @@ export function getBranchType(category?: string): string {
 
 /**
  * Generate branch name for agent work.
- * Format: {type}/{agent}/{ticket-id}-{slug}
+ * Format: {ticketId}/{type}/{owner}/{agent}/{slug}
+ *
+ * Example: TKT-054/feat/chris/altman/update-branch-naming
+ *
+ * - ticketId first for easy filtering: git branch | grep TKT-054
+ * - owner: the human who owns the HQ/spawned the agent
+ * - agent: the AI agent doing the work
  */
 export function generateBranchName(
   ticketId: string,
   ticketTitle: string,
+  ownerName: string,
   agentName: string,
   category?: string
 ): string {
@@ -270,10 +282,10 @@ export function generateBranchName(
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, '')
     .replace(/\s+/g, '-')
-    .substring(0, 30)
+    .substring(0, 20)
     .replace(/-+$/, '')
 
-  return `${type}/${agentName}/${ticketId}-${slug}`
+  return `${ticketId}/${type}/${ownerName}/${agentName}/${slug}`
 }
 
 // =============================================================================

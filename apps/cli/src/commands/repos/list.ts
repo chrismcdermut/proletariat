@@ -1,8 +1,9 @@
-import { Command, Flags } from '@oclif/core';
+import { Flags } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { colors, format } from '../../lib/colors.js';
 import { findHQRoot, getWorkspaceRepoInfo } from '../../lib/repos/index.js';
 
-export default class List extends Command {
+export default class List extends PMOCommand {
   static description = 'List all repositories in the HQ';
 
   static examples = [
@@ -12,6 +13,7 @@ export default class List extends Command {
   ];
 
   static flags = {
+    ...pmoBaseFlags,
     format: Flags.string({
       char: 'f',
       description: 'Output format',
@@ -20,7 +22,11 @@ export default class List extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { flags } = await this.parse(List);
 
     // Find HQ root

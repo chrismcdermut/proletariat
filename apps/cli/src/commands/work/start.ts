@@ -1,11 +1,12 @@
-import { Command, Args, Flags } from '@oclif/core'
-import * as fs from 'fs'
-import * as path from 'path'
-import { execSync } from 'child_process'
+import { Args, Flags } from '@oclif/core'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import { execSync } from 'node:child_process'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
-import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
+import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
+import { StateCategory, WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
@@ -21,12 +22,12 @@ import {
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
 import { runExecution, isDockerRunning } from '../../lib/execution/runners.js'
-import { ExecutionStorage } from '../../lib/execution/storage.js'
-import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference } from '../../lib/execution/config.js'
+import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
+import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js'
 
-export default class WorkStart extends Command {
+export default class WorkStart extends PMOCommand {
   static description = 'Start work on a ticket (launches an agent to implement it)'
 
   static examples = [
@@ -35,6 +36,7 @@ export default class WorkStart extends Command {
     '<%= config.bin %> <%= command.id %> TKT-001 --mode tmux',
     '<%= config.bin %> <%= command.id %> TKT-001 --mode terminal',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
+    '<%= config.bin %> <%= command.id %> --all  # Spawn all backlog tickets',
   ]
 
   static args = {
@@ -45,6 +47,12 @@ export default class WorkStart extends Command {
   }
 
   static flags = {
+    ...pmoBaseFlags,
+    all: Flags.boolean({
+      char: 'a',
+      description: 'Start work on all unassigned backlog tickets (batch mode)',
+      default: false,
+    }),
     mode: Flags.string({
       char: 'm',
       description: 'Runtime mode',
@@ -54,6 +62,14 @@ export default class WorkStart extends Command {
       char: 'e',
       description: 'Override executor',
       options: ['claude-code', 'codex', 'aider', 'custom'],
+    }),
+    action: Flags.string({
+      char: 'A',
+      description: 'Action to perform (e.g., implement, groom, review)',
+    }),
+    prompt: Flags.string({
+      char: 'p',
+      description: 'Custom prompt (overrides action)',
     }),
     watch: Flags.boolean({
       char: 'w',
@@ -88,41 +104,23 @@ export default class WorkStart extends Command {
       description: 'Do not create PR when work is ready',
       default: false,
     }),
-    all: Flags.boolean({
-      char: 'a',
-      description: 'Start work on all backlog tickets (assigns to available agents)',
-      default: false,
+    output: Flags.string({
+      char: 'o',
+      description: 'Output mode',
+      options: ['interactive', 'print'],
     }),
   }
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkStart)
-
-    // Early Docker check - fail fast if Docker is needed but not running
-    // This avoids user going through ticket/agent selection only to fail at the end
-    if (!flags['run-on-host'] && !isDockerRunning()) {
-      this.error(
-        'Docker is not running.\n\n' +
-        'Docker is required for devcontainer execution (recommended for agent sandboxing).\n' +
-        'Please start Docker Desktop and try again.\n\n' +
-        'Alternatively, use --run-on-host to run directly on your machine (bypasses sandbox).'
-      )
-    }
 
     // Get workspace info (for agent worktree paths)
     let workspaceInfo
     try {
       workspaceInfo = getWorkspaceInfo()
-    } catch (error) {
+    } catch {
       this.error('Not in a workspace. Run "prlt init" first.')
     }
-
-    // Get PMO context
-    const { pmoPath, storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    )
 
     // Open database for execution storage
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
@@ -130,68 +128,76 @@ export default class WorkStart extends Command {
     const executionStorage = new ExecutionStorage(db)
 
     try {
-      // Handle --all flag for batch spawning
+      // Handle batch mode (--all)
       if (flags.all) {
-        await this.spawnAllTickets(workspaceInfo, storage, pmoPath, executionStorage, db, flags)
-        await storage.close()
-        db.close()
+        await this.runBatchMode(workspaceInfo, db, executionStorage, flags)
         return
       }
 
       // Get ticketId - prompt if not provided
       let ticketId = args.ticketId
-      let spawnAll = false
 
       if (!ticketId) {
         // Get all tickets
-        const allTickets = await storage.listTickets()
+        const allTickets = await this.storage.listTickets()
 
         if (allTickets.length === 0) {
-          await storage.close()
           db.close()
           this.error('No tickets found. Create a ticket first with "prlt ticket create".')
         }
-
-        // Build choices with "All tickets" option
-        const choices: Array<{ name: string; value: string } | inquirer.Separator> = [
-          { name: '🚀 All backlog tickets (spawn to available agents)', value: '__ALL__' },
-          new inquirer.Separator('── Individual Tickets ──'),
-          ...allTickets.map((t) => ({
-            name: `${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
-            value: t.id,
-          })),
-        ]
 
         const { selectedTicketId } = await inquirer.prompt([
           {
             type: 'list',
             name: 'selectedTicketId',
             message: 'Select ticket to work on:',
-            choices,
+            choices: allTickets.map((t) => ({
+              name: `${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
+              value: t.id,
+            })),
           },
         ])
-
-        if (selectedTicketId === '__ALL__') {
-          spawnAll = true
-        } else {
-          ticketId = selectedTicketId
-        }
-      }
-
-      // Handle "All tickets" selection from interactive menu
-      if (spawnAll) {
-        await this.spawnAllTickets(workspaceInfo, storage, pmoPath, executionStorage, db, flags)
-        await storage.close()
-        db.close()
-        return
+        ticketId = selectedTicketId
       }
 
       // Get ticket
-      const ticket = await storage.getTicket(ticketId!)
+      const ticket = await this.storage.getTicket(ticketId!)
       if (!ticket) {
-        await storage.close()
         db.close()
         this.error(`Ticket "${ticketId}" not found.`)
+      }
+
+      // Check if ticket is blocked by dependencies
+      const isBlocked = await this.storage.isTicketBlocked(ticketId!)
+      if (isBlocked && !flags.force) {
+        const blockers = await this.storage.getTicketBlockers(ticketId!)
+        const incompleteBlockers = blockers.filter(b => b.status !== 'done' && b.status !== 'canceled')
+
+        this.log('')
+        this.log(styles.warning(`⚠️  ${ticketId} is blocked by:`))
+        for (const blocker of incompleteBlockers) {
+          this.log(styles.muted(`   - ${blocker.id}: ${blocker.title} (${blocker.status})`))
+        }
+        this.log('')
+
+        const { startAnyway } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'startAnyway',
+            message: 'Start anyway?',
+            choices: [
+              { name: 'No, cancel', value: false },
+              { name: 'Yes, start despite blockers', value: true },
+            ],
+            default: false,
+          },
+        ])
+
+        if (!startAnyway) {
+          db.close()
+          this.log(styles.muted('Cancelled.'))
+          return
+        }
       }
 
       // Check assignee - prompt if not set
@@ -255,8 +261,8 @@ export default class WorkStart extends Command {
         }
 
         // Update ticket with assignee
-        await storage.updateTicket(ticketId!, { assignee: agentName })
-        await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
+        await this.storage.updateTicket(ticketId!, { assignee: agentName })
+        await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
         this.log(styles.muted(`Assigned ${ticketId} to ${agentName}`))
       }
 
@@ -266,7 +272,6 @@ export default class WorkStart extends Command {
       // Check if agent exists in workspace
       const agentInfo = workspaceInfo.agents.find((a) => a.name === assignedAgent)
       if (!agentInfo) {
-        await storage.close()
         db.close()
         this.error(
           `Agent "${assignedAgent}" not found in workspace.\n` +
@@ -277,7 +282,6 @@ export default class WorkStart extends Command {
       // Check for running execution on this ticket
       const runningExecution = executionStorage.getRunningExecution(ticketId!)
       if (runningExecution && !flags.force) {
-        await storage.close()
         db.close()
         this.error(
           `Ticket "${ticketId}" already has work in progress: ${runningExecution.id}\n` +
@@ -289,7 +293,6 @@ export default class WorkStart extends Command {
       const agentRunningExecutions = executionStorage.getAgentRunningExecutions(assignedAgent)
       if (agentRunningExecutions.length > 0 && !flags.force) {
         const execInfo = agentRunningExecutions.map(e => `  ${e.id}: ${e.ticketId}`).join('\n')
-        await storage.close()
         db.close()
         this.error(
           `Agent "${assignedAgent}" is already working on other tickets:\n${execInfo}\n\n` +
@@ -304,7 +307,6 @@ export default class WorkStart extends Command {
       // - HQ without repos: {agentsPath}/{agent}/ (placeholder, use cwd)
       const agentDir = path.join(workspaceInfo.agentsPath, assignedAgent)
       if (!fs.existsSync(agentDir)) {
-        await storage.close()
         db.close()
         this.error(
           `Agent directory not found at ${agentDir}.\n` +
@@ -339,18 +341,23 @@ export default class WorkStart extends Command {
         worktreePath = process.cwd()
       }
 
-      // Generate branch name
-      const branch = generateBranchName(
+      // Get coder name for branch naming (prompts on first use)
+      const coderName = await getOrPromptCoderName(db)
+
+      // Use ticket's existing branch or generate a new one
+      const branch = ticket.branch || generateBranchName(
         ticket.id,
         ticket.title,
+        coderName,
         assignedAgent,
         ticket.category
       )
+      const isExistingBranch = !!ticket.branch
 
       // Get epic info if linked
       let epicTitle: string | undefined
       if (ticket.epicId) {
-        const epic = await storage.getEpic(ticket.epicId)
+        const epic = await this.storage.getEpic(ticket.epicId)
         epicTitle = epic?.title
       }
 
@@ -360,7 +367,7 @@ export default class WorkStart extends Command {
       let specProblem: string | undefined
       let specSolution: string | undefined
       if (ticket.specId) {
-        const spec = await storage.getSpec(ticket.specId)
+        const spec = await this.storage.getSpec(ticket.specId)
         if (spec) {
           specId = spec.id
           specTitle = spec.title
@@ -369,9 +376,82 @@ export default class WorkStart extends Command {
         }
       }
 
+      // Determine action for this work session
+      let selectedAction: WorkAction | null = null
+      let customPrompt: string | undefined
+
+      if (flags.prompt) {
+        // Custom prompt overrides everything
+        customPrompt = flags.prompt
+      } else if (flags.action) {
+        // Specific action requested
+        selectedAction = await this.storage.getAction(flags.action)
+        if (!selectedAction) {
+          db.close()
+          this.error(`Action not found: ${flags.action}. Use "prlt action list" to see available actions.`)
+        }
+      } else {
+        // Interactive action selection
+        // Get ticket's current status to determine suggested action
+        const ticketStatus = await this.storage.getStatus(ticket.statusId || '')
+        const currentCategory: StateCategory = ticketStatus?.category || 'unstarted'
+
+        // Get suggested action for this category
+        const suggestedAction = await this.storage.getSuggestedAction(currentCategory)
+
+        // Get all actions for selection
+        const allActions = await this.storage.listActions()
+
+        // Build choices with suggested action at top
+        const actionChoices: Array<{ name: string; value: string } | inquirer.Separator> = []
+
+        if (suggestedAction) {
+          actionChoices.push({
+            name: `${suggestedAction.name} - ${suggestedAction.description || 'Suggested for ' + currentCategory} (Recommended)`,
+            value: suggestedAction.id,
+          })
+          actionChoices.push(new inquirer.Separator('── Other Actions ──'))
+        }
+
+        for (const action of allActions) {
+          if (suggestedAction && action.id === suggestedAction.id) continue
+          actionChoices.push({
+            name: `${action.name}${action.description ? ' - ' + action.description : ''}`,
+            value: action.id,
+          })
+        }
+
+        actionChoices.push(new inquirer.Separator('── Custom ──'))
+        actionChoices.push({ name: 'Custom prompt...', value: '__custom__' })
+
+        const { selectedActionId } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'selectedActionId',
+            message: `What should the agent do with ${ticket.id}?`,
+            choices: actionChoices,
+          },
+        ])
+
+        if (selectedActionId === '__custom__') {
+          const { customInput } = await inquirer.prompt([
+            {
+              type: 'input',
+              name: 'customInput',
+              message: 'Enter custom prompt:',
+              validate: (input: string) => input.trim() ? true : 'Prompt cannot be empty',
+            },
+          ])
+          customPrompt = customInput.trim()
+        } else {
+          selectedAction = await this.storage.getAction(selectedActionId)
+        }
+      }
+
       // Build execution context with full ticket details
       // HQ path comes from workspaceInfo (not derived from pmoPath since pmo can be nested in repos)
       const hqPath = workspaceInfo.path
+
       const context: ExecutionContext = {
         ticketId: ticket.id,
         ticketTitle: ticket.title,
@@ -389,7 +469,12 @@ export default class WorkStart extends Command {
         worktreePath,     // Worktree path (may be subdirectory of agentDir)
         branch,
         hqPath,
-        pmoPath,          // PMO path for container mounting
+        pmoPath: this.pmoPath,          // PMO path for container mounting
+        // Action context
+        actionId: selectedAction?.id,
+        actionName: selectedAction?.name || (customPrompt ? 'Custom' : undefined),
+        actionPrompt: customPrompt || selectedAction?.prompt,
+        modifiesCode: customPrompt ? true : selectedAction?.modifiesCode ?? true,
       }
 
       // Check if agent has devcontainer config
@@ -399,64 +484,88 @@ export default class WorkStart extends Command {
       const useDevcontainer = hasDevcontainer && !flags['run-on-host']
 
       // Determine runtime mode
-      let mode: RuntimeMode
+      let mode: RuntimeMode = 'terminal'
       let displayMode: DisplayMode = 'terminal'
       let environment: ExecutionEnvironment = 'host'
       let sandboxed = false  // Whether --dangerously-skip-permissions is NOT used
 
       if (hasDevcontainer && !flags.mode && !flags['run-on-host']) {
         // Agent has devcontainer - prompt for environment choice
-        const { selectedEnvironment } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedEnvironment',
-            message: 'Where should the agent run?',
-            choices: [
-              { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
-              { name: '💻 host (runs directly on your machine)', value: 'host' },
-            ],
-            default: 'devcontainer',
-          },
-        ])
+        // Loop to allow re-selection if Docker isn't running
+        let environmentSelected = false
+        while (!environmentSelected) {
+          const { selectedEnvironment } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'selectedEnvironment',
+              message: 'Where should the agent run?',
+              choices: [
+                { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
+                { name: '💻 host (runs directly on your machine)', value: 'host' },
+                { name: '✗  cancel', value: 'cancel' },
+              ],
+              default: 'devcontainer',
+            },
+          ])
 
-        if (selectedEnvironment === 'devcontainer') {
-          environment = 'devcontainer'
-          // Pick display mode for devcontainer
-          const { selectedDisplay } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedDisplay',
-              message: 'How should the agent output be displayed?',
-              choices: [
-                { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
-                { name: 'foreground   - Run in current terminal', value: 'foreground' },
-                { name: 'tmux         - New tmux pane/window', value: 'tmux' },
-                { name: 'background   - Detached process, logs to file', value: 'background' },
-              ],
-              default: 'terminal',
-            },
-          ])
-          displayMode = selectedDisplay as DisplayMode
-          mode = 'devcontainer'
-        } else {
-          // User chose host - fall through to host mode selection
-          environment = 'host'
-          const { selectedMode } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedMode',
-              message: 'Select execution mode:',
-              choices: [
-                { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
-                { name: 'foreground   - Run in current terminal', value: 'foreground' },
-                { name: 'tmux         - New tmux pane/window', value: 'tmux' },
-                { name: 'background   - Detached process, logs to file', value: 'background' },
-              ],
-              default: DEFAULT_EXECUTION_CONFIG.defaultMode,
-            },
-          ])
-          mode = selectedMode as RuntimeMode
-          displayMode = mode as DisplayMode
+          if (selectedEnvironment === 'cancel') {
+            db.close()
+            this.log(styles.muted('Cancelled.'))
+            return
+          }
+
+          if (selectedEnvironment === 'devcontainer') {
+            // Check Docker is running before proceeding with devcontainer
+            if (!isDockerRunning()) {
+              this.log('')
+              this.warn(
+                'Docker is not running.\n' +
+                'Docker is required for devcontainer execution.\n' +
+                'Please start Docker Desktop or select "host" to run directly on your machine.'
+              )
+              this.log('')
+              continue  // Re-prompt for environment selection
+            }
+            environment = 'devcontainer'
+            // Pick display mode for devcontainer
+            const { selectedDisplay } = await inquirer.prompt([
+              {
+                type: 'list',
+                name: 'selectedDisplay',
+                message: 'How should the agent output be displayed?',
+                choices: [
+                  { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
+                  { name: 'foreground   - Run in current terminal', value: 'foreground' },
+                  { name: 'tmux         - New tmux pane/window', value: 'tmux' },
+                  { name: 'background   - Detached process, logs to file', value: 'background' },
+                ],
+                default: 'terminal',
+              },
+            ])
+            displayMode = selectedDisplay as DisplayMode
+            mode = 'devcontainer'
+            environmentSelected = true
+          } else {
+            // User chose host - fall through to host mode selection
+            environment = 'host'
+            const { selectedMode } = await inquirer.prompt([
+              {
+                type: 'list',
+                name: 'selectedMode',
+                message: 'Select execution mode:',
+                choices: [
+                  { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
+                  { name: 'foreground   - Run in current terminal', value: 'foreground' },
+                  { name: 'tmux         - New tmux pane/window', value: 'tmux' },
+                  { name: 'background   - Detached process, logs to file', value: 'background' },
+                ],
+                default: DEFAULT_EXECUTION_CONFIG.defaultMode,
+              },
+            ])
+            mode = selectedMode as RuntimeMode
+            displayMode = mode as DisplayMode
+            environmentSelected = true
+          }
         }
       } else if (useDevcontainer) {
         // Devcontainer with explicit mode flag
@@ -524,7 +633,10 @@ export default class WorkStart extends Command {
       const streamingDisplayModes: DisplayMode[] = ['terminal', 'tmux', 'foreground']
       const currentDisplayMode = mode === 'devcontainer' ? displayMode : mode as DisplayMode
 
-      if (streamingDisplayModes.includes(currentDisplayMode)) {
+      if (flags.output) {
+        // Use flag value
+        outputMode = flags.output as OutputMode
+      } else if (streamingDisplayModes.includes(currentDisplayMode)) {
         const { selectedOutputMode } = await inquirer.prompt([
           {
             type: 'list',
@@ -567,7 +679,7 @@ export default class WorkStart extends Command {
       // Only show if gh CLI is available and authenticated
       let createPR = false
       const ghAvailable = isGHInstalled() && isGHAuthenticated()
-      // Use flag if provided, otherwise prompt
+      // Use flags if provided, otherwise prompt
       if (flags['create-pr']) {
         createPR = true
       } else if (flags['no-pr']) {
@@ -592,6 +704,7 @@ export default class WorkStart extends Command {
       this.log('')
       this.log(styles.header(`🚀 Starting work: ${ticket.id}: ${ticket.title}`))
       this.log(styles.muted(`   Agent: ${assignedAgent}`))
+      this.log(styles.muted(`   Action: ${context.actionName || 'None'}`))
       this.log(styles.muted(`   Executor: ${executor}`))
 
       // Environment info
@@ -617,48 +730,150 @@ export default class WorkStart extends Command {
       // Add createPR to context
       context.createPR = createPR
 
-      // Create branch in worktree(s)
-      this.log(styles.muted('Creating branch...'))
+      // Handle git branch - only if action modifies code
+      let finalBranch = branch
+      if (context.modifiesCode !== false) {
+        // If we have multiple repo worktrees, use the first for branch detection
+        const gitRepos = repoWorktrees.length > 0
+          ? repoWorktrees.map(r => path.join(agentDir, r))
+          : [worktreePath]
+        const primaryRepo = gitRepos[0]
 
-      // If we have multiple repo worktrees, create branch in each
-      const gitRepos = repoWorktrees.length > 0
-        ? repoWorktrees.map(r => path.join(agentDir, r))
-        : [worktreePath]  // Single repo or cwd fallback
+        if (isExistingBranch) {
+          // Ticket already has a branch linked - just use it
+          this.log(styles.muted(`Using existing branch: ${branch}`))
+        } else {
+          // No branch in DB - ask user if one already exists
+          const { branchChoice } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'branchChoice',
+              message: `Does a branch already exist for ${ticket.id}?`,
+              choices: [
+                { name: 'No, create new branch (Recommended)', value: 'create' },
+                { name: 'Yes, I\'ll enter the branch name', value: 'enter' },
+                { name: 'Search for matching branches', value: 'search' },
+              ],
+            },
+          ])
 
-      for (const repoPath of gitRepos) {
-        const repoName = path.basename(repoPath)
-        try {
-          // Check if this is a git repo
-          try {
-            execSync('git rev-parse --git-dir', { cwd: repoPath, stdio: 'pipe' })
-          } catch {
-            // Not a git repo, skip
-            continue
+          if (branchChoice === 'enter') {
+            // User enters existing branch name
+            const { enteredBranch } = await inquirer.prompt([
+              {
+                type: 'input',
+                name: 'enteredBranch',
+                message: 'Enter branch name:',
+                validate: (input: string) => input.trim() ? true : 'Branch name required',
+              },
+            ])
+            finalBranch = enteredBranch.trim()
+
+            // Validate branch exists (locally or in origin)
+            try {
+              execSync(`git rev-parse --verify ${finalBranch}`, { cwd: primaryRepo, stdio: 'pipe' })
+              this.log(styles.muted(`   Found local branch: ${finalBranch}`))
+            } catch {
+              // Try fetching from origin
+              try {
+                execSync(`git fetch origin ${finalBranch}:${finalBranch}`, { cwd: primaryRepo, stdio: 'pipe' })
+                this.log(styles.muted(`   Fetched from origin: ${finalBranch}`))
+              } catch {
+                this.warn(`Branch "${finalBranch}" not found locally or in origin. Will create it.`)
+              }
+            }
+          } else if (branchChoice === 'search') {
+            // Search for matching branches
+            let remoteBranches: string[] = []
+            try {
+              execSync('git fetch --prune', { cwd: primaryRepo, stdio: 'pipe' })
+              const branchOutput = execSync(`git branch -r`, { cwd: primaryRepo, encoding: 'utf-8' })
+              remoteBranches = branchOutput
+                .split('\n')
+                .map(b => b.trim())
+                .filter(b => b && !b.includes('HEAD') && b.toLowerCase().includes(ticket.id.toLowerCase()))
+            } catch {
+              // Ignore fetch errors
+            }
+
+            if (remoteBranches.length > 0) {
+              const branchChoices = [
+                ...remoteBranches.map(b => ({ name: b, value: b.replace('origin/', '') })),
+                new inquirer.Separator(),
+                { name: 'None of these, create new branch', value: '__create__' },
+              ]
+
+              const { selectedBranch } = await inquirer.prompt([
+                {
+                  type: 'list',
+                  name: 'selectedBranch',
+                  message: `Found ${remoteBranches.length} matching branch(es):`,
+                  choices: branchChoices,
+                },
+              ])
+
+              if (selectedBranch !== '__create__') {
+                finalBranch = selectedBranch
+                // Fetch and checkout the selected branch
+                try {
+                  execSync(`git fetch origin ${finalBranch}:${finalBranch}`, { cwd: primaryRepo, stdio: 'pipe' })
+                  this.log(styles.muted(`   Fetched: ${finalBranch}`))
+                } catch {
+                  // Branch might already exist locally
+                }
+              }
+            } else {
+              this.log(styles.muted(`   No matching branches found for "${ticket.id}". Creating new.`))
+            }
           }
+          // branchChoice === 'create' uses the generated branch name (default)
 
-          // Check if branch exists
-          try {
-            execSync(`git rev-parse --verify ${branch}`, {
-              cwd: repoPath,
-              stdio: 'pipe',
-            })
-            // Branch exists, check it out
-            execSync(`git checkout ${branch}`, {
-              cwd: repoPath,
-              stdio: 'pipe',
-            })
-            this.log(styles.muted(`   ${repoName}: checked out existing branch`))
-          } catch {
-            // Branch doesn't exist, create it
-            execSync(`git checkout -b ${branch}`, {
-              cwd: repoPath,
-              stdio: 'pipe',
-            })
-            this.log(styles.muted(`   ${repoName}: created new branch`))
-          }
-        } catch (error) {
-          this.warn(`Could not create branch in ${repoName}: ${error instanceof Error ? error.message : error}`)
+          this.log(styles.muted(`Branch: ${finalBranch}`))
         }
+
+        // Handle branch in each repo
+        for (const repoPath of gitRepos) {
+          const repoName = path.basename(repoPath)
+          try {
+            // Check if this is a git repo
+            try {
+              execSync('git rev-parse --git-dir', { cwd: repoPath, stdio: 'pipe' })
+            } catch {
+              continue
+            }
+
+            // Check if branch exists in git
+            try {
+              execSync(`git rev-parse --verify ${finalBranch}`, {
+                cwd: repoPath,
+                stdio: 'pipe',
+              })
+              execSync(`git checkout ${finalBranch}`, {
+                cwd: repoPath,
+                stdio: 'pipe',
+              })
+              this.log(styles.muted(`   ${repoName}: checked out branch`))
+            } catch {
+              execSync(`git checkout -b ${finalBranch}`, {
+                cwd: repoPath,
+                stdio: 'pipe',
+              })
+              this.log(styles.muted(`   ${repoName}: created new branch`))
+            }
+          } catch (error) {
+            this.warn(`Could not handle branch in ${repoName}: ${error instanceof Error ? error.message : error}`)
+          }
+        }
+
+        // Save branch to ticket
+        if (!isExistingBranch || finalBranch !== branch) {
+          await this.storage.updateTicket(ticket.id, { branch: finalBranch })
+        }
+
+        // Update context with final branch
+        context.branch = finalBranch
+      } else {
+        this.log(styles.muted('Skipping branch (action does not modify code)'))
       }
 
       // Create execution record
@@ -677,20 +892,20 @@ export default class WorkStart extends Command {
       this.log('')
 
       // Update ticket status and move to configured In Progress column
-      await storage.updateTicket(ticket.id, { status: 'in_progress' })
+      await this.storage.updateTicket(ticket.id, { status: 'in_progress' })
 
       // Get configured column name (from pmo_settings or default)
       const targetColumnName = getWorkColumnSetting(db, 'in_progress')
-      const board = await storage.getBoard()
+      const board = await this.storage.getBoard()
       const columnNames = board.columns.map(col => col.name)
       const inProgressColumn = findColumnByName(columnNames, targetColumnName)
 
       if (inProgressColumn && ticket.column !== inProgressColumn) {
-        await storage.moveTicket(ticket.id, inProgressColumn)
+        await this.storage.moveTicket(ticket.id, inProgressColumn)
         this.log(styles.muted(`   Moved to: ${inProgressColumn}`))
       }
 
-      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
+      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
 
       // Load execution config from database
       const executionConfig = loadExecutionConfig(db)
@@ -750,6 +965,17 @@ export default class WorkStart extends Command {
           logPath: result.logPath,
         })
 
+        // Track container in containers table (for devcontainer mode)
+        if (mode === 'devcontainer' && result.containerId) {
+          const containerStorage = new ContainerStorage(db)
+          containerStorage.upsertContainer({
+            agentName: context.agentName,
+            dockerId: result.containerId,
+            status: 'running',
+            currentExecutionId: execution.id,
+          })
+        }
+
         this.log('')
         this.log(styles.success(`✓ Work started (${execution.id})`))
         this.log('')
@@ -765,7 +991,6 @@ export default class WorkStart extends Command {
         this.error(`Failed to start work: ${result.error}`)
       }
 
-      await storage.close()
       db.close()
     } catch (error) {
       db.close()
@@ -774,36 +999,31 @@ export default class WorkStart extends Command {
   }
 
   /**
-   * Spawn work on all backlog tickets, assigning to available agents.
-   * Uses non-interactive defaults for batch operation.
+   * Run batch mode: spawn work for all unassigned backlog tickets
    */
-  private async spawnAllTickets(
+  private async runBatchMode(
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
-    storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
-    pmoPath: string,
-    executionStorage: ExecutionStorage,
     db: Database.Database,
-    flags: {
-      force?: boolean
-      'run-on-host'?: boolean
-      'skip-permissions'?: boolean
-      'create-pr'?: boolean
-      'no-pr'?: boolean
-      executor?: string
-    }
+    executionStorage: ExecutionStorage,
+    flags: { mode?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean }
   ): Promise<void> {
-    // Get all tickets and filter to backlog/ready (not in progress)
-    const allTickets = await storage.listTickets()
+    // Get all tickets and filter to unassigned backlog/planned (not in progress)
+    const allTickets = await this.storage.listTickets()
     const backlogTickets = allTickets.filter(t =>
-      t.status === 'backlog' || t.status === 'ready' || !t.status
+      !t.assignee && (t.status === 'backlog' || t.status === 'planned' || !t.status)
     )
 
     if (backlogTickets.length === 0) {
-      this.log(styles.warning('No backlog tickets found.'))
+      db.close()
+      this.log(styles.muted('No unassigned backlog tickets to start.'))
       return
     }
 
-    // Get available agents (not currently running work)
+    this.log('')
+    this.log(styles.header(`🚀 Batch Start: ${backlogTickets.length} backlog tickets`))
+    this.log('')
+
+    // Get available agents
     const busyAgentNames = new Set<string>()
     for (const agent of workspaceInfo.agents) {
       const runningExecutions = executionStorage.getAgentRunningExecutions(agent.name)
@@ -815,91 +1035,68 @@ export default class WorkStart extends Command {
     const availableAgents = workspaceInfo.agents.filter(a => !busyAgentNames.has(a.name))
 
     if (availableAgents.length === 0) {
-      this.log(styles.warning('No available agents. All agents are busy.'))
-      this.log(styles.muted('Use "prlt work status" to see current work.'))
+      db.close()
+      this.error('No available agents. All agents are busy with other work.')
+    }
+
+    this.log(styles.muted(`Available agents: ${availableAgents.map(a => a.name).join(', ')}`))
+    this.log(styles.muted(`Tickets to spawn: ${backlogTickets.map(t => t.id).join(', ')}`))
+    this.log('')
+
+    // Confirm before batch spawning
+    const { confirm } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'confirm',
+        message: `Start work on ${backlogTickets.length} tickets using ${availableAgents.length} available agents?`,
+        choices: [
+          { name: 'Yes', value: true },
+          { name: 'No', value: false },
+        ],
+      },
+    ])
+
+    if (!confirm) {
+      db.close()
+      this.log(styles.muted('Cancelled.'))
       return
     }
 
-    this.log('')
-    this.log(styles.header('🚀 Spawning work on all backlog tickets'))
-    this.log(styles.muted(`   Tickets: ${backlogTickets.length}`))
-    this.log(styles.muted(`   Available agents: ${availableAgents.length}`))
-    this.log('')
-
-    // Match tickets to agents (round-robin assignment)
+    // Assign tickets to agents (round-robin)
     const assignments: Array<{ ticket: typeof backlogTickets[0]; agent: typeof availableAgents[0] }> = []
-    let agentIndex = 0
-
-    for (const ticket of backlogTickets) {
-      if (agentIndex >= availableAgents.length) {
-        // No more available agents
-        break
-      }
-
-      // Skip tickets already assigned to a busy agent
-      if (ticket.assignee && busyAgentNames.has(ticket.assignee)) {
-        this.log(styles.muted(`   Skipping ${ticket.id}: assigned to busy agent ${ticket.assignee}`))
-        continue
-      }
-
-      // Use existing assignee if available, otherwise assign next available agent
-      let agent: typeof availableAgents[0]
-      if (ticket.assignee) {
-        const existingAgent = availableAgents.find(a => a.name === ticket.assignee)
-        if (existingAgent) {
-          agent = existingAgent
-        } else {
-          agent = availableAgents[agentIndex]
-          agentIndex++
-        }
-      } else {
-        agent = availableAgents[agentIndex]
-        agentIndex++
-      }
-
-      assignments.push({ ticket, agent })
+    for (let i = 0; i < backlogTickets.length; i++) {
+      const agent = availableAgents[i % availableAgents.length]
+      assignments.push({ ticket: backlogTickets[i], agent })
     }
 
-    if (assignments.length === 0) {
-      this.log(styles.warning('No tickets could be assigned.'))
-      return
-    }
-
-    // Show what we're about to do
-    this.log(styles.muted('Assignments:'))
-    for (const { ticket, agent } of assignments) {
-      this.log(styles.muted(`   ${ticket.id} → ${agent.name}`))
-    }
-    this.log('')
-
-    // Spawn each assignment
+    // Spawn each ticket
     let successCount = 0
     let failCount = 0
 
     for (const { ticket, agent } of assignments) {
       try {
-        await this.spawnSingleTicket(
-          ticket,
-          agent,
-          workspaceInfo,
-          storage,
-          pmoPath,
-          executionStorage,
-          db,
-          flags
-        )
+        this.log(styles.muted(`Starting ${ticket.id} with ${agent.name}...`))
+
+        // Use the work:start command for each ticket
+        await this.config.runCommand('work:start', [
+          ticket.id,
+          '--mode', flags.mode || 'background',
+          ...(flags.executor ? ['--executor', flags.executor] : []),
+          ...(flags['run-on-host'] ? ['--run-on-host'] : []),
+          ...(flags.force ? ['--force'] : []),
+        ])
+
         successCount++
       } catch (error) {
-        this.log(styles.error(`   Failed to spawn ${ticket.id}: ${error instanceof Error ? error.message : error}`))
         failCount++
+        this.log(styles.error(`Failed to start ${ticket.id}: ${error instanceof Error ? error.message : error}`))
       }
     }
 
+    db.close()
+
     this.log('')
-    this.log(styles.success(`✓ Spawned ${successCount} ticket(s)`))
-    if (failCount > 0) {
-      this.log(styles.warning(`   ${failCount} failed`))
-    }
+    this.log(styles.success(`✓ Batch complete: ${successCount} started, ${failCount} failed`))
 
     const remaining = backlogTickets.length - assignments.length
     if (remaining > 0) {
@@ -911,11 +1108,9 @@ export default class WorkStart extends Command {
    * Spawn work on a single ticket with non-interactive defaults.
    */
   private async spawnSingleTicket(
-    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; epicId?: string; specId?: string; subtasks?: Array<{ title: string; done: boolean }> },
+    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; subtasks?: Array<{ title: string; done: boolean }> },
     agent: { name: string },
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
-    storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
-    pmoPath: string,
     executionStorage: ExecutionStorage,
     db: Database.Database,
     flags: {
@@ -931,7 +1126,7 @@ export default class WorkStart extends Command {
 
     // Update ticket assignee if not set
     if (!ticket.assignee || ticket.assignee !== agentName) {
-      await storage.updateTicket(ticket.id, { assignee: agentName })
+      await this.storage.updateTicket(ticket.id, { assignee: agentName })
     }
 
     // Find agent directory and worktree
@@ -953,8 +1148,12 @@ export default class WorkStart extends Command {
       worktreePath = path.join(agentDir, repoWorktrees[0])
     }
 
-    // Generate branch name
-    const branch = generateBranchName(ticket.id, ticket.title, agentName, ticket.category)
+    // Get coder name for branch naming (prompts on first use)
+    const coderName = await getOrPromptCoderName(db)
+
+    // Use ticket's existing branch or generate a new one
+    const branch = ticket.branch || generateBranchName(ticket.id, ticket.title, coderName, agentName, ticket.category)
+    const isExistingBranch = !!ticket.branch
 
     // Get epic and spec info
     let epicTitle: string | undefined
@@ -963,11 +1162,11 @@ export default class WorkStart extends Command {
     let specProblem: string | undefined
     let specSolution: string | undefined
     if (ticket.epicId) {
-      const epic = await storage.getEpic(ticket.epicId)
+      const epic = await this.storage.getEpic(ticket.epicId)
       epicTitle = epic?.title
     }
     if (ticket.specId) {
-      const spec = await storage.getSpec(ticket.specId)
+      const spec = await this.storage.getSpec(ticket.specId)
       if (spec) {
         specId = spec.id
         specTitle = spec.title
@@ -975,6 +1174,9 @@ export default class WorkStart extends Command {
         specSolution = spec.solution
       }
     }
+
+    // Get default action for batch mode (use 'implement')
+    const defaultAction = await this.storage.getAction('implement')
 
     // Build context
     const context: ExecutionContext = {
@@ -994,8 +1196,13 @@ export default class WorkStart extends Command {
       worktreePath,
       branch,
       hqPath: workspaceInfo.path,
-      pmoPath,
+      pmoPath: this.pmoPath,
       createPR: flags['create-pr'] || false,
+      // Use 'implement' action for batch mode
+      actionId: defaultAction?.id,
+      actionName: defaultAction?.name,
+      actionPrompt: defaultAction?.prompt,
+      modifiesCode: defaultAction?.modifiesCode ?? true,
     }
 
     // Use devcontainer by default if available
@@ -1010,27 +1217,34 @@ export default class WorkStart extends Command {
     const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
     const outputMode: OutputMode = 'interactive'
 
-    // Create branch in worktree(s)
-    const gitRepos = repoWorktrees.length > 0
-      ? repoWorktrees.map(r => path.join(agentDir, r))
-      : [worktreePath]
+    // Handle git branch - only if action modifies code
+    if (context.modifiesCode !== false) {
+      const gitRepos = repoWorktrees.length > 0
+        ? repoWorktrees.map(r => path.join(agentDir, r))
+        : [worktreePath]
 
-    for (const repoPath of gitRepos) {
-      try {
+      for (const repoPath of gitRepos) {
         try {
-          execSync('git rev-parse --git-dir', { cwd: repoPath, stdio: 'pipe' })
-        } catch {
-          continue
-        }
+          try {
+            execSync('git rev-parse --git-dir', { cwd: repoPath, stdio: 'pipe' })
+          } catch {
+            continue
+          }
 
-        try {
-          execSync(`git rev-parse --verify ${branch}`, { cwd: repoPath, stdio: 'pipe' })
-          execSync(`git checkout ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+          try {
+            execSync(`git rev-parse --verify ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+            execSync(`git checkout ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+          } catch {
+            execSync(`git checkout -b ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+          }
         } catch {
-          execSync(`git checkout -b ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+          // Ignore branch errors in batch mode
         }
-      } catch {
-        // Ignore branch creation errors in batch mode
+      }
+
+      // Save branch to ticket if newly created
+      if (!isExistingBranch) {
+        await this.storage.updateTicket(ticket.id, { branch })
       }
     }
 
@@ -1047,19 +1261,19 @@ export default class WorkStart extends Command {
     })
 
     // Update ticket status
-    await storage.updateTicket(ticket.id, { status: 'in_progress' })
+    await this.storage.updateTicket(ticket.id, { status: 'in_progress' })
 
     // Move to In Progress column
     const targetColumnName = getWorkColumnSetting(db, 'in_progress')
-    const board = await storage.getBoard()
+    const board = await this.storage.getBoard()
     const columnNames = board.columns.map(col => col.name)
     const inProgressColumn = findColumnByName(columnNames, targetColumnName)
 
     if (inProgressColumn) {
-      await storage.moveTicket(ticket.id, inProgressColumn)
+      await this.storage.moveTicket(ticket.id, inProgressColumn)
     }
 
-    await autoExportToBoard(pmoPath, storage, () => {})
+    await autoExportToBoard(this.pmoPath, this.storage, () => {})
 
     // Load execution config
     const executionConfig = loadExecutionConfig(db)

@@ -1,15 +1,14 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { execSync } from 'child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { execSync } from 'node:child_process';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { styles } from '../styles.js';
-import { colors, format } from '../colors.js';
+import { colors } from '../colors.js';
 import {
   openWorkspaceDatabase,
   addRepositoriesToDatabase,
   getWorkspaceRepositories,
-  getWorkspaceAgents,
   Repository
 } from '../database/index.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
@@ -41,7 +40,7 @@ export function isInGitRepo(dir: string = process.cwd()): boolean {
       stdio: 'pipe' 
     });
     return true;
-  } catch (error) {
+  } catch {
     // Not in a git repo - git rev-parse exits with non-zero status
     return false;
   }
@@ -367,7 +366,7 @@ async function searchForRepositories(): Promise<RepoToAdd[]> {
         const repoPaths = gitDirs.map(gitDir => path.dirname(gitDir));
         foundRepos.push(...repoPaths);
       }
-    } catch (error) {
+    } catch {
       // Skip directories we can't access
       console.log(styles.muted(`Skipped ${searchPath} (no access)`));
     }
@@ -659,7 +658,7 @@ async function createWorktreesForRepo(hqPath: string, repoName: string, repoPath
         branchName,
         new Date().toISOString()
       );
-    } catch (error) {
+    } catch {
       console.log(chalk.yellow(`Warning: Could not create worktree for ${agent.name}/${repoName}`));
     }
   }

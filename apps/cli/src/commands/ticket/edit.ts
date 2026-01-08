@@ -1,9 +1,9 @@
-import { Command, Args, Flags } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { autoExportToBoard, getPMOContext } from '../../lib/pmo/index.js';
+import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class TicketEdit extends Command {
+export default class TicketEdit extends PMOCommand {
   static description = 'Edit an existing ticket';
 
   static examples = [
@@ -21,10 +21,7 @@ export default class TicketEdit extends Command {
   };
 
   static flags = {
-    project: Flags.string({
-      char: 'P',
-      description: 'Project ID (default: "default")',
-    }),
+    ...pmoBaseFlags,
     title: Flags.string({
       char: 't',
       description: 'New ticket title',
@@ -48,105 +45,88 @@ export default class TicketEdit extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketEdit);
 
-    // Get PMO context (prompt for project if multiple exist and no --project flag)
-    const { pmoPath, storage, columns } = await getPMOContext(
-      flags.project,
-      (msg) => this.log(styles.muted(msg)),
-      true // prompt if multiple projects
-    );
+    // Get ticketId - prompt if not provided
+    let ticketId = args.ticketId;
 
-    try {
-      // Get ticketId - prompt if not provided
-      let ticketId = args.ticketId;
+    if (!ticketId) {
+      // Get all tickets for selection
+      const allTickets = await this.storage.listTickets();
 
-      if (!ticketId) {
-        // Get all tickets for selection
-        const allTickets = await storage.listTickets();
-
-        if (allTickets.length === 0) {
-          await storage.close();
-          this.error('No tickets found. Create a ticket first with "prlt ticket create".');
-        }
-
-        const { selectedTicketId } = await inquirer.prompt([{
-          type: 'list',
-          name: 'selectedTicketId',
-          message: 'Select ticket to edit:',
-          choices: allTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.column})`,
-            value: t.id,
-          })),
-        }]);
-        ticketId = selectedTicketId;
+      if (allTickets.length === 0) {
+        this.error('No tickets found. Create a ticket first with "prlt ticket create".');
       }
 
-      // Get current ticket
-      const ticket = await storage.getTicket(ticketId!);
-      if (!ticket) {
-        await storage.close();
-        this.error(`Ticket "${ticketId}" not found.`);
-      }
-
-      // Determine what to update
-      let updates: {
-        title?: string;
-        description?: string;
-        priority?: string;
-        category?: string;
-      } = {};
-
-      const hasFlags = flags.title || flags.description || flags.priority || flags.category;
-
-      if (flags.interactive || !hasFlags) {
-        // Interactive mode - prompt for all editable fields
-        updates = await this.promptForEdits(ticket, columns);
-      } else {
-        // Use flag values
-        if (flags.title) updates.title = flags.title;
-        if (flags.description) updates.description = flags.description;
-        if (flags.priority) {
-          updates.priority = flags.priority === 'none' ? undefined : flags.priority;
-        }
-        if (flags.category) updates.category = flags.category;
-      }
-
-      // Check if anything changed
-      const hasChanges = Object.keys(updates).length > 0;
-      if (!hasChanges) {
-        await storage.close();
-        this.log(styles.muted('\nNo changes made.'));
-        return;
-      }
-
-      // Update the ticket
-      const updatedTicket = await storage.updateTicket(ticketId!, updates);
-
-      // Auto-export to board.md
-      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
-
-      await storage.close();
-
-      // Display updated ticket
-      this.log(styles.success(`\n✅ Updated ticket ${styles.emphasis(updatedTicket.id)}`));
-
-      const changedFields: string[] = [];
-      if (updates.title) changedFields.push(`Title: ${updatedTicket.title}`);
-      if (updates.description !== undefined) changedFields.push(`Description: ${updatedTicket.description || '(cleared)'}`);
-      if (updates.priority !== undefined) changedFields.push(`Priority: ${updatedTicket.priority || 'none'}`);
-      if (updates.category !== undefined) changedFields.push(`Category: ${updatedTicket.category || 'none'}`);
-
-      for (const field of changedFields) {
-        this.log(styles.muted(`   ${field}`));
-      }
-
-      this.log('');
-    } catch (error) {
-      await storage.close();
-      throw error;
+      const { selectedTicketId } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selectedTicketId',
+        message: 'Select ticket to edit:',
+        choices: allTickets.map(t => ({
+          name: `${t.id} - ${t.title} (${t.column})`,
+          value: t.id,
+        })),
+      }]);
+      ticketId = selectedTicketId;
     }
+
+    // Get current ticket
+    const ticket = await this.storage.getTicket(ticketId!);
+    if (!ticket) {
+      this.error(`Ticket "${ticketId}" not found.`);
+    }
+
+    // Determine what to update
+    let updates: {
+      title?: string;
+      description?: string;
+      priority?: string;
+      category?: string;
+    } = {};
+
+    const hasFlags = flags.title || flags.description || flags.priority || flags.category;
+
+    if (flags.interactive || !hasFlags) {
+      // Interactive mode - prompt for all editable fields
+      updates = await this.promptForEdits(ticket, this.columns);
+    } else {
+      // Use flag values
+      if (flags.title) updates.title = flags.title;
+      if (flags.description) updates.description = flags.description;
+      if (flags.priority) {
+        updates.priority = flags.priority === 'none' ? undefined : flags.priority;
+      }
+      if (flags.category) updates.category = flags.category;
+    }
+
+    // Check if anything changed
+    const hasChanges = Object.keys(updates).length > 0;
+    if (!hasChanges) {
+      this.log(styles.muted('\nNo changes made.'));
+      return;
+    }
+
+    // Update the ticket
+    const updatedTicket = await this.storage.updateTicket(ticketId!, updates);
+
+    // Auto-export to board.md
+    await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+
+    // Display updated ticket
+    this.log(styles.success(`\n✅ Updated ticket ${styles.emphasis(updatedTicket.id)}`));
+
+    const changedFields: string[] = [];
+    if (updates.title) changedFields.push(`Title: ${updatedTicket.title}`);
+    if (updates.description !== undefined) changedFields.push(`Description: ${updatedTicket.description || '(cleared)'}`);
+    if (updates.priority !== undefined) changedFields.push(`Priority: ${updatedTicket.priority || 'none'}`);
+    if (updates.category !== undefined) changedFields.push(`Category: ${updatedTicket.category || 'none'}`);
+
+    for (const field of changedFields) {
+      this.log(styles.muted(`   ${field}`));
+    }
+
+    this.log('');
   }
 
   private async promptForEdits(

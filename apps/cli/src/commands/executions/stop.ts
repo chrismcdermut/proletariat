@@ -1,12 +1,14 @@
-import { Command, Flags } from '@oclif/core'
-import * as path from 'path'
-import { execSync } from 'child_process'
+import { Flags } from '@oclif/core'
+import * as path from 'node:path'
+import { execSync } from 'node:child_process'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
+import { isDockerRunning } from '../../lib/execution/runners.js'
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 
-export default class ExecutionsStop extends Command {
+export default class ExecutionsStop extends PMOCommand {
   static description = 'Stop multiple running executions'
 
   static examples = [
@@ -16,6 +18,7 @@ export default class ExecutionsStop extends Command {
   ]
 
   static flags = {
+    ...pmoBaseFlags,
     all: Flags.boolean({
       description: 'Stop all running executions',
       default: false,
@@ -31,7 +34,11 @@ export default class ExecutionsStop extends Command {
     }),
   }
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false }
+  }
+
+  async execute(): Promise<void> {
     const { flags } = await this.parse(ExecutionsStop)
 
     if (!flags.all && !flags.agent) {
@@ -42,7 +49,7 @@ export default class ExecutionsStop extends Command {
     let workspaceInfo
     try {
       workspaceInfo = getWorkspaceInfo()
-    } catch (error) {
+    } catch {
       this.error('Not in a workspace. Run "prlt init" first.')
     }
 
@@ -68,7 +75,6 @@ export default class ExecutionsStop extends Command {
       const activeExecutions = [...runningExecutions, ...startingExecutions]
 
       if (activeExecutions.length === 0) {
-        db.close()
         const scope = flags.agent ? ` for agent "${flags.agent}"` : ''
         this.log(styles.muted(`\nNo running executions found${scope}.\n`))
         return
@@ -122,14 +128,19 @@ export default class ExecutionsStop extends Command {
 
             case 'docker':
               if (execution.containerId) {
-                try {
-                  const cmd = flags.force
-                    ? `docker kill ${execution.containerId}`
-                    : `docker stop ${execution.containerId}`
-                  execSync(cmd, { stdio: 'pipe' })
+                if (!isDockerRunning()) {
+                  this.log(styles.warning(`   ${execution.id}: Docker is not running, cannot stop container`))
                   success = true
-                } catch {
-                  success = true // Container may have already stopped
+                } else {
+                  try {
+                    const cmd = flags.force
+                      ? `docker kill ${execution.containerId}`
+                      : `docker stop ${execution.containerId}`
+                    execSync(cmd, { stdio: 'pipe' })
+                    success = true
+                  } catch {
+                    success = true // Container may have already stopped
+                  }
                 }
               } else {
                 success = true
@@ -140,14 +151,19 @@ export default class ExecutionsStop extends Command {
               // For devcontainer mode, try to stop the container
               // The container name is typically based on the agent directory
               if (execution.containerId) {
-                try {
-                  const cmd = flags.force
-                    ? `docker kill ${execution.containerId}`
-                    : `docker stop ${execution.containerId}`
-                  execSync(cmd, { stdio: 'pipe' })
+                if (!isDockerRunning()) {
+                  this.log(styles.warning(`   ${execution.id}: Docker is not running, cannot stop container`))
                   success = true
-                } catch {
-                  success = true
+                } else {
+                  try {
+                    const cmd = flags.force
+                      ? `docker kill ${execution.containerId}`
+                      : `docker stop ${execution.containerId}`
+                    execSync(cmd, { stdio: 'pipe' })
+                    success = true
+                  } catch {
+                    success = true
+                  }
                 }
               } else {
                 success = true
@@ -176,11 +192,8 @@ export default class ExecutionsStop extends Command {
         this.log(styles.error(`   Failed: ${failed}`))
       }
       this.log('')
-
+    } finally {
       db.close()
-    } catch (error) {
-      db.close()
-      throw error
     }
   }
 }
