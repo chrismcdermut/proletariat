@@ -310,6 +310,7 @@ export interface Ticket {
   specId?: string     // Which spec defined this ticket
   epicId?: string     // Which epic this ticket belongs to
   subtasks: Subtask[]
+  labels: string[]    // Tags/labels for categorization
   metadata: Record<string, string>
 
   // Agent execution support (populated from related tables)
@@ -344,6 +345,46 @@ export interface Subtask {
   id: string
   title: string
   done: boolean
+}
+
+// =============================================================================
+// Ticket Template Types
+// =============================================================================
+
+/**
+ * Subtask definition within a ticket template
+ */
+export interface TicketTemplateSubtask {
+  title: string
+}
+
+/**
+ * Ticket template - a reusable configuration for creating tickets.
+ * Templates can be built-in (system-provided) or custom (user-created).
+ */
+export interface TicketTemplate {
+  id: string
+  name: string
+  description?: string
+  isBuiltin: boolean               // System-provided vs user-created
+  titlePattern?: string            // Default title pattern (e.g., "[BUG] ")
+  descriptionTemplate?: string     // Default description markdown
+  defaultPriority?: string         // Default priority (URGENT, HIGH, MEDIUM, LOW)
+  defaultCategory?: string         // Default category (bug, feature, etc.)
+  defaultStatusId?: string         // Default workflow status
+  defaultAssignee?: string         // Default assignee
+  defaultOwner?: string            // Default owner
+  defaultLabels: string[]          // Default labels
+  suggestedSubtasks: TicketTemplateSubtask[]  // Subtasks to create with ticket
+  createdAt: Date
+}
+
+/**
+ * Filter options for listing ticket templates
+ */
+export interface TicketTemplateFilter {
+  isBuiltin?: boolean
+  search?: string
 }
 
 /**
@@ -670,6 +711,14 @@ export interface PMOStorage {
   applyTemplate(projectId: string, templateId: string): Promise<WorkflowStatus[]>
   saveTemplate(name: string, projectId: string, description?: string): Promise<WorkflowTemplate>
   deleteTemplate(id: string): Promise<void>
+
+  // Ticket Template Operations
+  listTicketTemplates(filter?: TicketTemplateFilter): Promise<TicketTemplate[]>
+  getTicketTemplate(id: string): Promise<TicketTemplate | null>
+  createTicketTemplate(template: Partial<TicketTemplate> & { name: string }): Promise<TicketTemplate>
+  createTicketTemplateFromTicket(ticketId: string, name: string, description?: string): Promise<TicketTemplate>
+  updateTicketTemplate(id: string, changes: Partial<TicketTemplate>): Promise<TicketTemplate>
+  deleteTicketTemplate(id: string): Promise<void>
 
   // Project Phase Operations (workspace-scoped)
   listPhases(filter?: PhaseFilter): Promise<ProjectPhase[]>

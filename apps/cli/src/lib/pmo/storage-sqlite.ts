@@ -42,6 +42,8 @@ import {
   TicketDependency,
   TicketDependencyType,
   TicketFilter,
+  TicketTemplate,
+  TicketTemplateFilter,
   WorkAction,
   WorkActionFilter,
   WorkflowStatus,
@@ -118,6 +120,7 @@ export class SQLiteStorage implements PMOStorage {
     this.seedBuiltinPhases()
     this.seedBuiltinPhaseTemplates()
     this.seedBuiltinActions()
+    this.seedBuiltinTicketTemplates()
 
     // Validate schema matches expected columns (catches drift early)
     validateTicketSchema(this.db)
@@ -248,6 +251,38 @@ export class SQLiteStorage implements PMOStorage {
           }
         } catch {
           // Column may already exist
+        }
+      }
+    }
+
+    // Migration: Add labels column to tickets table
+    if (!ticketsColumnNames.has('labels')) {
+      try {
+        this.db.exec(`ALTER TABLE ${T.tickets} ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'`)
+      } catch {
+        // Column may already exist
+      }
+    }
+
+    // Migration: Add new columns to ticket_templates table (for existing templates tables)
+    if (tableExists(T.ticket_templates)) {
+      const templateColumns = this.db.pragma(`table_info(${T.ticket_templates})`) as Array<{ name: string }>
+      const templateColumnNames = new Set(templateColumns.map(c => c.name))
+
+      const newTemplateColumns = [
+        { name: 'default_status_id', sql: 'default_status_id TEXT' },
+        { name: 'default_assignee', sql: 'default_assignee TEXT' },
+        { name: 'default_owner', sql: 'default_owner TEXT' },
+        { name: 'default_labels', sql: 'default_labels TEXT NOT NULL DEFAULT \'[]\'' },
+      ]
+
+      for (const col of newTemplateColumns) {
+        if (!templateColumnNames.has(col.name)) {
+          try {
+            this.db.exec(`ALTER TABLE ${T.ticket_templates} ADD COLUMN ${col.sql}`)
+          } catch {
+            // Column may already exist
+          }
         }
       }
     }
@@ -594,6 +629,170 @@ Output a review summary with your findings and any concerns.`,
         action.defaultMoveToCategory || null,
         action.modifiesCode ? 1 : 0,
         action.position,
+        now
+      )
+    }
+  }
+
+  /**
+   * Seed built-in ticket templates.
+   * These are system-provided templates that cannot be deleted.
+   */
+  private seedBuiltinTicketTemplates(): void {
+    const builtinTemplates = [
+      {
+        id: 'bug-report',
+        name: 'Bug Report',
+        description: 'Template for reporting bugs with reproduction steps',
+        titlePattern: '[BUG] ',
+        descriptionTemplate: `## Description
+Brief description of the bug.
+
+## Steps to Reproduce
+1.
+2.
+3.
+
+## Expected Behavior
+
+
+## Actual Behavior
+
+
+## Environment
+- OS:
+- Version:
+`,
+        defaultPriority: 'HIGH',
+        defaultCategory: 'bug',
+        suggestedSubtasks: [
+          { title: 'Reproduce the bug' },
+          { title: 'Identify root cause' },
+          { title: 'Implement fix' },
+          { title: 'Add regression test' },
+        ],
+      },
+      {
+        id: 'feature-request',
+        name: 'Feature Request',
+        description: 'Template for new feature requests',
+        titlePattern: '[FEATURE] ',
+        descriptionTemplate: `## Summary
+Brief description of the feature.
+
+## User Story
+As a [type of user], I want [goal] so that [benefit].
+
+## Acceptance Criteria
+- [ ]
+- [ ]
+
+## Design Notes
+
+`,
+        defaultPriority: 'MEDIUM',
+        defaultCategory: 'feature',
+        suggestedSubtasks: [
+          { title: 'Design implementation approach' },
+          { title: 'Implement feature' },
+          { title: 'Add tests' },
+          { title: 'Update documentation' },
+        ],
+      },
+      {
+        id: 'task',
+        name: 'Task',
+        description: 'General task template',
+        descriptionTemplate: `## What
+Describe what needs to be done.
+
+## Done when
+- [ ]
+
+## Context
+Any relevant context or notes.
+`,
+        defaultPriority: 'MEDIUM',
+        defaultCategory: 'chore',
+        suggestedSubtasks: [],
+      },
+      {
+        id: 'refactor',
+        name: 'Refactor',
+        description: 'Template for refactoring tasks',
+        titlePattern: '[REFACTOR] ',
+        descriptionTemplate: `## Current State
+Describe the current implementation.
+
+## Desired State
+Describe the target implementation.
+
+## Motivation
+Why is this refactor needed?
+
+## Scope
+- [ ] Files/modules to change
+`,
+        defaultPriority: 'LOW',
+        defaultCategory: 'refactor',
+        suggestedSubtasks: [
+          { title: 'Analyze current code' },
+          { title: 'Plan refactoring approach' },
+          { title: 'Implement changes' },
+          { title: 'Ensure tests pass' },
+        ],
+      },
+      {
+        id: 'documentation',
+        name: 'Documentation',
+        description: 'Template for documentation tasks',
+        titlePattern: '[DOCS] ',
+        descriptionTemplate: `## Documentation Type
+[ ] README
+[ ] API docs
+[ ] User guide
+[ ] Internal docs
+
+## Content to Document
+
+
+## Target Audience
+
+`,
+        defaultPriority: 'LOW',
+        defaultCategory: 'docs',
+        suggestedSubtasks: [
+          { title: 'Draft content' },
+          { title: 'Review for accuracy' },
+          { title: 'Add examples if needed' },
+        ],
+      },
+    ]
+
+    const insertTemplate = this.db.prepare(`
+      INSERT OR IGNORE INTO ${T.ticket_templates} (
+        id, name, description, is_builtin, title_pattern, description_template,
+        default_priority, default_category, default_status_id, default_assignee,
+        default_owner, default_labels, suggested_subtasks, created_at
+      )
+      VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    const now = new Date().toISOString()
+    for (const template of builtinTemplates) {
+      insertTemplate.run(
+        template.id,
+        template.name,
+        template.description || null,
+        template.titlePattern || null,
+        template.descriptionTemplate || null,
+        template.defaultPriority || null,
+        template.defaultCategory || null,
+        null, // default_status_id
+        null, // default_assignee
+        null, // default_owner
+        '[]', // default_labels
+        JSON.stringify(template.suggestedSubtasks || []),
         now
       )
     }
@@ -1029,13 +1228,14 @@ Output a review summary with your findings and any concerns.`,
     }
 
     // Insert into tickets table (pure ticket data)
+    const labels = ticket.labels || []
     this.db.prepare(`
       INSERT INTO ${T.tickets} (
         id, project_id, title, description, priority, category,
-        status_id, owner, assignee, spec_id, epic_id,
+        status_id, owner, assignee, spec_id, epic_id, labels,
         created_at, updated_at, last_synced_from_spec, last_synced_from_board
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, projectId, title,
       ticket.description || null,
@@ -1046,6 +1246,7 @@ Output a review summary with your findings and any concerns.`,
       ticket.assignee || null,
       specId,
       ticket.epicId || null,
+      JSON.stringify(labels),
       now, now,
       ticket.lastSyncedFromSpec || null,
       ticket.lastSyncedFromBoard || null
@@ -1140,6 +1341,10 @@ Output a review summary with your findings and any concerns.`,
     if (changes.lastSyncedFromBoard !== undefined) {
       updates.push('last_synced_from_board = ?')
       params.push(changes.lastSyncedFromBoard)
+    }
+    if (changes.labels !== undefined) {
+      updates.push('labels = ?')
+      params.push(JSON.stringify(changes.labels))
     }
 
     if (updates.length > 0) {
@@ -1375,6 +1580,7 @@ Output a review summary with your findings and any concerns.`,
       branch: string | null
       spec_id: string | null
       epic_id: string | null
+      labels: string | null
       column_id: string | null
       column_name: string | null
       position: number | null
@@ -2251,6 +2457,7 @@ Output a review summary with your findings and any concerns.`,
       branch: string | null
       spec_id: string | null
       epic_id: string | null
+      labels: string | null
       column_id: string | null
       column_name: string | null
       position: number | null
@@ -2288,6 +2495,7 @@ Output a review summary with your findings and any concerns.`,
       branch: string | null
       spec_id: string | null
       epic_id: string | null
+      labels: string | null
       column_id: string | null
       column_name: string | null
       position: number | null
@@ -4266,6 +4474,7 @@ Output a review summary with your findings and any concerns.`,
       branch: string | null
       spec_id: string | null
       epic_id: string | null
+      labels: string | null
       created_at: string
       updated_at: string
       last_synced_from_spec: string | null
@@ -4293,6 +4502,7 @@ Output a review summary with your findings and any concerns.`,
     branch: string | null
     spec_id: string | null
     epic_id: string | null
+    labels: string | null
     created_at: string
     updated_at: string
     last_synced_from_spec: string | null
@@ -4323,6 +4533,14 @@ Output a review summary with your findings and any concerns.`,
       metadata[m.key] = m.value
     }
 
+    // Parse labels from JSON
+    let labels: string[] = []
+    try {
+      labels = row.labels ? JSON.parse(row.labels) : []
+    } catch {
+      labels = []
+    }
+
     return {
       id: row.id,
       title: row.title,
@@ -4339,6 +4557,7 @@ Output a review summary with your findings and any concerns.`,
       specId: row.spec_id || undefined,
       epicId: row.epic_id || undefined,
       subtasks,
+      labels,
       metadata,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
@@ -4377,6 +4596,264 @@ Output a review summary with your findings and any concerns.`,
     }
 
     return sorted
+  }
+
+  // ===========================================================================
+  // Ticket Template Operations
+  // ===========================================================================
+
+  async listTicketTemplates(filter?: TicketTemplateFilter): Promise<TicketTemplate[]> {
+    let query = `SELECT * FROM ${T.ticket_templates}`
+    const conditions: string[] = []
+    const params: unknown[] = []
+
+    if (filter?.isBuiltin !== undefined) {
+      conditions.push('is_builtin = ?')
+      params.push(filter.isBuiltin ? 1 : 0)
+    }
+    if (filter?.search) {
+      conditions.push('(name LIKE ? OR description LIKE ?)')
+      const searchPattern = `%${filter.search}%`
+      params.push(searchPattern, searchPattern)
+    }
+
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(' AND ')}`
+    }
+    query += ' ORDER BY is_builtin DESC, name ASC'
+
+    const rows = this.db.prepare(query).all(...params) as Array<{
+      id: string
+      name: string
+      description: string | null
+      is_builtin: number
+      title_pattern: string | null
+      description_template: string | null
+      default_priority: string | null
+      default_category: string | null
+      default_status_id: string | null
+      default_assignee: string | null
+      default_owner: string | null
+      default_labels: string | null
+      suggested_subtasks: string | null
+      created_at: string
+    }>
+
+    return rows.map(row => this.rowToTicketTemplate(row))
+  }
+
+  async getTicketTemplate(id: string): Promise<TicketTemplate | null> {
+    const row = this.db.prepare(`
+      SELECT * FROM ${T.ticket_templates} WHERE id = ?
+    `).get(id) as {
+      id: string
+      name: string
+      description: string | null
+      is_builtin: number
+      title_pattern: string | null
+      description_template: string | null
+      default_priority: string | null
+      default_category: string | null
+      default_status_id: string | null
+      default_assignee: string | null
+      default_owner: string | null
+      default_labels: string | null
+      suggested_subtasks: string | null
+      created_at: string
+    } | undefined
+
+    if (!row) return null
+    return this.rowToTicketTemplate(row)
+  }
+
+  async createTicketTemplate(template: Partial<TicketTemplate> & { name: string }): Promise<TicketTemplate> {
+    const id = template.id || slugify(template.name)
+
+    // Check if template already exists
+    const existing = await this.getTicketTemplate(id)
+    if (existing) {
+      throw new PMOError('CONFLICT', `Template with ID "${id}" already exists`)
+    }
+
+    const now = new Date().toISOString()
+    this.db.prepare(`
+      INSERT INTO ${T.ticket_templates} (
+        id, name, description, is_builtin, title_pattern, description_template,
+        default_priority, default_category, default_status_id, default_assignee,
+        default_owner, default_labels, suggested_subtasks, created_at
+      )
+      VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      template.name,
+      template.description || null,
+      template.titlePattern || null,
+      template.descriptionTemplate || null,
+      template.defaultPriority || null,
+      template.defaultCategory || null,
+      template.defaultStatusId || null,
+      template.defaultAssignee || null,
+      template.defaultOwner || null,
+      JSON.stringify(template.defaultLabels || []),
+      JSON.stringify(template.suggestedSubtasks || []),
+      now
+    )
+
+    const created = await this.getTicketTemplate(id)
+    if (!created) {
+      throw new PMOError('NOT_FOUND', `Failed to create template: ${id}`)
+    }
+    return created
+  }
+
+  async createTicketTemplateFromTicket(ticketId: string, name: string, description?: string): Promise<TicketTemplate> {
+    const ticket = await this.getTicket(ticketId)
+    if (!ticket) {
+      throw new PMOError('NOT_FOUND', `Ticket not found: ${ticketId}`)
+    }
+
+    return this.createTicketTemplate({
+      name,
+      description,
+      titlePattern: ticket.title,
+      descriptionTemplate: ticket.description,
+      defaultPriority: ticket.priority,
+      defaultCategory: ticket.category,
+      defaultStatusId: ticket.statusId,
+      defaultAssignee: ticket.assignee,
+      defaultOwner: ticket.owner,
+      defaultLabels: ticket.labels,
+      suggestedSubtasks: ticket.subtasks.map(st => ({ title: st.title })),
+    })
+  }
+
+  async updateTicketTemplate(id: string, changes: Partial<TicketTemplate>): Promise<TicketTemplate> {
+    const existing = await this.getTicketTemplate(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Template not found: ${id}`)
+    }
+    if (existing.isBuiltin) {
+      throw new PMOError('INVALID', 'Cannot modify built-in templates')
+    }
+
+    const updates: string[] = []
+    const params: unknown[] = []
+
+    if (changes.name !== undefined) {
+      updates.push('name = ?')
+      params.push(changes.name)
+    }
+    if (changes.description !== undefined) {
+      updates.push('description = ?')
+      params.push(changes.description)
+    }
+    if (changes.titlePattern !== undefined) {
+      updates.push('title_pattern = ?')
+      params.push(changes.titlePattern)
+    }
+    if (changes.descriptionTemplate !== undefined) {
+      updates.push('description_template = ?')
+      params.push(changes.descriptionTemplate)
+    }
+    if (changes.defaultPriority !== undefined) {
+      updates.push('default_priority = ?')
+      params.push(changes.defaultPriority)
+    }
+    if (changes.defaultCategory !== undefined) {
+      updates.push('default_category = ?')
+      params.push(changes.defaultCategory)
+    }
+    if (changes.defaultStatusId !== undefined) {
+      updates.push('default_status_id = ?')
+      params.push(changes.defaultStatusId)
+    }
+    if (changes.defaultAssignee !== undefined) {
+      updates.push('default_assignee = ?')
+      params.push(changes.defaultAssignee)
+    }
+    if (changes.defaultOwner !== undefined) {
+      updates.push('default_owner = ?')
+      params.push(changes.defaultOwner)
+    }
+    if (changes.defaultLabels !== undefined) {
+      updates.push('default_labels = ?')
+      params.push(JSON.stringify(changes.defaultLabels))
+    }
+    if (changes.suggestedSubtasks !== undefined) {
+      updates.push('suggested_subtasks = ?')
+      params.push(JSON.stringify(changes.suggestedSubtasks))
+    }
+
+    if (updates.length > 0) {
+      params.push(id)
+      this.db.prepare(`UPDATE ${T.ticket_templates} SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+    }
+
+    const updated = await this.getTicketTemplate(id)
+    if (!updated) {
+      throw new PMOError('NOT_FOUND', `Template not found after update: ${id}`)
+    }
+    return updated
+  }
+
+  async deleteTicketTemplate(id: string): Promise<void> {
+    const existing = await this.getTicketTemplate(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Template not found: ${id}`)
+    }
+    if (existing.isBuiltin) {
+      throw new PMOError('INVALID', 'Cannot delete built-in templates')
+    }
+
+    this.db.prepare(`DELETE FROM ${T.ticket_templates} WHERE id = ?`).run(id)
+  }
+
+  private rowToTicketTemplate(row: {
+    id: string
+    name: string
+    description: string | null
+    is_builtin: number
+    title_pattern: string | null
+    description_template: string | null
+    default_priority: string | null
+    default_category: string | null
+    default_status_id: string | null
+    default_assignee: string | null
+    default_owner: string | null
+    default_labels: string | null
+    suggested_subtasks: string | null
+    created_at: string
+  }): TicketTemplate {
+    let defaultLabels: string[] = []
+    try {
+      defaultLabels = row.default_labels ? JSON.parse(row.default_labels) : []
+    } catch {
+      defaultLabels = []
+    }
+
+    let suggestedSubtasks: Array<{ title: string }> = []
+    try {
+      suggestedSubtasks = row.suggested_subtasks ? JSON.parse(row.suggested_subtasks) : []
+    } catch {
+      suggestedSubtasks = []
+    }
+
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description || undefined,
+      isBuiltin: row.is_builtin === 1,
+      titlePattern: row.title_pattern || undefined,
+      descriptionTemplate: row.description_template || undefined,
+      defaultPriority: row.default_priority || undefined,
+      defaultCategory: row.default_category || undefined,
+      defaultStatusId: row.default_status_id || undefined,
+      defaultAssignee: row.default_assignee || undefined,
+      defaultOwner: row.default_owner || undefined,
+      defaultLabels,
+      suggestedSubtasks,
+      createdAt: new Date(row.created_at),
+    }
   }
 
   // ===========================================================================
@@ -4570,6 +5047,7 @@ Output a review summary with your findings and any concerns.`,
       branch: string | null
       spec_id: string | null
       epic_id: string | null
+      labels: string | null
       column_id: string
       column_name: string
       position: number
@@ -4604,6 +5082,7 @@ Output a review summary with your findings and any concerns.`,
           branch: string | null
           spec_id: string | null
           epic_id: string | null
+          labels: string | null
           column_id: string | null
           column_name: string | null
           position: number | null
@@ -4631,6 +5110,7 @@ Output a review summary with your findings and any concerns.`,
     branch: string | null
     spec_id: string | null
     epic_id: string | null
+    labels: string | null
     column_id: string | null
     column_name: string | null
     position: number | null
@@ -4682,6 +5162,14 @@ Output a review summary with your findings and any concerns.`,
     }
     const status = statusCategory ? categoryToStatus[statusCategory] : 'backlog'
 
+    // Parse labels from JSON
+    let labels: string[] = []
+    try {
+      labels = row.labels ? JSON.parse(row.labels) : []
+    } catch {
+      labels = []
+    }
+
     return {
       id: row.id,
       title: row.title,
@@ -4702,6 +5190,7 @@ Output a review summary with your findings and any concerns.`,
         title: st.title,
         done: st.done === 1,
       })),
+      labels,
       metadata,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),

@@ -38,6 +38,7 @@ export const PMO_TABLES = {
   phases: 'pmo_phases',  // Project lifecycle phases (workspace-scoped)
   phase_templates: 'pmo_phase_templates',  // Phase configuration templates
   actions: 'pmo_actions',  // Work actions (reusable agent prompts)
+  ticket_templates: 'pmo_ticket_templates',  // Ticket templates for quick creation
 } as const;
 
 // =============================================================================
@@ -96,6 +97,7 @@ export const PMO_TABLE_SCHEMAS = {
       branch TEXT,
       spec_id TEXT,
       epic_id TEXT,
+      labels TEXT NOT NULL DEFAULT '[]',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       last_synced_from_spec TIMESTAMP,
@@ -387,6 +389,25 @@ export const PMO_TABLE_SCHEMAS = {
       position INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
+
+  // Ticket templates for quick ticket creation
+  ticket_templates: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.ticket_templates} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      title_pattern TEXT,
+      description_template TEXT,
+      default_priority TEXT,
+      default_category TEXT,
+      default_status_id TEXT,
+      default_assignee TEXT,
+      default_owner TEXT,
+      default_labels TEXT NOT NULL DEFAULT '[]',
+      suggested_subtasks TEXT NOT NULL DEFAULT '[]',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
 } as const;
 
 // =============================================================================
@@ -437,6 +458,7 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_phases_position ON ${PMO_TABLES.phases}(category, position);
   CREATE INDEX IF NOT EXISTS idx_pmo_board_views_project ON ${PMO_TABLES.board_views}(project_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_board_views_default ON ${PMO_TABLES.board_views}(project_id, is_default);
+  CREATE INDEX IF NOT EXISTS idx_pmo_ticket_templates_builtin ON ${PMO_TABLES.ticket_templates}(is_builtin);
 `;
 
 // =============================================================================
@@ -475,6 +497,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.agent_work,  // Execution tracking
   PMO_TABLE_SCHEMAS.containers,  // Docker containers per agent
   PMO_TABLE_SCHEMAS.actions,  // Work actions (reusable agent prompts)
+  PMO_TABLE_SCHEMAS.ticket_templates,  // Ticket templates for quick creation
   PMO_INDEXES,
 ].join(';\n');
 
@@ -496,6 +519,7 @@ export const EXPECTED_TICKET_COLUMNS = [
   'branch',
   'spec_id',
   'epic_id',
+  'labels',
   'created_at',
   'updated_at',
   'last_synced_from_spec',
