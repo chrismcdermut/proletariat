@@ -1,9 +1,9 @@
-import { Command, Flags, Args } from '@oclif/core';
+import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class SpecView extends Command {
+export default class SpecView extends PMOCommand {
   static description = 'View a spec and its linked tickets';
 
   static examples = [
@@ -19,6 +19,7 @@ export default class SpecView extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     spec: Flags.string({
       char: 's',
       description: 'Spec ID',
@@ -30,22 +31,14 @@ export default class SpecView extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(SpecView);
-
-    // Get PMO context
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    );
 
     // Get spec ID
     let specId = args.spec || flags.spec;
     if (!specId) {
-      const specs = await storage.listSpecs();
+      const specs = await this.storage.listSpecs();
       if (specs.length === 0) {
-        await storage.close();
         this.error('No specs found. Create one first with: prlt spec create');
       }
 
@@ -62,18 +55,17 @@ export default class SpecView extends Command {
     }
 
     // Get the spec
-    const spec = await storage.getSpec(specId!);
+    const spec = await this.storage.getSpec(specId!);
     if (!spec) {
-      await storage.close();
       this.error(`Spec not found: ${specId}`);
     }
 
     // Get linked tickets
-    const tickets = await storage.getTicketsForSpec(spec.id);
+    const tickets = await this.storage.getTicketsForSpec(spec.id);
 
     // Get dependencies
-    const dependencies = await storage.getSpecDependencies(spec.id);
-    const dependents = await storage.getSpecDependents(spec.id);
+    const dependencies = await this.storage.getSpecDependencies(spec.id);
+    const dependents = await this.storage.getSpecDependents(spec.id);
 
     // Display spec info
     this.log(styles.title(`\n📄 ${spec.title}`));
@@ -166,7 +158,5 @@ export default class SpecView extends Command {
     if (!flags.full) {
       this.log(styles.muted('Use --full to see all sections'));
     }
-
-    await storage.close();
   }
 }

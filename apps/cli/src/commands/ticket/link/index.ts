@@ -1,10 +1,10 @@
-import { Args, Command, Flags } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import inquirer from 'inquirer'
-import { getPMOContext, autoExportToBoard } from '../../../lib/pmo/index.js'
+import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js'
 import { styles } from '../../../lib/styles.js'
 import { TicketDependencyType } from '../../../lib/pmo/types.js'
 
-export default class TicketLink extends Command {
+export default class TicketLink extends PMOCommand {
   static description = 'Manage ticket dependencies (links)'
 
   static examples = [
@@ -23,10 +23,7 @@ export default class TicketLink extends Command {
   }
 
   static flags = {
-    project: Flags.string({
-      char: 'P',
-      description: 'Project ID (default: "default")',
-    }),
+    ...pmoBaseFlags,
     blocks: Flags.string({
       char: 'b',
       description: 'Add blocking dependency: this ticket is blocked by TARGET',
@@ -46,141 +43,126 @@ export default class TicketLink extends Command {
     }),
   }
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketLink)
 
-    const { storage, pmoPath } = await getPMOContext(
-      flags.project,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    )
+    let ticketId = args.id
+    if (!ticketId) {
+      const tickets = await this.storage.listTickets()
+      if (tickets.length === 0) {
+        this.log(styles.muted('\nNo tickets found.'))
+        return
+      }
+      const { selected } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selected',
+        message: 'Select ticket to manage dependencies:',
+        choices: tickets.map(t => ({ name: `${t.id} - ${t.title}`, value: t.id })),
+      }])
+      ticketId = selected
+    }
 
-    try {
-      let ticketId = args.id
-      if (!ticketId) {
-        const tickets = await storage.listTickets()
-        if (tickets.length === 0) {
-          this.log(styles.muted('\nNo tickets found.'))
-          await storage.close()
-          return
+    const ticket = await this.storage.getTicket(ticketId!)
+    if (!ticket) {
+      this.error(`Ticket not found: ${ticketId}`)
+    }
+
+    // If a dependency flag is provided, add the dependency directly
+    if (flags.blocks || flags.relates || flags.duplicates) {
+      const targetId = flags.blocks || flags.relates || flags.duplicates
+      const dependencyType: TicketDependencyType = flags.blocks ? 'blocks' :
+                                                    flags.relates ? 'relates_to' : 'duplicates'
+      await this.addDependency(this.storage, this.pmoPath, ticketId!, targetId!, dependencyType, ticket.title)
+      return
+    }
+
+    // Interactive mode: show menu in a loop
+    let continueLoop = true
+    while (continueLoop) {
+      const allTickets = await this.storage.listTickets()
+      const otherTickets = allTickets.filter(t => t.id !== ticketId)
+
+      const { action } = await inquirer.prompt([{
+        type: 'list',
+        name: 'action',
+        message: `Dependencies for ${ticket.id}:`,
+        choices: [
+          { name: 'View dependencies', value: 'view' },
+          { name: 'Add blocking dependency (blocked by...)', value: 'blocks' },
+          { name: 'Add relates_to dependency', value: 'relates_to' },
+          { name: 'Add duplicates dependency', value: 'duplicates' },
+          new inquirer.Separator(),
+          { name: 'Remove dependency', value: 'remove' },
+          { name: 'Done', value: 'done' },
+        ],
+      }])
+
+      if (action === 'done') {
+        continueLoop = false
+        continue
+      }
+
+      if (action === 'view') {
+        await this.viewDependencies(this.storage, ticketId!, ticket, flags.all)
+        continue
+      }
+
+      if (action === 'remove') {
+        const dependencies = await this.storage.listTicketDependencies(ticketId!)
+        if (dependencies.length === 0) {
+          this.log(styles.muted('\nNo dependencies to remove.'))
+          continue
         }
+        const choices = await Promise.all(dependencies.map(async dep => {
+          const depTicket = await this.storage.getTicket(dep.dependsOnTicketId)
+          return {
+            name: `${dep.dependsOnTicketId} - ${depTicket?.title || 'Unknown'} (${dep.dependencyType})`,
+            value: { targetId: dep.dependsOnTicketId, type: dep.dependencyType }
+          }
+        }))
         const { selected } = await inquirer.prompt([{
           type: 'list',
           name: 'selected',
-          message: 'Select ticket to manage dependencies:',
-          choices: tickets.map(t => ({ name: `${t.id} - ${t.title}`, value: t.id })),
+          message: 'Select dependency to remove:',
+          choices,
         }])
-        ticketId = selected
+        await this.storage.deleteTicketDependency(ticketId!, selected.targetId, selected.type)
+        await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
+        this.log(styles.success(`\n✅ Removed dependency: ${ticketId} → ${selected.targetId}`))
+        continue
       }
 
-      const ticket = await storage.getTicket(ticketId!)
-      if (!ticket) {
-        this.error(`Ticket not found: ${ticketId}`)
+      // Add dependency
+      if (otherTickets.length === 0) {
+        this.log(styles.muted('\nNo other tickets to link to.'))
+        continue
       }
-
-      // If a dependency flag is provided, add the dependency directly
-      if (flags.blocks || flags.relates || flags.duplicates) {
-        const targetId = flags.blocks || flags.relates || flags.duplicates
-        const dependencyType: TicketDependencyType = flags.blocks ? 'blocks' :
-                                                      flags.relates ? 'relates_to' : 'duplicates'
-        await this.addDependency(storage, pmoPath, ticketId!, targetId!, dependencyType, ticket.title)
-        await storage.close()
-        return
-      }
-
-      // Interactive mode: show menu in a loop
-      let continueLoop = true
-      while (continueLoop) {
-        const allTickets = await storage.listTickets()
-        const otherTickets = allTickets.filter(t => t.id !== ticketId)
-
-        const { action } = await inquirer.prompt([{
-          type: 'list',
-          name: 'action',
-          message: `Dependencies for ${ticket.id}:`,
-          choices: [
-            { name: 'View dependencies', value: 'view' },
-            { name: 'Add blocking dependency (blocked by...)', value: 'blocks' },
-            { name: 'Add relates_to dependency', value: 'relates_to' },
-            { name: 'Add duplicates dependency', value: 'duplicates' },
-            new inquirer.Separator(),
-            { name: 'Remove dependency', value: 'remove' },
-            { name: 'Done', value: 'done' },
-          ],
-        }])
-
-        if (action === 'done') {
-          continueLoop = false
-          continue
-        }
-
-        if (action === 'view') {
-          await this.viewDependencies(storage, ticketId!, ticket, flags.all)
-          continue
-        }
-
-        if (action === 'remove') {
-          const dependencies = await storage.listTicketDependencies(ticketId!)
-          if (dependencies.length === 0) {
-            this.log(styles.muted('\nNo dependencies to remove.'))
-            continue
-          }
-          const choices = await Promise.all(dependencies.map(async dep => {
-            const depTicket = await storage.getTicket(dep.dependsOnTicketId)
-            return {
-              name: `${dep.dependsOnTicketId} - ${depTicket?.title || 'Unknown'} (${dep.dependencyType})`,
-              value: { targetId: dep.dependsOnTicketId, type: dep.dependencyType }
-            }
-          }))
-          const { selected } = await inquirer.prompt([{
-            type: 'list',
-            name: 'selected',
-            message: 'Select dependency to remove:',
-            choices,
-          }])
-          await storage.deleteTicketDependency(ticketId!, selected.targetId, selected.type)
-          await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
-          this.log(styles.success(`\n✅ Removed dependency: ${ticketId} → ${selected.targetId}`))
-          continue
-        }
-
-        // Add dependency
-        if (otherTickets.length === 0) {
-          this.log(styles.muted('\nNo other tickets to link to.'))
-          continue
-        }
-        const { targetId } = await inquirer.prompt([{
-          type: 'list',
-          name: 'targetId',
-          message: `Select ticket that ${ticketId} ${action === 'blocks' ? 'is blocked by' : action === 'relates_to' ? 'relates to' : 'duplicates'}:`,
-          choices: otherTickets.map(t => ({ name: `${t.id} - ${t.title}`, value: t.id })),
-        }])
-        await this.addDependency(storage, pmoPath, ticketId!, targetId, action as TicketDependencyType, ticket.title)
-      }
-
-      await storage.close()
-    } catch (error) {
-      await storage.close()
-      throw error
+      const { targetId } = await inquirer.prompt([{
+        type: 'list',
+        name: 'targetId',
+        message: `Select ticket that ${ticketId} ${action === 'blocks' ? 'is blocked by' : action === 'relates_to' ? 'relates to' : 'duplicates'}:`,
+        choices: otherTickets.map(t => ({ name: `${t.id} - ${t.title}`, value: t.id })),
+      }])
+      await this.addDependency(this.storage, this.pmoPath, ticketId!, targetId, action as TicketDependencyType, ticket.title)
     }
   }
 
   private async addDependency(
-    storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
+    storage: typeof this.storage,
     pmoPath: string,
     ticketId: string,
     targetId: string,
     dependencyType: TicketDependencyType,
     ticketTitle: string
   ): Promise<void> {
-    const targetTicket = await storage.getTicket(targetId)
+    const targetTicket = await this.storage.getTicket(targetId)
     if (!targetTicket) {
       this.error(`Ticket not found: ${targetId}`)
     }
 
     try {
-      await storage.createTicketDependency(ticketId, targetId, dependencyType)
-      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
+      await this.storage.createTicketDependency(ticketId, targetId, dependencyType)
+      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
 
       const typeLabel = dependencyType === 'blocks' ? 'is blocked by' :
                         dependencyType === 'relates_to' ? 'relates to' : 'duplicates'
@@ -202,14 +184,14 @@ export default class TicketLink extends Command {
   }
 
   private async viewDependencies(
-    storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
+    storage: typeof this.storage,
     ticketId: string,
     ticket: { id: string; title: string },
     showAll: boolean
   ): Promise<void> {
-    const dependencies = await storage.listTicketDependencies(ticketId)
-    const blockers = await storage.getTicketBlockers(ticketId)
-    const isBlocked = await storage.isTicketBlocked(ticketId)
+    const dependencies = await this.storage.listTicketDependencies(ticketId)
+    const blockers = await this.storage.getTicketBlockers(ticketId)
+    const isBlocked = await this.storage.isTicketBlocked(ticketId)
 
     this.log(`\n${styles.emphasis(ticket.id)}: ${ticket.title}`)
 
@@ -229,7 +211,7 @@ export default class TicketLink extends Command {
     if (otherDeps.length > 0) {
       this.log(styles.muted('\n  Related:'))
       for (const dep of otherDeps) {
-        const relatedTicket = await storage.getTicket(dep.dependsOnTicketId)
+        const relatedTicket = await this.storage.getTicket(dep.dependsOnTicketId)
         if (relatedTicket) {
           this.log(`    - ${dep.dependencyType}: ${relatedTicket.id} - ${relatedTicket.title}`)
         }
@@ -237,7 +219,7 @@ export default class TicketLink extends Command {
     }
 
     if (showAll) {
-      const blockedBy = await storage.getTicketsBlockedBy(ticketId)
+      const blockedBy = await this.storage.getTicketsBlockedBy(ticketId)
       if (blockedBy.length > 0) {
         this.log(styles.muted('\n  Blocking:'))
         for (const blocked of blockedBy) {

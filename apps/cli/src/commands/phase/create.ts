@@ -1,10 +1,10 @@
-import { Command, Flags, Args } from '@oclif/core';
+import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
 
-export default class PhaseCreate extends Command {
+export default class PhaseCreate extends PMOCommand {
   static description = 'Create a new project lifecycle phase';
 
   static examples = [
@@ -21,6 +21,7 @@ export default class PhaseCreate extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     category: Flags.string({
       char: 'c',
       description: 'State category',
@@ -44,16 +45,14 @@ export default class PhaseCreate extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(PhaseCreate);
 
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      false  // Phases are workspace-scoped, no project selection needed
-    );
-
-    try {
+    {
       let phaseData: {
         name: string;
         category: StateCategory;
@@ -66,11 +65,9 @@ export default class PhaseCreate extends Command {
         phaseData = await this.promptPhaseData(args, flags);
       } else {
         if (!args.name) {
-          await storage.close();
           this.error('Phase name is required. Use -i for interactive mode.');
         }
         if (!flags.category) {
-          await storage.close();
           this.error('Category is required. Use --category or -i for interactive mode.');
         }
 
@@ -83,9 +80,7 @@ export default class PhaseCreate extends Command {
         };
       }
 
-      const phase = await storage.createPhase(phaseData);
-
-      await storage.close();
+      const phase = await this.storage.createPhase(phaseData);
 
       this.log(styles.success(`\nCreated phase "${styles.emphasis(phase.name)}"`));
       this.log(styles.muted(`  ID: ${phase.id}`));
@@ -99,12 +94,6 @@ export default class PhaseCreate extends Command {
       if (phase.isDefault) {
         this.log(styles.muted(`  Default: Yes`));
       }
-    } catch (error) {
-      await storage.close();
-      if (error instanceof Error && error.message.includes('already exists')) {
-        this.error(error.message);
-      }
-      throw error;
     }
   }
 

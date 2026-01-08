@@ -1,8 +1,8 @@
-import { Command, Flags, Args } from '@oclif/core';
-import { getPMOContext } from '../../../lib/pmo/index.js';
+import { Flags, Args } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import { styles } from '../../../lib/styles.js';
 
-export default class PhaseTemplateCreate extends Command {
+export default class PhaseTemplateCreate extends PMOCommand {
   static description = 'Create a new phase template from current workspace phases';
 
   static examples = [
@@ -18,35 +18,27 @@ export default class PhaseTemplateCreate extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     description: Flags.string({
       char: 'd',
       description: 'Template description',
     }),
   };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(PhaseTemplateCreate);
 
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      false
-    );
+    const template = await this.storage.savePhaseTemplate(args.name, flags.description);
 
-    try {
-      const template = await storage.savePhaseTemplate(args.name, flags.description);
-
-      await storage.close();
-
-      this.log(styles.success(`\nCreated phase template "${styles.emphasis(template.name)}" (${template.id})`));
-      this.log(styles.muted(`Saved ${template.phases.length} phases:`));
-      for (const phase of template.phases) {
-        const defaultBadge = phase.isDefault ? ' (default)' : '';
-        this.log(styles.muted(`  • ${phase.name} [${phase.category}]${defaultBadge}`));
-      }
-    } catch (error) {
-      await storage.close();
-      throw error;
+    this.log(styles.success(`\nCreated phase template "${styles.emphasis(template.name)}" (${template.id})`));
+    this.log(styles.muted(`Saved ${template.phases.length} phases:`));
+    for (const phase of template.phases) {
+      const defaultBadge = phase.isDefault ? ' (default)' : '';
+      this.log(styles.muted(`  • ${phase.name} [${phase.category}]${defaultBadge}`));
     }
   }
 }

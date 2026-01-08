@@ -1,10 +1,10 @@
-import { Command, Args, Flags } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
 
-export default class ActionCreate extends Command {
+export default class ActionCreate extends PMOCommand {
   static description = 'Create a new work action';
 
   static examples = [
@@ -21,6 +21,7 @@ export default class ActionCreate extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     prompt: Flags.string({
       char: 'p',
       description: 'The prompt to send to the agent',
@@ -43,111 +44,101 @@ export default class ActionCreate extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(ActionCreate);
 
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      false
-    );
+    let name = args.name;
+    let prompt = flags.prompt;
+    let description = flags.description;
+    let suggestedFor: StateCategory[] | undefined;
+    let moveTo: StateCategory | undefined = flags['move-to'] as StateCategory | undefined;
 
-    try {
-      let name = args.name;
-      let prompt = flags.prompt;
-      let description = flags.description;
-      let suggestedFor: StateCategory[] | undefined;
-      let moveTo: StateCategory | undefined = flags['move-to'] as StateCategory | undefined;
-
-      // Interactive mode if name or prompt is missing
-      if (!name || !prompt || flags.interactive) {
-        this.log('');
-        this.log(styles.header('Create Custom Action'));
-        this.log('');
-
-        const answers = await inquirer.prompt([
-          {
-            type: 'input',
-            name: 'name',
-            message: 'Action name:',
-            default: name,
-            validate: (input: string) => input.trim() ? true : 'Name is required',
-            when: !name,
-          },
-          {
-            type: 'input',
-            name: 'description',
-            message: 'Description (optional):',
-            default: description || '',
-          },
-          {
-            type: 'editor',
-            name: 'prompt',
-            message: 'Prompt (opens editor):',
-            default: prompt || 'Enter the prompt that will be sent to the agent...',
-            validate: (input: string) => input.trim() ? true : 'Prompt is required',
-            when: !prompt,
-          },
-          {
-            type: 'checkbox',
-            name: 'suggestedFor',
-            message: 'Suggested for categories (optional):',
-            choices: STATE_CATEGORY_ORDER.map(c => ({
-              name: c,
-              value: c,
-            })),
-          },
-          {
-            type: 'list',
-            name: 'moveTo',
-            message: 'Move ticket to category after action:',
-            choices: [
-              { name: '(no automatic move)', value: '' },
-              ...STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
-            ],
-            default: moveTo || '',
-          },
-        ]);
-
-        name = answers.name || name;
-        prompt = answers.prompt || prompt;
-        description = answers.description || description;
-        suggestedFor = answers.suggestedFor?.length ? answers.suggestedFor : undefined;
-        moveTo = answers.moveTo || undefined;
-      } else {
-        // Parse flags
-        suggestedFor = flags['suggested-for']
-          ? flags['suggested-for'].split(',').map(s => s.trim()) as StateCategory[]
-          : undefined;
-      }
-
-      if (!name || !prompt) {
-        await storage.close();
-        this.error('Name and prompt are required.');
-      }
-
-      const action = await storage.createAction({
-        name,
-        description,
-        prompt,
-        suggestedForCategories: suggestedFor,
-        defaultMoveToCategory: moveTo,
-      });
-
-      await storage.close();
-
-      this.log(styles.success(`\nCreated action "${styles.emphasis(action.name)}" (${action.id})`));
-      if (action.description) {
-        this.log(styles.muted(`  ${action.description}`));
-      }
-      if (action.suggestedForCategories?.length) {
-        this.log(styles.muted(`  Suggested for: ${action.suggestedForCategories.join(', ')}`));
-      }
+    // Interactive mode if name or prompt is missing
+    if (!name || !prompt || flags.interactive) {
       this.log('');
-      this.log(styles.muted(`Use with: prlt work start TKT-001 --action ${action.id}`));
-    } catch (error) {
-      await storage.close();
-      throw error;
+      this.log(styles.header('Create Custom Action'));
+      this.log('');
+
+      const answers = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'name',
+          message: 'Action name:',
+          default: name,
+          validate: (input: string) => input.trim() ? true : 'Name is required',
+          when: !name,
+        },
+        {
+          type: 'input',
+          name: 'description',
+          message: 'Description (optional):',
+          default: description || '',
+        },
+        {
+          type: 'editor',
+          name: 'prompt',
+          message: 'Prompt (opens editor):',
+          default: prompt || 'Enter the prompt that will be sent to the agent...',
+          validate: (input: string) => input.trim() ? true : 'Prompt is required',
+          when: !prompt,
+        },
+        {
+          type: 'checkbox',
+          name: 'suggestedFor',
+          message: 'Suggested for categories (optional):',
+          choices: STATE_CATEGORY_ORDER.map(c => ({
+            name: c,
+            value: c,
+          })),
+        },
+        {
+          type: 'list',
+          name: 'moveTo',
+          message: 'Move ticket to category after action:',
+          choices: [
+            { name: '(no automatic move)', value: '' },
+            ...STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
+          ],
+          default: moveTo || '',
+        },
+      ]);
+
+      name = answers.name || name;
+      prompt = answers.prompt || prompt;
+      description = answers.description || description;
+      suggestedFor = answers.suggestedFor?.length ? answers.suggestedFor : undefined;
+      moveTo = answers.moveTo || undefined;
+    } else {
+      // Parse flags
+      suggestedFor = flags['suggested-for']
+        ? flags['suggested-for'].split(',').map(s => s.trim()) as StateCategory[]
+        : undefined;
     }
+
+    if (!name || !prompt) {
+      this.error('Name and prompt are required.');
+    }
+
+    const action = await this.storage.createAction({
+      name,
+      description,
+      prompt,
+      suggestedForCategories: suggestedFor,
+      defaultMoveToCategory: moveTo,
+    });
+
+    this.log(styles.success(`\nCreated action "${styles.emphasis(action.name)}" (${action.id})`));
+    if (action.description) {
+      this.log(styles.muted(`  ${action.description}`));
+    }
+    if (action.suggestedForCategories?.length) {
+      this.log(styles.muted(`  Suggested for: ${action.suggestedForCategories.join(', ')}`));
+    }
+    this.log('');
+    this.log(styles.muted(`Use with: prlt work start TKT-001 --action ${action.id}`));
   }
 }

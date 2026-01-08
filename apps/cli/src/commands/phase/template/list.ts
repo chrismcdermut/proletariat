@@ -1,9 +1,9 @@
-import { Command, Flags } from '@oclif/core';
-import { getPMOContext } from '../../../lib/pmo/index.js';
+import { Flags } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import { styles } from '../../../lib/styles.js';
 import { PhaseTemplate, StateCategory } from '../../../lib/pmo/types.js';
 
-export default class PhaseTemplateList extends Command {
+export default class PhaseTemplateList extends PMOCommand {
   static description = 'List available phase templates';
 
   static examples = [
@@ -13,6 +13,7 @@ export default class PhaseTemplateList extends Command {
   ];
 
   static flags = {
+    ...pmoBaseFlags,
     builtin: Flags.boolean({
       description: 'Show only built-in templates',
       exclusive: ['custom'],
@@ -27,66 +28,55 @@ export default class PhaseTemplateList extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { flags } = await this.parse(PhaseTemplateList);
 
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      false
-    );
+    let filter: { isBuiltin?: boolean } | undefined;
+    if (flags.builtin) filter = { isBuiltin: true };
+    if (flags.custom) filter = { isBuiltin: false };
 
-    try {
-      let filter: { isBuiltin?: boolean } | undefined;
-      if (flags.builtin) filter = { isBuiltin: true };
-      if (flags.custom) filter = { isBuiltin: false };
+    const templates = await this.storage.listPhaseTemplates(filter);
 
-      const templates = await storage.listPhaseTemplates(filter);
-
-      if (flags.json) {
-        this.log(JSON.stringify(templates, null, 2));
-        await storage.close();
-        return;
-      }
-
-      if (templates.length === 0) {
-        this.log(styles.muted('\nNo phase templates found.'));
-        await storage.close();
-        return;
-      }
-
-      this.log(`\n📋 ${styles.emphasis('Phase Templates')}`);
-      this.log('═'.repeat(60));
-
-      // Group by builtin vs custom
-      const builtinTemplates = templates.filter(t => t.isBuiltin);
-      const customTemplates = templates.filter(t => !t.isBuiltin);
-
-      if (builtinTemplates.length > 0 && !flags.custom) {
-        this.log(`\n${styles.emphasis('Built-in Templates')}`);
-        this.log('─'.repeat(40));
-        for (const template of builtinTemplates) {
-          this.printTemplate(template);
-        }
-      }
-
-      if (customTemplates.length > 0 && !flags.builtin) {
-        this.log(`\n${styles.emphasis('Custom Templates')}`);
-        this.log('─'.repeat(40));
-        for (const template of customTemplates) {
-          this.printTemplate(template);
-        }
-      }
-
-      this.log('');
-      this.log(styles.muted('Apply a template: prlt phase template apply <template-id>'));
-      this.log('');
-
-      await storage.close();
-    } catch (error) {
-      await storage.close();
-      throw error;
+    if (flags.json) {
+      this.log(JSON.stringify(templates, null, 2));
+      return;
     }
+
+    if (templates.length === 0) {
+      this.log(styles.muted('\nNo phase templates found.'));
+      return;
+    }
+
+    this.log(`\n📋 ${styles.emphasis('Phase Templates')}`);
+    this.log('═'.repeat(60));
+
+    // Group by builtin vs custom
+    const builtinTemplates = templates.filter(t => t.isBuiltin);
+    const customTemplates = templates.filter(t => !t.isBuiltin);
+
+    if (builtinTemplates.length > 0 && !flags.custom) {
+      this.log(`\n${styles.emphasis('Built-in Templates')}`);
+      this.log('─'.repeat(40));
+      for (const template of builtinTemplates) {
+        this.printTemplate(template);
+      }
+    }
+
+    if (customTemplates.length > 0 && !flags.builtin) {
+      this.log(`\n${styles.emphasis('Custom Templates')}`);
+      this.log('─'.repeat(40));
+      for (const template of customTemplates) {
+        this.printTemplate(template);
+      }
+    }
+
+    this.log('');
+    this.log(styles.muted('Apply a template: prlt phase template apply <template-id>'));
+    this.log('');
   }
 
   private printTemplate(template: PhaseTemplate): void {

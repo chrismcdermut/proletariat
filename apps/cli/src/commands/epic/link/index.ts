@@ -1,10 +1,10 @@
-import { Args, Command, Flags } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import inquirer from 'inquirer'
-import { getPMOContext, autoExportToBoard } from '../../../lib/pmo/index.js'
+import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../../lib/pmo/index.js'
 import { styles } from '../../../lib/styles.js'
 import { EpicDependencyType } from '../../../lib/pmo/types.js'
 
-export default class EpicLink extends Command {
+export default class EpicLink extends PMOCommand {
   static description = 'Manage epic dependencies (links)'
 
   static examples = [
@@ -23,6 +23,7 @@ export default class EpicLink extends Command {
   }
 
   static flags = {
+    ...pmoBaseFlags,
     project: Flags.string({
       char: 'P',
       description: 'Project ID (default: "default")',
@@ -46,141 +47,124 @@ export default class EpicLink extends Command {
     }),
   }
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(EpicLink)
 
-    const { storage, pmoPath } = await getPMOContext(
-      flags.project,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    )
+    let epicId = args.id
+    if (!epicId) {
+      const epics = await this.storage.listEpics()
+      if (epics.length === 0) {
+        this.log(styles.muted('\nNo epics found.'))
+        return
+      }
+      const { selected } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selected',
+        message: 'Select epic to manage dependencies:',
+        choices: epics.map(e => ({ name: `${e.id} - ${e.title}`, value: e.id })),
+      }])
+      epicId = selected
+    }
 
-    try {
-      let epicId = args.id
-      if (!epicId) {
-        const epics = await storage.listEpics()
-        if (epics.length === 0) {
-          this.log(styles.muted('\nNo epics found.'))
-          await storage.close()
-          return
+    const epic = await this.storage.getEpic(epicId!)
+    if (!epic) {
+      this.error(`Epic not found: ${epicId}`)
+    }
+
+    // If a dependency flag is provided, add the dependency directly
+    if (flags.blocks || flags.relates || flags.duplicates) {
+      const targetId = flags.blocks || flags.relates || flags.duplicates
+      const dependencyType: EpicDependencyType = flags.blocks ? 'blocks' :
+                                                  flags.relates ? 'relates_to' : 'duplicates'
+      await this.addDependency(epicId!, targetId!, dependencyType, epic.title)
+      return
+    }
+
+    // Interactive mode: show menu in a loop
+    let continueLoop = true
+    while (continueLoop) {
+      const allEpics = await this.storage.listEpics()
+      const otherEpics = allEpics.filter(e => e.id !== epicId)
+
+      const { action } = await inquirer.prompt([{
+        type: 'list',
+        name: 'action',
+        message: `Dependencies for ${epic.id}:`,
+        choices: [
+          { name: 'View dependencies', value: 'view' },
+          { name: 'Add blocking dependency (blocked by...)', value: 'blocks' },
+          { name: 'Add relates_to dependency', value: 'relates_to' },
+          { name: 'Add duplicates dependency', value: 'duplicates' },
+          new inquirer.Separator(),
+          { name: 'Remove dependency', value: 'remove' },
+          { name: 'Done', value: 'done' },
+        ],
+      }])
+
+      if (action === 'done') {
+        continueLoop = false
+        continue
+      }
+
+      if (action === 'view') {
+        await this.viewDependencies(epicId!, epic, flags.all)
+        continue
+      }
+
+      if (action === 'remove') {
+        const dependencies = await this.storage.listEpicDependencies(epicId!)
+        if (dependencies.length === 0) {
+          this.log(styles.muted('\nNo dependencies to remove.'))
+          continue
         }
+        const choices = await Promise.all(dependencies.map(async dep => {
+          const depEpic = await this.storage.getEpic(dep.dependsOnEpicId)
+          return {
+            name: `${dep.dependsOnEpicId} - ${depEpic?.title || 'Unknown'} (${dep.dependencyType})`,
+            value: { targetId: dep.dependsOnEpicId, type: dep.dependencyType }
+          }
+        }))
         const { selected } = await inquirer.prompt([{
           type: 'list',
           name: 'selected',
-          message: 'Select epic to manage dependencies:',
-          choices: epics.map(e => ({ name: `${e.id} - ${e.title}`, value: e.id })),
+          message: 'Select dependency to remove:',
+          choices,
         }])
-        epicId = selected
+        await this.storage.deleteEpicDependency(epicId!, selected.targetId, selected.type)
+        await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
+        this.log(styles.success(`\n✅ Removed dependency: ${epicId} → ${selected.targetId}`))
+        continue
       }
 
-      const epic = await storage.getEpic(epicId!)
-      if (!epic) {
-        this.error(`Epic not found: ${epicId}`)
+      // Add dependency
+      if (otherEpics.length === 0) {
+        this.log(styles.muted('\nNo other epics to link to.'))
+        continue
       }
-
-      // If a dependency flag is provided, add the dependency directly
-      if (flags.blocks || flags.relates || flags.duplicates) {
-        const targetId = flags.blocks || flags.relates || flags.duplicates
-        const dependencyType: EpicDependencyType = flags.blocks ? 'blocks' :
-                                                    flags.relates ? 'relates_to' : 'duplicates'
-        await this.addDependency(storage, pmoPath, epicId!, targetId!, dependencyType, epic.title)
-        await storage.close()
-        return
-      }
-
-      // Interactive mode: show menu in a loop
-      let continueLoop = true
-      while (continueLoop) {
-        const allEpics = await storage.listEpics()
-        const otherEpics = allEpics.filter(e => e.id !== epicId)
-
-        const { action } = await inquirer.prompt([{
-          type: 'list',
-          name: 'action',
-          message: `Dependencies for ${epic.id}:`,
-          choices: [
-            { name: 'View dependencies', value: 'view' },
-            { name: 'Add blocking dependency (blocked by...)', value: 'blocks' },
-            { name: 'Add relates_to dependency', value: 'relates_to' },
-            { name: 'Add duplicates dependency', value: 'duplicates' },
-            new inquirer.Separator(),
-            { name: 'Remove dependency', value: 'remove' },
-            { name: 'Done', value: 'done' },
-          ],
-        }])
-
-        if (action === 'done') {
-          continueLoop = false
-          continue
-        }
-
-        if (action === 'view') {
-          await this.viewDependencies(storage, epicId!, epic, flags.all)
-          continue
-        }
-
-        if (action === 'remove') {
-          const dependencies = await storage.listEpicDependencies(epicId!)
-          if (dependencies.length === 0) {
-            this.log(styles.muted('\nNo dependencies to remove.'))
-            continue
-          }
-          const choices = await Promise.all(dependencies.map(async dep => {
-            const depEpic = await storage.getEpic(dep.dependsOnEpicId)
-            return {
-              name: `${dep.dependsOnEpicId} - ${depEpic?.title || 'Unknown'} (${dep.dependencyType})`,
-              value: { targetId: dep.dependsOnEpicId, type: dep.dependencyType }
-            }
-          }))
-          const { selected } = await inquirer.prompt([{
-            type: 'list',
-            name: 'selected',
-            message: 'Select dependency to remove:',
-            choices,
-          }])
-          await storage.deleteEpicDependency(epicId!, selected.targetId, selected.type)
-          await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
-          this.log(styles.success(`\n✅ Removed dependency: ${epicId} → ${selected.targetId}`))
-          continue
-        }
-
-        // Add dependency
-        if (otherEpics.length === 0) {
-          this.log(styles.muted('\nNo other epics to link to.'))
-          continue
-        }
-        const { targetId } = await inquirer.prompt([{
-          type: 'list',
-          name: 'targetId',
-          message: `Select epic that ${epicId} ${action === 'blocks' ? 'is blocked by' : action === 'relates_to' ? 'relates to' : 'duplicates'}:`,
-          choices: otherEpics.map(e => ({ name: `${e.id} - ${e.title}`, value: e.id })),
-        }])
-        await this.addDependency(storage, pmoPath, epicId!, targetId, action as EpicDependencyType, epic.title)
-      }
-
-      await storage.close()
-    } catch (error) {
-      await storage.close()
-      throw error
+      const { targetId } = await inquirer.prompt([{
+        type: 'list',
+        name: 'targetId',
+        message: `Select epic that ${epicId} ${action === 'blocks' ? 'is blocked by' : action === 'relates_to' ? 'relates to' : 'duplicates'}:`,
+        choices: otherEpics.map(e => ({ name: `${e.id} - ${e.title}`, value: e.id })),
+      }])
+      await this.addDependency(epicId!, targetId, action as EpicDependencyType, epic.title)
     }
   }
 
   private async addDependency(
-    storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
-    pmoPath: string,
     epicId: string,
     targetId: string,
     dependencyType: EpicDependencyType,
     epicTitle: string
   ): Promise<void> {
-    const targetEpic = await storage.getEpic(targetId)
+    const targetEpic = await this.storage.getEpic(targetId)
     if (!targetEpic) {
       this.error(`Epic not found: ${targetId}`)
     }
 
     try {
-      await storage.createEpicDependency(epicId, targetId, dependencyType)
-      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
+      await this.storage.createEpicDependency(epicId, targetId, dependencyType)
+      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
 
       const typeLabel = dependencyType === 'blocks' ? 'is blocked by' :
                         dependencyType === 'relates_to' ? 'relates to' : 'duplicates'
@@ -202,13 +186,12 @@ export default class EpicLink extends Command {
   }
 
   private async viewDependencies(
-    storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
     epicId: string,
     epic: { id: string; title: string },
     showAll: boolean
   ): Promise<void> {
-    const dependencies = await storage.listEpicDependencies(epicId)
-    const isBlocked = await storage.isEpicBlocked(epicId)
+    const dependencies = await this.storage.listEpicDependencies(epicId)
+    const isBlocked = await this.storage.isEpicBlocked(epicId)
 
     this.log(`\n${styles.emphasis(epic.id)}: ${epic.title}`)
 
@@ -220,7 +203,7 @@ export default class EpicLink extends Command {
     if (blockers.length > 0) {
       this.log(styles.muted('\n  Blocked by:'))
       for (const dep of blockers) {
-        const blockerEpic = await storage.getEpic(dep.dependsOnEpicId)
+        const blockerEpic = await this.storage.getEpic(dep.dependsOnEpicId)
         if (blockerEpic) {
           const status = blockerEpic.status === 'complete' ? styles.success('complete') : styles.warning(blockerEpic.status)
           this.log(`    - ${blockerEpic.id}: ${blockerEpic.title} (${status})`)
@@ -232,7 +215,7 @@ export default class EpicLink extends Command {
     if (otherDeps.length > 0) {
       this.log(styles.muted('\n  Related:'))
       for (const dep of otherDeps) {
-        const relatedEpic = await storage.getEpic(dep.dependsOnEpicId)
+        const relatedEpic = await this.storage.getEpic(dep.dependsOnEpicId)
         if (relatedEpic) {
           this.log(`    - ${dep.dependencyType}: ${relatedEpic.id} - ${relatedEpic.title}`)
         }
@@ -240,12 +223,12 @@ export default class EpicLink extends Command {
     }
 
     if (showAll) {
-      const allEpics = await storage.listEpics()
+      const allEpics = await this.storage.listEpics()
       const blocking: Array<{ epic: typeof epic; type: string }> = []
 
       for (const otherEpic of allEpics) {
         if (otherEpic.id === epicId) continue
-        const otherDeps = await storage.listEpicDependencies(otherEpic.id)
+        const otherDeps = await this.storage.listEpicDependencies(otherEpic.id)
         const blockingDep = otherDeps.find(d => d.dependsOnEpicId === epicId)
         if (blockingDep) {
           blocking.push({ epic: otherEpic, type: blockingDep.dependencyType })

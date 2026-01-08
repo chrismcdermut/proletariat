@@ -1,10 +1,10 @@
-import { Args, Command, Flags } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { Ticket } from '../../lib/pmo/types.js';
 
-export default class EpicTicket extends Command {
+export default class EpicTicket extends PMOCommand {
   static description = 'Assign tickets to an epic, or link epic to a spec (parent-child)';
 
   static examples = [
@@ -30,10 +30,7 @@ export default class EpicTicket extends Command {
   static strict = false; // Allow multiple ticket arguments
 
   static flags = {
-    project: Flags.string({
-      char: 'P',
-      description: 'Project ID (default: "default")',
-    }),
+    ...pmoBaseFlags,
     unlink: Flags.boolean({
       char: 'u',
       description: 'Remove tickets from this epic instead of adding',
@@ -49,261 +46,243 @@ export default class EpicTicket extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags, argv } = await this.parse(EpicTicket);
 
-    const { storage, pmoPath } = await getPMOContext(
-      flags.project,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    );
-
-    try {
-      // Get all epics
-      const epics = await storage.listEpics();
-      if (epics.length === 0) {
-        this.log(styles.muted('\nNo epics found. Create one with: prlt epic create'));
-        await storage.close();
-        return;
-      }
-
-      // Get all tickets
-      const allTickets = await storage.listTickets();
-      if (allTickets.length === 0) {
-        this.log(styles.muted('\nNo tickets found.'));
-        await storage.close();
-        return;
-      }
-
-      // Get epic_id for each ticket via direct DB query
-      const db = (storage as unknown as { db: { prepare: (sql: string) => { get: (...args: unknown[]) => unknown; run: (...args: unknown[]) => void } } }).db;
-      const getTicketEpicId = (ticketId: string): string | null => {
-        const row = db.prepare(`SELECT epic_id FROM pmo_tickets WHERE id = ?`).get(ticketId) as { epic_id: string | null } | undefined;
-        return row?.epic_id || null;
-      };
-
-      let epicId = args.id;
-
-      // If no epic ID provided, prompt for selection
-      if (!epicId) {
-        // Count tickets per epic
-        const ticketCounts = new Map<string, number>();
-        for (const ticket of allTickets) {
-          const tid = getTicketEpicId(ticket.id);
-          if (tid) {
-            ticketCounts.set(tid, (ticketCounts.get(tid) || 0) + 1);
-          }
-        }
-
-        const { selected } = await inquirer.prompt([{
-          type: 'list',
-          name: 'selected',
-          message: 'Select epic to link tickets to:',
-          choices: epics.map(e => ({
-            name: `${e.id} ${e.title} (${e.status}) [${ticketCounts.get(e.id) || 0} tickets]`,
-            value: e.id,
-          })),
-        }]);
-        epicId = selected;
-      }
-
-      // Validate epic exists
-      const epic = epics.find(e => e.id === epicId);
-      if (!epic) {
-        this.error(`Epic not found: ${epicId}`);
-      }
-
-      // Handle spec linking if --spec or --unlink-spec provided
-      if (flags.spec || flags['unlink-spec']) {
-        if (flags['unlink-spec']) {
-          // Unlink spec from epic
-          if (!epic.specId) {
-            this.log(styles.muted(`\nEpic ${epicId} is not linked to any spec.`));
-          } else {
-            await storage.updateEpic(epicId!, { specId: undefined });
-            this.log(styles.success(`\n✅ Unlinked spec from ${styles.emphasis(epicId!)} "${epic.title}"`));
-          }
-        } else {
-          // Link spec to epic
-          const spec = await storage.getSpec(flags.spec!);
-          if (!spec) {
-            await storage.close();
-            this.error(`Spec not found: ${flags.spec}`);
-          }
-
-          await storage.updateEpic(epicId!, { specId: flags.spec });
-          this.log(styles.success(`\n✅ Linked ${styles.emphasis(epicId!)} "${epic.title}" to spec ${styles.emphasis(flags.spec!)}`));
-          this.log(styles.muted(`   Spec: ${spec.title}`));
-        }
-
-        // If only spec operation, exit here
-        const argvStrings = argv as string[];
-        if (argvStrings.length <= 1 && !flags.unlink) {
-          await storage.close();
-          return;
-        }
-      }
-
-      // Get ticket IDs from remaining argv (after epic ID)
-      let ticketIds: string[] = [];
-      const argvStrings = argv as string[];
-      if (argvStrings.length > 1) {
-        ticketIds = argvStrings.slice(1);
-      }
-
-      // If no ticket IDs provided, prompt with multi-select
-      if (ticketIds.length === 0) {
-        const choices = allTickets.map((t: Ticket) => {
-          const currentEpicId = getTicketEpicId(t.id);
-          let epicLabel = 'No epic';
-          if (currentEpicId === epicId) {
-            epicLabel = `${epicId} ← current`;
-          } else if (currentEpicId) {
-            const currentEpic = epics.find(e => e.id === currentEpicId);
-            epicLabel = currentEpic?.title || currentEpicId;
-          }
-          return {
-            name: `${t.id} - ${t.title} [${epicLabel}]`,
-            value: t.id,
-            checked: false,
-          };
-        });
-
-        const { selected } = await inquirer.prompt([{
-          type: 'checkbox',
-          name: 'selected',
-          message: `Select tickets to ${flags.unlink ? 'unlink from' : 'link to'} ${epicId}:`,
-          choices,
-        }]);
-
-        ticketIds = selected;
-      }
-
-      if (ticketIds.length === 0) {
-        this.log(styles.muted('\nNo tickets selected.'));
-        await storage.close();
-        return;
-      }
-
-      // Validate all tickets exist
-      const invalidTickets = ticketIds.filter(id => !allTickets.find((t: Ticket) => t.id === id));
-      if (invalidTickets.length > 0) {
-        this.error(`Tickets not found: ${invalidTickets.join(', ')}`);
-      }
-
-      // Process each ticket
-      let successCount = 0;
-      const linkedTickets: string[] = [];
-
-      for (const ticketId of ticketIds) {
-        const ticket = allTickets.find((t: Ticket) => t.id === ticketId)!;
-        const currentEpicId = getTicketEpicId(ticketId);
-
-        if (flags.unlink) {
-          // Unlink: only if currently linked to this epic
-          if (currentEpicId !== epicId) {
-            this.log(styles.muted(`  ${ticketId} is not linked to ${epicId}, skipping`));
-            continue;
-          }
-
-          db.prepare(`
-            UPDATE pmo_tickets
-            SET epic_id = NULL, updated_at = ?
-            WHERE id = ?
-          `).run(Date.now(), ticketId);
-        } else {
-          // Link: check if already linked to same epic
-          if (currentEpicId === epicId) {
-            this.log(styles.muted(`  ${ticketId} already linked to ${epicId}, skipping`));
-            continue;
-          }
-
-          // Warn if linked to different epic
-          if (currentEpicId) {
-            const currentEpic = epics.find(e => e.id === currentEpicId);
-            this.log(styles.warning(`  ${ticketId} was linked to ${currentEpic?.title || currentEpicId}, reassigning`));
-          }
-
-          // Reconciliation: Check spec consistency between ticket and epic
-          const ticketSpecId = ticket.specId;
-          const epicSpecId = epic.specId;
-
-          if (ticketSpecId && epicSpecId && ticketSpecId !== epicSpecId) {
-            // Both have specs but they differ - warn user
-            this.log(styles.warning(`  ⚠️  Spec mismatch: ticket has "${ticketSpecId}", epic has "${epicSpecId}"`));
-            const { action } = await inquirer.prompt([{
-              type: 'list',
-              name: 'action',
-              message: `How to reconcile spec for ${ticketId}?`,
-              choices: [
-                { name: `Keep ticket spec (${ticketSpecId})`, value: 'keep_ticket' },
-                { name: `Use epic spec (${epicSpecId})`, value: 'use_epic' },
-                { name: 'Skip this ticket', value: 'skip' },
-              ],
-            }]);
-
-            if (action === 'skip') {
-              this.log(styles.muted(`  Skipping ${ticketId}`));
-              continue;
-            }
-
-            if (action === 'use_epic') {
-              // Update ticket to use epic's spec
-              db.prepare(`
-                UPDATE pmo_tickets
-                SET spec_id = ?, updated_at = ?
-                WHERE id = ?
-              `).run(epicSpecId, Date.now(), ticketId);
-              this.log(styles.muted(`  Updated ${ticketId} to use spec "${epicSpecId}"`));
-            }
-          } else if (!ticketSpecId && epicSpecId) {
-            // Ticket has no spec but epic does - offer to inherit
-            const { inherit } = await inquirer.prompt([{
-              type: 'confirm',
-              name: 'inherit',
-              message: `${ticketId} has no spec. Inherit epic's spec "${epicSpecId}"?`,
-              default: true,
-            }]);
-
-            if (inherit) {
-              db.prepare(`
-                UPDATE pmo_tickets
-                SET spec_id = ?, updated_at = ?
-                WHERE id = ?
-              `).run(epicSpecId, Date.now(), ticketId);
-              this.log(styles.muted(`  Assigned spec "${epicSpecId}" to ${ticketId}`));
-            }
-          }
-
-          db.prepare(`
-            UPDATE pmo_tickets
-            SET epic_id = ?, updated_at = ?
-            WHERE id = ?
-          `).run(epicId, Date.now(), ticketId);
-        }
-
-        linkedTickets.push(`${ticketId}: ${ticket.title}`);
-        successCount++;
-      }
-
-      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
-      await storage.close();
-
-      if (successCount === 0) {
-        this.log(styles.muted('\nNo changes made.'));
-        return;
-      }
-
-      const action = flags.unlink ? 'Unlinked' : 'Linked';
-      this.log(styles.success(`\n✅ ${action} ${successCount} ticket${successCount === 1 ? '' : 's'} ${flags.unlink ? 'from' : 'to'} ${styles.emphasis(epicId!)} "${epic.title}"`));
-      for (const t of linkedTickets) {
-        this.log(styles.muted(`   ${t}`));
-      }
-      this.log(styles.muted(`\nView epic: prlt epic view ${epicId}`));
-
-    } catch (error) {
-      await storage.close();
-      throw error;
+    // Get all epics
+    const epics = await this.storage.listEpics();
+    if (epics.length === 0) {
+      this.log(styles.muted('\nNo epics found. Create one with: prlt epic create'));
+      return;
     }
+
+    // Get all tickets
+    const allTickets = await this.storage.listTickets();
+    if (allTickets.length === 0) {
+      this.log(styles.muted('\nNo tickets found.'));
+      return;
+    }
+
+    // Get epic_id for each ticket via direct DB query
+    const db = (this.storage as unknown as { db: { prepare: (sql: string) => { get: (...args: unknown[]) => unknown; run: (...args: unknown[]) => void } } }).db;
+    const getTicketEpicId = (ticketId: string): string | null => {
+      const row = db.prepare(`SELECT epic_id FROM pmo_tickets WHERE id = ?`).get(ticketId) as { epic_id: string | null } | undefined;
+      return row?.epic_id || null;
+    };
+
+    let epicId = args.id;
+
+    // If no epic ID provided, prompt for selection
+    if (!epicId) {
+      // Count tickets per epic
+      const ticketCounts = new Map<string, number>();
+      for (const ticket of allTickets) {
+        const tid = getTicketEpicId(ticket.id);
+        if (tid) {
+          ticketCounts.set(tid, (ticketCounts.get(tid) || 0) + 1);
+        }
+      }
+
+      const { selected } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selected',
+        message: 'Select epic to link tickets to:',
+        choices: epics.map(e => ({
+          name: `${e.id} ${e.title} (${e.status}) [${ticketCounts.get(e.id) || 0} tickets]`,
+          value: e.id,
+        })),
+      }]);
+      epicId = selected;
+    }
+
+    // Validate epic exists
+    const epic = epics.find(e => e.id === epicId);
+    if (!epic) {
+      this.error(`Epic not found: ${epicId}`);
+    }
+
+    // Handle spec linking if --spec or --unlink-spec provided
+    if (flags.spec || flags['unlink-spec']) {
+      if (flags['unlink-spec']) {
+        // Unlink spec from epic
+        if (!epic.specId) {
+          this.log(styles.muted(`\nEpic ${epicId} is not linked to any spec.`));
+        } else {
+          await this.storage.updateEpic(epicId!, { specId: undefined });
+          this.log(styles.success(`\n✅ Unlinked spec from ${styles.emphasis(epicId!)} "${epic.title}"`));
+        }
+      } else {
+        // Link spec to epic
+        const spec = await this.storage.getSpec(flags.spec!);
+        if (!spec) {
+          this.error(`Spec not found: ${flags.spec}`);
+        }
+
+        await this.storage.updateEpic(epicId!, { specId: flags.spec });
+        this.log(styles.success(`\n✅ Linked ${styles.emphasis(epicId!)} "${epic.title}" to spec ${styles.emphasis(flags.spec!)}`));
+        this.log(styles.muted(`   Spec: ${spec.title}`));
+      }
+
+      // If only spec operation, exit here
+      const argvStrings = argv as string[];
+      if (argvStrings.length <= 1 && !flags.unlink) {
+        return;
+      }
+    }
+
+    // Get ticket IDs from remaining argv (after epic ID)
+    let ticketIds: string[] = [];
+    const argvStrings = argv as string[];
+    if (argvStrings.length > 1) {
+      ticketIds = argvStrings.slice(1);
+    }
+
+    // If no ticket IDs provided, prompt with multi-select
+    if (ticketIds.length === 0) {
+      const choices = allTickets.map((t: Ticket) => {
+        const currentEpicId = getTicketEpicId(t.id);
+        let epicLabel = 'No epic';
+        if (currentEpicId === epicId) {
+          epicLabel = `${epicId} ← current`;
+        } else if (currentEpicId) {
+          const currentEpic = epics.find(e => e.id === currentEpicId);
+          epicLabel = currentEpic?.title || currentEpicId;
+        }
+        return {
+          name: `${t.id} - ${t.title} [${epicLabel}]`,
+          value: t.id,
+          checked: false,
+        };
+      });
+
+      const { selected } = await inquirer.prompt([{
+        type: 'checkbox',
+        name: 'selected',
+        message: `Select tickets to ${flags.unlink ? 'unlink from' : 'link to'} ${epicId}:`,
+        choices,
+      }]);
+
+      ticketIds = selected;
+    }
+
+    if (ticketIds.length === 0) {
+      this.log(styles.muted('\nNo tickets selected.'));
+      return;
+    }
+
+    // Validate all tickets exist
+    const invalidTickets = ticketIds.filter(id => !allTickets.find((t: Ticket) => t.id === id));
+    if (invalidTickets.length > 0) {
+      this.error(`Tickets not found: ${invalidTickets.join(', ')}`);
+    }
+
+    // Process each ticket
+    let successCount = 0;
+    const linkedTickets: string[] = [];
+
+    for (const ticketId of ticketIds) {
+      const ticket = allTickets.find((t: Ticket) => t.id === ticketId)!;
+      const currentEpicId = getTicketEpicId(ticketId);
+
+      if (flags.unlink) {
+        // Unlink: only if currently linked to this epic
+        if (currentEpicId !== epicId) {
+          this.log(styles.muted(`  ${ticketId} is not linked to ${epicId}, skipping`));
+          continue;
+        }
+
+        db.prepare(`
+          UPDATE pmo_tickets
+          SET epic_id = NULL, updated_at = ?
+          WHERE id = ?
+        `).run(Date.now(), ticketId);
+      } else {
+        // Link: check if already linked to same epic
+        if (currentEpicId === epicId) {
+          this.log(styles.muted(`  ${ticketId} already linked to ${epicId}, skipping`));
+          continue;
+        }
+
+        // Warn if linked to different epic
+        if (currentEpicId) {
+          const currentEpic = epics.find(e => e.id === currentEpicId);
+          this.log(styles.warning(`  ${ticketId} was linked to ${currentEpic?.title || currentEpicId}, reassigning`));
+        }
+
+        // Reconciliation: Check spec consistency between ticket and epic
+        const ticketSpecId = ticket.specId;
+        const epicSpecId = epic.specId;
+
+        if (ticketSpecId && epicSpecId && ticketSpecId !== epicSpecId) {
+          // Both have specs but they differ - warn user
+          this.log(styles.warning(`  ⚠️  Spec mismatch: ticket has "${ticketSpecId}", epic has "${epicSpecId}"`));
+          const { action } = await inquirer.prompt([{
+            type: 'list',
+            name: 'action',
+            message: `How to reconcile spec for ${ticketId}?`,
+            choices: [
+              { name: `Keep ticket spec (${ticketSpecId})`, value: 'keep_ticket' },
+              { name: `Use epic spec (${epicSpecId})`, value: 'use_epic' },
+              { name: 'Skip this ticket', value: 'skip' },
+            ],
+          }]);
+
+          if (action === 'skip') {
+            this.log(styles.muted(`  Skipping ${ticketId}`));
+            continue;
+          }
+
+          if (action === 'use_epic') {
+            // Update ticket to use epic's spec
+            db.prepare(`
+              UPDATE pmo_tickets
+              SET spec_id = ?, updated_at = ?
+              WHERE id = ?
+            `).run(epicSpecId, Date.now(), ticketId);
+            this.log(styles.muted(`  Updated ${ticketId} to use spec "${epicSpecId}"`));
+          }
+        } else if (!ticketSpecId && epicSpecId) {
+          // Ticket has no spec but epic does - offer to inherit
+          const { inherit } = await inquirer.prompt([{
+            type: 'confirm',
+            name: 'inherit',
+            message: `${ticketId} has no spec. Inherit epic's spec "${epicSpecId}"?`,
+            default: true,
+          }]);
+
+          if (inherit) {
+            db.prepare(`
+              UPDATE pmo_tickets
+              SET spec_id = ?, updated_at = ?
+              WHERE id = ?
+            `).run(epicSpecId, Date.now(), ticketId);
+            this.log(styles.muted(`  Assigned spec "${epicSpecId}" to ${ticketId}`));
+          }
+        }
+
+        db.prepare(`
+          UPDATE pmo_tickets
+          SET epic_id = ?, updated_at = ?
+          WHERE id = ?
+        `).run(epicId, Date.now(), ticketId);
+      }
+
+      linkedTickets.push(`${ticketId}: ${ticket.title}`);
+      successCount++;
+    }
+
+    await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+
+    if (successCount === 0) {
+      this.log(styles.muted('\nNo changes made.'));
+      return;
+    }
+
+    const action = flags.unlink ? 'Unlinked' : 'Linked';
+    this.log(styles.success(`\n✅ ${action} ${successCount} ticket${successCount === 1 ? '' : 's'} ${flags.unlink ? 'from' : 'to'} ${styles.emphasis(epicId!)} "${epic.title}"`));
+    for (const t of linkedTickets) {
+      this.log(styles.muted(`   ${t}`));
+    }
+    this.log(styles.muted(`\nView epic: prlt epic view ${epicId}`));
   }
 }

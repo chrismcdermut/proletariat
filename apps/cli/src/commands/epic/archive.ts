@@ -1,11 +1,11 @@
-import { Args, Command, Flags } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { Ticket } from '../../lib/pmo/types.js';
 import { moveEpicFile, getRelativeEpicPath } from '../../lib/pmo/epic-files.js';
 
-export default class EpicArchive extends Command {
+export default class EpicArchive extends PMOCommand {
   static description = 'Archive a completed epic';
 
   static examples = [
@@ -21,10 +21,7 @@ export default class EpicArchive extends Command {
   };
 
   static flags = {
-    project: Flags.string({
-      char: 'P',
-      description: 'Project ID (default: "default")',
-    }),
+    ...pmoBaseFlags,
     force: Flags.boolean({
       char: 'f',
       description: 'Skip ticket completion check',
@@ -32,106 +29,90 @@ export default class EpicArchive extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(EpicArchive);
 
-    const { storage, pmoPath, projectId } = await getPMOContext(
-      flags.project,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    );
+    let epicId = args.id;
 
-    try {
-      let epicId = args.id;
+    // If no ID provided, prompt for selection (show only non-complete epics)
+    if (!epicId) {
+      const epics = await this.storage.listEpics();
+      const archivable = epics.filter(e => e.status !== 'complete' && e.status !== 'dropped');
 
-      // If no ID provided, prompt for selection (show only non-complete epics)
-      if (!epicId) {
-        const epics = await storage.listEpics();
-        const archivable = epics.filter(e => e.status !== 'complete' && e.status !== 'dropped');
-
-        if (archivable.length === 0) {
-          this.log(styles.muted('\nNo epics available to archive.'));
-          await storage.close();
-          return;
-        }
-
-        // Get ticket counts
-        const choices = await Promise.all(archivable.map(async e => {
-          const tickets = await storage.getTicketsForEpic(e.id);
-          const done = tickets.filter((t: Ticket) => t.status === 'done').length;
-          const complete = done === tickets.length && tickets.length > 0;
-          return {
-            name: `${e.id} ${e.title} (${e.status}) [${done}/${tickets.length} tickets complete]${complete ? ' ✅' : ''}`,
-            value: e.id,
-          };
-        }));
-
-        const { selected } = await inquirer.prompt([{
-          type: 'list',
-          name: 'selected',
-          message: 'Select epic to archive:',
-          choices,
-        }]);
-        epicId = selected;
-      }
-
-      const epic = await storage.getEpic(epicId!);
-      if (!epic) {
-        this.error(`Epic not found: ${epicId}`);
-      }
-
-      if (epic.status === 'complete') {
-        this.log(styles.muted(`Epic ${epicId} is already archived.`));
-        await storage.close();
+      if (archivable.length === 0) {
+        this.log(styles.muted('\nNo epics available to archive.'));
         return;
       }
 
-      // Check ticket completion
-      const tickets = await storage.getTicketsForEpic(epicId!);
-      const doneTickets = tickets.filter((t: Ticket) => t.status === 'done').length;
-      const allComplete = doneTickets === tickets.length;
+      // Get ticket counts
+      const choices = await Promise.all(archivable.map(async e => {
+        const tickets = await this.storage.getTicketsForEpic(e.id);
+        const done = tickets.filter((t: Ticket) => t.status === 'done').length;
+        const complete = done === tickets.length && tickets.length > 0;
+        return {
+          name: `${e.id} ${e.title} (${e.status}) [${done}/${tickets.length} tickets complete]${complete ? ' ✅' : ''}`,
+          value: e.id,
+        };
+      }));
 
-      if (!allComplete && !flags.force) {
-        this.log(styles.warning(`\n⚠️  Not all tickets are complete (${doneTickets}/${tickets.length} done)`));
-        const { confirm } = await inquirer.prompt([{
-          type: 'list',
-          name: 'confirm',
-          message: 'Continue archiving anyway?',
-          choices: [
-            { name: 'No', value: false },
-            { name: 'Yes', value: true },
-          ],
-          default: false,
-        }]);
-
-        if (!confirm) {
-          this.log(styles.muted('Cancelled.'));
-          await storage.close();
-          return;
-        }
-      }
-
-      this.log(`\nArchiving: ${epicId} "${epic.title}"`);
-      this.log(`Status: ${doneTickets}/${tickets.length} tickets complete${allComplete ? ' ✅' : ''}`);
-
-      // Move the epic file to complete status directory
-      const moveResult = moveEpicFile(pmoPath, epicId!, epic.status, 'complete', projectId);
-
-      await storage.updateEpic(epicId!, { status: 'complete' });
-
-      this.log(styles.success(`\n✅ Archived epic ${styles.emphasis(epicId)} "${epic.title}"`));
-      this.log(styles.muted(`   Status: ${epic.status} → complete`));
-      if (moveResult) {
-        const relativePath = getRelativeEpicPath(pmoPath, epicId!, 'complete', projectId);
-        this.log(styles.muted(`   File: ${relativePath}`));
-      }
-      this.log(styles.muted('\nView archived epics:'));
-      this.log(styles.muted('  prlt epic list --status complete'));
-
-      await storage.close();
-    } catch (error) {
-      await storage.close();
-      throw error;
+      const { selected } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selected',
+        message: 'Select epic to archive:',
+        choices,
+      }]);
+      epicId = selected;
     }
+
+    const epic = await this.storage.getEpic(epicId!);
+    if (!epic) {
+      this.error(`Epic not found: ${epicId}`);
+    }
+
+    if (epic.status === 'complete') {
+      this.log(styles.muted(`Epic ${epicId} is already archived.`));
+      return;
+    }
+
+    // Check ticket completion
+    const tickets = await this.storage.getTicketsForEpic(epicId!);
+    const doneTickets = tickets.filter((t: Ticket) => t.status === 'done').length;
+    const allComplete = doneTickets === tickets.length;
+
+    if (!allComplete && !flags.force) {
+      this.log(styles.warning(`\n⚠️  Not all tickets are complete (${doneTickets}/${tickets.length} done)`));
+      const { confirm } = await inquirer.prompt([{
+        type: 'list',
+        name: 'confirm',
+        message: 'Continue archiving anyway?',
+        choices: [
+          { name: 'No', value: false },
+          { name: 'Yes', value: true },
+        ],
+        default: false,
+      }]);
+
+      if (!confirm) {
+        this.log(styles.muted('Cancelled.'));
+        return;
+      }
+    }
+
+    this.log(`\nArchiving: ${epicId} "${epic.title}"`);
+    this.log(`Status: ${doneTickets}/${tickets.length} tickets complete${allComplete ? ' ✅' : ''}`);
+
+    // Move the epic file to complete status directory
+    const moveResult = moveEpicFile(this.pmoPath, epicId!, epic.status, 'complete', this.projectId);
+
+    await this.storage.updateEpic(epicId!, { status: 'complete' });
+
+    this.log(styles.success(`\n✅ Archived epic ${styles.emphasis(epicId)} "${epic.title}"`));
+    this.log(styles.muted(`   Status: ${epic.status} → complete`));
+    if (moveResult) {
+      const relativePath = getRelativeEpicPath(this.pmoPath, epicId!, 'complete', this.projectId);
+      this.log(styles.muted(`   File: ${relativePath}`));
+    }
+    this.log(styles.muted('\nView archived epics:'));
+    this.log(styles.muted('  prlt epic list --status complete'));
   }
 }

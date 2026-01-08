@@ -1,10 +1,10 @@
-import { Command, Flags, Args } from '@oclif/core';
+import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
 
-export default class StatusCreate extends Command {
+export default class StatusCreate extends PMOCommand {
   static description = 'Create a new workflow status';
 
   static examples = [
@@ -21,10 +21,7 @@ export default class StatusCreate extends Command {
   };
 
   static flags = {
-    project: Flags.string({
-      char: 'P',
-      description: 'Project ID (default: "default")',
-    }),
+    ...pmoBaseFlags,
     name: Flags.string({
       char: 'n',
       description: 'Status name',
@@ -52,70 +49,55 @@ export default class StatusCreate extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusCreate);
 
-    const { storage, projectName, projectId } = await getPMOContext(
-      flags.project,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    );
+    let statusData: {
+      name: string;
+      category: StateCategory;
+      color?: string;
+      description?: string;
+      isDefault?: boolean;
+    };
 
-    try {
-      let statusData: {
-        name: string;
-        category: StateCategory;
-        color?: string;
-        description?: string;
-        isDefault?: boolean;
+    if (flags.interactive || (!args.name && !flags.name)) {
+      statusData = await this.promptStatusData(flags);
+    } else {
+      const name = args.name || flags.name;
+      if (!name) {
+        this.error('Status name is required');
+      }
+
+      if (!flags.category) {
+        this.error('Category is required. Use --category or -i for interactive mode.');
+      }
+
+      statusData = {
+        name,
+        category: flags.category as StateCategory,
+        color: flags.color,
+        description: flags.description,
+        isDefault: flags.default,
       };
+    }
 
-      if (flags.interactive || (!args.name && !flags.name)) {
-        statusData = await this.promptStatusData(flags);
-      } else {
-        const name = args.name || flags.name;
-        if (!name) {
-          await storage.close();
-          this.error('Status name is required');
-        }
+    const status = await this.storage.createStatus({
+      projectId: this.projectId,
+      name: statusData.name,
+      category: statusData.category,
+      color: statusData.color,
+      description: statusData.description,
+      isDefault: statusData.isDefault,
+    });
 
-        if (!flags.category) {
-          await storage.close();
-          this.error('Category is required. Use --category or -i for interactive mode.');
-        }
-
-        statusData = {
-          name,
-          category: flags.category as StateCategory,
-          color: flags.color,
-          description: flags.description,
-          isDefault: flags.default,
-        };
-      }
-
-      const status = await storage.createStatus({
-        projectId,
-        name: statusData.name,
-        category: statusData.category,
-        color: statusData.color,
-        description: statusData.description,
-        isDefault: statusData.isDefault,
-      });
-
-      await storage.close();
-
-      this.log(styles.success(`\nCreated status "${styles.emphasis(status.name)}"`));
-      this.log(styles.muted(`  Category: ${status.category}`));
-      this.log(styles.muted(`  Project: ${projectName}`));
-      if (status.color) {
-        this.log(styles.muted(`  Color: ${status.color}`));
-      }
-      if (status.isDefault) {
-        this.log(styles.muted(`  Default: yes`));
-      }
-    } catch (error) {
-      await storage.close();
-      throw error;
+    this.log(styles.success(`\nCreated status "${styles.emphasis(status.name)}"`));
+    this.log(styles.muted(`  Category: ${status.category}`));
+    this.log(styles.muted(`  Project: ${this.projectName}`));
+    if (status.color) {
+      this.log(styles.muted(`  Color: ${status.color}`));
+    }
+    if (status.isDefault) {
+      this.log(styles.muted(`  Default: yes`));
     }
   }
 
