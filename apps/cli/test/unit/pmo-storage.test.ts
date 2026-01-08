@@ -373,6 +373,7 @@ describe('PMO SQLite Storage', () => {
                 subtasks: [
                   { id: 'sub-1', title: 'Subtask', done: false },
                 ],
+                labels: [],
                 metadata: {},
                 createdAt: new Date(),
                 updatedAt: new Date(),
@@ -517,7 +518,11 @@ describe('PMO SQLite Storage', () => {
 
     it('checks if ticket is not blocked (blocker complete)', async () => {
       await storage.createTicketDependency(ticket1Id, ticket2Id, 'blocks');
-      await storage.updateTicket(ticket2Id, { status: 'done' });
+      // Find a status with 'completed' category
+      const statuses = await storage.listStatuses('default');
+      const doneStatus = statuses.find(s => s.category === 'completed');
+      expect(doneStatus).to.not.be.undefined;
+      await storage.updateTicket(ticket2Id, { statusId: doneStatus!.id });
 
       const isBlocked = await storage.isTicketBlocked(ticket1Id);
       expect(isBlocked).to.be.false;

@@ -3,6 +3,7 @@ import inquirer from 'inquirer';
 import { autoExportToBoard, getPMOContext } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { updateEpicTicketsSection } from '../../lib/pmo/epic-files.js';
+import { TicketTemplate } from '../../lib/pmo/types.js';
 
 export default class TicketCreate extends Command {
   static description = 'Create a new ticket on the PMO board';
@@ -52,6 +53,14 @@ export default class TicketCreate extends Command {
       char: 'e',
       description: 'Link ticket to an epic (e.g., EPIC-001)',
     }),
+    template: Flags.string({
+      char: 'T',
+      description: 'Create from a template (e.g., bug-report, feature-request)',
+    }),
+    labels: Flags.string({
+      char: 'l',
+      description: 'Labels (comma-separated)',
+    }),
   };
 
   async run(): Promise<void> {
@@ -73,6 +82,21 @@ export default class TicketCreate extends Command {
       }
     }
 
+    // Load template if specified
+    let template: TicketTemplate | null = null;
+    if (flags.template) {
+      template = await storage.getTicketTemplate(flags.template);
+      if (!template) {
+        await storage.close();
+        this.error(`Template not found: ${flags.template}. Run 'prlt ticket template list' to see available templates.`);
+      }
+    }
+
+    // Parse labels from flag
+    const labelsFromFlag = flags.labels
+      ? flags.labels.split(',').map(l => l.trim()).filter(l => l)
+      : undefined;
+
     // Get ticket data (interactive or from flags)
     let ticketData: {
       title: string;
@@ -82,22 +106,24 @@ export default class TicketCreate extends Command {
       description?: string;
       id?: string;
       epicId?: string;
+      labels?: string[];
     };
 
     if (flags.interactive || !flags.title) {
-      ticketData = await this.promptTicketData(columns, flags);
+      ticketData = await this.promptTicketData(columns, flags, storage, template);
     } else {
-      if (!flags.title) {
+      if (!flags.title && !template?.titlePattern) {
         this.error('Title is required. Use --title or -t flag, or use --interactive mode.');
       }
       ticketData = {
-        title: flags.title,
+        title: flags.title || template?.titlePattern || '',
         column: flags.column || columns[0],
-        priority: flags.priority,
-        category: flags.category,
-        description: flags.description,
+        priority: flags.priority || template?.defaultPriority,
+        category: flags.category || template?.defaultCategory,
+        description: flags.description || template?.descriptionTemplate,
         id: flags.id,
         epicId: flags.epic,
+        labels: labelsFromFlag || template?.defaultLabels,
       };
     }
 
@@ -115,7 +141,15 @@ export default class TicketCreate extends Command {
         category: ticketData.category,
         description: ticketData.description,
         epicId: ticketData.epicId,
+        labels: ticketData.labels,
       });
+
+      // Add subtasks from template if applicable
+      if (template && template.suggestedSubtasks.length > 0) {
+        for (const subtask of template.suggestedSubtasks) {
+          await storage.addSubtask(ticket.id, subtask.title);
+        }
+      }
 
       // Auto-export to board.md after write
       await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
@@ -138,6 +172,9 @@ export default class TicketCreate extends Command {
       await storage.close();
 
       this.log(styles.success(`\n✅ Created ticket ${styles.emphasis(ticket.id)} in project ${styles.emphasis(projectName)}`));
+      if (template) {
+        this.log(styles.muted(`   Template: ${template.name}`));
+      }
       this.log(styles.muted(`   Title: ${ticket.title}`));
       this.log(styles.muted(`   Column: ${ticket.column}`));
       if (ticket.priority) {
@@ -148,6 +185,12 @@ export default class TicketCreate extends Command {
       }
       if (ticketData.epicId) {
         this.log(styles.muted(`   Epic: ${ticketData.epicId}`));
+      }
+      if (ticketData.labels && ticketData.labels.length > 0) {
+        this.log(styles.muted(`   Labels: ${ticketData.labels.join(', ')}`));
+      }
+      if (template && template.suggestedSubtasks.length > 0) {
+        this.log(styles.muted(`   Subtasks: ${template.suggestedSubtasks.length} created`));
       }
       this.log(styles.muted(`\n   View board: prlt board`));
       this.log(styles.muted(`   List tickets: prlt ticket list`));
@@ -167,7 +210,11 @@ export default class TicketCreate extends Command {
       description?: string;
       id?: string;
       epic?: string;
-    }
+      template?: string;
+      labels?: string;
+    },
+    storage: { listTicketTemplates: () => Promise<TicketTemplate[]> },
+    existingTemplate: TicketTemplate | null
   ): Promise<{
     title: string;
     column: string;
@@ -176,7 +223,35 @@ export default class TicketCreate extends Command {
     description?: string;
     id?: string;
     epicId?: string;
+    labels?: string[];
   }> {
+    // If no template was specified via flag, offer to select one
+    let template = existingTemplate;
+    if (!template && !flags.template) {
+      const templates = await storage.listTicketTemplates();
+      if (templates.length > 0) {
+        const { selectedTemplate } = await inquirer.prompt<{ selectedTemplate: string }>([
+          {
+            type: 'list',
+            name: 'selectedTemplate',
+            message: 'Start from a template?',
+            choices: [
+              { name: 'No template (blank ticket)', value: '' },
+              new inquirer.Separator('── Templates ──'),
+              ...templates.map(t => ({
+                name: `${t.name}${t.isBuiltin ? '' : ' [custom]'} - ${t.description || ''}`,
+                value: t.id,
+              })),
+            ],
+          },
+        ]);
+
+        if (selectedTemplate) {
+          template = templates.find(t => t.id === selectedTemplate) || null;
+        }
+      }
+    }
+
     const answers = await inquirer.prompt<{
       title: string;
       column: string;
@@ -188,7 +263,7 @@ export default class TicketCreate extends Command {
         type: 'input',
         name: 'title',
         message: 'Ticket title:',
-        default: flags.title,
+        default: flags.title || template?.titlePattern,
         validate: (input: string) => input.length > 0 || 'Title is required',
       },
       {
@@ -209,7 +284,7 @@ export default class TicketCreate extends Command {
           { name: 'MEDIUM', value: 'MEDIUM' },
           { name: 'LOW', value: 'LOW' },
         ],
-        default: flags.priority,
+        default: flags.priority || template?.defaultPriority,
       },
       {
         type: 'list',
@@ -240,7 +315,7 @@ export default class TicketCreate extends Command {
           new inquirer.Separator('───────────────────'),
           { name: 'Custom...', value: '__custom__' },
         ],
-        default: flags.category || '',
+        default: flags.category || template?.defaultCategory || '',
       },
       {
         type: 'input',
@@ -256,8 +331,15 @@ export default class TicketCreate extends Command {
       ? answers.customCategory
       : answers.categoryChoice || undefined;
 
-    // Prompt for structured description
-    const description = await this.promptStructuredDescription(flags.description);
+    // Prompt for structured description (use template description if available)
+    const description = await this.promptStructuredDescription(
+      flags.description || template?.descriptionTemplate
+    );
+
+    // Parse labels from flag or use template defaults
+    const labels = flags.labels
+      ? flags.labels.split(',').map(l => l.trim()).filter(l => l)
+      : template?.defaultLabels;
 
     return {
       title: answers.title,
@@ -267,6 +349,7 @@ export default class TicketCreate extends Command {
       description: description || undefined,
       id: flags.id,
       epicId: flags.epic,
+      labels,
     };
   }
 

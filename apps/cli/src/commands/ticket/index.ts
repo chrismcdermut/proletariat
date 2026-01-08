@@ -22,6 +22,7 @@ export default class Ticket extends Command {
       message: '🎫 Ticket Operations - What would you like to do?',
       choices: [
         { name: 'Create new ticket', value: 'create' },
+        { name: 'Create from template', value: 'template' },
         { name: 'List all tickets', value: 'list' },
         { name: 'View ticket details', value: 'view' },
         { name: 'Edit ticket', value: 'edit' },
@@ -31,6 +32,7 @@ export default class Ticket extends Command {
         { name: 'Assign to spec', value: 'spec' },
         { name: 'Manage dependencies', value: 'link' },
         new inquirer.Separator('──────────────'),
+        { name: 'Manage templates', value: 'templates' },
         { name: 'Delete ticket', value: 'delete' },
         { name: 'Cancel', value: 'cancel' },
       ],
@@ -44,6 +46,9 @@ export default class Ticket extends Command {
     switch (action) {
       case 'create':
         await this.config.runCommand('ticket:create', []);
+        break;
+      case 'template':
+        await this.config.runCommand('ticket:template:apply', []);
         break;
       case 'list':
         await this.config.runCommand('ticket:list', []);
@@ -68,6 +73,9 @@ export default class Ticket extends Command {
         break;
       case 'link':
         await this.config.runCommand('ticket:link', []);
+        break;
+      case 'templates':
+        await this.config.runCommand('ticket:template', []);
         break;
       case 'delete':
         await this.config.runCommand('ticket:delete', []);

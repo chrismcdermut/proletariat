@@ -87,6 +87,7 @@ export function parseBoard(markdown: string, projectId: string = 'default'): Boa
         column: currentColumn.name,
         position: currentColumn.tickets.length,
         subtasks: [],
+        labels: [],
         metadata: {},
         createdAt: new Date(),
         updatedAt: new Date(),
