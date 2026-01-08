@@ -170,12 +170,13 @@ export default class Commit extends Command {
   static description = 'Create a commit with ticket ID from branch name'
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> "add user authentication"',
-    '<%= config.bin %> <%= command.id %> -f conventional "add login"   # feat(TKT-ID): add login (default)',
-    '<%= config.bin %> <%= command.id %> -f full-context "add login"   # TKT-ID/feat/bezos: add login',
+    '<%= config.bin %> <%= command.id %>                               # interactive mode',
+    '<%= config.bin %> <%= command.id %> "add user authentication"     # commit staged files',
+    '<%= config.bin %> <%= command.id %> -a "update dependencies"      # stage all + commit',
+    '<%= config.bin %> <%= command.id %> -s src/foo.ts "add feature"   # stage specific file + commit',
     '<%= config.bin %> <%= command.id %> -t fix "resolve bug"          # override type',
     '<%= config.bin %> <%= command.id %> -T TKT-099 "add feature"      # override ticket ID',
-    '<%= config.bin %> <%= command.id %> --all "update dependencies"   # stage all + commit',
+    '<%= config.bin %> <%= command.id %> -f full-context "add login"   # use specific format',
     '<%= config.bin %> <%= command.id %> --formats                     # list available formats',
   ]
 
@@ -208,6 +209,11 @@ export default class Commit extends Command {
       char: 'a',
       description: 'Stage all changes before committing (git add -A)',
       default: false,
+    }),
+    stage: Flags.string({
+      char: 's',
+      description: 'Stage specific files before committing (can be used multiple times)',
+      multiple: true,
     }),
     'dry-run': Flags.boolean({
       description: 'Show what would be committed without committing',
@@ -269,14 +275,23 @@ export default class Commit extends Command {
       }
     }
 
+    // Stage specific files if --stage flag is used
+    if (flags.stage && flags.stage.length > 0) {
+      try {
+        stageFiles(flags.stage)
+      } catch (error) {
+        this.error(`Failed to stage files: ${error}`)
+      }
+    }
+
     // Interactive mode if no message provided
     const isInteractive = !args.message
     let message = args.message
     let selectedFormat = flags.format
 
     if (isInteractive) {
-      // Show git status and handle staging interactively (unless --all flag is set)
-      if (!flags.all) {
+      // Show git status and handle staging interactively (unless --all or --stage flags are set)
+      if (!flags.all && !flags.stage) {
         const status = getGitStatus()
         const hasStaged = status.staged.length > 0
         const hasUnstaged = status.unstaged.length > 0
