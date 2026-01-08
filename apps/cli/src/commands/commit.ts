@@ -111,11 +111,10 @@ export default class Commit extends Command {
 
   static examples = [
     '<%= config.bin %> <%= command.id %> "add user authentication"',
-    '<%= config.bin %> <%= command.id %> -f conventional "add login"   # feat(TKT-053): add login (default)',
-    '<%= config.bin %> <%= command.id %> -f full-context "add login"   # TKT-053/feat/bezos: add login',
-    '<%= config.bin %> <%= command.id %> -f ticket-first "add login"   # TKT-053: feat: add login',
-    '<%= config.bin %> <%= command.id %> -f with-agent "add login"     # TKT-053/bezos: add login',
+    '<%= config.bin %> <%= command.id %> -f conventional "add login"   # feat(TKT-ID): add login (default)',
+    '<%= config.bin %> <%= command.id %> -f full-context "add login"   # TKT-ID/feat/bezos: add login',
     '<%= config.bin %> <%= command.id %> -t fix "resolve bug"          # override type',
+    '<%= config.bin %> <%= command.id %> -T TKT-099 "add feature"      # override ticket ID',
     '<%= config.bin %> <%= command.id %> --all "update dependencies"   # stage all + commit',
     '<%= config.bin %> <%= command.id %> --formats                     # list available formats',
   ]
@@ -140,6 +139,10 @@ export default class Commit extends Command {
     type: Flags.string({
       char: 't',
       description: 'Override commit type (feat, fix, docs, etc.)',
+    }),
+    ticket: Flags.string({
+      char: 'T',
+      description: 'Override ticket ID (default: parsed from branch)',
     }),
     all: Flags.boolean({
       char: 'a',
@@ -187,7 +190,10 @@ export default class Commit extends Command {
       )
     }
 
-    const { type: branchType, ticketId, agent } = validation.parts
+    const { type: branchType, ticketId: branchTicketId, agent } = validation.parts
+
+    // Get ticket ID (from flag or branch)
+    const ticketId = flags.ticket || branchTicketId
 
     // Get commit type (from flag or branch)
     const commitType = flags.type || branchTypeToCommitType(branchType)
