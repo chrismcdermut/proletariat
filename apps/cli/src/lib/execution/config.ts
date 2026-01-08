@@ -10,6 +10,8 @@ import inquirer from 'inquirer'
 import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell, DisplayMode, OutputMode, ExecutionEnvironment } from './types.js'
 import { isGHInstalled, isGHAuthenticated } from '../pr/index.js'
 
+import { execSync } from 'child_process'
+
 const SETTINGS_TABLE = 'workspace_settings'
 
 // Config keys stored in workspace_settings table
@@ -29,6 +31,7 @@ const CONFIG_KEYS = {
   vmUser: 'execution.vm.user',
   vmKeyPath: 'execution.vm.key_path',
   vmSyncMethod: 'execution.vm.sync_method',
+  coderName: 'coder.name',
 }
 
 /**
@@ -394,4 +397,134 @@ export async function promptExecutionSettings(
     skipPermissions,
     createPR,
   }
+}
+
+// =============================================================================
+// Coder Name Configuration
+// =============================================================================
+
+/**
+ * Get GitHub username via gh CLI.
+ * Returns null if gh is not installed or not authenticated.
+ */
+export function getGitHubUsername(): string | null {
+  try {
+    const username = execSync('gh api user --jq .login', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim()
+    return username || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Get git config user.name as default coder name.
+ * Returns null if git user.name is not configured.
+ */
+export function getGitUserName(): string | null {
+  try {
+    const userName = execSync('git config user.name', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim()
+    return userName || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Get the configured coder name from the database.
+ * Returns null if not configured.
+ */
+export function getCoderName(db: Database.Database): string | null {
+  return getSetting(db, CONFIG_KEYS.coderName)
+}
+
+/**
+ * Save coder name preference to database.
+ */
+export function saveCoderName(db: Database.Database, name: string): void {
+  setSetting(db, CONFIG_KEYS.coderName, name)
+}
+
+/**
+ * Check if coder name has been configured.
+ */
+export function hasCoderName(db: Database.Database): boolean {
+  return getSetting(db, CONFIG_KEYS.coderName) !== null
+}
+
+/**
+ * Prompt user for coder name preference (first-time setup).
+ * Uses git config user.name as default if available.
+ */
+export async function promptCoderName(db: Database.Database): Promise<string> {
+  const gitUserName = getGitUserName()
+  const defaultName = gitUserName
+    ? gitUserName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+    : ''
+
+  const { coderName } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'coderName',
+      message: 'Enter your coder name (used in branch names):',
+      default: defaultName || undefined,
+      validate: (input: string) => {
+        if (!input.trim()) {
+          return 'Coder name is required'
+        }
+        // Validate it's kebab-case compatible
+        const normalized = input.toLowerCase().replace(/[^a-z0-9-]/g, '')
+        if (normalized !== input) {
+          return 'Coder name must be lowercase letters, numbers, and hyphens only'
+        }
+        return true
+      },
+    },
+  ])
+
+  // Save preference to database
+  saveCoderName(db, coderName)
+
+  return coderName
+}
+
+/**
+ * Get coder name, auto-detecting from GitHub if not set.
+ * Priority: saved setting > GitHub username > git user.name > prompt
+ */
+export async function getOrPromptCoderName(db: Database.Database): Promise<string> {
+  // If already set, return it
+  const existing = getCoderName(db)
+  if (existing) {
+    return existing
+  }
+
+  // Try GitHub username first (most reliable for branch naming)
+  const ghUsername = getGitHubUsername()
+  if (ghUsername) {
+    saveCoderName(db, ghUsername)
+    return ghUsername
+  }
+
+  // Fall back to git user.name (normalized to kebab-case)
+  const gitUserName = getGitUserName()
+  if (gitUserName) {
+    const normalized = gitUserName
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+    if (normalized) {
+      saveCoderName(db, normalized)
+      return normalized
+    }
+  }
+
+  // Last resort - prompt user
+  return promptCoderName(db)
 }

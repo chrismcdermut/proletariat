@@ -262,11 +262,18 @@ export function getBranchType(category?: string): string {
 
 /**
  * Generate branch name for agent work.
- * Format: {type}/{agent}/{ticket-id}-{slug}
+ * Format: {ticketId}/{type}/{owner}/{agent}/{slug}
+ *
+ * Example: TKT-054/feat/chris/altman/update-branch-naming
+ *
+ * - ticketId first for easy filtering: git branch | grep TKT-054
+ * - owner: the human who owns the HQ/spawned the agent
+ * - agent: the AI agent doing the work
  */
 export function generateBranchName(
   ticketId: string,
   ticketTitle: string,
+  ownerName: string,
   agentName: string,
   category?: string
 ): string {
@@ -275,10 +282,10 @@ export function generateBranchName(
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, '')
     .replace(/\s+/g, '-')
-    .substring(0, 30)
+    .substring(0, 20)
     .replace(/-+$/, '')
 
-  return `${type}/${agentName}/${ticketId}-${slug}`
+  return `${ticketId}/${type}/${ownerName}/${agentName}/${slug}`
 }
 
 // =============================================================================

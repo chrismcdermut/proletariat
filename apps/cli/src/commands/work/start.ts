@@ -23,7 +23,7 @@ import {
 } from '../../lib/execution/types.js'
 import { runExecution, isDockerRunning } from '../../lib/execution/runners.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
-import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference } from '../../lib/execution/config.js'
+import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js'
 
@@ -354,10 +354,14 @@ export default class WorkStart extends Command {
         worktreePath = process.cwd()
       }
 
+      // Get coder name for branch naming (prompts on first use)
+      const coderName = await getOrPromptCoderName(db)
+
       // Use ticket's existing branch or generate a new one
       const branch = ticket.branch || generateBranchName(
         ticket.id,
         ticket.title,
+        coderName,
         assignedAgent,
         ticket.category
       )
@@ -1118,6 +1122,206 @@ export default class WorkStart extends Command {
     const remaining = backlogTickets.length - assignments.length
     if (remaining > 0) {
       this.log(styles.muted(`   ${remaining} ticket(s) remain in backlog (no available agents)`))
+    }
+  }
+
+  /**
+   * Spawn work on a single ticket with non-interactive defaults.
+   */
+  private async spawnSingleTicket(
+    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; subtasks?: Array<{ title: string; done: boolean }> },
+    agent: { name: string },
+    workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
+    storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
+    pmoPath: string,
+    executionStorage: ExecutionStorage,
+    db: Database.Database,
+    flags: {
+      force?: boolean
+      'run-on-host'?: boolean
+      'skip-permissions'?: boolean
+      'create-pr'?: boolean
+      'no-pr'?: boolean
+      executor?: string
+    }
+  ): Promise<void> {
+    const agentName = agent.name
+
+    // Update ticket assignee if not set
+    if (!ticket.assignee || ticket.assignee !== agentName) {
+      await storage.updateTicket(ticket.id, { assignee: agentName })
+    }
+
+    // Find agent directory and worktree
+    const agentDir = path.join(workspaceInfo.agentsPath, agentName)
+    if (!fs.existsSync(agentDir)) {
+      throw new Error(`Agent directory not found: ${agentDir}`)
+    }
+
+    // Find worktree path
+    let worktreePath = agentDir
+    const agentContents = fs.readdirSync(agentDir)
+    const repoWorktrees = agentContents.filter(item => {
+      const itemPath = path.join(agentDir, item)
+      const gitPath = path.join(itemPath, '.git')
+      return fs.statSync(itemPath).isDirectory() && fs.existsSync(gitPath)
+    })
+
+    if (repoWorktrees.length === 1) {
+      worktreePath = path.join(agentDir, repoWorktrees[0])
+    }
+
+    // Get coder name for branch naming (prompts on first use)
+    const coderName = await getOrPromptCoderName(db)
+
+    // Use ticket's existing branch or generate a new one
+    const branch = ticket.branch || generateBranchName(ticket.id, ticket.title, coderName, agentName, ticket.category)
+    const isExistingBranch = !!ticket.branch
+
+    // Get epic and spec info
+    let epicTitle: string | undefined
+    let specId: string | undefined
+    let specTitle: string | undefined
+    let specProblem: string | undefined
+    let specSolution: string | undefined
+    if (ticket.epicId) {
+      const epic = await storage.getEpic(ticket.epicId)
+      epicTitle = epic?.title
+    }
+    if (ticket.specId) {
+      const spec = await storage.getSpec(ticket.specId)
+      if (spec) {
+        specId = spec.id
+        specTitle = spec.title
+        specProblem = spec.problem
+        specSolution = spec.solution
+      }
+    }
+
+    // Get default action for batch mode (use 'implement')
+    const defaultAction = await storage.getAction('implement')
+
+    // Build context
+    const context: ExecutionContext = {
+      ticketId: ticket.id,
+      ticketTitle: ticket.title,
+      ticketDescription: ticket.description,
+      ticketSubtasks: ticket.subtasks?.map(s => ({ title: s.title, done: s.done })),
+      ticketPriority: ticket.priority,
+      ticketCategory: ticket.category,
+      epicTitle,
+      specId,
+      specTitle,
+      specProblem,
+      specSolution,
+      agentName,
+      agentDir,
+      worktreePath,
+      branch,
+      hqPath: workspaceInfo.path,
+      pmoPath,
+      createPR: flags['create-pr'] || false,
+      // Use 'implement' action for batch mode
+      actionId: defaultAction?.id,
+      actionName: defaultAction?.name,
+      actionPrompt: defaultAction?.prompt,
+      modifiesCode: defaultAction?.modifiesCode ?? true,
+    }
+
+    // Use devcontainer by default if available
+    const hasDevcontainer = hasDevcontainerConfig(agentDir)
+    const useDevcontainer = hasDevcontainer && !flags['run-on-host']
+
+    // Non-interactive defaults
+    const mode: RuntimeMode = useDevcontainer ? 'devcontainer' : 'terminal'
+    const displayMode: DisplayMode = 'terminal'
+    const environment: ExecutionEnvironment = useDevcontainer ? 'devcontainer' : 'host'
+    const sandboxed = !flags['skip-permissions']
+    const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
+    const outputMode: OutputMode = 'interactive'
+
+    // Handle git branch - only if action modifies code
+    if (context.modifiesCode !== false) {
+      const gitRepos = repoWorktrees.length > 0
+        ? repoWorktrees.map(r => path.join(agentDir, r))
+        : [worktreePath]
+
+      for (const repoPath of gitRepos) {
+        try {
+          try {
+            execSync('git rev-parse --git-dir', { cwd: repoPath, stdio: 'pipe' })
+          } catch {
+            continue
+          }
+
+          try {
+            execSync(`git rev-parse --verify ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+            execSync(`git checkout ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+          } catch {
+            execSync(`git checkout -b ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+          }
+        } catch {
+          // Ignore branch errors in batch mode
+        }
+      }
+
+      // Save branch to ticket if newly created
+      if (!isExistingBranch) {
+        await storage.updateTicket(ticket.id, { branch })
+      }
+    }
+
+    // Create execution record
+    const execution = executionStorage.createExecution({
+      ticketId: ticket.id,
+      agentName,
+      executor,
+      mode,
+      environment,
+      displayMode,
+      sandboxed,
+      branch,
+    })
+
+    // Update ticket status
+    await storage.updateTicket(ticket.id, { status: 'in_progress' })
+
+    // Move to In Progress column
+    const targetColumnName = getWorkColumnSetting(db, 'in_progress')
+    const board = await storage.getBoard()
+    const columnNames = board.columns.map(col => col.name)
+    const inProgressColumn = findColumnByName(columnNames, targetColumnName)
+
+    if (inProgressColumn) {
+      await storage.moveTicket(ticket.id, inProgressColumn)
+    }
+
+    await autoExportToBoard(pmoPath, storage, () => {})
+
+    // Load execution config
+    const executionConfig = loadExecutionConfig(db)
+    executionConfig.outputMode = outputMode
+    executionConfig.sandboxed = sandboxed
+
+    // Run execution
+    this.log(styles.muted(`   Starting ${ticket.id} → ${agentName}...`))
+
+    const result = await runExecution(mode, context, executor, executionConfig, {
+      displayMode: mode === 'devcontainer' ? displayMode : undefined,
+    })
+
+    if (result.success) {
+      executionStorage.updateStatus(execution.id, 'running')
+      executionStorage.updateProcessInfo(execution.id, {
+        pid: result.pid,
+        containerId: result.containerId,
+        sessionId: result.sessionId,
+        logPath: result.logPath,
+      })
+      this.log(styles.success(`   ✓ ${ticket.id} started (${execution.id})`))
+    } else {
+      executionStorage.updateStatus(execution.id, 'failed')
+      throw new Error(result.error || 'Unknown error')
     }
   }
 }

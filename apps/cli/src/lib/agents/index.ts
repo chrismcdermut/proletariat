@@ -18,6 +18,45 @@ export interface HQConfig {
 }
 
 /**
+ * Detect the current agent name from environment or directory structure.
+ * Returns null if not running in an agent context.
+ */
+export function detectAgentName(): string | null {
+  // Check environment variable first (set in devcontainer)
+  if (process.env.PRLT_AGENT_NAME) {
+    return process.env.PRLT_AGENT_NAME;
+  }
+
+  // Try to detect from directory structure
+  const cwd = process.cwd();
+
+  // Devcontainer pattern: /workspace/proletariat-{agent}
+  const workspaceMatch = cwd.match(/\/workspace\/[^/]+-(\w+)/);
+  if (workspaceMatch) {
+    return workspaceMatch[1];
+  }
+
+  // Host pattern: agents/staff/{agent}
+  const staffMatch = cwd.match(/agents\/staff\/(\w+)/);
+  if (staffMatch) {
+    return staffMatch[1];
+  }
+
+  // Try git branch pattern: agent-{name}
+  try {
+    const branch = execSync('git branch --show-current', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    const agentBranchMatch = branch.match(/^agent-(\w+)$/);
+    if (agentBranchMatch) {
+      return agentBranchMatch[1];
+    }
+  } catch {
+    // Ignore git errors
+  }
+
+  return null;
+}
+
+/**
  * Find the HQ root directory by looking for .proletariat/workspace.db
  */
 export function findHQRoot(startDir: string = process.cwd()): string | null {

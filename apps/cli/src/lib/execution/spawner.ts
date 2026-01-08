@@ -16,7 +16,7 @@ import { WorkspaceInfo } from '../agents/commands.js'
 import { findHQRoot } from '../repos/index.js'
 import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
-import { loadExecutionConfig } from './config.js'
+import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
 import { runExecution, isDockerRunning } from './runners.js'
 import {
   RuntimeMode,
@@ -206,10 +206,14 @@ export async function spawnAgentForTicket(
     worktreePath = process.cwd()
   }
 
+  // Get coder name for branch naming (prompts on first use)
+  const coderName = await getOrPromptCoderName(db)
+
   // Generate branch name
   const branch = generateBranchName(
     ticket.id,
     ticket.title,
+    coderName,
     agentName,
     ticket.category
   )

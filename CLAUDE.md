@@ -37,3 +37,27 @@ specs/              # Specification files
 ```bash
 ./test-cli.sh       # Run CLI tests
 ```
+
+## UX Preferences
+
+- **Never use Y/n confirm prompts** - Always use list selection (Yes/No choices) instead of typing y/n. This provides better UX with arrow key navigation.
+
+```typescript
+// BAD - requires typing
+const { confirmed } = await inquirer.prompt([{
+  type: 'confirm',
+  name: 'confirmed',
+  message: 'Continue?',
+}])
+
+// GOOD - arrow key selection
+const { confirmed } = await inquirer.prompt([{
+  type: 'list',
+  name: 'confirmed',
+  message: 'Continue?',
+  choices: [
+    { name: 'Yes', value: true },
+    { name: 'No', value: false },
+  ],
+}])
+```
