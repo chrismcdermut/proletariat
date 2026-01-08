@@ -1,11 +1,11 @@
 import { expect } from 'chai';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { runCommand } from '@oclif/test';
-import { fileURLToPath } from 'url';
+import { fileURLToPath } from 'node:url';
 import { PMOCommand, pmoBaseFlags, PMOCommandOptions } from '../../src/lib/pmo/index.js';
+import { PMO_SCHEMA_SQL } from '../../src/lib/pmo/schema.js';
 import { Flags, Config } from '@oclif/core';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -228,102 +228,8 @@ describe('PMO Base Command', () => {
 
 // Helper functions
 function setupTestDatabase(db: Database.Database) {
-  // Create minimal PMO schema for testing
-  db.exec(`
-    -- Settings table
-    CREATE TABLE IF NOT EXISTS pmo_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    -- Projects table
-    CREATE TABLE IF NOT EXISTS pmo_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      template TEXT,
-      description TEXT,
-      initiative_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Columns table
-    CREATE TABLE IF NOT EXISTS pmo_columns (
-      id TEXT NOT NULL,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      name TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, id)
-    );
-
-    -- Statuses table
-    CREATE TABLE IF NOT EXISTS pmo_statuses (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      UNIQUE(project_id, name)
-    );
-
-    -- Tickets table
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      title TEXT NOT NULL,
-      description TEXT,
-      priority TEXT,
-      category TEXT,
-      status TEXT NOT NULL DEFAULT 'backlog',
-      status_id TEXT,
-      owner TEXT,
-      assignee TEXT,
-      branch TEXT,
-      spec_id TEXT,
-      epic_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Board tickets table
-    CREATE TABLE IF NOT EXISTS pmo_board_tickets (
-      project_id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL,
-      column_id TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      PRIMARY KEY (project_id, ticket_id)
-    );
-
-    -- Subtasks table
-    CREATE TABLE IF NOT EXISTS pmo_subtasks (
-      id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      done INTEGER DEFAULT 0,
-      position INTEGER NOT NULL,
-      PRIMARY KEY (ticket_id, id)
-    );
-
-    -- Ticket metadata table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_metadata (
-      ticket_id TEXT NOT NULL,
-      key TEXT NOT NULL,
-      value TEXT,
-      PRIMARY KEY (ticket_id, key)
-    );
-
-    -- Cache metadata table
-    CREATE TABLE IF NOT EXISTS pmo_cache_metadata (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-  `);
+  // Use actual PMO schema from the single source of truth
+  db.exec(PMO_SCHEMA_SQL);
 
   // Insert test data
   db.prepare(`
