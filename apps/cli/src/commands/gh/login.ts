@@ -1,5 +1,5 @@
 import { Command } from '@oclif/core';
-import { spawn } from 'child_process';
+import { spawn } from 'node:child_process';
 import chalk from 'chalk';
 import { styles } from '../../lib/styles.js';
 import { isGHInstalled, isGHAuthenticated, getGHUsername } from '../../lib/pr/index.js';

@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Box, Text, useApp, useInput, Spacer } from 'ink';
-import { Spinner } from '@inkjs/ui';
 
 interface BoardSection {
   title: string;

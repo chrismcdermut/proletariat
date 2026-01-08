@@ -1,5 +1,5 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { SQLiteStorage } from './storage-sqlite.js';
@@ -41,7 +41,8 @@ export {
   getEpicsPath,
 } from './create-spec-folders.js';
 export { findPMO } from './find-pmo.js';
-export { getPMOContext, type PMOContext } from './pmo-context.js';
+export { getPMOContext, type PMOContext, type GetPMOContextOptions } from './pmo-context.js';
+export { PMOCommand, pmoBaseFlags, type PMOCommandOptions } from './base-command.js';
 export {
   PMO_TABLES,
   PMO_TABLE_SCHEMAS,
@@ -396,7 +397,6 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
     boardTemplate,
     boardName,
     columns,
-    storageType = 'sqlite',
   } = options;
 
   console.log(chalk.blue('Creating PMO structure...'));

@@ -1,8 +1,7 @@
-import { Command } from '@oclif/core';
 import inquirer from 'inquirer';
-import { findPMO } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 
-export default class Status extends Command {
+export default class Status extends PMOCommand {
   static description = 'Interactive menu for workflow status operations';
 
   static aliases = ['statuses'];
@@ -11,12 +10,15 @@ export default class Status extends Command {
     '<%= config.bin %> <%= command.id %>',
   ];
 
-  async run(): Promise<void> {
-    const pmoPath = findPMO();
-    if (!pmoPath) {
-      this.error('PMO not found. Run "prlt pmo init" first.');
-    }
+  static flags = {
+    ...pmoBaseFlags,
+  };
 
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',

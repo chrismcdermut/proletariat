@@ -1,8 +1,8 @@
-import { Command } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
 
-export default class Repo extends Command {
+export default class Repo extends PMOCommand {
   static description = 'Individual repository operations';
 
   static examples = [
@@ -11,7 +11,15 @@ export default class Repo extends Command {
     '<%= config.bin %> <%= command.id %> view my-repo',
   ];
 
-  async run(): Promise<void> {
+  static flags = {
+    ...pmoBaseFlags,
+  };
+
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     this.log(colors.primary('📦 Individual Repository Operations'));
     this.log('');
 

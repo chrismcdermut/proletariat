@@ -70,13 +70,11 @@ kanban-plugin: basic
 - [ ] [[implement-auth]]
       **Priority:** URGENT
       **Category:** feature
-      **Specs:** [[spec-1]], [[spec-2]]
 `;
       const board = parseBoard(markdown);
       const ticket = board.columns[0].tickets[0];
       expect(ticket.priority).to.equal('URGENT');
       expect(ticket.category).to.equal('feature');
-      expect(ticket.specs).to.deep.equal(['spec-1', 'spec-2']);
     });
 
     it('parses subtasks', () => {
@@ -173,8 +171,8 @@ kanban-plugin: basic
                 statusId: 'status-backlog',
                 column: 'Backlog',
                 position: 0,
-                specs: [],
                 subtasks: [],
+                labels: [],
                 metadata: {},
                 createdAt: new Date(),
                 updatedAt: new Date(),
@@ -208,8 +206,8 @@ kanban-plugin: basic
                 position: 0,
                 priority: 'URGENT',
                 category: 'feature',
-                specs: ['spec-1', 'spec-2'],
                 subtasks: [],
+                labels: [],
                 metadata: { Assignee: 'John' },
                 createdAt: new Date(),
                 updatedAt: new Date(),
@@ -222,9 +220,6 @@ kanban-plugin: basic
       const markdown = generateBoardMarkdown(board);
       expect(markdown).to.include('**Priority:** URGENT');
       expect(markdown).to.include('**Category:** feature');
-      // Specs are rendered as individual lines with wikilink alias syntax
-      expect(markdown).to.include('**Spec:** [[spec-1|spec-1]]');
-      expect(markdown).to.include('**Spec:** [[spec-2|spec-2]]');
       expect(markdown).to.include('**Assignee:** John');
     });
 
@@ -245,11 +240,11 @@ kanban-plugin: basic
                 statusId: 'status-backlog',
                 column: 'Backlog',
                 position: 0,
-                specs: [],
                 subtasks: [
                   { id: 'sub-1', title: 'Task 1', done: false },
                   { id: 'sub-2', title: 'Task 2', done: true },
                 ],
+                labels: [],
                 metadata: {},
                 createdAt: new Date(),
                 updatedAt: new Date(),
@@ -282,8 +277,8 @@ kanban-plugin: basic
                 column: 'Backlog',
                 position: 0,
                 description: 'This is the description',
-                specs: [],
                 subtasks: [],
+                labels: [],
                 metadata: {},
                 createdAt: new Date(),
                 updatedAt: new Date(),
@@ -348,8 +343,8 @@ kanban-plugin: basic
             statusId: 'status-backlog',
             column: 'Backlog',
             position: i,
-            specs: [],
             subtasks: [],
+            labels: [],
             metadata: {},
             createdAt: new Date(),
             updatedAt: new Date(),

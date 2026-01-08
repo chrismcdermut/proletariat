@@ -5,9 +5,9 @@
  * Used by `work start`, `work spawn`, and `work watch` commands.
  */
 
-import * as fs from 'fs'
-import * as path from 'path'
-import { execSync } from 'child_process'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import { execSync } from 'node:child_process'
 import Database from 'better-sqlite3'
 import { SQLiteStorage } from '../pmo/storage-sqlite.js'
 import { autoExportToBoard } from '../pmo/index.js'
@@ -16,7 +16,7 @@ import { WorkspaceInfo } from '../agents/commands.js'
 import { findHQRoot } from '../repos/index.js'
 import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
-import { loadExecutionConfig } from './config.js'
+import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
 import { runExecution, isDockerRunning } from './runners.js'
 import {
   RuntimeMode,
@@ -206,10 +206,14 @@ export async function spawnAgentForTicket(
     worktreePath = process.cwd()
   }
 
+  // Get coder name for branch naming (prompts on first use)
+  const coderName = await getOrPromptCoderName(db)
+
   // Generate branch name
   const branch = generateBranchName(
     ticket.id,
     ticket.title,
+    coderName,
     agentName,
     ticket.category
   )
@@ -454,8 +458,8 @@ export async function spawnForColumn(
     allTickets = allTickets.filter(t => options.ticketIds!.includes(t.id))
 
     // Check if any requested tickets weren't found
-    const foundIds = allTickets.map(t => t.id)
-    const notFoundIds = options.ticketIds.filter(id => !foundIds.includes(id))
+    const foundIds = new Set(allTickets.map(t => t.id))
+    const notFoundIds = options.ticketIds.filter(id => !foundIds.has(id))
     for (const id of notFoundIds) {
       result.skipped.push({
         ticketId: id,

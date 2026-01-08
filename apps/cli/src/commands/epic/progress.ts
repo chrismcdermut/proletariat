@@ -1,6 +1,6 @@
-import { Args, Command, Flags } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { Epic, EpicStatus, Ticket } from '../../lib/pmo/types.js';
 import { getRelativeEpicPath } from '../../lib/pmo/epic-files.js';
@@ -12,7 +12,7 @@ function progressBar(percent: number, width = 20): string {
   return '█'.repeat(filled) + '░'.repeat(empty);
 }
 
-export default class EpicProgress extends Command {
+export default class EpicProgress extends PMOCommand {
   static description = 'Show epic completion progress';
 
   static examples = [
@@ -28,10 +28,7 @@ export default class EpicProgress extends Command {
   };
 
   static flags = {
-    project: Flags.string({
-      char: 'P',
-      description: 'Project ID (default: "default")',
-    }),
+    ...pmoBaseFlags,
     all: Flags.boolean({
       char: 'a',
       description: 'Show progress for all epics',
@@ -39,62 +36,48 @@ export default class EpicProgress extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(EpicProgress);
 
-    const { storage, pmoPath, projectId } = await getPMOContext(
-      flags.project,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    );
+    if (flags.all) {
+      await this.showAllProgress();
+    } else {
+      let epicId = args.id;
 
-    try {
-      if (flags.all) {
-        await this.showAllProgress(storage, pmoPath, projectId);
-      } else {
-        let epicId = args.id;
-
-        // If no ID provided, prompt for selection
-        if (!epicId) {
-          const epics = await storage.listEpics();
-          if (epics.length === 0) {
-            this.log(styles.muted('\nNo epics found.'));
-            await storage.close();
-            return;
-          }
-
-          const { selected } = await inquirer.prompt([{
-            type: 'list',
-            name: 'selected',
-            message: 'Select epic to view progress:',
-            choices: epics.map(e => ({
-              name: `${e.id} ${e.title} (${e.status})`,
-              value: e.id,
-            })),
-          }]);
-          epicId = selected;
+      // If no ID provided, prompt for selection
+      if (!epicId) {
+        const epics = await this.storage.listEpics();
+        if (epics.length === 0) {
+          this.log(styles.muted('\nNo epics found.'));
+          return;
         }
 
-        await this.showSingleProgress(storage, epicId!, pmoPath, projectId);
+        const { selected } = await inquirer.prompt([{
+          type: 'list',
+          name: 'selected',
+          message: 'Select epic to view progress:',
+          choices: epics.map(e => ({
+            name: `${e.id} ${e.title} (${e.status})`,
+            value: e.id,
+          })),
+        }]);
+        epicId = selected;
       }
 
-      await storage.close();
-    } catch (error) {
-      await storage.close();
-      throw error;
+      await this.showSingleProgress(epicId!);
     }
   }
 
-  private async showSingleProgress(storage: Awaited<ReturnType<typeof getPMOContext>>['storage'], epicId: string, pmoPath: string, projectId: string): Promise<void> {
-    const epic = await storage.getEpic(epicId);
+  private async showSingleProgress(epicId: string): Promise<void> {
+    const epic = await this.storage.getEpic(epicId);
     if (!epic) {
       this.error(`Epic not found: ${epicId}`);
     }
 
-    const tickets = await storage.getTicketsForEpic(epicId);
+    const tickets = await this.storage.getTicketsForEpic(epicId);
     const doneTickets = tickets.filter((t: Ticket) => t.status === 'done').length;
     const percent = tickets.length > 0 ? Math.round((doneTickets / tickets.length) * 100) : 0;
-    const relativePath = getRelativeEpicPath(pmoPath, epic.id, epic.status, projectId);
+    const relativePath = getRelativeEpicPath(this.pmoPath, epic.id, epic.status, this.projectId);
 
     this.log(`\n🎯 Epic Progress: ${styles.emphasis(epic.id)} - ${epic.title}`);
     this.log('═'.repeat(55));
@@ -139,8 +122,8 @@ export default class EpicProgress extends Command {
     }
   }
 
-  private async showAllProgress(storage: Awaited<ReturnType<typeof getPMOContext>>['storage'], _pmoPath: string, _projectId: string): Promise<void> {
-    const epics = await storage.listEpics();
+  private async showAllProgress(): Promise<void> {
+    const epics = await this.storage.listEpics();
 
     if (epics.length === 0) {
       this.log(styles.muted('\nNo epics found.'));
@@ -174,7 +157,7 @@ export default class EpicProgress extends Command {
       this.log(`\n${statusEmoji[status]} ${status.toUpperCase()} (${statusEpics.length})`);
 
       for (const epic of statusEpics) {
-        const tickets = await storage.getTicketsForEpic(epic.id);
+        const tickets = await this.storage.getTicketsForEpic(epic.id);
         const doneTickets = tickets.filter((t: Ticket) => t.status === 'done').length;
         const percent = tickets.length > 0 ? Math.round((doneTickets / tickets.length) * 100) : 0;
         const bar = progressBar(percent);

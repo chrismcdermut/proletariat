@@ -1,4 +1,5 @@
-import { Command, Args } from '@oclif/core'
+import { Args } from '@oclif/core'
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import {
   BRANCH_TYPES,
@@ -7,7 +8,7 @@ import {
   isGitRepo,
 } from '../../lib/branch/index.js'
 
-export default class BranchValidate extends Command {
+export default class BranchValidate extends PMOCommand {
   static description = 'Validate branch name against conventional format'
 
   static examples = [
@@ -23,7 +24,15 @@ export default class BranchValidate extends Command {
     }),
   }
 
-  async run(): Promise<void> {
+  static flags = {
+    ...pmoBaseFlags,
+  }
+
+  protected getPMOOptions() {
+    return { promptIfMultiple: false }
+  }
+
+  async execute(): Promise<void> {
     const { args } = await this.parse(BranchValidate)
 
     let branchName: string = args.name || ''
@@ -51,9 +60,15 @@ export default class BranchValidate extends Command {
       } else {
         this.log(styles.success(`✅ Current branch '${branchName}' is valid`))
       }
+      if (result.parts.ticketId) {
+        this.log(styles.muted(`   Ticket: ${result.parts.ticketId}`))
+      }
       this.log(styles.muted(`   Type: ${result.parts.type}`))
-      if (result.parts.coder) {
-        this.log(styles.muted(`   Coder: ${result.parts.coder}`))
+      if (result.parts.owner) {
+        this.log(styles.muted(`   Owner: ${result.parts.owner}`))
+      }
+      if (result.parts.agent) {
+        this.log(styles.muted(`   Agent: ${result.parts.agent}`))
       }
       this.log(styles.muted(`   Description: ${result.parts.description}`))
     } else {
@@ -61,7 +76,7 @@ export default class BranchValidate extends Command {
       if (result.error) {
         this.log(styles.muted(`   ${result.error}`))
       }
-      this.log(styles.muted(`   Expected: {type}/{coder?}/{description}`))
+      this.log(styles.muted(`   Expected: {ticketId?}/{type}/{owner?}/{description}`))
       this.log(styles.muted(`   Types: ${Object.keys(BRANCH_TYPES).join(', ')}`))
     }
 

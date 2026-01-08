@@ -1,10 +1,10 @@
-import { Command, Flags, Args } from '@oclif/core';
+import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
 
-export default class PhaseUpdate extends Command {
+export default class PhaseUpdate extends PMOCommand {
   static description = 'Update a project lifecycle phase';
 
   static examples = [
@@ -21,6 +21,7 @@ export default class PhaseUpdate extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     name: Flags.string({
       char: 'n',
       description: 'New name',
@@ -47,68 +48,54 @@ export default class PhaseUpdate extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };  // Phases are workspace-scoped, no project selection needed
+  }
+
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(PhaseUpdate);
 
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      false  // Phases are workspace-scoped, no project selection needed
-    );
+    const existing = await this.storage.getPhase(args.id);
+    if (!existing) {
+      this.error(`Phase "${args.id}" not found.`);
+    }
 
-    try {
-      const existing = await storage.getPhase(args.id);
-      if (!existing) {
-        await storage.close();
-        this.error(`Phase "${args.id}" not found.`);
+    let updates: {
+      name?: string;
+      category?: StateCategory;
+      color?: string;
+      description?: string;
+      isDefault?: boolean;
+    };
+
+    if (flags.interactive) {
+      updates = await this.promptUpdates(existing);
+    } else {
+      updates = {};
+      if (flags.name) updates.name = flags.name;
+      if (flags.category) updates.category = flags.category as StateCategory;
+      if (flags.color) updates.color = flags.color;
+      if (flags.description) updates.description = flags.description;
+      if (flags.default !== undefined) updates.isDefault = flags.default;
+
+      if (Object.keys(updates).length === 0) {
+        this.error('No changes specified. Use -i for interactive mode.');
       }
+    }
 
-      let updates: {
-        name?: string;
-        category?: StateCategory;
-        color?: string;
-        description?: string;
-        isDefault?: boolean;
-      };
+    const phase = await this.storage.updatePhase(args.id, updates);
 
-      if (flags.interactive) {
-        updates = await this.promptUpdates(existing);
-      } else {
-        updates = {};
-        if (flags.name) updates.name = flags.name;
-        if (flags.category) updates.category = flags.category as StateCategory;
-        if (flags.color) updates.color = flags.color;
-        if (flags.description) updates.description = flags.description;
-        if (flags.default !== undefined) updates.isDefault = flags.default;
-
-        if (Object.keys(updates).length === 0) {
-          await storage.close();
-          this.error('No changes specified. Use -i for interactive mode.');
-        }
-      }
-
-      const phase = await storage.updatePhase(args.id, updates);
-
-      await storage.close();
-
-      this.log(styles.success(`\nUpdated phase "${styles.emphasis(phase.name)}"`));
-      this.log(styles.muted(`  ID: ${phase.id}`));
-      this.log(styles.muted(`  Category: ${phase.category}`));
-      if (phase.color) {
-        this.log(styles.muted(`  Color: ${phase.color}`));
-      }
-      if (phase.description) {
-        this.log(styles.muted(`  Description: ${phase.description}`));
-      }
-      if (phase.isDefault) {
-        this.log(styles.muted(`  Default: Yes`));
-      }
-    } catch (error) {
-      await storage.close();
-      if (error instanceof Error && error.message.includes('already exists')) {
-        this.error(error.message);
-      }
-      throw error;
+    this.log(styles.success(`\nUpdated phase "${styles.emphasis(phase.name)}"`));
+    this.log(styles.muted(`  ID: ${phase.id}`));
+    this.log(styles.muted(`  Category: ${phase.category}`));
+    if (phase.color) {
+      this.log(styles.muted(`  Color: ${phase.color}`));
+    }
+    if (phase.description) {
+      this.log(styles.muted(`  Description: ${phase.description}`));
+    }
+    if (phase.isDefault) {
+      this.log(styles.muted(`  Default: Yes`));
     }
   }
 

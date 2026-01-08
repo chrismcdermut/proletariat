@@ -1,11 +1,9 @@
-import { Command, Args, Flags } from '@oclif/core';
-import * as fs from 'fs';
-import * as path from 'path';
+import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { SQLiteStorage, findPMO } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class ProjectArchive extends Command {
+export default class ProjectArchive extends PMOCommand {
   static description = 'Archive a project (hide from default views)';
 
   static examples = [
@@ -21,6 +19,7 @@ export default class ProjectArchive extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation',
@@ -28,61 +27,41 @@ export default class ProjectArchive extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(ProjectArchive);
 
-    const pmoPath = findPMO();
-    if (!pmoPath) {
-      this.error('PMO not found. Run "prlt pmo init" first.');
+    const project = await this.storage.getProject(args.id);
+    if (!project) {
+      this.error(`Project "${args.id}" not found.`);
     }
 
-    const hqPath = path.dirname(pmoPath);
-    const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
-
-    if (!fs.existsSync(dbPath)) {
-      this.error('Database not found. Run "prlt init" first.');
+    if (project.isArchived) {
+      this.log(styles.muted(`Project "${project.name}" is already archived.`));
+      return;
     }
 
-    const storage = new SQLiteStorage(dbPath);
+    if (!flags.force) {
+      const { confirm } = await inquirer.prompt<{ confirm: boolean }>([{
+        type: 'confirm',
+        name: 'confirm',
+        message: `Archive project "${project.name}"? It will be hidden from default views.`,
+        default: false,
+      }]);
 
-    try {
-      const project = await storage.getProject(args.id);
-      if (!project) {
-        await storage.close();
-        this.error(`Project "${args.id}" not found.`);
-      }
-
-      if (project.isArchived) {
-        await storage.close();
-        this.log(styles.muted(`Project "${project.name}" is already archived.`));
+      if (!confirm) {
+        this.log(styles.muted('Cancelled.'));
         return;
       }
-
-      if (!flags.force) {
-        const { confirm } = await inquirer.prompt<{ confirm: boolean }>([{
-          type: 'confirm',
-          name: 'confirm',
-          message: `Archive project "${project.name}"? It will be hidden from default views.`,
-          default: false,
-        }]);
-
-        if (!confirm) {
-          this.log(styles.muted('Cancelled.'));
-          await storage.close();
-          return;
-        }
-      }
-
-      await storage.archiveProject(args.id);
-
-      await storage.close();
-
-      this.log(styles.success(`\nArchived project "${project.name}"`));
-      this.log(styles.muted('View archived projects: prlt project list --archived'));
-      this.log(styles.muted('Unarchive: prlt project unarchive ' + args.id));
-    } catch (error) {
-      await storage.close();
-      throw error;
     }
+
+    await this.storage.archiveProject(args.id);
+
+    this.log(styles.success(`\nArchived project "${project.name}"`));
+    this.log(styles.muted('View archived projects: prlt project list --archived'));
+    this.log(styles.muted('Unarchive: prlt project unarchive ' + args.id));
   }
 }

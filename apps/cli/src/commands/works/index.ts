@@ -1,7 +1,7 @@
-import { Command } from '@oclif/core'
 import inquirer from 'inquirer'
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 
-export default class Works extends Command {
+export default class Works extends PMOCommand {
   static description = 'Bulk work operations (start work on multiple tickets)'
 
   static examples = [
@@ -9,7 +9,15 @@ export default class Works extends Command {
     '<%= config.bin %> <%= command.id %> start --column "In Progress"',
   ]
 
-  async run(): Promise<void> {
+  static flags = {
+    ...pmoBaseFlags,
+  }
+
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { action } = await inquirer.prompt([
       {
         type: 'list',

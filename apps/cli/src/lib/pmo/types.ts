@@ -267,6 +267,7 @@ export interface BoardView {
   id: string
   projectId: string
   name: string              // Display name (e.g., "My Tasks", "High Priority")
+  description?: string      // Optional description
   type: ViewType            // Layout type
   filter: ViewFilter        // Filter configuration
   groupBy: GroupBy          // How to group tickets
@@ -281,10 +282,47 @@ export interface BoardView {
 /**
  * Filter for listing views
  */
-export interface ViewFilter2 {
+export interface ViewListFilter {
   projectId?: string
   search?: string
 }
+
+/**
+ * Legacy BoardViewFilters - kept for backward compatibility
+ * @deprecated Use ViewFilter instead
+ */
+export interface BoardViewFilters {
+  assignee?: string               // Filter by assignee (or "unassigned")
+  owner?: string                  // Filter by owner
+  priority?: string               // Filter by priority (HIGH, MEDIUM, LOW)
+  statusCategory?: StateCategory  // Filter by status category
+  statusId?: string               // Filter by specific status
+  columnIds?: string[]            // Filter to specific columns
+  epicId?: string                 // Filter to tickets in an epic
+  search?: string                 // Text search in title/description
+}
+
+/**
+ * Legacy grouping options
+ * @deprecated Use GroupBy instead
+ */
+export type BoardViewGroupBy =
+  | 'assignee'    // Group by who's working on it
+  | 'priority'    // Group by priority level
+  | 'epic'        // Group by epic
+  | 'status'      // Group by workflow status
+  | 'category'    // Group by ticket category
+
+/**
+ * Legacy sorting options
+ * @deprecated Use SortBy instead
+ */
+export type BoardViewSortBy =
+  | 'priority'    // Sort by priority (HIGH first)
+  | 'created'     // Sort by creation date
+  | 'updated'     // Sort by last update
+  | 'title'       // Sort alphabetically by title
+  | 'assignee'    // Sort by assignee name
 
 export interface Column {
   id: string
@@ -322,6 +360,7 @@ export interface Ticket {
   specId?: string     // Which spec defined this ticket
   epicId?: string     // Which epic this ticket belongs to
   subtasks: Subtask[]
+  labels: string[]    // Tags/labels for categorization
   metadata: Record<string, string>
 
   // Agent execution support (populated from related tables)
@@ -340,7 +379,6 @@ export interface Ticket {
   // Use BoardTicket table for authoritative board position
   column?: string     // Column name (from board view)
   position?: number   // Position in column (from board view)
-  specs?: string[]    // Spec paths (backward compat - use specId instead)
 }
 
 /**
@@ -357,6 +395,46 @@ export interface Subtask {
   id: string
   title: string
   done: boolean
+}
+
+// =============================================================================
+// Ticket Template Types
+// =============================================================================
+
+/**
+ * Subtask definition within a ticket template
+ */
+export interface TicketTemplateSubtask {
+  title: string
+}
+
+/**
+ * Ticket template - a reusable configuration for creating tickets.
+ * Templates can be built-in (system-provided) or custom (user-created).
+ */
+export interface TicketTemplate {
+  id: string
+  name: string
+  description?: string
+  isBuiltin: boolean               // System-provided vs user-created
+  titlePattern?: string            // Default title pattern (e.g., "[BUG] ")
+  descriptionTemplate?: string     // Default description markdown
+  defaultPriority?: string         // Default priority (URGENT, HIGH, MEDIUM, LOW)
+  defaultCategory?: string         // Default category (bug, feature, etc.)
+  defaultStatusId?: string         // Default workflow status
+  defaultAssignee?: string         // Default assignee
+  defaultOwner?: string            // Default owner
+  defaultLabels: string[]          // Default labels
+  suggestedSubtasks: TicketTemplateSubtask[]  // Subtasks to create with ticket
+  createdAt: Date
+}
+
+/**
+ * Filter options for listing ticket templates
+ */
+export interface TicketTemplateFilter {
+  isBuiltin?: boolean
+  search?: string
 }
 
 /**
@@ -387,12 +465,48 @@ export interface AcceptanceCriterion {
 }
 
 /**
+ * Ticket dependency types for same-entity relationships
+ */
+export type TicketDependencyType = 'blocks' | 'relates_to' | 'duplicates'
+
+/**
  * Ticket dependency for scheduling.
- * Represents a "blocked by" relationship between tickets.
+ * Represents a dependency relationship between tickets.
  */
 export interface TicketDependency {
   ticketId: string
-  blockedByTicketId: string
+  dependsOnTicketId: string
+  dependencyType: TicketDependencyType
+  createdAt?: Date
+}
+
+/**
+ * Spec dependency types
+ */
+export type SpecDependencyType = 'depends_on' | 'relates_to' | 'duplicates'
+
+/**
+ * Spec dependency for design ordering.
+ */
+export interface SpecDependency {
+  specId: string
+  dependsOnSpecId: string
+  dependencyType: SpecDependencyType
+  createdAt?: Date
+}
+
+/**
+ * Epic dependency types
+ */
+export type EpicDependencyType = 'blocks' | 'relates_to' | 'duplicates'
+
+/**
+ * Epic dependency for phased work.
+ */
+export interface EpicDependency {
+  epicId: string
+  dependsOnEpicId: string
+  dependencyType: EpicDependencyType
   createdAt?: Date
 }
 
@@ -428,15 +542,6 @@ export interface Spec {
   context?: string
   createdAt: Date
   updatedAt: Date
-}
-
-/**
- * Spec dependency - one spec depends on another
- */
-export interface SpecDependency {
-  specId: string
-  dependsOn: string
-  createdAt?: Date
 }
 
 // =============================================================================
@@ -534,6 +639,12 @@ export interface ProjectFilter {
   search?: string
 }
 
+export interface BoardViewFilter {
+  projectId?: string
+  isDefault?: boolean
+  search?: string
+}
+
 // =============================================================================
 // Result Types
 // =============================================================================
@@ -619,6 +730,11 @@ export interface PMOStorage {
   removeSpecDependency(specId: string, dependsOnId: string): Promise<void>
   getSpecDependencies(specId: string): Promise<Spec[]>
   getSpecDependents(specId: string): Promise<Spec[]>
+  // Project-Spec associations (many-to-many, specs are global)
+  linkProjectToSpec(projectId: string, specId: string): Promise<void>
+  unlinkProjectFromSpec(projectId: string, specId: string): Promise<void>
+  getSpecsForProject(projectId: string): Promise<Spec[]>
+  getProjectsForSpec(specId: string): Promise<Project[]>
 
   // Epic Operations
   createEpic(epic: Partial<Epic>): Promise<Epic>
@@ -645,6 +761,14 @@ export interface PMOStorage {
   applyTemplate(projectId: string, templateId: string): Promise<WorkflowStatus[]>
   saveTemplate(name: string, projectId: string, description?: string): Promise<WorkflowTemplate>
   deleteTemplate(id: string): Promise<void>
+
+  // Ticket Template Operations
+  listTicketTemplates(filter?: TicketTemplateFilter): Promise<TicketTemplate[]>
+  getTicketTemplate(id: string): Promise<TicketTemplate | null>
+  createTicketTemplate(template: Partial<TicketTemplate> & { name: string }): Promise<TicketTemplate>
+  createTicketTemplateFromTicket(ticketId: string, name: string, description?: string): Promise<TicketTemplate>
+  updateTicketTemplate(id: string, changes: Partial<TicketTemplate>): Promise<TicketTemplate>
+  deleteTicketTemplate(id: string): Promise<void>
 
   // Project Phase Operations (workspace-scoped)
   listPhases(filter?: PhaseFilter): Promise<ProjectPhase[]>

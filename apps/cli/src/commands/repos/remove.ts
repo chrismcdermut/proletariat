@@ -1,14 +1,14 @@
-import { Command, Flags } from '@oclif/core';
+import { Flags } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import inquirer from 'inquirer';
 import { colors, format } from '../../lib/colors.js';
 import {
   findHQRoot,
   promptSelectMultipleRepos,
   removeRepository,
-  getWorkspaceRepoInfo
 } from '../../lib/repos/index.js';
 
-export default class Remove extends Command {
+export default class Remove extends PMOCommand {
   static description = 'Remove multiple repositories from the HQ';
 
   static examples = [
@@ -17,6 +17,7 @@ export default class Remove extends Command {
   ];
 
   static flags = {
+    ...pmoBaseFlags,
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation prompt',
@@ -24,7 +25,11 @@ export default class Remove extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { flags } = await this.parse(Remove);
 
     // Find HQ root

@@ -1,6 +1,6 @@
-import { Args, Command, Flags } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { Ticket } from '../../lib/pmo/types.js';
 
@@ -11,7 +11,7 @@ function progressBar(percent: number, width = 20): string {
   return '█'.repeat(filled) + '░'.repeat(empty);
 }
 
-export default class EpicView extends Command {
+export default class EpicView extends PMOCommand {
   static description = 'View epic details and linked tickets';
 
   static examples = [
@@ -27,102 +27,85 @@ export default class EpicView extends Command {
   };
 
   static flags = {
-    project: Flags.string({
-      char: 'P',
-      description: 'Project ID (default: "default")',
-    }),
+    ...pmoBaseFlags,
   };
 
-  async run(): Promise<void> {
-    const { args, flags } = await this.parse(EpicView);
+  async execute(): Promise<void> {
+    const { args } = await this.parse(EpicView);
 
-    const { storage, projectName } = await getPMOContext(
-      flags.project,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    );
+    let epicId = args.id;
 
-    try {
-      let epicId = args.id;
-
-      // If no ID provided, prompt for selection
-      if (!epicId) {
-        const epics = await storage.listEpics();
-        if (epics.length === 0) {
-          this.log(styles.muted('\nNo epics found.'));
-          this.log(styles.muted('Create one with: prlt epic create'));
-          await storage.close();
-          return;
-        }
-
-        const { selected } = await inquirer.prompt([{
-          type: 'list',
-          name: 'selected',
-          message: 'Select epic to view:',
-          choices: epics.map(e => ({
-            name: `${e.id} ${e.title} (${e.status})`,
-            value: e.id,
-          })),
-        }]);
-        epicId = selected;
+    // If no ID provided, prompt for selection
+    if (!epicId) {
+      const epics = await this.storage.listEpics();
+      if (epics.length === 0) {
+        this.log(styles.muted('\nNo epics found.'));
+        this.log(styles.muted('Create one with: prlt epic create'));
+        return;
       }
 
-      const epic = await storage.getEpic(epicId!);
-      if (!epic) {
-        this.error(`Epic not found: ${epicId}`);
-      }
-
-      const tickets = await storage.getTicketsForEpic(epicId!);
-      const doneTickets = tickets.filter((t: Ticket) => t.statusCategory === 'completed').length;
-      const percent = tickets.length > 0 ? Math.round((doneTickets / tickets.length) * 100) : 0;
-
-      // Get linked spec if any
-      let specTitle: string | undefined;
-      if (epic.specId) {
-        const spec = await storage.getSpec(epic.specId);
-        specTitle = spec?.title;
-      }
-
-      this.log(`\n🎯 Epic: ${styles.emphasis(epic.id)} - ${epic.title}`);
-      this.log('═'.repeat(55));
-      this.log(`ID: ${epic.id}`);
-      this.log(`Title: ${epic.title}`);
-      this.log(`Project: ${projectName}`);
-      this.log(`Status: ${epic.status}`);
-      if (epic.specId) {
-        this.log(`Spec: ${epic.specId}${specTitle ? ` - ${specTitle}` : ''}`);
-      }
-      this.log(`Created: ${epic.createdAt.toLocaleDateString()}`);
-      if (epic.description) {
-        this.log(`\nDescription: ${epic.description}`);
-      }
-
-      this.log(`\nProgress: ${percent}% (${doneTickets}/${tickets.length} tickets complete)`);
-      this.log(progressBar(percent));
-
-      if (tickets.length > 0) {
-        this.log(`\n🎫 Tickets (${tickets.length}):`);
-        for (const ticket of tickets) {
-          const icon = ticket.statusCategory === 'completed' ? '✅' :
-                       ticket.statusCategory === 'started' ? '🚧' :
-                       ticket.statusCategory === 'unstarted' ? '📋' :
-                       ticket.statusCategory === 'canceled' ? '🚫' : '📥';
-          const statusLabel = ticket.statusName || ticket.column || 'Unknown';
-          this.log(`  ${icon} ${ticket.id}: ${ticket.title} [${statusLabel}]`);
-        }
-      } else {
-        this.log(styles.muted('\n  No tickets linked to this epic yet.'));
-      }
-
-      this.log('\n' + '═'.repeat(55));
-      this.log(styles.muted('Commands:'));
-      this.log(styles.muted(`  prlt epic progress ${epic.id}`));
-      this.log(styles.muted(`  prlt ticket create --epic ${epic.id} "New task"`));
-
-      await storage.close();
-    } catch (error) {
-      await storage.close();
-      throw error;
+      const { selected } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selected',
+        message: 'Select epic to view:',
+        choices: epics.map(e => ({
+          name: `${e.id} ${e.title} (${e.status})`,
+          value: e.id,
+        })),
+      }]);
+      epicId = selected;
     }
+
+    const epic = await this.storage.getEpic(epicId!);
+    if (!epic) {
+      this.error(`Epic not found: ${epicId}`);
+    }
+
+    const tickets = await this.storage.getTicketsForEpic(epicId!);
+    const doneTickets = tickets.filter((t: Ticket) => t.statusCategory === 'completed').length;
+    const percent = tickets.length > 0 ? Math.round((doneTickets / tickets.length) * 100) : 0;
+
+    // Get linked spec if any
+    let specTitle: string | undefined;
+    if (epic.specId) {
+      const spec = await this.storage.getSpec(epic.specId);
+      specTitle = spec?.title;
+    }
+
+    this.log(`\n🎯 Epic: ${styles.emphasis(epic.id)} - ${epic.title}`);
+    this.log('═'.repeat(55));
+    this.log(`ID: ${epic.id}`);
+    this.log(`Title: ${epic.title}`);
+    this.log(`Project: ${this.projectName}`);
+    this.log(`Status: ${epic.status}`);
+    if (epic.specId) {
+      this.log(`Spec: ${epic.specId}${specTitle ? ` - ${specTitle}` : ''}`);
+    }
+    this.log(`Created: ${epic.createdAt.toLocaleDateString()}`);
+    if (epic.description) {
+      this.log(`\nDescription: ${epic.description}`);
+    }
+
+    this.log(`\nProgress: ${percent}% (${doneTickets}/${tickets.length} tickets complete)`);
+    this.log(progressBar(percent));
+
+    if (tickets.length > 0) {
+      this.log(`\n🎫 Tickets (${tickets.length}):`);
+      for (const ticket of tickets) {
+        const icon = ticket.statusCategory === 'completed' ? '✅' :
+                     ticket.statusCategory === 'started' ? '🚧' :
+                     ticket.statusCategory === 'unstarted' ? '📋' :
+                     ticket.statusCategory === 'canceled' ? '🚫' : '📥';
+        const statusLabel = ticket.statusName || ticket.column || 'Unknown';
+        this.log(`  ${icon} ${ticket.id}: ${ticket.title} [${statusLabel}]`);
+      }
+    } else {
+      this.log(styles.muted('\n  No tickets linked to this epic yet.'));
+    }
+
+    this.log('\n' + '═'.repeat(55));
+    this.log(styles.muted('Commands:'));
+    this.log(styles.muted(`  prlt epic progress ${epic.id}`));
+    this.log(styles.muted(`  prlt ticket create --epic ${epic.id} "New task"`));
   }
 }

@@ -1,9 +1,9 @@
-import { Command, Flags, Args } from '@oclif/core';
+import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import { styles } from '../../../lib/styles.js';
 
-export default class PhaseTemplateDelete extends Command {
+export default class PhaseTemplateDelete extends PMOCommand {
   static description = 'Delete a phase template';
 
   static examples = [
@@ -19,6 +19,7 @@ export default class PhaseTemplateDelete extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation',
@@ -26,53 +27,41 @@ export default class PhaseTemplateDelete extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(PhaseTemplateDelete);
 
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      false
-    );
-
-    try {
-      // Verify template exists
-      const template = await storage.getPhaseTemplate(args.id);
-      if (!template) {
-        await storage.close();
-        this.error(`Phase template not found: ${args.id}`);
-      }
-
-      if (template.isBuiltin) {
-        await storage.close();
-        this.error('Cannot delete built-in templates');
-      }
-
-      if (!flags.force) {
-        const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
-          {
-            type: 'confirm',
-            name: 'confirm',
-            message: `Delete phase template "${template.name}"?`,
-            default: false,
-          },
-        ]);
-
-        if (!confirm) {
-          await storage.close();
-          this.log(styles.muted('Cancelled'));
-          return;
-        }
-      }
-
-      await storage.deletePhaseTemplate(args.id);
-
-      await storage.close();
-
-      this.log(styles.success(`\nDeleted phase template "${template.name}"`));
-    } catch (error) {
-      await storage.close();
-      throw error;
+    // Verify template exists
+    const template = await this.storage.getPhaseTemplate(args.id);
+    if (!template) {
+      this.error(`Phase template not found: ${args.id}`);
     }
+
+    if (template.isBuiltin) {
+      this.error('Cannot delete built-in templates');
+    }
+
+    if (!flags.force) {
+      const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
+        {
+          type: 'confirm',
+          name: 'confirm',
+          message: `Delete phase template "${template.name}"?`,
+          default: false,
+        },
+      ]);
+
+      if (!confirm) {
+        this.log(styles.muted('Cancelled'));
+        return;
+      }
+    }
+
+    await this.storage.deletePhaseTemplate(args.id);
+
+    this.log(styles.success(`\nDeleted phase template "${template.name}"`));
   }
 }

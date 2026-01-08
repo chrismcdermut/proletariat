@@ -1,10 +1,10 @@
 import { expect } from 'chai';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import { execSync } from 'child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { execSync } from 'node:child_process';
 import Database from 'better-sqlite3';
-import { fileURLToPath } from 'url';
+import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,8 +14,11 @@ const __dirname = path.dirname(__filename);
  * Tests: prlt board view, open, markdown, export, sync, watch
  * Spec: pmo-board-commands.md
  *
- * SKIPPED: These commands (board view, markdown, sync, export) are not yet implemented.
- * See ticket TKT-041 for implementation tracking.
+ * SKIPPED: The board markdown/sync/export operations are available via the
+ * interactive 'prlt board' menu, not as separate subcommands.
+ * The 'prlt board view' command exists and is tested in pmo-board-views.test.ts.
+ * These tests would need to be rewritten to test the interactive menu or
+ * the underlying storage methods directly.
  */
 describe.skip('PMO Board Commands Integration Tests', () => {
   let testDir: string;
@@ -211,7 +214,7 @@ describe.skip('PMO Board Commands Integration Tests', () => {
 });
 
 // Helper functions
-function setupTestDatabase(db: Database.Database, testDir: string) {
+function setupTestDatabase(db: Database.Database, _testDir: string) {
   // Create PMO tables
   db.exec(`
     CREATE TABLE IF NOT EXISTS pmo_settings (

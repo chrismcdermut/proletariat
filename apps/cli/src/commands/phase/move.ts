@@ -1,8 +1,8 @@
-import { Command, Args, Flags } from '@oclif/core';
-import { getPMOContext } from '../../lib/pmo/index.js';
+import { Args, Flags } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class PhaseMove extends Command {
+export default class PhaseMove extends PMOCommand {
   static description = 'Change the position of a phase within its category';
 
   static examples = [
@@ -18,6 +18,7 @@ export default class PhaseMove extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     position: Flags.integer({
       char: 'p',
       description: 'New position (0-indexed)',
@@ -25,30 +26,20 @@ export default class PhaseMove extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(PhaseMove);
 
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      false  // Phases are workspace-scoped, no project selection needed
-    );
-
-    try {
-      const phase = await storage.getPhase(args.id);
-      if (!phase) {
-        await storage.close();
-        this.error(`Phase "${args.id}" not found.`);
-      }
-
-      const updated = await storage.reorderPhase(args.id, flags.position);
-
-      await storage.close();
-
-      this.log(styles.success(`\nMoved phase "${updated.name}" to position ${updated.position}`));
-    } catch (error) {
-      await storage.close();
-      throw error;
+    const phase = await this.storage.getPhase(args.id);
+    if (!phase) {
+      this.error(`Phase "${args.id}" not found.`);
     }
+
+    const updated = await this.storage.reorderPhase(args.id, flags.position);
+
+    this.log(styles.success(`\nMoved phase "${updated.name}" to position ${updated.position}`));
   }
 }

@@ -1,9 +1,8 @@
-import { Command } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import { PhaseTemplate } from '../../../lib/pmo/types.js';
 
-export default class PhaseTemplateMenu extends Command {
+export default class PhaseTemplateMenu extends PMOCommand {
   static description = 'Interactive menu for project phase template operations';
 
   static aliases = ['phase:templates'];
@@ -12,14 +11,16 @@ export default class PhaseTemplateMenu extends Command {
     '<%= config.bin %> <%= command.id %>',
   ];
 
-  async run(): Promise<void> {
-    const { storage } = await getPMOContext(
-      undefined,
-      () => {},
-      false
-    );
+  static flags = {
+    ...pmoBaseFlags,
+  };
 
-    try {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
+    {
       // Show interactive menu
       const { action } = await inquirer.prompt([{
         type: 'list',
@@ -37,26 +38,22 @@ export default class PhaseTemplateMenu extends Command {
       }]);
 
       if (action === 'cancel') {
-        await storage.close();
         return;
       }
 
       // Run the selected subcommand
       switch (action) {
         case 'list':
-          await storage.close();
           await this.config.runCommand('phase:template:list', []);
           break;
         case 'apply': {
-          const templateId = await this.selectTemplate(storage, 'Select template to apply:');
-          await storage.close();
+          const templateId = await this.selectTemplate(this.storage, 'Select template to apply:');
           if (templateId) {
             await this.config.runCommand('phase:template:apply', [templateId]);
           }
           break;
         }
         case 'create': {
-          await storage.close();
           const { name } = await inquirer.prompt([{
             type: 'input',
             name: 'name',
@@ -67,37 +64,30 @@ export default class PhaseTemplateMenu extends Command {
           break;
         }
         case 'update': {
-          const customTemplates = (await storage.listPhaseTemplates()).filter(t => !t.isBuiltin);
+          const customTemplates = (await this.storage.listPhaseTemplates()).filter(t => !t.isBuiltin);
           if (customTemplates.length === 0) {
             this.log('No custom templates to update. Built-in templates cannot be modified.');
-            await storage.close();
             return;
           }
-          const templateId = await this.selectTemplate(storage, 'Select template to update:', true);
-          await storage.close();
+          const templateId = await this.selectTemplate(this.storage, 'Select template to update:', true);
           if (templateId) {
             await this.config.runCommand('phase:template:update', [templateId]);
           }
           break;
         }
         case 'delete': {
-          const customTemplates = (await storage.listPhaseTemplates()).filter(t => !t.isBuiltin);
+          const customTemplates = (await this.storage.listPhaseTemplates()).filter(t => !t.isBuiltin);
           if (customTemplates.length === 0) {
             this.log('No custom templates to delete. Built-in templates cannot be deleted.');
-            await storage.close();
             return;
           }
-          const templateId = await this.selectTemplate(storage, 'Select template to delete:', true);
-          await storage.close();
+          const templateId = await this.selectTemplate(this.storage, 'Select template to delete:', true);
           if (templateId) {
             await this.config.runCommand('phase:template:delete', [templateId]);
           }
           break;
         }
       }
-    } catch (error) {
-      await storage.close();
-      throw error;
     }
   }
 

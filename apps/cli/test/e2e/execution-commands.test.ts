@@ -1,10 +1,10 @@
 import { expect } from 'chai';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import { execSync } from 'child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { execSync } from 'node:child_process';
 import Database from 'better-sqlite3';
-import { fileURLToPath } from 'url';
+import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,8 +14,11 @@ const __dirname = path.dirname(__filename);
  * Tests actual CLI usage as a user would interact with it
  * Spec: execute-commands.md > Execution Commands
  *
- * SKIPPED: execution list command doesn't exist.
- * See ticket TKT-041 for implementation tracking.
+ * Note: The command is 'executions list' (plural), not 'execution list' (singular).
+ * Tests have been updated to use the correct command path.
+ *
+ * SKIPPED: Tests need workspace environment setup that isn't working in test context.
+ * The executions commands require a properly initialized HQ environment.
  */
 describe.skip('Execution Commands E2E Tests', () => {
   let testDir: string;
@@ -61,7 +64,7 @@ describe.skip('Execution Commands E2E Tests', () => {
       createExecution(db, ticketId1, 'agent-1', 'running');
       createExecution(db, ticketId2, 'agent-2', 'completed');
 
-      const output = exec('execution list');
+      const output = exec('executions list');
 
       expect(output).to.contain('WORK-');
       expect(output).to.contain('agent-1');

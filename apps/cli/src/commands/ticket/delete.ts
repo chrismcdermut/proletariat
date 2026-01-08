@@ -1,12 +1,13 @@
-import { Command, Args, Flags } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import {
-  getPMOContext,
   autoExportToBoard,
+  PMOCommand,
+  pmoBaseFlags,
 } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class TicketDelete extends Command {
+export default class TicketDelete extends PMOCommand {
   static description = 'Delete a ticket permanently';
 
   static examples = [
@@ -23,6 +24,7 @@ export default class TicketDelete extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation prompt',
@@ -30,90 +32,73 @@ export default class TicketDelete extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketDelete);
 
-    // Get PMO context (prompts for project if multiple exist)
-    const { pmoPath, storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      true // prompt if multiple projects
-    );
+    // Get ticketId - prompt if not provided
+    let ticketId = args.ticketId;
 
-    try {
-      // Get ticketId - prompt if not provided
-      let ticketId = args.ticketId;
+    if (!ticketId) {
+      // Get all tickets for selection
+      const allTickets = await this.storage.listTickets();
 
-      if (!ticketId) {
-        // Get all tickets for selection
-        const allTickets = await storage.listTickets();
-
-        if (allTickets.length === 0) {
-          await storage.close();
-          this.error('No tickets found.');
-        }
-
-        const { selectedTicketId } = await inquirer.prompt([{
-          type: 'list',
-          name: 'selectedTicketId',
-          message: 'Select ticket to delete:',
-          choices: allTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.column})`,
-            value: t.id,
-          })),
-        }]);
-        ticketId = selectedTicketId;
+      if (allTickets.length === 0) {
+        this.error('No tickets found.');
       }
 
-      // Get ticket to show details in confirmation
-      const ticket = await storage.getTicket(ticketId!);
-      if (!ticket) {
-        await storage.close();
-        this.error(`Ticket "${ticketId}" not found.`);
-      }
-
-      // Get board for project name
-      const board = await storage.getBoard();
-
-      // Confirmation prompt (unless --force)
-      if (!flags.force) {
-        this.log(`\nDelete ticket ${styles.emphasis(ticketId)}?`);
-        this.log(`  Title: ${ticket.title}`);
-        this.log(`  Project: ${board.name}`);
-        this.log(`  Status: ${ticket.column}`);
-
-        const { confirmed } = await inquirer.prompt([{
-          type: 'list',
-          name: 'confirmed',
-          message: 'Are you sure?',
-          choices: [
-            { name: 'No, cancel', value: false },
-            { name: 'Yes, delete', value: true },
-          ],
-          default: 0,
-        }]);
-
-        if (!confirmed) {
-          await storage.close();
-          this.log(styles.warning('Deletion cancelled.'));
-          return;
-        }
-      }
-
-      // Delete ticket
-      await storage.deleteTicket(ticketId!);
-
-      // Auto-export to board.md after write
-      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
-
-      await storage.close();
-
-      this.log(styles.success(`\n✅ Ticket ${styles.emphasis(ticketId)} deleted`));
-      this.log(styles.muted('   Removed from database and board'));
-    } catch (error) {
-      await storage.close();
-      throw error;
+      const { selectedTicketId } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selectedTicketId',
+        message: 'Select ticket to delete:',
+        choices: allTickets.map(t => ({
+          name: `${t.id} - ${t.title} (${t.column})`,
+          value: t.id,
+        })),
+      }]);
+      ticketId = selectedTicketId;
     }
+
+    // Get ticket to show details in confirmation
+    const ticket = await this.storage.getTicket(ticketId!);
+    if (!ticket) {
+      this.error(`Ticket "${ticketId}" not found.`);
+    }
+
+    // Get board for project name
+    const board = await this.storage.getBoard();
+
+    // Confirmation prompt (unless --force)
+    if (!flags.force) {
+      this.log(`\nDelete ticket ${styles.emphasis(ticketId)}?`);
+      this.log(`  Title: ${ticket.title}`);
+      this.log(`  Project: ${board.name}`);
+      this.log(`  Status: ${ticket.column}`);
+
+      const { confirmed } = await inquirer.prompt([{
+        type: 'list',
+        name: 'confirmed',
+        message: 'Are you sure?',
+        choices: [
+          { name: 'No, cancel', value: false },
+          { name: 'Yes, delete', value: true },
+        ],
+        default: 0,
+      }]);
+
+      if (!confirmed) {
+        this.log(styles.warning('Deletion cancelled.'));
+        return;
+      }
+    }
+
+    // Delete ticket
+    await this.storage.deleteTicket(ticketId!);
+
+    // Auto-export to board.md after write
+    await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+
+    this.log(styles.success(`\n✅ Ticket ${styles.emphasis(ticketId)} deleted`));
+    this.log(styles.muted('   Removed from database and board'));
   }
 
 }

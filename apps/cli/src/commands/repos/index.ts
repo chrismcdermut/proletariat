@@ -1,8 +1,8 @@
-import { Command } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
 
-export default class Repos extends Command {
+export default class Repos extends PMOCommand {
   static description = 'Manage repositories in bulk';
 
   static examples = [
@@ -11,7 +11,15 @@ export default class Repos extends Command {
     '<%= config.bin %> <%= command.id %> remove',
   ];
 
-  async run(): Promise<void> {
+  static flags = {
+    ...pmoBaseFlags,
+  };
+
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     this.log(colors.primary('📦 Repository Management (Bulk Operations)'));
     this.log('');
 

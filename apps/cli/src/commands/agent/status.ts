@@ -1,17 +1,17 @@
-import { Command, Args } from '@oclif/core';
+import { Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { colors, format } from '../../lib/colors.js';
-import { 
-  getWorkspaceInfo, 
-  getAgentStatus,
-  formatTimeAgo
+import {
+  getWorkspaceInfo,
+  getAgentStatus
 } from '../../lib/agents/commands.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 
-export default class Status extends Command {
+export default class Status extends PMOCommand {
   static description = 'Show detailed status for a specific agent';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> camry',
+    '<%= config.bin %> <%= command.id %> agent-1',
     '<%= config.bin %> <%= command.id %>',
   ];
 
@@ -22,43 +22,44 @@ export default class Status extends Command {
     }),
   };
 
-  static flags = {};
+  static flags = {
+    ...pmoBaseFlags,
+  };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { args } = await this.parse(Status);
-    
-    try {
-      // Get workspace information
-      const workspaceInfo = getWorkspaceInfo();
-      
-      if (workspaceInfo.agents.length === 0) {
-        this.log(colors.warning('No agents found. Add agents with "prlt agents add"'));
-        return;
-      }
 
-      let agentName = args.name;
+    // Get workspace information
+    const workspaceInfo = getWorkspaceInfo();
 
-      // Interactive mode if no agent specified
-      if (!agentName) {
-        const { selected } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selected',
-            message: 'Select agent to view status:',
-            choices: workspaceInfo.agents.map((agent: any) => ({ 
-              name: agent.name, 
-              value: agent.name 
-            }))
-          }
-        ]);
-        agentName = selected;
-      }
-
-      await this.showDetailedStatus(workspaceInfo, agentName!);
-      
-    } catch (error) {
-      this.error(error instanceof Error ? error.message : String(error));
+    if (workspaceInfo.agents.length === 0) {
+      this.log(colors.warning('No agents found. Add agents with "prlt agents add"'));
+      return;
     }
+
+    let agentName = args.name;
+
+    // Interactive mode if no agent specified
+    if (!agentName) {
+      const { selected } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selected',
+          message: 'Select agent to view status:',
+          choices: workspaceInfo.agents.map((agent: any) => ({
+            name: agent.name,
+            value: agent.name
+          }))
+        }
+      ]);
+      agentName = selected;
+    }
+
+    await this.showDetailedStatus(workspaceInfo, agentName!);
   }
 
   private async showDetailedStatus(workspaceInfo: any, agentName: string): Promise<void> {
@@ -99,7 +100,7 @@ export default class Status extends Command {
       for (const repo of agentStatus.repositories) {
         let statusText = '';
         let statusColor = colors.textMuted;
-        
+
         switch (repo.status) {
           case 'clean':
             statusText = 'clean';
@@ -117,12 +118,12 @@ export default class Status extends Command {
             statusText = repo.status;
             statusColor = colors.textMuted;
         }
-        
+
         let repoLine = `   • ${colors.text(repo.name)} (${statusColor(statusText)})`;
         if (repo.commitsAhead > 0) {
           repoLine += colors.commitsAhead(` ${repo.commitsAhead} commits ahead`);
         }
-        
+
         this.log(repoLine);
       }
     }
@@ -140,18 +141,6 @@ export default class Status extends Command {
           this.log(`   Completed: ${colors.textMuted(agentStatus.completedTickets.length + ' ticket(s)')}`);
         }
       }
-    }
-
-    // Activity
-    this.log(format.subtitle('\n⚡ Activity:'));
-    if (agentStatus.lastActivity) {
-      const timeAgo = formatTimeAgo(agentStatus.lastActivity);
-      const color = agentStatus.lastActivity.getTime() > (Date.now() - 24 * 60 * 60 * 1000) 
-        ? colors.success 
-        : colors.warning;
-      this.log(`   Last activity: ${color(timeAgo)}`);
-    } else {
-      this.log(colors.textMuted('   No recent activity detected'));
     }
   }
 }

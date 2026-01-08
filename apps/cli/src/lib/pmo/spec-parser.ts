@@ -5,7 +5,7 @@
  * Uses the new simplified spec format with frontmatter.
  */
 
-import * as fs from 'fs';
+import * as fs from 'node:fs';
 import matter from 'gray-matter';
 import {
   SpecFrontmatter,

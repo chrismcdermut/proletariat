@@ -1,15 +1,14 @@
-import { Command, Args } from '@oclif/core';
+import { Args } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { colors, format } from '../../lib/colors.js';
 import {
   findHQRoot,
   promptSelectRepo,
   getWorkspaceRepoInfo,
-  getRepoStatus
 } from '../../lib/repos/index.js';
 import { openWorkspaceDatabase } from '../../lib/database/index.js';
-import * as path from 'path';
 
-export default class View extends Command {
+export default class View extends PMOCommand {
   static description = 'View detailed information about a repository';
 
   static examples = [
@@ -24,7 +23,15 @@ export default class View extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  static flags = {
+    ...pmoBaseFlags,
+  };
+
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { args } = await this.parse(View);
 
     // Find HQ root
