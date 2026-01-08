@@ -373,6 +373,7 @@ describe('PMO SQLite Storage', () => {
                 subtasks: [
                   { id: 'sub-1', title: 'Subtask', done: false },
                 ],
+                labels: [],
                 metadata: {},
                 createdAt: new Date(),
                 updatedAt: new Date(),
