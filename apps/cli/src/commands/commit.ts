@@ -23,11 +23,14 @@ export const COMMIT_FORMATS = {
     format: (ctx: FormatContext) =>
       ctx.ticketId ? `${ctx.type}(${ctx.ticketId}): ${ctx.message}` : `${ctx.type}: ${ctx.message}`,
   },
-  'conventional-scope': {
-    description: 'Conventional commits with agent as scope',
-    example: 'feat(bezos): add login',
-    format: (ctx: FormatContext) =>
-      ctx.agent ? `${ctx.type}(${ctx.agent}): ${ctx.message}` : `${ctx.type}: ${ctx.message}`,
+  'full-context': {
+    description: 'Ticket, type, and agent prefix',
+    example: 'TKT-053/feat/bezos: add login',
+    format: (ctx: FormatContext) => {
+      if (ctx.ticketId && ctx.agent) return `${ctx.ticketId}/${ctx.type}/${ctx.agent}: ${ctx.message}`
+      if (ctx.ticketId) return `${ctx.ticketId}/${ctx.type}: ${ctx.message}`
+      return `${ctx.type}: ${ctx.message}`
+    },
   },
   'ticket-first': {
     description: 'Ticket ID first, then type',
@@ -42,15 +45,6 @@ export const COMMIT_FORMATS = {
       if (ctx.ticketId && ctx.agent) return `${ctx.ticketId}/${ctx.agent}: ${ctx.message}`
       if (ctx.ticketId) return `${ctx.ticketId}: ${ctx.message}`
       return ctx.message
-    },
-  },
-  'full-context': {
-    description: 'Ticket, type, and agent prefix',
-    example: 'TKT-053/feat/bezos: add login',
-    format: (ctx: FormatContext) => {
-      if (ctx.ticketId && ctx.agent) return `${ctx.ticketId}/${ctx.type}/${ctx.agent}: ${ctx.message}`
-      if (ctx.ticketId) return `${ctx.ticketId}/${ctx.type}: ${ctx.message}`
-      return `${ctx.type}: ${ctx.message}`
     },
   },
   'ticket-suffix': {
@@ -74,7 +68,7 @@ export const COMMIT_FORMATS = {
 } as const
 
 export type CommitFormat = keyof typeof COMMIT_FORMATS
-export const DEFAULT_COMMIT_FORMAT: CommitFormat = 'ticket-first'
+export const DEFAULT_COMMIT_FORMAT: CommitFormat = 'conventional'
 
 /**
  * Get current git branch name.
@@ -116,14 +110,13 @@ export default class Commit extends Command {
 
   static examples = [
     '<%= config.bin %> <%= command.id %> "add user authentication"',
-    '<%= config.bin %> <%= command.id %> -f conventional "add login"       # feat(TKT-053): add login',
-    '<%= config.bin %> <%= command.id %> -f conventional-scope "add login" # feat(bezos): add login',
-    '<%= config.bin %> <%= command.id %> -f ticket-first "add login"       # TKT-053: feat: add login',
-    '<%= config.bin %> <%= command.id %> -f with-agent "add login"         # TKT-053/bezos: add login',
-    '<%= config.bin %> <%= command.id %> -f full-context "add login"       # TKT-053/feat/bezos: add login',
-    '<%= config.bin %> <%= command.id %> -t fix "resolve bug"              # override type',
-    '<%= config.bin %> <%= command.id %> --all "update dependencies"       # stage all + commit',
-    '<%= config.bin %> <%= command.id %> --formats                         # list available formats',
+    '<%= config.bin %> <%= command.id %> -f conventional "add login"   # feat(TKT-053): add login (default)',
+    '<%= config.bin %> <%= command.id %> -f full-context "add login"   # TKT-053/feat/bezos: add login',
+    '<%= config.bin %> <%= command.id %> -f ticket-first "add login"   # TKT-053: feat: add login',
+    '<%= config.bin %> <%= command.id %> -f with-agent "add login"     # TKT-053/bezos: add login',
+    '<%= config.bin %> <%= command.id %> -t fix "resolve bug"          # override type',
+    '<%= config.bin %> <%= command.id %> --all "update dependencies"   # stage all + commit',
+    '<%= config.bin %> <%= command.id %> --formats                     # list available formats',
   ]
 
   static args = {
