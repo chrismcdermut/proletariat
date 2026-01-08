@@ -48,10 +48,10 @@ export default class WorkComplete extends PMOCommand {
       let ticketId = args.ticketId;
 
       if (!ticketId) {
-        // Get all tickets that could be completed (in progress)
+        // Get all tickets that could be completed (in progress / started)
         const allTickets = await this.storage.listTickets();
         const completableTickets = allTickets.filter(t =>
-          t.status === 'in_progress' || (t.column && t.column.toLowerCase().includes('progress'))
+          t.statusCategory === 'started' || (t.column && t.column.toLowerCase().includes('progress'))
         );
 
         if (completableTickets.length === 0) {
@@ -92,10 +92,7 @@ export default class WorkComplete extends PMOCommand {
 
       const previousColumn = ticket.column;
 
-      // Update ticket status
-      await this.storage.updateTicket(ticketId!, { status: 'done' });
-
-      // Move to Done column
+      // Move to Done column (moveTicket also updates status_id)
       await this.storage.moveTicket(ticketId!, doneColumn);
 
       // Auto-export to board.md if configured

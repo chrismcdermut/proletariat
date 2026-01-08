@@ -77,10 +77,10 @@ export default class WorkReady extends PMOCommand {
       let ticketId = args.ticketId;
 
       if (!ticketId) {
-        // Get all in-progress tickets for selection
+        // Get all in-progress (started) tickets for selection
         const allTickets = await this.storage.listTickets();
         const inProgressTickets = allTickets.filter(t =>
-          t.column && t.column.toLowerCase().includes('progress')
+          t.statusCategory === 'started' || (t.column && t.column.toLowerCase().includes('progress'))
         );
 
         if (inProgressTickets.length === 0) {
@@ -122,8 +122,7 @@ export default class WorkReady extends PMOCommand {
 
       const previousColumn = ticket.column;
 
-      // Update ticket status to done and move to Done column
-      await this.storage.updateTicket(ticketId!, { status: 'done' });
+      // Move to Done column (moveTicket also updates status_id)
       await this.storage.moveTicket(ticketId!, doneColumn);
 
       // Auto-export to board.md if configured
