@@ -1,12 +1,20 @@
-import { Command } from '@oclif/core'
 import inquirer from 'inquirer'
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 
-export default class Executions extends Command {
+export default class Executions extends PMOCommand {
   static description = 'Overview and bulk operations for agent executions'
 
   static examples = ['<%= config.bin %> <%= command.id %>']
 
-  async run(): Promise<void> {
+  static flags = {
+    ...pmoBaseFlags,
+  }
+
+  protected getPMOOptions() {
+    return { promptIfMultiple: false }
+  }
+
+  async execute(): Promise<void> {
     const { action } = await inquirer.prompt([
       {
         type: 'list',

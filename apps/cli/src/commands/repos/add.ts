@@ -1,4 +1,4 @@
-import { Command } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { colors, format } from '../../lib/colors.js';
 import {
   findHQRoot,
@@ -7,14 +7,22 @@ import {
 } from '../../lib/repos/index.js';
 import { getWorkspaceRepositories } from '../../lib/database/index.js';
 
-export default class Add extends Command {
+export default class Add extends PMOCommand {
   static description = 'Add multiple repositories to the HQ';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
   ];
 
-  async run(): Promise<void> {
+  static flags = {
+    ...pmoBaseFlags,
+  };
+
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     // Find HQ root
     const hqPath = findHQRoot();
     if (!hqPath) {

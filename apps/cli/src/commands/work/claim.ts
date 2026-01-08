@@ -1,11 +1,11 @@
-import { Command, Args, Flags } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import inquirer from 'inquirer'
-import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
+import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import { TicketStatus } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 
-export default class WorkClaim extends Command {
+export default class WorkClaim extends PMOCommand {
   static description = 'Claim work: take ownership and assign to yourself or an agent'
 
   static examples = [
@@ -23,6 +23,7 @@ export default class WorkClaim extends Command {
   }
 
   static flags = {
+    ...pmoBaseFlags,
     self: Flags.boolean({
       description: 'Assign to yourself (skip prompt)',
       default: false,
@@ -32,7 +33,7 @@ export default class WorkClaim extends Command {
     }),
   }
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkClaim)
 
     // Get current user
@@ -47,127 +48,112 @@ export default class WorkClaim extends Command {
       // Not in workspace
     }
 
-    // Get PMO context
-    const { pmoPath, storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    )
+    // Get ticketId - prompt if not provided
+    let ticketId = args.ticketId
 
-    try {
-      // Get ticketId - prompt if not provided
-      let ticketId = args.ticketId
+    if (!ticketId) {
+      const allTickets = await this.storage.listTickets()
+      // Filter to unassigned or backlog tickets
+      const availableTickets = allTickets.filter(
+        (t) => !t.assignee || t.status === 'backlog'
+      )
 
-      if (!ticketId) {
-        const allTickets = await storage.listTickets()
-        // Filter to unassigned or backlog tickets
-        const availableTickets = allTickets.filter(
-          (t) => !t.assignee || t.status === 'backlog'
-        )
-
-        if (availableTickets.length === 0) {
-          await storage.close()
-          this.error('No available tickets to claim.')
-        }
-
-        const { selectedTicketId } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedTicketId',
-            message: 'Select ticket to claim:',
-            choices: availableTickets.map((t) => ({
-              name: `${t.id} - ${t.title} (${t.status}${t.assignee ? `, assignee: ${t.assignee}` : ''})`,
-              value: t.id,
-            })),
-          },
-        ])
-        ticketId = selectedTicketId
+      if (availableTickets.length === 0) {
+        this.error('No available tickets to claim.')
       }
 
-      // Get ticket
-      const ticket = await storage.getTicket(ticketId!)
-      if (!ticket) {
-        await storage.close()
-        this.error(`Ticket "${ticketId}" not found.`)
-      }
-
-      this.log('')
-      this.log(styles.header(`Claiming ${ticketId}: ${ticket.title}`))
-      this.log(styles.muted('You will be the owner (accountable for completion).'))
-      this.log('')
-
-      // Determine executor
-      let executor: string
-      let executeAgent = false
-
-      if (flags.self) {
-        executor = currentUser
-      } else if (flags.agent) {
-        executor = flags.agent
-        executeAgent = true
-      } else {
-        // Interactive prompt
-        const executorChoices: Array<{ name: string; value: string } | inquirer.Separator> = [
-          { name: 'Me (I\'ll work on it myself)', value: '__self__' },
-        ]
-
-        if (workspaceAgents.length > 0) {
-          executorChoices.push(new inquirer.Separator('── Agents ──'))
-          for (const a of workspaceAgents) {
-            executorChoices.push({ name: a, value: a })
-          }
-        }
-
-        const { selectedExecutor } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedExecutor',
-            message: 'Who will do the work?',
-            choices: executorChoices,
-          },
-        ])
-
-        if (selectedExecutor === '__self__') {
-          executor = currentUser
-        } else {
-          executor = selectedExecutor
-          executeAgent = true
-        }
-      }
-
-      // Update ticket
-      const updates: { owner: string; assignee: string; status?: TicketStatus } = {
-        owner: currentUser,
-        assignee: executor,
-      }
-
-      // If self, move to in_progress
-      if (!executeAgent) {
-        updates.status = 'in_progress' as TicketStatus
-      }
-
-      await storage.updateTicket(ticketId!, updates)
-      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
-      await storage.close()
-
-      this.log('')
-      this.log(styles.success(`Claimed ${styles.emphasis(ticketId!)}`))
-      this.log(styles.muted(`   Owner: ${currentUser}`))
-      this.log(styles.muted(`   Assignee: ${executor}`))
-
-      if (!executeAgent) {
-        this.log(styles.muted(`   Status: In Progress`))
-        this.log('')
-        this.log(styles.muted('You\'re now working on this ticket.'))
-      } else {
-        this.log('')
-        this.log(styles.muted(`To start agent: prlt work start ${ticketId}`))
-      }
-      this.log('')
-    } catch (error) {
-      await storage.close()
-      throw error
+      const { selectedTicketId } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selectedTicketId',
+          message: 'Select ticket to claim:',
+          choices: availableTickets.map((t) => ({
+            name: `${t.id} - ${t.title} (${t.status}${t.assignee ? `, assignee: ${t.assignee}` : ''})`,
+            value: t.id,
+          })),
+        },
+      ])
+      ticketId = selectedTicketId
     }
+
+    // Get ticket
+    const ticket = await this.storage.getTicket(ticketId!)
+    if (!ticket) {
+      this.error(`Ticket "${ticketId}" not found.`)
+    }
+
+    this.log('')
+    this.log(styles.header(`Claiming ${ticketId}: ${ticket.title}`))
+    this.log(styles.muted('You will be the owner (accountable for completion).'))
+    this.log('')
+
+    // Determine executor
+    let executor: string
+    let executeAgent = false
+
+    if (flags.self) {
+      executor = currentUser
+    } else if (flags.agent) {
+      executor = flags.agent
+      executeAgent = true
+    } else {
+      // Interactive prompt
+      const executorChoices: Array<{ name: string; value: string } | inquirer.Separator> = [
+        { name: 'Me (I\'ll work on it myself)', value: '__self__' },
+      ]
+
+      if (workspaceAgents.length > 0) {
+        executorChoices.push(new inquirer.Separator('── Agents ──'))
+        for (const a of workspaceAgents) {
+          executorChoices.push({ name: a, value: a })
+        }
+      }
+
+      const { selectedExecutor } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selectedExecutor',
+          message: 'Who will do the work?',
+          choices: executorChoices,
+        },
+      ])
+
+      if (selectedExecutor === '__self__') {
+        executor = currentUser
+      } else {
+        executor = selectedExecutor
+        executeAgent = true
+      }
+    }
+
+    // Update ticket
+    const updates: { owner: string; assignee: string; status?: TicketStatus } = {
+      owner: currentUser,
+      assignee: executor,
+    }
+
+    // If self, move to in_progress
+    if (!executeAgent) {
+      updates.status = 'in_progress' as TicketStatus
+    }
+
+    await this.storage.updateTicket(ticketId!, updates)
+    await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
+
+    this.log('')
+    this.log(styles.success(`Claimed ${styles.emphasis(ticketId!)}`))
+    this.log(styles.muted(`   Owner: ${currentUser}`))
+    this.log(styles.muted(`   Assignee: ${executor}`))
+
+    if (!executeAgent) {
+      this.log(styles.muted(`   Status: In Progress`))
+      this.log('')
+      this.log(styles.muted('You\'re now working on this ticket.'))
+    } else {
+      this.log('')
+      this.log(styles.muted(`To start agent: prlt work start ${ticketId}`))
+    }
+    this.log('')
   }
 
   private getCurrentUser(): string {

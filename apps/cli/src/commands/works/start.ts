@@ -1,8 +1,8 @@
-import { Command, Flags } from '@oclif/core'
+import { Flags } from '@oclif/core'
 import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
-import { getPMOContext } from '../../lib/pmo/index.js'
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
@@ -15,7 +15,7 @@ import {
 import { DisplayMode, ExecutionEnvironment } from '../../lib/execution/types.js'
 import { promptExecutionSettings } from '../../lib/execution/config.js'
 
-export default class WorksStart extends Command {
+export default class WorksStart extends PMOCommand {
   static description = 'Start work on multiple tickets (bulk spawn)'
 
   static examples = [
@@ -30,6 +30,7 @@ export default class WorksStart extends Command {
   static strict = false  // Allow multiple ticket ID args without defining them
 
   static flags = {
+    ...pmoBaseFlags,
     column: Flags.string({
       char: 'c',
       description: 'Column to spawn tickets from (prompts if not provided)',
@@ -72,7 +73,7 @@ export default class WorksStart extends Command {
     }),
   }
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { flags, argv } = await this.parse(WorksStart)
 
     // Parse ticket IDs from args (everything after flags)
@@ -90,13 +91,6 @@ export default class WorksStart extends Command {
       this.error('No agents found in workspace. Add agents first with "prlt agents add".')
     }
 
-    // Get PMO context
-    const { pmoPath, storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    )
-
     // Open database for execution storage
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
     const db = new Database(dbPath)
@@ -113,11 +107,10 @@ export default class WorksStart extends Command {
       } else {
         // Otherwise, prompt for column and let user select tickets interactively
         // Get board columns for selection
-        const board = await storage.getBoard()
+        const board = await this.storage.getBoard()
         const columns = board.columns.map(col => col.name)
 
         if (columns.length === 0) {
-          await storage.close()
           db.close()
           this.error('No columns found in board. Initialize board first.')
         }
@@ -148,7 +141,6 @@ export default class WorksStart extends Command {
         const ticketsInColumn = column?.tickets || []
 
         if (ticketsInColumn.length === 0) {
-          await storage.close()
           db.close()
           this.error(`No tickets found in column "${columnName}".`)
         }
@@ -176,7 +168,6 @@ export default class WorksStart extends Command {
         selectedTicketIds = selectedTickets
 
         if (selectedTicketIds.length === 0) {
-          await storage.close()
           db.close()
           this.log(styles.muted('\nNo tickets selected. Exiting.\n'))
           return
@@ -288,11 +279,11 @@ export default class WorksStart extends Command {
       // For now, use spawnForColumn with a filter by modifying the options
       const result = await spawnForColumn(
         columnName || 'In Progress',  // Use column if interactive, otherwise default
-        storage,
+        this.storage,
         executionStorage,
         workspaceInfo,
         db,
-        pmoPath,
+        this.pmoPath,
         {
           strategy: flags.strategy as AgentStrategy,
           specificAgent: flags.agent,
@@ -343,7 +334,6 @@ export default class WorksStart extends Command {
         this.log('')
       }
 
-      await storage.close()
       db.close()
     } catch (error) {
       db.close()

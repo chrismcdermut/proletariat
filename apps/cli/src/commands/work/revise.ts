@@ -1,10 +1,10 @@
-import { Command, Args, Flags } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { execSync } from 'node:child_process'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
-import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
+import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
@@ -31,7 +31,7 @@ import {
   formatPRFeedbackForPrompt,
 } from '../../lib/pr/index.js'
 
-export default class WorkRevise extends Command {
+export default class WorkRevise extends PMOCommand {
   static description = 'Address PR feedback on a ticket (fetches reviews/comments and spawns agent)'
 
   static examples = [
@@ -47,6 +47,7 @@ export default class WorkRevise extends Command {
   }
 
   static flags = {
+    ...pmoBaseFlags,
     mode: Flags.string({
       char: 'm',
       description: 'Runtime mode',
@@ -68,7 +69,7 @@ export default class WorkRevise extends Command {
     }),
   }
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkRevise)
 
     // Check gh CLI is available
@@ -94,13 +95,6 @@ export default class WorkRevise extends Command {
       this.error('Not in a workspace. Run "prlt init" first.')
     }
 
-    // Get PMO context
-    const { pmoPath, storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    )
-
     // Open database
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
     const db = new Database(dbPath)
@@ -111,7 +105,7 @@ export default class WorkRevise extends Command {
       let ticketId = args.ticketId
 
       if (!ticketId) {
-        const allTickets = await storage.listTickets()
+        const allTickets = await this.storage.listTickets()
         // Filter to done tickets that have a PR (may need revision based on PR feedback)
         const reviewTickets = allTickets.filter(t => {
           const isDone = t.status === 'done' || (t.column && t.column.toLowerCase().includes('done'))
@@ -120,7 +114,6 @@ export default class WorkRevise extends Command {
         })
 
         if (reviewTickets.length === 0) {
-          await storage.close()
           db.close()
           this.log(styles.info('No done tickets with PRs found.'))
           this.log(styles.muted('Use "prlt work start" for new work.'))
@@ -142,9 +135,8 @@ export default class WorkRevise extends Command {
       }
 
       // Get ticket
-      const ticket = await storage.getTicket(ticketId!)
+      const ticket = await this.storage.getTicket(ticketId!)
       if (!ticket) {
-        await storage.close()
         db.close()
         this.error(`Ticket "${ticketId}" not found.`)
       }
@@ -152,7 +144,6 @@ export default class WorkRevise extends Command {
       // Get PR URL from ticket metadata
       const prUrl = ticket.metadata?.pr_url as string | undefined
       if (!prUrl) {
-        await storage.close()
         db.close()
         this.error(`Ticket "${ticketId}" has no PR linked.\nCreate a PR first with "prlt pr create ${ticketId}".`)
       }
@@ -161,14 +152,12 @@ export default class WorkRevise extends Command {
       this.log(styles.muted('Fetching PR feedback...'))
       const feedback = getPRFeedback(prUrl)
       if (!feedback) {
-        await storage.close()
         db.close()
         this.error(`Could not fetch PR feedback for ${prUrl}`)
       }
 
       // Check if there's actually feedback to address
       if (!hasPendingFeedback(feedback) && !flags.force) {
-        await storage.close()
         db.close()
         this.log(styles.success('No pending feedback to address!'))
         this.log(styles.muted(`PR: ${feedback.prUrl}`))
@@ -182,7 +171,6 @@ export default class WorkRevise extends Command {
       // Get assignee
       const agentName = ticket.assignee
       if (!agentName) {
-        await storage.close()
         db.close()
         this.error(`Ticket "${ticketId}" has no assignee. Assign an agent first.`)
       }
@@ -190,7 +178,6 @@ export default class WorkRevise extends Command {
       // Check if agent exists
       const agentInfo = workspaceInfo.agents.find((a) => a.name === agentName)
       if (!agentInfo) {
-        await storage.close()
         db.close()
         this.error(
           `Agent "${agentName}" not found in workspace.\n` +
@@ -201,7 +188,6 @@ export default class WorkRevise extends Command {
       // Check for running execution
       const runningExecution = executionStorage.getRunningExecution(ticketId!)
       if (runningExecution) {
-        await storage.close()
         db.close()
         this.error(
           `Ticket "${ticketId}" already has work in progress: ${runningExecution.id}\n` +
@@ -212,7 +198,6 @@ export default class WorkRevise extends Command {
       // Find worktree path
       const agentDir = path.join(workspaceInfo.agentsPath, agentName)
       if (!fs.existsSync(agentDir)) {
-        await storage.close()
         db.close()
         this.error(`Agent directory not found at ${agentDir}.`)
       }
@@ -239,7 +224,7 @@ export default class WorkRevise extends Command {
       const branch = (ticket.metadata?.pr_branch as string) || this.getCurrentBranch(worktreePath)
 
       // Build execution context
-      const hqPath = path.dirname(pmoPath)
+      const hqPath = path.dirname(this.pmoPath)
       const context: ExecutionContext = {
         ticketId: ticket.id,
         ticketTitle: ticket.title,
@@ -293,8 +278,8 @@ export default class WorkRevise extends Command {
           name: 'permissionMode',
           message: 'Permission mode for Claude Code:',
           choices: [
-            { name: '⚠️  danger - Skip permission checks (faster for revisions)', value: 'danger' },
-            { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+            { name: 'danger - Skip permission checks (faster for revisions)', value: 'danger' },
+            { name: 'safe   - Requires approval for dangerous operations', value: 'safe' },
           ],
           default: 'danger',
         },
@@ -305,7 +290,7 @@ export default class WorkRevise extends Command {
 
       // Show execution info
       this.log('')
-      this.log(styles.header(`🔄 Revising: ${ticket.id}: ${ticket.title}`))
+      this.log(styles.header(`Revising: ${ticket.id}: ${ticket.title}`))
       this.log(styles.muted(`   Agent: ${agentName}`))
       this.log(styles.muted(`   PR: ${feedback.prUrl}`))
       this.log(styles.muted(`   Reviews: ${feedback.reviews.length}`))
@@ -349,16 +334,16 @@ export default class WorkRevise extends Command {
 
       // Move ticket back to In Progress column
       const inProgressColumnName = getWorkColumnSetting(db, 'in_progress')
-      const board = await storage.getBoard()
+      const board = await this.storage.getBoard()
       const columnNames = board.columns.map(col => col.name)
       const inProgressColumn = findColumnByName(columnNames, inProgressColumnName)
 
       if (inProgressColumn && ticket.column !== inProgressColumn) {
-        await storage.moveTicket(ticket.id, inProgressColumn)
+        await this.storage.moveTicket(ticket.id, inProgressColumn)
         this.log(styles.muted(`   Moved to: ${inProgressColumn}`))
       }
 
-      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
+      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
 
       // Load execution config
       const executionConfig = loadExecutionConfig(db)
@@ -402,7 +387,7 @@ export default class WorkRevise extends Command {
         })
 
         this.log('')
-        this.log(styles.success(`✓ Revision started (${execution.id})`))
+        this.log(styles.success(`Revision started (${execution.id})`))
         this.log('')
 
         if (mode !== 'foreground') {
@@ -415,7 +400,6 @@ export default class WorkRevise extends Command {
         this.error(`Failed to start revision: ${result.error}`)
       }
 
-      await storage.close()
       db.close()
     } catch (error) {
       db.close()

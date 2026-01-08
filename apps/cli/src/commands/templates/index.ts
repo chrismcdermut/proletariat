@@ -1,8 +1,8 @@
-import { Command } from '@oclif/core';
 import inquirer from 'inquirer';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { colors } from '../../lib/colors.js';
 
-export default class Templates extends Command {
+export default class Templates extends PMOCommand {
   static description = 'Manage workflow templates in bulk';
 
   static examples = [
@@ -10,7 +10,15 @@ export default class Templates extends Command {
     '<%= config.bin %> <%= command.id %> delete',
   ];
 
-  async run(): Promise<void> {
+  static flags = {
+    ...pmoBaseFlags,
+  };
+
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     this.log(colors.primary('📋 Template Management (Bulk Operations)'));
     this.log('');
 

@@ -1,4 +1,4 @@
-import { Command, Args } from '@oclif/core';
+import { Args } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { execSync, spawn } from 'node:child_process';
@@ -10,8 +10,9 @@ import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js';
 import { getTerminalApp } from '../../lib/execution/config.js';
 import { TerminalApp } from '../../lib/execution/types.js';
 import { isDockerRunning } from '../../lib/execution/runners.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 
-export default class Shell extends Command {
+export default class Shell extends PMOCommand {
   static description = 'Open an interactive shell in an agent workspace';
 
   static examples = [
@@ -26,105 +27,106 @@ export default class Shell extends Command {
     }),
   };
 
-  static flags = {};
+  static flags = {
+    ...pmoBaseFlags,
+  };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { args } = await this.parse(Shell);
 
-    try {
-      // Get workspace information
-      const workspaceInfo = getWorkspaceInfo();
+    // Get workspace information
+    const workspaceInfo = getWorkspaceInfo();
 
-      if (workspaceInfo.agents.length === 0) {
-        this.log(colors.warning('No agents found. Add agents with "prlt agent add"'));
-        return;
-      }
+    if (workspaceInfo.agents.length === 0) {
+      this.log(colors.warning('No agents found. Add agents with "prlt agent add"'));
+      return;
+    }
 
-      let agentName = args.name;
+    let agentName = args.name;
 
-      // Interactive mode if no agent specified
-      if (!agentName) {
-        const { selected } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selected',
-            message: 'Select agent to open shell in:',
-            choices: workspaceInfo.agents.map(agent => ({
-              name: agent.name,
-              value: agent.name
-            }))
-          }
-        ]);
-        agentName = selected;
-      }
-
-      // Validate agent exists
-      const agent = workspaceInfo.agents.find(a => a.name === agentName);
-      if (!agent) {
-        this.error(`Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map(a => a.name).join(', ')}`);
-      }
-
-      const agentDir = path.join(workspaceInfo.agentsPath, agentName!);
-
-      // Check if agent has devcontainer
-      const hasDevcontainer = hasDevcontainerConfig(agentDir);
-
-      // Prompt for environment
-      let environment: 'devcontainer' | 'host' = 'host';
-      if (hasDevcontainer) {
-        const { selectedEnvironment } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedEnvironment',
-            message: 'Where should the shell run?',
-            choices: [
-              { name: '🐳 devcontainer (recommended)', value: 'devcontainer' },
-              { name: '💻 host (agent worktree on your machine)', value: 'host' },
-            ],
-            default: 'devcontainer',
-          },
-        ]);
-        environment = selectedEnvironment;
-      }
-
-      // Prompt for display mode and permission mode
-      const { displayMode, permissionMode } = await inquirer.prompt([
+    // Interactive mode if no agent specified
+    if (!agentName) {
+      const { selected } = await inquirer.prompt([
         {
           type: 'list',
-          name: 'displayMode',
-          message: 'How should the shell be opened?',
-          choices: [
-            { name: 'terminal     - New terminal window', value: 'terminal' },
-            { name: 'foreground   - Run in current terminal', value: 'foreground' },
-          ],
-          default: 'terminal',
-        },
+          name: 'selected',
+          message: 'Select agent to open shell in:',
+          choices: workspaceInfo.agents.map(agent => ({
+            name: agent.name,
+            value: agent.name
+          }))
+        }
+      ]);
+      agentName = selected;
+    }
+
+    // Validate agent exists
+    const agent = workspaceInfo.agents.find(a => a.name === agentName);
+    if (!agent) {
+      this.error(`Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map(a => a.name).join(', ')}`);
+    }
+
+    const agentDir = path.join(workspaceInfo.agentsPath, agentName!);
+
+    // Check if agent has devcontainer
+    const hasDevcontainer = hasDevcontainerConfig(agentDir);
+
+    // Prompt for environment
+    let environment: 'devcontainer' | 'host' = 'host';
+    if (hasDevcontainer) {
+      const { selectedEnvironment } = await inquirer.prompt([
         {
           type: 'list',
-          name: 'permissionMode',
-          message: 'Permission mode for Claude Code:',
+          name: 'selectedEnvironment',
+          message: 'Where should the shell run?',
           choices: [
-            { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
-            { name: '⚠️  danger - Skip permission checks', value: 'danger' },
+            { name: '🐳 devcontainer (recommended)', value: 'devcontainer' },
+            { name: '💻 host (agent worktree on your machine)', value: 'host' },
           ],
-          default: 'safe',
+          default: 'devcontainer',
         },
       ]);
+      environment = selectedEnvironment;
+    }
 
-      this.log('');
-      this.log(colors.primary(`🐚 Opening shell for agent: ${agentName}`));
-      this.log('');
+    // Prompt for display mode and permission mode
+    const { displayMode, permissionMode } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'displayMode',
+        message: 'How should the shell be opened?',
+        choices: [
+          { name: 'terminal     - New terminal window', value: 'terminal' },
+          { name: 'foreground   - Run in current terminal', value: 'foreground' },
+        ],
+        default: 'terminal',
+      },
+      {
+        type: 'list',
+        name: 'permissionMode',
+        message: 'Permission mode for Claude Code:',
+        choices: [
+          { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+          { name: '⚠️  danger - Skip permission checks', value: 'danger' },
+        ],
+        default: 'safe',
+      },
+    ]);
 
-      const dangerMode = permissionMode === 'danger';
+    this.log('');
+    this.log(colors.primary(`🐚 Opening shell for agent: ${agentName}`));
+    this.log('');
 
-      if (environment === 'devcontainer') {
-        await this.openDevcontainerShell(workspaceInfo.path, agentDir, agentName!, displayMode, dangerMode);
-      } else {
-        await this.openHostShell(workspaceInfo.path, agentDir, agentName!, displayMode, dangerMode);
-      }
+    const dangerMode = permissionMode === 'danger';
 
-    } catch (error) {
-      this.error(error instanceof Error ? error.message : String(error));
+    if (environment === 'devcontainer') {
+      await this.openDevcontainerShell(workspaceInfo.path, agentDir, agentName!, displayMode, dangerMode);
+    } else {
+      await this.openHostShell(workspaceInfo.path, agentDir, agentName!, displayMode, dangerMode);
     }
   }
 

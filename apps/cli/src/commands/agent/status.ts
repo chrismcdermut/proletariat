@@ -1,12 +1,13 @@
-import { Command, Args } from '@oclif/core';
+import { Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { colors, format } from '../../lib/colors.js';
 import {
   getWorkspaceInfo,
   getAgentStatus
 } from '../../lib/agents/commands.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 
-export default class Status extends Command {
+export default class Status extends PMOCommand {
   static description = 'Show detailed status for a specific agent';
 
   static examples = [
@@ -21,43 +22,44 @@ export default class Status extends Command {
     }),
   };
 
-  static flags = {};
+  static flags = {
+    ...pmoBaseFlags,
+  };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { args } = await this.parse(Status);
 
-    try {
-      // Get workspace information
-      const workspaceInfo = getWorkspaceInfo();
+    // Get workspace information
+    const workspaceInfo = getWorkspaceInfo();
 
-      if (workspaceInfo.agents.length === 0) {
-        this.log(colors.warning('No agents found. Add agents with "prlt agents add"'));
-        return;
-      }
-
-      let agentName = args.name;
-
-      // Interactive mode if no agent specified
-      if (!agentName) {
-        const { selected } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selected',
-            message: 'Select agent to view status:',
-            choices: workspaceInfo.agents.map((agent: any) => ({
-              name: agent.name,
-              value: agent.name
-            }))
-          }
-        ]);
-        agentName = selected;
-      }
-
-      await this.showDetailedStatus(workspaceInfo, agentName!);
-
-    } catch (error) {
-      this.error(error instanceof Error ? error.message : String(error));
+    if (workspaceInfo.agents.length === 0) {
+      this.log(colors.warning('No agents found. Add agents with "prlt agents add"'));
+      return;
     }
+
+    let agentName = args.name;
+
+    // Interactive mode if no agent specified
+    if (!agentName) {
+      const { selected } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selected',
+          message: 'Select agent to view status:',
+          choices: workspaceInfo.agents.map((agent: any) => ({
+            name: agent.name,
+            value: agent.name
+          }))
+        }
+      ]);
+      agentName = selected;
+    }
+
+    await this.showDetailedStatus(workspaceInfo, agentName!);
   }
 
   private async showDetailedStatus(workspaceInfo: any, agentName: string): Promise<void> {

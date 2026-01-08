@@ -1,8 +1,8 @@
-import { Command } from '@oclif/core';
 import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 
-export default class Tickets extends Command {
+export default class Tickets extends PMOCommand {
   static description = 'Manage tickets in bulk';
 
   static examples = [
@@ -11,7 +11,15 @@ export default class Tickets extends Command {
     '<%= config.bin %> <%= command.id %> delete',
   ];
 
-  async run(): Promise<void> {
+  static flags = {
+    ...pmoBaseFlags,
+  };
+
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     this.log(colors.primary('🎫 Ticket Management (Bulk Operations)'));
     this.log('');
 

@@ -1,9 +1,9 @@
-import { Command, Flags, Args } from '@oclif/core';
+import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class SpecPlan extends Command {
+export default class SpecPlan extends PMOCommand {
   static description = 'Generate tickets from spec by comparing ideal state vs codebase (uses LLM)';
 
   static examples = [
@@ -19,6 +19,7 @@ export default class SpecPlan extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     spec: Flags.string({
       char: 's',
       description: 'Spec ID',
@@ -29,24 +30,16 @@ export default class SpecPlan extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(SpecPlan);
-
-    // Get PMO context
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    );
 
     // Get spec ID
     let specId = args.spec || flags.spec;
 
     if (!specId) {
       // List specs and prompt for selection
-      const specs = await storage.listSpecs();
+      const specs = await this.storage.listSpecs();
       if (specs.length === 0) {
-        await storage.close();
         this.error('No specs found. Create a spec first with "prlt spec create".');
       }
 
@@ -65,9 +58,8 @@ export default class SpecPlan extends Command {
     }
 
     // Get the spec
-    const spec = await storage.getSpec(specId!);
+    const spec = await this.storage.getSpec(specId!);
     if (!spec) {
-      await storage.close();
       this.error(`Spec not found: ${specId}`);
     }
 
@@ -102,7 +94,5 @@ export default class SpecPlan extends Command {
     if (flags['dry-run']) {
       this.log(styles.muted('(dry-run mode - no tickets would be created)'));
     }
-
-    await storage.close();
   }
 }

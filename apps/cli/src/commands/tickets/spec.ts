@@ -1,9 +1,9 @@
-import { Command, Flags } from '@oclif/core';
+import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class TicketsSpec extends Command {
+export default class TicketsSpec extends PMOCommand {
   static description = 'Bulk assign tickets to a spec';
 
   static examples = [
@@ -12,10 +12,7 @@ export default class TicketsSpec extends Command {
   ];
 
   static flags = {
-    project: Flags.string({
-      char: 'P',
-      description: 'Project ID (default: current)',
-    }),
+    ...pmoBaseFlags,
     spec: Flags.string({
       char: 's',
       description: 'Spec ID to assign to all selected tickets',
@@ -27,100 +24,82 @@ export default class TicketsSpec extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { flags } = await this.parse(TicketsSpec);
 
-    const { storage, pmoPath } = await getPMOContext(
-      flags.project,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    );
-
-    try {
-      // Get all tickets
-      const tickets = await storage.listTickets();
-      if (tickets.length === 0) {
-        this.log(styles.muted('\nNo tickets found.'));
-        await storage.close();
-        return;
-      }
-
-      // Select tickets
-      const { selectedTickets } = await inquirer.prompt([{
-        type: 'checkbox',
-        name: 'selectedTickets',
-        message: 'Select tickets to update:',
-        choices: tickets.map(t => {
-          const specLabel = t.specId ? ` [spec: ${t.specId}]` : '';
-          return {
-            name: `${t.id} - ${t.title}${specLabel}`,
-            value: t.id,
-          };
-        }),
-      }]);
-
-      if (selectedTickets.length === 0) {
-        this.log(styles.muted('No tickets selected.'));
-        await storage.close();
-        return;
-      }
-
-      // Handle unlink
-      if (flags.unlink) {
-        for (const ticketId of selectedTickets) {
-          await storage.updateTicket(ticketId, { specId: undefined });
-          this.log(styles.success(`  Unlinked spec from ${ticketId}`));
-        }
-        await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
-        await storage.close();
-        this.log(styles.success(`\n✅ Unlinked spec from ${selectedTickets.length} ticket(s)`));
-        return;
-      }
-
-      // Get spec to assign
-      let specId = flags.spec;
-
-      if (!specId) {
-        const specs = await storage.listSpecs();
-        if (specs.length === 0) {
-          this.log(styles.muted('\nNo specs found. Create one with: prlt spec create'));
-          await storage.close();
-          return;
-        }
-
-        const { selected } = await inquirer.prompt([{
-          type: 'list',
-          name: 'selected',
-          message: 'Select spec to assign:',
-          choices: specs.map(s => ({
-            name: `${s.id} - ${s.title} (${s.status})`,
-            value: s.id,
-          })),
-        }]);
-        specId = selected;
-      }
-
-      // Validate spec
-      const spec = await storage.getSpec(specId!);
-      if (!spec) {
-        await storage.close();
-        this.error(`Spec not found: ${specId}`);
-      }
-
-      // Assign spec to all selected tickets
-      for (const ticketId of selectedTickets) {
-        await storage.updateTicket(ticketId, { specId });
-        this.log(styles.success(`  Linked ${ticketId} to ${specId}`));
-      }
-
-      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
-      await storage.close();
-
-      this.log(styles.success(`\n✅ Linked ${selectedTickets.length} ticket(s) to spec "${spec.title}"`));
-
-    } catch (error) {
-      await storage.close();
-      throw error;
+    // Get all tickets
+    const tickets = await this.storage.listTickets();
+    if (tickets.length === 0) {
+      this.log(styles.muted('\nNo tickets found.'));
+      return;
     }
+
+    // Select tickets
+    const { selectedTickets } = await inquirer.prompt([{
+      type: 'checkbox',
+      name: 'selectedTickets',
+      message: 'Select tickets to update:',
+      choices: tickets.map(t => {
+        const specLabel = t.specId ? ` [spec: ${t.specId}]` : '';
+        return {
+          name: `${t.id} - ${t.title}${specLabel}`,
+          value: t.id,
+        };
+      }),
+    }]);
+
+    if (selectedTickets.length === 0) {
+      this.log(styles.muted('No tickets selected.'));
+      return;
+    }
+
+    // Handle unlink
+    if (flags.unlink) {
+      for (const ticketId of selectedTickets) {
+        await this.storage.updateTicket(ticketId, { specId: undefined });
+        this.log(styles.success(`  Unlinked spec from ${ticketId}`));
+      }
+      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+      this.log(styles.success(`\n✅ Unlinked spec from ${selectedTickets.length} ticket(s)`));
+      return;
+    }
+
+    // Get spec to assign
+    let specId = flags.spec;
+
+    if (!specId) {
+      const specs = await this.storage.listSpecs();
+      if (specs.length === 0) {
+        this.log(styles.muted('\nNo specs found. Create one with: prlt spec create'));
+        return;
+      }
+
+      const { selected } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selected',
+        message: 'Select spec to assign:',
+        choices: specs.map(s => ({
+          name: `${s.id} - ${s.title} (${s.status})`,
+          value: s.id,
+        })),
+      }]);
+      specId = selected;
+    }
+
+    // Validate spec
+    const spec = await this.storage.getSpec(specId!);
+    if (!spec) {
+      this.error(`Spec not found: ${specId}`);
+    }
+
+    // Assign spec to all selected tickets
+    for (const ticketId of selectedTickets) {
+      await this.storage.updateTicket(ticketId, { specId });
+      this.log(styles.success(`  Linked ${ticketId} to ${specId}`));
+    }
+
+    await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+
+    this.log(styles.success(`\n✅ Linked ${selectedTickets.length} ticket(s) to spec "${spec.title}"`));
   }
 }

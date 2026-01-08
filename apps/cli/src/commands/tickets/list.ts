@@ -1,5 +1,5 @@
-import { Command, Flags } from '@oclif/core';
-import { Ticket, getPMOContext } from '../../lib/pmo/index.js';
+import { Flags } from '@oclif/core';
+import { Ticket, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { colors, format } from '../../lib/colors.js';
 import {
   styles,
@@ -10,7 +10,7 @@ import {
   divider,
 } from '../../lib/styles.js';
 
-export default class List extends Command {
+export default class List extends PMOCommand {
   static description = 'List all tickets across all projects or filtered';
 
   static examples = [
@@ -22,6 +22,7 @@ export default class List extends Command {
   ];
 
   static flags = {
+    ...pmoBaseFlags,
     format: Flags.string({
       char: 'f',
       description: 'Output format',
@@ -46,54 +47,41 @@ export default class List extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { flags } = await this.parse(List);
 
-    // Get PMO context (prompts for project if multiple exist)
-    const { storage, projectName } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      true // prompt if multiple projects
-    );
+    // Build filter
+    const filter: {
+      column?: string;
+      priority?: string;
+      category?: string;
+      search?: string;
+    } = {};
 
-    try {
-      // Build filter
-      const filter: {
-        column?: string;
-        priority?: string;
-        category?: string;
-        search?: string;
-      } = {};
+    if (flags.column) filter.column = flags.column;
+    if (flags.priority) filter.priority = flags.priority;
+    if (flags.category) filter.category = flags.category;
+    if (flags.search) filter.search = flags.search;
 
-      if (flags.column) filter.column = flags.column;
-      if (flags.priority) filter.priority = flags.priority;
-      if (flags.category) filter.category = flags.category;
-      if (flags.search) filter.search = flags.search;
+    const tickets = await this.storage.listTickets(filter);
+    const board = await this.storage.getBoard();
 
-      const tickets = await storage.listTickets(filter);
-      const board = await storage.getBoard();
-      await storage.close();
+    if (flags.format === 'json') {
+      this.log(JSON.stringify(tickets, null, 2));
+      return;
+    }
 
-      if (flags.format === 'json') {
-        this.log(JSON.stringify(tickets, null, 2));
-        return;
-      }
+    if (tickets.length === 0) {
+      this.log(colors.warning('No tickets found.'));
+      return;
+    }
 
-      if (tickets.length === 0) {
-        this.log(colors.warning('No tickets found.'));
-        return;
-      }
+    const columns = board.columns.map(col => col.name);
 
-      const columns = board.columns.map(col => col.name);
-
-      if (flags.format === 'compact') {
-        this.outputCompact(tickets, columns, projectName);
-      } else {
-        this.outputTable(tickets, columns, projectName);
-      }
-    } catch (error) {
-      await storage.close();
-      throw error;
+    if (flags.format === 'compact') {
+      this.outputCompact(tickets, columns, this.projectName);
+    } else {
+      this.outputTable(tickets, columns, this.projectName);
     }
   }
 

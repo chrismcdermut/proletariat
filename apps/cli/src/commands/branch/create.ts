@@ -1,8 +1,9 @@
-import { Command, Args, Flags } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import * as fs from 'fs'
 import * as path from 'path'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import {
   BRANCH_TYPES,
@@ -24,7 +25,6 @@ import {
 } from '../../lib/branch/index.js'
 import { getCoderName, getGitUserName, getGitHubUsername } from '../../lib/execution/config.js'
 import { getBranchType } from '../../lib/execution/types.js'
-import { getPMOContext } from '../../lib/pmo/index.js'
 import { detectAgentName } from '../../lib/agents/index.js'
 
 interface WizardResult {
@@ -38,7 +38,7 @@ interface WizardResult {
   customStartPoint?: string  // Custom branch to start from (e.g., "origin/develop")
 }
 
-export default class BranchCreate extends Command {
+export default class BranchCreate extends PMOCommand {
   static description = 'Create a new branch with conventional naming'
 
   static examples = [
@@ -57,6 +57,7 @@ export default class BranchCreate extends Command {
   }
 
   static flags = {
+    ...pmoBaseFlags,
     ticket: Flags.string({
       char: 'T',
       description: 'Ticket ID - auto-generates branch from ticket (or use with -t/-d for manual)',
@@ -95,7 +96,11 @@ export default class BranchCreate extends Command {
     }),
   }
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false }
+  }
+
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(BranchCreate)
 
     // Check if in git repo
@@ -318,22 +323,19 @@ export default class BranchCreate extends Command {
    */
   private async createFromTicketId(ticketId: string, ownerOverride?: string): Promise<WizardResult | null> {
     try {
-      const { storage } = await getPMOContext({ promptIfMultiple: false })
-
       // Search for ticket across all projects
-      const projects = await storage.listProjects()
+      const projects = await this.storage.listProjects()
       let foundTicket: { id: string; title: string; category?: string } | null = null
 
       for (const project of projects) {
-        storage.setCurrentProject(project.id)
-        const tickets = await storage.listTickets()
+        this.storage.setCurrentProject(project.id)
+        const tickets = await this.storage.listTickets()
         const match = tickets.find(t => t.id === ticketId)
         if (match) {
           foundTicket = match
           break
         }
       }
-      await storage.close()
 
       if (!foundTicket) {
         return null
@@ -367,25 +369,22 @@ export default class BranchCreate extends Command {
     // Get default owner name from config or GitHub
     const defaultOwnerName = this.getDefaultOwnerName()
 
-    // Try to load tickets from PMO (across all projects)
+    // Load tickets from PMO (across all projects)
     let tickets: Array<{ id: string; title: string; category?: string; status?: string; projectName?: string }> = []
     try {
-      const { storage } = await getPMOContext({ promptIfMultiple: false })
-
       // Get all projects and their tickets
-      const projects = await storage.listProjects()
+      const projects = await this.storage.listProjects()
       for (const project of projects) {
-        storage.setCurrentProject(project.id)
-        const projectTickets = await storage.listTickets()
+        this.storage.setCurrentProject(project.id)
+        const projectTickets = await this.storage.listTickets()
         // Filter to actionable tickets (todo, in-progress, backlog)
         const actionable = projectTickets.filter(t =>
           !t.status || ['todo', 'in-progress', 'backlog', 'in_progress'].includes(t.status.toLowerCase())
         )
         tickets.push(...actionable.map(t => ({ ...t, projectName: project.name })))
       }
-      await storage.close()
     } catch {
-      // No PMO context - that's fine, just skip ticket selection
+      // PMO context error - just skip ticket selection
     }
 
     // First choice: from ticket or custom
