@@ -26,15 +26,24 @@ import { getBranchType } from '../../lib/execution/types.js'
 import { getPMOContext } from '../../lib/pmo/index.js'
 import { detectAgentName } from '../../lib/agents/index.js'
 
+interface WizardResult {
+  branchName: string
+  ticket?: {
+    id: string
+    title: string
+  }
+  autoCommit?: boolean  // Skip commit prompt, auto-create
+}
+
 export default class BranchCreate extends Command {
   static description = 'Create a new branch with conventional naming'
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> -T TKT-001',
+    '<%= config.bin %> <%= command.id %> -T TKT-001 -e',
     '<%= config.bin %> <%= command.id %> feat/chris/add-user-auth',
-    '<%= config.bin %> <%= command.id %> TKT-001/feat/chris/add-user-auth',
     '<%= config.bin %> <%= command.id %> -t feat -c chris -d add-user-auth',
-    '<%= config.bin %> <%= command.id %> -t feat -T TKT-001 -d add-user-auth',
   ]
 
   static args = {
@@ -47,7 +56,7 @@ export default class BranchCreate extends Command {
   static flags = {
     ticket: Flags.string({
       char: 'T',
-      description: 'Ticket ID (e.g., TKT-001) - puts ticket first in branch name',
+      description: 'Ticket ID - auto-generates branch from ticket (or use with -t/-d for manual)',
     }),
     type: Flags.string({
       char: 't',
@@ -64,7 +73,7 @@ export default class BranchCreate extends Command {
     }),
     'empty-commit': Flags.boolean({
       char: 'e',
-      description: 'Create initial empty commit',
+      description: 'Create initial commit to seed PR title',
       default: false,
     }),
     'no-switch': Flags.boolean({
@@ -117,6 +126,14 @@ export default class BranchCreate extends Command {
           return
         }
       }
+    } else if (flags.ticket && !flags.type && !flags.description) {
+      // Ticket-only mode: look up ticket and auto-generate branch name
+      const ticketResult = await this.createFromTicketId(flags.ticket, flags.owner)
+      if (!ticketResult) {
+        this.error(`Could not find ticket: ${flags.ticket}`)
+      }
+      branchName = ticketResult.branchName
+      ;(this as any)._selectedTicket = ticketResult.ticket
     } else if (flags.type && flags.description) {
       // Flags provided - build name
       const type = flags.type as BranchType
@@ -151,7 +168,10 @@ export default class BranchCreate extends Command {
       // Interactive wizard
       const wizardResult = await this.runWizard()
       if (!wizardResult) return
-      branchName = wizardResult
+      branchName = wizardResult.branchName
+      // Store ticket info and autoCommit flag for later
+      ;(this as any)._selectedTicket = wizardResult.ticket
+      ;(this as any)._autoCommit = wizardResult.autoCommit
     }
 
     // Fetch from origin if requested
@@ -194,15 +214,17 @@ export default class BranchCreate extends Command {
         this.log(styles.muted(`   Switched to new branch '${branchName}'`))
       }
 
-      // Empty commit
-      let createCommit = flags['empty-commit']
-      if (!flags['empty-commit'] && !args.name) {
-        // Only prompt in interactive mode
+      // Initial commit to seed PR title
+      const autoCommit = (this as any)._autoCommit as boolean | undefined
+      let createCommit = flags['empty-commit'] || autoCommit
+
+      if (!createCommit && !args.name) {
+        // Only prompt in interactive mode (non-quick)
         const { wantCommit } = await inquirer.prompt([
           {
             type: 'list',
             name: 'wantCommit',
-            message: 'Create initial empty commit? (helps seed PR title)',
+            message: 'Create initial commit to seed PR title?',
             choices: [
               { name: 'Yes', value: true },
               { name: 'No', value: false },
@@ -214,17 +236,28 @@ export default class BranchCreate extends Command {
       }
 
       if (createCommit) {
-        const { commitMessage } = await inquirer.prompt([
-          {
-            type: 'input',
-            name: 'commitMessage',
-            message: 'Enter commit message:',
-            default: branchName,
-          },
-        ])
+        // Build default commit message: use ticket info if available, otherwise branch name
+        const selectedTicket = (this as any)._selectedTicket as { id: string; title: string } | undefined
+        const defaultCommitMessage = selectedTicket
+          ? `${selectedTicket.id}: ${selectedTicket.title}`
+          : branchName
+
+        // In autoCommit mode, skip the prompt
+        let commitMessage = defaultCommitMessage
+        if (!autoCommit) {
+          const result = await inquirer.prompt([
+            {
+              type: 'input',
+              name: 'commitMessage',
+              message: 'Enter commit message:',
+              default: defaultCommitMessage,
+            },
+          ])
+          commitMessage = result.commitMessage
+        }
 
         createEmptyCommit(commitMessage)
-        this.log(styles.success(`✅ Created empty commit: ${commitMessage}`))
+        this.log(styles.success(`✅ Created initial commit: ${commitMessage}`))
       }
 
       this.log('')
@@ -273,7 +306,53 @@ export default class BranchCreate extends Command {
     return undefined
   }
 
-  private async runWizard(): Promise<string | null> {
+  /**
+   * Create branch from ticket ID with defaults (non-interactive).
+   */
+  private async createFromTicketId(ticketId: string, ownerOverride?: string): Promise<WizardResult | null> {
+    try {
+      const { storage } = await getPMOContext({ promptIfMultiple: false })
+
+      // Search for ticket across all projects
+      const projects = await storage.listProjects()
+      let foundTicket: { id: string; title: string; category?: string } | null = null
+
+      for (const project of projects) {
+        storage.setCurrentProject(project.id)
+        const tickets = await storage.listTickets()
+        const match = tickets.find(t => t.id === ticketId)
+        if (match) {
+          foundTicket = match
+          break
+        }
+      }
+      await storage.close()
+
+      if (!foundTicket) {
+        return null
+      }
+
+      // Auto-generate branch name with defaults
+      const type = getBranchType(foundTicket.category) as BranchType
+      const slug = toKebabCase(foundTicket.title).substring(0, 20).replace(/-+$/, '')
+      const ownerName = ownerOverride || this.getDefaultOwnerName()
+      const agentName = detectAgentName()
+
+      const branchName = buildBranchName(type, slug, {
+        ticketId: foundTicket.id,
+        owner: ownerName,
+        agent: agentName || undefined,
+      })
+
+      this.log(styles.muted(`Ticket: ${foundTicket.title}`))
+
+      return { branchName, ticket: { id: foundTicket.id, title: foundTicket.title } }
+    } catch {
+      return null
+    }
+  }
+
+  private async runWizard(): Promise<WizardResult | null> {
     this.log('')
     this.log(styles.header('🌿 Create New Branch'))
     this.log('')
@@ -310,11 +389,18 @@ export default class BranchCreate extends Command {
         name: 'mode',
         message: 'Create branch:',
         choices: [
-          ...(hasTickets ? [{ name: `📋 From ticket (${tickets.length} available)`, value: 'ticket' }] : []),
+          ...(hasTickets ? [
+            { name: `📋 From ticket - quick`, value: 'ticket-quick' },
+            { name: `📋 From ticket - customize`, value: 'ticket' },
+          ] : []),
           { name: '✏️  Custom branch name', value: 'custom' },
         ],
       },
     ])
+
+    if (mode === 'ticket-quick' && hasTickets) {
+      return this.runTicketQuickWizard(tickets, defaultOwnerName)
+    }
 
     if (mode === 'ticket' && hasTickets) {
       return this.runTicketWizard(tickets, defaultOwnerName)
@@ -324,12 +410,52 @@ export default class BranchCreate extends Command {
   }
 
   /**
+   * Quick wizard - just select ticket, auto-generate with defaults.
+   */
+  private async runTicketQuickWizard(
+    tickets: Array<{ id: string; title: string; category?: string; status?: string; projectName?: string }>,
+    defaultOwnerName: string | undefined
+  ): Promise<WizardResult | null> {
+    // Select ticket (show project name if multiple projects)
+    const hasMultipleProjects = new Set(tickets.map(t => t.projectName)).size > 1
+    const ticketChoices = tickets.map(t => ({
+      name: hasMultipleProjects
+        ? `${t.id} - ${t.title.substring(0, 40)}${t.title.length > 40 ? '...' : ''} ${styles.muted(`[${t.projectName}]`)}`
+        : `${t.id} - ${t.title.substring(0, 50)}${t.title.length > 50 ? '...' : ''} ${styles.muted(`[${t.status || 'todo'}]`)}`,
+      value: t,
+    }))
+
+    const { ticket } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'ticket',
+        message: 'Select ticket:',
+        choices: ticketChoices,
+        pageSize: 15,
+      },
+    ])
+
+    // Auto-generate branch name with defaults
+    const type = getBranchType(ticket.category) as BranchType
+    const slug = toKebabCase(ticket.title).substring(0, 20).replace(/-+$/, '')
+    const agentName = detectAgentName()
+
+    const branchName = buildBranchName(type, slug, {
+      ticketId: ticket.id,
+      owner: defaultOwnerName,
+      agent: agentName || undefined,
+    })
+
+    return { branchName, ticket: { id: ticket.id, title: ticket.title }, autoCommit: true }
+  }
+
+  /**
    * Wizard flow for creating branch from a ticket.
    */
   private async runTicketWizard(
     tickets: Array<{ id: string; title: string; category?: string; status?: string; projectName?: string }>,
     defaultOwnerName: string | undefined
-  ): Promise<string | null> {
+  ): Promise<WizardResult | null> {
     // Select ticket (show project name if multiple projects)
     const hasMultipleProjects = new Set(tickets.map(t => t.projectName)).size > 1
     const ticketChoices = tickets.map(t => ({
@@ -404,16 +530,17 @@ export default class BranchCreate extends Command {
           default: branchName,
         },
       ])
-      return customName
+      // Still return ticket info for commit message even with custom branch name
+      return { branchName: customName, ticket: { id: ticket.id, title: ticket.title } }
     }
 
-    return branchName
+    return { branchName, ticket: { id: ticket.id, title: ticket.title } }
   }
 
   /**
    * Wizard flow for creating a custom branch (no ticket).
    */
-  private async runCustomWizard(defaultOwnerName: string | undefined): Promise<string | null> {
+  private async runCustomWizard(defaultOwnerName: string | undefined): Promise<WizardResult | null> {
     // Select type
     const typeChoices = [
       new inquirer.Separator('── Development ──'),
@@ -479,8 +606,11 @@ export default class BranchCreate extends Command {
       },
     ])
 
-    return buildBranchName(type, description, {
+    const branchName = buildBranchName(type, description, {
       owner: owner || undefined,
     })
+
+    // No ticket info for custom branches
+    return { branchName }
   }
 }
