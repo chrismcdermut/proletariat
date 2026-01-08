@@ -20,13 +20,13 @@ interface FormatContext {
 export const COMMIT_FORMATS = {
   'conventional': {
     description: 'Conventional commits with ticket as scope',
-    example: '{type}({ticket}): {message}',
+    example: '{type}(TKT-ID): {message}',
     format: (ctx: FormatContext) =>
       ctx.ticketId ? `${ctx.type}(${ctx.ticketId}): ${ctx.message}` : `${ctx.type}: ${ctx.message}`,
   },
   'full-context': {
     description: 'Ticket, type, and agent prefix',
-    example: '{ticket}/{type}/{agent}: {message}',
+    example: 'TKT-ID/{type}/{agent}: {message}',
     format: (ctx: FormatContext) => {
       if (ctx.ticketId && ctx.agent) return `${ctx.ticketId}/${ctx.type}/${ctx.agent}: ${ctx.message}`
       if (ctx.ticketId) return `${ctx.ticketId}/${ctx.type}: ${ctx.message}`
@@ -35,13 +35,13 @@ export const COMMIT_FORMATS = {
   },
   'ticket-first': {
     description: 'Ticket ID first, then type',
-    example: '{ticket}: {type}: {message}',
+    example: 'TKT-ID: {type}: {message}',
     format: (ctx: FormatContext) =>
       ctx.ticketId ? `${ctx.ticketId}: ${ctx.type}: ${ctx.message}` : `${ctx.type}: ${ctx.message}`,
   },
   'with-agent': {
     description: 'Ticket and agent prefix',
-    example: '{ticket}/{agent}: {message}',
+    example: 'TKT-ID/{agent}: {message}',
     format: (ctx: FormatContext) => {
       if (ctx.ticketId && ctx.agent) return `${ctx.ticketId}/${ctx.agent}: ${ctx.message}`
       if (ctx.ticketId) return `${ctx.ticketId}: ${ctx.message}`
@@ -50,13 +50,13 @@ export const COMMIT_FORMATS = {
   },
   'ticket-suffix': {
     description: 'Type first, ticket at end in brackets',
-    example: '{type}: {message} [{ticket}]',
+    example: '{type}: {message} [TKT-ID]',
     format: (ctx: FormatContext) =>
       ctx.ticketId ? `${ctx.type}: ${ctx.message} [${ctx.ticketId}]` : `${ctx.type}: ${ctx.message}`,
   },
   'ticket-only': {
     description: 'Just ticket ID prefix, no type',
-    example: '{ticket}: {message}',
+    example: 'TKT-ID: {message}',
     format: (ctx: FormatContext) =>
       ctx.ticketId ? `${ctx.ticketId}: ${ctx.message}` : ctx.message,
   },
