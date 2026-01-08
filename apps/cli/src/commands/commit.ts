@@ -87,6 +87,66 @@ function getCurrentBranch(cwd?: string): string | undefined {
 }
 
 /**
+ * Git file status info.
+ */
+interface GitStatus {
+  staged: string[]
+  unstaged: string[]
+  untracked: string[]
+}
+
+/**
+ * Get git status - staged, unstaged, and untracked files.
+ */
+function getGitStatus(): GitStatus {
+  const result: GitStatus = { staged: [], unstaged: [], untracked: [] }
+
+  try {
+    // Get staged files
+    const staged = execSync('git diff --cached --name-only', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim()
+    if (staged) result.staged = staged.split('\n').filter(Boolean)
+
+    // Get unstaged modified files
+    const unstaged = execSync('git diff --name-only', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim()
+    if (unstaged) result.unstaged = unstaged.split('\n').filter(Boolean)
+
+    // Get untracked files
+    const untracked = execSync('git ls-files --others --exclude-standard', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim()
+    if (untracked) result.untracked = untracked.split('\n').filter(Boolean)
+  } catch {
+    // Return empty status on error
+  }
+
+  return result
+}
+
+/**
+ * Stage specific files.
+ */
+function stageFiles(files: string[]): void {
+  if (files.length === 0) return
+  // Quote each file path to handle spaces
+  const quotedFiles = files.map(f => `"${f}"`).join(' ')
+  execSync(`git add ${quotedFiles}`, { stdio: 'pipe' })
+}
+
+/**
+ * Stage all changes.
+ */
+function stageAll(): void {
+  execSync('git add -A', { stdio: 'pipe' })
+}
+
+/**
  * Map branch type to conventional commit type.
  * Some branch types use different names for commits.
  */
@@ -215,9 +275,129 @@ export default class Commit extends Command {
     let selectedFormat = flags.format
 
     if (isInteractive) {
+      // Show git status and handle staging interactively (unless --all flag is set)
+      if (!flags.all) {
+        const status = getGitStatus()
+        const hasStaged = status.staged.length > 0
+        const hasUnstaged = status.unstaged.length > 0
+        const hasUntracked = status.untracked.length > 0
+        const hasChanges = hasStaged || hasUnstaged || hasUntracked
+
+        if (!hasChanges) {
+          this.error('No changes to commit. Working tree is clean.')
+        }
+
+        // Build status display
+        this.log('')
+        if (hasStaged) {
+          this.log(styles.success(`  Staged (${status.staged.length}):`))
+          for (const file of status.staged.slice(0, 5)) {
+            this.log(styles.success(`    ✓ ${file}`))
+          }
+          if (status.staged.length > 5) {
+            this.log(styles.muted(`    ... and ${status.staged.length - 5} more`))
+          }
+        }
+        if (hasUnstaged) {
+          this.log(styles.warning(`  Modified (${status.unstaged.length}):`))
+          for (const file of status.unstaged.slice(0, 5)) {
+            this.log(styles.warning(`    ○ ${file}`))
+          }
+          if (status.unstaged.length > 5) {
+            this.log(styles.muted(`    ... and ${status.unstaged.length - 5} more`))
+          }
+        }
+        if (hasUntracked) {
+          this.log(styles.muted(`  Untracked (${status.untracked.length}):`))
+          for (const file of status.untracked.slice(0, 5)) {
+            this.log(styles.muted(`    ? ${file}`))
+          }
+          if (status.untracked.length > 5) {
+            this.log(styles.muted(`    ... and ${status.untracked.length - 5} more`))
+          }
+        }
+        this.log('')
+
+        // Build staging choices based on current state
+        type StagingAction = 'staged' | 'all' | 'select' | 'cancel'
+        const stagingChoices: Array<{ name: string; value: StagingAction }> = []
+
+        if (hasStaged) {
+          stagingChoices.push({
+            name: `Commit staged only (${status.staged.length} file${status.staged.length === 1 ? '' : 's'})`,
+            value: 'staged',
+          })
+        }
+        if (hasUnstaged || hasUntracked) {
+          const totalUnstaged = status.unstaged.length + status.untracked.length
+          stagingChoices.push({
+            name: `Add all & commit (${totalUnstaged} unstaged + ${status.staged.length} staged)`,
+            value: 'all',
+          })
+          stagingChoices.push({
+            name: 'Select files to add...',
+            value: 'select',
+          })
+        }
+        stagingChoices.push({ name: 'Cancel', value: 'cancel' })
+
+        const { stagingAction } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'stagingAction',
+            message: 'What would you like to commit?',
+            choices: stagingChoices,
+          },
+        ])
+
+        if (stagingAction === 'cancel') {
+          this.log(styles.muted('Cancelled.'))
+          return
+        }
+
+        if (stagingAction === 'all') {
+          stageAll()
+          this.log(styles.success('Staged all changes.'))
+        } else if (stagingAction === 'select') {
+          // Let user select files to stage
+          const allUnstaged = [...status.unstaged, ...status.untracked]
+          const { filesToStage } = await inquirer.prompt([
+            {
+              type: 'checkbox',
+              name: 'filesToStage',
+              message: 'Select files to stage:',
+              choices: allUnstaged.map(file => ({
+                name: file,
+                value: file,
+                checked: false,
+              })),
+            },
+          ])
+
+          if (filesToStage.length > 0) {
+            stageFiles(filesToStage)
+            this.log(styles.success(`Staged ${filesToStage.length} file${filesToStage.length === 1 ? '' : 's'}.`))
+          }
+
+          // Verify we have something to commit
+          const newStatus = getGitStatus()
+          if (newStatus.staged.length === 0) {
+            this.error('No staged changes to commit.')
+          }
+        } else if (stagingAction === 'staged' && !hasStaged) {
+          this.error('No staged changes to commit.')
+        }
+      }
+
       // Prompt for format if not specified - show dynamic examples based on current branch
       if (!selectedFormat) {
-        const exampleCtx = { type: commitType, ticketId, agent, message: '...' }
+        // Use real values if available, otherwise show placeholder examples
+        const exampleCtx = {
+          type: commitType,
+          ticketId: ticketId || 'TKT-##',
+          agent: agent || 'agent',
+          message: 'message',
+        }
         const formatChoices = Object.entries(COMMIT_FORMATS).map(([name, preset]) => ({
           name: `${name}${name === DEFAULT_COMMIT_FORMAT ? ' (default)' : ''} → ${preset.format(exampleCtx)}`,
           value: name,
