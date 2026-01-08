@@ -111,7 +111,7 @@ function buildPrompt(context: ExecutionContext): string {
   // For revisions, just tell agent to push changes
   if (context.isRevision) {
     prompt += `After addressing the feedback:\n`
-    prompt += `1. Commit your changes in each repository you modified\n`
+    prompt += `1. Commit your changes using \`prlt commit "your message"\`\n`
     prompt += `2. Push your changes: \`git push\`\n`
     prompt += `\nThe PR will be updated automatically.`
   } else {
@@ -119,10 +119,12 @@ function buildPrompt(context: ExecutionContext): string {
     prompt += `   \`\`\`bash\n`
     prompt += `   cd /workspace/<repo-name>\n`
     prompt += `   git add -A\n`
-    prompt += `   git commit -m "Your descriptive commit message"\n`
+    prompt += `   prlt commit "describe your change"\n`
     prompt += `   git push\n`
     prompt += `   \`\`\`\n`
-    prompt += `2. **Mark work as ready** by running:\n`
+    prompt += `   This formats your commit as a conventional commit with the ticket ID.\n`
+
+    prompt += `\n2. **Mark work as ready** by running:\n`
     // Build the work ready command with the appropriate PR flag
     const prFlag = context.createPR ? ' --pr' : ' --no-pr'
     prompt += `   \`\`\`bash\n   prlt work ready ${context.ticketId}${prFlag}\n   \`\`\`\n`

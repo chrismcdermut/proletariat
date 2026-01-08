@@ -205,3 +205,4 @@ export function arraysEqual<T>(a: T[], b: T[]): boolean {
   const sortedB = [...b].sort()
   return sortedA.every((val, idx) => val === sortedB[idx])
 }
+

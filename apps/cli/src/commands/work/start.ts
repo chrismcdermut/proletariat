@@ -463,8 +463,9 @@ export default class WorkStart extends Command {
       }
 
       // Build execution context with full ticket details
-      // HQ path is parent of pmoPath (pmoPath is <hq>/pmo)
-      const hqPath = path.dirname(pmoPath)
+      // HQ path comes from workspaceInfo (not derived from pmoPath since pmo can be nested in repos)
+      const hqPath = workspaceInfo.path
+
       const context: ExecutionContext = {
         ticketId: ticket.id,
         ticketTitle: ticket.title,
