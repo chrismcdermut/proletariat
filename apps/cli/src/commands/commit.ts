@@ -4,6 +4,45 @@ import { validateBranchName, BranchType } from '../lib/branch/index.js'
 import { styles } from '../lib/styles.js'
 
 /**
+ * Commit message format presets.
+ */
+export const COMMIT_FORMATS = {
+  'conventional': {
+    description: 'Conventional commits with ticket as scope',
+    example: 'feat(TKT-053): add login',
+    format: (type: string, ticketId: string | undefined, message: string) =>
+      ticketId ? `${type}(${ticketId}): ${message}` : `${type}: ${message}`,
+  },
+  'ticket-prefix': {
+    description: 'Ticket ID first, then type',
+    example: 'TKT-053: feat: add login',
+    format: (type: string, ticketId: string | undefined, message: string) =>
+      ticketId ? `${ticketId}: ${type}: ${message}` : `${type}: ${message}`,
+  },
+  'ticket-suffix': {
+    description: 'Type first, ticket at end in brackets',
+    example: 'feat: add login [TKT-053]',
+    format: (type: string, ticketId: string | undefined, message: string) =>
+      ticketId ? `${type}: ${message} [${ticketId}]` : `${type}: ${message}`,
+  },
+  'ticket-only': {
+    description: 'Just ticket ID prefix',
+    example: 'TKT-053: add login',
+    format: (_type: string, ticketId: string | undefined, message: string) =>
+      ticketId ? `${ticketId}: ${message}` : message,
+  },
+  'simple': {
+    description: 'Type and message only, no ticket',
+    example: 'feat: add login',
+    format: (type: string, _ticketId: string | undefined, message: string) =>
+      `${type}: ${message}`,
+  },
+} as const
+
+export type CommitFormat = keyof typeof COMMIT_FORMATS
+export const DEFAULT_COMMIT_FORMAT: CommitFormat = 'ticket-prefix'
+
+/**
  * Get current git branch name.
  */
 function getCurrentBranch(cwd?: string): string | undefined {
@@ -39,22 +78,35 @@ function branchTypeToCommitType(branchType: BranchType): string {
 }
 
 export default class Commit extends Command {
-  static description = 'Create a conventional commit with ticket ID from branch name'
+  static description = 'Create a commit with ticket ID from branch name'
 
   static examples = [
     '<%= config.bin %> <%= command.id %> "add user authentication"',
-    '<%= config.bin %> <%= command.id %> -t fix "resolve login bug"',
-    '<%= config.bin %> <%= command.id %> --all "update dependencies"',
+    '<%= config.bin %> <%= command.id %> -f conventional "add login"  # feat(TKT-053): add login',
+    '<%= config.bin %> <%= command.id %> -f ticket-prefix "add login" # TKT-053: feat: add login',
+    '<%= config.bin %> <%= command.id %> -f ticket-suffix "add login" # feat: add login [TKT-053]',
+    '<%= config.bin %> <%= command.id %> -t fix "resolve bug"         # override type',
+    '<%= config.bin %> <%= command.id %> --all "update dependencies"  # stage all + commit',
+    '<%= config.bin %> <%= command.id %> --formats                    # list available formats',
   ]
 
   static args = {
     message: Args.string({
       description: 'Commit message (without type/scope prefix)',
-      required: true,
+      required: false,
     }),
   }
 
   static flags = {
+    format: Flags.string({
+      char: 'f',
+      description: 'Commit message format preset',
+      options: Object.keys(COMMIT_FORMATS),
+    }),
+    formats: Flags.boolean({
+      description: 'List available format presets',
+      default: false,
+    }),
     type: Flags.string({
       char: 't',
       description: 'Override commit type (feat, fix, docs, etc.)',
@@ -72,6 +124,25 @@ export default class Commit extends Command {
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(Commit)
+
+    // List formats if requested
+    if (flags.formats) {
+      this.log(styles.header('Available commit formats:'))
+      this.log('')
+      for (const [name, preset] of Object.entries(COMMIT_FORMATS)) {
+        const isDefault = name === DEFAULT_COMMIT_FORMAT
+        this.log(`  ${styles.code(name)}${isDefault ? ' (default)' : ''}`)
+        this.log(`    ${preset.description}`)
+        this.log(`    Example: ${styles.muted(preset.example)}`)
+        this.log('')
+      }
+      return
+    }
+
+    // Message is required if not listing formats
+    if (!args.message) {
+      this.error('Missing required argument: message\n\nUsage: prlt commit "your message"')
+    }
 
     // Get current branch
     const branch = getCurrentBranch()
@@ -107,13 +178,12 @@ export default class Commit extends Command {
       }
     }
 
-    // Build commit message
-    let commitMessage: string
-    if (ticketId) {
-      commitMessage = `${commitType}(${ticketId}): ${args.message}`
-    } else {
-      commitMessage = `${commitType}: ${args.message}`
-    }
+    // Get format preset
+    const formatName = (flags.format || DEFAULT_COMMIT_FORMAT) as CommitFormat
+    const formatPreset = COMMIT_FORMATS[formatName]
+
+    // Build commit message using format preset
+    const commitMessage = formatPreset.format(commitType, ticketId, args.message)
 
     // Dry run - just show what would happen
     if (flags['dry-run']) {
@@ -122,6 +192,7 @@ export default class Commit extends Command {
       this.log(`  ${styles.code(commitMessage)}`)
       this.log('')
       this.log(styles.muted(`Branch: ${branch}`))
+      this.log(styles.muted(`Format: ${formatName}`))
       this.log(styles.muted(`Type: ${commitType} (from ${branchType})`))
       if (ticketId) {
         this.log(styles.muted(`Ticket: ${ticketId}`))
