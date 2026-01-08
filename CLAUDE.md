@@ -32,11 +32,14 @@ specs/              # Specification files
 - **Database**: SQLite via better-sqlite3 in `apps/cli/src/lib/database/`
 - **Themes**: Optional agent naming themes in `apps/cli/src/lib/themes.ts`
 
-## Testing
+## Testing & Building
 
 ```bash
-./test-cli.sh       # Run CLI tests
+cd apps/cli && pnpm build   # Build CLI (ALWAYS run after code changes)
+./test-cli.sh               # Run CLI tests
 ```
+
+**Important:** Always verify the build passes after modifying TypeScript files in `apps/cli/`.
 
 ## UX Preferences
 

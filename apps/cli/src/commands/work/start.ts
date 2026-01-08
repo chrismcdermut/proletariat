@@ -1202,18 +1202,6 @@ export default class WorkStart extends Command {
     // Get default action for batch mode (use 'implement')
     const defaultAction = await storage.getAction('implement')
 
-    // Load conventional commit settings from PMO database
-    const pmoDatabasePath = path.join(pmoPath, 'pmo.db')
-    let commitConfigSettings: ExecutionContext['commitConfig'] | undefined
-    if (fs.existsSync(pmoDatabasePath)) {
-      const pmoDb = new Database(pmoDatabasePath)
-      try {
-        commitConfigSettings = getAllCommitConfigSettings(pmoDb)
-      } finally {
-        pmoDb.close()
-      }
-    }
-
     // Build context
     const context: ExecutionContext = {
       ticketId: ticket.id,
@@ -1239,8 +1227,6 @@ export default class WorkStart extends Command {
       actionName: defaultAction?.name,
       actionPrompt: defaultAction?.prompt,
       modifiesCode: defaultAction?.modifiesCode ?? true,
-      // Conventional commit settings
-      commitConfig: commitConfigSettings,
     }
 
     // Use devcontainer by default if available
