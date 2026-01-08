@@ -1,17 +1,7 @@
 import { Command, Args, Flags } from '@oclif/core'
 import { execSync } from 'child_process'
-import { validateBranchName, BRANCH_TYPES, BranchType } from '../lib/branch/index.js'
+import { validateBranchName, BranchType } from '../lib/branch/index.js'
 import { styles } from '../lib/styles.js'
-
-/**
- * Parse ticket ID from branch description.
- * Expects format like: tkt-053-add-login or TKT-053-description
- */
-function parseTicketId(description: string): string | undefined {
-  // Match TKT-XXX or tkt-xxx at the start of description
-  const match = description.match(/^(tkt-\d+)/i)
-  return match ? match[1].toUpperCase() : undefined
-}
 
 /**
  * Get current git branch name.
@@ -94,14 +84,14 @@ export default class Commit extends Command {
     if (!validation.valid || !validation.parts) {
       this.error(
         `Could not parse branch name: ${branch}\n\n` +
-        `Expected format: {type}/{agent}/{ticket-description}\n` +
-        `Example: feat/bezos/tkt-053-add-login\n\n` +
+        `Expected format: {ticketId}/{type}/{owner}/{agent}/{description}\n` +
+        `Example: TKT-053/feat/chris/bezos/add-login\n\n` +
         `Use -t to specify commit type manually:\n` +
         `  prlt commit -t feat "your message"`
       )
     }
 
-    const { type: branchType, description } = validation.parts
+    const { type: branchType, ticketId } = validation.parts
 
     // Get commit type (from flag or branch)
     const commitType = flags.type || branchTypeToCommitType(branchType)
@@ -116,9 +106,6 @@ export default class Commit extends Command {
         )
       }
     }
-
-    // Parse ticket ID from description
-    const ticketId = parseTicketId(description)
 
     // Build commit message
     let commitMessage: string
