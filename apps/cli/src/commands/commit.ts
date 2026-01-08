@@ -1,5 +1,6 @@
 import { Command, Args, Flags } from '@oclif/core'
 import { execSync } from 'child_process'
+import inquirer from 'inquirer'
 import { validateBranchName, BranchType } from '../lib/branch/index.js'
 import { styles } from '../lib/styles.js'
 
@@ -168,9 +169,41 @@ export default class Commit extends Command {
       return
     }
 
-    // Message is required if not listing formats
-    if (!args.message) {
-      this.error('Missing required argument: message\n\nUsage: prlt commit "your message"')
+    // Interactive mode if no message provided
+    const isInteractive = !args.message
+    let message = args.message
+    let selectedFormat = flags.format
+
+    if (isInteractive) {
+      // Prompt for format if not specified
+      if (!selectedFormat) {
+        const formatChoices = Object.entries(COMMIT_FORMATS).map(([name, preset]) => ({
+          name: `${name}${name === DEFAULT_COMMIT_FORMAT ? ' (default)' : ''} - ${preset.example}`,
+          value: name,
+        }))
+
+        const { chosenFormat } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'chosenFormat',
+            message: 'Commit format:',
+            choices: formatChoices,
+            default: DEFAULT_COMMIT_FORMAT,
+          },
+        ])
+        selectedFormat = chosenFormat
+      }
+
+      // Prompt for message
+      const { inputMessage } = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'inputMessage',
+          message: 'Commit message:',
+          validate: (input: string) => input.trim() ? true : 'Message cannot be empty',
+        },
+      ])
+      message = inputMessage.trim()
     }
 
     // Get current branch
@@ -208,7 +241,7 @@ export default class Commit extends Command {
     }
 
     // Get format preset
-    const formatName = (flags.format || DEFAULT_COMMIT_FORMAT) as CommitFormat
+    const formatName = (selectedFormat || DEFAULT_COMMIT_FORMAT) as CommitFormat
     const formatPreset = COMMIT_FORMATS[formatName]
 
     // Build commit message using format preset
@@ -216,7 +249,7 @@ export default class Commit extends Command {
       type: commitType,
       ticketId,
       agent,
-      message: args.message,
+      message: message!,
     })
 
     // Dry run - just show what would happen
