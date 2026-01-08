@@ -14,8 +14,11 @@ const __dirname = path.dirname(__filename);
  * Tests actual CLI usage as a user would interact with it
  * Spec: execute-commands.md > Execution Commands
  *
- * SKIPPED: execution list command doesn't exist.
- * See ticket TKT-041 for implementation tracking.
+ * Note: The command is 'executions list' (plural), not 'execution list' (singular).
+ * Tests have been updated to use the correct command path.
+ *
+ * SKIPPED: Tests need workspace environment setup that isn't working in test context.
+ * The executions commands require a properly initialized HQ environment.
  */
 describe.skip('Execution Commands E2E Tests', () => {
   let testDir: string;
@@ -61,7 +64,7 @@ describe.skip('Execution Commands E2E Tests', () => {
       createExecution(db, ticketId1, 'agent-1', 'running');
       createExecution(db, ticketId2, 'agent-2', 'completed');
 
-      const output = exec('execution list');
+      const output = exec('executions list');
 
       expect(output).to.contain('WORK-');
       expect(output).to.contain('agent-1');
