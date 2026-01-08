@@ -4,43 +4,77 @@ import { validateBranchName, BranchType } from '../lib/branch/index.js'
 import { styles } from '../lib/styles.js'
 
 /**
+ * Format context passed to format functions.
+ */
+interface FormatContext {
+  type: string
+  ticketId?: string
+  agent?: string
+  message: string
+}
+
+/**
  * Commit message format presets.
  */
 export const COMMIT_FORMATS = {
   'conventional': {
     description: 'Conventional commits with ticket as scope',
     example: 'feat(TKT-053): add login',
-    format: (type: string, ticketId: string | undefined, message: string) =>
-      ticketId ? `${type}(${ticketId}): ${message}` : `${type}: ${message}`,
+    format: (ctx: FormatContext) =>
+      ctx.ticketId ? `${ctx.type}(${ctx.ticketId}): ${ctx.message}` : `${ctx.type}: ${ctx.message}`,
   },
-  'ticket-prefix': {
+  'conventional-scope': {
+    description: 'Conventional commits with agent as scope',
+    example: 'feat(bezos): add login',
+    format: (ctx: FormatContext) =>
+      ctx.agent ? `${ctx.type}(${ctx.agent}): ${ctx.message}` : `${ctx.type}: ${ctx.message}`,
+  },
+  'ticket-first': {
     description: 'Ticket ID first, then type',
     example: 'TKT-053: feat: add login',
-    format: (type: string, ticketId: string | undefined, message: string) =>
-      ticketId ? `${ticketId}: ${type}: ${message}` : `${type}: ${message}`,
+    format: (ctx: FormatContext) =>
+      ctx.ticketId ? `${ctx.ticketId}: ${ctx.type}: ${ctx.message}` : `${ctx.type}: ${ctx.message}`,
+  },
+  'with-agent': {
+    description: 'Ticket and agent prefix',
+    example: 'TKT-053/bezos: add login',
+    format: (ctx: FormatContext) => {
+      if (ctx.ticketId && ctx.agent) return `${ctx.ticketId}/${ctx.agent}: ${ctx.message}`
+      if (ctx.ticketId) return `${ctx.ticketId}: ${ctx.message}`
+      return ctx.message
+    },
+  },
+  'full-context': {
+    description: 'Ticket, type, and agent prefix',
+    example: 'TKT-053/feat/bezos: add login',
+    format: (ctx: FormatContext) => {
+      if (ctx.ticketId && ctx.agent) return `${ctx.ticketId}/${ctx.type}/${ctx.agent}: ${ctx.message}`
+      if (ctx.ticketId) return `${ctx.ticketId}/${ctx.type}: ${ctx.message}`
+      return `${ctx.type}: ${ctx.message}`
+    },
   },
   'ticket-suffix': {
     description: 'Type first, ticket at end in brackets',
     example: 'feat: add login [TKT-053]',
-    format: (type: string, ticketId: string | undefined, message: string) =>
-      ticketId ? `${type}: ${message} [${ticketId}]` : `${type}: ${message}`,
+    format: (ctx: FormatContext) =>
+      ctx.ticketId ? `${ctx.type}: ${ctx.message} [${ctx.ticketId}]` : `${ctx.type}: ${ctx.message}`,
   },
   'ticket-only': {
-    description: 'Just ticket ID prefix',
+    description: 'Just ticket ID prefix, no type',
     example: 'TKT-053: add login',
-    format: (_type: string, ticketId: string | undefined, message: string) =>
-      ticketId ? `${ticketId}: ${message}` : message,
+    format: (ctx: FormatContext) =>
+      ctx.ticketId ? `${ctx.ticketId}: ${ctx.message}` : ctx.message,
   },
   'simple': {
     description: 'Type and message only, no ticket',
     example: 'feat: add login',
-    format: (type: string, _ticketId: string | undefined, message: string) =>
-      `${type}: ${message}`,
+    format: (ctx: FormatContext) =>
+      `${ctx.type}: ${ctx.message}`,
   },
 } as const
 
 export type CommitFormat = keyof typeof COMMIT_FORMATS
-export const DEFAULT_COMMIT_FORMAT: CommitFormat = 'ticket-prefix'
+export const DEFAULT_COMMIT_FORMAT: CommitFormat = 'ticket-first'
 
 /**
  * Get current git branch name.
@@ -82,12 +116,14 @@ export default class Commit extends Command {
 
   static examples = [
     '<%= config.bin %> <%= command.id %> "add user authentication"',
-    '<%= config.bin %> <%= command.id %> -f conventional "add login"  # feat(TKT-053): add login',
-    '<%= config.bin %> <%= command.id %> -f ticket-prefix "add login" # TKT-053: feat: add login',
-    '<%= config.bin %> <%= command.id %> -f ticket-suffix "add login" # feat: add login [TKT-053]',
-    '<%= config.bin %> <%= command.id %> -t fix "resolve bug"         # override type',
-    '<%= config.bin %> <%= command.id %> --all "update dependencies"  # stage all + commit',
-    '<%= config.bin %> <%= command.id %> --formats                    # list available formats',
+    '<%= config.bin %> <%= command.id %> -f conventional "add login"       # feat(TKT-053): add login',
+    '<%= config.bin %> <%= command.id %> -f conventional-scope "add login" # feat(bezos): add login',
+    '<%= config.bin %> <%= command.id %> -f ticket-first "add login"       # TKT-053: feat: add login',
+    '<%= config.bin %> <%= command.id %> -f with-agent "add login"         # TKT-053/bezos: add login',
+    '<%= config.bin %> <%= command.id %> -f full-context "add login"       # TKT-053/feat/bezos: add login',
+    '<%= config.bin %> <%= command.id %> -t fix "resolve bug"              # override type',
+    '<%= config.bin %> <%= command.id %> --all "update dependencies"       # stage all + commit',
+    '<%= config.bin %> <%= command.id %> --formats                         # list available formats',
   ]
 
   static args = {
@@ -162,7 +198,7 @@ export default class Commit extends Command {
       )
     }
 
-    const { type: branchType, ticketId } = validation.parts
+    const { type: branchType, ticketId, agent } = validation.parts
 
     // Get commit type (from flag or branch)
     const commitType = flags.type || branchTypeToCommitType(branchType)
@@ -183,7 +219,12 @@ export default class Commit extends Command {
     const formatPreset = COMMIT_FORMATS[formatName]
 
     // Build commit message using format preset
-    const commitMessage = formatPreset.format(commitType, ticketId, args.message)
+    const commitMessage = formatPreset.format({
+      type: commitType,
+      ticketId,
+      agent,
+      message: args.message,
+    })
 
     // Dry run - just show what would happen
     if (flags['dry-run']) {
@@ -196,6 +237,9 @@ export default class Commit extends Command {
       this.log(styles.muted(`Type: ${commitType} (from ${branchType})`))
       if (ticketId) {
         this.log(styles.muted(`Ticket: ${ticketId}`))
+      }
+      if (agent) {
+        this.log(styles.muted(`Agent: ${agent}`))
       }
       return
     }
