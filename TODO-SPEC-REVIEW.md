@@ -3,25 +3,30 @@
 Session: 2026-01-02
 
 ## Goal
+
 Refine specs → generate tickets → spawn agents → dogfood prlt
 
 ## Specs to Review (Priority Order)
 
 ### Tier 1: Core Loop
-- [ ] **specs** - Simplify to 2 tables (recreate tech-simplify-specs content)
+
+- [X] **specs** - Simplify to 2 tables (recreate tech-simplify-specs content)
 - [ ] **tickets** - States (Linear-style)? Bulk ops already exist. Clean up.
 - [ ] **work** - Consolidate start/spawn/spawn-all naming
 - [ ] **agents** - Drop themes/status tracking for MVP?
 
 ### Tier 2: Important
+
 - [ ] **dependencies** - Keep separate domain, cross-entity (specs, tickets, epics)
 - [ ] **board** - One board + views? Linear-style states?
 - [ ] **projects** - One board per project or views?
 - [ ] **settings** - Implement or defer?
 
 ### Tier 3: Defer
+
 - [ ] **epics** - Keep but don't prioritize
 - [ ] **hooks** - Keep tabled
+- [ ] **migrations** - DB schema migrations (versioned, up/down), command deprecations
 - [ ] **repositories** - Seems fine
 - [ ] **branches** - Seems fine
 - [ ] **pull-requests** - Seems fine
@@ -32,21 +37,22 @@ Refine specs → generate tickets → spawn agents → dogfood prlt
 ## Key Decisions to Make
 
 1. **Linear-style states?**
+
    - States: Backlog, Planned, In Progress, Done, Canceled
    - Statuses: custom labels within each state
    - Or keep current column-only model?
-
 2. **One board + views vs multiple boards?**
+
    - Linear/Notion: one board, different views (kanban, list, etc.)
    - Current: one board per project
-
 3. **Spawn command consolidation?**
+
    - `work start [ticket]` - single
    - `work start --all` - batch backlog
    - `work spawn --column X` - batch by column
    - Kill spawn-all.ts (redundant)
-
 4. **Spec dependencies?**
+
    - Specs can depend on other specs
    - Generalized dependency table across entity types?
 
@@ -89,6 +95,7 @@ CREATE TABLE spec_tickets (
 - [ ] **shortcut** - Sync stories/epics with Shortcut, import/export
 
 Common pattern for all:
+
 - `prlt {integration} connect` - OAuth/API key setup
 - `prlt {integration} sync` - Bidirectional sync
 - `prlt {integration} import` - Pull from external
@@ -106,6 +113,7 @@ Common pattern for all:
 ## Architecture Notes
 
 **HQ structure flexibility:**
+
 - Currently requires `-hq` suffix and specific folder structure
 - Should work with any repo structure (single repo, monorepo, multi-repo)
 - Think about: `prlt init` in any directory, no naming conventions required
@@ -115,26 +123,31 @@ Common pattern for all:
 ## Future Features
 
 **Migration tooling:**
+
 - DB schema migrations (versioned, up/down)
 - Command renames/deprecations with aliases
 - `prlt migrate` to run pending migrations
 
 **CI/CD & Publishing:**
+
 - Auto-deploy to npm on release
 - GitHub Actions for build/test/publish
 - Versioning strategy (semver)
 
 **Claude Code integration:**
+
 - `/spec` slash command - create a spec interactively
 - `/ticket` slash command - create a ticket interactively
 - Skills for common prlt workflows
 
 **Natural language interface:**
+
 - `prlt ask "what tickets are blocked?"`
 - `prlt do "create a ticket for fixing the login bug"`
 - Gen AI layer on top of CLI commands
 
 **UX improvements:**
+
 - Smooth Ctrl+C exit (graceful shutdown, no stack traces)
 - Progress indicators for long operations
 - Better error messages
