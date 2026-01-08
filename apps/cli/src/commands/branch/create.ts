@@ -20,6 +20,7 @@ import {
   isGitRepo,
   fetchOrigin,
   checkoutBranch,
+  listBranches,
 } from '../../lib/branch/index.js'
 import { getCoderName, getGitUserName, getGitHubUsername } from '../../lib/execution/config.js'
 import { getBranchType } from '../../lib/execution/types.js'
@@ -33,6 +34,8 @@ interface WizardResult {
     title: string
   }
   autoCommit?: boolean  // Skip commit prompt, auto-create
+  fromOrigin?: boolean  // Branch from origin/main instead of current branch
+  customStartPoint?: string  // Custom branch to start from (e.g., "origin/develop")
 }
 
 export default class BranchCreate extends Command {
@@ -169,13 +172,16 @@ export default class BranchCreate extends Command {
       const wizardResult = await this.runWizard()
       if (!wizardResult) return
       branchName = wizardResult.branchName
-      // Store ticket info and autoCommit flag for later
+      // Store ticket info, autoCommit, fromOrigin, and customStartPoint flags for later
       ;(this as any)._selectedTicket = wizardResult.ticket
       ;(this as any)._autoCommit = wizardResult.autoCommit
+      ;(this as any)._fromOrigin = wizardResult.fromOrigin
+      ;(this as any)._customStartPoint = wizardResult.customStartPoint
     }
 
-    // Fetch from origin if requested
-    if (flags['from-origin']) {
+    // Fetch from origin if requested (via flag or wizard)
+    const fromOrigin = flags['from-origin'] || (this as any)._fromOrigin
+    if (fromOrigin) {
       this.log(styles.muted('Fetching from origin/main...'))
       if (!fetchOrigin('main')) {
         if (!flags.force) {
@@ -205,7 +211,8 @@ export default class BranchCreate extends Command {
     this.log(styles.success(`✅ Creating branch: ${branchName}`))
 
     try {
-      const startPoint = flags['from-origin'] ? 'origin/main' : undefined
+      const customStartPoint = (this as any)._customStartPoint as string | undefined
+      const startPoint = customStartPoint || (fromOrigin ? 'origin/main' : undefined)
       createBranch(branchName, undefined, !flags['no-switch'], startPoint)
 
       if (flags['no-switch']) {
@@ -446,7 +453,8 @@ export default class BranchCreate extends Command {
       agent: agentName || undefined,
     })
 
-    return { branchName, ticket: { id: ticket.id, title: ticket.title }, autoCommit: true }
+    // Quick mode: always branch from origin/main
+    return { branchName, ticket: { id: ticket.id, title: ticket.title }, autoCommit: true, fromOrigin: true }
   }
 
   /**
@@ -520,6 +528,28 @@ export default class BranchCreate extends Command {
       },
     ])
 
+    // Ask where to branch from
+    const { branchFrom } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'branchFrom',
+        message: 'Branch from:',
+        choices: [
+          { name: 'origin/main (recommended)', value: 'origin-main' },
+          { name: 'Current branch', value: 'current' },
+          { name: 'Other branch...', value: 'other' },
+        ],
+        default: 0,
+      },
+    ])
+
+    let fromOrigin = branchFrom === 'origin-main'
+    let customStartPoint: string | undefined
+
+    if (branchFrom === 'other') {
+      customStartPoint = await this.promptForBranch()
+    }
+
     if (!confirmed) {
       // Allow manual edit
       const { customName } = await inquirer.prompt([
@@ -531,10 +561,10 @@ export default class BranchCreate extends Command {
         },
       ])
       // Still return ticket info for commit message even with custom branch name
-      return { branchName: customName, ticket: { id: ticket.id, title: ticket.title } }
+      return { branchName: customName, ticket: { id: ticket.id, title: ticket.title }, fromOrigin, customStartPoint }
     }
 
-    return { branchName, ticket: { id: ticket.id, title: ticket.title } }
+    return { branchName, ticket: { id: ticket.id, title: ticket.title }, fromOrigin, customStartPoint }
   }
 
   /**
@@ -610,7 +640,60 @@ export default class BranchCreate extends Command {
       owner: owner || undefined,
     })
 
+    // Ask where to branch from
+    const { branchFrom } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'branchFrom',
+        message: 'Branch from:',
+        choices: [
+          { name: 'origin/main (recommended)', value: 'origin-main' },
+          { name: 'Current branch', value: 'current' },
+          { name: 'Other branch...', value: 'other' },
+        ],
+        default: 0,
+      },
+    ])
+
+    let fromOrigin = branchFrom === 'origin-main'
+    let customStartPoint: string | undefined
+
+    if (branchFrom === 'other') {
+      customStartPoint = await this.promptForBranch()
+      if (!customStartPoint) {
+        return null // User cancelled
+      }
+    }
+
     // No ticket info for custom branches
-    return { branchName }
+    return { branchName, fromOrigin, customStartPoint }
+  }
+
+  /**
+   * Prompt user to select a branch from local or remote branches.
+   */
+  private async promptForBranch(): Promise<string | undefined> {
+    // Get all branches (local and remote)
+    const branches = listBranches(undefined, true)
+      .map((b) => b.name)
+      .filter((name) => !name.startsWith('HEAD'))
+      .sort()
+
+    if (branches.length === 0) {
+      this.warn('No branches found')
+      return undefined
+    }
+
+    const { selectedBranch } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'selectedBranch',
+        message: 'Select branch:',
+        choices: branches,
+        pageSize: 15,
+      },
+    ])
+
+    return selectedBranch
   }
 }
