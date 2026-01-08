@@ -1,9 +1,9 @@
-import { Command, Flags, Args } from '@oclif/core';
+import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../../lib/pmo/index.js';
+import { PMOCommand } from '../../../lib/pmo/index.js';
 import { styles } from '../../../lib/styles.js';
 
-export default class StatusTemplateDelete extends Command {
+export default class StatusTemplateDelete extends PMOCommand {
   static description = 'Delete a workflow status template';
 
   static examples = [
@@ -26,49 +26,40 @@ export default class StatusTemplateDelete extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusTemplateDelete);
 
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      false
-    );
+    const template = await this.storage.getTemplate(args.id);
+    if (!template) {
+      this.error(`Template "${args.id}" not found.`);
+    }
+
+    if (template.isBuiltin) {
+      this.error('Cannot delete built-in templates.');
+    }
+
+    if (!flags.force) {
+      const { confirm } = await inquirer.prompt<{ confirm: boolean }>([{
+        type: 'confirm',
+        name: 'confirm',
+        message: `Delete template "${template.name}"?`,
+        default: false,
+      }]);
+
+      if (!confirm) {
+        this.log(styles.muted('Cancelled.'));
+        return;
+      }
+    }
 
     try {
-      const template = await storage.getTemplate(args.id);
-      if (!template) {
-        await storage.close();
-        this.error(`Template "${args.id}" not found.`);
-      }
-
-      if (template.isBuiltin) {
-        await storage.close();
-        this.error('Cannot delete built-in templates.');
-      }
-
-      if (!flags.force) {
-        const { confirm } = await inquirer.prompt<{ confirm: boolean }>([{
-          type: 'confirm',
-          name: 'confirm',
-          message: `Delete template "${template.name}"?`,
-          default: false,
-        }]);
-
-        if (!confirm) {
-          await storage.close();
-          this.log(styles.muted('Cancelled.'));
-          return;
-        }
-      }
-
-      await storage.deleteTemplate(args.id);
-
-      await storage.close();
-
+      await this.storage.deleteTemplate(args.id);
       this.log(styles.success(`\nDeleted template "${template.name}"`));
     } catch (error) {
-      await storage.close();
       if (error instanceof Error && error.message.includes('Cannot delete')) {
         this.error(error.message);
       }

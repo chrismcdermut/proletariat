@@ -1,10 +1,10 @@
-import { Command, Args, Flags } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { execSync } from 'node:child_process'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
-import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
+import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { StateCategory, WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
@@ -27,7 +27,7 @@ import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js'
 
-export default class WorkStart extends Command {
+export default class WorkStart extends PMOCommand {
   static description = 'Start work on a ticket (launches an agent to implement it)'
 
   static examples = [
@@ -47,6 +47,7 @@ export default class WorkStart extends Command {
   }
 
   static flags = {
+    ...pmoBaseFlags,
     all: Flags.boolean({
       char: 'a',
       description: 'Start work on all unassigned backlog tickets (batch mode)',
@@ -110,7 +111,7 @@ export default class WorkStart extends Command {
     }),
   }
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkStart)
 
     // Get workspace info (for agent worktree paths)
@@ -121,13 +122,6 @@ export default class WorkStart extends Command {
       this.error('Not in a workspace. Run "prlt init" first.')
     }
 
-    // Get PMO context (filter out projects with no tickets)
-    const { pmoPath, storage } = await getPMOContext({
-      logger: (msg) => this.log(styles.muted(msg)),
-      promptIfMultiple: true,
-      filterEmptyProjects: true,
-    })
-
     // Open database for execution storage
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
     const db = new Database(dbPath)
@@ -136,7 +130,7 @@ export default class WorkStart extends Command {
     try {
       // Handle batch mode (--all)
       if (flags.all) {
-        await this.runBatchMode(workspaceInfo, pmoPath, storage, db, executionStorage, flags)
+        await this.runBatchMode(workspaceInfo, db, executionStorage, flags)
         return
       }
 
@@ -145,10 +139,9 @@ export default class WorkStart extends Command {
 
       if (!ticketId) {
         // Get all tickets
-        const allTickets = await storage.listTickets()
+        const allTickets = await this.storage.listTickets()
 
         if (allTickets.length === 0) {
-          await storage.close()
           db.close()
           this.error('No tickets found. Create a ticket first with "prlt ticket create".')
         }
@@ -168,17 +161,16 @@ export default class WorkStart extends Command {
       }
 
       // Get ticket
-      const ticket = await storage.getTicket(ticketId!)
+      const ticket = await this.storage.getTicket(ticketId!)
       if (!ticket) {
-        await storage.close()
         db.close()
         this.error(`Ticket "${ticketId}" not found.`)
       }
 
       // Check if ticket is blocked by dependencies
-      const isBlocked = await storage.isTicketBlocked(ticketId!)
+      const isBlocked = await this.storage.isTicketBlocked(ticketId!)
       if (isBlocked && !flags.force) {
-        const blockers = await storage.getTicketBlockers(ticketId!)
+        const blockers = await this.storage.getTicketBlockers(ticketId!)
         const incompleteBlockers = blockers.filter(b => b.status !== 'done' && b.status !== 'canceled')
 
         this.log('')
@@ -202,7 +194,6 @@ export default class WorkStart extends Command {
         ])
 
         if (!startAnyway) {
-          await storage.close()
           db.close()
           this.log(styles.muted('Cancelled.'))
           return
@@ -270,8 +261,8 @@ export default class WorkStart extends Command {
         }
 
         // Update ticket with assignee
-        await storage.updateTicket(ticketId!, { assignee: agentName })
-        await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
+        await this.storage.updateTicket(ticketId!, { assignee: agentName })
+        await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
         this.log(styles.muted(`Assigned ${ticketId} to ${agentName}`))
       }
 
@@ -281,7 +272,6 @@ export default class WorkStart extends Command {
       // Check if agent exists in workspace
       const agentInfo = workspaceInfo.agents.find((a) => a.name === assignedAgent)
       if (!agentInfo) {
-        await storage.close()
         db.close()
         this.error(
           `Agent "${assignedAgent}" not found in workspace.\n` +
@@ -292,7 +282,6 @@ export default class WorkStart extends Command {
       // Check for running execution on this ticket
       const runningExecution = executionStorage.getRunningExecution(ticketId!)
       if (runningExecution && !flags.force) {
-        await storage.close()
         db.close()
         this.error(
           `Ticket "${ticketId}" already has work in progress: ${runningExecution.id}\n` +
@@ -304,7 +293,6 @@ export default class WorkStart extends Command {
       const agentRunningExecutions = executionStorage.getAgentRunningExecutions(assignedAgent)
       if (agentRunningExecutions.length > 0 && !flags.force) {
         const execInfo = agentRunningExecutions.map(e => `  ${e.id}: ${e.ticketId}`).join('\n')
-        await storage.close()
         db.close()
         this.error(
           `Agent "${assignedAgent}" is already working on other tickets:\n${execInfo}\n\n` +
@@ -319,7 +307,6 @@ export default class WorkStart extends Command {
       // - HQ without repos: {agentsPath}/{agent}/ (placeholder, use cwd)
       const agentDir = path.join(workspaceInfo.agentsPath, assignedAgent)
       if (!fs.existsSync(agentDir)) {
-        await storage.close()
         db.close()
         this.error(
           `Agent directory not found at ${agentDir}.\n` +
@@ -370,7 +357,7 @@ export default class WorkStart extends Command {
       // Get epic info if linked
       let epicTitle: string | undefined
       if (ticket.epicId) {
-        const epic = await storage.getEpic(ticket.epicId)
+        const epic = await this.storage.getEpic(ticket.epicId)
         epicTitle = epic?.title
       }
 
@@ -380,7 +367,7 @@ export default class WorkStart extends Command {
       let specProblem: string | undefined
       let specSolution: string | undefined
       if (ticket.specId) {
-        const spec = await storage.getSpec(ticket.specId)
+        const spec = await this.storage.getSpec(ticket.specId)
         if (spec) {
           specId = spec.id
           specTitle = spec.title
@@ -398,23 +385,22 @@ export default class WorkStart extends Command {
         customPrompt = flags.prompt
       } else if (flags.action) {
         // Specific action requested
-        selectedAction = await storage.getAction(flags.action)
+        selectedAction = await this.storage.getAction(flags.action)
         if (!selectedAction) {
-          await storage.close()
           db.close()
           this.error(`Action not found: ${flags.action}. Use "prlt action list" to see available actions.`)
         }
       } else {
         // Interactive action selection
         // Get ticket's current status to determine suggested action
-        const ticketStatus = await storage.getStatus(ticket.statusId || '')
+        const ticketStatus = await this.storage.getStatus(ticket.statusId || '')
         const currentCategory: StateCategory = ticketStatus?.category || 'unstarted'
 
         // Get suggested action for this category
-        const suggestedAction = await storage.getSuggestedAction(currentCategory)
+        const suggestedAction = await this.storage.getSuggestedAction(currentCategory)
 
         // Get all actions for selection
-        const allActions = await storage.listActions()
+        const allActions = await this.storage.listActions()
 
         // Build choices with suggested action at top
         const actionChoices: Array<{ name: string; value: string } | inquirer.Separator> = []
@@ -458,7 +444,7 @@ export default class WorkStart extends Command {
           ])
           customPrompt = customInput.trim()
         } else {
-          selectedAction = await storage.getAction(selectedActionId)
+          selectedAction = await this.storage.getAction(selectedActionId)
         }
       }
 
@@ -483,7 +469,7 @@ export default class WorkStart extends Command {
         worktreePath,     // Worktree path (may be subdirectory of agentDir)
         branch,
         hqPath,
-        pmoPath,          // PMO path for container mounting
+        pmoPath: this.pmoPath,          // PMO path for container mounting
         // Action context
         actionId: selectedAction?.id,
         actionName: selectedAction?.name || (customPrompt ? 'Custom' : undefined),
@@ -523,7 +509,6 @@ export default class WorkStart extends Command {
           ])
 
           if (selectedEnvironment === 'cancel') {
-            await storage.close()
             db.close()
             this.log(styles.muted('Cancelled.'))
             return
@@ -882,7 +867,7 @@ export default class WorkStart extends Command {
 
         // Save branch to ticket
         if (!isExistingBranch || finalBranch !== branch) {
-          await storage.updateTicket(ticket.id, { branch: finalBranch })
+          await this.storage.updateTicket(ticket.id, { branch: finalBranch })
         }
 
         // Update context with final branch
@@ -907,20 +892,20 @@ export default class WorkStart extends Command {
       this.log('')
 
       // Update ticket status and move to configured In Progress column
-      await storage.updateTicket(ticket.id, { status: 'in_progress' })
+      await this.storage.updateTicket(ticket.id, { status: 'in_progress' })
 
       // Get configured column name (from pmo_settings or default)
       const targetColumnName = getWorkColumnSetting(db, 'in_progress')
-      const board = await storage.getBoard()
+      const board = await this.storage.getBoard()
       const columnNames = board.columns.map(col => col.name)
       const inProgressColumn = findColumnByName(columnNames, targetColumnName)
 
       if (inProgressColumn && ticket.column !== inProgressColumn) {
-        await storage.moveTicket(ticket.id, inProgressColumn)
+        await this.storage.moveTicket(ticket.id, inProgressColumn)
         this.log(styles.muted(`   Moved to: ${inProgressColumn}`))
       }
 
-      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
+      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
 
       // Load execution config from database
       const executionConfig = loadExecutionConfig(db)
@@ -1006,7 +991,6 @@ export default class WorkStart extends Command {
         this.error(`Failed to start work: ${result.error}`)
       }
 
-      await storage.close()
       db.close()
     } catch (error) {
       db.close()
@@ -1019,20 +1003,17 @@ export default class WorkStart extends Command {
    */
   private async runBatchMode(
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
-    pmoPath: string,
-    storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
     db: Database.Database,
     executionStorage: ExecutionStorage,
     flags: { mode?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean }
   ): Promise<void> {
     // Get all tickets and filter to unassigned backlog/planned (not in progress)
-    const allTickets = await storage.listTickets()
+    const allTickets = await this.storage.listTickets()
     const backlogTickets = allTickets.filter(t =>
       !t.assignee && (t.status === 'backlog' || t.status === 'planned' || !t.status)
     )
 
     if (backlogTickets.length === 0) {
-      await storage.close()
       db.close()
       this.log(styles.muted('No unassigned backlog tickets to start.'))
       return
@@ -1054,7 +1035,6 @@ export default class WorkStart extends Command {
     const availableAgents = workspaceInfo.agents.filter(a => !busyAgentNames.has(a.name))
 
     if (availableAgents.length === 0) {
-      await storage.close()
       db.close()
       this.error('No available agents. All agents are busy with other work.')
     }
@@ -1077,7 +1057,6 @@ export default class WorkStart extends Command {
     ])
 
     if (!confirm) {
-      await storage.close()
       db.close()
       this.log(styles.muted('Cancelled.'))
       return
@@ -1114,7 +1093,6 @@ export default class WorkStart extends Command {
       }
     }
 
-    await storage.close()
     db.close()
 
     this.log('')
@@ -1133,8 +1111,6 @@ export default class WorkStart extends Command {
     ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; subtasks?: Array<{ title: string; done: boolean }> },
     agent: { name: string },
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
-    storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
-    pmoPath: string,
     executionStorage: ExecutionStorage,
     db: Database.Database,
     flags: {
@@ -1150,7 +1126,7 @@ export default class WorkStart extends Command {
 
     // Update ticket assignee if not set
     if (!ticket.assignee || ticket.assignee !== agentName) {
-      await storage.updateTicket(ticket.id, { assignee: agentName })
+      await this.storage.updateTicket(ticket.id, { assignee: agentName })
     }
 
     // Find agent directory and worktree
@@ -1186,11 +1162,11 @@ export default class WorkStart extends Command {
     let specProblem: string | undefined
     let specSolution: string | undefined
     if (ticket.epicId) {
-      const epic = await storage.getEpic(ticket.epicId)
+      const epic = await this.storage.getEpic(ticket.epicId)
       epicTitle = epic?.title
     }
     if (ticket.specId) {
-      const spec = await storage.getSpec(ticket.specId)
+      const spec = await this.storage.getSpec(ticket.specId)
       if (spec) {
         specId = spec.id
         specTitle = spec.title
@@ -1200,7 +1176,7 @@ export default class WorkStart extends Command {
     }
 
     // Get default action for batch mode (use 'implement')
-    const defaultAction = await storage.getAction('implement')
+    const defaultAction = await this.storage.getAction('implement')
 
     // Build context
     const context: ExecutionContext = {
@@ -1220,7 +1196,7 @@ export default class WorkStart extends Command {
       worktreePath,
       branch,
       hqPath: workspaceInfo.path,
-      pmoPath,
+      pmoPath: this.pmoPath,
       createPR: flags['create-pr'] || false,
       // Use 'implement' action for batch mode
       actionId: defaultAction?.id,
@@ -1268,7 +1244,7 @@ export default class WorkStart extends Command {
 
       // Save branch to ticket if newly created
       if (!isExistingBranch) {
-        await storage.updateTicket(ticket.id, { branch })
+        await this.storage.updateTicket(ticket.id, { branch })
       }
     }
 
@@ -1285,19 +1261,19 @@ export default class WorkStart extends Command {
     })
 
     // Update ticket status
-    await storage.updateTicket(ticket.id, { status: 'in_progress' })
+    await this.storage.updateTicket(ticket.id, { status: 'in_progress' })
 
     // Move to In Progress column
     const targetColumnName = getWorkColumnSetting(db, 'in_progress')
-    const board = await storage.getBoard()
+    const board = await this.storage.getBoard()
     const columnNames = board.columns.map(col => col.name)
     const inProgressColumn = findColumnByName(columnNames, targetColumnName)
 
     if (inProgressColumn) {
-      await storage.moveTicket(ticket.id, inProgressColumn)
+      await this.storage.moveTicket(ticket.id, inProgressColumn)
     }
 
-    await autoExportToBoard(pmoPath, storage, () => {})
+    await autoExportToBoard(this.pmoPath, this.storage, () => {})
 
     // Load execution config
     const executionConfig = loadExecutionConfig(db)

@@ -1,8 +1,8 @@
-import { Command } from '@oclif/core';
 import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 
-export default class Agent extends Command {
+export default class Agent extends PMOCommand {
   static description = 'Individual agent operations';
 
   static examples = [
@@ -15,7 +15,15 @@ export default class Agent extends Command {
     '<%= config.bin %> <%= command.id %> shell altman',
   ];
 
-  async run(): Promise<void> {
+  static flags = {
+    ...pmoBaseFlags,
+  };
+
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     this.log(colors.primary('🤖 Individual Agent Operations'));
     this.log('');
 
@@ -47,7 +55,7 @@ export default class Agent extends Command {
     // Execute the selected command directly (no subprocess)
     try {
       this.log(colors.primary(`\nExecuting: agent ${action}`));
-      
+
       switch (action) {
         case 'status': {
           const { default: StatusCommand } = await import('../agent/status.js');

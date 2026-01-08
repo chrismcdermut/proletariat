@@ -5,9 +5,10 @@ import { execSync } from 'node:child_process';
 import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
-import { DockerCommand } from '../../lib/commands/docker-command.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { isDockerRunning } from '../../lib/execution/runners.js';
 
-export default class Login extends DockerCommand {
+export default class Login extends PMOCommand {
   static description = 'Authenticate Claude Code inside an agent container (one-time setup)';
 
   static examples = [
@@ -22,95 +23,105 @@ export default class Login extends DockerCommand {
     }),
   };
 
-  static flags = {};
+  static flags = {
+    ...pmoBaseFlags,
+  };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
+    // Check Docker is running
+    if (!isDockerRunning()) {
+      this.error('Docker is not running. Please start Docker Desktop and try again.');
+    }
+
     const { args } = await this.parse(Login);
 
+    // Get workspace information
+    const workspaceInfo = getWorkspaceInfo();
+
+    if (workspaceInfo.agents.length === 0) {
+      this.log(colors.warning('No agents found. Add agents with "prlt agent add"'));
+      return;
+    }
+
+    let agentName = args.name;
+
+    // Interactive mode if no agent specified
+    if (!agentName) {
+      const { selected } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selected',
+          message: 'Select agent to authenticate:',
+          choices: workspaceInfo.agents.map(agent => ({
+            name: agent.name,
+            value: agent.name
+          }))
+        }
+      ]);
+      agentName = selected;
+    }
+
+    // Validate agent exists
+    const agent = workspaceInfo.agents.find(a => a.name === agentName);
+    if (!agent) {
+      this.error(`Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map(a => a.name).join(', ')}`);
+    }
+
+    const agentDir = path.join(workspaceInfo.agentsPath, agentName!);
+
+    // Check if devcontainer exists
+    const devcontainerPath = path.join(agentDir, '.devcontainer');
     try {
-      // Get workspace information
-      const workspaceInfo = getWorkspaceInfo();
+      execSync(`test -d "${devcontainerPath}"`, { stdio: 'ignore' });
+    } catch {
+      this.error(`Agent "${agentName}" does not have a devcontainer configuration. Run "prlt agent add ${agentName}" to initialize.`);
+    }
 
-      if (workspaceInfo.agents.length === 0) {
-        this.log(colors.warning('No agents found. Add agents with "prlt agent add"'));
-        return;
-      }
+    // Get container ID
+    this.log(colors.primary(`🔐 Authenticating agent: ${agentName}`));
+    this.log('');
 
-      let agentName = args.name;
+    let containerId: string;
+    try {
+      containerId = execSync(
+        `docker ps --filter "label=devcontainer.local_folder=${agentDir}" --format "{{.ID}}"`,
+        { encoding: 'utf-8' }
+      ).trim();
+    } catch {
+      this.error('Failed to find running container. Make sure the agent container is running.');
+    }
 
-      // Interactive mode if no agent specified
-      if (!agentName) {
-        const { selected } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selected',
-            message: 'Select agent to authenticate:',
-            choices: workspaceInfo.agents.map(agent => ({
-              name: agent.name,
-              value: agent.name
-            }))
-          }
-        ]);
-        agentName = selected;
-      }
-
-      // Validate agent exists
-      const agent = workspaceInfo.agents.find(a => a.name === agentName);
-      if (!agent) {
-        this.error(`Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map(a => a.name).join(', ')}`);
-      }
-
-      const agentDir = path.join(workspaceInfo.agentsPath, agentName!);
-
-      // Check if devcontainer exists
-      const devcontainerPath = path.join(agentDir, '.devcontainer');
-      try {
-        execSync(`test -d "${devcontainerPath}"`, { stdio: 'ignore' });
-      } catch {
-        this.error(`Agent "${agentName}" does not have a devcontainer configuration. Run "prlt agent add ${agentName}" to initialize.`);
-      }
-
-      // Get container ID
-      this.log(colors.primary(`🔐 Authenticating agent: ${agentName}`));
+    if (!containerId) {
+      this.log(colors.warning('Container is not running. Starting it now...'));
       this.log('');
 
-      let containerId: string;
       try {
+        execSync(`devcontainer up --workspace-folder "${agentDir}"`, {
+          stdio: 'inherit',
+          cwd: agentDir
+        });
+
+        // Get container ID again
         containerId = execSync(
           `docker ps --filter "label=devcontainer.local_folder=${agentDir}" --format "{{.ID}}"`,
           { encoding: 'utf-8' }
         ).trim();
       } catch {
-        this.error('Failed to find running container. Make sure the agent container is running.');
+        this.error('Failed to start container.');
       }
+    }
 
-      if (!containerId) {
-        this.log(colors.warning('Container is not running. Starting it now...'));
-        this.log('');
+    // Create a helper script to launch interactive session
+    this.log(colors.success(`✓ Container running: ${containerId}`));
+    this.log('');
 
-        try {
-          execSync(`devcontainer up --workspace-folder "${agentDir}"`, {
-            stdio: 'inherit',
-            cwd: agentDir
-          });
-
-          // Get container ID again
-          containerId = execSync(
-            `docker ps --filter "label=devcontainer.local_folder=${agentDir}" --format "{{.ID}}"`,
-            { encoding: 'utf-8' }
-          ).trim();
-        } catch {
-          this.error('Failed to start container.');
-        }
-      }
-
-      // Create a helper script to launch interactive session
-      this.log(colors.success(`✓ Container running: ${containerId}`));
-      this.log('');
-
-      // Generate script that opens interactive Claude and prompts for /login
-      const scriptPath = `/tmp/prlt-agent-login-${containerId}.sh`;
-      const scriptContent = `#!/bin/bash
+    // Generate script that opens interactive Claude and prompts for /login
+    const scriptPath = `/tmp/prlt-agent-login-${containerId}.sh`;
+    const scriptContent = `#!/bin/bash
 echo "======================================"
 echo "Claude Code Authentication"
 echo "======================================"
@@ -123,20 +134,16 @@ echo ""
 docker exec -it ${containerId} claude
 `;
 
-      fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
+    fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
 
-      this.log(colors.text('Opening interactive Claude session...'));
-      this.log('');
+    this.log(colors.text('Opening interactive Claude session...'));
+    this.log('');
 
-      // Execute the script directly with a new shell
-      execSync(`open -a Terminal ${scriptPath}`, { stdio: 'inherit' });
+    // Execute the script directly with a new shell
+    execSync(`open -a Terminal ${scriptPath}`, { stdio: 'inherit' });
 
-      this.log(colors.success('✓ Opened new terminal window'));
-      this.log(colors.textSecondary('Complete the /login flow in the new terminal window.'));
-      this.log(colors.textSecondary('Your credentials will be saved automatically.'));
-
-    } catch (error) {
-      this.error(error instanceof Error ? error.message : String(error));
-    }
+    this.log(colors.success('✓ Opened new terminal window'));
+    this.log(colors.textSecondary('Complete the /login flow in the new terminal window.'));
+    this.log(colors.textSecondary('Your credentials will be saved automatically.'));
   }
 }

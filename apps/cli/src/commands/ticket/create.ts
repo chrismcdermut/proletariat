@@ -1,11 +1,11 @@
-import { Command, Flags } from '@oclif/core';
+import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { autoExportToBoard, getPMOContext } from '../../lib/pmo/index.js';
+import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { updateEpicTicketsSection } from '../../lib/pmo/epic-files.js';
 import { TicketTemplate } from '../../lib/pmo/types.js';
 
-export default class TicketCreate extends Command {
+export default class TicketCreate extends PMOCommand {
   static description = 'Create a new ticket on the PMO board';
 
   static examples = [
@@ -17,10 +17,7 @@ export default class TicketCreate extends Command {
   ];
 
   static flags = {
-    project: Flags.string({
-      char: 'P',
-      description: 'Project ID (default: "default")',
-    }),
+    ...pmoBaseFlags,
     title: Flags.string({
       char: 't',
       description: 'Ticket title',
@@ -63,21 +60,13 @@ export default class TicketCreate extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { flags } = await this.parse(TicketCreate);
-
-    // Get PMO context (prompt for project if multiple exist and no --project flag)
-    const { pmoPath, storage, columns, projectName, projectId } = await getPMOContext(
-      flags.project,
-      (msg) => this.log(styles.muted(msg)),
-      true // prompt if multiple projects
-    );
 
     // Validate epic if provided
     if (flags.epic) {
-      const epic = await storage.getEpic(flags.epic);
+      const epic = await this.storage.getEpic(flags.epic);
       if (!epic) {
-        await storage.close();
         this.error(`Epic not found: ${flags.epic}. Use 'prlt epic list' to see available epics.`);
       }
     }
@@ -85,9 +74,8 @@ export default class TicketCreate extends Command {
     // Load template if specified
     let template: TicketTemplate | null = null;
     if (flags.template) {
-      template = await storage.getTicketTemplate(flags.template);
+      template = await this.storage.getTicketTemplate(flags.template);
       if (!template) {
-        await storage.close();
         this.error(`Template not found: ${flags.template}. Run 'prlt ticket template list' to see available templates.`);
       }
     }
@@ -110,14 +98,14 @@ export default class TicketCreate extends Command {
     };
 
     if (flags.interactive || !flags.title) {
-      ticketData = await this.promptTicketData(columns, flags, storage, template);
+      ticketData = await this.promptTicketData(flags, this.storage, template);
     } else {
       if (!flags.title && !template?.titlePattern) {
         this.error('Title is required. Use --title or -t flag, or use --interactive mode.');
       }
       ticketData = {
         title: flags.title || template?.titlePattern || '',
-        column: flags.column || columns[0],
+        column: flags.column || this.columns[0],
         priority: flags.priority || template?.defaultPriority,
         category: flags.category || template?.defaultCategory,
         description: flags.description || template?.descriptionTemplate,
@@ -128,80 +116,72 @@ export default class TicketCreate extends Command {
     }
 
     // Validate column
-    if (!columns.includes(ticketData.column)) {
-      this.error(`Invalid column "${ticketData.column}". Available columns: ${columns.join(', ')}`);
+    if (!this.columns.includes(ticketData.column)) {
+      this.error(`Invalid column "${ticketData.column}". Available columns: ${this.columns.join(', ')}`);
     }
 
-    try {
-      const ticket = await storage.createTicket({
-        id: ticketData.id,
-        title: ticketData.title,
-        column: ticketData.column,
-        priority: ticketData.priority,
-        category: ticketData.category,
-        description: ticketData.description,
-        epicId: ticketData.epicId,
-        labels: ticketData.labels,
-      });
+    const ticket = await this.storage.createTicket({
+      id: ticketData.id,
+      title: ticketData.title,
+      column: ticketData.column,
+      priority: ticketData.priority,
+      category: ticketData.category,
+      description: ticketData.description,
+      epicId: ticketData.epicId,
+      labels: ticketData.labels,
+    });
 
-      // Add subtasks from template if applicable
-      if (template && template.suggestedSubtasks.length > 0) {
-        for (const subtask of template.suggestedSubtasks) {
-          await storage.addSubtask(ticket.id, subtask.title);
-        }
+    // Add subtasks from template if applicable
+    if (template && template.suggestedSubtasks.length > 0) {
+      for (const subtask of template.suggestedSubtasks) {
+        await this.storage.addSubtask(ticket.id, subtask.title);
       }
-
-      // Auto-export to board.md after write
-      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
-
-      // If linked to an epic, update the epic's markdown file with ticket list
-      if (ticketData.epicId) {
-        const epic = await storage.getEpic(ticketData.epicId);
-        if (epic) {
-          const epicTickets = await storage.getTicketsForEpic(ticketData.epicId);
-          const ticketInfos = epicTickets.map(t => ({
-            id: t.id,
-            title: t.title,
-            status: t.statusName || t.column || 'Unknown',
-            priority: t.priority,
-          }));
-          updateEpicTicketsSection(pmoPath, ticketData.epicId, epic.status, ticketInfos, projectId);
-        }
-      }
-
-      await storage.close();
-
-      this.log(styles.success(`\n✅ Created ticket ${styles.emphasis(ticket.id)} in project ${styles.emphasis(projectName)}`));
-      if (template) {
-        this.log(styles.muted(`   Template: ${template.name}`));
-      }
-      this.log(styles.muted(`   Title: ${ticket.title}`));
-      this.log(styles.muted(`   Column: ${ticket.column}`));
-      if (ticket.priority) {
-        this.log(styles.muted(`   Priority: ${ticket.priority}`));
-      }
-      if (ticket.category) {
-        this.log(styles.muted(`   Category: ${ticket.category}`));
-      }
-      if (ticketData.epicId) {
-        this.log(styles.muted(`   Epic: ${ticketData.epicId}`));
-      }
-      if (ticketData.labels && ticketData.labels.length > 0) {
-        this.log(styles.muted(`   Labels: ${ticketData.labels.join(', ')}`));
-      }
-      if (template && template.suggestedSubtasks.length > 0) {
-        this.log(styles.muted(`   Subtasks: ${template.suggestedSubtasks.length} created`));
-      }
-      this.log(styles.muted(`\n   View board: prlt board`));
-      this.log(styles.muted(`   List tickets: prlt ticket list`));
-    } catch (error) {
-      await storage.close();
-      throw error;
     }
+
+    // Auto-export to board.md after write
+    await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+
+    // If linked to an epic, update the epic's markdown file with ticket list
+    if (ticketData.epicId) {
+      const epic = await this.storage.getEpic(ticketData.epicId);
+      if (epic) {
+        const epicTickets = await this.storage.getTicketsForEpic(ticketData.epicId);
+        const ticketInfos = epicTickets.map(t => ({
+          id: t.id,
+          title: t.title,
+          status: t.statusName || t.column || 'Unknown',
+          priority: t.priority,
+        }));
+        updateEpicTicketsSection(this.pmoPath, ticketData.epicId, epic.status, ticketInfos, this.projectId);
+      }
+    }
+
+    this.log(styles.success(`\n✅ Created ticket ${styles.emphasis(ticket.id)} in project ${styles.emphasis(this.projectName)}`));
+    if (template) {
+      this.log(styles.muted(`   Template: ${template.name}`));
+    }
+    this.log(styles.muted(`   Title: ${ticket.title}`));
+    this.log(styles.muted(`   Column: ${ticket.column}`));
+    if (ticket.priority) {
+      this.log(styles.muted(`   Priority: ${ticket.priority}`));
+    }
+    if (ticket.category) {
+      this.log(styles.muted(`   Category: ${ticket.category}`));
+    }
+    if (ticketData.epicId) {
+      this.log(styles.muted(`   Epic: ${ticketData.epicId}`));
+    }
+    if (ticketData.labels && ticketData.labels.length > 0) {
+      this.log(styles.muted(`   Labels: ${ticketData.labels.join(', ')}`));
+    }
+    if (template && template.suggestedSubtasks.length > 0) {
+      this.log(styles.muted(`   Subtasks: ${template.suggestedSubtasks.length} created`));
+    }
+    this.log(styles.muted(`\n   View board: prlt board`));
+    this.log(styles.muted(`   List tickets: prlt ticket list`));
   }
 
   private async promptTicketData(
-    columns: string[],
     flags: {
       title?: string;
       column?: string;
@@ -270,8 +250,8 @@ export default class TicketCreate extends Command {
         type: 'list',
         name: 'column',
         message: 'Column:',
-        choices: columns,
-        default: flags.column || columns[0],
+        choices: this.columns,
+        default: flags.column || this.columns[0],
       },
       {
         type: 'list',

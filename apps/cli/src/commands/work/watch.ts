@@ -1,8 +1,8 @@
-import { Command, Flags } from '@oclif/core'
+import { Flags } from '@oclif/core'
 import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
-import { getPMOContext } from '../../lib/pmo/index.js'
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
@@ -16,7 +16,7 @@ import {
 import { DisplayMode, ExecutionEnvironment, ExecutionConfig } from '../../lib/execution/types.js'
 import { promptExecutionSettings } from '../../lib/execution/config.js'
 
-export default class WorkWatch extends Command {
+export default class WorkWatch extends PMOCommand {
   static description = 'Watch a column and auto-spawn agents for new tickets'
 
   static examples = [
@@ -28,6 +28,7 @@ export default class WorkWatch extends Command {
   ]
 
   static flags = {
+    ...pmoBaseFlags,
     column: Flags.string({
       char: 'c',
       description: 'Column to watch for new tickets (prompts if not provided)',
@@ -79,7 +80,11 @@ export default class WorkWatch extends Command {
   private skipPermissions = false
   private createPR = false
 
-  async run(): Promise<void> {
+  protected pmoLogger(): void {
+    // Silent logging during watch
+  }
+
+  async execute(): Promise<void> {
     const { flags } = await this.parse(WorkWatch)
 
     // Get workspace info
@@ -94,13 +99,6 @@ export default class WorkWatch extends Command {
       this.error('No agents found in workspace. Add agents first with "prlt agents add".')
     }
 
-    // Get PMO context
-    const { pmoPath, storage } = await getPMOContext(
-      undefined,
-      () => {},  // Silent logging during watch
-      true
-    )
-
     // Open database for execution storage
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
     const db = new Database(dbPath)
@@ -111,7 +109,6 @@ export default class WorkWatch extends Command {
       this.isRunning = false
       this.log('')
       this.log(styles.muted('Stopping watch...'))
-      await storage.close()
       db.close()
       process.exit(0)
     }
@@ -121,11 +118,10 @@ export default class WorkWatch extends Command {
 
     try {
       // Get board columns for selection
-      const board = await storage.getBoard()
+      const board = await this.storage.getBoard()
       const columns = board.columns.map(col => col.name)
 
       if (columns.length === 0) {
-        await storage.close()
         db.close()
         this.error('No columns found in board. Initialize board first.')
       }
@@ -249,7 +245,7 @@ export default class WorkWatch extends Command {
       this.log('')
 
       // Initial scan - record current tickets as "known"
-      const initialTickets = await storage.listTickets({ column: this.columnName })
+      const initialTickets = await this.storage.listTickets({ column: this.columnName })
       for (const ticket of initialTickets) {
         this.knownTickets.add(ticket.id)
       }
@@ -260,11 +256,11 @@ export default class WorkWatch extends Command {
         this.log('')
         const result = await spawnForColumn(
           this.columnName,
-          storage,
+          this.storage,
           executionStorage,
           workspaceInfo,
           db,
-          pmoPath,
+          this.pmoPath,
           {
             strategy: flags.strategy as AgentStrategy,
             specificAgent: flags.agent,
@@ -279,7 +275,6 @@ export default class WorkWatch extends Command {
         )
 
         this.printSummary(result)
-        await storage.close()
         db.close()
         return
       }
@@ -292,18 +287,15 @@ export default class WorkWatch extends Command {
       while (this.isRunning) {
         await this.pollForNewTickets(
           flags,
-          storage,
           executionStorage,
           workspaceInfo,
-          db,
-          pmoPath
+          db
         )
 
         // Wait for interval
         await new Promise(resolve => setTimeout(resolve, flags.interval * 1000))
       }
 
-      await storage.close()
       db.close()
     } catch (error) {
       db.close()
@@ -319,14 +311,12 @@ export default class WorkWatch extends Command {
       'skip-permissions': boolean
       'create-pr': boolean
     },
-    storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
     executionStorage: ExecutionStorage,
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
-    db: Database.Database,
-    pmoPath: string
+    db: Database.Database
   ): Promise<void> {
     // Get current tickets in column
-    const currentTickets = await storage.listTickets({ column: this.columnName })
+    const currentTickets = await this.storage.listTickets({ column: this.columnName })
 
     // Find new tickets (in current but not in known)
     const newTickets = currentTickets.filter(t => !this.knownTickets.has(t.id))
@@ -354,11 +344,11 @@ export default class WorkWatch extends Command {
     // Spawn agents for new tickets
     const result = await spawnForColumn(
       this.columnName,
-      storage,
+      this.storage,
       executionStorage,
       workspaceInfo,
       db,
-      pmoPath,
+      this.pmoPath,
       {
         strategy: flags.strategy as AgentStrategy,
         specificAgent: flags.agent,

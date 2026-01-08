@@ -1,9 +1,9 @@
-import { Command, Flags } from '@oclif/core';
-import { getPMOContext } from '../../lib/pmo/index.js';
+import { Flags } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { SpecStatus, SpecType } from '../../lib/pmo/types.js';
 
-export default class SpecList extends Command {
+export default class SpecList extends PMOCommand {
   static description = 'List all specs';
 
   static examples = [
@@ -13,6 +13,7 @@ export default class SpecList extends Command {
   ];
 
   static flags = {
+    ...pmoBaseFlags,
     status: Flags.string({
       char: 's',
       description: 'Filter by status',
@@ -28,18 +29,11 @@ export default class SpecList extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { flags } = await this.parse(SpecList);
 
-    // Get PMO context
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    );
-
     // List specs with filters
-    const specs = await storage.listSpecs({
+    const specs = await this.storage.listSpecs({
       status: flags.status as SpecStatus | undefined,
       type: flags.type as SpecType | undefined,
       search: flags.search,
@@ -48,7 +42,6 @@ export default class SpecList extends Command {
     if (specs.length === 0) {
       this.log(styles.warning('\nNo specs found'));
       this.log(styles.muted('  Create your first spec: prlt spec create'));
-      await storage.close();
       return;
     }
 
@@ -89,7 +82,5 @@ export default class SpecList extends Command {
     this.log(styles.primary('  prlt spec create      ') + styles.muted('Create a new spec'));
     this.log(styles.primary('  prlt spec view <id>   ') + styles.muted('View spec details'));
     this.log(styles.primary('  prlt spec plan <id>   ') + styles.muted('Generate tickets from spec'));
-
-    await storage.close();
   }
 }

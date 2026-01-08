@@ -1,4 +1,4 @@
-import { Command, Args, Flags } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { spawn } from 'node:child_process'
@@ -7,8 +7,9 @@ import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 
-export default class ExecutionLogs extends Command {
+export default class ExecutionLogs extends PMOCommand {
   static description = 'View execution logs'
 
   static examples = [
@@ -26,6 +27,7 @@ export default class ExecutionLogs extends Command {
   }
 
   static flags = {
+    ...pmoBaseFlags,
     follow: Flags.boolean({
       char: 'f',
       description: 'Stream logs in real-time',
@@ -37,7 +39,11 @@ export default class ExecutionLogs extends Command {
     }),
   }
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false }
+  }
+
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(ExecutionLogs)
 
     // Get workspace info
@@ -61,7 +67,6 @@ export default class ExecutionLogs extends Command {
         const executions = executionStorage.listExecutions({ limit: 20 })
 
         if (executions.length === 0) {
-          db.close()
           this.error('No executions found.')
         }
 
@@ -82,13 +87,11 @@ export default class ExecutionLogs extends Command {
       // Get execution
       const execution = executionStorage.getExecution(execId!)
       if (!execution) {
-        db.close()
         this.error(`Execution "${execId}" not found.`)
       }
 
       // Check for log file
       if (!execution.logPath) {
-        db.close()
         this.log(styles.muted(`\nNo log file for execution ${execId}`))
         this.log(styles.muted(`Mode: ${execution.mode}`))
 
@@ -107,11 +110,8 @@ export default class ExecutionLogs extends Command {
 
       // Check if log file exists
       if (!fs.existsSync(execution.logPath)) {
-        db.close()
         this.error(`Log file not found: ${execution.logPath}`)
       }
-
-      db.close()
 
       // Display logs
       this.log('')
@@ -150,9 +150,8 @@ export default class ExecutionLogs extends Command {
         const content = fs.readFileSync(execution.logPath, 'utf-8')
         this.log(content)
       }
-    } catch (error) {
+    } finally {
       db.close()
-      throw error
     }
   }
 }

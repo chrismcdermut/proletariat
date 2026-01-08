@@ -1,4 +1,5 @@
-import { Command, Args, Flags } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { colors, format } from '../../lib/colors.js';
 import {
   findHQRoot,
@@ -6,7 +7,7 @@ import {
   addRepository
 } from '../../lib/repos/index.js';
 
-export default class Add extends Command {
+export default class Add extends PMOCommand {
   static description = 'Add a repository to the HQ';
 
   static examples = [
@@ -23,6 +24,7 @@ export default class Add extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     action: Flags.string({
       char: 'a',
       description: 'Action for local paths',
@@ -31,7 +33,11 @@ export default class Add extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(Add);
 
     // Find HQ root

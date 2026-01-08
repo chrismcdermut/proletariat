@@ -1,4 +1,5 @@
-import { Command, Args } from '@oclif/core'
+import { Args } from '@oclif/core'
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import {
   BRANCH_TYPES,
@@ -7,7 +8,7 @@ import {
   isGitRepo,
 } from '../../lib/branch/index.js'
 
-export default class BranchValidate extends Command {
+export default class BranchValidate extends PMOCommand {
   static description = 'Validate branch name against conventional format'
 
   static examples = [
@@ -23,7 +24,15 @@ export default class BranchValidate extends Command {
     }),
   }
 
-  async run(): Promise<void> {
+  static flags = {
+    ...pmoBaseFlags,
+  }
+
+  protected getPMOOptions() {
+    return { promptIfMultiple: false }
+  }
+
+  async execute(): Promise<void> {
     const { args } = await this.parse(BranchValidate)
 
     let branchName: string = args.name || ''

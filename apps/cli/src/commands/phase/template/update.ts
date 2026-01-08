@@ -1,8 +1,8 @@
-import { Command, Flags, Args } from '@oclif/core';
-import { getPMOContext } from '../../../lib/pmo/index.js';
+import { Flags, Args } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import { styles } from '../../../lib/styles.js';
 
-export default class PhaseTemplateUpdate extends Command {
+export default class PhaseTemplateUpdate extends PMOCommand {
   static description = 'Update a phase template';
 
   static examples = [
@@ -18,6 +18,7 @@ export default class PhaseTemplateUpdate extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     name: Flags.string({
       char: 'n',
       description: 'New template name',
@@ -28,38 +29,29 @@ export default class PhaseTemplateUpdate extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(PhaseTemplateUpdate);
 
     if (!flags.name && !flags.description) {
       this.error('Must provide --name or --description to update');
     }
 
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      false
-    );
+    const changes: { name?: string; description?: string } = {};
+    if (flags.name) changes.name = flags.name;
+    if (flags.description !== undefined) changes.description = flags.description;
 
-    try {
-      const changes: { name?: string; description?: string } = {};
-      if (flags.name) changes.name = flags.name;
-      if (flags.description !== undefined) changes.description = flags.description;
+    const template = await this.storage.updatePhaseTemplate(args.id, changes);
 
-      const template = await storage.updatePhaseTemplate(args.id, changes);
-
-      await storage.close();
-
-      this.log(styles.success(`\nUpdated phase template "${styles.emphasis(template.name)}"`));
-      if (flags.name) {
-        this.log(styles.muted(`  Name: ${template.name}`));
-      }
-      if (flags.description !== undefined) {
-        this.log(styles.muted(`  Description: ${template.description || '(none)'}`));
-      }
-    } catch (error) {
-      await storage.close();
-      throw error;
+    this.log(styles.success(`\nUpdated phase template "${styles.emphasis(template.name)}"`));
+    if (flags.name) {
+      this.log(styles.muted(`  Name: ${template.name}`));
+    }
+    if (flags.description !== undefined) {
+      this.log(styles.muted(`  Description: ${template.description || '(none)'}`));
     }
   }
 }

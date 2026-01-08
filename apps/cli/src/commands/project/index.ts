@@ -1,25 +1,27 @@
-import { Command } from '@oclif/core';
 import inquirer from 'inquirer';
-import { findPMO } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 
-export default class Project extends Command {
+export default class Project extends PMOCommand {
   static description = 'Interactive menu for project operations';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
   ];
 
-  async run(): Promise<void> {
-    const pmoPath = findPMO();
-    if (!pmoPath) {
-      this.error('PMO not found. Run "prlt pmo init" first.');
-    }
+  static flags = {
+    ...pmoBaseFlags,
+  };
 
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: '📁 Project Operations - What would you like to do?',
+      message: 'Project Operations - What would you like to do?',
       choices: [
         { name: 'Create new project', value: 'create' },
         { name: 'List all projects', value: 'list' },

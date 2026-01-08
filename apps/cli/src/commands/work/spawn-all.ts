@@ -1,6 +1,7 @@
-import { Command, Flags } from '@oclif/core'
+import { Flags } from '@oclif/core'
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 
-export default class WorkSpawnAll extends Command {
+export default class WorkSpawnAll extends PMOCommand {
   static description = 'Spawn work on all backlog tickets (alias for "work start --all")'
 
   static examples = [
@@ -10,6 +11,7 @@ export default class WorkSpawnAll extends Command {
   ]
 
   static flags = {
+    ...pmoBaseFlags,
     force: Flags.boolean({
       char: 'f',
       description: 'Start even if work already in progress',
@@ -34,7 +36,11 @@ export default class WorkSpawnAll extends Command {
     }),
   }
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { flags } = await this.parse(WorkSpawnAll)
 
     // Build args for work start --all

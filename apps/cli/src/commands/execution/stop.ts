@@ -1,4 +1,4 @@
-import { Command, Args, Flags } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import * as path from 'node:path'
 import { execSync } from 'node:child_process'
 import inquirer from 'inquirer'
@@ -7,8 +7,9 @@ import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 
-export default class ExecutionStop extends Command {
+export default class ExecutionStop extends PMOCommand {
   static description = 'Stop a running execution'
 
   static examples = [
@@ -25,6 +26,7 @@ export default class ExecutionStop extends Command {
   }
 
   static flags = {
+    ...pmoBaseFlags,
     force: Flags.boolean({
       char: 'f',
       description: 'Force kill (SIGKILL instead of SIGTERM)',
@@ -32,7 +34,11 @@ export default class ExecutionStop extends Command {
     }),
   }
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false }
+  }
+
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(ExecutionStop)
 
     // Get workspace info
@@ -67,7 +73,6 @@ export default class ExecutionStop extends Command {
         const activeExecutions = [...runningExecutions, ...startingExecutions]
 
         if (activeExecutions.length === 0) {
-          db.close()
           this.log(styles.muted('\nNo running executions found.\n'))
           return
         }
@@ -89,13 +94,11 @@ export default class ExecutionStop extends Command {
       // Get execution
       const execution = executionStorage.getExecution(execId!)
       if (!execution) {
-        db.close()
         this.error(`Execution "${execId}" not found.`)
       }
 
       // Check if already stopped
       if (!['starting', 'running'].includes(execution.status)) {
-        db.close()
         this.log(
           styles.muted(
             `\nExecution ${execId} is not running (status: ${execution.status}).\n`
@@ -197,11 +200,8 @@ export default class ExecutionStop extends Command {
         this.log(styles.muted(`   Agent: ${execution.agentName}`))
         this.log('')
       }
-
+    } finally {
       db.close()
-    } catch (error) {
-      db.close()
-      throw error
     }
   }
 }

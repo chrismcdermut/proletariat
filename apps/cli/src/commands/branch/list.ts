@@ -1,4 +1,5 @@
-import { Command, Flags } from '@oclif/core'
+import { Flags } from '@oclif/core'
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import {
   BRANCH_TYPES,
@@ -6,7 +7,7 @@ import {
   isGitRepo,
 } from '../../lib/branch/index.js'
 
-export default class BranchList extends Command {
+export default class BranchList extends PMOCommand {
   static description = 'List branches with conventional naming information'
 
   static examples = [
@@ -17,6 +18,7 @@ export default class BranchList extends Command {
   ]
 
   static flags = {
+    ...pmoBaseFlags,
     all: Flags.boolean({
       char: 'a',
       description: 'Include remote branches',
@@ -35,7 +37,11 @@ export default class BranchList extends Command {
     }),
   }
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false }
+  }
+
+  async execute(): Promise<void> {
     const { flags } = await this.parse(BranchList)
 
     // Check if in git repo

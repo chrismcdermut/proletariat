@@ -1,15 +1,15 @@
-import { Command, Flags } from '@oclif/core'
+import { Flags } from '@oclif/core'
 import * as path from 'node:path'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
-import { getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js'
+import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 
-export default class WorkSpawn extends Command {
+export default class WorkSpawn extends PMOCommand {
   static description = 'Spawn work for multiple tickets by column (batch mode)'
 
   static examples = [
@@ -21,6 +21,7 @@ export default class WorkSpawn extends Command {
   ]
 
   static flags = {
+    ...pmoBaseFlags,
     all: Flags.boolean({
       char: 'a',
       description: 'Spawn all unassigned tickets in a column',
@@ -95,7 +96,7 @@ export default class WorkSpawn extends Command {
     }),
   }
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { flags } = await this.parse(WorkSpawn)
 
     // Note: Docker check is handled by work:start command when spawning each ticket
@@ -109,13 +110,6 @@ export default class WorkSpawn extends Command {
       this.error('Not in a workspace. Run "prlt init" first.')
     }
 
-    // Get PMO context (filter out projects with no tickets)
-    const { pmoPath, storage } = await getPMOContext({
-      logger: (msg) => this.log(styles.muted(msg)),
-      promptIfMultiple: true,
-      filterEmptyProjects: true,
-    })
-
     // Open database for execution storage
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
     const db = new Database(dbPath)
@@ -123,21 +117,19 @@ export default class WorkSpawn extends Command {
 
     try {
       // Get board to list available columns
-      const board = await storage.getBoard()
+      const board = await this.storage.getBoard()
       const columnNames = board.columns.map(col => col.name)
 
       if (columnNames.length === 0) {
-        await storage.close()
         db.close()
         this.error('No columns found on the board.')
       }
 
       // Get all tickets
-      const allTickets = await storage.listTickets()
+      const allTickets = await this.storage.listTickets()
       const unassignedTickets = allTickets.filter(t => !t.assignee)
 
       if (unassignedTickets.length === 0) {
-        await storage.close()
         db.close()
         this.log(styles.muted('No unassigned tickets to spawn.'))
         return
@@ -209,7 +201,6 @@ export default class WorkSpawn extends Command {
         )
 
         if (!matchedColumn) {
-          await storage.close()
           db.close()
           this.error(
             `Column "${targetColumn}" not found.\n` +
@@ -220,7 +211,6 @@ export default class WorkSpawn extends Command {
         ticketsToSpawn = unassignedTickets.filter(t => t.column === matchedColumn)
 
         if (ticketsToSpawn.length === 0) {
-          await storage.close()
           db.close()
           this.log(styles.muted(`No unassigned tickets in column "${matchedColumn}".`))
           return
@@ -261,7 +251,6 @@ export default class WorkSpawn extends Command {
           : unassignedTickets.filter(t => t.column === manyColumn)
 
         if (ticketsForSelection.length === 0) {
-          await storage.close()
           db.close()
           this.log(styles.muted('No unassigned tickets in that column.'))
           return
@@ -321,7 +310,6 @@ export default class WorkSpawn extends Command {
 
       // Check agent availability
       if (availableAgents.length === 0) {
-        await storage.close()
         db.close()
         this.error(
           'No available agents. All agents are busy with other work.\n' +
@@ -348,7 +336,6 @@ export default class WorkSpawn extends Command {
         ])
 
         if (!proceed) {
-          await storage.close()
           db.close()
           this.log(styles.muted('Cancelled.'))
           return
@@ -377,7 +364,6 @@ export default class WorkSpawn extends Command {
         ])
 
         if (!confirm) {
-          await storage.close()
           db.close()
           this.log(styles.muted('Cancelled.'))
           return
@@ -440,9 +426,8 @@ export default class WorkSpawn extends Command {
 
       // Dry run - just show what would happen
       if (flags['dry-run']) {
-        await storage.close()
         db.close()
-        this.log(styles.success(`✓ Dry run complete: would spawn ${assignments.length} tickets`))
+        this.log(styles.success(`Dry run complete: would spawn ${assignments.length} tickets`))
         return
       }
 
@@ -483,7 +468,6 @@ export default class WorkSpawn extends Command {
             ])
 
             if (selectedEnvironment === 'cancel') {
-              await storage.close()
               db.close()
               this.log(styles.muted('Cancelled.'))
               return
@@ -591,7 +575,7 @@ export default class WorkSpawn extends Command {
           this.log(styles.muted(`Starting ${ticket.id} with ${agent.name}...`))
 
           // First assign the ticket to the agent
-          await storage.updateTicket(ticket.id, { assignee: agent.name })
+          await this.storage.updateTicket(ticket.id, { assignee: agent.name })
 
           // Build args for work:start
           const startArgs: string[] = [ticket.id]
@@ -623,8 +607,7 @@ export default class WorkSpawn extends Command {
         }
       }
 
-      await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)))
-      await storage.close()
+      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
       db.close()
 
       this.log('')

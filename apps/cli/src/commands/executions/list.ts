@@ -1,12 +1,13 @@
-import { Command, Flags } from '@oclif/core'
+import { Flags } from '@oclif/core'
 import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { ExecutionStatus } from '../../lib/execution/types.js'
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 
-export default class ExecutionsList extends Command {
+export default class ExecutionsList extends PMOCommand {
   static description = 'List running and recent executions'
 
   static examples = [
@@ -17,6 +18,7 @@ export default class ExecutionsList extends Command {
   ]
 
   static flags = {
+    ...pmoBaseFlags,
     status: Flags.string({
       char: 's',
       description: 'Filter by status',
@@ -33,7 +35,11 @@ export default class ExecutionsList extends Command {
     }),
   }
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false }
+  }
+
+  async execute(): Promise<void> {
     const { flags } = await this.parse(ExecutionsList)
 
     // Get workspace info
@@ -58,7 +64,6 @@ export default class ExecutionsList extends Command {
 
       if (executions.length === 0) {
         this.log(styles.muted('\nNo executions found.\n'))
-        db.close()
         return
       }
 
@@ -123,11 +128,8 @@ export default class ExecutionsList extends Command {
         }
         this.log('')
       }
-
+    } finally {
       db.close()
-    } catch (error) {
-      db.close()
-      throw error
     }
   }
 }

@@ -1,11 +1,11 @@
-import { Command, Flags } from '@oclif/core';
+import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { EpicStatus } from '../../lib/pmo/types.js';
 import { createEpicFile, getRelativeEpicPath } from '../../lib/pmo/epic-files.js';
 
-export default class EpicCreate extends Command {
+export default class EpicCreate extends PMOCommand {
   static description = 'Create a new epic';
 
   static examples = [
@@ -16,10 +16,7 @@ export default class EpicCreate extends Command {
   ];
 
   static flags = {
-    project: Flags.string({
-      char: 'P',
-      description: 'Project ID (default: "default")',
-    }),
+    ...pmoBaseFlags,
     title: Flags.string({
       char: 't',
       description: 'Epic title',
@@ -39,15 +36,8 @@ export default class EpicCreate extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { flags } = await this.parse(EpicCreate);
-
-    // Get PMO context
-    const { storage, projectName, pmoPath, projectId } = await getPMOContext(
-      flags.project,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    );
 
     // Get epic data
     let epicData: {
@@ -58,7 +48,7 @@ export default class EpicCreate extends Command {
     };
 
     if (!flags.title) {
-      epicData = await this.promptEpicData(storage, flags);
+      epicData = await this.promptEpicData(flags);
     } else {
       epicData = {
         title: flags.title,
@@ -70,52 +60,43 @@ export default class EpicCreate extends Command {
 
     // Validate spec exists if provided
     if (epicData.specId) {
-      const spec = await storage.getSpec(epicData.specId);
+      const spec = await this.storage.getSpec(epicData.specId);
       if (!spec) {
-        await storage.close();
         this.error(`Spec not found: ${epicData.specId}`);
       }
     }
 
-    try {
-      const epic = await storage.createEpic({
-        title: epicData.title,
-        status: epicData.status,
-        description: epicData.description,
-        specId: epicData.specId,
-      });
+    const epic = await this.storage.createEpic({
+      title: epicData.title,
+      status: epicData.status,
+      description: epicData.description,
+      specId: epicData.specId,
+    });
 
-      // Create markdown file for the epic
-      const filePath = createEpicFile(pmoPath, epic, projectId);
-      const relativePath = getRelativeEpicPath(pmoPath, epic.id, epic.status, projectId);
+    // Create markdown file for the epic
+    const filePath = createEpicFile(this.pmoPath, epic, this.projectId);
+    const relativePath = getRelativeEpicPath(this.pmoPath, epic.id, epic.status, this.projectId);
 
-      // Update epic with file path
-      await storage.updateEpic(epic.id, { filePath });
+    // Update epic with file path
+    await this.storage.updateEpic(epic.id, { filePath });
 
-      await storage.close();
-
-      this.log(styles.success(`\n✅ Created epic ${styles.emphasis(epic.id)} "${epic.title}"`));
-      this.log(styles.muted(`   Project: ${projectName}`));
-      this.log(styles.muted(`   Status: ${epic.status}`));
-      if (epic.specId) {
-        this.log(styles.muted(`   Spec: ${epic.specId}`));
-      }
-      this.log(styles.muted(`   File: ${relativePath}`));
-      this.log('');
-      this.log(styles.muted('Next steps:'));
-      this.log(styles.muted(`  1. Edit the epic file to add details:`));
-      this.log(styles.muted(`     ${relativePath}`));
-      this.log(styles.muted(`  2. Create tickets linked to this epic:`));
-      this.log(styles.muted(`     prlt ticket create --epic ${epic.id} "Design auth flow"`));
-      this.log(styles.muted(`  3. View progress: prlt epic progress ${epic.id}`));
-    } catch (error) {
-      await storage.close();
-      throw error;
+    this.log(styles.success(`\n✅ Created epic ${styles.emphasis(epic.id)} "${epic.title}"`));
+    this.log(styles.muted(`   Project: ${this.projectName}`));
+    this.log(styles.muted(`   Status: ${epic.status}`));
+    if (epic.specId) {
+      this.log(styles.muted(`   Spec: ${epic.specId}`));
     }
+    this.log(styles.muted(`   File: ${relativePath}`));
+    this.log('');
+    this.log(styles.muted('Next steps:'));
+    this.log(styles.muted(`  1. Edit the epic file to add details:`));
+    this.log(styles.muted(`     ${relativePath}`));
+    this.log(styles.muted(`  2. Create tickets linked to this epic:`));
+    this.log(styles.muted(`     prlt ticket create --epic ${epic.id} "Design auth flow"`));
+    this.log(styles.muted(`  3. View progress: prlt epic progress ${epic.id}`));
   }
 
   private async promptEpicData(
-    storage: Awaited<ReturnType<typeof getPMOContext>>['storage'],
     flags: {
       title?: string;
       status?: string;
@@ -129,7 +110,7 @@ export default class EpicCreate extends Command {
     specId?: string;
   }> {
     // Get available specs for linking
-    const specs = await storage.listSpecs();
+    const specs = await this.storage.listSpecs();
     const specChoices = [
       { name: 'None (no spec linked)', value: '' },
       ...specs.map(s => ({

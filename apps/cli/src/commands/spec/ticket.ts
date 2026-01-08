@@ -1,11 +1,11 @@
-import { Command, Flags, Args } from '@oclif/core';
+import { Flags, Args } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import inquirer from 'inquirer';
-import { findPMO, getPMOContext, autoExportToBoard } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class SpecTicket extends Command {
+export default class SpecTicket extends PMOCommand {
   static description = 'Assign a ticket to a spec document';
 
   static examples = [
@@ -25,6 +25,7 @@ export default class SpecTicket extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     ticket: Flags.string({
       char: 't',
       description: 'Ticket ID',
@@ -33,31 +34,15 @@ export default class SpecTicket extends Command {
       char: 's',
       description: 'Spec ID (filename without .md)',
     }),
-    project: Flags.string({
-      char: 'p',
-      description: 'Project ID (will prompt if not specified)',
-    }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(SpecTicket);
-
-    const pmoPath = findPMO();
-    if (!pmoPath) {
-      this.error('PMO not found. Run "prlt pmo init" first.');
-    }
-
-    // Get PMO context (prompt for project if multiple exist)
-    const { projectId, projectName, storage } = await getPMOContext(
-      flags.project,
-      (msg) => this.log(styles.muted(msg)),
-      true // prompt if multiple projects
-    );
 
     // Get ticket ID
     let ticketId = args.ticketId || flags.ticket;
     if (!ticketId) {
-      const tickets = await storage.listTickets();
+      const tickets = await this.storage.listTickets();
       if (tickets.length === 0) {
         this.error('No tickets found. Create one first with: prlt ticket create');
       }
@@ -76,15 +61,15 @@ export default class SpecTicket extends Command {
     }
 
     // Get ticket
-    const ticket = await storage.getTicket(ticketId);
+    const ticket = await this.storage.getTicket(ticketId);
     if (!ticket) {
-      this.error(`Ticket "${ticketId}" not found in project "${projectName}"`);
+      this.error(`Ticket "${ticketId}" not found in project "${this.projectName}"`);
     }
 
     // Get spec ID
     let specId = args.specId || flags.spec;
     if (!specId) {
-      const specs = await this.listAvailableSpecs(pmoPath, projectId);
+      const specs = await this.listAvailableSpecs(this.pmoPath, this.projectId);
       if (specs.length === 0) {
         this.error('No specs found. Create one first with: prlt spec create');
       }
@@ -103,15 +88,14 @@ export default class SpecTicket extends Command {
     }
 
     // Verify spec exists
-    const specPath = this.findSpecFile(pmoPath, projectId, specId);
+    const specPath = this.findSpecFile(this.pmoPath, this.projectId, specId);
     if (!specPath) {
-      this.error(`Spec "${specId}" not found in project "${projectName}"`);
+      this.error(`Spec "${specId}" not found in project "${this.projectName}"`);
     }
 
     // Check if already linked
     if (ticket.specId === specId) {
       this.log(styles.warning(`Ticket "${ticketId}" is already linked to spec "${specId}"`));
-      await storage.close();
       return;
     }
 
@@ -122,12 +106,10 @@ export default class SpecTicket extends Command {
     }
 
     // Set spec on ticket (single spec per ticket)
-    await storage.updateTicket(ticketId, { specId });
+    await this.storage.updateTicket(ticketId, { specId });
 
     // Auto-export to board.md
-    await autoExportToBoard(pmoPath, storage, (msg) => this.log(styles.muted(msg)));
-
-    await storage.close();
+    await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
 
     this.log(styles.success(`\n✅ Linked ticket "${styles.emphasis(ticketId)}" to spec "${styles.emphasis(specId)}"`));
     this.log(styles.muted(`\nView ticket:`));

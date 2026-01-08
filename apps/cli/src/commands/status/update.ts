@@ -1,10 +1,10 @@
-import { Command, Flags, Args } from '@oclif/core';
+import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
-import { getPMOContext } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
 
-export default class StatusUpdate extends Command {
+export default class StatusUpdate extends PMOCommand {
   static description = 'Update a workflow status';
 
   static examples = [
@@ -21,6 +21,7 @@ export default class StatusUpdate extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     name: Flags.string({
       char: 'n',
       description: 'New status name',
@@ -48,64 +49,48 @@ export default class StatusUpdate extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusUpdate);
 
-    // Get storage without project context since we're using status ID directly
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    );
+    // Get existing status
+    const existing = await this.storage.getStatus(args.id);
+    if (!existing) {
+      this.error(`Status not found: ${args.id}`);
+    }
 
-    try {
-      // Get existing status
-      const existing = await storage.getStatus(args.id);
-      if (!existing) {
-        await storage.close();
-        this.error(`Status not found: ${args.id}`);
+    let changes: Partial<{
+      name: string;
+      category: StateCategory;
+      color: string;
+      description: string;
+      isDefault: boolean;
+    }>;
+
+    if (flags.interactive) {
+      changes = await this.promptChanges(existing);
+    } else {
+      changes = {};
+      if (flags.name !== undefined) changes.name = flags.name;
+      if (flags.category !== undefined) changes.category = flags.category as StateCategory;
+      if (flags.color !== undefined) changes.color = flags.color;
+      if (flags.description !== undefined) changes.description = flags.description;
+      if (flags.default !== undefined) changes.isDefault = flags.default;
+
+      if (Object.keys(changes).length === 0) {
+        this.error('No changes specified. Use flags like --name, --category, --color, or -i for interactive mode.');
       }
+    }
 
-      let changes: Partial<{
-        name: string;
-        category: StateCategory;
-        color: string;
-        description: string;
-        isDefault: boolean;
-      }>;
+    const updated = await this.storage.updateStatus(args.id, changes);
 
-      if (flags.interactive) {
-        changes = await this.promptChanges(existing);
-      } else {
-        changes = {};
-        if (flags.name !== undefined) changes.name = flags.name;
-        if (flags.category !== undefined) changes.category = flags.category as StateCategory;
-        if (flags.color !== undefined) changes.color = flags.color;
-        if (flags.description !== undefined) changes.description = flags.description;
-        if (flags.default !== undefined) changes.isDefault = flags.default;
-
-        if (Object.keys(changes).length === 0) {
-          await storage.close();
-          this.error('No changes specified. Use flags like --name, --category, --color, or -i for interactive mode.');
-        }
-      }
-
-      const updated = await storage.updateStatus(args.id, changes);
-
-      await storage.close();
-
-      this.log(styles.success(`\nUpdated status "${styles.emphasis(updated.name)}"`));
-      this.log(styles.muted(`  ID: ${updated.id}`));
-      this.log(styles.muted(`  Category: ${updated.category}`));
-      if (updated.color) {
-        this.log(styles.muted(`  Color: ${updated.color}`));
-      }
-      if (updated.isDefault) {
-        this.log(styles.muted(`  Default: yes`));
-      }
-    } catch (error) {
-      await storage.close();
-      throw error;
+    this.log(styles.success(`\nUpdated status "${styles.emphasis(updated.name)}"`));
+    this.log(styles.muted(`  ID: ${updated.id}`));
+    this.log(styles.muted(`  Category: ${updated.category}`));
+    if (updated.color) {
+      this.log(styles.muted(`  Color: ${updated.color}`));
+    }
+    if (updated.isDefault) {
+      this.log(styles.muted(`  Default: yes`));
     }
   }
 

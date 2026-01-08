@@ -1,8 +1,8 @@
-import { Command, Args } from '@oclif/core';
-import { findPMO, getPMOContext } from '../../lib/pmo/index.js';
+import { Args } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class ProjectUnarchive extends Command {
+export default class ProjectUnarchive extends PMOCommand {
   static description = 'Unarchive a project (restore to default views)';
 
   static examples = [
@@ -16,41 +16,30 @@ export default class ProjectUnarchive extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  static flags = {
+    ...pmoBaseFlags,
+  };
+
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     const { args } = await this.parse(ProjectUnarchive);
 
-    const pmoPath = findPMO();
-    if (!pmoPath) {
-      this.error('PMO not found. Run "prlt pmo init" first.');
+    const project = await this.storage.getProject(args.id);
+    if (!project) {
+      this.error(`Project "${args.id}" not found.`);
     }
 
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg))
-    );
-
-    try {
-      const project = await storage.getProject(args.id);
-      if (!project) {
-        await storage.close();
-        this.error(`Project "${args.id}" not found.`);
-      }
-
-      if (!project.isArchived) {
-        await storage.close();
-        this.log(styles.muted(`Project "${project.name}" is not archived.`));
-        return;
-      }
-
-      await storage.unarchiveProject(args.id);
-
-      await storage.close();
-
-      this.log(styles.success(`\nUnarchived project "${project.name}"`));
-      this.log(styles.muted('View project: prlt project view ' + args.id));
-    } catch (error) {
-      await storage.close();
-      throw error;
+    if (!project.isArchived) {
+      this.log(styles.muted(`Project "${project.name}" is not archived.`));
+      return;
     }
+
+    await this.storage.unarchiveProject(args.id);
+
+    this.log(styles.success(`\nUnarchived project "${project.name}"`));
+    this.log(styles.muted('View project: prlt project view ' + args.id));
   }
 }

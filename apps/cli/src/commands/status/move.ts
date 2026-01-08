@@ -1,8 +1,8 @@
-import { Command, Flags, Args } from '@oclif/core';
-import { getPMOContext } from '../../lib/pmo/index.js';
+import { Flags, Args } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class StatusMove extends Command {
+export default class StatusMove extends PMOCommand {
   static description = 'Reorder a status within its category';
 
   static examples = [
@@ -18,6 +18,7 @@ export default class StatusMove extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     position: Flags.integer({
       char: 'p',
       description: 'New position (0-indexed) within the category',
@@ -25,44 +26,28 @@ export default class StatusMove extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusMove);
 
-    // Get storage without project context since we're using status ID directly
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    );
+    // Get existing status
+    const existing = await this.storage.getStatus(args.id);
+    if (!existing) {
+      this.error(`Status not found: ${args.id}`);
+    }
 
-    try {
-      // Get existing status
-      const existing = await storage.getStatus(args.id);
-      if (!existing) {
-        await storage.close();
-        this.error(`Status not found: ${args.id}`);
-      }
+    const oldPosition = existing.position;
+    const newPosition = flags.position;
 
-      const oldPosition = existing.position;
-      const newPosition = flags.position;
+    if (newPosition < 0) {
+      this.error('Position must be >= 0');
+    }
 
-      if (newPosition < 0) {
-        await storage.close();
-        this.error('Position must be >= 0');
-      }
+    const updated = await this.storage.reorderStatus(args.id, newPosition);
 
-      const updated = await storage.reorderStatus(args.id, newPosition);
-
-      await storage.close();
-
-      if (oldPosition === newPosition) {
-        this.log(styles.muted(`Status "${updated.name}" is already at position ${newPosition}`));
-      } else {
-        this.log(styles.success(`Moved "${updated.name}" from position ${oldPosition} to ${updated.position}`));
-      }
-    } catch (error) {
-      await storage.close();
-      throw error;
+    if (oldPosition === newPosition) {
+      this.log(styles.muted(`Status "${updated.name}" is already at position ${newPosition}`));
+    } else {
+      this.log(styles.success(`Moved "${updated.name}" from position ${oldPosition} to ${updated.position}`));
     }
   }
 }
