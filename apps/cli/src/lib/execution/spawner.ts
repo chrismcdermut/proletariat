@@ -45,6 +45,8 @@ export interface SpawnOptions {
   executor?: ExecutorType
   /** Skip permission prompts (danger mode) */
   skipPermissions?: boolean
+  /** Explicitly allow running on host (bypasses sandbox) */
+  runOnHost?: boolean
   /** Create PR when work is ready */
   createPR?: boolean
   /** Execution config (terminal app, shell, etc.) */
@@ -267,7 +269,38 @@ export async function spawnAgentForTicket(
   // Determine execution environment and display mode
   const hasDevcontainer = hasDevcontainerConfig(agentDir)
   const dockerRunning = isDockerRunning()
-  const environment: ExecutionEnvironment = options.environment || (hasDevcontainer && dockerRunning ? 'devcontainer' : 'host')
+
+  // Security check: If devcontainer exists but Docker isn't running,
+  // require explicit --run-on-host flag to proceed (TKT-046)
+  let environment: ExecutionEnvironment
+  if (options.environment) {
+    environment = options.environment
+  } else if (hasDevcontainer && dockerRunning) {
+    environment = 'devcontainer'
+  } else if (hasDevcontainer && !dockerRunning) {
+    // Devcontainer exists but Docker isn't running
+    if (options.runOnHost) {
+      // User explicitly opted to run on host
+      environment = 'host'
+      log('⚠️  Running on host (--run-on-host flag set). Agent has full host access.')
+    } else {
+      // Security: Don't silently fall back to host
+      return {
+        success: false,
+        ticketId: ticket.id,
+        agentName,
+        error: 'Docker is not running but devcontainer is configured.\n\n' +
+          'For security, agents should run in Docker containers.\n' +
+          'Options:\n' +
+          '  1. Start Docker Desktop and try again\n' +
+          '  2. Use --run-on-host flag to run directly on your machine (bypasses sandbox)',
+      }
+    }
+  } else {
+    // No devcontainer configured, host is the only option
+    environment = 'host'
+  }
+
   const displayMode: DisplayMode = options.displayMode || 'terminal'
 
   // Determine runtime mode based on environment and display mode

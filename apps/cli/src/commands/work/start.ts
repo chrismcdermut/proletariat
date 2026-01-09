@@ -109,6 +109,11 @@ export default class WorkStart extends PMOCommand {
       description: 'Output mode',
       options: ['interactive', 'print'],
     }),
+    display: Flags.string({
+      char: 'd',
+      description: 'Display mode for devcontainer (where to show output)',
+      options: ['terminal', 'foreground', 'background', 'tmux'],
+    }),
   }
 
   async execute(): Promise<void> {
@@ -570,10 +575,14 @@ export default class WorkStart extends PMOCommand {
       } else if (useDevcontainer) {
         // Devcontainer with explicit mode flag
         environment = 'devcontainer'
-        if (flags.mode && ['terminal', 'foreground', 'background', 'tmux'].includes(flags.mode)) {
+        // Use --display flag if provided, otherwise fall back to --mode or default to 'terminal'
+        if (flags.display) {
+          displayMode = flags.display as DisplayMode
+        } else if (flags.mode && ['terminal', 'foreground', 'background', 'tmux'].includes(flags.mode)) {
           displayMode = flags.mode as DisplayMode
-        } else if (flags.mode === 'devcontainer') {
-          displayMode = 'foreground'
+        } else {
+          // Default to terminal for devcontainer (opens new tab instead of blocking current terminal)
+          displayMode = 'terminal'
         }
         mode = 'devcontainer'
       } else {
@@ -742,6 +751,10 @@ export default class WorkStart extends PMOCommand {
         if (isExistingBranch) {
           // Ticket already has a branch linked - just use it
           this.log(styles.muted(`Using existing branch: ${branch}`))
+        } else if (flags.action || flags.force) {
+          // Non-interactive mode (spawned from batch command) - auto-create branch
+          finalBranch = branch
+          this.log(styles.muted(`Branch: ${finalBranch}`))
         } else {
           // No branch in DB - ask user if one already exists
           const { branchChoice } = await inquirer.prompt([
@@ -842,6 +855,13 @@ export default class WorkStart extends PMOCommand {
               continue
             }
 
+            // Fetch latest from origin to ensure we have up-to-date refs
+            try {
+              execSync('git fetch origin', { cwd: repoPath, stdio: 'pipe' })
+            } catch {
+              // Ignore fetch errors (might be offline or no remote)
+            }
+
             // Check if branch exists in git
             try {
               execSync(`git rev-parse --verify ${finalBranch}`, {
@@ -854,11 +874,25 @@ export default class WorkStart extends PMOCommand {
               })
               this.log(styles.muted(`   ${repoName}: checked out branch`))
             } catch {
-              execSync(`git checkout -b ${finalBranch}`, {
+              // Branch doesn't exist - create from origin/main (or origin/master, or HEAD as fallback)
+              let baseBranch = 'HEAD'
+              try {
+                execSync('git rev-parse --verify origin/main', { cwd: repoPath, stdio: 'pipe' })
+                baseBranch = 'origin/main'
+              } catch {
+                try {
+                  execSync('git rev-parse --verify origin/master', { cwd: repoPath, stdio: 'pipe' })
+                  baseBranch = 'origin/master'
+                } catch {
+                  // No origin/main or origin/master - use HEAD
+                }
+              }
+
+              execSync(`git checkout -b ${finalBranch} ${baseBranch}`, {
                 cwd: repoPath,
                 stdio: 'pipe',
               })
-              this.log(styles.muted(`   ${repoName}: created new branch`))
+              this.log(styles.muted(`   ${repoName}: created new branch from ${baseBranch}`))
             }
           } catch (error) {
             this.warn(`Could not handle branch in ${repoName}: ${error instanceof Error ? error.message : error}`)
@@ -1078,8 +1112,10 @@ export default class WorkStart extends PMOCommand {
         this.log(styles.muted(`Starting ${ticket.id} with ${agent.name}...`))
 
         // Use the work:start command for each ticket
+        // Pass --project to avoid re-prompting for project selection
         await this.config.runCommand('work:start', [
           ticket.id,
+          '--project', this.projectId,
           '--mode', flags.mode || 'background',
           ...(flags.executor ? ['--executor', flags.executor] : []),
           ...(flags['run-on-host'] ? ['--run-on-host'] : []),
@@ -1231,11 +1267,31 @@ export default class WorkStart extends PMOCommand {
             continue
           }
 
+          // Fetch latest from origin to ensure we have up-to-date refs
+          try {
+            execSync('git fetch origin', { cwd: repoPath, stdio: 'pipe' })
+          } catch {
+            // Ignore fetch errors (might be offline or no remote)
+          }
+
           try {
             execSync(`git rev-parse --verify ${branch}`, { cwd: repoPath, stdio: 'pipe' })
             execSync(`git checkout ${branch}`, { cwd: repoPath, stdio: 'pipe' })
           } catch {
-            execSync(`git checkout -b ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+            // Branch doesn't exist - create from origin/main (or origin/master, or HEAD as fallback)
+            let baseBranch = 'HEAD'
+            try {
+              execSync('git rev-parse --verify origin/main', { cwd: repoPath, stdio: 'pipe' })
+              baseBranch = 'origin/main'
+            } catch {
+              try {
+                execSync('git rev-parse --verify origin/master', { cwd: repoPath, stdio: 'pipe' })
+                baseBranch = 'origin/master'
+              } catch {
+                // No origin/main or origin/master - use HEAD
+              }
+            }
+            execSync(`git checkout -b ${branch} ${baseBranch}`, { cwd: repoPath, stdio: 'pipe' })
           }
         } catch {
           // Ignore branch errors in batch mode

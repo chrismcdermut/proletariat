@@ -438,6 +438,8 @@ export default class WorkSpawn extends PMOCommand {
       let batchCreatePr = flags['create-pr']
       let batchNoPr = flags['no-pr']
       let batchRunOnHost = flags['run-on-host']
+      // Track display mode separately for devcontainer (needs to be outside the if block)
+      let batchDisplayMode: string | undefined
 
       // Check if any agent has devcontainer config
       const hasDevcontainer = availableAgents.some(agent => {
@@ -486,6 +488,23 @@ export default class WorkSpawn extends PMOCommand {
               }
               batchMode = 'devcontainer'
               environmentSelected = true
+
+              // For devcontainer, also prompt for display mode
+              const { selectedDisplay } = await inquirer.prompt([
+                {
+                  type: 'list',
+                  name: 'selectedDisplay',
+                  message: 'How should agent output be displayed?',
+                  choices: [
+                    { name: '🖥️  terminal     - New terminal tab (recommended)', value: 'terminal' },
+                    { name: '📺 foreground  - Current terminal (one at a time)', value: 'foreground' },
+                    { name: '🔲 tmux        - Tmux pane/window', value: 'tmux' },
+                    { name: '📦 background  - Detached (logs to file)', value: 'background' },
+                  ],
+                  default: 'terminal',
+                },
+              ])
+              batchDisplayMode = selectedDisplay
             } else {
               batchRunOnHost = true
               environmentSelected = true
@@ -493,7 +512,7 @@ export default class WorkSpawn extends PMOCommand {
           }
         }
 
-        // Prompt for display mode if not already set (for host mode or devcontainer)
+        // Prompt for display mode if not already set (for host mode without devcontainer)
         if (!batchMode) {
           const { selectedMode } = await inquirer.prompt([
             {
@@ -578,17 +597,20 @@ export default class WorkSpawn extends PMOCommand {
           await this.storage.updateTicket(ticket.id, { assignee: agent.name })
 
           // Build args for work:start
-          const startArgs: string[] = [ticket.id]
+          // IMPORTANT: Pass --project to avoid re-prompting for project selection
+          const startArgs: string[] = [ticket.id, '--project', this.projectId]
 
           if (flags['per-ticket']) {
             // Per-ticket mode: only pass mode flag, let start prompt for the rest
             if (batchMode) startArgs.push('--mode', batchMode)
+            if (batchDisplayMode) startArgs.push('--display', batchDisplayMode)
             if (flags.executor) startArgs.push('--executor', flags.executor)
             if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
           } else {
             // Batch mode: pass all settings to skip prompts
             if (batchMode) startArgs.push('--mode', batchMode)
+            if (batchDisplayMode) startArgs.push('--display', batchDisplayMode)
             if (flags.executor) startArgs.push('--executor', flags.executor)
             if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
@@ -596,6 +618,8 @@ export default class WorkSpawn extends PMOCommand {
             if (batchSkipPermissions) startArgs.push('--skip-permissions')
             if (batchCreatePr) startArgs.push('--create-pr')
             if (batchNoPr) startArgs.push('--no-pr')
+            // Default action to 'implement' to skip the action prompt
+            startArgs.push('--action', 'implement')
           }
 
           await this.config.runCommand('work:start', startArgs)

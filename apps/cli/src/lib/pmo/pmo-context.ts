@@ -4,6 +4,10 @@ import inquirer from 'inquirer';
 import Database from 'better-sqlite3';
 import { SQLiteStorage, getStorageWithAutoSync, getWorkspaceDbPath } from './index.js';
 import { findPMO } from './find-pmo.js';
+import { warnIfMultipleHQs } from '../workspace.js';
+
+// Track if we've already warned about multiple HQs this session
+let hasWarnedAboutMultipleHQs = false;
 
 /**
  * PMO context for commands
@@ -60,6 +64,12 @@ export async function getPMOContext(
     throw new Error('PMO not found. Run "prlt pmo init" first.');
   }
 
+  // Warn once per session if multiple HQ workspaces detected
+  if (!hasWarnedAboutMultipleHQs) {
+    warnIfMultipleHQs();
+    hasWarnedAboutMultipleHQs = true;
+  }
+
   // Get workspace.db path (searches upward from PMO)
   const dbPath = getWorkspaceDbPath(pmoPath);
 
@@ -93,8 +103,13 @@ export async function getPMOContext(
       }
     }
 
-    if (promptIfMultipleOpt && filteredProjects.length > 1) {
-      // Prompt user to select project (with ticket counts)
+    if (filteredProjects.length === 1) {
+      // Only one project (or one with tickets), use it - no prompt needed
+      resolvedProjectId = filteredProjects[0].id;
+    } else if (filteredProjects.length > 1) {
+      // Multiple projects - always prompt for selection
+      // (promptIfMultiple is only false when --project flag is already provided,
+      // but if we're here, no project was provided so we must ask)
       const { selectedProjectId } = await inquirer.prompt([{
         type: 'list',
         name: 'selectedProjectId',
@@ -105,25 +120,6 @@ export async function getPMOContext(
         })),
       }]);
       resolvedProjectId = selectedProjectId;
-    } else if (filteredProjects.length === 1) {
-      // Only one project (or one with tickets), use it
-      resolvedProjectId = filteredProjects[0].id;
-    } else {
-      // Multiple projects but no prompt, try to use HQ name
-      const hqRoot = path.dirname(path.dirname(dbPath)); // dbPath is at {hq}/.proletariat/workspace.db
-      const configPath = path.join(hqRoot, '.proletariat', 'config.json');
-      if (fs.existsSync(configPath)) {
-        try {
-          const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-          // For HQ workspaces, use the HQ name as project ID
-          if (config.type === 'hq' && config.name) {
-            resolvedProjectId = config.name;
-          }
-        } catch {
-          // Ignore errors, fall back to first project
-        }
-      }
-      resolvedProjectId = resolvedProjectId || filteredProjects[0].id;
     }
   }
 

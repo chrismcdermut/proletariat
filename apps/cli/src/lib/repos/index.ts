@@ -12,6 +12,7 @@ import {
   Repository
 } from '../database/index.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
+import { findHQRoot } from '../workspace.js';
 
 export interface RepoToAdd {
   path: string;
@@ -415,27 +416,9 @@ export interface WorkspaceRepoInfo {
 
 /**
  * Find HQ root by traversing upward
+ * @deprecated Use findHQRoot from '../workspace.js' instead for PRLT_HQ_PATH support
  */
-export function findHQRoot(): string | null {
-  let currentDir = process.cwd();
-
-  while (currentDir !== '/') {
-    const configPath = path.join(currentDir, '.proletariat', 'config.json');
-    if (fs.existsSync(configPath)) {
-      try {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        if (config.type === 'hq') {
-          return currentDir;
-        }
-      } catch {
-        // Ignore parse errors
-      }
-    }
-    currentDir = path.dirname(currentDir);
-  }
-
-  return null;
-}
+export { findHQRoot } from '../workspace.js';
 
 /**
  * Get workspace repository information
