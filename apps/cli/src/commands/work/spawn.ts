@@ -94,6 +94,10 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Do not create PR when work is ready (batch mode only)',
       default: false,
     }),
+    'from-current': Flags.boolean({
+      description: 'Create branches from current branch instead of main',
+      default: false,
+    }),
   }
 
   async execute(): Promise<void> {
@@ -586,6 +590,7 @@ export default class WorkSpawn extends PMOCommand {
             if (flags.executor) startArgs.push('--executor', flags.executor)
             if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
+            if (flags['from-current']) startArgs.push('--from-current')
           } else {
             // Batch mode: pass all settings to skip prompts
             if (batchMode) startArgs.push('--mode', batchMode)
@@ -596,6 +601,7 @@ export default class WorkSpawn extends PMOCommand {
             if (batchSkipPermissions) startArgs.push('--skip-permissions')
             if (batchCreatePr) startArgs.push('--create-pr')
             if (batchNoPr) startArgs.push('--no-pr')
+            if (flags['from-current']) startArgs.push('--from-current')
           }
 
           await this.config.runCommand('work:start', startArgs)

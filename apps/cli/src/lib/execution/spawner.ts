@@ -49,6 +49,8 @@ export interface SpawnOptions {
   createPR?: boolean
   /** Execution config (terminal app, shell, etc.) */
   executionConfig?: ExecutionConfig
+  /** Branch from current branch instead of main (default: false, branches from main) */
+  branchFromCurrent?: boolean
   /** Logging callback */
   log?: (msg: string) => void
 }
@@ -288,6 +290,10 @@ export async function spawnAgentForTicket(
     ? repoWorktrees.map(r => path.join(agentDir, r))
     : [worktreePath]
 
+  // Determine the base branch for creating new branches
+  // Default to origin/main unless branchFromCurrent is explicitly set
+  const branchFromMain = !options.branchFromCurrent
+
   if (environment === 'devcontainer') {
     // Get container ID for this agent
     let containerId: string | null = null
@@ -315,14 +321,29 @@ export async function spawnAgentForTicket(
             continue
           }
 
+          // Fetch from origin/main if branching from main
+          if (branchFromMain) {
+            try {
+              execSync(`docker exec ${containerId} git -C "${containerRepoPath}" fetch origin main`, { stdio: 'pipe' })
+            } catch {
+              log(`Could not fetch origin/main in ${repoName}, using local state`)
+            }
+          }
+
           // Check if branch exists
           try {
             execSync(`docker exec ${containerId} git -C "${containerRepoPath}" rev-parse --verify ${branch}`, { stdio: 'pipe' })
             execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout ${branch}`, { stdio: 'pipe' })
           } catch {
-            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout -b ${branch}`, { stdio: 'pipe' })
+            // Branch doesn't exist - create it from the appropriate base
+            if (branchFromMain) {
+              execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout -b ${branch} origin/main`, { stdio: 'pipe' })
+              log(`Created branch ${branch} from origin/main in ${repoName} (inside container)`)
+            } else {
+              execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout -b ${branch}`, { stdio: 'pipe' })
+              log(`Created branch ${branch} from current branch in ${repoName} (inside container)`)
+            }
           }
-          log(`Created branch ${branch} in ${repoName} (inside container)`)
         } catch (error) {
           log(`Could not create branch in ${repoName}: ${error instanceof Error ? error.message : error}`)
         }
@@ -341,12 +362,28 @@ export async function spawnAgentForTicket(
           continue
         }
 
+        // Fetch from origin/main if branching from main
+        if (branchFromMain) {
+          try {
+            execSync('git fetch origin main', { cwd: repoPath, stdio: 'pipe' })
+          } catch {
+            log(`Could not fetch origin/main in ${path.basename(repoPath)}, using local state`)
+          }
+        }
+
         // Check if branch exists
         try {
           execSync(`git rev-parse --verify ${branch}`, { cwd: repoPath, stdio: 'pipe' })
           execSync(`git checkout ${branch}`, { cwd: repoPath, stdio: 'pipe' })
         } catch {
-          execSync(`git checkout -b ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+          // Branch doesn't exist - create it from the appropriate base
+          if (branchFromMain) {
+            execSync(`git checkout -b ${branch} origin/main`, { cwd: repoPath, stdio: 'pipe' })
+            log(`Created branch ${branch} from origin/main in ${path.basename(repoPath)}`)
+          } else {
+            execSync(`git checkout -b ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+            log(`Created branch ${branch} from current branch in ${path.basename(repoPath)}`)
+          }
         }
       } catch (error) {
         log(`Could not create branch in ${path.basename(repoPath)}: ${error instanceof Error ? error.message : error}`)

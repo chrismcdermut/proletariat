@@ -109,6 +109,10 @@ export default class WorkStart extends PMOCommand {
       description: 'Output mode',
       options: ['interactive', 'print'],
     }),
+    'from-current': Flags.boolean({
+      description: 'Create branch from current branch instead of main',
+      default: false,
+    }),
   }
 
   async execute(): Promise<void> {
@@ -732,6 +736,10 @@ export default class WorkStart extends PMOCommand {
 
       // Handle git branch - only if action modifies code
       let finalBranch = branch
+      // Agent branches should default to branching from origin/main, not the current branch
+      // Unless --from-current flag is set
+      let branchFromMain = !flags['from-current']
+
       if (context.modifiesCode !== false) {
         // If we have multiple repo worktrees, use the first for branch detection
         const gitRepos = repoWorktrees.length > 0
@@ -742,6 +750,7 @@ export default class WorkStart extends PMOCommand {
         if (isExistingBranch) {
           // Ticket already has a branch linked - just use it
           this.log(styles.muted(`Using existing branch: ${branch}`))
+          branchFromMain = false  // Use existing branch as-is
         } else {
           // No branch in DB - ask user if one already exists
           const { branchChoice } = await inquirer.prompt([
@@ -750,7 +759,7 @@ export default class WorkStart extends PMOCommand {
               name: 'branchChoice',
               message: `Does a branch already exist for ${ticket.id}?`,
               choices: [
-                { name: 'No, create new branch (Recommended)', value: 'create' },
+                { name: 'No, create new branch from main (Recommended)', value: 'create' },
                 { name: 'Yes, I\'ll enter the branch name', value: 'enter' },
                 { name: 'Search for matching branches', value: 'search' },
               ],
@@ -758,7 +767,8 @@ export default class WorkStart extends PMOCommand {
           ])
 
           if (branchChoice === 'enter') {
-            // User enters existing branch name
+            // User enters existing branch name - don't branch from main
+            branchFromMain = false
             const { enteredBranch } = await inquirer.prompt([
               {
                 type: 'input',
@@ -813,6 +823,8 @@ export default class WorkStart extends PMOCommand {
               ])
 
               if (selectedBranch !== '__create__') {
+                // User selected existing branch - don't branch from main
+                branchFromMain = false
                 finalBranch = selectedBranch
                 // Fetch and checkout the selected branch
                 try {
@@ -842,6 +854,15 @@ export default class WorkStart extends PMOCommand {
               continue
             }
 
+            // Fetch from origin/main if branching from main (for new branches)
+            if (branchFromMain) {
+              try {
+                execSync('git fetch origin main', { cwd: repoPath, stdio: 'pipe' })
+              } catch {
+                this.log(styles.muted(`   ${repoName}: could not fetch origin/main, using local state`))
+              }
+            }
+
             // Check if branch exists in git
             try {
               execSync(`git rev-parse --verify ${finalBranch}`, {
@@ -854,11 +875,20 @@ export default class WorkStart extends PMOCommand {
               })
               this.log(styles.muted(`   ${repoName}: checked out branch`))
             } catch {
-              execSync(`git checkout -b ${finalBranch}`, {
-                cwd: repoPath,
-                stdio: 'pipe',
-              })
-              this.log(styles.muted(`   ${repoName}: created new branch`))
+              // Branch doesn't exist - create it from the appropriate base
+              if (branchFromMain) {
+                execSync(`git checkout -b ${finalBranch} origin/main`, {
+                  cwd: repoPath,
+                  stdio: 'pipe',
+                })
+                this.log(styles.muted(`   ${repoName}: created new branch from origin/main`))
+              } else {
+                execSync(`git checkout -b ${finalBranch}`, {
+                  cwd: repoPath,
+                  stdio: 'pipe',
+                })
+                this.log(styles.muted(`   ${repoName}: created new branch`))
+              }
             }
           } catch (error) {
             this.warn(`Could not handle branch in ${repoName}: ${error instanceof Error ? error.message : error}`)
