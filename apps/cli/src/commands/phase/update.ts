@@ -11,12 +11,13 @@ export default class PhaseUpdate extends PMOCommand {
     '<%= config.bin %> <%= command.id %> active --name "In Development"',
     '<%= config.bin %> <%= command.id %> idea --color "#9333EA"',
     '<%= config.bin %> <%= command.id %> planned --default',
+    '<%= config.bin %> <%= command.id %>  # Interactive mode',
   ];
 
   static args = {
     id: Args.string({
-      description: 'Phase ID',
-      required: true,
+      description: 'Phase ID - prompts with dropdown if not provided',
+      required: false,
     }),
   };
 
@@ -55,9 +56,30 @@ export default class PhaseUpdate extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(PhaseUpdate);
 
-    const existing = await this.storage.getPhase(args.id);
+    // Get phase ID - prompt if not provided
+    let phaseId = args.id;
+
+    if (!phaseId) {
+      const phases = await this.storage.listPhases();
+      if (phases.length === 0) {
+        this.error('No phases found. Create a phase first with "prlt phase create".');
+      }
+
+      const { selectedId } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selectedId',
+        message: 'Select phase to update:',
+        choices: phases.map(p => ({
+          name: `${p.name} (${p.category})`,
+          value: p.id,
+        })),
+      }]);
+      phaseId = selectedId;
+    }
+
+    const existing = await this.storage.getPhase(phaseId!);
     if (!existing) {
-      this.error(`Phase "${args.id}" not found.`);
+      this.error(`Phase "${phaseId}" not found.`);
     }
 
     let updates: {
@@ -68,7 +90,15 @@ export default class PhaseUpdate extends PMOCommand {
       isDefault?: boolean;
     };
 
-    if (flags.interactive) {
+    // Check if any change flags were provided
+    const hasChangeFlags = flags.name !== undefined ||
+                            flags.category !== undefined ||
+                            flags.color !== undefined ||
+                            flags.description !== undefined ||
+                            flags.default !== undefined;
+
+    // Auto-enter interactive mode if no change flags provided
+    if (flags.interactive || !hasChangeFlags) {
       updates = await this.promptUpdates(existing);
     } else {
       updates = {};
@@ -77,13 +107,9 @@ export default class PhaseUpdate extends PMOCommand {
       if (flags.color) updates.color = flags.color;
       if (flags.description) updates.description = flags.description;
       if (flags.default !== undefined) updates.isDefault = flags.default;
-
-      if (Object.keys(updates).length === 0) {
-        this.error('No changes specified. Use -i for interactive mode.');
-      }
     }
 
-    const phase = await this.storage.updatePhase(args.id, updates);
+    const phase = await this.storage.updatePhase(phaseId!, updates);
 
     this.log(styles.success(`\nUpdated phase "${styles.emphasis(phase.name)}"`));
     this.log(styles.muted(`  ID: ${phase.id}`));

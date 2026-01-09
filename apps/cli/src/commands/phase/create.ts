@@ -61,16 +61,10 @@ export default class PhaseCreate extends PMOCommand {
         isDefault?: boolean;
       };
 
-      if (flags.interactive || (!args.name && !flags.category)) {
+      // Auto-enter interactive mode if any required value is missing
+      if (flags.interactive || !args.name || !flags.category) {
         phaseData = await this.promptPhaseData(args, flags);
       } else {
-        if (!args.name) {
-          this.error('Phase name is required. Use -i for interactive mode.');
-        }
-        if (!flags.category) {
-          this.error('Category is required. Use --category or -i for interactive mode.');
-        }
-
         phaseData = {
           name: args.name,
           category: flags.category as StateCategory,

@@ -11,12 +11,13 @@ export default class StatusUpdate extends PMOCommand {
     '<%= config.bin %> <%= command.id %> my-project-in-review --name "Code Review"',
     '<%= config.bin %> <%= command.id %> my-project-blocked --color "#EF4444"',
     '<%= config.bin %> <%= command.id %> my-project-todo --default  # Set as default',
+    '<%= config.bin %> <%= command.id %>  # Interactive mode',
   ];
 
   static args = {
     id: Args.string({
-      description: 'Status ID',
-      required: true,
+      description: 'Status ID - prompts with dropdown if not provided',
+      required: false,
     }),
   };
 
@@ -52,10 +53,31 @@ export default class StatusUpdate extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusUpdate);
 
+    // Get status ID - prompt if not provided
+    let statusId = args.id;
+
+    if (!statusId) {
+      const statuses = await this.storage.listStatuses(this.projectId);
+      if (statuses.length === 0) {
+        this.error('No statuses found. Create a status first with "prlt status create".');
+      }
+
+      const { selectedId } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selectedId',
+        message: 'Select status to update:',
+        choices: statuses.map(s => ({
+          name: `${s.name} (${s.category})`,
+          value: s.id,
+        })),
+      }]);
+      statusId = selectedId;
+    }
+
     // Get existing status
-    const existing = await this.storage.getStatus(args.id);
+    const existing = await this.storage.getStatus(statusId!);
     if (!existing) {
-      this.error(`Status not found: ${args.id}`);
+      this.error(`Status not found: ${statusId}`);
     }
 
     let changes: Partial<{
@@ -66,7 +88,15 @@ export default class StatusUpdate extends PMOCommand {
       isDefault: boolean;
     }>;
 
-    if (flags.interactive) {
+    // Check if any change flags were provided
+    const hasChangeFlags = flags.name !== undefined ||
+                            flags.category !== undefined ||
+                            flags.color !== undefined ||
+                            flags.description !== undefined ||
+                            flags.default !== undefined;
+
+    // Auto-enter interactive mode if no change flags provided
+    if (flags.interactive || !hasChangeFlags) {
       changes = await this.promptChanges(existing);
     } else {
       changes = {};
@@ -75,13 +105,9 @@ export default class StatusUpdate extends PMOCommand {
       if (flags.color !== undefined) changes.color = flags.color;
       if (flags.description !== undefined) changes.description = flags.description;
       if (flags.default !== undefined) changes.isDefault = flags.default;
-
-      if (Object.keys(changes).length === 0) {
-        this.error('No changes specified. Use flags like --name, --category, --color, or -i for interactive mode.');
-      }
     }
 
-    const updated = await this.storage.updateStatus(args.id, changes);
+    const updated = await this.storage.updateStatus(statusId!, changes);
 
     this.log(styles.success(`\nUpdated status "${styles.emphasis(updated.name)}"`));
     this.log(styles.muted(`  ID: ${updated.id}`));
