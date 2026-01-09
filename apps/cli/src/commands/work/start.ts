@@ -27,6 +27,37 @@ import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js'
 
+/**
+ * Try to execute a git command, return true if successful
+ */
+function tryGitCommand(cmd: string, cwd: string): boolean {
+  try {
+    execSync(cmd, { cwd, stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Check if a directory is a git repository
+ */
+function isGitRepo(dir: string): boolean {
+  return tryGitCommand('git rev-parse --git-dir', dir)
+}
+
+/**
+ * Find the first existing branch from a list of candidates
+ */
+function findBaseBranch(repoPath: string, candidates: string[] = ['origin/main', 'origin/master']): string {
+  for (const branch of candidates) {
+    if (tryGitCommand(`git rev-parse --verify ${branch}`, repoPath)) {
+      return branch
+    }
+  }
+  return 'HEAD'
+}
+
 export default class WorkStart extends PMOCommand {
   static description = 'Start work on a ticket (launches an agent to implement it)'
 
@@ -847,51 +878,23 @@ export default class WorkStart extends PMOCommand {
         // Handle branch in each repo
         for (const repoPath of gitRepos) {
           const repoName = path.basename(repoPath)
+
+          if (!isGitRepo(repoPath)) {
+            continue
+          }
+
+          // Fetch latest from origin (best-effort, may fail if offline)
+          tryGitCommand('git fetch origin', repoPath)
+
           try {
-            // Check if this is a git repo
-            try {
-              execSync('git rev-parse --git-dir', { cwd: repoPath, stdio: 'pipe' })
-            } catch {
-              continue
-            }
-
-            // Fetch latest from origin to ensure we have up-to-date refs
-            try {
-              execSync('git fetch origin', { cwd: repoPath, stdio: 'pipe' })
-            } catch {
-              // Ignore fetch errors (might be offline or no remote)
-            }
-
-            // Check if branch exists in git
-            try {
-              execSync(`git rev-parse --verify ${finalBranch}`, {
-                cwd: repoPath,
-                stdio: 'pipe',
-              })
-              execSync(`git checkout ${finalBranch}`, {
-                cwd: repoPath,
-                stdio: 'pipe',
-              })
+            // Check if branch exists and checkout
+            if (tryGitCommand(`git rev-parse --verify ${finalBranch}`, repoPath)) {
+              execSync(`git checkout ${finalBranch}`, { cwd: repoPath, stdio: 'pipe' })
               this.log(styles.muted(`   ${repoName}: checked out branch`))
-            } catch {
-              // Branch doesn't exist - create from origin/main (or origin/master, or HEAD as fallback)
-              let baseBranch = 'HEAD'
-              try {
-                execSync('git rev-parse --verify origin/main', { cwd: repoPath, stdio: 'pipe' })
-                baseBranch = 'origin/main'
-              } catch {
-                try {
-                  execSync('git rev-parse --verify origin/master', { cwd: repoPath, stdio: 'pipe' })
-                  baseBranch = 'origin/master'
-                } catch {
-                  // No origin/main or origin/master - use HEAD
-                }
-              }
-
-              execSync(`git checkout -b ${finalBranch} ${baseBranch}`, {
-                cwd: repoPath,
-                stdio: 'pipe',
-              })
+            } else {
+              // Branch doesn't exist - create from best available base
+              const baseBranch = findBaseBranch(repoPath)
+              execSync(`git checkout -b ${finalBranch} ${baseBranch}`, { cwd: repoPath, stdio: 'pipe' })
               this.log(styles.muted(`   ${repoName}: created new branch from ${baseBranch}`))
             }
           } catch (error) {
@@ -1260,41 +1263,24 @@ export default class WorkStart extends PMOCommand {
         : [worktreePath]
 
       for (const repoPath of gitRepos) {
+        if (!isGitRepo(repoPath)) {
+          continue
+        }
+
+        // Fetch latest from origin (best-effort, may fail if offline)
+        tryGitCommand('git fetch origin', repoPath)
+
         try {
-          try {
-            execSync('git rev-parse --git-dir', { cwd: repoPath, stdio: 'pipe' })
-          } catch {
-            continue
-          }
-
-          // Fetch latest from origin to ensure we have up-to-date refs
-          try {
-            execSync('git fetch origin', { cwd: repoPath, stdio: 'pipe' })
-          } catch {
-            // Ignore fetch errors (might be offline or no remote)
-          }
-
-          try {
-            execSync(`git rev-parse --verify ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+          // Check if branch exists and checkout
+          if (tryGitCommand(`git rev-parse --verify ${branch}`, repoPath)) {
             execSync(`git checkout ${branch}`, { cwd: repoPath, stdio: 'pipe' })
-          } catch {
-            // Branch doesn't exist - create from origin/main (or origin/master, or HEAD as fallback)
-            let baseBranch = 'HEAD'
-            try {
-              execSync('git rev-parse --verify origin/main', { cwd: repoPath, stdio: 'pipe' })
-              baseBranch = 'origin/main'
-            } catch {
-              try {
-                execSync('git rev-parse --verify origin/master', { cwd: repoPath, stdio: 'pipe' })
-                baseBranch = 'origin/master'
-              } catch {
-                // No origin/main or origin/master - use HEAD
-              }
-            }
+          } else {
+            // Branch doesn't exist - create from best available base
+            const baseBranch = findBaseBranch(repoPath)
             execSync(`git checkout -b ${branch} ${baseBranch}`, { cwd: repoPath, stdio: 'pipe' })
           }
         } catch {
-          // Ignore branch errors in batch mode
+          // Ignore branch errors in batch mode - continue with other repos
         }
       }
 

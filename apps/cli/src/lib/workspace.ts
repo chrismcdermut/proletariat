@@ -143,13 +143,6 @@ export function findAllHQs(startDir: string = process.cwd()): string[] {
     if (isValidHQ(currentDir)) {
       hqs.push(currentDir);
     }
-
-    // Also check for .pmo mini-HQ structures
-    const pmoDir = path.join(currentDir, '.pmo');
-    if (isValidHQ(pmoDir)) {
-      hqs.push(pmoDir);
-    }
-
     currentDir = path.dirname(currentDir);
   }
 
