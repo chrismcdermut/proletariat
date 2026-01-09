@@ -2,12 +2,8 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { execSync } from 'node:child_process';
 import Database from 'better-sqlite3';
-import { fileURLToPath } from 'node:url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { exec } from './test-helpers.js';
 
 /**
  * End-to-end tests for PMO Action Commands
@@ -506,31 +502,4 @@ function setupTestDatabase(db: Database.Database) {
   // Create PMO directory structure
   const pmoPath = path.join(process.cwd(), 'pmo/projects/default');
   fs.mkdirSync(pmoPath, { recursive: true });
-}
-
-function exec(cmd: string): string {
-  try {
-    const binPath = path.join(__dirname, '../../bin/run.js');
-    const result = execSync(`${binPath} ${cmd}`, {
-      encoding: 'utf-8',
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-      },
-    });
-    return result;
-  } catch (error: any) {
-    const stdout = error.stdout || '';
-    const stderr = error.stderr || '';
-    if (stdout.trim()) {
-      return stdout;
-    }
-    const filteredStderr = stderr.split('\n').filter((line: string) =>
-      !line.includes('[ERR_UNKNOWN_FILE_EXTENSION]') &&
-      !line.includes('Warning:') &&
-      !line.includes('module: @oclif')
-    ).join('\n');
-    return filteredStderr || error.message;
-  }
 }

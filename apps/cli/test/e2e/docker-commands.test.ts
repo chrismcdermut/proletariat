@@ -2,12 +2,8 @@ import { expect } from 'chai'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
-import { execSync } from 'child_process'
 import Database from 'better-sqlite3'
-import { fileURLToPath } from 'url'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
+import { execProduction as exec } from './test-helpers.js'
 
 /**
  * End-to-end tests for Docker Management Commands
@@ -791,58 +787,3 @@ function createExecution(
   return execId
 }
 
-function exec(cmd: string): string {
-  try {
-    const cliDir = path.join(__dirname, '../..')
-    const binPath = path.join(cliDir, 'bin/run.js')
-    const result = execSync(`node ${binPath} ${cmd}`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      // Use production mode to run compiled JS instead of TS source
-      env: { ...process.env, NODE_ENV: 'production' },
-      cwd: cliDir, // Run from CLI directory for proper module resolution
-    })
-    return filterNodeWarnings(result)
-  } catch (error: any) {
-    // Return output even if command exits with non-zero
-    const output = error.stdout || error.stderr || error.message
-    return filterNodeWarnings(output)
-  }
-}
-
-function filterNodeWarnings(output: string): string {
-  // Known oclif debug prefixes to filter
-  const debugPrefixes = [
-    'plugin:',
-    'root:',
-    'module:',
-    'task:',
-    'version:',
-    'channel:',
-    'cacheDir:',
-    'configDir:',
-    'dataDir:',
-    'dirname:',
-    'errlog:',
-    'home:',
-    'shell:',
-    'pjson:',
-  ]
-
-  return output
-    .split('\n')
-    .filter((line) => {
-      // Filter out node warnings
-      if (line.includes('ExperimentalWarning')) return false
-      if (line.includes('ERR_UNKNOWN')) return false
-      if (line.startsWith('(node:')) return false
-
-      // Filter oclif debug lines
-      for (const prefix of debugPrefixes) {
-        if (line.startsWith(prefix)) return false
-      }
-
-      return true
-    })
-    .join('\n')
-}

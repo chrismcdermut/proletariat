@@ -3,10 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { execSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { execWithFilter as exec } from './test-helpers.js';
 
 /**
  * End-to-end tests for Commit Command
@@ -345,47 +342,3 @@ describe('Commit Command E2E Tests', () => {
   });
 });
 
-// Helper function to run CLI commands
-function exec(cmd: string): string {
-  try {
-    const binPath = path.join(__dirname, '../../bin/run.js');
-    // Capture both stdout and stderr, then filter stderr noise
-    const result = execSync(`node ${binPath} ${cmd} 2>&1`, {
-      encoding: 'utf-8',
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-      },
-    });
-    return filterOutput(result);
-  } catch (error: any) {
-    const stdout = error.stdout || '';
-    const stderr = error.stderr || '';
-    // Return filtered output from either stream
-    const combined = stdout + stderr;
-    const filtered = filterOutput(combined);
-    return filtered || error.message;
-  }
-}
-
-// Filter out oclif warnings and noise from stderr
-function filterOutput(output: string): string {
-  return output.split('\n').filter((line: string) =>
-    !line.includes('[ERR_UNKNOWN_FILE_EXTENSION]') &&
-    !line.includes('Warning:') &&
-    !line.includes('module: @oclif') &&
-    !line.includes('task: findCommand') &&
-    !line.includes('plugin: @chrismcdermut') &&
-    !line.includes('root: /') &&
-    !line.includes('code: ERR_') &&
-    !line.includes('message: Unknown file extension') &&
-    !line.includes('See more details with DEBUG') &&
-    !line.includes('node --trace-warnings') &&
-    !line.includes('node --trace-deprecation') &&
-    !line.includes('ExperimentalWarning') &&
-    !line.includes('DeprecationWarning') &&
-    !line.includes('(Use `node') &&
-    line.trim() !== ''
-  ).join('\n');
-}

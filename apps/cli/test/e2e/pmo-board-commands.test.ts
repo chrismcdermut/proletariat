@@ -2,12 +2,8 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { execSync } from 'node:child_process';
 import Database from 'better-sqlite3';
-import { fileURLToPath } from 'node:url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { exec as execCommand } from './test-helpers.js';
 
 /**
  * Integration tests for PMO Board Commands
@@ -368,15 +364,3 @@ function createTestTicket(
   `).run(id, columnId, maxPos.max_pos + 1);
 }
 
-function execCommand(cmd: string): string {
-  try {
-    const binPath = path.join(__dirname, '../../bin/run.js');
-    return execSync(`node ${binPath} ${cmd}`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-  } catch (error: any) {
-    // Command may fail in test environment - return output anyway
-    return error.stdout || error.message;
-  }
-}

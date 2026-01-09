@@ -4,10 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { execSync } from 'node:child_process';
 import Database from 'better-sqlite3';
-import { fileURLToPath } from 'node:url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { exec } from './test-helpers.js';
 
 /**
  * End-to-end tests for PR Commands
@@ -689,16 +686,3 @@ function createTicket(db: Database.Database, title: string, columnId: string): s
   return ticketId;
 }
 
-function exec(cmd: string): string {
-  try {
-    const binPath = path.join(__dirname, '../../bin/run.js');
-    return execSync(`node ${binPath} ${cmd}`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, NODE_ENV: 'test' },
-    });
-  } catch (error: any) {
-    // Return output even if command exits with non-zero
-    return error.stdout || error.stderr || error.message;
-  }
-}
