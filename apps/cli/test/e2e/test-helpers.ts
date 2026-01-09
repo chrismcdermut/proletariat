@@ -134,7 +134,7 @@ export function createEpicDirectories(pmoPath: string, projectId: string = 'test
  * This ensures that environment variables that could bypass test isolation
  * are explicitly cleared.
  */
-export function getIsolatedEnv(): NodeJS.ProcessEnv {
+export function getIsolatedEnv(nodeEnv: string = 'test'): NodeJS.ProcessEnv {
   const env = { ...process.env };
 
   // Clear environment variables that could bypass test isolation
@@ -142,10 +142,82 @@ export function getIsolatedEnv(): NodeJS.ProcessEnv {
     delete env[varName];
   }
 
-  // Set NODE_ENV to test
-  env.NODE_ENV = 'test';
+  // Set NODE_ENV
+  env.NODE_ENV = nodeEnv;
 
   return env;
+}
+
+/**
+ * Filters out Node.js warnings and oclif debug noise from output.
+ * This is the comprehensive filter used for most tests.
+ */
+export function filterOutput(output: string): string {
+  return output.split('\n').filter((line: string) =>
+    !line.includes('[ERR_UNKNOWN_FILE_EXTENSION]') &&
+    !line.includes('Warning:') &&
+    !line.includes('module: @oclif') &&
+    !line.includes('task: findCommand') &&
+    !line.includes('plugin: @chrismcdermut') &&
+    !line.includes('root: /') &&
+    !line.includes('code: ERR_') &&
+    !line.includes('message: Unknown file extension') &&
+    !line.includes('See more details with DEBUG') &&
+    !line.includes('node --trace-warnings') &&
+    !line.includes('node --trace-deprecation') &&
+    !line.includes('ExperimentalWarning') &&
+    !line.includes('DeprecationWarning') &&
+    !line.includes('(Use `node') &&
+    line.trim() !== ''
+  ).join('\n');
+}
+
+/**
+ * Filters out Node.js warnings using debug prefix matching.
+ * Used by docker-commands tests.
+ */
+export function filterNodeWarnings(output: string): string {
+  // Known oclif debug prefixes to filter
+  const debugPrefixes = [
+    'plugin:',
+    'root:',
+    'module:',
+    'task:',
+    'version:',
+    'channel:',
+    'cacheDir:',
+    'configDir:',
+    'dataDir:',
+    'dirname:',
+    'errlog:',
+    'home:',
+    'shell:',
+    'pjson:',
+  ];
+
+  return output
+    .split('\n')
+    .filter((line) => {
+      // Filter out node warnings
+      if (line.includes('ExperimentalWarning')) return false;
+      if (line.includes('ERR_UNKNOWN')) return false;
+      if (line.startsWith('(node:')) return false;
+
+      // Filter oclif debug lines
+      for (const prefix of debugPrefixes) {
+        if (line.startsWith(prefix)) return false;
+      }
+
+      return true;
+    })
+    .join('\n');
+}
+
+/**
+ * Gets the path to the CLI bin/run.js file.
+ */
+export function getBinPath(): string {
+  return path.join(__dirname, '../../bin/run.js');
 }
 
 /**
@@ -161,7 +233,7 @@ export function getIsolatedEnv(): NodeJS.ProcessEnv {
  */
 export function exec(cmd: string): string {
   try {
-    const binPath = path.join(__dirname, '../../bin/run.js');
+    const binPath = getBinPath();
     const result = execSync(`${binPath} ${cmd}`, {
       encoding: 'utf-8',
       cwd: process.cwd(),
@@ -179,13 +251,73 @@ export function exec(cmd: string): string {
     }
 
     // Filter out Node.js warnings from stderr
-    const filteredStderr = stderr.split('\n').filter((line: string) =>
-      !line.includes('[ERR_UNKNOWN_FILE_EXTENSION]') &&
-      !line.includes('Warning:') &&
-      !line.includes('module: @oclif')
-    ).join('\n');
-
+    const filteredStderr = filterOutput(stderr);
     return filteredStderr || error.message;
+  }
+}
+
+/**
+ * Executes a CLI command with output filtering applied.
+ * Used by commit-commands tests that merge stdout/stderr.
+ */
+export function execWithFilter(cmd: string): string {
+  try {
+    const binPath = getBinPath();
+    // Capture both stdout and stderr, then filter stderr noise
+    const result = execSync(`node ${binPath} ${cmd} 2>&1`, {
+      encoding: 'utf-8',
+      cwd: process.cwd(),
+      env: getIsolatedEnv(),
+    });
+    return filterOutput(result);
+  } catch (error: any) {
+    const stdout = error.stdout || '';
+    const stderr = error.stderr || '';
+    // Return filtered output from either stream
+    const combined = stdout + stderr;
+    const filtered = filterOutput(combined);
+    return filtered || error.message;
+  }
+}
+
+/**
+ * Executes a CLI command in production mode from CLI directory.
+ * Used by docker-commands tests that need compiled JS.
+ */
+export function execProduction(cmd: string): string {
+  try {
+    const cliDir = path.join(__dirname, '../..');
+    const binPath = path.join(cliDir, 'bin/run.js');
+
+    const result = execSync(`node ${binPath} ${cmd}`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: getIsolatedEnv('production'),
+      cwd: cliDir, // Run from CLI directory for proper module resolution
+    });
+    return filterNodeWarnings(result);
+  } catch (error: any) {
+    // Return output even if command exits with non-zero
+    const output = error.stdout || error.stderr || error.message;
+    return filterNodeWarnings(output);
+  }
+}
+
+/**
+ * Executes a CLI command with minimal processing.
+ * Returns raw output or error output without filtering.
+ */
+export function execRaw(cmd: string): string {
+  try {
+    const binPath = getBinPath();
+    return execSync(`node ${binPath} ${cmd}`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: getIsolatedEnv(),
+    });
+  } catch (error: any) {
+    // Return output even if command exits with non-zero
+    return error.stdout || error.stderr || error.message;
   }
 }
 
@@ -194,7 +326,7 @@ export function exec(cmd: string): string {
  * Throws an error if the command fails.
  */
 export function execOrFail(cmd: string): string {
-  const binPath = path.join(__dirname, '../../bin/run.js');
+  const binPath = getBinPath();
   return execSync(`${binPath} ${cmd}`, {
     encoding: 'utf-8',
     cwd: process.cwd(),

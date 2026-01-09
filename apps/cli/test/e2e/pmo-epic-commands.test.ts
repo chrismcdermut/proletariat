@@ -2,12 +2,8 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { execSync } from 'node:child_process';
 import Database from 'better-sqlite3';
-import { fileURLToPath } from 'node:url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { exec } from './test-helpers.js';
 
 /**
  * End-to-end tests for PMO Epic Commands
@@ -711,40 +707,4 @@ _No tickets linked yet._
 
   const filePath = path.join(epicsDir, status, `${id}.md`);
   fs.writeFileSync(filePath, content, 'utf-8');
-}
-
-function exec(cmd: string): string {
-  try {
-    const binPath = path.join(__dirname, '../../bin/run.js');
-    // Create isolated environment by clearing vars that could bypass test isolation
-    const env = { ...process.env };
-    delete env.PRLT_HQ_PATH;
-    delete env.PRLT_PMO_PATH;
-    delete env.PRLT_DATABASE_PATH;
-    env.NODE_ENV = 'test';
-
-    // Run the CLI from the test's cwd
-    const result = execSync(`${binPath} ${cmd}`, {
-      encoding: 'utf-8',
-      cwd: process.cwd(),
-      env,
-    });
-    return result;
-  } catch (error: any) {
-    // Command failed - capture both stdout and stderr
-    const stdout = error.stdout || '';
-    const stderr = error.stderr || '';
-    // Return stdout if available (for expected error messages)
-    // Otherwise return filtered stderr (removing Node.js warnings)
-    if (stdout.trim()) {
-      return stdout;
-    }
-    // Filter out Node.js warnings from stderr
-    const filteredStderr = stderr.split('\n').filter((line: string) =>
-      !line.includes('[ERR_UNKNOWN_FILE_EXTENSION]') &&
-      !line.includes('Warning:') &&
-      !line.includes('module: @oclif')
-    ).join('\n');
-    return filteredStderr || error.message;
-  }
 }
