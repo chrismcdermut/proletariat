@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
+import { findHQRoot, isValidHQ } from '../workspace.js';
 
 /**
  * Resolve PMO path from stored value.

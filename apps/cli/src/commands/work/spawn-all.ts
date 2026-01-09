@@ -44,7 +44,8 @@ export default class WorkSpawnAll extends PMOCommand {
     const { flags } = await this.parse(WorkSpawnAll)
 
     // Build args for work start --all
-    const args = ['--all']
+    // Pass --project to avoid re-prompting for project selection
+    const args = ['--all', '--project', this.projectId]
     if (flags.force) args.push('--force')
     if (flags['run-on-host']) args.push('--run-on-host')
     if (flags['skip-permissions']) args.push('--skip-permissions')

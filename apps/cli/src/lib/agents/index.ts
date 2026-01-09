@@ -58,29 +58,9 @@ export function detectAgentName(): string | null {
 
 /**
  * Find the HQ root directory by looking for .proletariat/workspace.db
+ * @deprecated Use findHQRoot from '../workspace.js' instead for PRLT_HQ_PATH support
  */
-export function findHQRoot(startDir: string = process.cwd()): string | null {
-  let currentDir = startDir;
-  
-  while (currentDir !== '/') {
-    const dbPath = path.join(currentDir, '.proletariat', 'workspace.db');
-    if (fs.existsSync(dbPath)) {
-      // Check if it's an HQ workspace by querying the database
-      try {
-        const { getWorkspaceConfig } = require('../database/index.js');
-        const config = getWorkspaceConfig(currentDir);
-        if (config && config.type === 'hq') {
-          return currentDir;
-        }
-      } catch {
-        // Ignore database errors and continue searching
-      }
-    }
-    currentDir = path.dirname(currentDir);
-  }
-  
-  return null;
-}
+export { findHQRoot } from '../workspace.js';
 
 /**
  * Prompt user to enter agent names
