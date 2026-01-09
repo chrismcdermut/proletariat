@@ -795,11 +795,18 @@ function exec(cmd: string): string {
   try {
     const cliDir = path.join(__dirname, '../..')
     const binPath = path.join(cliDir, 'bin/run.js')
+    // Create isolated environment by clearing vars that could bypass test isolation
+    const env = { ...process.env }
+    delete env.PRLT_HQ_PATH
+    delete env.PRLT_PMO_PATH
+    delete env.PRLT_DATABASE_PATH
+    // Use production mode to run compiled JS instead of TS source
+    env.NODE_ENV = 'production'
+
     const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      // Use production mode to run compiled JS instead of TS source
-      env: { ...process.env, NODE_ENV: 'production' },
+      env,
       cwd: cliDir, // Run from CLI directory for proper module resolution
     })
     return filterNodeWarnings(result)

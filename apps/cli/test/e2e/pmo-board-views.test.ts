@@ -402,10 +402,17 @@ function createTestTickets(db: Database.Database) {
 function exec(cmd: string): string {
   try {
     const binPath = path.join(__dirname, '../../bin/run.js');
+    // Create isolated environment by clearing vars that could bypass test isolation
+    const env = { ...process.env };
+    delete env.PRLT_HQ_PATH;
+    delete env.PRLT_PMO_PATH;
+    delete env.PRLT_DATABASE_PATH;
+    env.NODE_ENV = 'test';
+
     return execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, NODE_ENV: 'test' },
+      env,
     });
   } catch (error: any) {
     return error.stdout || error.stderr || error.message;

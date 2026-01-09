@@ -349,14 +349,18 @@ describe('Commit Command E2E Tests', () => {
 function exec(cmd: string): string {
   try {
     const binPath = path.join(__dirname, '../../bin/run.js');
+    // Create isolated environment by clearing vars that could bypass test isolation
+    const env = { ...process.env };
+    delete env.PRLT_HQ_PATH;
+    delete env.PRLT_PMO_PATH;
+    delete env.PRLT_DATABASE_PATH;
+    env.NODE_ENV = 'test';
+
     // Capture both stdout and stderr, then filter stderr noise
     const result = execSync(`node ${binPath} ${cmd} 2>&1`, {
       encoding: 'utf-8',
       cwd: process.cwd(),
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-      },
+      env,
     });
     return filterOutput(result);
   } catch (error: any) {
