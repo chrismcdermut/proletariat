@@ -1,6 +1,4 @@
 import { Args, Flags } from '@oclif/core'
-import * as path from 'node:path'
-import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
@@ -136,20 +134,17 @@ export default class WorkClaim extends PMOCommand {
     })
 
     // If self, move to In Progress column (moveTicket also updates status_id)
-    if (!executeAgent && workspaceInfo) {
-      const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      const db = new Database(dbPath)
-      try {
-        const targetColumnName = getWorkColumnSetting(db, 'in_progress')
-        const board = await this.storage.getBoard()
-        const columnNames = board.columns.map(col => col.name)
-        const inProgressColumn = findColumnByName(columnNames, targetColumnName)
+    if (!executeAgent) {
+      const db = this.storage.getDatabase()
+      const targetColumnName = getWorkColumnSetting(db, 'in_progress')
+      const board = await this.storage.getBoard()
+      const columnNames = board.columns.map(col => col.name)
+      const inProgressColumn = findColumnByName(columnNames, targetColumnName)
 
-        if (inProgressColumn && ticket.column !== inProgressColumn) {
-          await this.storage.moveTicket(ticketId!, inProgressColumn)
-        }
-      } finally {
-        db.close()
+      if (inProgressColumn && ticket.column !== inProgressColumn) {
+        await this.storage.moveTicket(ticketId!, inProgressColumn)
+      } else if (!inProgressColumn) {
+        this.warn(`Could not find In Progress column "${targetColumnName}", ticket column unchanged`)
       }
     }
 
