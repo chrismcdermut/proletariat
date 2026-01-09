@@ -60,18 +60,11 @@ export default class StatusCreate extends PMOCommand {
       isDefault?: boolean;
     };
 
-    if (flags.interactive || (!args.name && !flags.name)) {
-      statusData = await this.promptStatusData(flags);
+    // Auto-enter interactive mode if any required value is missing
+    const name = args.name || flags.name;
+    if (flags.interactive || !name || !flags.category) {
+      statusData = await this.promptStatusData(flags, name);
     } else {
-      const name = args.name || flags.name;
-      if (!name) {
-        this.error('Status name is required');
-      }
-
-      if (!flags.category) {
-        this.error('Category is required. Use --category or -i for interactive mode.');
-      }
-
       statusData = {
         name,
         category: flags.category as StateCategory,
@@ -107,7 +100,7 @@ export default class StatusCreate extends PMOCommand {
     color?: string;
     description?: string;
     default?: boolean;
-  }): Promise<{
+  }, existingName?: string): Promise<{
     name: string;
     category: StateCategory;
     color?: string;
@@ -125,7 +118,7 @@ export default class StatusCreate extends PMOCommand {
         type: 'input',
         name: 'name',
         message: 'Status name:',
-        default: flags.name,
+        default: existingName || flags.name,
         validate: (input: string) => input.length > 0 || 'Name is required',
       },
       {

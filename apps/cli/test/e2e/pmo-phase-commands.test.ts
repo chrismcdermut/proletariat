@@ -176,11 +176,9 @@ describe('PMO Phase Commands E2E Tests', () => {
       expect(output.toLowerCase()).to.contain('not found');
     });
 
-    it('should error when no changes specified', () => {
-      const output = exec('phase update active');
-
-      expect(output.toLowerCase()).to.contain('no changes');
-    });
+    // Note: TKT-057 changed behavior - running `phase update <id>` without change flags
+    // now auto-enters interactive mode instead of erroring. This cannot be tested in
+    // non-interactive E2E tests. See test/unit/interactive-mode.test.ts for validation.
   });
 
   describe('prlt phase delete', () => {
