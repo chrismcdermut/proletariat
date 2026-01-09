@@ -928,10 +928,7 @@ export default class WorkStart extends PMOCommand {
       this.log(styles.muted(`   Work ID: ${execution.id}`))
       this.log('')
 
-      // Update ticket status and move to configured In Progress column
-      await this.storage.updateTicket(ticket.id, { status: 'in_progress' })
-
-      // Get configured column name (from pmo_settings or default)
+      // Move ticket to In Progress column (moveTicket also updates status_id)
       const targetColumnName = getWorkColumnSetting(db, 'in_progress')
       const board = await this.storage.getBoard()
       const columnNames = board.columns.map(col => col.name)
@@ -1044,10 +1041,10 @@ export default class WorkStart extends PMOCommand {
     executionStorage: ExecutionStorage,
     flags: { mode?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean }
   ): Promise<void> {
-    // Get all tickets and filter to unassigned backlog/planned (not in progress)
+    // Get all tickets and filter to unassigned backlog/unstarted (not in progress)
     const allTickets = await this.storage.listTickets()
     const backlogTickets = allTickets.filter(t =>
-      !t.assignee && (t.status === 'backlog' || t.status === 'planned' || !t.status)
+      !t.assignee && (t.statusCategory === 'backlog' || t.statusCategory === 'unstarted' || !t.statusCategory)
     )
 
     if (backlogTickets.length === 0) {
@@ -1302,10 +1299,7 @@ export default class WorkStart extends PMOCommand {
       branch,
     })
 
-    // Update ticket status
-    await this.storage.updateTicket(ticket.id, { status: 'in_progress' })
-
-    // Move to In Progress column
+    // Move ticket to In Progress column (moveTicket also updates status_id)
     const targetColumnName = getWorkColumnSetting(db, 'in_progress')
     const board = await this.storage.getBoard()
     const columnNames = board.columns.map(col => col.name)

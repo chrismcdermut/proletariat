@@ -1,7 +1,7 @@
 import { Args, Flags } from '@oclif/core'
 import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
-import { TicketStatus } from '../../lib/pmo/types.js'
+import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 
@@ -39,10 +39,11 @@ export default class WorkClaim extends PMOCommand {
     // Get current user
     const currentUser = this.getCurrentUser()
 
-    // Get workspace info for agent list
+    // Get workspace info for agent list and database access
     let workspaceAgents: string[] = []
+    let workspaceInfo: ReturnType<typeof getWorkspaceInfo> | undefined
     try {
-      const workspaceInfo = getWorkspaceInfo()
+      workspaceInfo = getWorkspaceInfo()
       workspaceAgents = workspaceInfo.agents.map((a) => a.name)
     } catch {
       // Not in workspace
@@ -53,9 +54,9 @@ export default class WorkClaim extends PMOCommand {
 
     if (!ticketId) {
       const allTickets = await this.storage.listTickets()
-      // Filter to unassigned or backlog tickets
+      // Filter to unassigned or backlog/unstarted tickets
       const availableTickets = allTickets.filter(
-        (t) => !t.assignee || t.status === 'backlog'
+        (t) => !t.assignee || t.statusCategory === 'backlog' || t.statusCategory === 'unstarted'
       )
 
       if (availableTickets.length === 0) {
@@ -68,7 +69,7 @@ export default class WorkClaim extends PMOCommand {
           name: 'selectedTicketId',
           message: 'Select ticket to claim:',
           choices: availableTickets.map((t) => ({
-            name: `${t.id} - ${t.title} (${t.status}${t.assignee ? `, assignee: ${t.assignee}` : ''})`,
+            name: `${t.id} - ${t.title} (${t.statusName || t.statusCategory || 'no status'}${t.assignee ? `, assignee: ${t.assignee}` : ''})`,
             value: t.id,
           })),
         },
@@ -126,18 +127,27 @@ export default class WorkClaim extends PMOCommand {
       }
     }
 
-    // Update ticket
-    const updates: { owner: string; assignee: string; status?: TicketStatus } = {
+    // Update ticket with owner and assignee
+    await this.storage.updateTicket(ticketId!, {
       owner: currentUser,
       assignee: executor,
-    }
+    })
 
-    // If self, move to in_progress
+    // If self, move to In Progress column (moveTicket also updates status_id)
     if (!executeAgent) {
-      updates.status = 'in_progress' as TicketStatus
+      const db = this.storage.getDatabase()
+      const targetColumnName = getWorkColumnSetting(db, 'in_progress')
+      const board = await this.storage.getBoard()
+      const columnNames = board.columns.map(col => col.name)
+      const inProgressColumn = findColumnByName(columnNames, targetColumnName)
+
+      if (inProgressColumn && ticket.column !== inProgressColumn) {
+        await this.storage.moveTicket(ticketId!, inProgressColumn)
+      } else if (!inProgressColumn) {
+        this.warn(`Could not find In Progress column "${targetColumnName}", ticket column unchanged`)
+      }
     }
 
-    await this.storage.updateTicket(ticketId!, updates)
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
 
     this.log('')
