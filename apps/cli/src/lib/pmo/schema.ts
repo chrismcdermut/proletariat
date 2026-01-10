@@ -382,6 +382,7 @@ export const PMO_TABLE_SCHEMAS = {
       name TEXT NOT NULL UNIQUE,
       description TEXT,
       prompt TEXT NOT NULL,
+      end_prompt TEXT,
       suggested_for_categories TEXT,
       default_move_to_category TEXT,
       modifies_code INTEGER NOT NULL DEFAULT 1,

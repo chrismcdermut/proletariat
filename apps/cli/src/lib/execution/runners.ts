@@ -59,13 +59,14 @@ function buildPrompt(context: ExecutionContext): string {
     prompt += `## Original Ticket Context\n\n`
   }
 
-  // Action instruction (what the agent should do)
+  // Action instruction (what the agent should do) - START HOOK
   if (context.actionPrompt) {
     prompt += `# Action: ${context.actionName || 'Work'}\n\n`
     prompt += context.actionPrompt
     prompt += `\n\n---\n\n`
   }
 
+  // TICKET CONTENT
   prompt += `# Ticket: ${context.ticketId}\n\n`
   prompt += `**Title:** ${context.ticketTitle}\n\n`
 
@@ -94,8 +95,8 @@ function buildPrompt(context: ExecutionContext): string {
     }
   }
 
-  // Add branch instructions
-  if (context.branch && !context.isRevision) {
+  // Add branch instructions (only for code-modifying actions)
+  if (context.branch && !context.isRevision && context.modifiesCode) {
     prompt += `\n---\n\n## Before You Start\n\n`
     prompt += `**IMPORTANT:** You must be on the correct branch before making changes.\n\n`
     prompt += `\`\`\`bash\n`
@@ -105,35 +106,51 @@ function buildPrompt(context: ExecutionContext): string {
     prompt += `**Target branch:** \`${context.branch}\`\n`
   }
 
-  // Add completion instructions
+  // END HOOK - Action-specific completion instructions
   prompt += `\n---\n\n## When Complete\n\n`
 
-  // For revisions, just tell agent to push changes
+  // For revisions, use the revision-specific end prompt
   if (context.isRevision) {
     prompt += `After addressing the feedback:\n`
     prompt += `1. Commit your changes using \`prlt commit "your message"\`\n`
     prompt += `2. Push your changes: \`git push\`\n`
     prompt += `\nThe PR will be updated automatically.`
-  } else {
-    prompt += `1. **Commit your work** in each repository directory you modified:\n`
-    prompt += `   \`\`\`bash\n`
-    prompt += `   cd /workspace/<repo-name>\n`
-    prompt += `   git add -A\n`
-    prompt += `   prlt commit "describe your change"\n`
-    prompt += `   git push\n`
-    prompt += `   \`\`\`\n`
-    prompt += `   This formats your commit as a conventional commit with the ticket ID.\n`
-
-    prompt += `\n2. **Mark work as ready** by running:\n`
-    // Build the work ready command with the appropriate PR flag
-    const prFlag = context.createPR ? ' --pr' : ' --no-pr'
-    prompt += `   \`\`\`bash\n   prlt work ready ${context.ticketId}${prFlag}\n   \`\`\`\n`
-    if (context.createPR) {
-      prompt += `   This moves the ticket to review and creates a pull request.\n`
-    } else {
-      prompt += `   This moves the ticket to review.\n`
+  } else if (context.actionEndPrompt) {
+    // Use action-specific end prompt, replacing {{TICKET_ID}} placeholder
+    let endPrompt = context.actionEndPrompt.replace(/\{\{TICKET_ID\}\}/g, context.ticketId)
+    // Also handle the PR flag placeholder if present
+    if (endPrompt.includes('--pr')) {
+      // Replace --pr with appropriate flag based on createPR setting
+      if (!context.createPR) {
+        endPrompt = endPrompt.replace(/--pr/g, '--no-pr')
+      }
     }
-    prompt += `\n**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`
+    prompt += endPrompt
+  } else {
+    // Fallback to default completion instructions (for custom actions without end_prompt)
+    if (context.modifiesCode) {
+      prompt += `1. **Commit your work** in each repository directory you modified:\n`
+      prompt += `   \`\`\`bash\n`
+      prompt += `   cd /workspace/<repo-name>\n`
+      prompt += `   git add -A\n`
+      prompt += `   prlt commit "describe your change"\n`
+      prompt += `   git push\n`
+      prompt += `   \`\`\`\n`
+      prompt += `   This formats your commit as a conventional commit with the ticket ID.\n`
+
+      prompt += `\n2. **Mark work as ready** by running:\n`
+      const prFlag = context.createPR ? ' --pr' : ' --no-pr'
+      prompt += `   \`\`\`bash\n   prlt work ready ${context.ticketId}${prFlag}\n   \`\`\`\n`
+      if (context.createPR) {
+        prompt += `   This moves the ticket to review and creates a pull request.\n`
+      } else {
+        prompt += `   This moves the ticket to review.\n`
+      }
+      prompt += `\n**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`
+    } else {
+      // Non-code-modifying action without custom end_prompt
+      prompt += `When you have completed the task, provide a summary of what you did.`
+    }
   }
 
   return prompt

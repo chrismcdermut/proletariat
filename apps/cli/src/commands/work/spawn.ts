@@ -94,6 +94,10 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Do not create PR when work is ready (batch mode only)',
       default: false,
     }),
+    action: Flags.string({
+      description: 'Action to perform (e.g., groom, implement, review). Default: implement',
+      default: 'implement',
+    }),
   }
 
   async execute(): Promise<void> {
@@ -438,6 +442,7 @@ export default class WorkSpawn extends PMOCommand {
       let batchCreatePr = flags['create-pr']
       let batchNoPr = flags['no-pr']
       let batchRunOnHost = flags['run-on-host']
+      let batchAction = flags.action
       // Track display mode separately for devcontainer (needs to be outside the if block)
       let batchDisplayMode: string | undefined
 
@@ -447,11 +452,85 @@ export default class WorkSpawn extends PMOCommand {
         return hasDevcontainerConfig(agentDir)
       })
 
+      // Prompt for action first so we can check if it modifies code
+      let selectedActionDetails = await this.storage.getAction(batchAction || 'implement')
+
       if (!flags['per-ticket']) {
         this.log(styles.header('Batch Settings (applies to all tickets)'))
         this.log('')
 
-        // Prompt for environment (devcontainer vs host) if devcontainer available
+        // Prompt for action selection first
+        if (batchAction === 'implement') {
+          // Get available actions from database
+          const actions = await this.storage.listActions()
+          const actionChoices = actions
+            .filter(a => a.isBuiltin)
+            .map(a => ({
+              name: `${a.id.padEnd(12)} - ${a.description || a.name}`,
+              value: a.id,
+            }))
+
+          const { selectedAction } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'selectedAction',
+              message: 'What action should agents perform?',
+              choices: actionChoices,
+              default: 'implement',
+            },
+          ])
+          batchAction = selectedAction
+          selectedActionDetails = await this.storage.getAction(selectedAction)
+        }
+
+        // Check if any explicit settings were provided via flags
+        const hasExplicitSettings = flags.mode || flags.output || flags['skip-permissions'] ||
+          flags['create-pr'] || flags['no-pr'] || flags['run-on-host']
+
+        // Offer to use default settings if no explicit flags provided
+        if (!hasExplicitSettings) {
+          const actionName = batchAction || 'implement'
+          const modifiesCode = selectedActionDetails?.modifiesCode ?? true
+          const defaultsDescription = modifiesCode
+            ? 'devcontainer, terminal, interactive, safe permissions, create PRs'
+            : 'devcontainer, terminal, interactive, safe permissions, no PRs'
+
+          const { useDefaults } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'useDefaults',
+              message: `Use default settings for "${actionName}"?`,
+              choices: [
+                { name: `✓ Yes - Use defaults (${defaultsDescription})`, value: true },
+                { name: '✗ No  - Configure each setting', value: false },
+              ],
+              default: true,
+            },
+          ])
+
+          if (useDefaults) {
+            // Apply defaults
+            if (hasDevcontainer) {
+              batchMode = 'devcontainer'
+              batchDisplayMode = 'terminal'
+            } else {
+              batchMode = 'terminal'
+            }
+            batchOutput = 'interactive'
+            batchSkipPermissions = false
+            // For non-code-modifying actions, don't create PRs
+            if (modifiesCode) {
+              batchCreatePr = true
+              batchNoPr = false
+            } else {
+              batchCreatePr = false
+              batchNoPr = true
+            }
+            this.log('')
+          }
+        }
+
+        // Prompt for environment (devcontainer vs host) if devcontainer available and not already set
         if (hasDevcontainer && !batchRunOnHost && !batchMode) {
           let environmentSelected = false
           while (!environmentSelected) {
@@ -564,22 +643,30 @@ export default class WorkSpawn extends PMOCommand {
           batchSkipPermissions = permissionMode === 'danger'
         }
 
-        // Prompt for PR creation if not provided
+        // Prompt for PR creation if not provided AND action modifies code
+        // Skip this prompt entirely for non-code-modifying actions (like groom)
+        const actionModifiesCode = selectedActionDetails?.modifiesCode ?? true
         if (!batchCreatePr && !batchNoPr) {
-          const { prChoice } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'prChoice',
-              message: 'Create pull requests when work is ready?',
-              choices: [
-                { name: '✓ Yes - Create PR for each ticket', value: 'yes' },
-                { name: '✗ No  - Just move tickets to review', value: 'no' },
-              ],
-              default: 'yes',
-            },
-          ])
-          batchCreatePr = prChoice === 'yes'
-          batchNoPr = prChoice === 'no'
+          if (actionModifiesCode) {
+            const { prChoice } = await inquirer.prompt([
+              {
+                type: 'list',
+                name: 'prChoice',
+                message: 'Create pull requests when work is ready?',
+                choices: [
+                  { name: '✓ Yes - Create PR for each ticket', value: 'yes' },
+                  { name: '✗ No  - Just move tickets to review', value: 'no' },
+                ],
+                default: 'yes',
+              },
+            ])
+            batchCreatePr = prChoice === 'yes'
+            batchNoPr = prChoice === 'no'
+          } else {
+            // Non-code-modifying action - no PR needed
+            batchCreatePr = false
+            batchNoPr = true
+          }
         }
 
         this.log('')
@@ -593,12 +680,12 @@ export default class WorkSpawn extends PMOCommand {
         try {
           this.log(styles.muted(`Starting ${ticket.id} with ${agent.name}...`))
 
-          // First assign the ticket to the agent
-          await this.storage.updateTicket(ticket.id, { assignee: agent.name })
+          // Note: Ticket assignment now happens in work:start ONLY after successful spawn
 
           // Build args for work:start
           // IMPORTANT: Pass --project to avoid re-prompting for project selection
-          const startArgs: string[] = [ticket.id, '--project', this.projectId]
+          // Pass --agent to skip agent selection prompt (we already have the assignment)
+          const startArgs: string[] = [ticket.id, '--project', this.projectId, '--agent', agent.name]
 
           if (flags['per-ticket']) {
             // Per-ticket mode: only pass mode flag, let start prompt for the rest
@@ -618,8 +705,8 @@ export default class WorkSpawn extends PMOCommand {
             if (batchSkipPermissions) startArgs.push('--skip-permissions')
             if (batchCreatePr) startArgs.push('--create-pr')
             if (batchNoPr) startArgs.push('--no-pr')
-            // Default action to 'implement' to skip the action prompt
-            startArgs.push('--action', 'implement')
+            // Pass action flag (from prompt or flag)
+            startArgs.push('--action', batchAction || 'implement')
           }
 
           await this.config.runCommand('work:start', startArgs)
@@ -635,7 +722,7 @@ export default class WorkSpawn extends PMOCommand {
       db.close()
 
       this.log('')
-      this.log(styles.success(`✓ Spawn complete: ${successCount} started, ${failCount} failed`))
+      this.log(styles.success(`✓ Spawn results: ${successCount} started, ${failCount} failed`))
     } catch (error) {
       db.close()
       throw error

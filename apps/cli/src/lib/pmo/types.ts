@@ -203,7 +203,8 @@ export interface WorkAction {
   id: string
   name: string
   description?: string
-  prompt: string                              // The actual prompt sent to agent
+  prompt: string                              // The start prompt (instruction for what to do)
+  endPrompt?: string                          // The end prompt (completion instructions)
   suggestedForCategories?: StateCategory[]    // When to suggest this action
   defaultMoveToCategory?: StateCategory       // Where to move ticket after
   modifiesCode: boolean                       // Whether this action modifies code (needs branch)

@@ -45,6 +45,7 @@ import {
   TicketFilter,
   TicketTemplate,
   TicketTemplateFilter,
+  AcceptanceCriterion,
   WorkAction,
   WorkActionFilter,
   WorkflowStatus,
@@ -250,6 +251,15 @@ export class SQLiteStorage implements PMOStorage {
           for (const [id, pos] of Object.entries(positionMap)) {
             this.db.prepare(`UPDATE ${T.actions} SET position = ? WHERE id = ?`).run(pos, id)
           }
+        } catch {
+          // Column may already exist
+        }
+      }
+
+      // Migration: Add end_prompt column to actions table
+      if (!actionsColumnNames.includes('end_prompt')) {
+        try {
+          this.db.exec(`ALTER TABLE ${T.actions} ADD COLUMN end_prompt TEXT`)
         } catch {
           // Column may already exist
         }
@@ -515,6 +525,7 @@ export class SQLiteStorage implements PMOStorage {
   /**
    * Seed built-in work actions.
    * These are reusable agent prompts for common work patterns.
+   * Each action has a start prompt (what to do) and end prompt (completion instructions).
    */
   private seedBuiltinActions(): void {
     // Ordered by typical workflow: groom → implement → continue → test → review → revise
@@ -531,6 +542,47 @@ export class SQLiteStorage implements PMOStorage {
 - Flag any ambiguities or missing information that need clarification
 
 Do NOT implement the ticket - only improve its definition so it's ready to be worked on.`,
+        endPrompt: `When you have finished analyzing and grooming the ticket, update it using prlt ticket edit.
+
+## Field Mapping (use ONLY these fields)
+
+| Your Analysis | Maps To | Example |
+|--------------|---------|---------|
+| Requirements/Context | --description | Include R1, R2, etc. in description text |
+| Acceptance Criteria | --add-ac | One per criterion (testable statement) |
+| Subtasks | --add-subtask | One per subtask |
+| Complexity (S/M/L/XL) | --add-label | \`complexity:M\` or \`complexity:L\` |
+| Priority | --priority | URGENT, HIGH, MEDIUM, or LOW only |
+| Category | --category | feature, bug, refactor, docs, test, chore |
+| Needs clarification | --add-label | \`needs-clarification\` |
+| Ready for work | --add-label | \`ready\` |
+
+## Example Command
+
+\`\`\`bash
+prlt ticket edit {{TICKET_ID}} \\
+  --description "Implement user session timeout...
+
+Requirements:
+- R1: Sessions expire after 30 minutes of inactivity
+- R2: Users see a warning 5 minutes before timeout" \\
+  --priority MEDIUM \\
+  --category feature \\
+  --add-label "complexity:M" \\
+  --add-ac "Sessions expire after 30 min inactivity" \\
+  --add-ac "Warning shown 5 min before timeout" \\
+  --add-subtask "Add session timeout config" \\
+  --add-subtask "Implement warning modal"
+\`\`\`
+
+## Important Rules
+- Priority must be exactly: URGENT, HIGH, MEDIUM, or LOW (not custom values)
+- Use \`--add-label "complexity:S|M|L|XL"\` for complexity (not a separate field)
+- Technical notes/flagged ambiguities go in description
+- Use \`--clear-subtasks\` if replacing existing subtasks
+- Use \`--clear-ac\` if replacing existing acceptance criteria
+
+After updating, output a brief summary of your grooming changes.`,
         suggestedForCategories: ['backlog'],
         defaultMoveToCategory: 'unstarted',
         modifiesCode: false,
@@ -548,6 +600,23 @@ Do NOT implement the ticket - only improve its definition so it's ready to be wo
 - Run tests to verify the implementation
 
 When complete, the ticket should be ready for code review.`,
+        endPrompt: `When complete:
+1. **Commit your work** in each repository directory you modified:
+   \`\`\`bash
+   cd /workspace/<repo-name>
+   git add -A
+   prlt commit "describe your change"
+   git push
+   \`\`\`
+   This formats your commit as a conventional commit with the ticket ID.
+
+2. **Mark work as ready** by running:
+   \`\`\`bash
+   prlt work ready {{TICKET_ID}} --pr
+   \`\`\`
+   This moves the ticket to review and creates a pull request.
+
+**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`,
         suggestedForCategories: ['unstarted', 'started'],
         defaultMoveToCategory: 'started',
         modifiesCode: true,
@@ -562,6 +631,22 @@ When complete, the ticket should be ready for code review.`,
 - Check what subtasks remain incomplete
 - Complete the remaining work
 - Ensure all acceptance criteria are met`,
+        endPrompt: `When complete:
+1. **Commit your work** in each repository directory you modified:
+   \`\`\`bash
+   cd /workspace/<repo-name>
+   git add -A
+   prlt commit "describe your change"
+   git push
+   \`\`\`
+
+2. **Mark work as ready** by running:
+   \`\`\`bash
+   prlt work ready {{TICKET_ID}} --pr
+   \`\`\`
+   This moves the ticket to review and creates a pull request.
+
+**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`,
         suggestedForCategories: ['started'],
         defaultMoveToCategory: 'started',
         modifiesCode: true,
@@ -577,6 +662,20 @@ When complete, the ticket should be ready for code review.`,
 - Cover edge cases and error handling
 - Aim for good coverage of the changed code
 - Ensure all tests pass`,
+        endPrompt: `When complete:
+1. **Commit your tests**:
+   \`\`\`bash
+   git add -A
+   prlt commit "add tests for {{TICKET_ID}}"
+   git push
+   \`\`\`
+
+2. **Mark work as ready** by running:
+   \`\`\`bash
+   prlt work ready {{TICKET_ID}} --pr
+   \`\`\`
+
+**IMPORTANT:** Use the global \`prlt\` command.`,
         suggestedForCategories: ['started', 'completed'],
         modifiesCode: true,
         position: 3,
@@ -593,6 +692,13 @@ When complete, the ticket should be ready for code review.`,
 - Suggest improvements if appropriate
 
 Output a review summary with your findings and any concerns.`,
+        endPrompt: `When you have finished reviewing, output a detailed review summary with:
+- ✅ What looks good
+- ⚠️ Concerns or potential issues
+- 🔧 Suggested improvements
+- 📋 Verdict: Approve, Request Changes, or Needs Discussion
+
+No commits are needed for code review.`,
         suggestedForCategories: ['started', 'completed'],
         modifiesCode: false,
         position: 4,
@@ -607,6 +713,11 @@ Output a review summary with your findings and any concerns.`,
 - Respond to questions with explanations
 - Push updates to the PR branch
 - Mark resolved conversations as resolved`,
+        endPrompt: `After addressing the feedback:
+1. Commit your changes using \`prlt commit "your message"\`
+2. Push your changes: \`git push\`
+
+The PR will be updated automatically.`,
         suggestedForCategories: ['completed'],
         defaultMoveToCategory: 'started',
         modifiesCode: true,
@@ -615,23 +726,34 @@ Output a review summary with your findings and any concerns.`,
     ]
 
     const insertAction = this.db.prepare(`
-      INSERT OR IGNORE INTO ${T.actions} (id, name, description, prompt, suggested_for_categories, default_move_to_category, modifies_code, is_builtin, position, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      INSERT OR IGNORE INTO ${T.actions} (id, name, description, prompt, end_prompt, suggested_for_categories, default_move_to_category, modifies_code, is_builtin, position, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+    `)
+
+    // Also update existing builtin actions with end_prompt if they don't have one
+    const updateEndPrompt = this.db.prepare(`
+      UPDATE ${T.actions} SET end_prompt = ? WHERE id = ? AND is_builtin = 1 AND (end_prompt IS NULL OR end_prompt = '')
     `)
 
     const now = new Date().toISOString()
     for (const action of builtinActions) {
+      // Try insert first (for new databases)
       insertAction.run(
         action.id,
         action.name,
         action.description,
         action.prompt,
+        action.endPrompt || null,
         JSON.stringify(action.suggestedForCategories),
         action.defaultMoveToCategory || null,
         action.modifiesCode ? 1 : 0,
         action.position,
         now
       )
+      // Update existing builtin actions with end_prompt
+      if (action.endPrompt) {
+        updateEndPrompt.run(action.endPrompt, action.id)
+      }
     }
   }
 
@@ -1658,6 +1780,92 @@ Why is this refactor needed?
     this.db.prepare(`UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?`).run(Date.now(), ticketId)
 
     this.updateBoardTimestamp()
+  }
+
+  // ===========================================================================
+  // Acceptance Criteria Operations
+  // ===========================================================================
+
+  async addAcceptanceCriterion(ticketId: string, criterion: string): Promise<AcceptanceCriterion> {
+    const ticket = await this.getTicketById(ticketId)
+    if (!ticket) {
+      throw new PMOError('NOT_FOUND', `Ticket not found: ${ticketId}`, ticketId)
+    }
+
+    const id = `ac-${Date.now()}`
+    const position = ticket.acceptanceCriteria?.length || 0
+
+    this.db
+      .prepare(
+        `
+      INSERT INTO ${T.ticket_acceptance_criteria} (id, ticket_id, criterion, verifiable, verified, position)
+      VALUES (?, ?, ?, 1, 0, ?)
+    `
+      )
+      .run(id, ticketId, criterion, position)
+
+    this.db.prepare(`UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?`).run(Date.now(), ticketId)
+
+    this.updateBoardTimestamp()
+
+    return {
+      id,
+      ticketId,
+      criterion,
+      verifiable: true,
+      verified: false,
+      position,
+    }
+  }
+
+  async removeAcceptanceCriterion(ticketId: string, criterionId: string): Promise<void> {
+    const result = this.db
+      .prepare(`DELETE FROM ${T.ticket_acceptance_criteria} WHERE ticket_id = ? AND id = ?`)
+      .run(ticketId, criterionId)
+
+    if (result.changes === 0) {
+      throw new PMOError('NOT_FOUND', `Acceptance criterion not found: ${criterionId}`)
+    }
+
+    this.db.prepare(`UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?`).run(Date.now(), ticketId)
+
+    this.updateBoardTimestamp()
+  }
+
+  async clearAcceptanceCriteria(ticketId: string): Promise<void> {
+    this.db
+      .prepare(`DELETE FROM ${T.ticket_acceptance_criteria} WHERE ticket_id = ?`)
+      .run(ticketId)
+
+    this.db.prepare(`UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?`).run(Date.now(), ticketId)
+
+    this.updateBoardTimestamp()
+  }
+
+  private getAcceptanceCriteriaSync(ticketId: string): AcceptanceCriterion[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM ${T.ticket_acceptance_criteria} WHERE ticket_id = ? ORDER BY position`)
+      .all(ticketId) as Array<{
+      id: string
+      ticket_id: string
+      criterion: string
+      verifiable: number
+      verified: number
+      verified_at: string | null
+      verified_by: string | null
+      position: number
+    }>
+
+    return rows.map((row) => ({
+      id: row.id,
+      ticketId: row.ticket_id,
+      criterion: row.criterion,
+      verifiable: row.verifiable === 1,
+      verified: row.verified === 1,
+      verifiedAt: row.verified_at ? new Date(row.verified_at) : undefined,
+      verifiedBy: row.verified_by || undefined,
+      position: row.position,
+    }))
   }
 
   // ===========================================================================
@@ -3762,6 +3970,7 @@ Why is this refactor needed?
       name: string
       description: string | null
       prompt: string
+      end_prompt: string | null
       suggested_for_categories: string | null
       default_move_to_category: string | null
       modifies_code: number
@@ -3801,6 +4010,7 @@ Why is this refactor needed?
       name: row.name,
       description: row.description || undefined,
       prompt: row.prompt,
+      endPrompt: row.end_prompt || undefined,
       suggestedForCategories: row.suggested_for_categories
         ? JSON.parse(row.suggested_for_categories) as StateCategory[]
         : undefined,
@@ -3817,6 +4027,7 @@ Why is this refactor needed?
       name: string
       description: string | null
       prompt: string
+      end_prompt: string | null
       suggested_for_categories: string | null
       default_move_to_category: string | null
       modifies_code: number
@@ -3833,6 +4044,7 @@ Why is this refactor needed?
       name: row.name,
       description: row.description || undefined,
       prompt: row.prompt,
+      endPrompt: row.end_prompt || undefined,
       suggestedForCategories: row.suggested_for_categories
         ? JSON.parse(row.suggested_for_categories) as StateCategory[]
         : undefined,
@@ -5191,6 +5403,7 @@ Why is this refactor needed?
       })),
       labels,
       metadata,
+      acceptanceCriteria: this.getAcceptanceCriteriaSync(row.id),
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
       lastSyncedFromSpec: row.last_synced_from_spec ? new Date(row.last_synced_from_spec) : undefined,

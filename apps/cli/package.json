@@ -1,13 +1,13 @@
 {
   "name": "@chrismcdermut/prlt",
   "description": "Proletariat CLI v2 - Multi-agent development orchestration",
-  "version": "2.0.0-alpha.5",
+  "version": "0.1.0-alpha.10",
   "author": "Chris McDermut",
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
   },
   "bin": {
-    "prlt": "./bin/run.js"
+    "prltdev": "./bin/run.js"
   },
   "bugs": "https://github.com/chrismcdermut/proletariat-cli/issues",
   "dependencies": {

@@ -87,7 +87,7 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       // PMO path can be anywhere (e.g., /hq/pmo or /hq/repos/myrepo/pmo)
       // Use PRLT_PMO_PATH env var to mount the actual location to /hq/pmo
       'source=${localEnv:PRLT_PMO_PATH},target=/hq/pmo,type=bind',
-      'source=${localEnv:PRLT_REPO_PATH},target=/opt/prlt,type=bind,readonly',
+      // NOTE: PRLT_REPO_PATH mount removed - prlt is now installed via npm in the container
       // Mount the main repo's .git directory so git worktrees can resolve their parent
       // Worktree .git files reference paths like /Users/.../repos/proletariat/.git/worktrees/name
       // This mount makes those paths accessible inside the container at /hq/repos/proletariat

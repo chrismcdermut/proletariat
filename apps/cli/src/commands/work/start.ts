@@ -145,6 +145,9 @@ export default class WorkStart extends PMOCommand {
       description: 'Display mode for devcontainer (where to show output)',
       options: ['terminal', 'foreground', 'background', 'tmux'],
     }),
+    agent: Flags.string({
+      description: 'Agent to assign (skips interactive selection)',
+    }),
   }
 
   async execute(): Promise<void> {
@@ -236,8 +239,8 @@ export default class WorkStart extends PMOCommand {
         }
       }
 
-      // Check assignee - prompt if not set
-      let agentName = ticket.assignee
+      // Check assignee - use flag, then ticket assignee, then prompt
+      let agentName = flags.agent || ticket.assignee
       if (!agentName) {
         // Get list of busy agents (already running something)
         const busyAgentNames = new Set<string>()
@@ -296,10 +299,8 @@ export default class WorkStart extends PMOCommand {
           agentName = selectedAgent
         }
 
-        // Update ticket with assignee
-        await this.storage.updateTicket(ticketId!, { assignee: agentName })
-        await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
-        this.log(styles.muted(`Assigned ${ticketId} to ${agentName}`))
+        // Note: Ticket assignee update moved to after successful spawn
+        this.log(styles.muted(`Will assign ${ticketId} to ${agentName}`))
       }
 
       // At this point agentName is guaranteed to be set
@@ -510,6 +511,7 @@ export default class WorkStart extends PMOCommand {
         actionId: selectedAction?.id,
         actionName: selectedAction?.name || (customPrompt ? 'Custom' : undefined),
         actionPrompt: customPrompt || selectedAction?.prompt,
+        actionEndPrompt: customPrompt ? undefined : selectedAction?.endPrompt,
         modifiesCode: customPrompt ? true : selectedAction?.modifiesCode ?? true,
       }
 
@@ -928,18 +930,7 @@ export default class WorkStart extends PMOCommand {
       this.log(styles.muted(`   Work ID: ${execution.id}`))
       this.log('')
 
-      // Move ticket to In Progress column (moveTicket also updates status_id)
-      const targetColumnName = getWorkColumnSetting(db, 'in_progress')
-      const board = await this.storage.getBoard()
-      const columnNames = board.columns.map(col => col.name)
-      const inProgressColumn = findColumnByName(columnNames, targetColumnName)
-
-      if (inProgressColumn && ticket.statusName !== inProgressColumn) {
-        await this.storage.moveTicket(ticket.id, inProgressColumn)
-        this.log(styles.muted(`   Moved to: ${inProgressColumn}`))
-      }
-
-      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
+      // Note: Ticket status update moved to after successful spawn (see below)
 
       // Load execution config from database
       const executionConfig = loadExecutionConfig(db)
@@ -1009,6 +1000,36 @@ export default class WorkStart extends PMOCommand {
             currentExecutionId: execution.id,
           })
         }
+
+        // Update ticket assignee ONLY after successful spawn
+        if (!ticket.assignee || ticket.assignee !== assignedAgent) {
+          await this.storage.updateTicket(ticket.id, { assignee: assignedAgent })
+          this.log(styles.muted(`   Assigned to: ${assignedAgent}`))
+        }
+
+        // Move ticket to target column based on action's defaultMoveToCategory
+        // If action has a target category, find the matching column; otherwise use "started" default
+        const targetCategory = selectedAction?.defaultMoveToCategory || 'started'
+        const board = await this.storage.getBoard()
+        const columnNames = board.columns.map(col => col.name)
+
+        // Map category to column type for lookup
+        const columnType = targetCategory === 'started' ? 'in_progress' :
+                          targetCategory === 'unstarted' ? 'planned' :
+                          targetCategory === 'completed' ? 'done' : 'in_progress'
+
+        // Get the configured column name for this type (e.g., "In Progress" for in_progress)
+        const workColumnName = getWorkColumnSetting(db, columnType)
+
+        // Find the actual column on the board (case-insensitive, partial match)
+        const targetColumnName = findColumnByName(columnNames, workColumnName)
+
+        if (targetColumnName && ticket.statusName !== targetColumnName) {
+          await this.storage.moveTicket(ticket.id, targetColumnName)
+          this.log(styles.muted(`   Moved to: ${targetColumnName}`))
+        }
+
+        await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
 
         this.log('')
         this.log(styles.success(`✓ Work started (${execution.id})`))
@@ -1160,10 +1181,7 @@ export default class WorkStart extends PMOCommand {
   ): Promise<void> {
     const agentName = agent.name
 
-    // Update ticket assignee if not set
-    if (!ticket.assignee || ticket.assignee !== agentName) {
-      await this.storage.updateTicket(ticket.id, { assignee: agentName })
-    }
+    // Note: Ticket assignee update moved to after successful spawn
 
     // Find agent directory and worktree
     const agentDir = path.join(workspaceInfo.agentsPath, agentName)
@@ -1238,6 +1256,7 @@ export default class WorkStart extends PMOCommand {
       actionId: defaultAction?.id,
       actionName: defaultAction?.name,
       actionPrompt: defaultAction?.prompt,
+      actionEndPrompt: defaultAction?.endPrompt,
       modifiesCode: defaultAction?.modifiesCode ?? true,
     }
 
@@ -1299,17 +1318,7 @@ export default class WorkStart extends PMOCommand {
       branch,
     })
 
-    // Move ticket to In Progress column (moveTicket also updates status_id)
-    const targetColumnName = getWorkColumnSetting(db, 'in_progress')
-    const board = await this.storage.getBoard()
-    const columnNames = board.columns.map(col => col.name)
-    const inProgressColumn = findColumnByName(columnNames, targetColumnName)
-
-    if (inProgressColumn) {
-      await this.storage.moveTicket(ticket.id, inProgressColumn)
-    }
-
-    await autoExportToBoard(this.pmoPath, this.storage, () => {})
+    // Note: Ticket status update moved to after successful spawn
 
     // Load execution config
     const executionConfig = loadExecutionConfig(db)
@@ -1331,6 +1340,24 @@ export default class WorkStart extends PMOCommand {
         sessionId: result.sessionId,
         logPath: result.logPath,
       })
+
+      // Update ticket assignee ONLY after successful spawn
+      if (!ticket.assignee || ticket.assignee !== agentName) {
+        await this.storage.updateTicket(ticket.id, { assignee: agentName })
+      }
+
+      // Move ticket to In Progress column ONLY after successful spawn
+      const targetColumnName = getWorkColumnSetting(db, 'in_progress')
+      const board = await this.storage.getBoard()
+      const columnNames = board.columns.map(col => col.name)
+      const inProgressColumn = findColumnByName(columnNames, targetColumnName)
+
+      if (inProgressColumn && ticket.status !== inProgressColumn) {
+        await this.storage.moveTicket(ticket.id, inProgressColumn)
+      }
+
+      await autoExportToBoard(this.pmoPath, this.storage, () => {})
+
       this.log(styles.success(`   ✓ ${ticket.id} started (${execution.id})`))
     } else {
       executionStorage.updateStatus(execution.id, 'failed')

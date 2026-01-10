@@ -10,6 +10,8 @@ export default class TicketEdit extends PMOCommand {
     '<%= config.bin %> <%= command.id %> TICK-001',
     '<%= config.bin %> <%= command.id %> TICK-001 --title "New title"',
     '<%= config.bin %> <%= command.id %> TICK-001 --priority HIGH --category bug',
+    '<%= config.bin %> <%= command.id %> TICK-001 --add-subtask "Implement feature" --add-subtask "Write tests"',
+    '<%= config.bin %> <%= command.id %> TICK-001 --owner "john" --assignee "agent-1"',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
   ];
 
@@ -37,6 +39,38 @@ export default class TicketEdit extends PMOCommand {
     }),
     category: Flags.string({
       description: 'New ticket category',
+    }),
+    owner: Flags.string({
+      char: 'o',
+      description: 'Ticket owner (human responsible)',
+    }),
+    assignee: Flags.string({
+      char: 'a',
+      description: 'Ticket assignee (who executes)',
+    }),
+    'add-subtask': Flags.string({
+      description: 'Add a subtask (can be used multiple times)',
+      multiple: true,
+    }),
+    'clear-subtasks': Flags.boolean({
+      description: 'Clear all existing subtasks before adding new ones',
+      default: false,
+    }),
+    'add-label': Flags.string({
+      description: 'Add a label (can be used multiple times)',
+      multiple: true,
+    }),
+    'remove-label': Flags.string({
+      description: 'Remove a label',
+      multiple: true,
+    }),
+    'add-ac': Flags.string({
+      description: 'Add an acceptance criterion (can be used multiple times)',
+      multiple: true,
+    }),
+    'clear-ac': Flags.boolean({
+      description: 'Clear all existing acceptance criteria before adding new ones',
+      default: false,
     }),
     interactive: Flags.boolean({
       char: 'i',
@@ -83,9 +117,13 @@ export default class TicketEdit extends PMOCommand {
       description?: string;
       priority?: string;
       category?: string;
+      owner?: string;
+      assignee?: string;
     } = {};
 
-    const hasFlags = flags.title || flags.description || flags.priority || flags.category;
+    const hasFlags = flags.title || flags.description || flags.priority || flags.category ||
+      flags.owner || flags.assignee || flags['add-subtask'] || flags['clear-subtasks'] ||
+      flags['add-label'] || flags['remove-label'] || flags['add-ac'] || flags['clear-ac'];
 
     if (flags.interactive || !hasFlags) {
       // Interactive mode - prompt for all editable fields
@@ -98,13 +136,69 @@ export default class TicketEdit extends PMOCommand {
         updates.priority = flags.priority === 'none' ? undefined : flags.priority;
       }
       if (flags.category) updates.category = flags.category;
+      if (flags.owner) updates.owner = flags.owner;
+      if (flags.assignee) updates.assignee = flags.assignee;
+    }
+
+    // Handle subtasks
+    let subtasksChanged = false;
+    if (flags['clear-subtasks']) {
+      // Clear all subtasks first - get from ticket object
+      for (const subtask of ticket.subtasks) {
+        await this.storage.removeSubtask(ticketId!, subtask.id);
+      }
+      subtasksChanged = true;
+    }
+
+    if (flags['add-subtask'] && flags['add-subtask'].length > 0) {
+      for (const subtaskTitle of flags['add-subtask']) {
+        await this.storage.addSubtask(ticketId!, subtaskTitle);
+      }
+      subtasksChanged = true;
+    }
+
+    // Handle labels
+    let labelsChanged = false;
+    let currentLabels = [...ticket.labels];
+
+    if (flags['remove-label'] && flags['remove-label'].length > 0) {
+      currentLabels = currentLabels.filter(l => !flags['remove-label']!.includes(l));
+      labelsChanged = true;
+    }
+
+    if (flags['add-label'] && flags['add-label'].length > 0) {
+      for (const label of flags['add-label']) {
+        if (!currentLabels.includes(label)) {
+          currentLabels.push(label);
+          labelsChanged = true;
+        }
+      }
+    }
+
+    // Handle acceptance criteria
+    let acChanged = false;
+    if (flags['clear-ac']) {
+      await this.storage.clearAcceptanceCriteria(ticketId!);
+      acChanged = true;
+    }
+
+    if (flags['add-ac'] && flags['add-ac'].length > 0) {
+      for (const criterion of flags['add-ac']) {
+        await this.storage.addAcceptanceCriterion(ticketId!, criterion);
+      }
+      acChanged = true;
     }
 
     // Check if anything changed
-    const hasChanges = Object.keys(updates).length > 0;
+    const hasChanges = Object.keys(updates).length > 0 || subtasksChanged || labelsChanged || acChanged;
     if (!hasChanges) {
       this.log(styles.muted('\nNo changes made.'));
       return;
+    }
+
+    // Update the ticket with labels if changed
+    if (labelsChanged) {
+      (updates as { labels?: string[] }).labels = currentLabels;
     }
 
     // Update the ticket
@@ -121,6 +215,19 @@ export default class TicketEdit extends PMOCommand {
     if (updates.description !== undefined) changedFields.push(`Description: ${updatedTicket.description || '(cleared)'}`);
     if (updates.priority !== undefined) changedFields.push(`Priority: ${updatedTicket.priority || 'none'}`);
     if (updates.category !== undefined) changedFields.push(`Category: ${updatedTicket.category || 'none'}`);
+    if (updates.owner !== undefined) changedFields.push(`Owner: ${updatedTicket.owner || 'none'}`);
+    if (updates.assignee !== undefined) changedFields.push(`Assignee: ${updatedTicket.assignee || 'none'}`);
+    if (subtasksChanged || acChanged) {
+      // Re-fetch ticket to get updated subtasks and AC
+      const refreshedTicket = await this.storage.getTicket(ticketId!);
+      if (subtasksChanged) {
+        changedFields.push(`Subtasks: ${refreshedTicket?.subtasks.length || 0} items`);
+      }
+      if (acChanged) {
+        changedFields.push(`Acceptance Criteria: ${refreshedTicket?.acceptanceCriteria?.length || 0} items`);
+      }
+    }
+    if (labelsChanged) changedFields.push(`Labels: ${currentLabels.join(', ') || 'none'}`);
 
     for (const field of changedFields) {
       this.log(styles.muted(`   ${field}`));
