@@ -15,6 +15,7 @@ import {
   BoardViewGroupBy,
   BoardViewSortBy,
   Column,
+  CreateTicketInput,
   Epic,
   EpicDependency,
   EpicDependencyType,
@@ -1160,13 +1161,13 @@ Why is this refactor needed?
   // Ticket Operations
   // ===========================================================================
 
-  async createTicket(ticket: Partial<Ticket>): Promise<Ticket> {
+  async createTicket(ticket: CreateTicketInput): Promise<Ticket> {
     const id = ticket.id || generateEntityId(this.db, 'ticket')
     const title = ticket.title || 'Untitled'
     const projectId = this.currentProjectId
 
     // Get column (default to first column) - this is for board position
-    let columnId = ticket.column
+    let columnId = ticket.statusName
     if (!columnId) {
       const firstColumn = this.db.prepare(`
         SELECT id FROM ${T.columns}
@@ -1189,8 +1190,8 @@ Why is this refactor needed?
     }
     columnId = column.id
 
-    // Get position for board
-    const position = ticket.position ?? this.getMaxTicketPosition(columnId) + 1
+    // Get position for board (always append to end)
+    const position = this.getMaxTicketPosition(columnId) + 1
 
     const now = Date.now()
 
@@ -4563,8 +4564,6 @@ Why is this refactor needed?
       updatedAt: new Date(row.updated_at),
       lastSyncedFromSpec: row.last_synced_from_spec ? new Date(row.last_synced_from_spec) : undefined,
       lastSyncedFromBoard: row.last_synced_from_board ? new Date(row.last_synced_from_board) : undefined,
-      column: row.column_name,
-      position: row.board_position,
     }
   }
 
@@ -5196,8 +5195,6 @@ Why is this refactor needed?
       updatedAt: new Date(row.updated_at),
       lastSyncedFromSpec: row.last_synced_from_spec ? new Date(row.last_synced_from_spec) : undefined,
       lastSyncedFromBoard: row.last_synced_from_board ? new Date(row.last_synced_from_board) : undefined,
-      // DEPRECATED fields for backward compat
-      column: row.column_name || undefined,
       position: row.position !== null ? row.position : undefined,
     }
   }

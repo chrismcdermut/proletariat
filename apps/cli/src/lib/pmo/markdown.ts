@@ -84,7 +84,7 @@ export function parseBoard(markdown: string, projectId: string = 'default'): Boa
         title: title.trim(),
         statusId: '',  // Will be resolved when syncing to DB
         statusCategory: 'backlog', // Default status category when parsing from board
-        column: currentColumn.name,
+        statusName: currentColumn.name,
         position: currentColumn.tickets.length,
         subtasks: [],
         labels: [],
@@ -278,7 +278,7 @@ function ticketsEqual(a: Ticket, b: Ticket): boolean {
   return (
     a.id === b.id &&
     a.title === b.title &&
-    a.column === b.column &&
+    a.statusName === b.statusName &&
     a.position === b.position &&
     a.priority === b.priority &&
     a.category === b.category &&

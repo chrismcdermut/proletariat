@@ -40,7 +40,7 @@ export default class Delete extends PMOCommand {
       name: 'selectedTickets',
       message: 'Select tickets to DELETE:',
       choices: allTickets.map(t => ({
-        name: `${t.id} - ${t.title} (${t.column})`,
+        name: `${t.id} - ${t.title} (${t.statusName})`,
         value: t.id,
       })),
     }]);

@@ -210,7 +210,7 @@ export default class Board extends PMOCommand {
     if (added.length > 0) {
       this.log(chalk.green.bold(`  + ${added.length} ticket(s) to add:`));
       for (const ticket of added) {
-        this.log(chalk.green(`    + ${ticket.id}: ${ticket.title} (${ticket.column})`));
+        this.log(chalk.green(`    + ${ticket.id}: ${ticket.title} (${ticket.statusName})`));
       }
     }
 
@@ -225,8 +225,8 @@ export default class Board extends PMOCommand {
       this.log(chalk.yellow.bold(`  ~ ${modified.length} ticket(s) to update:`));
       for (const { old: oldTicket, new: newTicket } of modified) {
         this.log(chalk.yellow(`    ~ ${newTicket.id}: ${newTicket.title}`));
-        if (oldTicket.column !== newTicket.column) {
-          this.log(styles.muted(`        column: ${oldTicket.column} → ${newTicket.column}`));
+        if (oldTicket.statusName !== newTicket.statusName) {
+          this.log(styles.muted(`        status: ${oldTicket.statusName} → ${newTicket.statusName}`));
         }
         if (oldTicket.priority !== newTicket.priority) {
           this.log(styles.muted(`        priority: ${oldTicket.priority || '(none)'} → ${newTicket.priority || '(none)'}`));

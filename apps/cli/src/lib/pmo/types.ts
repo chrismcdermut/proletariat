@@ -324,10 +324,7 @@ export interface Ticket {
   lastSyncedFromSpec?: Date   // When last synced from spec frontmatter
   lastSyncedFromBoard?: Date  // When last synced from board.md
 
-  // DEPRECATED: Board view fields (populated when querying with board context)
-  // These are maintained for backward compatibility during refactor
-  // Use BoardTicket table for authoritative board position
-  column?: string     // Column name (from board view)
+  // Board position (populated when querying with board context)
   position?: number   // Position in column (from board view)
 }
 
@@ -345,6 +342,29 @@ export interface Subtask {
   id: string
   title: string
   done: boolean
+}
+
+/**
+ * Input for creating a new ticket.
+ * statusName is the status/column name to place the ticket in.
+ */
+export interface CreateTicketInput {
+  id?: string
+  title: string
+  statusName?: string       // Status name to place ticket in (defaults to first backlog status)
+  description?: string
+  priority?: string
+  category?: string
+  statusId?: string
+  owner?: string
+  assignee?: string
+  specId?: string
+  epicId?: string
+  labels?: string[]
+  subtasks?: Subtask[]
+  metadata?: Record<string, string>
+  lastSyncedFromSpec?: Date
+  lastSyncedFromBoard?: Date
 }
 
 // =============================================================================
@@ -654,7 +674,7 @@ export interface PMOStorage {
   deleteColumn(id: string, cascade?: boolean): Promise<void>
 
   // Ticket Operations
-  createTicket(ticket: Partial<Ticket>): Promise<Ticket>
+  createTicket(ticket: CreateTicketInput): Promise<Ticket>
   getTicket(id: string): Promise<Ticket | null>
   updateTicket(id: string, changes: Partial<Ticket>): Promise<Ticket>
   moveTicket(id: string, column: string, position?: number): Promise<Ticket>
@@ -775,5 +795,4 @@ export interface PMOStorage {
 // Utility Types
 // =============================================================================
 
-export type CreateTicketInput = Omit<Partial<Ticket>, 'createdAt' | 'updatedAt'>
 export type UpdateTicketInput = Omit<Partial<Ticket>, 'id' | 'createdAt' | 'updatedAt'>

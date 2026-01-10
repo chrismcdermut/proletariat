@@ -89,7 +89,7 @@ export default class EpicProgress extends PMOCommand {
     // Group tickets by status/column
     const byStatus = new Map<string, Ticket[]>();
     for (const ticket of tickets) {
-      const key = ticket.column || ticket.statusName || 'Unknown';
+      const key = ticket.statusName || 'Unknown';
       const list = byStatus.get(key) || [];
       list.push(ticket);
       byStatus.set(key, list);
@@ -116,7 +116,7 @@ export default class EpicProgress extends PMOCommand {
     if (remaining.length > 0) {
       this.log('\nRemaining work:');
       for (const ticket of remaining) {
-        const statusLabel = ticket.column || ticket.status;
+        const statusLabel = ticket.statusName || ticket.status;
         this.log(`  ${ticket.id}: ${ticket.title} [${statusLabel}]`);
       }
     }

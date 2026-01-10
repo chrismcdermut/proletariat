@@ -31,7 +31,7 @@ export default class Complete extends PMOCommand {
 
     // Filter to only show incomplete tickets
     const incompleteTickets = allTickets.filter(t =>
-      t.column && !t.column.toLowerCase().includes('done')
+      t.statusName && !t.statusName.toLowerCase().includes('done')
     );
 
     if (incompleteTickets.length === 0) {
@@ -55,7 +55,7 @@ export default class Complete extends PMOCommand {
       name: 'selectedTickets',
       message: 'Select tickets to mark as COMPLETE:',
       choices: incompleteTickets.map(t => ({
-        name: `${t.id} - ${t.title} (${t.column})`,
+        name: `${t.id} - ${t.title} (${t.statusName})`,
         value: t.id,
       })),
     }]);

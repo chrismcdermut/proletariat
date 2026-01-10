@@ -96,7 +96,7 @@ export default class EpicView extends PMOCommand {
                      ticket.statusCategory === 'started' ? '🚧' :
                      ticket.statusCategory === 'unstarted' ? '📋' :
                      ticket.statusCategory === 'canceled' ? '🚫' : '📥';
-        const statusLabel = ticket.statusName || ticket.column || 'Unknown';
+        const statusLabel = ticket.statusName || 'Unknown';
         this.log(`  ${icon} ${ticket.id}: ${ticket.title} [${statusLabel}]`);
       }
     } else {

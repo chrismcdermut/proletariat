@@ -36,7 +36,7 @@ export default class TicketComplete extends PMOCommand {
       // Get all incomplete tickets for selection
       const allTickets = await this.storage.listTickets();
       const incompleteTickets = allTickets.filter(t =>
-        t.column && !t.column.toLowerCase().includes('done')
+        t.statusName && !t.statusName.toLowerCase().includes('done')
       );
 
       if (incompleteTickets.length === 0) {
@@ -49,7 +49,7 @@ export default class TicketComplete extends PMOCommand {
         name: 'selectedTicketId',
         message: 'Select ticket to complete:',
         choices: incompleteTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.column})`,
+          name: `${t.id} - ${t.title} (${t.statusName})`,
           value: t.id,
         })),
       }]);

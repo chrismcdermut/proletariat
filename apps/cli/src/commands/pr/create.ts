@@ -139,7 +139,7 @@ export default class PRCreate extends Command {
       if (!ticketId && !flags['no-link'] && storage) {
         const allTickets = await storage.listTickets();
         const inProgressTickets = allTickets.filter(t =>
-          t.column && t.column.toLowerCase().includes('progress')
+          t.statusName && t.statusName.toLowerCase().includes('progress')
         );
 
         if (inProgressTickets.length > 0) {

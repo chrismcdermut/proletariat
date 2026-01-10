@@ -54,7 +54,7 @@ export default class PRStatus extends Command {
         const allTickets = await storage.listTickets();
         // Filter to tickets that have a PR linked
         const ticketsWithPR = allTickets.filter(t => t.metadata?.pr_url);
-        const ticketsWithoutPR = allTickets.filter(t => !t.metadata?.pr_url && t.column && !t.column.toLowerCase().includes('done'));
+        const ticketsWithoutPR = allTickets.filter(t => !t.metadata?.pr_url && t.statusName && !t.statusName.toLowerCase().includes('done'));
 
         if (ticketsWithPR.length === 0 && ticketsWithoutPR.length === 0) {
           await storage.close();
@@ -74,7 +74,7 @@ export default class PRStatus extends Command {
           choices.push(new inquirer.Separator('── No PR Linked ──') as any);
           choices.push(
             ...ticketsWithoutPR.slice(0, 10).map(t => ({
-              name: `${t.id} - ${t.title} (${t.column})`,
+              name: `${t.id} - ${t.title} (${t.statusName})`,
               value: t.id,
             }))
           );
@@ -100,7 +100,7 @@ export default class PRStatus extends Command {
       this.log('');
       this.log(styles.header(`PR Status: ${ticket.id}`));
       this.log(styles.muted(`   Title: ${ticket.title}`));
-      this.log(styles.muted(`   Column: ${ticket.column}`));
+      this.log(styles.muted(`   Status: ${ticket.statusName}`));
       this.log('');
 
       if (!ticket.metadata?.pr_url) {

@@ -50,7 +50,7 @@ export default class TicketLinkDuplicates extends PMOCommand {
         name: 'selected',
         message: `Select the original ticket (${args.id} is a duplicate of):`,
         choices: otherTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.column || t.status})`,
+          name: `${t.id} - ${t.title} (${t.statusName || t.status})`,
           value: t.id,
         })),
       }])

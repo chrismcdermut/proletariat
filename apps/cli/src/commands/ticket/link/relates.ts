@@ -50,7 +50,7 @@ export default class TicketLinkRelates extends PMOCommand {
         name: 'selected',
         message: `Select ticket that ${args.id} relates to:`,
         choices: otherTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.column || t.status})`,
+          name: `${t.id} - ${t.title} (${t.statusName || t.status})`,
           value: t.id,
         })),
       }])

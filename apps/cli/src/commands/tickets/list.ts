@@ -95,7 +95,7 @@ export default class List extends PMOCommand {
       byColumn[col] = [];
     }
     for (const ticket of tickets) {
-      const col = ticket.column || 'Unknown';
+      const col = ticket.statusName || 'Unknown';
       if (!byColumn[col]) byColumn[col] = [];
       byColumn[col].push(ticket);
     }
@@ -135,7 +135,7 @@ export default class List extends PMOCommand {
     const byColumn: Record<string, Ticket[]> = {};
     for (const col of columns) byColumn[col] = [];
     for (const ticket of tickets) {
-      const col = ticket.column || 'Unknown';
+      const col = ticket.statusName || 'Unknown';
       if (!byColumn[col]) byColumn[col] = [];
       byColumn[col].push(ticket);
     }

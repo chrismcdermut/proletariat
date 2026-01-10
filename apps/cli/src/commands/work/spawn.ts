@@ -177,7 +177,7 @@ export default class WorkSpawn extends PMOCommand {
         if (!targetColumn) {
           // Show columns with ticket counts
           const columnChoices = columnNames.map(name => {
-            const count = unassignedTickets.filter(t => t.column === name).length
+            const count = unassignedTickets.filter(t => t.statusName === name).length
             return {
               name: `${name} (${count} unassigned)`,
               value: name,
@@ -208,7 +208,7 @@ export default class WorkSpawn extends PMOCommand {
           )
         }
 
-        ticketsToSpawn = unassignedTickets.filter(t => t.column === matchedColumn)
+        ticketsToSpawn = unassignedTickets.filter(t => t.statusName === matchedColumn)
 
         if (ticketsToSpawn.length === 0) {
           db.close()
@@ -227,7 +227,7 @@ export default class WorkSpawn extends PMOCommand {
           { name: '🌐 All columns (select from anywhere)', value: '__ALL__' },
         ]
         for (const name of columnNames) {
-          const count = unassignedTickets.filter(t => t.column === name).length
+          const count = unassignedTickets.filter(t => t.statusName === name).length
           if (count > 0) {
             columnChoices.push({
               name: `${name} (${count} unassigned)`,
@@ -248,7 +248,7 @@ export default class WorkSpawn extends PMOCommand {
         // Filter tickets based on column selection
         const ticketsForSelection = manyColumn === '__ALL__'
           ? unassignedTickets
-          : unassignedTickets.filter(t => t.column === manyColumn)
+          : unassignedTickets.filter(t => t.statusName === manyColumn)
 
         if (ticketsForSelection.length === 0) {
           db.close()
@@ -256,10 +256,10 @@ export default class WorkSpawn extends PMOCommand {
           return
         }
 
-        // Group tickets by column for display
+        // Group tickets by status for display
         const ticketsByColumn = new Map<string, typeof unassignedTickets>()
         for (const ticket of ticketsForSelection) {
-          const col = ticket.column || 'No Column'
+          const col = ticket.statusName || 'No Status'
           if (!ticketsByColumn.has(col)) {
             ticketsByColumn.set(col, [])
           }

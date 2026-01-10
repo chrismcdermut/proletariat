@@ -80,7 +80,7 @@ export default class WorkReady extends PMOCommand {
         // Get all in-progress (started) tickets for selection
         const allTickets = await this.storage.listTickets();
         const inProgressTickets = allTickets.filter(t =>
-          t.statusCategory === 'started' || (t.column && t.column.toLowerCase().includes('progress'))
+          t.statusCategory === 'started' || (t.statusName && t.statusName.toLowerCase().includes('progress'))
         );
 
         if (inProgressTickets.length === 0) {
@@ -94,7 +94,7 @@ export default class WorkReady extends PMOCommand {
           name: 'selectedTicketId',
           message: 'Select work to mark as ready for review:',
           choices: inProgressTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.column})`,
+            name: `${t.id} - ${t.title} (${t.statusName})`,
             value: t.id,
           })),
         }]);
@@ -120,7 +120,7 @@ export default class WorkReady extends PMOCommand {
         this.error(`No "${targetColumnName}" column found in board configuration. Configure with: prlt config set column_done <column-name>`);
       }
 
-      const previousColumn = ticket.column;
+      const previousColumn = ticket.statusName;
 
       // Move to Done column (moveTicket also updates status_id)
       await this.storage.moveTicket(ticketId!, doneColumn);

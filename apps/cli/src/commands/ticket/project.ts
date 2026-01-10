@@ -50,7 +50,7 @@ export default class TicketProject extends PMOCommand {
         name: 'selected',
         message: 'Select ticket to move:',
         choices: tickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.column})`,
+          name: `${t.id} - ${t.title} (${t.statusName})`,
           value: t.id,
         })),
       }]);

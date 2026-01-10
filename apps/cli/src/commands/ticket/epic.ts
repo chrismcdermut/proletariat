@@ -73,7 +73,7 @@ export default class TicketEpic extends PMOCommand {
             ? epics.find(e => e.id === currentEpicId)?.title || currentEpicId
             : 'No epic';
           return {
-            name: `${t.id} - ${t.title} (${t.column || t.status}) [${epicLabel}]`,
+            name: `${t.id} - ${t.title} (${t.statusName || t.status}) [${epicLabel}]`,
             value: t.id,
           };
         }),
