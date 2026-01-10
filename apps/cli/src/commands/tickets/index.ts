@@ -52,58 +52,70 @@ export default class Tickets extends PMOCommand {
     try {
       this.log(colors.primary(`\nExecuting: tickets ${action}`));
 
+      // Pass --project flag to sub-command so it doesn't prompt again
+      const projectArgs = ['--project', this.projectId];
+
       switch (action) {
         case 'list': {
           const { default: ListCommand } = await import('./list.js');
-          const cmd = new ListCommand([], this.config);
+          const cmd = new ListCommand(projectArgs, this.config);
+          await cmd.init();
           await cmd.run();
           break;
         }
         case 'move': {
           const { default: MoveCommand } = await import('./move.js');
-          const cmd = new MoveCommand([], this.config);
+          const cmd = new MoveCommand(projectArgs, this.config);
+          await cmd.init();
           await cmd.run();
           break;
         }
         case 'delete': {
           const { default: DeleteCommand } = await import('./delete.js');
-          const cmd = new DeleteCommand([], this.config);
+          const cmd = new DeleteCommand(projectArgs, this.config);
+          await cmd.init();
           await cmd.run();
           break;
         }
         case 'complete': {
           const { default: CompleteCommand } = await import('./complete.js');
-          const cmd = new CompleteCommand([], this.config);
+          const cmd = new CompleteCommand(projectArgs, this.config);
+          await cmd.init();
           await cmd.run();
           break;
         }
         case 'reassign': {
           const { default: ReassignCommand } = await import('./reassign.js');
-          const cmd = new ReassignCommand([], this.config);
+          const cmd = new ReassignCommand(projectArgs, this.config);
+          await cmd.init();
           await cmd.run();
           break;
         }
         case 'link': {
           const { default: LinkCommand } = await import('./link.js');
-          const cmd = new LinkCommand([], this.config);
+          const cmd = new LinkCommand(projectArgs, this.config);
+          await cmd.init();
           await cmd.run();
           break;
         }
         case 'spec': {
           const { default: SpecCommand } = await import('./spec.js');
-          const cmd = new SpecCommand([], this.config);
+          const cmd = new SpecCommand(projectArgs, this.config);
+          await cmd.init();
           await cmd.run();
           break;
         }
         case 'project': {
           const { default: ProjectCommand } = await import('./project.js');
-          const cmd = new ProjectCommand([], this.config);
+          const cmd = new ProjectCommand(projectArgs, this.config);
+          await cmd.init();
           await cmd.run();
           break;
         }
         case 'update': {
           const { default: UpdateCommand } = await import('./update.js');
-          const cmd = new UpdateCommand([], this.config);
+          const cmd = new UpdateCommand(projectArgs, this.config);
+          await cmd.init();
           await cmd.run();
           break;
         }
