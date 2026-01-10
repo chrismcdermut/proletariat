@@ -43,6 +43,8 @@ Generated from PMO database. Source of truth: `workspace.db`
 | TKT-235 | E2E tests for status command namespace | backlog | P2 | test | Add E2E tests for the status/ command namespace.  **Test cases:** 1. `prlt status list` - lists workflow statuses 2. `prlt status create` - creates new status 3. `prlt status update` - updates exis... |
 | TKT-236 | E2E tests for gh command namespace | backlog | P2 | test | Add E2E tests for the gh/ command namespace (GitHub CLI wrapper).  **Test cases:** 1. `prlt gh status` - shows GitHub auth status 2. `prlt gh login` - initiates GitHub login flow 3. `prlt gh token`... |
 | TKT-237 | E2E tests for repo/repos command namespace | backlog | P2 | test | Add E2E tests for the repo/ and repos/ command namespaces.  **Test cases:** 1. `prlt repo list` - lists configured repos 2. `prlt repo add` - adds repo to workspace 3. `prlt repo remove` - removes ... |
+| TKT-239 | Add --message flag to work spawn for custom initial prompts | backlog | P2 | feature | Add ability to pass a custom message/prompt when spawning agent work.  **Use cases:** 1. Grooming tickets from backlog: `prlt work spawn TKT-123 --message "This needs grooming - review the spec and... |
+| TKT-240 | Add cancel option to all interactive prompts | backlog | P2 | feature | Add a cancel/exit option to every interactive prompt in the CLI.  **Problem**: Users get stuck in interactive flows with no way to back out. If they accidentally run a command or change their mind ... |
 
 ## Credibility & Polish
 

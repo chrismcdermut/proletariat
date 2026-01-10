@@ -256,10 +256,10 @@ export default class WorkSpawn extends PMOCommand {
           return
         }
 
-        // Group tickets by column for display
+        // Group tickets by status for display
         const ticketsByColumn = new Map<string, typeof unassignedTickets>()
         for (const ticket of ticketsForSelection) {
-          const col = ticket.column || 'No Column'
+          const col = ticket.statusName || ticket.column || 'No Status'
           if (!ticketsByColumn.has(col)) {
             ticketsByColumn.set(col, [])
           }
