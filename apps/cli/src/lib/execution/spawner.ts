@@ -430,7 +430,7 @@ export async function spawnAgentForTicket(
     const columnNames = board.columns.map(col => col.name)
     const inProgressColumn = findColumnByName(columnNames, targetColumnName)
 
-    if (inProgressColumn && ticket.column !== inProgressColumn) {
+    if (inProgressColumn && ticket.statusName !== inProgressColumn) {
       await storage.moveTicket(ticket.id, inProgressColumn)
     }
 

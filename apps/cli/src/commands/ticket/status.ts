@@ -41,7 +41,7 @@ export default class TicketStatus extends PMOCommand {
         name: 'selectedTicketId',
         message: 'Select ticket to view:',
         choices: allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.column})`,
+          name: `${t.id} - ${t.title} (${t.statusName})`,
           value: t.id,
         })),
       }]);
@@ -58,7 +58,7 @@ export default class TicketStatus extends PMOCommand {
     this.log('');
     this.log(styles.emphasis(`🎫 ${ticket.id}: ${ticket.title}`));
     this.log('');
-    this.log(`   ${styles.muted('Column:')}    ${ticket.column}`);
+    this.log(`   ${styles.muted('Status:')}    ${ticket.statusName}`);
     this.log(`   ${styles.muted('Priority:')}  ${formatPriority(ticket.priority)}`);
     if (ticket.category) {
       this.log(`   ${styles.muted('Category:')}  ${formatCategory(ticket.category)}`);

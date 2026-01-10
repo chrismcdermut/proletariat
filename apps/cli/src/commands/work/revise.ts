@@ -108,7 +108,7 @@ export default class WorkRevise extends PMOCommand {
         const allTickets = await this.storage.listTickets()
         // Filter to done tickets that have a PR (may need revision based on PR feedback)
         const reviewTickets = allTickets.filter(t => {
-          const isDone = t.status === 'done' || (t.column && t.column.toLowerCase().includes('done'))
+          const isDone = t.status === 'done' || (t.statusName && t.statusName.toLowerCase().includes('done'))
           const hasPR = t.metadata?.pr_url
           return isDone && hasPR
         })
@@ -338,7 +338,7 @@ export default class WorkRevise extends PMOCommand {
       const columnNames = board.columns.map(col => col.name)
       const inProgressColumn = findColumnByName(columnNames, inProgressColumnName)
 
-      if (inProgressColumn && ticket.column !== inProgressColumn) {
+      if (inProgressColumn && ticket.statusName !== inProgressColumn) {
         await this.storage.moveTicket(ticket.id, inProgressColumn)
         this.log(styles.muted(`   Moved to: ${inProgressColumn}`))
       }

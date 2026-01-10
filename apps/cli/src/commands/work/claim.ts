@@ -141,7 +141,7 @@ export default class WorkClaim extends PMOCommand {
       const columnNames = board.columns.map(col => col.name)
       const inProgressColumn = findColumnByName(columnNames, targetColumnName)
 
-      if (inProgressColumn && ticket.column !== inProgressColumn) {
+      if (inProgressColumn && ticket.statusName !== inProgressColumn) {
         await this.storage.moveTicket(ticketId!, inProgressColumn)
       } else if (!inProgressColumn) {
         this.warn(`Could not find In Progress column "${targetColumnName}", ticket column unchanged`)

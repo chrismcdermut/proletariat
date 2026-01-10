@@ -88,7 +88,7 @@ export default class TicketCreate extends PMOCommand {
     // Get ticket data (interactive or from flags)
     let ticketData: {
       title: string;
-      column: string;
+      statusName: string;
       priority?: string;
       category?: string;
       description?: string;
@@ -105,7 +105,7 @@ export default class TicketCreate extends PMOCommand {
       }
       ticketData = {
         title: flags.title || template?.titlePattern || '',
-        column: flags.column || this.columns[0],
+        statusName: flags.column || this.columns[0],
         priority: flags.priority || template?.defaultPriority,
         category: flags.category || template?.defaultCategory,
         description: flags.description || template?.descriptionTemplate,
@@ -115,15 +115,15 @@ export default class TicketCreate extends PMOCommand {
       };
     }
 
-    // Validate column
-    if (!this.columns.includes(ticketData.column)) {
-      this.error(`Invalid column "${ticketData.column}". Available columns: ${this.columns.join(', ')}`);
+    // Validate status/column
+    if (!this.columns.includes(ticketData.statusName)) {
+      this.error(`Invalid column "${ticketData.statusName}". Available columns: ${this.columns.join(', ')}`);
     }
 
     const ticket = await this.storage.createTicket({
       id: ticketData.id,
       title: ticketData.title,
-      column: ticketData.column,
+      statusName: ticketData.statusName,
       priority: ticketData.priority,
       category: ticketData.category,
       description: ticketData.description,
@@ -149,7 +149,7 @@ export default class TicketCreate extends PMOCommand {
         const ticketInfos = epicTickets.map(t => ({
           id: t.id,
           title: t.title,
-          status: t.statusName || t.column || 'Unknown',
+          status: t.statusName || 'Unknown',
           priority: t.priority,
         }));
         updateEpicTicketsSection(this.pmoPath, ticketData.epicId, epic.status, ticketInfos, this.projectId);
@@ -161,7 +161,7 @@ export default class TicketCreate extends PMOCommand {
       this.log(styles.muted(`   Template: ${template.name}`));
     }
     this.log(styles.muted(`   Title: ${ticket.title}`));
-    this.log(styles.muted(`   Column: ${ticket.column}`));
+    this.log(styles.muted(`   Status: ${ticket.statusName}`));
     if (ticket.priority) {
       this.log(styles.muted(`   Priority: ${ticket.priority}`));
     }
@@ -197,7 +197,7 @@ export default class TicketCreate extends PMOCommand {
     existingTemplate: TicketTemplate | null
   ): Promise<{
     title: string;
-    column: string;
+    statusName: string;
     priority?: string;
     category?: string;
     description?: string;
@@ -323,7 +323,7 @@ export default class TicketCreate extends PMOCommand {
 
     return {
       title: answers.title,
-      column: answers.column,
+      statusName: answers.column,
       priority: answers.priority || undefined,
       category,
       description: description || undefined,

@@ -51,7 +51,7 @@ export default class TicketDelete extends PMOCommand {
         name: 'selectedTicketId',
         message: 'Select ticket to delete:',
         choices: allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.column})`,
+          name: `${t.id} - ${t.title} (${t.statusName})`,
           value: t.id,
         })),
       }]);
@@ -72,7 +72,7 @@ export default class TicketDelete extends PMOCommand {
       this.log(`\nDelete ticket ${styles.emphasis(ticketId)}?`);
       this.log(`  Title: ${ticket.title}`);
       this.log(`  Project: ${board.name}`);
-      this.log(`  Status: ${ticket.column}`);
+      this.log(`  Status: ${ticket.statusName}`);
 
       const { confirmed } = await inquirer.prompt([{
         type: 'list',

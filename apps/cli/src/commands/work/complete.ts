@@ -51,7 +51,7 @@ export default class WorkComplete extends PMOCommand {
         // Get all tickets that could be completed (in progress / started)
         const allTickets = await this.storage.listTickets();
         const completableTickets = allTickets.filter(t =>
-          t.statusCategory === 'started' || (t.column && t.column.toLowerCase().includes('progress'))
+          t.statusCategory === 'started' || (t.statusName && t.statusName.toLowerCase().includes('progress'))
         );
 
         if (completableTickets.length === 0) {
@@ -65,7 +65,7 @@ export default class WorkComplete extends PMOCommand {
           name: 'selectedTicketId',
           message: 'Select work to mark as complete:',
           choices: completableTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.column})`,
+            name: `${t.id} - ${t.title} (${t.statusName})`,
             value: t.id,
           })),
         }]);
@@ -90,7 +90,7 @@ export default class WorkComplete extends PMOCommand {
         this.error(`No "${targetColumnName}" column found in board configuration. Configure with: prlt config set column_done <column-name>`);
       }
 
-      const previousColumn = ticket.column;
+      const previousColumn = ticket.statusName;
 
       // Move to Done column (moveTicket also updates status_id)
       await this.storage.moveTicket(ticketId!, doneColumn);

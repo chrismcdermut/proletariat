@@ -64,7 +64,7 @@ export default class TicketEdit extends PMOCommand {
         name: 'selectedTicketId',
         message: 'Select ticket to edit:',
         choices: allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.column})`,
+          name: `${t.id} - ${t.title} (${t.statusName})`,
           value: t.id,
         })),
       }]);

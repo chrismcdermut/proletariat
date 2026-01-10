@@ -39,7 +39,7 @@ export default class TicketsProject extends PMOCommand {
       choices: tickets.map(t => {
         const epicLabel = t.epicId ? ` [epic: ${t.epicId}]` : '';
         return {
-          name: `${t.id} - ${t.title} (${t.column})${epicLabel}`,
+          name: `${t.id} - ${t.title} (${t.statusName})${epicLabel}`,
           value: t.id,
         };
       }),

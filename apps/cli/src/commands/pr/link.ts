@@ -76,7 +76,7 @@ export default class PRLink extends Command {
       if (!ticketId) {
         const allTickets = await storage.listTickets();
         const activeTickets = allTickets.filter(t =>
-          t.column && !t.column.toLowerCase().includes('done') && !t.column.toLowerCase().includes('archive')
+          t.statusName && !t.statusName.toLowerCase().includes('done') && !t.statusName.toLowerCase().includes('archive')
         );
 
         if (activeTickets.length === 0) {
@@ -91,7 +91,7 @@ export default class PRLink extends Command {
           name: 'selectedTicketId',
           message: 'Select ticket to link PR to:',
           choices: activeTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.column})`,
+            name: `${t.id} - ${t.title} (${t.statusName})`,
             value: t.id,
           })),
         }]);

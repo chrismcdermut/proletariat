@@ -41,7 +41,7 @@ export default class TicketView extends PMOCommand {
         name: 'selectedTicketId',
         message: 'Select ticket to view:',
         choices: allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.column})`,
+          name: `${t.id} - ${t.title} (${t.statusName})`,
           value: t.id,
         })),
       }]);
@@ -60,7 +60,7 @@ export default class TicketView extends PMOCommand {
     this.log(`\n${styles.header('📄 Ticket')} ${styles.emphasis(ticket.id)}\n`);
     this.log(`${styles.header('Title:')}       ${ticket.title}`);
     this.log(`${styles.header('Project:')}     ${board.name}`);
-    this.log(`${styles.header('Status:')}      ${ticket.column}`);
+    this.log(`${styles.header('Status:')}      ${ticket.statusName}`);
     this.log(`${styles.header('Priority:')}    ${ticket.priority || 'none'}`);
     this.log(`${styles.header('Category:')}    ${ticket.category || 'none'}`);
     this.log(`${styles.header('Created:')}     ${ticket.createdAt ? new Date(ticket.createdAt).toLocaleString() : 'unknown'}`);

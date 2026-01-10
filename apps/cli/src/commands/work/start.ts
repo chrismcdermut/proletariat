@@ -934,7 +934,7 @@ export default class WorkStart extends PMOCommand {
       const columnNames = board.columns.map(col => col.name)
       const inProgressColumn = findColumnByName(columnNames, targetColumnName)
 
-      if (inProgressColumn && ticket.column !== inProgressColumn) {
+      if (inProgressColumn && ticket.statusName !== inProgressColumn) {
         await this.storage.moveTicket(ticket.id, inProgressColumn)
         this.log(styles.muted(`   Moved to: ${inProgressColumn}`))
       }

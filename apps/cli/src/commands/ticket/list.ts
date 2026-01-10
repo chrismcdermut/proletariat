@@ -107,7 +107,7 @@ export default class TicketList extends PMOCommand {
       byColumn[col] = [];
     }
     for (const ticket of tickets) {
-      const col = ticket.column || 'Unknown';
+      const col = ticket.statusName || 'Unknown';
       if (!byColumn[col]) {
         byColumn[col] = [];
       }
@@ -161,7 +161,7 @@ export default class TicketList extends PMOCommand {
       byColumn[col] = [];
     }
     for (const ticket of tickets) {
-      const col = ticket.column || 'Unknown';
+      const col = ticket.statusName || 'Unknown';
       if (!byColumn[col]) {
         byColumn[col] = [];
       }

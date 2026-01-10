@@ -52,7 +52,7 @@ export default class TicketMove extends PMOCommand {
         name: 'selectedTicketId',
         message: 'Select ticket to move:',
         choices: allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.column})`,
+          name: `${t.id} - ${t.title} (${t.statusName})`,
           value: t.id,
         })),
       }]);
@@ -80,10 +80,10 @@ export default class TicketMove extends PMOCommand {
         name: 'column',
         message: `Move to column:`,
         choices: project.columns.map((col: { name: string }) => ({
-          name: col.name === ticket.column ? `${col.name} (current)` : col.name,
+          name: col.name === ticket.statusName ? `${col.name} (current)` : col.name,
           value: col.name,
         })),
-        default: ticket.column,
+        default: ticket.statusName,
       }]);
       targetColumn = column;
     }
@@ -91,7 +91,7 @@ export default class TicketMove extends PMOCommand {
     // Column validation happens in storage.moveTicket()
 
     // Check if actually moving
-    if (targetColumn === ticket.column && flags.position === undefined) {
+    if (targetColumn === ticket.statusName && flags.position === undefined) {
       this.log(styles.warning(`Ticket "${ticketId}" is already in "${targetColumn}".`));
       return;
     }
@@ -103,9 +103,9 @@ export default class TicketMove extends PMOCommand {
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
 
     this.log(styles.success(`\n✅ Moved ticket ${styles.emphasis(moved.id)}`));
-    if (targetColumn !== ticket.column) {
-      this.log(styles.muted(`   From: ${ticket.column}`));
-      this.log(styles.muted(`   To: ${moved.column}`));
+    if (targetColumn !== ticket.statusName) {
+      this.log(styles.muted(`   From: ${ticket.statusName}`));
+      this.log(styles.muted(`   To: ${moved.statusName}`));
     }
     if (flags.position !== undefined) {
       this.log(styles.muted(`   Position: ${flags.position}`));

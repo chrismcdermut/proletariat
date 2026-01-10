@@ -193,7 +193,7 @@ export default class TicketTemplateApply extends PMOCommand {
     // Create the ticket
     const ticket = await this.storage.createTicket({
       title,
-      column,
+      statusName: column,
       priority,
       category,
       assignee,
@@ -217,7 +217,7 @@ export default class TicketTemplateApply extends PMOCommand {
     this.log(styles.success(`\nCreated ticket ${styles.emphasis(ticket.id)} from template "${template.name}"`));
     this.log(styles.muted(`  Project: ${this.projectName}`));
     this.log(styles.muted(`  Title: ${ticket.title}`));
-    this.log(styles.muted(`  Column: ${ticket.column}`));
+    this.log(styles.muted(`  Status: ${ticket.statusName}`));
     if (priority) {
       this.log(styles.muted(`  Priority: ${priority}`));
     }

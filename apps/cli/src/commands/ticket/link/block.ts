@@ -51,7 +51,7 @@ export default class TicketLinkBlock extends PMOCommand {
         name: 'selected',
         message: `Select ticket that blocks ${args.id}:`,
         choices: otherTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.column || t.status})`,
+          name: `${t.id} - ${t.title} (${t.statusName || t.status})`,
           value: t.id,
         })),
       }])
