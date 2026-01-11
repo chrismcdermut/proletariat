@@ -533,8 +533,8 @@ export default class WorkSpawn extends PMOCommand {
           const actionName = batchAction || 'implement'
           const modifiesCode = selectedActionDetails?.modifiesCode ?? true
           const defaultsDescription = modifiesCode
-            ? 'devcontainer, terminal, interactive, safe permissions, create PRs'
-            : 'devcontainer, terminal, interactive, safe permissions, no PRs'
+            ? 'devcontainer, tmux, terminal, interactive, safe permissions, create PRs'
+            : 'devcontainer, tmux, terminal, interactive, safe permissions, no PRs'
 
           const { useDefaults } = await inquirer.prompt([
             {
