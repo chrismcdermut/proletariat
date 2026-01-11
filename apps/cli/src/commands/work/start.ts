@@ -1181,7 +1181,7 @@ export default class WorkStart extends PMOCommand {
    * Spawn work on a single ticket with non-interactive defaults.
    */
   private async spawnSingleTicket(
-    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; subtasks?: Array<{ title: string; done: boolean }> },
+    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; statusCategory?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; subtasks?: Array<{ title: string; done: boolean }> },
     agent: { name: string },
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
     executionStorage: ExecutionStorage,
@@ -1194,6 +1194,7 @@ export default class WorkStart extends PMOCommand {
       'no-pr'?: boolean
       executor?: string
       session?: string
+      action?: string
     }
   ): Promise<void> {
     const agentName = agent.name
@@ -1246,8 +1247,9 @@ export default class WorkStart extends PMOCommand {
       }
     }
 
-    // Get default action for batch mode (use 'implement')
-    const defaultAction = await this.storage.getAction('implement')
+    // Get action for batch mode - use provided action, or determine based on ticket status
+    const actionId = flags.action || (ticket.statusCategory === 'backlog' ? 'groom' : 'implement')
+    const defaultAction = await this.storage.getAction(actionId)
 
     // Build context
     const context: ExecutionContext = {
@@ -1269,7 +1271,7 @@ export default class WorkStart extends PMOCommand {
       hqPath: workspaceInfo.path,
       pmoPath: this.pmoPath,
       createPR: flags['create-pr'] || false,
-      // Use 'implement' action for batch mode
+      // Use action based on ticket status (groom for backlog, implement otherwise)
       actionId: defaultAction?.id,
       actionName: defaultAction?.name,
       actionPrompt: defaultAction?.prompt,

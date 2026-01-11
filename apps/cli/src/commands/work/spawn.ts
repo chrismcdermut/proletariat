@@ -504,13 +504,18 @@ export default class WorkSpawn extends PMOCommand {
               value: a.id,
             }))
 
+          // Determine default action based on tickets' status category
+          // If most tickets are in backlog, suggest 'groom'; otherwise 'implement'
+          const backlogCount = ticketsToSpawn.filter(t => t.statusCategory === 'backlog').length
+          const defaultAction = backlogCount > ticketsToSpawn.length / 2 ? 'groom' : 'implement'
+
           const { selectedAction } = await inquirer.prompt([
             {
               type: 'list',
               name: 'selectedAction',
               message: 'What action should agents perform?',
               choices: actionChoices,
-              default: 'implement',
+              default: defaultAction,
             },
           ])
           batchAction = selectedAction
@@ -763,7 +768,9 @@ export default class WorkSpawn extends PMOCommand {
             if (batchCreatePr) startArgs.push('--create-pr')
             if (batchNoPr) startArgs.push('--no-pr')
             // Pass action flag (from prompt or flag)
-            startArgs.push('--action', batchAction || 'implement')
+            // Use the selected action, or determine based on ticket's status category
+            const actionToUse = batchAction || (ticket.statusCategory === 'backlog' ? 'groom' : 'implement')
+            startArgs.push('--action', actionToUse)
             // Pass session manager (tmux inside container by default)
             if (flags.session) startArgs.push('--session', flags.session)
           }
