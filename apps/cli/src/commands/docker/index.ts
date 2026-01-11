@@ -20,6 +20,8 @@ export default class Docker extends Command {
     '<%= config.bin %> docker stop kalanick',
     '<%= config.bin %> docker shell WORK-001',
     '<%= config.bin %> docker restart abc123',
+    '<%= config.bin %> docker rebuild altman',
+    '<%= config.bin %> docker rebuild --all',
     '<%= config.bin %> docker sync',
     '<%= config.bin %> docker clean',
     '<%= config.bin %> docker prune',
@@ -44,6 +46,9 @@ export default class Docker extends Command {
           { name: 'Shell into container', value: 'shell' },
           { name: 'Restart a container', value: 'restart' },
           new inquirer.Separator(),
+          { name: 'Generate devcontainer configs', value: 'devcontainer:generate' },
+          { name: 'Rebuild devcontainer(s)', value: 'rebuild' },
+          new inquirer.Separator(),
           { name: 'Sync containers from Docker', value: 'sync' },
           { name: 'Clean orphaned containers', value: 'clean' },
           { name: 'Prune unused resources', value: 'prune' },
@@ -57,14 +62,22 @@ export default class Docker extends Command {
       return
     }
 
-    // Commands that require a target
+    // Commands that require a target container
     const targetCommands = ['logs', 'start', 'stop', 'shell', 'restart']
+    // Commands that handle their own selection (agents, not containers)
+    const selfSelectingCommands = ['rebuild']
 
     if (targetCommands.includes(action)) {
       const target = await this.selectContainer(action)
       if (!target) return
 
       await this.config.runCommand(`docker:${action}`, [target])
+    } else if (selfSelectingCommands.includes(action)) {
+      // These commands have their own interactive selection
+      await this.config.runCommand(`docker:${action}`, [])
+    } else if (action === 'devcontainer:generate') {
+      // Cross-namespace command
+      await this.config.runCommand('devcontainer:generate', [])
     } else {
       await this.config.runCommand(`docker:${action}`, [])
     }

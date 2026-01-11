@@ -703,13 +703,12 @@ function buildDevcontainerCommand(
 
     if (sessionManager === 'tmux') {
       // Run inside tmux session within the container
-      // User can attach with: docker exec -it <container> tmux attach -t <session>
       // Use base64 encoding to avoid all shell escaping issues
       const tmuxScript = `#!/bin/bash\n${claudeCmd}\nexec bash`
       const base64Script = Buffer.from(tmuxScript).toString('base64')
       const scriptPath = `/tmp/tmux-${sessionName}.sh`
-      // Decode base64, write to script, make executable, run in tmux
-      const setupCmd = `echo ${base64Script} | base64 -d > ${scriptPath} && chmod +x ${scriptPath} && tmux new-session -d -s ${sessionName} ${scriptPath} && echo "Started tmux session: ${sessionName}" && echo "Attach with: docker exec -it ${containerId} tmux attach -t ${sessionName}"`
+      // Decode base64, write to script, make executable, run in tmux, then attach
+      const setupCmd = `echo ${base64Script} | base64 -d > ${scriptPath} && chmod +x ${scriptPath} && tmux new-session -d -s ${sessionName} ${scriptPath} && tmux attach -t ${sessionName}`
       return `docker exec ${ttyFlags}${containerId} bash -c '${setupCmd}'`
     }
 
