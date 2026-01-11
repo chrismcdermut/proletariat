@@ -12,6 +12,7 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
   RuntimeMode,
   DisplayMode,
+  SessionManager,
   OutputMode,
   ExecutorType,
   ExecutionContext,
@@ -145,6 +146,12 @@ export default class WorkStart extends PMOCommand {
       description: 'Display mode for devcontainer (where to show output)',
       options: ['terminal', 'foreground', 'background', 'tmux'],
     }),
+    session: Flags.string({
+      char: 's',
+      description: 'Session manager inside container (tmux runs agent in tmux inside container)',
+      options: ['tmux', 'direct'],
+      default: 'tmux',
+    }),
     agent: Flags.string({
       description: 'Agent to assign (skips interactive selection)',
     }),
@@ -241,6 +248,8 @@ export default class WorkStart extends PMOCommand {
 
       // Check assignee - use flag, then ticket assignee, then prompt
       let agentName = flags.agent || ticket.assignee
+      // Debug: log agent selection
+      // this.log(styles.muted(`   DEBUG: flags.agent=${flags.agent}, ticket.assignee=${ticket.assignee}, agentName=${agentName}`))
       if (!agentName) {
         // Get list of busy agents (already running something)
         const busyAgentNames = new Set<string>()
@@ -975,9 +984,11 @@ export default class WorkStart extends PMOCommand {
 
       // Run execution
       this.log(styles.muted('Starting agent...'))
+      const sessionManager = (flags.session || 'tmux') as SessionManager
       const result = await runExecution(mode, context, executor, executionConfig, {
         host: flags['vm-host'],
         displayMode: mode === 'devcontainer' ? displayMode : undefined,
+        sessionManager: mode === 'devcontainer' ? sessionManager : undefined,
       })
 
       if (result.success) {
@@ -1025,8 +1036,13 @@ export default class WorkStart extends PMOCommand {
         const targetColumnName = findColumnByName(columnNames, workColumnName)
 
         if (targetColumnName && ticket.statusName !== targetColumnName) {
-          await this.storage.moveTicket(ticket.id, targetColumnName)
-          this.log(styles.muted(`   Moved to: ${targetColumnName}`))
+          try {
+            await this.storage.moveTicket(ticket.id, targetColumnName)
+            this.log(styles.muted(`   Moved to: ${targetColumnName}`))
+          } catch (moveError) {
+            // Non-fatal - work can proceed even if column move fails
+            this.warn(`Could not move ticket to "${targetColumnName}": ${moveError instanceof Error ? moveError.message : moveError}`)
+          }
         }
 
         await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
@@ -1177,6 +1193,7 @@ export default class WorkStart extends PMOCommand {
       'create-pr'?: boolean
       'no-pr'?: boolean
       executor?: string
+      session?: string
     }
   ): Promise<void> {
     const agentName = agent.name
@@ -1328,8 +1345,10 @@ export default class WorkStart extends PMOCommand {
     // Run execution
     this.log(styles.muted(`   Starting ${ticket.id} → ${agentName}...`))
 
+    const batchSessionManager = (flags.session || 'tmux') as SessionManager
     const result = await runExecution(mode, context, executor, executionConfig, {
       displayMode: mode === 'devcontainer' ? displayMode : undefined,
+      sessionManager: mode === 'devcontainer' ? batchSessionManager : undefined,
     })
 
     if (result.success) {

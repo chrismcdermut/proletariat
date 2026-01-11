@@ -11,6 +11,7 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
   RuntimeMode,
   DisplayMode,
+  SessionManager,
   OutputMode,
   ExecutorType,
   ExecutionContext,
@@ -66,6 +67,12 @@ export default class WorkRevise extends PMOCommand {
     'run-on-host': Flags.boolean({
       description: 'Run on host even if devcontainer exists (bypasses sandbox)',
       default: false,
+    }),
+    session: Flags.string({
+      char: 's',
+      description: 'Session manager inside container (tmux runs agent in tmux inside container)',
+      options: ['tmux', 'direct'],
+      default: 'tmux',
     }),
   }
 
@@ -373,8 +380,10 @@ export default class WorkRevise extends PMOCommand {
 
       // Run execution
       this.log(styles.muted('Starting agent to address feedback...'))
+      const sessionManager = (flags.session || 'tmux') as SessionManager
       const result = await runExecution(mode, context, executor, executionConfig, {
         displayMode: mode === 'devcontainer' ? displayMode : undefined,
+        sessionManager: mode === 'devcontainer' ? sessionManager : undefined,
       })
 
       if (result.success) {

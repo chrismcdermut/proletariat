@@ -541,7 +541,21 @@ export class SQLiteStorage implements PMOStorage {
 - Estimate complexity (S/M/L/XL) if not already set
 - Flag any ambiguities or missing information that need clarification
 
-Do NOT implement the ticket - only improve its definition so it's ready to be worked on.`,
+Do NOT implement the ticket - only improve its definition so it's ready to be worked on.
+
+## Ticket Schema Reference
+
+| Field | Type | Valid Values | CLI Flag |
+|-------|------|--------------|----------|
+| title | string | any text | --title |
+| description | markdown | requirements, context, notes | --description |
+| priority | enum | URGENT, HIGH, MEDIUM, LOW | --priority |
+| category | enum | feature, bug, refactor, docs, test, chore, performance, ci, build, security, database, release | --category |
+| subtasks | list | task descriptions | --add-subtask (--clear-subtasks to replace) |
+| acceptanceCriteria | list | testable statements | --add-ac (--clear-ac to replace) |
+| labels | list | complexity:S/M/L/XL, ready, needs-clarification, etc. | --add-label, --remove-label |
+| owner | string | human responsible | --owner |
+| assignee | string | agent/person executing | --assignee |`,
         endPrompt: `When you have finished analyzing and grooming the ticket, update it using prlt ticket edit.
 
 ## Field Mapping (use ONLY these fields)
@@ -1288,29 +1302,21 @@ Why is this refactor needed?
     const title = ticket.title || 'Untitled'
     const projectId = this.currentProjectId
 
-    // Get column (default to first column) - this is for board position
-    let columnId = ticket.statusName
-    if (!columnId) {
-      const firstColumn = this.db.prepare(`
-        SELECT id FROM ${T.columns}
-        WHERE project_id = ?
-        ORDER BY position LIMIT 1
-      `).get(projectId) as { id: string } | undefined
-      if (!firstColumn) {
-        throw new PMOError('NOT_FOUND', 'No columns exist. Initialize board first.')
-      }
-      columnId = firstColumn.id
-    }
+    // Get column for board position
+    // Note: statusName is the STATUS name (e.g., "To Do"), not the column name
+    // We need to find the column by matching the status category to column position
+    let columnId: string
 
-    // Verify column exists in current project
-    const column = this.db.prepare(`
+    // First, get the first column as default fallback
+    const firstColumn = this.db.prepare(`
       SELECT id FROM ${T.columns}
-      WHERE project_id = ? AND (id = ? OR name = ?)
-    `).get(projectId, columnId, columnId) as { id: string } | undefined
-    if (!column) {
-      throw new PMOError('NOT_FOUND', `Column not found: ${columnId}`)
+      WHERE project_id = ?
+      ORDER BY position LIMIT 1
+    `).get(projectId) as { id: string } | undefined
+    if (!firstColumn) {
+      throw new PMOError('NOT_FOUND', 'No columns exist. Initialize board first.')
     }
-    columnId = column.id
+    columnId = firstColumn.id
 
     // Get position for board (always append to end)
     const position = this.getMaxTicketPosition(columnId) + 1

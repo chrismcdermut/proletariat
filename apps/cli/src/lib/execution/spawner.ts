@@ -21,6 +21,7 @@ import { runExecution, isDockerRunning } from './runners.js'
 import {
   RuntimeMode,
   DisplayMode,
+  SessionManager,
   ExecutorType,
   ExecutionContext,
   ExecutionEnvironment,
@@ -41,6 +42,8 @@ export interface SpawnOptions {
   environment?: ExecutionEnvironment
   /** Display mode for output */
   displayMode?: DisplayMode
+  /** Session manager for container environments (tmux runs inside container) */
+  sessionManager?: SessionManager
   /** Executor to use */
   executor?: ExecutorType
   /** Skip permission prompts (danger mode) */
@@ -406,8 +409,10 @@ export async function spawnAgentForTicket(
   executionConfig.outputMode = displayMode === 'background' ? 'print' : 'interactive'
 
   // Run execution
+  const sessionManager = options.sessionManager || 'direct'
   const result = await runExecution(mode, context, executor, executionConfig, {
     displayMode: environment === 'devcontainer' ? displayMode : undefined,
+    sessionManager: environment === 'devcontainer' ? sessionManager : undefined,
   })
 
   if (result.success) {

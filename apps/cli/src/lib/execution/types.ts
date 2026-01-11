@@ -51,6 +51,15 @@ export type OutputMode =
   | 'interactive'   // Streaming UI (no -p flag) - watch Claude work in real-time
   | 'print'         // Print mode (-p flag) - final result only, good for automation
 
+/**
+ * SessionManager - How agent sessions are managed inside the execution environment.
+ * - tmux: Run inside tmux session (can attach/detach, persistent)
+ * - direct: Run process directly (simple, no session management)
+ */
+export type SessionManager =
+  | 'tmux'          // Run inside tmux (attach with `docker exec -it <container> tmux attach`)
+  | 'direct'        // Run process directly (no session management)
+
 // =============================================================================
 // Executor Types
 // =============================================================================
@@ -103,6 +112,7 @@ export interface AgentWork {
   mode: RuntimeMode              // Legacy field (for backwards compat)
   environment: ExecutionEnvironment  // Where: devcontainer, host, docker, vm
   displayMode: DisplayMode       // How shown: terminal, foreground, background, tmux
+  sessionManager?: SessionManager // How session is managed inside environment (tmux/direct)
   sandboxed: boolean             // Whether --dangerously-skip-permissions was NOT used
   status: ExecutionStatus
   branch?: string

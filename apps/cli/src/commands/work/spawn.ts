@@ -95,8 +95,12 @@ export default class WorkSpawn extends PMOCommand {
       default: false,
     }),
     action: Flags.string({
-      description: 'Action to perform (e.g., groom, implement, review). Default: implement',
-      default: 'implement',
+      description: 'Action to perform (e.g., groom, implement, review). Prompts if not provided.',
+    }),
+    session: Flags.string({
+      description: 'Session manager inside container (tmux runs agent in tmux inside container)',
+      options: ['tmux', 'direct'],
+      default: 'tmux',
     }),
   }
 
@@ -452,15 +456,15 @@ export default class WorkSpawn extends PMOCommand {
         return hasDevcontainerConfig(agentDir)
       })
 
-      // Prompt for action first so we can check if it modifies code
-      let selectedActionDetails = await this.storage.getAction(batchAction || 'implement')
+      // Will be populated after action is selected/confirmed
+      let selectedActionDetails: Awaited<ReturnType<typeof this.storage.getAction>> | null = null
 
       if (!flags['per-ticket']) {
         this.log(styles.header('Batch Settings (applies to all tickets)'))
         this.log('')
 
-        // Prompt for action selection first
-        if (batchAction === 'implement') {
+        // Prompt for action selection first (unless explicitly provided via --action flag)
+        if (!flags.action) {
           // Get available actions from database
           const actions = await this.storage.listActions()
           const actionChoices = actions
@@ -480,8 +484,10 @@ export default class WorkSpawn extends PMOCommand {
             },
           ])
           batchAction = selectedAction
-          selectedActionDetails = await this.storage.getAction(selectedAction)
         }
+
+        // Now fetch action details after selection is made
+        selectedActionDetails = await this.storage.getAction(batchAction || 'implement')
 
         // Check if any explicit settings were provided via flags
         const hasExplicitSettings = flags.mode || flags.output || flags['skip-permissions'] ||
@@ -584,6 +590,22 @@ export default class WorkSpawn extends PMOCommand {
                 },
               ])
               batchDisplayMode = selectedDisplay
+
+              // Prompt for session manager inside the container
+              const { selectedSession } = await inquirer.prompt([
+                {
+                  type: 'list',
+                  name: 'selectedSession',
+                  message: 'How should sessions be managed inside the container?',
+                  choices: [
+                    { name: '🔲 tmux   - Run in tmux (attach with: docker exec -it <container> tmux attach)', value: 'tmux' },
+                    { name: '⚡ direct - Run directly (simpler, no session management)', value: 'direct' },
+                  ],
+                  default: 'tmux',
+                },
+              ])
+              // Store session choice for passing to work:start
+              flags.session = selectedSession
             } else {
               batchRunOnHost = true
               environmentSelected = true
@@ -670,6 +692,11 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         this.log('')
+      } else {
+        // Per-ticket mode - still need to get action details if action flag was provided
+        if (batchAction) {
+          selectedActionDetails = await this.storage.getAction(batchAction)
+        }
       }
 
       // Spawn each ticket
@@ -707,6 +734,8 @@ export default class WorkSpawn extends PMOCommand {
             if (batchNoPr) startArgs.push('--no-pr')
             // Pass action flag (from prompt or flag)
             startArgs.push('--action', batchAction || 'implement')
+            // Pass session manager (tmux inside container by default)
+            if (flags.session) startArgs.push('--session', flags.session)
           }
 
           await this.config.runCommand('work:start', startArgs)

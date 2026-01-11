@@ -12,6 +12,7 @@ import {
   RuntimeMode,
   DisplayMode,
   OutputMode,
+  SessionManager,
   ExecutorType,
   ExecutionContext,
   ExecutionConfig,
@@ -657,7 +658,8 @@ function buildDevcontainerCommand(
   containerId?: string,
   outputMode: OutputMode = 'interactive',
   sandboxed: boolean = true,
-  displayMode: DisplayMode = 'foreground'
+  displayMode: DisplayMode = 'foreground',
+  sessionManager: SessionManager = 'direct'
 ): string {
   // Get base command (just 'claude' for claude-code)
   let baseCmd: string
@@ -687,16 +689,43 @@ function buildDevcontainerCommand(
   // sandboxed=false means danger mode (use --dangerously-skip-permissions)
   const permissionsFlag = !sandboxed ? '--dangerously-skip-permissions ' : ''
 
+  // Build the claude command
+  const claudeCmd = `${cdCmd}${baseCmd} ${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}`
+
+  // Session name for tmux (based on ticket ID)
+  const sessionName = context.ticketId.replace(/[^a-zA-Z0-9-]/g, '-')
+
   // If we have a container ID, use docker exec for streaming
   if (containerId) {
     // Use -it flags only for terminal/foreground modes where a TTY is available
     // Background mode runs without a TTY, so -it flags would cause "not a TTY" error
     const ttyFlags = displayMode === 'background' ? '' : '-it '
-    return `docker exec ${ttyFlags}${containerId} bash -c '${cdCmd}${baseCmd} ${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}'`
+
+    if (sessionManager === 'tmux') {
+      // Run inside tmux session within the container
+      // User can attach with: docker exec -it <container> tmux attach -t <session>
+      // Use base64 encoding to avoid all shell escaping issues
+      const tmuxScript = `#!/bin/bash\n${claudeCmd}\nexec bash`
+      const base64Script = Buffer.from(tmuxScript).toString('base64')
+      const scriptPath = `/tmp/tmux-${sessionName}.sh`
+      // Decode base64, write to script, make executable, run in tmux
+      const setupCmd = `echo ${base64Script} | base64 -d > ${scriptPath} && chmod +x ${scriptPath} && tmux new-session -d -s ${sessionName} ${scriptPath} && echo "Started tmux session: ${sessionName}" && echo "Attach with: docker exec -it ${containerId} tmux attach -t ${sessionName}"`
+      return `docker exec ${ttyFlags}${containerId} bash -c '${setupCmd}'`
+    }
+
+    // Direct mode - run claude directly
+    return `docker exec ${ttyFlags}${containerId} bash -c '${claudeCmd}'`
   }
 
   // Fallback to devcontainer exec (no streaming, but works)
-  return `devcontainer exec --workspace-folder "${context.agentDir}" bash -c '${cdCmd}${baseCmd} ${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}'`
+  if (sessionManager === 'tmux') {
+    const tmuxScript = `#!/bin/bash\n${claudeCmd}\nexec bash`
+    const base64Script = Buffer.from(tmuxScript).toString('base64')
+    const scriptPath = `/tmp/tmux-${sessionName}.sh`
+    const setupCmd = `echo ${base64Script} | base64 -d > ${scriptPath} && chmod +x ${scriptPath} && tmux new-session -d -s ${sessionName} ${scriptPath}`
+    return `devcontainer exec --workspace-folder "${context.agentDir}" bash -c '${setupCmd}'`
+  }
+  return `devcontainer exec --workspace-folder "${context.agentDir}" bash -c '${claudeCmd}'`
 }
 
 /**
@@ -724,12 +753,14 @@ function copyClaudeCredentials(agentDir: string): void {
  * Provides filesystem isolation - agent can only access mounted worktrees.
  *
  * @param displayMode - How to display output (terminal, foreground, background, tmux)
+ * @param sessionManager - How to manage the session inside the container (tmux, direct)
  */
 export async function runDevcontainer(
   context: ExecutionContext,
   executor: ExecutorType,
   config: ExecutionConfig,
-  displayMode: DisplayMode = 'foreground'
+  displayMode: DisplayMode = 'foreground',
+  sessionManager: SessionManager = 'direct'
 ): Promise<RunnerResult> {
   // Devcontainer config is in the agent directory, not the worktree
   // (worktree may be a subdirectory like agents/altman/textdeck)
@@ -824,7 +855,7 @@ export async function runDevcontainer(
     const containerId = getDevcontainerContainerId(context.agentDir)
 
     // Build the devcontainer exec command
-    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId || undefined, config.outputMode, config.sandboxed, displayMode)
+    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId || undefined, config.outputMode, config.sandboxed, displayMode, sessionManager)
 
     // Execute based on display mode
     let result: RunnerResult
@@ -857,6 +888,32 @@ export async function runDevcontainer(
     // Override containerId with the real Docker container ID (not the placeholder)
     if (result.success && containerId) {
       result.containerId = containerId
+    }
+
+    // Set sessionId when using tmux inside the container
+    if (result.success && sessionManager === 'tmux') {
+      const sessionId = context.ticketId.replace(/[^a-zA-Z0-9-]/g, '-')
+      result.sessionId = sessionId
+
+      // For terminal display mode, verify the tmux session was actually created
+      // (terminal spawns asynchronously, so we need to wait and check)
+      if (displayMode === 'terminal' && containerId) {
+        // Wait for the terminal to execute the script
+        await new Promise(resolve => setTimeout(resolve, 3000))
+
+        // Check if tmux session exists inside the container
+        try {
+          const checkResult = execSync(
+            `docker exec ${containerId} tmux has-session -t ${sessionId} 2>&1`,
+            { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+          )
+          // Session exists - success
+        } catch {
+          // Session doesn't exist - the tmux command failed
+          result.success = false
+          result.error = `Failed to create tmux session "${sessionId}" inside container. Check terminal for errors.`
+        }
+      }
     }
 
     return result
@@ -1290,11 +1347,11 @@ export async function runExecution(
   context: ExecutionContext,
   executor: ExecutorType,
   config: ExecutionConfig = DEFAULT_EXECUTION_CONFIG,
-  options?: { host?: string; displayMode?: DisplayMode }
+  options?: { host?: string; displayMode?: DisplayMode; sessionManager?: SessionManager }
 ): Promise<RunnerResult> {
   switch (mode) {
     case 'devcontainer':
-      return runDevcontainer(context, executor, config, options?.displayMode)
+      return runDevcontainer(context, executor, config, options?.displayMode, options?.sessionManager)
     case 'foreground':
       return runForeground(context, executor, config)
     case 'background':
