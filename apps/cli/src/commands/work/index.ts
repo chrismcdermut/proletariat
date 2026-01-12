@@ -25,9 +25,9 @@ export default class Work extends PMOCommand {
       message: '🔨 Work Operations - What would you like to do?',
       choices: [
         new inquirer.Separator('── Execution ──'),
-        { name: 'Start work (launch single agent)', value: 'start' },
         { name: 'Spawn work (batch by column)', value: 'spawn' },
         { name: 'Watch column (auto-spawn)', value: 'watch' },
+        { name: 'Start work (launch single agent)', value: 'start' },
         new inquirer.Separator('── Ownership ──'),
         { name: 'Claim work (own + assign)', value: 'claim' },
         { name: 'Assign work to agent/person', value: 'assign' },

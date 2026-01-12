@@ -9,7 +9,7 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { hasDevcontainerConfig, createDevcontainerConfig } from '../../lib/execution/devcontainer.js'
-import { getPrltChannel } from '../../lib/workspace-config.js'
+import { getPrltChannel, parseChannel } from '../../lib/workspace-config.js'
 
 export default class DockerRebuild extends Command {
   static description = 'Rebuild devcontainer image(s) for agent(s)'
@@ -150,6 +150,27 @@ export default class DockerRebuild extends Command {
 
     // Get prlt channel from flag or workspace config
     const prltChannel = getPrltChannel(workspaceInfo.path, flags['prlt-channel'])
+    const channel = parseChannel(prltChannel)
+
+    // Check for GITHUB_TOKEN when using GitHub Packages
+    if (channel.registry === 'gh') {
+      const githubToken = process.env.GITHUB_TOKEN
+      if (!githubToken) {
+        this.log('')
+        this.log(styles.error('GITHUB_TOKEN is required for GitHub Packages'))
+        this.log('')
+        this.log('To set it, run:')
+        this.log(styles.muted('  export GITHUB_TOKEN=$(gh auth token)'))
+        this.log('')
+        this.log('Then re-run the rebuild command.')
+        this.log('')
+        this.log('Alternatively, use a different channel:')
+        this.log(styles.muted('  prlt docker rebuild --prlt-channel npm       # Public npm'))
+        this.log(styles.muted('  prlt docker rebuild --prlt-channel mount     # Local mount'))
+        this.log('')
+        this.error('Missing GITHUB_TOKEN environment variable')
+      }
+    }
 
     this.log('')
     this.log(styles.header('Rebuild Devcontainers'))
@@ -166,10 +187,13 @@ export default class DockerRebuild extends Command {
     if (!flags.regenerate && !flags.force) {
       const { regenerate } = await inquirer.prompt([
         {
-          type: 'confirm',
+          type: 'list',
           name: 'regenerate',
           message: 'Regenerate devcontainer configs before rebuilding? (applies config changes)',
-          default: true,
+          choices: [
+            { name: 'Yes', value: true },
+            { name: 'No', value: false },
+          ],
         },
       ])
       shouldRegenerate = regenerate
@@ -193,10 +217,13 @@ export default class DockerRebuild extends Command {
     if (!flags.force) {
       const { confirm } = await inquirer.prompt([
         {
-          type: 'confirm',
+          type: 'list',
           name: 'confirm',
           message: `This will stop running containers and rebuild ${agentsToRebuild.length} agent(s). Continue?`,
-          default: true,
+          choices: [
+            { name: 'Yes', value: true },
+            { name: 'No', value: false },
+          ],
         },
       ])
 
@@ -339,7 +366,7 @@ export default class DockerRebuild extends Command {
 
     const buildArgs = ['up', '--workspace-folder', agent.path]
     if (noCache) {
-      buildArgs.push('--no-cache')
+      buildArgs.push('--build-no-cache')
     }
     buildArgs.push('--remove-existing-container')
 

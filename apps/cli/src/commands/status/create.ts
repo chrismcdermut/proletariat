@@ -148,10 +148,14 @@ export default class StatusCreate extends PMOCommand {
         default: flags.description,
       },
       {
-        type: 'confirm',
+        type: 'list',
         name: 'isDefault',
         message: 'Set as default status for new tickets?',
-        default: flags.default || false,
+        choices: [
+          { name: 'Yes', value: true },
+          { name: 'No', value: false },
+        ],
+        default: flags.default ? 0 : 1,
       },
     ]);
 

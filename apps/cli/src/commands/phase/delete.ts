@@ -41,10 +41,13 @@ export default class PhaseDelete extends PMOCommand {
 
     if (!flags.force) {
       const { confirm } = await inquirer.prompt<{ confirm: boolean }>([{
-        type: 'confirm',
+        type: 'list',
         name: 'confirm',
         message: `Delete phase "${phase.name}"?`,
-        default: false,
+        choices: [
+          { name: 'Yes', value: true },
+          { name: 'No', value: false },
+        ],
       }]);
 
       if (!confirm) {

@@ -60,14 +60,33 @@ function buildPrompt(context: ExecutionContext): string {
     prompt += `## Original Ticket Context\n\n`
   }
 
-  // Action instruction (what the agent should do) - START HOOK
+  // Action instruction (what the agent should do)
+  // Include both action prompt AND end prompt (rules/instructions) BEFORE the ticket
   if (context.actionPrompt) {
     prompt += `# Action: ${context.actionName || 'Work'}\n\n`
     prompt += context.actionPrompt
-    prompt += `\n\n---\n\n`
+    prompt += `\n\n`
   }
 
-  // TICKET CONTENT
+  // Add action-specific instructions/rules before the ticket (from end_prompt)
+  // This ensures the agent sees the rules BEFORE seeing the ticket content
+  if (context.actionEndPrompt && !context.isRevision) {
+    let actionInstructions = context.actionEndPrompt.replace(/\{\{TICKET_ID\}\}/g, context.ticketId)
+    // Handle PR flag placeholder if present
+    // Use word boundary to avoid matching --priority, --prefix, etc.
+    if (/--pr\b/.test(actionInstructions)) {
+      if (!context.createPR) {
+        actionInstructions = actionInstructions.replace(/--pr\b/g, '--no-pr')
+      }
+    }
+    prompt += actionInstructions
+    prompt += `\n\n`
+  }
+
+  prompt += `---\n\n`
+
+  // TICKET CONTENT - wrapped with markers for clarity
+  prompt += `<!-- TICKET-START -->\n`
   prompt += `# Ticket: ${context.ticketId}\n\n`
   prompt += `**Title:** ${context.ticketTitle}\n\n`
 
@@ -96,6 +115,20 @@ function buildPrompt(context: ExecutionContext): string {
     }
   }
 
+  if (context.ticketAcceptanceCriteria && context.ticketAcceptanceCriteria.length > 0) {
+    prompt += `\n## Acceptance Criteria\n\n`
+    for (const ac of context.ticketAcceptanceCriteria) {
+      const checkbox = ac.met ? '[x]' : '[ ]'
+      prompt += `- ${checkbox} ${ac.criterion}\n`
+    }
+  }
+
+  if (context.ticketLabels && context.ticketLabels.length > 0) {
+    prompt += `\n**Labels:** ${context.ticketLabels.join(', ')}\n`
+  }
+
+  prompt += `<!-- TICKET-END -->\n`
+
   // Add branch instructions (only for code-modifying actions)
   if (context.branch && !context.isRevision && context.modifiesCode) {
     prompt += `\n---\n\n## Before You Start\n\n`
@@ -107,51 +140,38 @@ function buildPrompt(context: ExecutionContext): string {
     prompt += `**Target branch:** \`${context.branch}\`\n`
   }
 
-  // END HOOK - Action-specific completion instructions
+  // Completion instructions
   prompt += `\n---\n\n## When Complete\n\n`
 
-  // For revisions, use the revision-specific end prompt
+  // For revisions, use the revision-specific completion prompt
   if (context.isRevision) {
     prompt += `After addressing the feedback:\n`
     prompt += `1. Commit your changes using \`prlt commit "your message"\`\n`
     prompt += `2. Push your changes: \`git push\`\n`
     prompt += `\nThe PR will be updated automatically.`
-  } else if (context.actionEndPrompt) {
-    // Use action-specific end prompt, replacing {{TICKET_ID}} placeholder
-    let endPrompt = context.actionEndPrompt.replace(/\{\{TICKET_ID\}\}/g, context.ticketId)
-    // Also handle the PR flag placeholder if present
-    if (endPrompt.includes('--pr')) {
-      // Replace --pr with appropriate flag based on createPR setting
-      if (!context.createPR) {
-        endPrompt = endPrompt.replace(/--pr/g, '--no-pr')
-      }
-    }
-    prompt += endPrompt
-  } else {
-    // Fallback to default completion instructions (for custom actions without end_prompt)
-    if (context.modifiesCode) {
-      prompt += `1. **Commit your work** in each repository directory you modified:\n`
-      prompt += `   \`\`\`bash\n`
-      prompt += `   cd /workspace/<repo-name>\n`
-      prompt += `   git add -A\n`
-      prompt += `   prlt commit "describe your change"\n`
-      prompt += `   git push\n`
-      prompt += `   \`\`\`\n`
-      prompt += `   This formats your commit as a conventional commit with the ticket ID.\n`
+  } else if (context.modifiesCode) {
+    // Code-modifying actions get commit/PR instructions
+    prompt += `1. **Commit your work** in each repository directory you modified:\n`
+    prompt += `   \`\`\`bash\n`
+    prompt += `   cd /workspace/<repo-name>\n`
+    prompt += `   git add -A\n`
+    prompt += `   prlt commit "describe your change"\n`
+    prompt += `   git push\n`
+    prompt += `   \`\`\`\n`
+    prompt += `   This formats your commit as a conventional commit with the ticket ID.\n`
 
-      prompt += `\n2. **Mark work as ready** by running:\n`
-      const prFlag = context.createPR ? ' --pr' : ' --no-pr'
-      prompt += `   \`\`\`bash\n   prlt work ready ${context.ticketId}${prFlag}\n   \`\`\`\n`
-      if (context.createPR) {
-        prompt += `   This moves the ticket to review and creates a pull request.\n`
-      } else {
-        prompt += `   This moves the ticket to review.\n`
-      }
-      prompt += `\n**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`
+    prompt += `\n2. **Mark work as ready** by running:\n`
+    const prFlag = context.createPR ? ' --pr' : ' --no-pr'
+    prompt += `   \`\`\`bash\n   prlt work ready ${context.ticketId}${prFlag}\n   \`\`\`\n`
+    if (context.createPR) {
+      prompt += `   This moves the ticket to review and creates a pull request.\n`
     } else {
-      // Non-code-modifying action without custom end_prompt
-      prompt += `When you have completed the task, provide a summary of what you did.`
+      prompt += `   This moves the ticket to review.\n`
     }
+    prompt += `\n**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`
+  } else {
+    // Non-code-modifying action - just ask for summary
+    prompt += `When you have completed the task, provide a summary of what you did.`
   }
 
   return prompt

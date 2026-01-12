@@ -87,10 +87,13 @@ export default class DockerRestart extends Command {
       if (!flags.force) {
         const { confirm } = await inquirer.prompt([
           {
-            type: 'confirm',
+            type: 'list',
             name: 'confirm',
             message: `Restart container ${result.displayName}?`,
-            default: true,
+            choices: [
+              { name: 'Yes', value: true },
+              { name: 'No', value: false },
+            ],
           },
         ])
 

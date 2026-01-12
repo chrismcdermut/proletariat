@@ -260,18 +260,16 @@ export default class WorkSpawn extends PMOCommand {
       } else {
         // MANY MODE: First pick column (or all), then multi-select tickets
 
-        // Build column choices with counts
+        // Build column choices with counts (show all columns, even with 0 unassigned)
         const columnChoices: Array<{ name: string; value: string }> = [
           { name: '🌐 All columns (select from anywhere)', value: '__ALL__' },
         ]
         for (const name of columnNames) {
           const count = unassignedTickets.filter(t => t.statusName === name).length
-          if (count > 0) {
-            columnChoices.push({
-              name: `${name} (${count} unassigned)`,
-              value: name,
-            })
-          }
+          columnChoices.push({
+            name: `${name} (${count} unassigned)`,
+            value: name,
+          })
         }
 
         const { manyColumn } = await inquirer.prompt([

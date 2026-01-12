@@ -63,9 +63,15 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
   }
 
   // Pass registry and version to Dockerfile
+  // For mount mode, we pass PRLT_REGISTRY=mount so Dockerfile skips npm install
+  buildArgs.PRLT_REGISTRY = channel.registry
   if (!useMount) {
-    buildArgs.PRLT_REGISTRY = channel.registry
     buildArgs.PRLT_VERSION = channel.version || 'latest'
+  }
+
+  // For GitHub Packages, pass GITHUB_TOKEN as build arg
+  if (channel.registry === 'gh') {
+    buildArgs.GITHUB_TOKEN = '${localEnv:GITHUB_TOKEN}'
   }
 
   const devcontainerJson: DevcontainerJson = {
@@ -192,11 +198,11 @@ RUN if [ "\${PRLT_REGISTRY}" = "gh" ]; then \\
         echo "Either set GITHUB_TOKEN or use PRLT_REGISTRY=npm (public npm) or mount mode"; \\
         exit 1; \\
       fi; \\
-      echo "//npm.pkg.github.com/:_authToken=\${GITHUB_TOKEN}" >> /home/node/.npmrc && \\
-      echo "@chrismcdermut:registry=https://npm.pkg.github.com" >> /home/node/.npmrc && \\
+      echo "//npm.pkg.github.com/:_authToken=\${GITHUB_TOKEN}" >> ~/.npmrc && \\
+      echo "@chrismcdermut:registry=https://npm.pkg.github.com" >> ~/.npmrc && \\
       echo "Installing @chrismcdermut/prlt@\${PRLT_VERSION} from GitHub Packages..." && \\
       npm install -g @chrismcdermut/prlt@\${PRLT_VERSION} && \\
-      rm /home/node/.npmrc; \\
+      rm ~/.npmrc; \\
     elif [ "\${PRLT_REGISTRY}" = "npm" ]; then \\
       echo "Installing prlt@\${PRLT_VERSION} from public npm..." && \\
       npm install -g prlt@\${PRLT_VERSION}; \\

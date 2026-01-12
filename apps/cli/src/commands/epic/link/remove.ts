@@ -32,7 +32,7 @@ export default class EpicLinkRemove extends PMOCommand {
     if (dependencies.length === 0) { this.log(styles.muted(`\nEpic ${args.id} has no dependencies.`)); return }
 
     if (flags.all) {
-      const { confirmed } = await inquirer.prompt([{ type: 'confirm', name: 'confirmed', message: `Remove all ${dependencies.length} dependencies?`, default: false }])
+      const { confirmed } = await inquirer.prompt([{ type: 'list', name: 'confirmed', message: `Remove all ${dependencies.length} dependencies?`, choices: [{ name: 'Yes', value: true }, { name: 'No', value: false }] }])
       if (!confirmed) { this.log(styles.muted('\nCancelled.')); return }
       for (const dep of dependencies) await this.storage.deleteEpicDependency(args.id, dep.dependsOnEpicId, dep.dependencyType)
       await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))

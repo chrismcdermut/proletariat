@@ -46,10 +46,13 @@ export default class ProjectArchive extends PMOCommand {
 
     if (!flags.force) {
       const { confirm } = await inquirer.prompt<{ confirm: boolean }>([{
-        type: 'confirm',
+        type: 'list',
         name: 'confirm',
         message: `Archive project "${project.name}"? It will be hidden from default views.`,
-        default: false,
+        choices: [
+          { name: 'Yes', value: true },
+          { name: 'No', value: false },
+        ],
       }]);
 
       if (!confirm) {

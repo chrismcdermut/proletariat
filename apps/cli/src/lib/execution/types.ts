@@ -135,6 +135,8 @@ export interface ExecutionContext {
   ticketTitle: string
   ticketDescription?: string
   ticketSubtasks?: Array<{ title: string; done: boolean }>
+  ticketAcceptanceCriteria?: Array<{ criterion: string; met: boolean }>
+  ticketLabels?: string[]
   ticketPriority?: string
   ticketCategory?: string
   epicTitle?: string

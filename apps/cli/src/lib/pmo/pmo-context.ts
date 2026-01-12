@@ -105,23 +105,34 @@ export async function getPMOContext(
       }
     }
 
-    if (filteredProjects.length === 1) {
-      // Only one project (or one with tickets), use it - no prompt needed
-      resolvedProjectId = filteredProjects[0].id;
-    } else if (filteredProjects.length > 1) {
-      // Multiple projects - always prompt for selection
-      // (promptIfMultiple is only false when --project flag is already provided,
-      // but if we're here, no project was provided so we must ask)
+    // If promptIfMultiple is true and there are multiple projects, prompt user
+    if (promptIfMultipleOpt && filteredProjects.length > 1) {
+      // Calculate total ticket count across all projects
+      const totalTickets = filteredProjects.reduce((sum, p) => sum + p.ticket_count, 0);
+
       const { selectedProjectId } = await inquirer.prompt([{
         type: 'list',
         name: 'selectedProjectId',
         message: 'Select project:',
-        choices: filteredProjects.map(p => ({
-          name: filterEmptyProjects ? `${p.name} (${p.ticket_count} tickets)` : p.name,
-          value: p.id,
-        })),
+        choices: [
+          // "All Projects" option at the top
+          {
+            name: `🌐 All Projects (${totalTickets} tickets)`,
+            value: '__ALL__',
+          },
+          new inquirer.Separator('───────────────────'),
+          // Individual projects
+          ...filteredProjects.map(p => ({
+            name: `${p.name} (${p.ticket_count} tickets)`,
+            value: p.id,
+          })),
+        ],
       }]);
       resolvedProjectId = selectedProjectId;
+    } else {
+      // Use first project - ticket IDs are globally unique so project context
+      // is only needed for project-specific operations like listing tickets
+      resolvedProjectId = filteredProjects[0].id;
     }
   } else if (skipProjectSelection && !resolvedProjectId) {
     // For cross-project operations, use 'default' as a placeholder project ID
@@ -146,13 +157,18 @@ export async function getPMOContext(
   // Get columns from database
   const columns = storage.getColumnNames();
 
-  // Get project name
-  const db = new Database(dbPath);
-  const project = db.prepare('SELECT name FROM pmo_projects WHERE id = ?').get(resolvedProjectId) as { name: string } | undefined;
-  db.close();
+  // Get project name (handle __ALL__ special case)
+  let finalProjectId = resolvedProjectId || 'default';
+  let finalProjectName: string;
 
-  const finalProjectId = resolvedProjectId || 'default';
-  const finalProjectName = project?.name || finalProjectId;
+  if (finalProjectId === '__ALL__') {
+    finalProjectName = 'All Projects';
+  } else {
+    const db = new Database(dbPath);
+    const project = db.prepare('SELECT name FROM pmo_projects WHERE id = ?').get(resolvedProjectId) as { name: string } | undefined;
+    db.close();
+    finalProjectName = project?.name || finalProjectId;
+  }
 
   return {
     pmoPath,
