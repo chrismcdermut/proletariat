@@ -89,10 +89,13 @@ export default class DockerPrune extends Command {
 
       const { confirm } = await inquirer.prompt([
         {
-          type: 'confirm',
+          type: 'list',
           name: 'confirm',
           message,
-          default: false,
+          choices: [
+            { name: 'Yes', value: true },
+            { name: 'No', value: false },
+          ],
         },
       ])
 

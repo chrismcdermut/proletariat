@@ -39,10 +39,13 @@ export default class StatusDelete extends PMOCommand {
     if (!flags.force) {
       const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
         {
-          type: 'confirm',
+          type: 'list',
           name: 'confirm',
           message: `Delete status "${existing.name}" (${existing.category})?`,
-          default: false,
+          choices: [
+            { name: 'Yes', value: true },
+            { name: 'No', value: false },
+          ],
         },
       ]);
 

@@ -244,10 +244,13 @@ export default class EpicTicket extends PMOCommand {
         } else if (!ticketSpecId && epicSpecId) {
           // Ticket has no spec but epic does - offer to inherit
           const { inherit } = await inquirer.prompt([{
-            type: 'confirm',
+            type: 'list',
             name: 'inherit',
             message: `${ticketId} has no spec. Inherit epic's spec "${epicSpecId}"?`,
-            default: true,
+            choices: [
+              { name: 'Yes', value: true },
+              { name: 'No', value: false },
+            ],
           }]);
 
           if (inherit) {

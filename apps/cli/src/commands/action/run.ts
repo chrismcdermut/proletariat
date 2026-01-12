@@ -141,10 +141,13 @@ export default class ActionRun extends PMOCommand {
     // Confirm unless --force
     if (!flags.force && tickets.length > 1) {
       const { confirm } = await inquirer.prompt([{
-        type: 'confirm',
+        type: 'list',
         name: 'confirm',
         message: `Run "${action.name}" on ${tickets.length} tickets?`,
-        default: true,
+        choices: [
+          { name: 'Yes', value: true },
+          { name: 'No', value: false },
+        ],
       }]);
 
       if (!confirm) {

@@ -57,10 +57,13 @@ export default class TicketLinkRemove extends PMOCommand {
     // If --all flag, remove all dependencies
     if (flags.all) {
       const { confirmed } = await inquirer.prompt([{
-        type: 'confirm',
+        type: 'list',
         name: 'confirmed',
         message: `Remove all ${dependencies.length} dependencies from ${args.id}?`,
-        default: false,
+        choices: [
+          { name: 'Yes', value: true },
+          { name: 'No', value: false },
+        ],
       }])
 
       if (!confirmed) {

@@ -237,6 +237,8 @@ export default class WorkRevise extends PMOCommand {
         ticketTitle: ticket.title,
         ticketDescription: ticket.description,
         ticketSubtasks: ticket.subtasks?.map(s => ({ title: s.title, done: s.done })),
+        ticketAcceptanceCriteria: ticket.acceptanceCriteria?.map(ac => ({ criterion: ac.criterion, met: ac.verified })),
+        ticketLabels: ticket.labels,
         ticketPriority: ticket.priority,
         ticketCategory: ticket.category,
         agentName,

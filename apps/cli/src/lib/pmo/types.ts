@@ -555,6 +555,7 @@ export interface PMOConfig {
 // =============================================================================
 
 export interface TicketFilter {
+  projectId?: string          // Filter by project (optional - defaults to all projects)
   statusId?: string           // Filter by status ID
   statusCategory?: StateCategory  // Filter by status category
   priority?: string

@@ -50,10 +50,13 @@ export default class PhaseTemplateApply extends PMOCommand {
 
       const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
         {
-          type: 'confirm',
+          type: 'list',
           name: 'confirm',
           message: `Apply template "${template.name}" and replace existing phases?`,
-          default: false,
+          choices: [
+            { name: 'Yes', value: true },
+            { name: 'No', value: false },
+          ],
         },
       ]);
 

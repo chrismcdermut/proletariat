@@ -174,10 +174,14 @@ export default class StatusUpdate extends PMOCommand {
         default: existing.description || '',
       },
       {
-        type: 'confirm',
+        type: 'list',
         name: 'isDefault',
         message: 'Set as default status for new tickets?',
-        default: existing.isDefault || false,
+        choices: [
+          { name: 'Yes', value: true },
+          { name: 'No', value: false },
+        ],
+        default: existing.isDefault ? 0 : 1,
       },
     ]);
 

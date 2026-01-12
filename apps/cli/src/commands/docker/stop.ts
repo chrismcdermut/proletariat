@@ -88,10 +88,13 @@ export default class DockerStop extends Command {
       if (!flags.force) {
         const { confirm } = await inquirer.prompt([
           {
-            type: 'confirm',
+            type: 'list',
             name: 'confirm',
             message: `Stop container ${result.displayName}?`,
-            default: false,
+            choices: [
+              { name: 'Yes', value: true },
+              { name: 'No', value: false },
+            ],
           },
         ])
 

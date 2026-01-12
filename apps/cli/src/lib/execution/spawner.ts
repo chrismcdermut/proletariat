@@ -253,6 +253,8 @@ export async function spawnAgentForTicket(
     ticketTitle: ticket.title,
     ticketDescription: ticket.description,
     ticketSubtasks: ticket.subtasks?.map(s => ({ title: s.title, done: s.done })),
+    ticketAcceptanceCriteria: ticket.acceptanceCriteria?.map(ac => ({ criterion: ac.criterion, met: ac.verified })),
+    ticketLabels: ticket.labels,
     ticketPriority: ticket.priority,
     ticketCategory: ticket.category,
     epicTitle,
@@ -409,7 +411,8 @@ export async function spawnAgentForTicket(
   executionConfig.outputMode = displayMode === 'background' ? 'print' : 'interactive'
 
   // Run execution
-  const sessionManager = options.sessionManager || 'direct'
+  // Default to tmux for devcontainer execution - allows detach/reattach
+  const sessionManager = options.sessionManager || 'tmux'
   const result = await runExecution(mode, context, executor, executionConfig, {
     displayMode: environment === 'devcontainer' ? displayMode : undefined,
     sessionManager: environment === 'devcontainer' ? sessionManager : undefined,

@@ -503,6 +503,8 @@ export default class WorkStart extends PMOCommand {
         ticketTitle: ticket.title,
         ticketDescription: ticket.description,
         ticketSubtasks: ticket.subtasks?.map(s => ({ title: s.title, done: s.done })),
+        ticketAcceptanceCriteria: ticket.acceptanceCriteria?.map(ac => ({ criterion: ac.criterion, met: ac.verified })),
+        ticketLabels: ticket.labels,
         ticketPriority: ticket.priority,
         ticketCategory: ticket.category,
         epicTitle,
@@ -1181,7 +1183,7 @@ export default class WorkStart extends PMOCommand {
    * Spawn work on a single ticket with non-interactive defaults.
    */
   private async spawnSingleTicket(
-    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; statusCategory?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; subtasks?: Array<{ title: string; done: boolean }> },
+    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; statusCategory?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; subtasks?: Array<{ title: string; done: boolean }>; acceptanceCriteria?: Array<{ criterion: string; verified: boolean }>; labels?: string[] },
     agent: { name: string },
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
     executionStorage: ExecutionStorage,
@@ -1257,6 +1259,8 @@ export default class WorkStart extends PMOCommand {
       ticketTitle: ticket.title,
       ticketDescription: ticket.description,
       ticketSubtasks: ticket.subtasks?.map(s => ({ title: s.title, done: s.done })),
+      ticketAcceptanceCriteria: ticket.acceptanceCriteria?.map(ac => ({ criterion: ac.criterion, met: ac.verified })),
+      ticketLabels: ticket.labels,
       ticketPriority: ticket.priority,
       ticketCategory: ticket.category,
       epicTitle,

@@ -46,10 +46,13 @@ export default class StatusTemplateApply extends PMOCommand {
 
       const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
         {
-          type: 'confirm',
+          type: 'list',
           name: 'confirm',
           message: `Apply template "${template.name}" and replace existing statuses?`,
-          default: false,
+          choices: [
+            { name: 'Yes', value: true },
+            { name: 'No', value: false },
+          ],
         },
       ]);
 

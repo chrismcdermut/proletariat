@@ -91,13 +91,18 @@ export async function getPMOContext(
   // Get columns from database
   const columns = storage.getColumnNames();
 
-  // Get project name
-  const db = new Database(dbPath);
-  const project = db.prepare('SELECT name FROM pmo_projects WHERE id = ?').get(resolvedProjectId) as { name: string } | undefined;
-  db.close();
+  // Get project name (handle __ALL__ special case)
+  let finalProjectId = resolvedProjectId || 'default';
+  let finalProjectName: string;
 
-  const finalProjectId = resolvedProjectId || 'default';
-  const finalProjectName = project?.name || finalProjectId;
+  if (finalProjectId === '__ALL__') {
+    finalProjectName = 'All Projects';
+  } else {
+    const db = new Database(dbPath);
+    const project = db.prepare('SELECT name FROM pmo_projects WHERE id = ?').get(resolvedProjectId) as { name: string } | undefined;
+    db.close();
+    finalProjectName = project?.name || finalProjectId;
+  }
 
   return {
     pmoPath,

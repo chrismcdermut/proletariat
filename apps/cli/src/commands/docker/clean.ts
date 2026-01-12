@@ -118,10 +118,13 @@ export default class DockerClean extends Command {
       if (!flags.force) {
         const { confirm } = await inquirer.prompt([
           {
-            type: 'confirm',
+            type: 'list',
             name: 'confirm',
             message: `Remove ${orphanedContainers.length} orphaned container(s)?`,
-            default: false,
+            choices: [
+              { name: 'Yes', value: true },
+              { name: 'No', value: false },
+            ],
           },
         ])
 
