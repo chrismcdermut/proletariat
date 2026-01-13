@@ -535,6 +535,8 @@ ${columns.join(', ')}
       agentName: 'pmo',
       agentDir: pmoPath,
       repoWorktrees: [],  // PMO is the repo itself, no nested worktrees
+      hqPath,
+      pmoPath,
     });
     console.log(chalk.green('  ✓ Devcontainer config created'));
   }

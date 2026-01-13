@@ -7,6 +7,7 @@ import { DEFAULT_AGENTS_DIR, isValidAgentName, getSuggestedAgentNames, normalize
 import { getWorkspaceRepositories } from '../database/index.js';
 import { styles } from '../styles.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
+import { findPMO } from '../pmo/find-pmo.js';
 
 export interface HQConfig {
   type: 'hq';
@@ -182,6 +183,8 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
               agentName: agent,
               agentDir,
               repoWorktrees: repos.map(r => r.name),
+              hqPath,
+              pmoPath: findPMO() || undefined,
             });
           }
 
@@ -264,10 +267,13 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
         // Note: Agent metadata is stored in SQLite (agents table), not in config files
         if (!options?.skipDevcontainer) {
           console.log(styles.muted(`  Creating devcontainer config...`));
+          // In workspace-only mode, hqPath may be undefined but findPMO may still work
           createDevcontainerConfig({
             agentName: agent,
             agentDir,
             repoWorktrees: [repoName],
+            hqPath: hqPath,
+            pmoPath: findPMO() || undefined,
           });
         }
 

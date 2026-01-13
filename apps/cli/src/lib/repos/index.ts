@@ -13,6 +13,7 @@ import {
 } from '../database/index.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
 import { findHQRoot } from '../workspace.js';
+import { findPMO } from '../pmo/find-pmo.js';
 
 export interface RepoToAdd {
   path: string;
@@ -550,6 +551,8 @@ export async function addRepository(
       agentName: repoName,  // Use repo name as identifier
       agentDir: targetPath,
       repoWorktrees: [],    // No nested worktrees - this is the repo itself
+      hqPath,
+      pmoPath: findPMO() || undefined,
     });
 
     return { success: true, name: repoName };

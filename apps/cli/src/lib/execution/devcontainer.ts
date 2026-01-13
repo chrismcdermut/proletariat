@@ -16,6 +16,8 @@ export interface DevcontainerOptions {
   memory?: string
   cpus?: number
   timezone?: string
+  hqPath?: string  // HQ root path (e.g., /hq) - required for .proletariat mount
+  pmoPath?: string  // PMO path - required for /hq/pmo mount
 }
 
 export interface DevcontainerJson {
@@ -50,6 +52,31 @@ export interface DevcontainerJson {
 export function generateDevcontainerJson(options: DevcontainerOptions, config?: ExecutionConfig): DevcontainerJson {
   const cfg = config || DEFAULT_EXECUTION_CONFIG
 
+  // Build mounts array - only include mounts if their source paths are available
+  const mounts: string[] = [
+    'source=${localWorkspaceFolder},target=/workspace,type=bind',
+    'source=claude-bash-history,target=/commandhistory,type=volume',
+    'source=claude-credentials,target=/home/node/.claude,type=volume',
+    // NOTE: ~/.claude.json is COPIED (not mounted) to /workspace/.claude.json
+    // to avoid corruption from concurrent writes by multiple containers
+  ]
+
+  // Only add HQ-dependent mounts if hqPath is provided
+  // This prevents "field Source must not be empty" Docker errors
+  if (options.hqPath) {
+    mounts.push(`source=${options.hqPath}/.proletariat,target=/hq/.proletariat,type=bind`)
+    // Mount the main repo's .git directory so git worktrees can resolve their parent
+    // Worktree .git files reference paths like /Users/.../repos/proletariat/.git/worktrees/name
+    // This mount makes those paths accessible inside the container at /hq/repos/proletariat
+    mounts.push(`source=${options.hqPath}/repos/proletariat,target=/hq/repos/proletariat,type=bind`)
+  }
+
+  // Only add PMO mount if pmoPath is provided
+  // PMO path can be anywhere (e.g., /hq/pmo or /hq/repos/myrepo/pmo)
+  if (options.pmoPath) {
+    mounts.push(`source=${options.pmoPath},target=/hq/pmo,type=bind`)
+  }
+
   const devcontainerJson: DevcontainerJson = {
     name: `Agent: ${options.agentName}`,
     build: {
@@ -77,22 +104,7 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       `--cpus=${options.cpus || cfg.devcontainer.cpus}`,
     ],
     remoteUser: 'node',
-    mounts: [
-      'source=${localWorkspaceFolder},target=/workspace,type=bind',
-      'source=claude-bash-history,target=/commandhistory,type=volume',
-      'source=claude-credentials,target=/home/node/.claude,type=volume',
-      // NOTE: ~/.claude.json is COPIED (not mounted) to /workspace/.claude.json
-      // to avoid corruption from concurrent writes by multiple containers
-      'source=${localEnv:PRLT_HQ_PATH}/.proletariat,target=/hq/.proletariat,type=bind',
-      // PMO path can be anywhere (e.g., /hq/pmo or /hq/repos/myrepo/pmo)
-      // Use PRLT_PMO_PATH env var to mount the actual location to /hq/pmo
-      'source=${localEnv:PRLT_PMO_PATH},target=/hq/pmo,type=bind',
-      // NOTE: PRLT_REPO_PATH mount removed - prlt is now installed via npm in the container
-      // Mount the main repo's .git directory so git worktrees can resolve their parent
-      // Worktree .git files reference paths like /Users/.../repos/proletariat/.git/worktrees/name
-      // This mount makes those paths accessible inside the container at /hq/repos/proletariat
-      'source=${localEnv:PRLT_HQ_PATH}/repos/proletariat,target=/hq/repos/proletariat,type=bind',
-    ],
+    mounts,
     containerEnv: {
       DEVCONTAINER: 'true',
       ANTHROPIC_API_KEY: '${localEnv:ANTHROPIC_API_KEY}',
