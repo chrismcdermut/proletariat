@@ -134,7 +134,7 @@ export function createEpicDirectories(pmoPath: string, projectId: string = 'test
  * This ensures that environment variables that could bypass test isolation
  * are explicitly cleared.
  */
-export function getIsolatedEnv(nodeEnv: string = 'test'): NodeJS.ProcessEnv {
+export function getIsolatedEnv(nodeEnv: string = 'production'): NodeJS.ProcessEnv {
   const env = { ...process.env };
 
   // Clear environment variables that could bypass test isolation
@@ -142,7 +142,9 @@ export function getIsolatedEnv(nodeEnv: string = 'test'): NodeJS.ProcessEnv {
     delete env[varName];
   }
 
-  // Set NODE_ENV
+  // Set NODE_ENV - use 'production' to prevent oclif from trying to load TypeScript files
+  // When NODE_ENV is 'test' or 'development', oclif attempts to load .ts files which
+  // fails when running in a subprocess without ts-node configured
   env.NODE_ENV = nodeEnv;
 
   return env;
