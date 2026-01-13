@@ -49,7 +49,7 @@
     "typescript": "^5"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0 <21.0.0"
   },
   "files": [
     "./bin",
@@ -118,7 +118,8 @@
     "test:e2e": "mocha --forbid-only \"test/e2e/**/*.test.ts\"",
     "test:e2e:pmo": "mocha --forbid-only \"test/e2e/pmo-*.test.ts\"",
     "test:commands": "mocha --forbid-only \"test/commands/**/*.test.ts\"",
-    "version": "oclif readme && git add README.md"
+    "version": "oclif readme && git add README.md",
+    "postinstall": "npm rebuild better-sqlite3 || true"
   },
   "types": "dist/index.d.ts"
 }
