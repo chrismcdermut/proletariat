@@ -105,6 +105,8 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       'source=claude-credentials,target=/home/node/.claude,type=volume',
       // NOTE: ~/.claude.json is COPIED (not mounted) to /workspace/.claude.json
       // to avoid corruption from concurrent writes by multiple containers
+      // NOTE: SSH agent socket mounting doesn't work reliably on Docker Desktop for Mac
+      // So we use HTTPS + token approach instead. The token is fetched fresh at spawn time.
       'source=${localEnv:PRLT_HQ_PATH}/.proletariat,target=/hq/.proletariat,type=bind',
       // PMO path can be anywhere (e.g., /hq/pmo or /hq/repos/myrepo/pmo)
       // Use PRLT_PMO_PATH env var to mount the actual location to /hq/pmo
@@ -441,8 +443,8 @@ if [ -f "/workspace/.claude.json" ]; then
     echo "Claude credentials copied"
 fi
 
-# Configure git to use GitHub token for authentication
-# Check for token in environment or get from gh CLI
+# Configure git authentication using GitHub token
+# Token is passed via GITHUB_TOKEN env var (set fresh at spawn time by runners.ts)
 TOKEN=""
 if [ -n "$GITHUB_TOKEN" ]; then
     TOKEN="$GITHUB_TOKEN"
@@ -474,7 +476,7 @@ if [ -n "$TOKEN" ]; then
 
     echo "Git configured for GitHub push via HTTPS"
 else
-    echo "Warning: No GitHub token found, push to GitHub will require manual auth"
+    echo "Warning: No GitHub token found, git push will require manual auth"
 fi
 
 # Check if prlt is already installed globally (via npm from GitHub Packages)
