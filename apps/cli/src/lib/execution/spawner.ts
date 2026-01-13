@@ -424,9 +424,9 @@ export async function spawnAgentForTicket(
       logPath: result.logPath,
     })
 
-    // Only update ticket status and move to In Progress after successful spawn
+    // Only update ticket assignee and move to In Progress after successful spawn
+    // Note: status is changed via moveTicket below, not updateTicket
     await storage.updateTicket(ticket.id, {
-      status: 'in_progress',
       assignee: agentName,
     })
 
