@@ -5,6 +5,7 @@ import inquirer from 'inquirer';
 import { createBoardContent, createSpecFolders, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { slugify } from '../../lib/pmo/utils.js';
+import { isInteractive } from '../../lib/prompt.js';
 
 export default class ProjectCreate extends PMOCommand {
   static description = 'Create a new project in the PMO';
@@ -64,6 +65,14 @@ export default class ProjectCreate extends PMOCommand {
     };
 
     if (flags.interactive || (!args.name && !flags.name)) {
+      // Check for non-interactive mode (Claude Code, pipes, etc.)
+      if (!isInteractive()) {
+        this.error(
+          'Non-interactive mode detected. Cannot prompt for project details.\n' +
+          'Use: prlt project create "Project Name" --template kanban\n' +
+          '  or: prlt project create --name "Project Name" --description "desc" --template kanban'
+        );
+      }
       projectData = await this.promptProjectData(flags);
     } else {
       projectData = {

@@ -1,6 +1,7 @@
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
+import { isInteractive } from '../../lib/prompt.js';
 
 export default class Repo extends PMOCommand {
   static description = 'Repository management operations';
@@ -21,6 +22,16 @@ export default class Repo extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    // Check for non-interactive mode (Claude Code, pipes, etc.)
+    if (!isInteractive()) {
+      this.error(
+        'Non-interactive mode detected. Use specific subcommands:\n' +
+        '  prlt repo add /path/to/repo --action clone\n' +
+        '  prlt repo remove <repo-name> --force\n' +
+        '  prlt repo view <repo-name>'
+      );
+    }
+
     this.log(colors.primary('📦 Repository Operations'));
     this.log('');
 

@@ -79,8 +79,16 @@ def generate_roadmap(db_path, output_file=None):
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    # Get projects ordered by ID
-    cur.execute("SELECT id, name FROM pmo_projects ORDER BY id")
+    # Get projects ordered by number prefix in name (e.g., "1. MVP Launch" -> 1)
+    cur.execute("""
+        SELECT id, name FROM pmo_projects
+        ORDER BY
+            CASE
+                WHEN name GLOB '[0-9]*. *' THEN CAST(SUBSTR(name, 1, INSTR(name, '.') - 1) AS INTEGER)
+                ELSE 999
+            END,
+            id
+    """)
     projects = cur.fetchall()
 
     lines = []

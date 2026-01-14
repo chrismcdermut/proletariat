@@ -595,6 +595,7 @@ Requirements:
 - Technical notes/flagged ambiguities go in description
 - Use \`--clear-subtasks\` if replacing existing subtasks
 - Use \`--clear-ac\` if replacing existing acceptance criteria
+- **Always provide all required flags** - never rely on interactive prompts
 
 After updating, output a brief summary of your grooming changes.`,
         suggestedForCategories: ['backlog'],
@@ -630,7 +631,10 @@ When complete, the ticket should be ready for code review.`,
    \`\`\`
    This moves the ticket to review and creates a pull request.
 
-**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`,
+**IMPORTANT:**
+- Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.
+- Always provide required arguments and flags - never rely on interactive prompts.
+- If a command prompts for input, re-run it with the appropriate flags.`,
         suggestedForCategories: ['unstarted', 'started'],
         defaultMoveToCategory: 'started',
         modifiesCode: true,
@@ -660,7 +664,9 @@ When complete, the ticket should be ready for code review.`,
    \`\`\`
    This moves the ticket to review and creates a pull request.
 
-**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`,
+**IMPORTANT:**
+- Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.
+- Always provide required arguments and flags - never rely on interactive prompts.`,
         suggestedForCategories: ['started'],
         defaultMoveToCategory: 'started',
         modifiesCode: true,
@@ -689,7 +695,9 @@ When complete, the ticket should be ready for code review.`,
    prlt work ready {{TICKET_ID}} --pr
    \`\`\`
 
-**IMPORTANT:** Use the global \`prlt\` command.`,
+**IMPORTANT:**
+- Use the global \`prlt\` command - never use local paths like \`./bin/run.js\`.
+- Always provide required arguments and flags - never rely on interactive prompts.`,
         suggestedForCategories: ['started', 'completed'],
         modifiesCode: true,
         position: 3,

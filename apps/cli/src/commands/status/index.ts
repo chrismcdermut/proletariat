@@ -1,5 +1,6 @@
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { isInteractive } from '../../lib/prompt.js';
 
 export default class Status extends PMOCommand {
   static description = 'Interactive menu for workflow status operations';
@@ -19,6 +20,17 @@ export default class Status extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    // Check for non-interactive mode (Claude Code, pipes, etc.)
+    if (!isInteractive()) {
+      this.error(
+        'Non-interactive mode detected. Use specific subcommands:\n' +
+        '  prlt status list\n' +
+        '  prlt status create --name "Status Name" --category started\n' +
+        '  prlt status update <status-id> --name "New Name"\n' +
+        '  prlt status delete <status-id> --force'
+      );
+    }
+
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',

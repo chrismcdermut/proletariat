@@ -1,5 +1,6 @@
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { isInteractive } from '../../lib/prompt.js';
 
 export default class Ticket extends PMOCommand {
   static description = 'Interactive menu for ticket operations';
@@ -17,6 +18,17 @@ export default class Ticket extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    // Check for non-interactive mode (Claude Code, pipes, etc.)
+    if (!isInteractive()) {
+      this.error(
+        'Non-interactive mode detected. Use specific subcommands:\n' +
+        '  prlt ticket create --title "Title" --column Backlog\n' +
+        '  prlt ticket edit TICK-001 --title "New Title"\n' +
+        '  prlt ticket list\n' +
+        '  prlt ticket view TICK-001'
+      );
+    }
+
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',
