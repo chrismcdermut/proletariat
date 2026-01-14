@@ -8,6 +8,7 @@ import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ExecutionStorage } from '../../lib/execution/storage.js';
+import { isInteractive } from '../../lib/prompt.js';
 import {
   isGHInstalled,
   isGHAuthenticated,
@@ -77,6 +78,16 @@ export default class WorkReady extends PMOCommand {
       let ticketId = args.ticketId;
 
       if (!ticketId) {
+        // Check for non-interactive mode (Claude Code, pipes, etc.)
+        if (!isInteractive()) {
+          db.close();
+          this.error(
+            'Non-interactive mode detected. Ticket ID is required.\n' +
+            'Use: prlt work ready TKT-001 --pr\n' +
+            '  Options: --draft (create draft PR) --no-pr (skip PR prompt)'
+          );
+        }
+
         // Get all in-progress (started) tickets for selection
         const allTickets = await this.storage.listTickets();
         const inProgressTickets = allTickets.filter(t =>
@@ -223,6 +234,12 @@ export default class WorkReady extends PMOCommand {
     const existingPR = getPRForBranch(currentBranch);
     if (existingPR) {
       this.log(styles.muted(`   PR already exists: ${existingPR.url}`));
+      return false;
+    }
+
+    // In non-interactive mode (Claude Code, devcontainer), default to no PR
+    // Use --pr flag explicitly to create PR in non-interactive mode
+    if (!isInteractive()) {
       return false;
     }
 

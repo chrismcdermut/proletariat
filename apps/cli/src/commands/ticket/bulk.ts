@@ -1,6 +1,7 @@
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import { isInteractive } from '../../lib/prompt.js';
 
 export default class TicketBulk extends PMOCommand {
   static description = 'Manage tickets in bulk (interactive menu)';
@@ -18,6 +19,17 @@ export default class TicketBulk extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    // Check for non-interactive mode (Claude Code, pipes, etc.)
+    if (!isInteractive()) {
+      this.error(
+        'Non-interactive mode detected. Use specific subcommands:\n' +
+        '  prlt ticket bulk list --project <project>\n' +
+        '  prlt ticket bulk move --project <project>\n' +
+        '  prlt ticket bulk complete --project <project>\n' +
+        '  prlt ticket bulk delete --project <project> --force'
+      );
+    }
+
     this.log(styles.emphasis('🎫 Ticket Management (Bulk Operations)'));
     this.log('');
 

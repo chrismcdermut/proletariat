@@ -1,5 +1,6 @@
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { isInteractive } from '../../lib/prompt.js';
 
 export default class Work extends PMOCommand {
   static description = 'Interactive menu for work operations (ownership, assignment, execution)';
@@ -18,6 +19,17 @@ export default class Work extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    // Check for non-interactive mode (Claude Code, pipes, etc.)
+    if (!isInteractive()) {
+      this.error(
+        'Non-interactive mode detected. Use specific subcommands:\n' +
+        '  prlt work start TKT-001 --agent <agent-name>\n' +
+        '  prlt work ready TKT-001 --pr\n' +
+        '  prlt work spawn --column "To Do" --project <project>\n' +
+        '  prlt work claim TKT-001 --project <project>'
+      );
+    }
+
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',

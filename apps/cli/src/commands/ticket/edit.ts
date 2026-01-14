@@ -2,6 +2,7 @@ import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import { isInteractive } from '../../lib/prompt.js';
 
 export default class TicketEdit extends PMOCommand {
   static description = 'Edit an existing ticket';
@@ -86,6 +87,15 @@ export default class TicketEdit extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
+      // Check for non-interactive mode (Claude Code, pipes, etc.)
+      if (!isInteractive()) {
+        this.error(
+          'Non-interactive mode detected. Ticket ID is required.\n' +
+          'Use: prlt ticket edit TICK-001 --title "New Title" --priority MEDIUM\n' +
+          '  Options: --description "desc" --category bug --add-subtask "task" --add-ac "criterion"'
+        );
+      }
+
       // Get all tickets for selection
       const allTickets = await this.storage.listTickets();
 
@@ -126,6 +136,15 @@ export default class TicketEdit extends PMOCommand {
       flags['add-label'] || flags['remove-label'] || flags['add-ac'] || flags['clear-ac'];
 
     if (flags.interactive || !hasFlags) {
+      // Check for non-interactive mode (Claude Code, pipes, etc.)
+      if (!isInteractive()) {
+        this.error(
+          'Non-interactive mode detected. At least one edit flag is required.\n' +
+          'Use: prlt ticket edit ' + ticketId + ' --title "New Title"\n' +
+          '  Options: --priority MEDIUM --category bug --description "desc"\n' +
+          '           --add-subtask "task" --add-ac "criterion" --add-label "label"'
+        );
+      }
       // Interactive mode - prompt for all editable fields
       updates = await this.promptForEdits(ticket, this.columns);
     } else {

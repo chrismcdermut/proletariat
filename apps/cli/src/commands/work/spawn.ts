@@ -292,7 +292,25 @@ export default class WorkSpawn extends PMOCommand {
           return
         }
 
-        // Group tickets by status for display
+        // Helper to normalize priority for grouping
+        const normalizePriority = (priority: string | undefined): string => {
+          if (!priority) return 'P2'
+          const p = priority.toUpperCase()
+          if (p === 'URGENT' || p === 'P0') return 'P0'
+          if (p === 'HIGH' || p === 'P1') return 'P1'
+          if (p === 'MEDIUM' || p === 'P2') return 'P2'
+          if (p === 'LOW' || p === 'P3') return 'P3'
+          return 'P2'
+        }
+
+        const priorityLabels: Record<string, string> = {
+          'P0': 'P0 - Urgent',
+          'P1': 'P1 - High',
+          'P2': 'P2 - Medium',
+          'P3': 'P3 - Low',
+        }
+
+        // Group tickets by column, then by priority within each column
         const ticketsByColumn = new Map<string, typeof unassignedTickets>()
         for (const ticket of ticketsForSelection) {
           const col = ticket.statusName || 'No Status'
@@ -302,17 +320,35 @@ export default class WorkSpawn extends PMOCommand {
           ticketsByColumn.get(col)!.push(ticket)
         }
 
-        // Build choices with column separators
+        // Build choices with column and priority separators
         const choices: Array<{ name: string; value: string } | inquirer.Separator> = []
-        for (const [column, tickets] of ticketsByColumn) {
+        for (const [column, columnTickets] of ticketsByColumn) {
           if (manyColumn === '__ALL__') {
             choices.push(new inquirer.Separator(`── ${column} ──`))
           }
-          for (const ticket of tickets) {
-            choices.push({
-              name: `${ticket.id} - ${ticket.title}`,
-              value: ticket.id,
-            })
+
+          // Group by priority within the column
+          const ticketsByPriority = new Map<string, typeof unassignedTickets>()
+          for (const ticket of columnTickets) {
+            const pri = normalizePriority(ticket.priority)
+            if (!ticketsByPriority.has(pri)) {
+              ticketsByPriority.set(pri, [])
+            }
+            ticketsByPriority.get(pri)!.push(ticket)
+          }
+
+          // Add tickets grouped by priority
+          for (const pri of ['P0', 'P1', 'P2', 'P3']) {
+            const priTickets = ticketsByPriority.get(pri)
+            if (priTickets && priTickets.length > 0) {
+              choices.push(new inquirer.Separator(`  ─ ${priorityLabels[pri]} ─`))
+              for (const ticket of priTickets) {
+                choices.push({
+                  name: `${ticket.id} - ${ticket.title}`,
+                  value: ticket.id,
+                })
+              }
+            }
           }
         }
 

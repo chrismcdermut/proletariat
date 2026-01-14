@@ -1,5 +1,6 @@
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { isInteractive } from '../../lib/prompt.js';
 
 export default class Epic extends PMOCommand {
   static description = 'Interactive menu for epic operations';
@@ -17,6 +18,17 @@ export default class Epic extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    // Check for non-interactive mode (Claude Code, pipes, etc.)
+    if (!isInteractive()) {
+      this.error(
+        'Non-interactive mode detected. Use specific subcommands:\n' +
+        '  prlt epic create --title "Epic Title"\n' +
+        '  prlt epic list\n' +
+        '  prlt epic view EPIC-001\n' +
+        '  prlt epic progress EPIC-001'
+      );
+    }
+
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',

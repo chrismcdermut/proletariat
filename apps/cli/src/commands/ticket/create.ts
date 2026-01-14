@@ -4,6 +4,7 @@ import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index
 import { styles } from '../../lib/styles.js';
 import { updateEpicTicketsSection } from '../../lib/pmo/epic-files.js';
 import { TicketTemplate } from '../../lib/pmo/types.js';
+import { isInteractive } from '../../lib/prompt.js';
 
 export default class TicketCreate extends PMOCommand {
   static description = 'Create a new ticket on the PMO board';
@@ -98,6 +99,14 @@ export default class TicketCreate extends PMOCommand {
     };
 
     if (flags.interactive || !flags.title) {
+      // Check for non-interactive mode (Claude Code, pipes, etc.)
+      if (!isInteractive()) {
+        this.error(
+          'Non-interactive mode detected. Cannot prompt for ticket details.\n' +
+          'Use: prlt ticket create --title "Ticket Title" --column Backlog\n' +
+          '  Options: --priority MEDIUM --category feature --description "desc" --epic EPIC-001'
+        );
+      }
       ticketData = await this.promptTicketData(flags, this.storage, template);
     } else {
       if (!flags.title && !template?.titlePattern) {
