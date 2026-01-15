@@ -683,6 +683,7 @@ export interface PMOStorage {
   getTicket(id: string): Promise<Ticket | null>
   updateTicket(id: string, changes: Partial<Ticket>): Promise<Ticket>
   moveTicket(id: string, column: string, position?: number): Promise<Ticket>
+  moveTicketToProject(ticketId: string, newProjectId: string): Promise<Ticket>
   deleteTicket(id: string): Promise<void>
   listTickets(filter?: TicketFilter): Promise<Ticket[]>
 

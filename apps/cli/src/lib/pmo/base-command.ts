@@ -1,5 +1,5 @@
 import { Command, Flags } from '@oclif/core';
-import { getPMOContext, type PMOContext } from './pmo-context.js';
+import { getPMOContext, type PMOContext, type GetPMOContextOptions } from './pmo-context.js';
 import { styles } from '../styles.js';
 
 /**
@@ -22,6 +22,14 @@ export interface PMOCommandOptions {
    * Default: true
    */
   promptIfMultiple?: boolean;
+
+  /**
+   * Skip project selection entirely.
+   * Use this for commands that work with globally unique IDs (like ticket IDs)
+   * and don't need project context.
+   * Default: false
+   */
+  skipProjectSelection?: boolean;
 }
 
 /**
@@ -99,11 +107,14 @@ export abstract class PMOCommand extends Command {
     const options = this.getPMOOptions();
 
     try {
-      this.pmoContext = await getPMOContext(
-        projectFlag,
-        (msg) => this.pmoLogger(msg),
-        options.promptIfMultiple ?? true
-      );
+      const contextOptions: GetPMOContextOptions = {
+        projectId: projectFlag,
+        logger: (msg) => this.pmoLogger(msg),
+        promptIfMultiple: options.promptIfMultiple ?? true,
+        skipProjectSelection: options.skipProjectSelection ?? false,
+      };
+
+      this.pmoContext = await getPMOContext(contextOptions);
       this.contextInitialized = true;
     } catch (error) {
       // Let the error propagate - run() won't execute
@@ -188,5 +199,70 @@ export abstract class PMOCommand extends Command {
   /** Current project name */
   protected get projectName() {
     return this.pmoContext.projectName;
+  }
+}
+
+/**
+ * Base command class for ticket operations that work with ticket IDs.
+ *
+ * This class extends PMOCommand with special initialization logic:
+ * - If a ticket ID argument is provided, skips project selection (since ticket IDs are globally unique)
+ * - If no ticket ID is provided, prompts for project selection first (so user can pick from project's tickets)
+ *
+ * Usage:
+ * ```typescript
+ * import { TicketCommand, pmoBaseFlags } from '../../lib/pmo/base-command.js';
+ *
+ * export default class TicketView extends TicketCommand {
+ *   static args = {
+ *     ticketId: Args.string({
+ *       description: 'Ticket ID to view',
+ *       required: false,
+ *     }),
+ *   };
+ *
+ *   static flags = { ...pmoBaseFlags };
+ *
+ *   // Must implement to tell the base class which arg is the ticket ID
+ *   protected getTicketIdArg(): string | undefined {
+ *     return this.argv[0];
+ *   }
+ *
+ *   async execute(): Promise<void> {
+ *     // this.storage is available - works without project context
+ *     const ticket = await this.storage.getTicket('TKT-123');
+ *   }
+ * }
+ * ```
+ */
+export abstract class TicketCommand extends PMOCommand {
+  /**
+   * Get the ticket ID argument value before execute() runs.
+   * Override this to provide the raw ticket ID from argv.
+   *
+   * Note: This is called during init() before args are fully parsed,
+   * so it should return the raw string from argv.
+   */
+  protected getTicketIdArg(): string | undefined {
+    // Default implementation: first positional argument
+    // Subclasses can override if their ticket ID is in a different position
+    return this.argv[0];
+  }
+
+  /**
+   * Override getPMOOptions to skip project selection when ticket ID is provided.
+   * When no ticket ID is given, we need project context to list tickets for selection.
+   */
+  protected getPMOOptions(): PMOCommandOptions {
+    const ticketId = this.getTicketIdArg();
+
+    // If a ticket ID was provided, skip project selection
+    // (ticket IDs are globally unique, so we don't need project context)
+    if (ticketId) {
+      return { skipProjectSelection: true };
+    }
+
+    // No ticket ID provided - need project context to show ticket picker
+    return { promptIfMultiple: true };
   }
 }

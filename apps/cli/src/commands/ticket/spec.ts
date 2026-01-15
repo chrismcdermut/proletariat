@@ -1,9 +1,9 @@
 import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
+import { TicketCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class TicketSpec extends PMOCommand {
+export default class TicketSpec extends TicketCommand {
   static description = 'Assign a spec to ticket(s)';
 
   static examples = [

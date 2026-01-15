@@ -1,9 +1,9 @@
 import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
+import { TicketCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class TicketReassign extends PMOCommand {
+export default class TicketReassign extends TicketCommand {
   static description = 'Reassign ticket(s) to a different agent';
 
   static examples = [

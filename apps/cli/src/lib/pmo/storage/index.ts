@@ -237,6 +237,10 @@ export class SQLiteStorage implements PMOStorage {
     return this.ticketStorage.moveTicket(id, column, position)
   }
 
+  async moveTicketToProject(ticketId: string, newProjectId: string): Promise<Ticket> {
+    return this.ticketStorage.moveTicketToProject(ticketId, newProjectId)
+  }
+
   async deleteTicket(id: string): Promise<void> {
     return this.ticketStorage.deleteTicket(id)
   }

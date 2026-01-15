@@ -146,16 +146,16 @@ export class TicketStorage {
 
   /**
    * Get a ticket by ID (internal).
+   * Looks up by ticket ID only - no project scoping required since ticket IDs are globally unique.
    */
   async getTicketById(id: string): Promise<Ticket | null> {
-    const projectId = this.ctx.getCurrentProjectId()
     const row = this.ctx.db.prepare(`
       SELECT t.*, bt.column_id, bt.position, c.name as column_name
       FROM ${T.tickets} t
       LEFT JOIN ${T.board_tickets} bt ON t.id = bt.ticket_id AND t.project_id = bt.project_id
       LEFT JOIN ${T.columns} c ON bt.project_id = c.project_id AND bt.column_id = c.id
-      WHERE t.project_id = ? AND LOWER(t.id) = LOWER(?)
-    `).get(projectId, id) as TicketRow | undefined
+      WHERE LOWER(t.id) = LOWER(?)
+    `).get(id) as TicketRow | undefined
 
     if (!row) return null
 
@@ -164,6 +164,7 @@ export class TicketStorage {
 
   /**
    * Update a ticket.
+   * Works with ticket ID only - no project context required since ticket IDs are globally unique.
    */
   async updateTicket(id: string, changes: Partial<Ticket>): Promise<Ticket> {
     const existing = await this.getTicketById(id)
@@ -257,9 +258,23 @@ export class TicketStorage {
       }
     }
 
-    this.ctx.updateBoardTimestamp()
+    // Update board timestamp for the ticket's actual project
+    if (existing.projectId) {
+      this.updateProjectTimestamp(existing.projectId)
+    }
 
     return (await this.getTicketById(id)) as Ticket
+  }
+
+  /**
+   * Update the timestamp for a specific project.
+   */
+  private updateProjectTimestamp(projectId: string): void {
+    this.ctx.db.prepare(`
+      UPDATE ${T.projects}
+      SET updated_at = ?
+      WHERE id = ?
+    `).run(Date.now(), projectId)
   }
 
   /**
@@ -359,40 +374,47 @@ export class TicketStorage {
 
   /**
    * Delete a ticket.
+   * Works with ticket ID only - no project context required since ticket IDs are globally unique.
    */
   async deleteTicket(id: string): Promise<void> {
-    const projectId = this.ctx.getCurrentProjectId()
     const existing = await this.getTicketById(id)
     if (!existing) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
+    }
+
+    // Use the ticket's actual project ID (required for board position management)
+    const ticketProjectId = existing.projectId
+    if (!ticketProjectId) {
+      throw new PMOError('INVALID', `Ticket ${id} has no associated project`, id)
     }
 
     // Get board position before deleting
     const boardPos = this.ctx.db.prepare(`
       SELECT column_id, position FROM ${T.board_tickets}
       WHERE project_id = ? AND ticket_id = ?
-    `).get(projectId, id) as { column_id: string; position: number } | undefined
+    `).get(ticketProjectId, id) as { column_id: string; position: number } | undefined
 
-    // Delete ticket
+    // Delete ticket (by ID only, since IDs are globally unique)
     const result = this.ctx.db.prepare(`
       DELETE FROM ${T.tickets}
-      WHERE project_id = ? AND id = ?
-    `).run(projectId, id)
+      WHERE id = ?
+    `).run(id)
 
     if (result.changes === 0) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
     }
 
-    // Shift positions
+    // Shift positions in the ticket's actual project
     if (boardPos) {
       this.ctx.db.prepare(`
         UPDATE ${T.board_tickets}
         SET position = position - 1
         WHERE project_id = ? AND column_id = ? AND position > ?
-      `).run(projectId, boardPos.column_id, boardPos.position)
+      `).run(ticketProjectId, boardPos.column_id, boardPos.position)
     }
 
-    this.ctx.updateBoardTimestamp()
+    // Update board timestamp for the ticket's actual project
+    this.updateProjectTimestamp(ticketProjectId)
   }
 
   /**
@@ -476,5 +498,119 @@ export class TicketStorage {
     const rows = this.ctx.db.prepare(query).all(...params) as TicketRow[]
 
     return Promise.all(rows.map((row) => rowToTicket(this.ctx.db, row)))
+  }
+
+  /**
+   * Move a ticket to a different project.
+   * The ticket will be placed in the first column of the target project's board.
+   */
+  async moveTicketToProject(ticketId: string, newProjectId: string): Promise<Ticket> {
+    const existing = await this.getTicketById(ticketId)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Ticket not found: ${ticketId}`, ticketId)
+    }
+
+    const oldProjectId = existing.projectId
+    if (!oldProjectId) {
+      throw new PMOError('INVALID', `Ticket ${ticketId} has no associated project`, ticketId)
+    }
+
+    // Check if target project exists
+    const targetProject = this.ctx.db.prepare(`
+      SELECT id FROM ${T.projects} WHERE id = ?
+    `).get(newProjectId) as { id: string } | undefined
+
+    if (!targetProject) {
+      throw new PMOError('NOT_FOUND', `Project not found: ${newProjectId}`, newProjectId)
+    }
+
+    // Get first column of target project
+    const firstColumn = this.ctx.db.prepare(`
+      SELECT id FROM ${T.columns}
+      WHERE project_id = ?
+      ORDER BY position LIMIT 1
+    `).get(newProjectId) as { id: string } | undefined
+
+    if (!firstColumn) {
+      throw new PMOError('NOT_FOUND', `No columns exist in project: ${newProjectId}`)
+    }
+
+    // Get old board position before updating
+    const oldBoardPos = this.ctx.db.prepare(`
+      SELECT column_id, position FROM ${T.board_tickets}
+      WHERE project_id = ? AND ticket_id = ?
+    `).get(oldProjectId, ticketId) as { column_id: string; position: number } | undefined
+
+    // Get max position in target column
+    const maxPos = this.ctx.db.prepare(`
+      SELECT MAX(position) as max FROM ${T.board_tickets}
+      WHERE project_id = ? AND column_id = ?
+    `).get(newProjectId, firstColumn.id) as { max: number | null }
+    const newPosition = (maxPos.max ?? -1) + 1
+
+    // Get default status for target project
+    let newStatusId: string | undefined
+    const defaultStatus = this.ctx.db.prepare(`
+      SELECT id FROM ${T.statuses}
+      WHERE project_id = ? AND is_default = 1
+    `).get(newProjectId) as { id: string } | undefined
+
+    if (defaultStatus) {
+      newStatusId = defaultStatus.id
+    } else {
+      // Get first status in target project
+      const firstStatus = this.ctx.db.prepare(`
+        SELECT id FROM ${T.statuses}
+        WHERE project_id = ?
+        ORDER BY
+          CASE category
+            WHEN 'backlog' THEN 1
+            WHEN 'unstarted' THEN 2
+            WHEN 'started' THEN 3
+            WHEN 'completed' THEN 4
+            WHEN 'canceled' THEN 5
+          END,
+          position ASC
+        LIMIT 1
+      `).get(newProjectId) as { id: string } | undefined
+
+      if (firstStatus) {
+        newStatusId = firstStatus.id
+      }
+    }
+
+    // Update ticket's project_id and status_id
+    const now = Date.now()
+    this.ctx.db.prepare(`
+      UPDATE ${T.tickets}
+      SET project_id = ?, status_id = ?, updated_at = ?
+      WHERE id = ?
+    `).run(newProjectId, newStatusId || existing.statusId, now, ticketId)
+
+    // Update board_tickets: delete old entry and insert new one
+    this.ctx.db.prepare(`
+      DELETE FROM ${T.board_tickets}
+      WHERE project_id = ? AND ticket_id = ?
+    `).run(oldProjectId, ticketId)
+
+    this.ctx.db.prepare(`
+      INSERT INTO ${T.board_tickets} (project_id, ticket_id, column_id, position)
+      VALUES (?, ?, ?, ?)
+    `).run(newProjectId, ticketId, firstColumn.id, newPosition)
+
+    // Shift positions in old project's column
+    if (oldBoardPos) {
+      this.ctx.db.prepare(`
+        UPDATE ${T.board_tickets}
+        SET position = position - 1
+        WHERE project_id = ? AND column_id = ? AND position > ?
+      `).run(oldProjectId, oldBoardPos.column_id, oldBoardPos.position)
+    }
+
+    // Update timestamps for both projects
+    this.updateProjectTimestamp(oldProjectId)
+    this.updateProjectTimestamp(newProjectId)
+
+    return (await this.getTicketById(ticketId)) as Ticket
   }
 }

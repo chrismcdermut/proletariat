@@ -2,12 +2,12 @@ import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import {
   autoExportToBoard,
-  PMOCommand,
+  TicketCommand,
   pmoBaseFlags,
 } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class TicketMove extends PMOCommand {
+export default class TicketMove extends TicketCommand {
   static description = 'Move ticket(s) to a different column';
 
   static examples = [
