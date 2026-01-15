@@ -12,11 +12,14 @@ import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 export default class WorkSpawn extends PMOCommand {
   static description = 'Spawn work for multiple tickets by column (batch mode)'
 
+  static strict = false  // Allow multiple ticket ID args without defining them
+
   static examples = [
     '<%= config.bin %> <%= command.id %>                    # Interactive: All or Many',
     '<%= config.bin %> <%= command.id %> --all              # All unassigned in selected column',
     '<%= config.bin %> <%= command.id %> --column Backlog   # All unassigned in Backlog',
     '<%= config.bin %> <%= command.id %> --many             # Multi-select specific tickets',
+    '<%= config.bin %> <%= command.id %> TKT-001 TKT-002    # Spawn specific tickets by ID',
     '<%= config.bin %> <%= command.id %> --dry-run          # Preview without executing',
   ]
 
@@ -105,7 +108,10 @@ export default class WorkSpawn extends PMOCommand {
   }
 
   async execute(): Promise<void> {
-    const { flags } = await this.parse(WorkSpawn)
+    const { flags, argv } = await this.parse(WorkSpawn)
+
+    // Parse ticket IDs from args (everything after flags)
+    const ticketIdArgs = argv as string[]
 
     // Note: Docker check is handled by work:start command when spawning each ticket
     // This allows for the interactive devcontainer/host selection with retry loop
@@ -153,10 +159,13 @@ export default class WorkSpawn extends PMOCommand {
       }
       const availableAgents = workspaceInfo.agents.filter(a => !busyAgentNames.has(a.name))
 
-      // Determine spawn mode: All or Many
-      let spawnMode: 'all' | 'many' = 'all'
+      // Determine spawn mode: All, Many, or Args (positional ticket IDs)
+      let spawnMode: 'all' | 'many' | 'args' = 'all'
 
-      if (flags.all) {
+      if (ticketIdArgs.length > 0) {
+        // Ticket IDs provided as positional args
+        spawnMode = 'args'
+      } else if (flags.all) {
         spawnMode = 'all'
       } else if (flags.many) {
         spawnMode = 'many'
@@ -178,7 +187,28 @@ export default class WorkSpawn extends PMOCommand {
 
       let ticketsToSpawn: typeof unassignedTickets = []
 
-      if (spawnMode === 'all') {
+      if (spawnMode === 'args') {
+        // ARGS MODE: Spawn specific tickets by ID
+        // Look up tickets by ID (don't filter by assignee - allow forcing assigned tickets)
+        for (const ticketId of ticketIdArgs) {
+          const ticket = allTickets.find(t => t.id.toLowerCase() === ticketId.toLowerCase())
+          if (ticket) {
+            ticketsToSpawn.push(ticket)
+          } else {
+            this.warn(`Ticket "${ticketId}" not found, skipping.`)
+          }
+        }
+
+        if (ticketsToSpawn.length === 0) {
+          db.close()
+          this.error('No valid tickets found from provided IDs.')
+        }
+
+        this.log('')
+        this.log(styles.header(`🚀 Spawn: ${ticketsToSpawn.length} ticket(s)`))
+        this.log(styles.muted(`Tickets: ${ticketsToSpawn.map(t => t.id).join(', ')}`))
+
+      } else if (spawnMode === 'all') {
         // ALL MODE: Column picker, then spawn all unassigned in that column
         let targetColumn = flags.column
 
