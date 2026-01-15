@@ -438,14 +438,17 @@ Do NOT implement the ticket - only improve its definition so it's ready to be wo
 |-------|------|--------------|----------|
 | title | string | any text | --title |
 | description | markdown | requirements, context, notes | --description |
-| priority | enum | URGENT, HIGH, MEDIUM, LOW | --priority |
+| priority | enum | P0, P1, P2, P3, P4 | --priority |
 | category | enum | feature, bug, refactor, docs, test, chore, performance, ci, build, security, database, release | --category |
 | subtasks | list | task descriptions | --add-subtask (--clear-subtasks to replace) |
 | acceptanceCriteria | list | testable statements | --add-ac (--clear-ac to replace) |
 | labels | list | complexity:S/M/L/XL, ready, needs-clarification, etc. | --add-label, --remove-label |
 | owner | string | human responsible | --owner |
-| assignee | string | agent/person executing | --assignee |`,
-      endPrompt: `When you have finished analyzing and grooming the ticket, update it using prlt ticket edit.
+| assignee | string | agent/person executing | --assignee |
+| project | number | project ID (REQUIRED to avoid interactive prompt) | -P |`,
+      endPrompt: `When you have finished analyzing and grooming the ticket, update it using \`prlt ticket edit TKT-XXX -P <project_id>\`.
+
+**CRITICAL:** You MUST include the \`-P <project_id>\` flag to specify the project. Without it, the command will prompt interactively and fail. Use \`prlt ticket status TKT-XXX -P 1\` first to find the correct project ID if needed.
 
 ## Field Mapping (use ONLY these fields)
 
@@ -455,7 +458,7 @@ Do NOT implement the ticket - only improve its definition so it's ready to be wo
 | Acceptance Criteria | --add-ac | One per criterion (testable statement) |
 | Subtasks | --add-subtask | One per subtask |
 | Complexity (S/M/L/XL) | --add-label | \`complexity:M\` or \`complexity:L\` |
-| Priority | --priority | URGENT, HIGH, MEDIUM, or LOW only |
+| Priority | --priority | P0, P1, P2, P3, or P4 only |
 | Category | --category | feature, bug, refactor, docs, test, chore |
 | Needs clarification | --add-label | \`needs-clarification\` |
 | Ready for work | --add-label | \`ready\` |
@@ -463,7 +466,7 @@ Do NOT implement the ticket - only improve its definition so it's ready to be wo
 ## Example Command
 
 \`\`\`bash
-prlt ticket edit {{TICKET_ID}} \\
+prlt ticket edit {{TICKET_ID}} -P 1 \\
   --description "Implement user session timeout...
 
 Requirements:
@@ -479,11 +482,13 @@ Requirements:
 \`\`\`
 
 ## Important Rules
-- Priority must be exactly: URGENT, HIGH, MEDIUM, or LOW (not custom values)
+- **ALWAYS include \`-P <project_id>\`** on ticket edit commands (use \`-P 1\` for MVP Launch project)
+- Priority must be exactly: P0, P1, P2, P3, or P4 (not custom values)
 - Use \`--add-label "complexity:S|M|L|XL"\` for complexity (not a separate field)
 - Technical notes/flagged ambiguities go in description
 - Use \`--clear-subtasks\` if replacing existing subtasks
 - Use \`--clear-ac\` if replacing existing acceptance criteria
+- **Never rely on interactive prompts** - always provide all required flags
 
 After updating, output a brief summary of your grooming changes.`,
       suggestedForCategories: ['backlog'],
