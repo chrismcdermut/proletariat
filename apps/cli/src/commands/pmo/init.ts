@@ -18,6 +18,7 @@ import {
 } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { isGHInstalled, isGHAuthenticated, getGHUsername, isGHTokenInEnv } from '../../lib/pr/index.js';
+import { findAllHQs } from '../../lib/workspace.js';
 
 export default class PMOInit extends Command {
   static description = 'Initialize PMO (Project Management Office) in current directory or HQ';
@@ -128,6 +129,22 @@ export default class PMOInit extends Command {
     let effectiveHqPath: string;
 
     if (isStandalone) {
+      // Check if there's an HQ higher up that we might want to use instead
+      // This prevents accidentally creating orphaned standalone PMOs when an HQ exists
+      const allHQs = findAllHQs(process.cwd());
+      if (allHQs.length > 0) {
+        const shouldUseExistingHQ = await this.promptUseExistingHQ(allHQs[0]);
+        if (shouldUseExistingHQ) {
+          this.log(chalk.yellow(`\nNavigate to ${allHQs[0]} and run 'prlt pmo init' there instead.`));
+          this.log(chalk.yellow('Or set PRLT_HQ_PATH to explicitly specify your HQ:\n'));
+          this.log(chalk.cyan(`  export PRLT_HQ_PATH="${allHQs[0]}"`));
+          return;
+        }
+        // User chose to continue with standalone - warn about potential confusion
+        this.log(chalk.yellow('\n⚠️  Creating standalone PMO. This will be separate from your existing HQ.'));
+        this.log(chalk.gray('   You can merge later with: prlt workspace merge\n'));
+      }
+
       // Create mini-HQ structure
       effectiveHqPath = path.join(process.cwd(), '.pmo');
       await this.createStandaloneHQ(effectiveHqPath);
@@ -205,6 +222,28 @@ export default class PMOInit extends Command {
     }
 
     return null;
+  }
+
+  /**
+   * Prompt user when about to create standalone PMO but an HQ exists higher in tree
+   */
+  private async promptUseExistingHQ(existingHQPath: string): Promise<boolean> {
+    this.log(chalk.yellow('\n⚠️  Found existing HQ workspace'));
+    this.log(chalk.gray(`   Location: ${existingHQPath}`));
+    this.log(chalk.gray('   Creating a standalone PMO here will create a separate database.\n'));
+
+    const { action } = await inquirer.prompt([{
+      type: 'list',
+      name: 'action',
+      message: 'What would you like to do?',
+      choices: [
+        { name: `Use existing HQ at ${path.basename(existingHQPath)} (recommended)`, value: 'use-existing' },
+        { name: 'Create standalone PMO here anyway', value: 'standalone' },
+      ],
+      default: 'use-existing',
+    }]);
+
+    return action === 'use-existing';
   }
 
   private async promptReinitialize(hqRoot: string, projectCount: number, ticketCount: number): Promise<boolean> {

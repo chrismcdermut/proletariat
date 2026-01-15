@@ -1,8 +1,12 @@
 import { Command } from '@oclif/core';
 import chalk from 'chalk';
+import Database from 'better-sqlite3';
 import { findAllHQs, findHQRootWithSource, isValidHQ } from '../../lib/workspace.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { PMO_TABLES } from '../../lib/pmo/schema.js';
+
+const T = PMO_TABLES;
 
 export default class WorkspaceList extends Command {
   static description = 'List all discovered HQ workspaces in the directory tree';
@@ -50,13 +54,24 @@ export default class WorkspaceList extends Command {
         }
       }
 
-      // Check if it has PMO
+      // Check if it has PMO and get stats
       const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
       const hasPMO = fs.existsSync(dbPath);
-      const pmoMarker = hasPMO ? chalk.gray(' [has PMO]') : chalk.gray(' [no PMO]');
+      let pmoMarker = hasPMO ? chalk.gray(' [has PMO]') : chalk.gray(' [no PMO]');
+      let statsLine = '';
+
+      if (hasPMO) {
+        const stats = this.getWorkspaceStats(dbPath);
+        if (stats.tickets > 0 || stats.specs > 0) {
+          statsLine = chalk.gray(`    Stats: ${stats.tickets} tickets, ${stats.specs} specs, ${stats.projects} projects`);
+        }
+      }
 
       this.log(`  ${chalk.white(workspaceName)}${marker}${sourceMarker}${pmoMarker}`);
       this.log(chalk.gray(`    Path: ${hqPath}`));
+      if (statsLine) {
+        this.log(statsLine);
+      }
       this.log('');
     }
 
@@ -81,5 +96,32 @@ export default class WorkspaceList extends Command {
       }
       this.log('');
     }
+  }
+
+  private getWorkspaceStats(dbPath: string): { tickets: number; specs: number; projects: number } {
+    const stats = { tickets: 0, specs: 0, projects: 0 };
+    try {
+      const db = new Database(dbPath);
+
+      try {
+        const result = db.prepare(`SELECT COUNT(*) as count FROM ${T.tickets}`).get() as { count: number };
+        stats.tickets = result.count;
+      } catch { /* table might not exist */ }
+
+      try {
+        const result = db.prepare(`SELECT COUNT(*) as count FROM ${T.specs}`).get() as { count: number };
+        stats.specs = result.count;
+      } catch { /* table might not exist */ }
+
+      try {
+        const result = db.prepare(`SELECT COUNT(*) as count FROM ${T.projects}`).get() as { count: number };
+        stats.projects = result.count;
+      } catch { /* table might not exist */ }
+
+      db.close();
+    } catch {
+      // Ignore errors
+    }
+    return stats;
   }
 }
