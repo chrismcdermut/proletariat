@@ -100,6 +100,70 @@ export const STATE_CATEGORY_ORDER: readonly StateCategory[] = [
   'canceled',
 ] as const
 
+// =============================================================================
+// Priority System
+// =============================================================================
+
+/**
+ * Ticket priority levels (P0 = highest, P3 = lowest)
+ * - P0: Critical/blocker - must be done immediately
+ * - P1: High priority - should be done soon
+ * - P2: Medium priority - normal work
+ * - P3: Low priority - nice to have
+ */
+export type Priority = 'P0' | 'P1' | 'P2' | 'P3'
+
+/**
+ * Valid priority values as array (for validation and CLI options)
+ */
+export const PRIORITIES: readonly Priority[] = ['P0', 'P1', 'P2', 'P3'] as const
+
+/**
+ * Legacy priority values (deprecated, mapped to new system)
+ * @deprecated Use P0-P3 instead
+ */
+export type LegacyPriority = 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW'
+
+/**
+ * Map legacy priority values to new P0-P3 system
+ */
+export const LEGACY_PRIORITY_MAP: Record<LegacyPriority, Priority> = {
+  'URGENT': 'P0',
+  'HIGH': 'P1',
+  'MEDIUM': 'P2',
+  'LOW': 'P3',
+} as const
+
+/**
+ * Normalize any priority value to the P0-P3 format
+ * @param priority - Priority value (can be P0-P3 or legacy URGENT/HIGH/MEDIUM/LOW)
+ * @returns Normalized priority (P0-P3) or undefined if invalid/empty
+ */
+export function normalizePriority(priority: string | undefined | null): Priority | undefined {
+  if (!priority) return undefined
+
+  const upper = priority.toUpperCase()
+
+  // Already in P0-P3 format
+  if (PRIORITIES.includes(upper as Priority)) {
+    return upper as Priority
+  }
+
+  // Legacy format
+  if (upper in LEGACY_PRIORITY_MAP) {
+    return LEGACY_PRIORITY_MAP[upper as LegacyPriority]
+  }
+
+  return undefined
+}
+
+/**
+ * Check if a value is a valid priority (either new or legacy format)
+ */
+export function isValidPriority(value: string | undefined | null): boolean {
+  return normalizePriority(value) !== undefined
+}
+
 /**
  * Customizable status within a project.
  * Each status belongs to exactly one StateCategory.
@@ -291,7 +355,7 @@ export interface Ticket {
   id: string
   title: string
   description?: string
-  priority?: string
+  priority?: Priority
   category?: string
   projectId?: string    // Which project this ticket belongs to
   projectName?: string  // Resolved project name (for display in cross-project views)

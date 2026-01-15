@@ -1,6 +1,6 @@
 import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags, autoExportToBoard, PRIORITIES, normalizePriority, Priority } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
 export default class TicketUpdate extends PMOCommand {
@@ -24,8 +24,8 @@ export default class TicketUpdate extends PMOCommand {
     ...pmoBaseFlags,
     priority: Flags.string({
       char: 'p',
-      description: 'Set priority (URGENT, HIGH, MEDIUM, LOW)',
-      options: ['URGENT', 'HIGH', 'MEDIUM', 'LOW'],
+      description: 'Set priority (P0, P1, P2, P3)',
+      options: [...PRIORITIES, 'URGENT', 'HIGH', 'MEDIUM', 'LOW'],
     }),
     category: Flags.string({
       char: 'c',
@@ -106,10 +106,10 @@ export default class TicketUpdate extends PMOCommand {
           message: 'Set priority to:',
           choices: [
             { name: `(Keep existing: ${ticket.priority || 'none'})`, value: null },
-            { name: 'URGENT', value: 'URGENT' },
-            { name: 'HIGH', value: 'HIGH' },
-            { name: 'MEDIUM', value: 'MEDIUM' },
-            { name: 'LOW', value: 'LOW' },
+            { name: 'P0 - Critical/blocker', value: 'P0' },
+            { name: 'P1 - High priority', value: 'P1' },
+            { name: 'P2 - Medium priority', value: 'P2' },
+            { name: 'P3 - Low priority', value: 'P3' },
             { name: 'None (clear priority)', value: '' },
           ],
         }]);
@@ -157,9 +157,9 @@ export default class TicketUpdate extends PMOCommand {
     }
 
     // Build changes
-    const changes: { priority?: string; category?: string } = {};
+    const changes: { priority?: Priority; category?: string } = {};
     if (updatePriority !== undefined) {
-      changes.priority = updatePriority || undefined;
+      changes.priority = normalizePriority(updatePriority);
     }
     if (updateCategory !== undefined) {
       changes.category = updateCategory || undefined;
@@ -225,10 +225,10 @@ export default class TicketUpdate extends PMOCommand {
           message: 'Set priority to:',
           choices: [
             { name: '(Keep existing)', value: null },
-            { name: 'URGENT', value: 'URGENT' },
-            { name: 'HIGH', value: 'HIGH' },
-            { name: 'MEDIUM', value: 'MEDIUM' },
-            { name: 'LOW', value: 'LOW' },
+            { name: 'P0 - Critical/blocker', value: 'P0' },
+            { name: 'P1 - High priority', value: 'P1' },
+            { name: 'P2 - Medium priority', value: 'P2' },
+            { name: 'P3 - Low priority', value: 'P3' },
             { name: 'None (clear priority)', value: '' },
           ],
         }]);
@@ -316,9 +316,9 @@ export default class TicketUpdate extends PMOCommand {
 
     for (const ticketId of selectedTickets) {
       try {
-        const changes: { priority?: string; category?: string } = {};
+        const changes: { priority?: Priority; category?: string } = {};
         if (updatePriority !== undefined) {
-          changes.priority = updatePriority || undefined;
+          changes.priority = normalizePriority(updatePriority);
         }
         if (updateCategory !== undefined) {
           changes.category = updateCategory || undefined;

@@ -1,6 +1,6 @@
 import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { autoExportToBoard, PMOCommand, pmoBaseFlags, PRIORITIES, normalizePriority, Priority } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { isInteractive } from '../../lib/prompt.js';
 
@@ -36,7 +36,7 @@ export default class TicketEdit extends PMOCommand {
     priority: Flags.string({
       char: 'p',
       description: 'New ticket priority',
-      options: ['URGENT', 'HIGH', 'MEDIUM', 'LOW', 'none'],
+      options: [...PRIORITIES, 'URGENT', 'HIGH', 'MEDIUM', 'LOW', 'none'],
     }),
     category: Flags.string({
       description: 'New ticket category',
@@ -125,7 +125,7 @@ export default class TicketEdit extends PMOCommand {
     let updates: {
       title?: string;
       description?: string;
-      priority?: string;
+      priority?: Priority;
       category?: string;
       owner?: string;
       assignee?: string;
@@ -152,7 +152,7 @@ export default class TicketEdit extends PMOCommand {
       if (flags.title) updates.title = flags.title;
       if (flags.description) updates.description = flags.description;
       if (flags.priority) {
-        updates.priority = flags.priority === 'none' ? undefined : flags.priority;
+        updates.priority = flags.priority === 'none' ? undefined : normalizePriority(flags.priority);
       }
       if (flags.category) updates.category = flags.category;
       if (flags.owner) updates.owner = flags.owner;
@@ -256,12 +256,12 @@ export default class TicketEdit extends PMOCommand {
   }
 
   private async promptForEdits(
-    ticket: { title: string; description?: string; priority?: string; category?: string },
+    ticket: { title: string; description?: string; priority?: Priority; category?: string },
     _columns: string[]
   ): Promise<{
     title?: string;
     description?: string;
-    priority?: string;
+    priority?: Priority;
     category?: string;
   }> {
     const answers = await inquirer.prompt<{
@@ -291,10 +291,10 @@ export default class TicketEdit extends PMOCommand {
         message: 'Priority:',
         choices: [
           { name: 'None', value: '' },
-          { name: 'URGENT', value: 'URGENT' },
-          { name: 'HIGH', value: 'HIGH' },
-          { name: 'MEDIUM', value: 'MEDIUM' },
-          { name: 'LOW', value: 'LOW' },
+          { name: 'P0 - Critical/blocker', value: 'P0' },
+          { name: 'P1 - High priority', value: 'P1' },
+          { name: 'P2 - Medium priority', value: 'P2' },
+          { name: 'P3 - Low priority', value: 'P3' },
         ],
         default: ticket.priority || '',
       },
@@ -342,7 +342,7 @@ export default class TicketEdit extends PMOCommand {
     const updates: {
       title?: string;
       description?: string;
-      priority?: string;
+      priority?: Priority;
       category?: string;
     } = {};
 
@@ -352,8 +352,9 @@ export default class TicketEdit extends PMOCommand {
     if (answers.description !== (ticket.description || '')) {
       updates.description = answers.description || undefined;
     }
-    if (answers.priority !== (ticket.priority || '')) {
-      updates.priority = answers.priority || undefined;
+    const normalizedPriority = normalizePriority(answers.priority);
+    if (normalizedPriority !== ticket.priority) {
+      updates.priority = normalizedPriority;
     }
 
     const newCategory = answers.categoryChoice === '__custom__'

@@ -4,7 +4,7 @@
  * Handles conversion between Obsidian Kanban markdown format and Board objects.
  */
 
-import { Board, Column, Ticket } from './types.js'
+import { Board, Column, Ticket, normalizePriority } from './types.js'
 import { slugify } from './utils.js'
 
 // =============================================================================
@@ -105,7 +105,7 @@ export function parseBoard(markdown: string, projectId: string = 'default'): Boa
 
       switch (key) {
         case 'Priority':
-          currentTicket.priority = trimmedValue
+          currentTicket.priority = normalizePriority(trimmedValue)
           break
         case 'Category':
           currentTicket.category = trimmedValue

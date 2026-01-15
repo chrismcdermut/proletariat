@@ -15,6 +15,7 @@ import {
   StateCategory,
   Subtask,
   Ticket,
+  normalizePriority,
 } from '../types.js'
 import { slugify } from '../utils.js'
 import { StorageContext, BoardViewRow } from './types.js'
@@ -408,7 +409,7 @@ export class ViewStorage {
       id: row.id,
       title: row.title,
       description: row.description || undefined,
-      priority: row.priority || undefined,
+      priority: normalizePriority(row.priority),
       category: row.category || undefined,
       statusId: row.status_id || '',
       statusName: row.status_name || undefined,
