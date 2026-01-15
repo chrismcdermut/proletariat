@@ -35,12 +35,12 @@ prlt --help
 
 ## Step 2: Initialize Your Workspace
 
-Create a new HQ (headquarters) - your central workspace for managing agents and work:
+Create a workspace to organize the repositories for your project, workstream, or business:
 
 ```bash
 # Navigate to where you want to create your workspace
-mkdir my-project-hq
-cd my-project-hq
+mkdir my-project
+cd my-project
 
 # Initialize the workspace
 prlt init
@@ -56,11 +56,11 @@ The `init` command will:
 Your directory structure will look like:
 
 ```
-my-project-hq/
+my-project/
 ├── .proletariat/
 │   ├── config.json      # Workspace configuration
 │   └── workspace.db     # SQLite database
-├── repos/               # Your repositories (added later)
+├── repos/               # Your repositories (add your project repos here)
 ├── agents/              # Agent worktrees (created when adding agents)
 └── pmo/                 # Project Management Office
     ├── board.md         # Markdown kanban board
@@ -111,14 +111,14 @@ Tickets for: My Project (3 total)
 
 ## Step 4: Add AI Agents
 
-Agents are AI coding assistants that work on your tickets. Add one or more:
+Agents are AI coding assistants that work on your tickets. Add one or more with billionaire-themed names:
 
 ```bash
 # Add a single agent
-prlt agent add alice
+prlt agent add altman
 
 # Add multiple agents
-prlt agent add alice bob carol
+prlt agent add altman bezos musk
 ```
 
 List your agents:
@@ -133,6 +133,18 @@ Each agent gets their own:
 - Docker container (when spawning work)
 - Workspace directory in `agents/staff/<name>/`
 
+### Agent Themes
+
+Agents use the billionaire theme by default (altman, bezos, musk, gates, zuck, nadella, pichai, cook...). You can explore other themes:
+
+```bash
+# List available themes
+prlt agent themes list
+
+# Set a different theme
+prlt agent themes set <theme-name>
+```
+
 ## Step 5: Start Work
 
 Now comes the exciting part - have an agent work on your ticket!
@@ -140,7 +152,7 @@ Now comes the exciting part - have an agent work on your ticket!
 ### Option A: Spawn work (Docker container)
 
 ```bash
-prlt work spawn TKT-001 alice
+prlt work spawn TKT-001 altman
 ```
 
 This starts a Docker container with Claude Code, loads the ticket context, and the agent begins working autonomously.
@@ -175,7 +187,7 @@ The board shows tickets across status columns:
 │   Backlog    │   Planned    │ In Progress  │     Done     │
 ├──────────────┼──────────────┼──────────────┼──────────────┤
 │              │              │ TKT-001      │              │
-│              │              │ alice        │              │
+│              │              │ altman       │              │
 └──────────────┴──────────────┴──────────────┴──────────────┘
 ```
 
@@ -204,15 +216,15 @@ Here's the full lifecycle in one script:
 
 ```bash
 # Setup
-mkdir my-project-hq && cd my-project-hq
+mkdir my-project && cd my-project
 prlt init
 
 # Create work
 prlt ticket create --title "Add health check endpoint" --priority P1
 
 # Assign and spawn
-prlt agent add alice
-prlt work spawn TKT-001 alice
+prlt agent add altman
+prlt work spawn TKT-001 altman
 
 # Monitor
 prlt board
@@ -228,7 +240,7 @@ prlt work complete TKT-001
 
 Now that you've completed your first ticket lifecycle:
 
-1. **Add more agents** - `prlt agent add bob carol` for parallel work
+1. **Add more agents** - `prlt agent add bezos gates` for parallel work
 2. **Create specs** - Detailed requirements with `prlt spec create`
 3. **Organize with epics** - Group related tickets with `prlt epic create`
 4. **Explore features** - See [Features](features.md) for all capabilities
@@ -260,7 +272,7 @@ If you see this warning, either:
 
 ### "No agents found"
 
-Add agents first: `prlt agent add alice`
+Add agents first: `prlt agent add altman`
 
 ### "Ticket not found"
 

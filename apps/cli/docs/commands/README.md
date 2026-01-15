@@ -24,7 +24,7 @@ Complete reference for all `prlt` commands organized by namespace.
 ## Global Commands
 
 ```bash
-prlt init                # Initialize new HQ
+prlt init                # Initialize new workspace
 prlt commit <message>    # Commit with ticket ID prefix
 prlt whoami              # Show current user
 prlt --help              # Show help
@@ -133,7 +133,7 @@ Manage agent work on tickets.
 
 ```bash
 # Spawn work for agent
-prlt work spawn TKT-001 alice
+prlt work spawn TKT-001 altman
 
 # Start work (auto-select agent)
 prlt work start TKT-001
@@ -161,7 +161,7 @@ prlt work spawn-all
 
 ## agent
 
-Manage AI coding agents.
+Manage AI coding agents (with billionaire-themed names by default!).
 
 ### Commands
 
@@ -180,17 +180,17 @@ Manage AI coding agents.
 ### Examples
 
 ```bash
-# Add agents
-prlt agent add alice bob carol
+# Add agents (billionaire names!)
+prlt agent add altman bezos musk
 
 # List agents
 prlt agent list
 
 # Open shell in agent workspace
-prlt agent shell alice
+prlt agent shell altman
 
 # Remove agent
-prlt agent remove bob
+prlt agent remove bezos
 ```
 
 ### Theme Subcommands
@@ -199,7 +199,7 @@ prlt agent remove bob
 # List available themes
 prlt agent themes list
 
-# Set theme
+# Set theme (billionaires is default)
 prlt agent themes set billionaires
 
 # Create custom theme
@@ -349,22 +349,6 @@ prlt epic ticket EPIC-001 TKT-001
 
 # View progress
 prlt epic progress EPIC-001
-```
-
-### Link Subcommands
-
-```bash
-# Add blocker
-prlt epic link block EPIC-001 EPIC-002
-
-# Mark duplicate
-prlt epic link duplicates EPIC-001 EPIC-002
-
-# Add related epic
-prlt epic link relates EPIC-001 EPIC-002
-
-# Remove link
-prlt epic link remove EPIC-001 EPIC-002
 ```
 
 ---
@@ -540,9 +524,6 @@ prlt status template apply --name "agile"
 # Create template
 prlt status template create --name "my-workflow"
 
-# Save current as template
-prlt status template save --name "my-workflow"
-
 # Delete template
 prlt status template delete --name "my-workflow"
 ```
@@ -609,19 +590,6 @@ prlt phase list
 prlt phase move --id 1 --position 2
 ```
 
-### Template Subcommands
-
-```bash
-# List templates
-prlt phase template list
-
-# Apply template
-prlt phase template apply --name "quarterly"
-
-# Create template
-prlt phase template create --name "my-phases"
-```
-
 ---
 
 ## Additional Commands
@@ -649,14 +617,6 @@ Set up shell autocomplete:
 
 ```bash
 prlt autocomplete setup
-```
-
-### execution
-
-View execution logs:
-
-```bash
-prlt execution logs <execution-id>
 ```
 
 ---

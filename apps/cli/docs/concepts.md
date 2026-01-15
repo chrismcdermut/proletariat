@@ -4,7 +4,7 @@ This document explains the fundamental concepts and architecture of Proletariat.
 
 ## Table of Contents
 
-- [HQ (Headquarters)](#hq-headquarters)
+- [Workspace](#workspace)
 - [PMO (Project Management Office)](#pmo-project-management-office)
 - [Tickets](#tickets)
 - [Agents](#agents)
@@ -17,41 +17,44 @@ This document explains the fundamental concepts and architecture of Proletariat.
 
 ---
 
-## HQ (Headquarters)
+## Workspace
 
-**HQ** is your central workspace - the root directory where Proletariat manages everything.
+A **workspace** is a directory that organizes all the repositories needed for a project, workstream, or entire business. It's your central command center for managing agents and work.
 
 ### Structure
 
 ```
-my-project-hq/
+my-workspace/
 ├── .proletariat/           # Configuration and database
 │   ├── config.json         # Workspace settings
 │   └── workspace.db        # SQLite database
 ├── repos/                  # Git repositories
-│   ├── backend/
-│   └── frontend/
+│   ├── backend-api/        # Could be one repo
+│   ├── frontend-web/       # or many repos
+│   └── mobile-app/         # for your business
 ├── agents/                 # Agent workspaces
 │   └── staff/
-│       ├── alice/          # Alice's worktree
-│       └── bob/            # Bob's worktree
+│       ├── altman/         # Each agent's worktree
+│       ├── bezos/
+│       └── musk/
 └── pmo/                    # Project Management Office
     ├── board.md            # Markdown board export
     └── specs/              # Specification files
 ```
 
-### Key Points
+### Use Cases
 
-- **One HQ per workspace** - Each HQ is self-contained with its own database
-- **Git repositories** - Store your repos in `repos/` for agent access
-- **Agent isolation** - Each agent has a separate directory with its own git worktree
-- **Portable** - The entire HQ can be moved or backed up as a unit
+A workspace can organize:
 
-### Creating an HQ
+- **Single project** - One repo, a few agents working on features
+- **Full product** - Multiple repos (frontend, backend, mobile), coordinated work
+- **Entire business** - All company repos, multiple teams worth of agents
+
+### Creating a Workspace
 
 ```bash
-mkdir my-project-hq
-cd my-project-hq
+mkdir my-workspace
+cd my-workspace
 prlt init
 ```
 
@@ -59,7 +62,7 @@ prlt init
 
 ## PMO (Project Management Office)
 
-**PMO** is the work management system within your HQ. It tracks tickets, specs, epics, and projects.
+**PMO** is the work management system within your workspace. It tracks tickets, specs, epics, and projects.
 
 ### Components
 
@@ -116,7 +119,7 @@ PMO follows a ticket-driven workflow:
 | **Priority** | Urgency level | P0, P1, P2, P3 |
 | **Category** | Work type | feature, bug, docs |
 | **Status** | Workflow state | backlog, in-progress |
-| **Assignee** | Assigned agent | alice, bob |
+| **Assignee** | Assigned agent | altman, bezos |
 
 ### Priority Levels
 
@@ -142,23 +145,38 @@ PMO follows a ticket-driven workflow:
 
 ## Agents
 
-**Agents** are AI coding assistants that work on tickets. Each agent operates in an isolated environment.
+**Agents** are AI coding assistants that work on tickets. Each agent operates in an isolated environment and uses billionaire-themed names by default for fun!
 
 ### Agent Characteristics
 
-- **Named identity** - alice, bob, carol, etc.
+- **Named identity** - altman, bezos, musk, gates, etc.
 - **Isolated workspace** - Separate git worktree per agent
 - **Docker container** - Optional containerized execution
 - **Assigned work** - Works on tickets assigned to them
+
+### Default Agent Names (Billionaire Theme)
+
+- altman (Sam Altman)
+- bezos (Jeff Bezos)
+- musk (Elon Musk)
+- gates (Bill Gates)
+- zuck (Mark Zuckerberg)
+- nadella (Satya Nadella)
+- pichai (Sundar Pichai)
+- cook (Tim Cook)
+- brin (Sergey Brin)
+- page (Larry Page)
+- ellison (Larry Ellison)
+- ballmer (Steve Ballmer)
 
 ### Agent Isolation Model
 
 ```
 ┌─────────────────────────────────────┐
-│              HQ                      │
+│            Workspace                 │
 │  ┌─────────┐   ┌─────────┐          │
 │  │ Agent   │   │ Agent   │          │
-│  │ Alice   │   │ Bob     │          │
+│  │ altman  │   │ bezos   │          │
 │  │ ┌─────┐ │   │ ┌─────┐ │          │
 │  │ │ Git │ │   │ │ Git │ │  Repos   │
 │  │ │Work-│ │   │ │Work-│ │  ┌─────┐ │
@@ -182,10 +200,10 @@ PMO follows a ticket-driven workflow:
 
 ```bash
 # Add agent
-prlt agent add alice
+prlt agent add altman
 
 # Agent works on ticket
-prlt work spawn TKT-001 alice
+prlt work spawn TKT-001 altman
 
 # Agent finishes, creates PR
 # Review and merge PR
@@ -398,7 +416,7 @@ Output:
 │   Backlog    │   Planned    │ In Progress  │  In Review   │     Done     │
 ├──────────────┼──────────────┼──────────────┼──────────────┼──────────────┤
 │ TKT-005      │ TKT-003      │ TKT-001      │ TKT-002      │ TKT-004      │
-│ P3 docs      │ P2 feature   │ alice        │ bob          │ completed    │
+│ P3 docs      │ P2 feature   │ altman       │ bezos        │ completed    │
 │              │ TKT-004      │ P0 feature   │ P1 bug       │              │
 │              │ P2 refactor  │              │              │              │
 └──────────────┴──────────────┴──────────────┴──────────────┴──────────────┘
@@ -491,13 +509,13 @@ prlt spec link depends SPEC-001 SPEC-002
 
 ## Mental Model Summary
 
-1. **HQ** is your workspace root
+1. **Workspace** organizes repos for a project, workstream, or business
 2. **PMO** manages all work items
 3. **Projects** organize work into domains
 4. **Epics** group related tickets
 5. **Specs** define detailed requirements
 6. **Tickets** are atomic work units
-7. **Agents** work on tickets in isolation
+7. **Agents** (altman, bezos, musk...) work on tickets in isolation
 8. **Work/Execution** is the active running of ticket work
 9. **Board** visualizes workflow status
 

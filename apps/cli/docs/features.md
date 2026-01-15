@@ -113,7 +113,7 @@ Work commands manage the execution of tickets by agents.
 
 ```bash
 # Spawn work in Docker container
-prlt work spawn TKT-001 alice
+prlt work spawn TKT-001 altman
 
 # Start work (auto-select agent)
 prlt work start TKT-001
@@ -172,19 +172,19 @@ prlt work complete TKT-001
 
 ## Agent Management
 
-Agents are AI coding assistants that work in isolated environments.
+Agents are AI coding assistants that work in isolated environments. They use fun billionaire-themed names by default!
 
 ### Adding and Removing
 
 ```bash
 # Add single agent
-prlt agent add alice
+prlt agent add altman
 
 # Add multiple agents
-prlt agent add alice bob carol
+prlt agent add altman bezos musk gates
 
 # Remove agent
-prlt agent remove alice
+prlt agent remove altman
 ```
 
 ### Listing and Status
@@ -194,23 +194,23 @@ prlt agent remove alice
 prlt agent list
 
 # View agent status
-prlt agent status alice
+prlt agent status altman
 ```
 
 ### Agent Interaction
 
 ```bash
 # Open shell in agent workspace
-prlt agent shell alice
+prlt agent shell altman
 
 # Visit agent directory
-prlt agent visit alice
+prlt agent visit altman
 
 # Rebuild agent environment
-prlt agent rebuild alice
+prlt agent rebuild altman
 
 # Restart agent
-prlt agent restart alice
+prlt agent restart altman
 ```
 
 ### Agent Themes
@@ -221,7 +221,7 @@ Customize agent names with themes:
 # List available themes
 prlt agent themes list
 
-# Set a theme
+# Set a theme (billionaires is default)
 prlt agent themes set billionaires
 
 # Create custom theme
@@ -230,6 +230,8 @@ prlt agent themes create --name "my-theme"
 # Add names to theme
 prlt agent themes add-names my-theme alice bob carol
 ```
+
+**Default billionaire names:** altman, bezos, musk, gates, zuck, nadella, pichai, cook, brin, page, ellison, ballmer...
 
 ---
 
@@ -258,7 +260,7 @@ prlt board watch
 │   Backlog    │   Planned    │ In Progress  │  In Review   │     Done     │
 ├──────────────┼──────────────┼──────────────┼──────────────┼──────────────┤
 │ TKT-003      │ TKT-002      │ TKT-001      │              │              │
-│ P2 feature   │ P1 bug       │ alice        │              │              │
+│ P2 feature   │ P1 bug       │ altman       │              │              │
 │              │              │ P0 feature   │              │              │
 └──────────────┴──────────────┴──────────────┴──────────────┴──────────────┘
 ```
@@ -384,22 +386,6 @@ prlt epic spec EPIC-001 SPEC-001
 prlt epic progress EPIC-001
 ```
 
-### Epic Dependencies
-
-```bash
-# Add blocker
-prlt epic link block EPIC-001 EPIC-002
-
-# Mark as duplicate
-prlt epic link duplicates EPIC-001 EPIC-002
-
-# Add related epic
-prlt epic link relates EPIC-001 EPIC-002
-
-# Remove link
-prlt epic link remove EPIC-001 EPIC-002
-```
-
 ---
 
 ## Project Organization
@@ -430,13 +416,6 @@ prlt project archive PROJ-001
 
 # Unarchive project
 prlt project unarchive PROJ-001
-```
-
-### Project Specs
-
-```bash
-# Add spec to project
-prlt project spec PROJ-001 SPEC-001
 ```
 
 ---
@@ -479,16 +458,6 @@ prlt docker clean
 
 # Prune unused containers
 prlt docker prune
-```
-
-### Sync and Status
-
-```bash
-# Sync container state
-prlt docker sync
-
-# View container status
-prlt docker status
 ```
 
 ---
@@ -576,61 +545,6 @@ prlt status template apply --name "agile"
 
 # Create template
 prlt status template create --name "my-workflow"
-
-# Delete template
-prlt status template delete --name "my-workflow"
-```
-
----
-
-## Additional Features
-
-### Commit Helper
-
-```bash
-# Smart commit with ticket ID
-prlt commit "your commit message"
-# Output: feat(TKT-001): your commit message
-```
-
-### Execution Logs
-
-```bash
-# View execution logs
-prlt execution logs <execution-id>
-```
-
-### Actions
-
-Custom workflow actions:
-
-```bash
-# Create action
-prlt action create --name "deploy"
-
-# List actions
-prlt action list
-
-# Run action
-prlt action run deploy
-
-# Show action details
-prlt action show deploy
-```
-
-### Phase Management
-
-For roadmap phases:
-
-```bash
-# Create phase
-prlt phase create --name "MVP Launch"
-
-# List phases
-prlt phase list
-
-# Move phase
-prlt phase move --id 1 --position 2
 ```
 
 ---
