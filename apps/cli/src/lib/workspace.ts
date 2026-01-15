@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import chalk from 'chalk';
+import { getGlobalConfigPath } from './paths.js';
 
 /**
  * Central workspace resolution utilities.
@@ -65,7 +66,7 @@ export function findHQRootWithSource(startDir: string = process.cwd()): Workspac
   }
 
   // 3. Check global config for default workspace
-  const globalConfigPath = path.join(process.env.HOME || '', '.proletariat', 'config.json');
+  const globalConfigPath = getGlobalConfigPath();
   if (fs.existsSync(globalConfigPath)) {
     try {
       const config = JSON.parse(fs.readFileSync(globalConfigPath, 'utf-8'));

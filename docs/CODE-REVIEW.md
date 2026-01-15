@@ -69,6 +69,78 @@ pnpm test
 pnpm prlt <command>
 ```
 
+## Local Development Testing
+
+When dogfooding prlt to build prlt with multiple agent worktrees on different feature branches, you need isolation to prevent database conflicts. The CLI supports the `PRLT_HOME` environment variable to override the default `.proletariat` directory location.
+
+### Quick Local Testing
+
+Test your local build with the shared database:
+
+```bash
+# Run from anywhere in the workspace - pnpm finds root automatically
+pnpm prlt ticket list
+pnpm prlt work start TKT-XXX
+```
+
+### Isolated Testing (No Conflicts)
+
+For testing without affecting the shared database:
+
+```bash
+# Uses an ephemeral database in /tmp
+pnpm prlt:test init my-test-workspace
+pnpm prlt:test ticket create "Test ticket"
+```
+
+### Manual Isolation
+
+Override the `.proletariat` directory location manually:
+
+```bash
+# All data goes to /tmp/my-test instead of ~/.proletariat
+PRLT_HOME=/tmp/my-test pnpm prlt ticket create "Isolated test"
+
+# Or for persistent test databases
+export PRLT_HOME=/tmp/prlt-dev
+pnpm prlt init my-dev-hq
+pnpm prlt ticket list
+```
+
+### Multi-Agent/Branch Development
+
+When multiple agents are building prlt on different branches:
+
+1. Each agent can use a unique `PRLT_HOME` to avoid database conflicts
+2. The global `prlt` command always uses `~/.proletariat` (shared HQ)
+3. Local `pnpm prlt` uses the local build but respects `PRLT_HOME`
+
+```bash
+# Agent 1 on branch feature-a
+export PRLT_HOME=/tmp/prlt-agent1
+pnpm prlt:test init test-hq
+
+# Agent 2 on branch feature-b (different terminal)
+export PRLT_HOME=/tmp/prlt-agent2
+pnpm prlt:test init test-hq
+```
+
+### Environment Variable Reference
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `PRLT_HOME` | Override global `.proletariat` directory | `~/.proletariat` |
+| `PRLT_HQ_PATH` | Specify HQ workspace location | Auto-detected from cwd |
+
+`PRLT_HOME` affects:
+- Global config (`config.json`)
+- Logs directory
+- Scripts directory
+
+`PRLT_HQ_PATH` affects:
+- Workspace discovery (skips directory tree walk)
+- PMO resolution
+
 ### Native Module Issues
 
 If you see errors like `dlopen(...better_sqlite3.node...): not a mach-o file`:

@@ -15,7 +15,7 @@
     "push:cli:force": "git push cli-public `git subtree split --prefix=apps/cli HEAD`:main --force",
     "pull:cli": "git subtree pull --prefix=apps/cli cli-public main --squash",
     "prlt": "node apps/cli/bin/run.js",
-    "prlt:isolated": "PRLT_HQ_PATH=/tmp/prlt-test-$RANDOM node apps/cli/bin/run.js",
+    "prlt:test": "PRLT_HOME=/tmp/prlt-test-$$ node apps/cli/bin/run.js",
     "test": "pnpm -r test",
     "test:cli": "pnpm --filter @proletariat/cli test"
   }

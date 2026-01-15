@@ -17,6 +17,7 @@ import {
   ExecutionConfig,
   DEFAULT_EXECUTION_CONFIG,
 } from './types.js'
+import { getLogsDir, getScriptsDir } from '../paths.js'
 
 // =============================================================================
 // Executor Commands
@@ -213,7 +214,7 @@ export async function runBackground(
   }
 
   // Create logs directory
-  const logsDir = path.join(os.homedir(), '.proletariat', 'logs')
+  const logsDir = getLogsDir()
   fs.mkdirSync(logsDir, { recursive: true })
 
   const logPath = path.join(logsDir, `work-${context.ticketId}-${Date.now()}.log`)
@@ -249,9 +250,7 @@ function createTmuxScript(
   skipPermissions: boolean
 ): { scriptPath: string; promptPath: string } {
   // Write prompt to separate file to avoid shell escaping issues
-  const baseDir = context.hqPath
-    ? path.join(context.hqPath, '.proletariat', 'scripts')
-    : path.join(os.homedir(), '.proletariat', 'scripts')
+  const baseDir = getScriptsDir(context.hqPath)
   fs.mkdirSync(baseDir, { recursive: true })
 
   const timestamp = Date.now()
@@ -401,10 +400,8 @@ export async function runTerminal(
   const { cmd } = getExecutorCommand(executor, prompt, skipPermissions)
 
   // Write command to temp script to avoid shell escaping issues
-  // Use HQ .proletariat/scripts if available, otherwise fallback to home dir
-  const baseDir = context.hqPath
-    ? path.join(context.hqPath, '.proletariat', 'scripts')
-    : path.join(os.homedir(), '.proletariat', 'scripts')
+  // Use HQ .proletariat/scripts if available, otherwise fallback to PRLT_HOME
+  const baseDir = getScriptsDir(context.hqPath)
   fs.mkdirSync(baseDir, { recursive: true })
 
   const timestamp = Date.now()
@@ -898,10 +895,8 @@ async function runDevcontainerInTerminal(
   const terminalApp = config.terminal.app
 
   // Write command to temp script to avoid shell escaping issues
-  // Use HQ .proletariat/scripts if available, otherwise fallback to home dir
-  const baseDir = context.hqPath
-    ? path.join(context.hqPath, '.proletariat', 'scripts')
-    : path.join(os.homedir(), '.proletariat', 'scripts')
+  // Use HQ .proletariat/scripts if available, otherwise fallback to PRLT_HOME
+  const baseDir = getScriptsDir(context.hqPath)
   fs.mkdirSync(baseDir, { recursive: true })
   const scriptPath = path.join(baseDir, `exec-${context.ticketId}-${Date.now()}.sh`)
 
@@ -1025,7 +1020,7 @@ async function runDevcontainerInBackground(
   devcontainerCmd: string
 ): Promise<RunnerResult> {
   // Create logs directory
-  const logsDir = path.join(os.homedir(), '.proletariat', 'logs')
+  const logsDir = getLogsDir()
   fs.mkdirSync(logsDir, { recursive: true })
 
   const logPath = path.join(logsDir, `work-${context.ticketId}-${Date.now()}.log`)
@@ -1063,9 +1058,7 @@ async function runDevcontainerInTmux(
     execSync('which tmux', { stdio: 'pipe' })
 
     // Write command to temp script to avoid shell escaping issues
-    const baseDir = context.hqPath
-      ? path.join(context.hqPath, '.proletariat', 'scripts')
-      : path.join(os.homedir(), '.proletariat', 'scripts')
+    const baseDir = getScriptsDir(context.hqPath)
     fs.mkdirSync(baseDir, { recursive: true })
     const scriptPath = path.join(baseDir, `exec-${context.ticketId}-${Date.now()}.sh`)
 

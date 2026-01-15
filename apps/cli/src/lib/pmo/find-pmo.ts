@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
 import { findHQRoot, isValidHQ } from '../workspace.js';
+import { getGlobalConfigPath } from '../paths.js';
 
 /**
  * Resolve PMO path from stored value.
@@ -155,7 +156,7 @@ export function findPMO(): string | null {
   }
 
   // Check global config for default PMO
-  const globalConfigPath = path.join(process.env.HOME || '', '.proletariat', 'config.json');
+  const globalConfigPath = getGlobalConfigPath();
   if (fs.existsSync(globalConfigPath)) {
     try {
       const config = JSON.parse(fs.readFileSync(globalConfigPath, 'utf-8'));
