@@ -10,6 +10,7 @@ Proletariat (`prlt`) is a CLI tool for managing multiple AI coding agents workin
 ## Why Proletariat?
 
 AI coding assistants are powerful, but managing multiple agents on the same codebase is chaotic:
+
 - Agents conflict with each other's changes
 - No clear assignment of who's working on what
 - Progress is scattered across chat windows
@@ -25,137 +26,262 @@ Proletariat solves this with:
 
 ## Quick Start
 
+Get up and running in under 5 minutes:
+
 ```bash
-# Install
+# 1. Install prlt globally
 npm install -g @proletariat/cli
 
-# Initialize a new HQ (headquarters)
+# 2. Initialize a new HQ (headquarters) - your workspace
 prlt init
 
-# Create your first ticket
-prlt ticket create
+# 3. Create your first ticket
+prlt ticket create --title "Add user authentication" --description "Implement JWT auth"
 
-# Add agents to work on tickets
+# 4. Add AI agents to work on tickets
 prlt agent add alice bob
 
-# Spawn work for an agent
+# 5. Spawn work - agent starts working in Docker container
 prlt work spawn TKT-001 alice
 
-# Check progress
-prlt board
-prlt ticket list
+# 6. Monitor progress
+prlt board              # View kanban board
+prlt work logs TKT-001  # Watch agent output
+```
+
+See the [Getting Started Guide](docs/getting-started.md) for detailed onboarding.
+
+## Prerequisites
+
+- **Node.js 18+** - Required for running the CLI
+- **Git** - Required for version control operations
+- **Docker** (optional) - For containerized agent execution
+- **pnpm** (optional) - For development
+
+## Installation
+
+### npm (recommended)
+
+```bash
+npm install -g @proletariat/cli
+```
+
+### pnpm
+
+```bash
+pnpm add -g @proletariat/cli
+```
+
+### yarn
+
+```bash
+yarn global add @proletariat/cli
+```
+
+### Verify installation
+
+```bash
+prlt --version
+prlt --help
 ```
 
 ## How It Works
 
-### 1. Create an HQ
+### 1. Create an HQ (Headquarters)
 
-Your HQ (headquarters) is the central command center:
+Your HQ is the central command center for managing agents and work:
 
 ```
 my-project-hq/
 ├── .proletariat/        # Config and workspace database
-├── repos/               # Your repositories
+│   ├── config.json      # Workspace configuration
+│   └── workspace.db     # SQLite database
+├── repos/               # Your git repositories
+│   └── my-repo/
 ├── agents/              # Agent worktrees
-└── pmo/                 # Tickets, specs, and board
+│   └── staff/
+│       ├── alice/       # Alice's isolated workspace
+│       └── bob/         # Bob's isolated workspace
+└── pmo/                 # Project Management Office
+    ├── board.md         # Markdown kanban board
+    └── specs/           # Specification files
 ```
 
 ### 2. Define Work as Tickets
 
+Create tickets to describe the work you want agents to complete:
+
 ```bash
 prlt ticket create
-# Enter title: Add user authentication
-# Enter description: Implement JWT-based auth with refresh tokens...
+# Interactive prompts guide you through:
+# - Title: What needs to be done
+# - Description: Details and requirements
+# - Priority: P0 (critical) to P3 (low)
+# - Category: feature, bug, docs, etc.
 ```
 
 ### 3. Assign to Agents
 
 ```bash
-prlt agent add alice
+# Add agents with meaningful names
+prlt agent add alice bob carol
+
+# Assign a ticket to an agent
 prlt ticket assign TKT-001 alice
 ```
 
 ### 4. Spawn Work
 
 ```bash
+# Start an agent working on a ticket
 prlt work spawn TKT-001 alice
-# Starts Docker container with Claude Code
-# Agent reads ticket, writes code, creates PR
+
+# What happens:
+# 1. Docker container starts with Claude Code
+# 2. Agent reads the ticket context
+# 3. Agent writes code in isolated branch
+# 4. Agent creates a PR when done
 ```
 
 ### 5. Review and Merge
 
 ```bash
-prlt work logs TKT-001      # Watch agent progress
-prlt pr status TKT-001      # Check PR status
-# Review PR in GitHub, merge when ready
+# Watch agent progress in real-time
+prlt work logs TKT-001
+
+# Check PR status
+prlt pr status TKT-001
+
+# When ready, review and merge in GitHub
 ```
 
 ## Key Concepts
 
 | Concept | Description |
 |---------|-------------|
-| **HQ** | Your workspace root with repos, agents, and PMO |
-| **Agent** | An AI assistant with its own git branch and container |
-| **PMO** | Project Management Office - tickets, specs, board |
-| **Ticket** | A work item flowing through backlog → in-progress → done |
+| **HQ** | Headquarters - your workspace root with repos, agents, and PMO |
+| **Agent** | An AI coding assistant with its own git branch and container |
+| **PMO** | Project Management Office - tickets, specs, epics, and board |
+| **Ticket** | A work item that flows through status columns |
 | **Spec** | Detailed requirements that can be linked to tickets |
+| **Epic** | A collection of related tickets for larger features |
 
-## Commands
+See [Concepts](docs/concepts.md) for detailed explanations.
+
+## Command Overview
+
+### Workspace
 
 ```bash
-# Workspace
-prlt init                    # Create new HQ
+prlt init                    # Initialize new HQ
 prlt workspace list          # List discovered workspaces
-
-# Agents
-prlt agent add <names...>    # Add agents
-prlt agent list              # List agents
-prlt agent shell <name>      # Shell into agent workspace
-
-# Tickets
-prlt ticket create           # Create ticket
-prlt ticket list             # List tickets
-prlt ticket assign <id> <agent>
-prlt ticket move <id> <status>
-
-# Work
-prlt work spawn <ticket> <agent>
-prlt work list
-prlt work logs <ticket>
-
-# Board
-prlt board                   # Show kanban board
 ```
 
-Run `prlt --help` for full command reference.
+### Agents
 
-## Requirements
+```bash
+prlt agent add <names...>    # Add new agents
+prlt agent list              # List all agents
+prlt agent remove <name>     # Remove an agent
+prlt agent shell <name>      # Open shell in agent workspace
+```
 
-- Node.js 18+
-- Docker (optional, for containerized agents)
-- Git
+### Tickets
+
+```bash
+prlt ticket create           # Create new ticket (interactive)
+prlt ticket list             # List all tickets
+prlt ticket view <id>        # View ticket details
+prlt ticket edit <id>        # Edit ticket
+prlt ticket move <id> <status>  # Move to status
+prlt ticket delete <id>      # Delete ticket
+```
+
+### Work
+
+```bash
+prlt work spawn <ticket> <agent>  # Start agent on ticket
+prlt work start <ticket>          # Start work (auto-select agent)
+prlt work list                    # List active work
+prlt work logs <ticket>           # View agent output
+prlt work ready <ticket>          # Mark work ready for review
+prlt work complete <ticket>       # Mark work complete
+```
+
+### Board
+
+```bash
+prlt board                   # Show kanban board
+prlt board watch             # Watch board for changes
+```
+
+### Pull Requests
+
+```bash
+prlt pr create               # Create PR for current branch
+prlt pr status <ticket>      # Check PR status
+prlt pr link <ticket> <url>  # Link PR to ticket
+```
+
+### Specs & Epics
+
+```bash
+prlt spec create             # Create specification
+prlt spec list               # List all specs
+prlt epic create             # Create epic
+prlt epic list               # List all epics
+```
+
+Run `prlt --help` for full command reference, or see [Command Reference](docs/commands/README.md).
+
+## Features
+
+### Ticket Management
+- Create, edit, view, and delete tickets
+- Move tickets through workflow statuses
+- Link tickets to specs and epics
+- Bulk operations for managing multiple tickets
+
+### Agent Orchestration
+- Add and configure AI coding agents
+- Isolated Docker containers for each agent
+- Git worktrees for branch isolation
+- Support for Claude Code, Cursor, and more
+
+### Board Visualization
+- Kanban board view in terminal
+- Real-time updates with watch mode
+- Markdown export for Obsidian compatibility
+
+### GitHub Integration
+- Create PRs from CLI
+- Link tickets to PRs
+- Track PR status
+
+### Project Organization
+- Multiple projects within one workspace
+- Epics for grouping related tickets
+- Specs for detailed requirements
+
+See [Features](docs/features.md) for detailed documentation.
 
 ## Documentation
 
-- [CLI README](apps/cli/README.md) - Detailed command documentation
-- [CONTRIBUTING.md](CONTRIBUTING.md) - Development guidelines
-- [ROADMAP.md](ROADMAP.md) - Feature roadmap
-
-## Project Structure
-
-```
-proletariat/
-├── apps/
-│   └── cli/           # Main CLI application (oclif)
-├── packages/          # Shared packages (coming soon)
-├── ROADMAP.md         # Feature roadmap
-└── CONTRIBUTING.md    # Development guidelines
-```
+| Document | Description |
+|----------|-------------|
+| [Getting Started](docs/getting-started.md) | Step-by-step onboarding guide |
+| [Features](docs/features.md) | Feature overview and capabilities |
+| [Concepts](docs/concepts.md) | Core concepts and architecture |
+| [Command Reference](docs/commands/README.md) | All commands with examples |
+| [ROADMAP](ROADMAP.md) | Upcoming features and releases |
 
 ## Development
 
 ```bash
+# Clone the repo
+git clone https://github.com/proletariat-ai/proletariat.git
+cd proletariat
+
 # Install dependencies
 pnpm install
 
@@ -165,8 +291,21 @@ pnpm build:cli
 # Run locally
 pnpm prlt <command>
 
-# Run with isolated test database
-pnpm prlt:isolated <command>
+# Run tests
+pnpm test
+```
+
+## Project Structure
+
+```
+proletariat/
+├── apps/
+│   └── cli/           # Main CLI application (oclif)
+├── docs/              # Documentation
+├── specs/             # Detailed specifications
+├── scripts/           # Build and utility scripts
+├── ROADMAP.md         # Feature roadmap
+└── CONTRIBUTING.md    # Development guidelines
 ```
 
 ## Roadmap
@@ -179,6 +318,12 @@ See [ROADMAP.md](ROADMAP.md) for the full roadmap. Key upcoming features:
 - MCP server for meta-orchestration
 - Plugin system for custom integrations
 
+## Requirements
+
+- Node.js 18+
+- Docker (optional, for containerized agents)
+- Git
+
 ## License
 
 Apache 2.0 - See [LICENSE](LICENSE) for details.
@@ -186,6 +331,11 @@ Apache 2.0 - See [LICENSE](LICENSE) for details.
 ## Contributing
 
 Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## Support
+
+- [GitHub Issues](https://github.com/proletariat-ai/proletariat/issues) - Report bugs and request features
+- [Documentation](docs/) - Comprehensive guides and references
 
 ---
 

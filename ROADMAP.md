@@ -1,6 +1,14 @@
-# PRLT Roadmap
+# Proletariat Roadmap
 
-Generated from PMO database. Source of truth: `workspace.db`
+This roadmap outlines the planned features and improvements for Proletariat. Items are organized by release phase and priority.
+
+**Legend:**
+- **P0** - Critical / Must have
+- **P1** - High priority
+- **P2** - Medium priority
+- **P3** - Nice to have
+
+> This roadmap is generated from our internal PMO database and reflects current planning priorities.
 
 ---
 

@@ -182,9 +182,13 @@ Data is stored in SQLite (`workspace.db`) with markdown sync to `board.md` for O
 
 ## Related Documentation
 
-- [CONTRIBUTING.md](../../CONTRIBUTING.md) - Development guidelines
+- [Main Documentation](../../docs/README.md) - Full documentation index
+- [Getting Started](../../docs/getting-started.md) - Step-by-step onboarding
+- [Features](../../docs/features.md) - Feature overview
+- [Concepts](../../docs/concepts.md) - Core concepts and architecture
+- [Command Reference](../../docs/commands/README.md) - All commands
 - [ROADMAP.md](../../ROADMAP.md) - Feature roadmap
-- [SYSTEM.md](./SYSTEM.md) - Technical architecture (if exists)
+- [CONTRIBUTING.md](../../CONTRIBUTING.md) - Development guidelines
 
 ## License
 
