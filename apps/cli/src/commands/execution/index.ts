@@ -25,10 +25,10 @@ export default class Execution extends PMOCommand {
         name: 'action',
         message: 'What would you like to do?',
         choices: [
+          { name: '📋 List all executions', value: 'list' },
           { name: '📜 View logs for an execution', value: 'logs' },
           { name: '🛑 Stop an execution', value: 'stop' },
-          new inquirer.Separator(),
-          { name: '📋 List all executions', value: 'list' },
+          { name: '🛑 Stop all running', value: 'stop-all' },
           new inquirer.Separator(),
           { name: '❌ Cancel', value: 'cancel' },
         ],
@@ -40,14 +40,16 @@ export default class Execution extends PMOCommand {
     }
 
     // Run the selected subcommand
-    const commands: Record<string, string> = {
-      logs: 'execution:logs',
-      stop: 'execution:stop',
-      list: 'executions:list',
+    const commands: Record<string, { cmd: string; args: string[] }> = {
+      list: { cmd: 'execution:list', args: [] },
+      logs: { cmd: 'execution:logs', args: [] },
+      stop: { cmd: 'execution:stop', args: [] },
+      'stop-all': { cmd: 'execution:stop', args: ['--all'] },
     }
 
-    if (commands[action]) {
-      await this.config.runCommand(commands[action], [])
+    const command = commands[action]
+    if (command) {
+      await this.config.runCommand(command.cmd, command.args)
     }
   }
 }
