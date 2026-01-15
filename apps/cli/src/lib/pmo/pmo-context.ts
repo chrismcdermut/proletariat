@@ -26,6 +26,7 @@ export interface GetPMOContextOptions {
   logger?: (msg: string) => void;
   promptIfMultiple?: boolean;
   filterEmptyProjects?: boolean;  // Hide projects with no tickets (for work commands)
+  skipProjectSelection?: boolean; // For cross-project operations, skip project selection entirely
 }
 
 /**
@@ -57,6 +58,7 @@ export async function getPMOContext(
     logger: loggerOpt,
     promptIfMultiple: promptIfMultipleOpt = false,
     filterEmptyProjects = false,
+    skipProjectSelection = false,
   } = options;
   // Find PMO
   const pmoPath = findPMO();
@@ -75,7 +77,7 @@ export async function getPMOContext(
 
   // If no project ID specified, try to auto-detect from config or prompt if multiple exist
   let resolvedProjectId = projectIdOpt;
-  if (!resolvedProjectId) {
+  if (!resolvedProjectId && !skipProjectSelection) {
     // Check if there are multiple projects
     const db = new Database(dbPath);
 
@@ -121,6 +123,10 @@ export async function getPMOContext(
       }]);
       resolvedProjectId = selectedProjectId;
     }
+  } else if (skipProjectSelection && !resolvedProjectId) {
+    // For cross-project operations, use 'default' as a placeholder project ID
+    // The storage will be initialized but the project filter will be skipped in queries
+    resolvedProjectId = 'default';
   }
 
   // Detect sync mode: 'git' enables multi-machine sync via git push/pull of board.md

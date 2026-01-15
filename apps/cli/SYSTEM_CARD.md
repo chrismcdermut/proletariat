@@ -161,18 +161,19 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 | `prlt ticket status [id]`        | ✓  | ✓  | -  | -  | Show ticket status      | [tickets.md](../../specs/domain/tickets.md)     |
 | `prlt ticket link [id] [epic-id]`| ✓  | ✓  | -  | -  | Link ticket to epic     | [tickets.md](../../specs/domain/tickets.md)     |
 
-#### Bulk Ticket Commands (`prlt tickets`)
+#### Bulk Ticket Commands (`prlt ticket --bulk`)
 
-| Command                 | 📝 | ✅ | 🧪 | 👤 | Description                           | Spec                                            |
-| ----------------------- | -- | -- | -- | -- | ------------------------------------- | ----------------------------------------------- |
-| `prlt tickets`          | ✓  | ✓  | -  | -  | Interactive bulk operations menu      | [tickets.md](../../specs/domain/tickets.md)     |
-| `prlt tickets list`     | ✓  | ✓  | -  | -  | List all tickets with filtering       | [tickets.md](../../specs/domain/tickets.md)     |
-| `prlt tickets move`     | ✓  | ✓  | -  | -  | Move multiple tickets to column       | [tickets.md](../../specs/domain/tickets.md)     |
-| `prlt tickets delete`   | ✓  | ✓  | -  | -  | Delete multiple tickets               | [tickets.md](../../specs/domain/tickets.md)     |
-| `prlt tickets complete` | ✓  | ✓  | -  | -  | Complete multiple tickets             | [tickets.md](../../specs/domain/tickets.md)     |
-| `prlt tickets reassign` | ✓  | ✓  | -  | -  | Reassign tickets to different agent   | [tickets.md](../../specs/domain/tickets.md)     |
-| `prlt tickets link`     | ✓  | ✓  | -  | -  | Link tickets to different epic        | [tickets.md](../../specs/domain/tickets.md)     |
-| `prlt tickets update`   | ✓  | ✓  | -  | -  | Update priority/category for multiple | [tickets.md](../../specs/domain/tickets.md)     |
+| Command                        | 📝 | ✅ | 🧪 | 👤 | Description                           | Spec                                            |
+| ------------------------------ | -- | -- | -- | -- | ------------------------------------- | ----------------------------------------------- |
+| `prlt ticket bulk`             | ✓  | ✓  | -  | -  | Interactive bulk operations menu      | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt ticket move --bulk`      | ✓  | ✓  | -  | -  | Move multiple tickets to column       | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt ticket delete --bulk`    | ✓  | ✓  | -  | -  | Delete multiple tickets               | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt ticket complete --bulk`  | ✓  | ✓  | -  | -  | Complete multiple tickets             | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt ticket reassign --bulk`  | ✓  | ✓  | -  | -  | Reassign tickets to different agent   | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt ticket epic --bulk`      | ✓  | ✓  | -  | -  | Link tickets to different epic        | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt ticket update --bulk`    | ✓  | ✓  | -  | -  | Update priority/category for multiple | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt ticket spec --bulk`      | ✓  | ✓  | -  | -  | Assign spec to multiple tickets       | [tickets.md](../../specs/domain/tickets.md)     |
+| `prlt ticket project --bulk`   | ✓  | ✓  | -  | -  | Move multiple tickets to project      | [tickets.md](../../specs/domain/tickets.md)     |
 
 #### Work Commands (Ownership, Assignment & Execution)
 
@@ -603,7 +604,7 @@ Detailed specifications for each domain are in the `specs/domain/` directory at 
 - [agents.md](../../specs/domain/agents.md) - `prlt agent`, `prlt agents`
 - [projects.md](../../specs/domain/projects.md) - `prlt project`
 - [board.md](../../specs/domain/board.md) - `prlt board`
-- [tickets.md](../../specs/domain/tickets.md) - `prlt ticket`, `prlt tickets` (CRUD operations)
+- [tickets.md](../../specs/domain/tickets.md) - `prlt ticket`, `prlt ticket --bulk` (CRUD operations)
 - [specs.md](../../specs/domain/specs.md) - `prlt spec` (static documentation)
 - [epics.md](../../specs/domain/epics.md) - `prlt epic` (work containers)
 - [work.md](../../specs/domain/work.md) - `prlt work` (ownership, assignment, execution), `prlt execution` (runtime management)

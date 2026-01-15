@@ -1,14 +1,12 @@
 import inquirer from 'inquirer';
-import { colors } from '../../lib/colors.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { styles } from '../../lib/styles.js';
 
-export default class Tickets extends PMOCommand {
-  static description = 'Manage tickets in bulk';
+export default class TicketBulk extends PMOCommand {
+  static description = 'Manage tickets in bulk (interactive menu)';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> list',
-    '<%= config.bin %> <%= command.id %> move',
-    '<%= config.bin %> <%= command.id %> delete',
+    '<%= config.bin %> <%= command.id %>',
   ];
 
   static flags = {
@@ -20,7 +18,7 @@ export default class Tickets extends PMOCommand {
   }
 
   async execute(): Promise<void> {
-    this.log(colors.primary('🎫 Ticket Management (Bulk Operations)'));
+    this.log(styles.emphasis('🎫 Ticket Management (Bulk Operations)'));
     this.log('');
 
     const { action } = await inquirer.prompt([{
@@ -33,32 +31,33 @@ export default class Tickets extends PMOCommand {
         { name: '✅ Complete multiple tickets', value: 'complete' },
         new inquirer.Separator(),
         { name: '👤 Reassign tickets (change assignee)', value: 'reassign' },
-        { name: '🔗 Link tickets to epic', value: 'link' },
+        { name: '🔗 Link tickets to epic', value: 'epic' },
         { name: '📄 Link tickets to spec', value: 'spec' },
         { name: '📁 Move tickets to project', value: 'project' },
         { name: '✏️  Update tickets (priority/category)', value: 'update' },
         new inquirer.Separator(),
         { name: '🗑️  Delete multiple tickets', value: 'delete' },
         new inquirer.Separator(),
-        { name: '❌ Cancel', value: 'cancel' }
+        { name: 'Cancel', value: 'cancel' }
       ]
     }]);
 
     if (action === 'cancel') {
-      this.log(colors.textMuted('Operation cancelled.'));
+      this.log(styles.muted('Operation cancelled.'));
       return;
     }
 
-    try {
-      this.log(colors.primary(`\nExecuting: tickets ${action}`));
+    // Build args for the sub-command
+    const projectArgs = ['--project', this.projectId, '--bulk'];
 
-      // Pass --project flag to sub-command so it doesn't prompt again
-      const projectArgs = ['--project', this.projectId];
+    try {
+      this.log(styles.muted(`\nExecuting: ticket ${action} --bulk`));
 
       switch (action) {
         case 'list': {
+          // List doesn't need bulk mode
           const { default: ListCommand } = await import('./list.js');
-          const cmd = new ListCommand(projectArgs, this.config);
+          const cmd = new ListCommand(['--project', this.projectId], this.config);
           await cmd.init();
           await cmd.run();
           break;
@@ -91,9 +90,9 @@ export default class Tickets extends PMOCommand {
           await cmd.run();
           break;
         }
-        case 'link': {
-          const { default: LinkCommand } = await import('./link.js');
-          const cmd = new LinkCommand(projectArgs, this.config);
+        case 'epic': {
+          const { default: EpicCommand } = await import('./epic.js');
+          const cmd = new EpicCommand(projectArgs, this.config);
           await cmd.init();
           await cmd.run();
           break;
@@ -123,7 +122,7 @@ export default class Tickets extends PMOCommand {
           this.error(`Unknown action: ${action}`);
       }
     } catch (error) {
-      this.error(`Failed to execute tickets ${action}: ${error instanceof Error ? error.message : String(error)}`);
+      this.error(`Failed to execute ticket ${action}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }

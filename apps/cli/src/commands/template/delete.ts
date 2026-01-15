@@ -3,7 +3,7 @@ import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class TemplatesDelete extends PMOCommand {
+export default class TemplateDelete extends PMOCommand {
   static description = 'Delete multiple workflow templates';
 
   static examples = [
@@ -25,7 +25,7 @@ export default class TemplatesDelete extends PMOCommand {
   }
 
   async execute(): Promise<void> {
-    const { flags } = await this.parse(TemplatesDelete);
+    const { flags } = await this.parse(TemplateDelete);
 
     // Get only custom templates (can't delete built-in)
     const templates = await this.storage.listTemplates({ isBuiltin: false });
