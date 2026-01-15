@@ -293,6 +293,8 @@ export interface Ticket {
   description?: string
   priority?: string
   category?: string
+  projectId?: string    // Which project this ticket belongs to
+  projectName?: string  // Resolved project name (for display in cross-project views)
 
   // Workflow state
   statusId: string            // Reference to WorkflowStatus in project's configuration
@@ -563,6 +565,8 @@ export interface TicketFilter {
   spec?: string
   epic?: string
   column?: string
+  projectId?: string          // Filter to a specific project
+  allProjects?: boolean       // If true, list tickets across all projects (ignores current project scope)
 }
 
 export interface SpecFilter {

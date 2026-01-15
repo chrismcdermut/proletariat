@@ -1642,16 +1642,31 @@ Why is this refactor needed?
   }
 
   async listTickets(filter?: TicketFilter): Promise<Ticket[]> {
-    const projectId = this.currentProjectId
+    const params: unknown[] = []
+
+    // Build the base query - determine project scope
     let query = `
-      SELECT t.*, bt.column_id, bt.position, c.name as column_name
+      SELECT t.*, bt.column_id, bt.position, c.name as column_name, p.name as project_name
       FROM ${T.tickets} t
       LEFT JOIN ${T.board_tickets} bt ON t.id = bt.ticket_id AND t.project_id = bt.project_id
       LEFT JOIN ${T.columns} c ON bt.project_id = c.project_id AND bt.column_id = c.id
       LEFT JOIN ${T.statuses} s ON t.status_id = s.id
-      WHERE t.project_id = ?
+      LEFT JOIN ${T.projects} p ON t.project_id = p.id
+      WHERE 1=1
     `
-    const params: unknown[] = [projectId]
+
+    // Apply project scoping
+    if (filter?.allProjects) {
+      // No project filter - list all tickets across all projects
+    } else if (filter?.projectId) {
+      // Filter to a specific project
+      query += ' AND t.project_id = ?'
+      params.push(filter.projectId)
+    } else {
+      // Default: filter to current project
+      query += ' AND t.project_id = ?'
+      params.push(this.currentProjectId)
+    }
 
     if (filter?.statusId) {
       query += ' AND t.status_id = ?'
@@ -1694,7 +1709,12 @@ Why is this refactor needed?
       params.push(filter.column)
     }
 
-    query += ' ORDER BY c.position, bt.position'
+    // Order by project first when listing all projects, then by column and position
+    if (filter?.allProjects) {
+      query += ' ORDER BY p.name, c.position, bt.position'
+    } else {
+      query += ' ORDER BY c.position, bt.position'
+    }
 
     const rows = this.db.prepare(query).all(...params) as Array<{
       id: string
@@ -5317,6 +5337,8 @@ Why is this refactor needed?
 
   private async rowToTicket(row: {
     id: string
+    project_id?: string
+    project_name?: string
     title: string
     description: string | null
     priority: string | null
@@ -5393,6 +5415,8 @@ Why is this refactor needed?
       description: row.description || undefined,
       priority: row.priority || undefined,
       category: row.category || undefined,
+      projectId: row.project_id || undefined,
+      projectName: row.project_name || undefined,
       statusId: row.status_id,
       statusName,
       statusCategory,
