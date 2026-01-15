@@ -709,11 +709,12 @@ function setupTestDatabase(db: Database.Database) {
 
     -- Ticket dependencies table
     CREATE TABLE IF NOT EXISTS pmo_ticket_dependencies (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      blocked_by_ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
+      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE RESTRICT,
+      depends_on_ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE RESTRICT,
+      dependency_type TEXT NOT NULL DEFAULT 'blocks' CHECK (dependency_type IN ('blocks', 'relates_to', 'duplicates')),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (ticket_id, blocked_by_ticket_id),
-      CHECK (ticket_id != blocked_by_ticket_id)
+      PRIMARY KEY (ticket_id, depends_on_ticket_id, dependency_type),
+      CHECK (ticket_id != depends_on_ticket_id)
     );
 
     -- Ticket affected paths table

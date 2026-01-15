@@ -405,7 +405,7 @@ Examples:
 | **pmo_epics** | id | Work containers with lifecycle | - | - |
 | **pmo_subtasks** | (ticket_id, id) | Task breakdown | - | - |
 | **pmo_ticket_metadata** | (ticket_id, key) | Custom ticket fields | - | - |
-| **pmo_ticket_dependencies** | (ticket_id, blocked_by_ticket_id) | Ticket blocking relationships | - | - |
+| **pmo_ticket_dependencies** | (ticket_id, depends_on_ticket_id, dependency_type) | Ticket dependencies (blocks, relates_to, duplicates) | - | - |
 | **pmo_ticket_affected_paths** | id | File/directory scope hints | - | - |
 | **pmo_ticket_acceptance_criteria** | (ticket_id, id) | Structured acceptance criteria | - | - |
 | **pmo_specs** | id | Static specification documents | - | - |
@@ -448,8 +448,8 @@ Examples:
 - `pmo_epics.spec_id` → `pmo_specs(id)` ON DELETE SET NULL
 - `pmo_subtasks.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
 - `pmo_ticket_metadata.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
-- `pmo_ticket_dependencies.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
-- `pmo_ticket_dependencies.blocked_by_ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
+- `pmo_ticket_dependencies.ticket_id` → `pmo_tickets.id` ON DELETE RESTRICT
+- `pmo_ticket_dependencies.depends_on_ticket_id` → `pmo_tickets.id` ON DELETE RESTRICT
 - `pmo_ticket_affected_paths.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
 - `pmo_ticket_acceptance_criteria.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
 - `pmo_ticket_assignments.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE

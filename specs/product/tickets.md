@@ -85,8 +85,9 @@ These fields support agent orchestration and are stored in separate tables for n
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| ticket_id | ref | ✓ | The blocked ticket |
-| blocked_by_ticket_id | ref | ✓ | The blocking ticket |
+| ticket_id | ref | ✓ | The source ticket |
+| depends_on_ticket_id | ref | ✓ | The target ticket |
+| dependency_type | string | ✓ | Type: 'blocks', 'relates_to', or 'duplicates' |
 | created_at | timestamp | auto | When dependency was created |
 
 #### Affected Paths (`pmo_ticket_affected_paths`)
