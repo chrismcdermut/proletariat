@@ -8,12 +8,13 @@ import {
 import { styles } from '../../lib/styles.js';
 
 export default class TicketMove extends PMOCommand {
-  static description = 'Move a ticket to a different column';
+  static description = 'Move ticket(s) to a different column';
 
   static examples = [
     '<%= config.bin %> <%= command.id %> my-ticket "In Progress"',
     '<%= config.bin %> <%= command.id %> implement-auth Done',
     '<%= config.bin %> <%= command.id %> fix-bug "In Review" --position 0',
+    '<%= config.bin %> <%= command.id %> --bulk',
   ];
 
   static args = {
@@ -32,21 +33,38 @@ export default class TicketMove extends PMOCommand {
     position: Flags.integer({
       description: 'Position within the column (0 = top)',
     }),
+    bulk: Flags.boolean({
+      char: 'b',
+      description: 'Enable bulk mode to move multiple tickets',
+      default: false,
+    }),
+    force: Flags.boolean({
+      char: 'f',
+      description: 'Skip confirmation prompt (bulk mode only)',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketMove);
-    // Get ticketId - prompt if not provided
+
+    // Get all tickets
+    const allTickets = await this.storage.listTickets();
+
+    if (allTickets.length === 0) {
+      this.error('No tickets found. Create a ticket first with "prlt ticket create".');
+    }
+
+    // Bulk mode
+    if (flags.bulk) {
+      await this.executeBulk(allTickets, flags.force);
+      return;
+    }
+
+    // Single ticket mode
     let ticketId = args.ticketId;
 
     if (!ticketId) {
-      // Get all tickets for selection
-      const allTickets = await this.storage.listTickets();
-
-      if (allTickets.length === 0) {
-        this.error('No tickets found. Create a ticket first with "prlt ticket create".');
-      }
-
       const { selectedTicketId } = await inquirer.prompt([{
         type: 'list',
         name: 'selectedTicketId',
@@ -112,4 +130,93 @@ export default class TicketMove extends PMOCommand {
     }
   }
 
+  private async executeBulk(
+    allTickets: Awaited<ReturnType<typeof this.storage.listTickets>>,
+    force: boolean
+  ): Promise<void> {
+    this.log(styles.emphasis('📦 Move Multiple Tickets\n'));
+
+    // Get columns
+    const board = await this.storage.getBoard();
+    const columns = board.columns.map(col => col.name);
+
+    // Select tickets to move
+    const { selectedTickets } = await inquirer.prompt([{
+      type: 'checkbox',
+      name: 'selectedTickets',
+      message: 'Select tickets to move:',
+      choices: allTickets.map(t => ({
+        name: `${t.id} - ${t.title} (${t.statusName})`,
+        value: t.id,
+      })),
+    }]);
+
+    if (selectedTickets.length === 0) {
+      this.log(styles.muted('No tickets selected.'));
+      return;
+    }
+
+    // Select target column
+    const { targetColumn } = await inquirer.prompt([{
+      type: 'list',
+      name: 'targetColumn',
+      message: 'Move selected tickets to:',
+      choices: columns,
+    }]);
+
+    // Confirmation
+    if (!force) {
+      this.log(styles.warning('\nThis will move:'));
+      for (const ticketId of selectedTickets) {
+        const ticket = allTickets.find(t => t.id === ticketId);
+        this.log(styles.primary(`  • ${ticketId}: ${ticket?.title}`));
+      }
+      this.log(styles.primary(`  → to column: ${targetColumn}\n`));
+
+      const { confirm } = await inquirer.prompt([{
+        type: 'list',
+        name: 'confirm',
+        message: 'Continue?',
+        choices: [
+          { name: 'No, cancel', value: false },
+          { name: 'Yes, move tickets', value: true }
+        ],
+        default: 0
+      }]);
+
+      if (!confirm) {
+        this.log(styles.muted('Move cancelled.'));
+        return;
+      }
+    }
+
+    this.log('');
+
+    // Move each ticket
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const ticketId of selectedTickets) {
+      try {
+        await this.storage.moveTicket(ticketId, targetColumn);
+        this.log(styles.success(`Moved ${ticketId} to ${targetColumn}`));
+        successCount++;
+      } catch (error) {
+        this.log(styles.error(`Failed to move ${ticketId}: ${error instanceof Error ? error.message : String(error)}`));
+        failCount++;
+      }
+    }
+
+    // Auto-export to kanban.md
+    await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+
+    // Summary
+    this.log('');
+    if (successCount > 0) {
+      this.log(styles.success(`Moved ${successCount} ticket(s)`));
+    }
+    if (failCount > 0) {
+      this.log(styles.error(`Failed to move ${failCount} ticket(s)`));
+    }
+  }
 }
