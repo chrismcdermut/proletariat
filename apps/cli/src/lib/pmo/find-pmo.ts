@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { findHQRoot, isValidHQ } from '../workspace.js';
 
@@ -62,9 +63,10 @@ function hasPMOTables(dbPath: string): boolean {
  *
  * Search priority:
  * 1. PRLT_HQ_PATH environment variable (used in devcontainers)
- * 2. Current directory tree for HQ with PMO
- * 3. Current directory tree for standalone PMO (.pmo/)
- * 4. Global config for default PMO
+ * 2. ~/.proletariat/config.json activeWorkspace (if set and has PMO)
+ * 3. Current directory tree for HQ with PMO
+ * 4. Current directory tree for standalone PMO (.pmo/)
+ * 5. Global config for default PMO
  */
 export function findPMO(): string | null {
   // Check PRLT_HQ_PATH environment variable first (used in devcontainers)
@@ -93,6 +95,36 @@ export function findPMO(): string | null {
       // Fallback: default location at HQ root
       const pmoPath = path.join(hqPath, 'pmo');
       return pmoPath;
+    }
+  }
+
+  // Check machine config for activeWorkspace
+  const machineConfigPath = path.join(os.homedir(), '.proletariat', 'config.json');
+  if (fs.existsSync(machineConfigPath)) {
+    try {
+      const machineConfig = JSON.parse(fs.readFileSync(machineConfigPath, 'utf-8'));
+      if (machineConfig.activeWorkspace && fs.existsSync(machineConfig.activeWorkspace) && isValidHQ(machineConfig.activeWorkspace)) {
+        const activeHqPath = machineConfig.activeWorkspace;
+        const dbPath = path.join(activeHqPath, '.proletariat', 'workspace.db');
+        if (hasPMOTables(dbPath)) {
+          try {
+            const db = new Database(dbPath);
+            const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
+            db.close();
+
+            if (result) {
+              return resolvePmoPath(result.value, activeHqPath);
+            }
+          } catch {
+            // Table might not exist yet
+          }
+
+          // Fallback: default location at HQ root
+          return path.join(activeHqPath, 'pmo');
+        }
+      }
+    } catch {
+      // Ignore parse errors
     }
   }
 

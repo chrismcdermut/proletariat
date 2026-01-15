@@ -18,6 +18,10 @@ import {
   addThemeNames,
   setActiveTheme
 } from '../database/index.js';
+import {
+  ensureMachineConfigDir,
+  registerWorkspace,
+} from '../machine-config.js';
 
 export interface HQConfig {
   type: 'hq';
@@ -326,6 +330,11 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
     // Add to database
     addAgentsToDatabase(hqPath, selectedAgents);
   }
+
+  // Register workspace in machine config
+  ensureMachineConfigDir();
+  registerWorkspace(hqPath, hqName, true);
+  console.log(chalk.gray(`Registered workspace in ~/.proletariat/config.json`));
 
   console.log(chalk.green(`\n✅ HQ created successfully at ${hqPath}`));
 }

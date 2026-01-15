@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import chalk from 'chalk';
 
 /**
@@ -13,13 +14,15 @@ import chalk from 'chalk';
  *
  * Search priority:
  * 1. PRLT_HQ_PATH environment variable (explicit override)
- * 2. Walk up directory tree looking for .proletariat/config.json with type='hq'
- * 3. Global config ~/.proletariat/config.json for default workspace
+ * 2. ~/.proletariat/config.json activeWorkspace (if set and path exists)
+ * 3. Walk up directory tree looking for .proletariat/config.json with type='hq'
+ *    - Emit warning: "Workspace not registered. Run 'prlt workspace add' to register."
+ * 4. Global config ~/.proletariat/config.json for default workspace (legacy fallback)
  */
 
 export interface WorkspaceLocation {
   path: string;
-  source: 'env' | 'cwd' | 'global';
+  source: 'env' | 'registry' | 'cwd' | 'global';
 }
 
 /**
@@ -52,23 +55,37 @@ export function findHQRootWithSource(startDir: string = process.cwd()): Workspac
       return { path: resolvedPath, source: 'env' };
     }
     // If PRLT_HQ_PATH is set but invalid, warn and continue search
-    console.warn(chalk.yellow(`Warning: PRLT_HQ_PATH (${envHqPath}) is not a valid HQ workspace. Searching directory tree...`));
+    console.warn(chalk.yellow(`Warning: PRLT_HQ_PATH (${envHqPath}) is not a valid HQ workspace. Searching...`));
   }
 
-  // 2. Walk up directory tree looking for HQ
+  // 2. Check machine config for activeWorkspace
+  const machineConfigPath = path.join(os.homedir(), '.proletariat', 'config.json');
+  if (fs.existsSync(machineConfigPath)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(machineConfigPath, 'utf-8'));
+      if (config.activeWorkspace && fs.existsSync(config.activeWorkspace) && isValidHQ(config.activeWorkspace)) {
+        return { path: config.activeWorkspace, source: 'registry' };
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  // 3. Walk up directory tree looking for HQ (fallback)
   let currentDir = startDir;
   while (currentDir !== '/' && currentDir !== path.dirname(currentDir)) {
     if (isValidHQ(currentDir)) {
+      // Emit warning that workspace is not registered
+      emitUnregisteredWarning(currentDir);
       return { path: currentDir, source: 'cwd' };
     }
     currentDir = path.dirname(currentDir);
   }
 
-  // 3. Check global config for default workspace
-  const globalConfigPath = path.join(process.env.HOME || '', '.proletariat', 'config.json');
-  if (fs.existsSync(globalConfigPath)) {
+  // 4. Check global config for default workspace (legacy fallback)
+  if (fs.existsSync(machineConfigPath)) {
     try {
-      const config = JSON.parse(fs.readFileSync(globalConfigPath, 'utf-8'));
+      const config = JSON.parse(fs.readFileSync(machineConfigPath, 'utf-8'));
       if (config.defaultHQ && isValidHQ(config.defaultHQ)) {
         return { path: config.defaultHQ, source: 'global' };
       }
@@ -78,6 +95,56 @@ export function findHQRootWithSource(startDir: string = process.cwd()): Workspac
   }
 
   return null;
+}
+
+// Track whether we've already emitted the unregistered warning in this process
+let hasEmittedUnregisteredWarning = false;
+
+/**
+ * Emit a warning when a workspace is found via directory walk but not registered.
+ * Only emits once per process to avoid spam.
+ */
+function emitUnregisteredWarning(workspacePath: string): void {
+  // Only warn once per process
+  if (hasEmittedUnregisteredWarning) {
+    return;
+  }
+
+  // Check if this workspace is registered
+  const machineConfigPath = path.join(os.homedir(), '.proletariat', 'config.json');
+  if (fs.existsSync(machineConfigPath)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(machineConfigPath, 'utf-8'));
+      if (config.workspaces && Array.isArray(config.workspaces)) {
+        const isRegistered = config.workspaces.some((w: { path: string }) => {
+          // Normalize paths for comparison
+          try {
+            const normalizedWorkspace = fs.existsSync(workspacePath)
+              ? fs.realpathSync(workspacePath)
+              : path.resolve(workspacePath);
+            const normalizedEntry = fs.existsSync(w.path)
+              ? fs.realpathSync(w.path)
+              : path.resolve(w.path);
+            return normalizedWorkspace === normalizedEntry;
+          } catch {
+            return workspacePath === w.path;
+          }
+        });
+
+        if (isRegistered) {
+          return; // Already registered, no warning needed
+        }
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  // Emit warning
+  hasEmittedUnregisteredWarning = true;
+  console.warn(
+    chalk.yellow(`Warning: Workspace not registered. Run 'prlt workspace add ${workspacePath}' to register.`)
+  );
 }
 
 /**

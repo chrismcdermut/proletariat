@@ -1,50 +1,94 @@
-import { Command } from '@oclif/core';
+import { Command, Flags } from '@oclif/core';
 import chalk from 'chalk';
 import { findAllHQs, findHQRootWithSource, isValidHQ } from '../../lib/workspace.js';
+import {
+  getRegisteredWorkspaces,
+  getActiveWorkspace,
+  RegisteredWorkspace,
+} from '../../lib/machine-config.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+interface WorkspaceInfo {
+  name: string;
+  path: string;
+  isActive: boolean;
+  exists: boolean;
+  hasPMO: boolean;
+  registeredAt?: string;
+  source?: 'registry' | 'discovered';
+}
+
 export default class WorkspaceList extends Command {
-  static description = 'List all discovered HQ workspaces in the directory tree';
+  static description = 'List all registered and discovered HQ workspaces';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> --json',
   ];
 
+  static flags = {
+    json: Flags.boolean({
+      description: 'Output as JSON for machine-readable format',
+      default: false,
+    }),
+  };
+
   async run(): Promise<void> {
+    const { flags } = await this.parse(WorkspaceList);
     const cwd = process.cwd();
 
-    // Find all HQs in the directory tree
-    const allHQs = findAllHQs(cwd);
+    // Get registered workspaces from machine config
+    const registeredWorkspaces = getRegisteredWorkspaces();
+    const activeWorkspacePath = getActiveWorkspace();
 
-    // Get the active workspace
-    const activeWorkspace = findHQRootWithSource(cwd);
+    // Also find any workspaces in directory tree (for backward compatibility)
+    const discoveredHQs = findAllHQs(cwd);
 
-    if (allHQs.length === 0) {
-      this.log(chalk.yellow('No HQ workspaces found.'));
-      this.log(chalk.gray('Run "prlt init" to create a new HQ workspace.'));
-      return;
+    // Get the current active workspace (from findHQRootWithSource)
+    const currentWorkspace = findHQRootWithSource(cwd);
+
+    // Build unified workspace list
+    const workspaces: WorkspaceInfo[] = [];
+    const seenPaths = new Set<string>();
+
+    // Add registered workspaces first
+    for (const workspace of registeredWorkspaces) {
+      const exists = fs.existsSync(workspace.path);
+      const isActive = activeWorkspacePath === workspace.path ||
+        currentWorkspace?.path === workspace.path;
+
+      let hasPMO = false;
+      if (exists) {
+        const dbPath = path.join(workspace.path, '.proletariat', 'workspace.db');
+        hasPMO = fs.existsSync(dbPath);
+      }
+
+      workspaces.push({
+        name: workspace.name,
+        path: workspace.path,
+        isActive,
+        exists,
+        hasPMO,
+        registeredAt: workspace.registeredAt,
+        source: 'registry',
+      });
+
+      seenPaths.add(workspace.path);
     }
 
-    this.log(chalk.blue('\nDiscovered HQ workspaces:\n'));
-
-    for (const hqPath of allHQs) {
-      const isActive = activeWorkspace?.path === hqPath;
-      const marker = isActive ? chalk.green(' (active)') : '';
-      const sourceMarker = isActive && activeWorkspace?.source === 'env'
-        ? chalk.cyan(' [via PRLT_HQ_PATH]')
-        : '';
+    // Add discovered workspaces that aren't in the registry
+    for (const hqPath of discoveredHQs) {
+      if (seenPaths.has(hqPath)) continue;
 
       // Get workspace info
       const configPath = path.join(hqPath, '.proletariat', 'config.json');
       let workspaceName = path.basename(hqPath);
-      let workspaceType = 'hq';
 
       if (fs.existsSync(configPath)) {
         try {
           const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
           workspaceName = config.name || workspaceName;
-          workspaceType = config.type || workspaceType;
         } catch {
           // Use defaults
         }
@@ -53,21 +97,86 @@ export default class WorkspaceList extends Command {
       // Check if it has PMO
       const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
       const hasPMO = fs.existsSync(dbPath);
-      const pmoMarker = hasPMO ? chalk.gray(' [has PMO]') : chalk.gray(' [no PMO]');
+      const isActive = currentWorkspace?.path === hqPath;
 
-      this.log(`  ${chalk.white(workspaceName)}${marker}${sourceMarker}${pmoMarker}`);
-      this.log(chalk.gray(`    Path: ${hqPath}`));
+      workspaces.push({
+        name: workspaceName,
+        path: hqPath,
+        isActive,
+        exists: true,
+        hasPMO,
+        source: 'discovered',
+      });
+    }
+
+    // JSON output
+    if (flags.json) {
+      const output = {
+        workspaces: workspaces.map((w) => ({
+          name: w.name,
+          path: w.path,
+          active: w.isActive,
+          exists: w.exists,
+          hasPMO: w.hasPMO,
+          registeredAt: w.registeredAt,
+          source: w.source,
+        })),
+        activeWorkspace: activeWorkspacePath,
+        envOverride: process.env.PRLT_HQ_PATH || null,
+      };
+      this.log(JSON.stringify(output, null, 2));
+      return;
+    }
+
+    // Human-readable output
+    if (workspaces.length === 0) {
+      this.log(chalk.yellow('No workspaces found.'));
+      this.log(chalk.gray('Run "prlt init" to create a new workspace.'));
+      return;
+    }
+
+    this.log(chalk.blue('\nRegistered workspaces:\n'));
+
+    for (const workspace of workspaces) {
+      const activeMarker = workspace.isActive ? chalk.green(' (active)') : '';
+      const envMarker = workspace.isActive && currentWorkspace?.source === 'env'
+        ? chalk.cyan(' [via PRLT_HQ_PATH]')
+        : '';
+      const pmoMarker = workspace.hasPMO
+        ? chalk.gray(' [has PMO]')
+        : chalk.gray(' [no PMO]');
+      const unregisteredMarker = workspace.source === 'discovered'
+        ? chalk.yellow(' [not registered]')
+        : '';
+
+      if (!workspace.exists) {
+        // Warning for stale registration
+        this.log(
+          `  ${chalk.red('⚠')} ${chalk.strikethrough(chalk.white(workspace.name))}${activeMarker}`
+        );
+        this.log(chalk.red(`    Path no longer exists: ${workspace.path}`));
+      } else {
+        this.log(
+          `  ${chalk.white(workspace.name)}${activeMarker}${envMarker}${pmoMarker}${unregisteredMarker}`
+        );
+        this.log(chalk.gray(`    Path: ${workspace.path}`));
+      }
+      this.log('');
+    }
+
+    // Show warning for unregistered workspaces
+    const unregistered = workspaces.filter((w) => w.source === 'discovered');
+    if (unregistered.length > 0) {
+      this.log(chalk.yellow('Some workspaces are not registered.'));
+      this.log(chalk.gray('Run "prlt workspace add <path>" to register them.'));
       this.log('');
     }
 
     // Show helpful hints if multiple workspaces found
-    if (allHQs.length > 1) {
-      this.log(chalk.yellow('Multiple workspaces detected. This can cause confusion.'));
-      this.log(chalk.gray('To use a specific workspace, set PRLT_HQ_PATH environment variable:'));
-      this.log(chalk.cyan(`  export PRLT_HQ_PATH="${allHQs[0]}"`));
-      this.log('');
-      this.log(chalk.gray('To consolidate workspaces, run:'));
-      this.log(chalk.cyan('  prlt workspace merge <source> --into <target>'));
+    const registeredCount = workspaces.filter((w) => w.source === 'registry').length;
+    if (registeredCount > 1) {
+      this.log(chalk.gray('To switch workspaces, run:'));
+      this.log(chalk.cyan('  prlt workspace use <name|path>'));
       this.log('');
     }
 
