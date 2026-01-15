@@ -3,7 +3,7 @@ import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, WorkflowTemplate } from '../../lib/pmo/types.js';
 
-export default class TemplatesList extends PMOCommand {
+export default class TemplateList extends PMOCommand {
   static description = 'List all workflow templates';
 
   static examples = [
@@ -33,7 +33,7 @@ export default class TemplatesList extends PMOCommand {
   }
 
   async execute(): Promise<void> {
-    const { flags } = await this.parse(TemplatesList);
+    const { flags } = await this.parse(TemplateList);
 
     let filter: { isBuiltin?: boolean } | undefined;
     if (flags.builtin) filter = { isBuiltin: true };

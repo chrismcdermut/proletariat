@@ -39,6 +39,7 @@ export interface TicketRow {
   labels: string | null
   column_id: string | null
   column_name: string | null
+  project_name: string | null
   position: number | null
   created_at: string
   updated_at: string

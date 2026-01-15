@@ -79,6 +79,8 @@ export async function rowToTicket(
 
   return {
     id: row.id,
+    projectId: row.project_id,
+    projectName: row.project_name || undefined,
     title: row.title,
     description: row.description || undefined,
     priority: row.priority || undefined,
