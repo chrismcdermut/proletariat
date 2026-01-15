@@ -7,7 +7,7 @@ import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { ExecutionStatus } from '../../lib/execution/types.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 
-export default class ExecutionsList extends PMOCommand {
+export default class ExecutionList extends PMOCommand {
   static description = 'List running and recent executions'
 
   static examples = [
@@ -40,7 +40,7 @@ export default class ExecutionsList extends PMOCommand {
   }
 
   async execute(): Promise<void> {
-    const { flags } = await this.parse(ExecutionsList)
+    const { flags } = await this.parse(ExecutionList)
 
     // Get workspace info
     let workspaceInfo
@@ -123,7 +123,7 @@ export default class ExecutionsList extends PMOCommand {
         )
         if (runningExecs.length > 1) {
           this.log(
-            styles.muted(`  prlt executions stop --all              Stop all running`)
+            styles.muted(`  prlt execution stop --all              Stop all running`)
           )
         }
         this.log('')
