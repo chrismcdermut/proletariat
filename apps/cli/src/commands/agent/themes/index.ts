@@ -66,10 +66,13 @@ export default class Themes extends Command {
 
           // Prompt to add names immediately
           const { addNamesNow } = await inquirer.prompt([{
-            type: 'confirm',
+            type: 'list',
             name: 'addNamesNow',
             message: 'Add names to this theme now?',
-            default: true
+            choices: [
+              { name: 'Yes', value: true },
+              { name: 'No', value: false },
+            ],
           }]);
 
           if (addNamesNow) {

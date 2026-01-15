@@ -68,7 +68,7 @@ export default class ThemesCreate extends Command {
         this.log(chalk.gray(`   ${theme.description}`));
       }
       this.log('');
-      this.log(chalk.blue('Add names with: prlt agents themes add-names ' + name + ' <names...>'));
+      this.log(chalk.blue('Add names with: prlt agent themes add-names ' + name + ' <names...>'));
 
     } catch (error) {
       this.error(error instanceof Error ? error.message : String(error));

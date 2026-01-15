@@ -188,7 +188,7 @@ export default class WorkRevise extends PMOCommand {
         db.close()
         this.error(
           `Agent "${agentName}" not found in workspace.\n` +
-          `Add agent first with "prlt agents add ${agentName}"`
+          `Add agent first with "prlt agent add ${agentName}"`
         )
       }
 

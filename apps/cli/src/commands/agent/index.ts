@@ -3,9 +3,10 @@ import { colors } from '../../lib/colors.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 
 export default class Agent extends PMOCommand {
-  static description = 'Individual agent operations';
+  static description = 'Manage agents in the workspace';
 
   static examples = [
+    '<%= config.bin %> <%= command.id %> list',
     '<%= config.bin %> <%= command.id %> status camry',
     '<%= config.bin %> <%= command.id %> visit tacoma',
     '<%= config.bin %> <%= command.id %> add',
@@ -13,6 +14,7 @@ export default class Agent extends PMOCommand {
     '<%= config.bin %> <%= command.id %> restart altman',
     '<%= config.bin %> <%= command.id %> rebuild altman',
     '<%= config.bin %> <%= command.id %> shell altman',
+    '<%= config.bin %> <%= command.id %> themes list',
   ];
 
   static flags = {
@@ -24,7 +26,7 @@ export default class Agent extends PMOCommand {
   }
 
   async execute(): Promise<void> {
-    this.log(colors.primary('🤖 Individual Agent Operations'));
+    this.log(colors.primary('🤖 Agent Management'));
     this.log('');
 
     const { action } = await inquirer.prompt([{
@@ -33,11 +35,13 @@ export default class Agent extends PMOCommand {
       message: 'What would you like to do?',
       choices: [
         new inquirer.Separator('── View ──'),
+        { name: '📋 List all agents', value: 'list' },
         { name: '📊 Show status', value: 'status' },
         { name: '📁 Visit directory', value: 'visit' },
         new inquirer.Separator('── Manage ──'),
         { name: '➕ Add agent', value: 'add' },
         { name: '🗑️  Remove agent', value: 'remove' },
+        { name: '🎨 Manage themes', value: 'themes' },
         new inquirer.Separator('── Container ──'),
         { name: '🐚 Open shell', value: 'shell' },
         { name: '🔄 Restart', value: 'restart' },
@@ -57,44 +61,56 @@ export default class Agent extends PMOCommand {
       this.log(colors.primary(`\nExecuting: agent ${action}`));
 
       switch (action) {
+        case 'list': {
+          const { default: ListCommand } = await import('./list.js');
+          const cmd = new ListCommand([], this.config);
+          await cmd.run();
+          break;
+        }
         case 'status': {
-          const { default: StatusCommand } = await import('../agent/status.js');
+          const { default: StatusCommand } = await import('./status.js');
           const cmd = new StatusCommand([], this.config);
           await cmd.run();
           break;
         }
         case 'visit': {
-          const { default: VisitCommand } = await import('../agent/visit.js');
+          const { default: VisitCommand } = await import('./visit.js');
           const cmd = new VisitCommand([], this.config);
           await cmd.run();
           break;
         }
         case 'add': {
-          const { default: AddCommand } = await import('../agents/add.js');
+          const { default: AddCommand } = await import('./add.js');
           const cmd = new AddCommand([], this.config);
           await cmd.run();
           break;
         }
         case 'remove': {
-          const { default: RemoveCommand } = await import('../agent/remove.js');
+          const { default: RemoveCommand } = await import('./remove.js');
           const cmd = new RemoveCommand([], this.config);
           await cmd.run();
           break;
         }
+        case 'themes': {
+          const { default: ThemesCommand } = await import('./themes/index.js');
+          const cmd = new ThemesCommand([], this.config);
+          await cmd.run();
+          break;
+        }
         case 'restart': {
-          const { default: RestartCommand } = await import('../agent/restart.js');
+          const { default: RestartCommand } = await import('./restart.js');
           const cmd = new RestartCommand([], this.config);
           await cmd.run();
           break;
         }
         case 'rebuild': {
-          const { default: RebuildCommand } = await import('../agent/rebuild.js');
+          const { default: RebuildCommand } = await import('./rebuild.js');
           const cmd = new RebuildCommand([], this.config);
           await cmd.run();
           break;
         }
         case 'shell': {
-          const { default: ShellCommand } = await import('../agent/shell.js');
+          const { default: ShellCommand } = await import('./shell.js');
           const cmd = new ShellCommand([], this.config);
           await cmd.run();
           break;

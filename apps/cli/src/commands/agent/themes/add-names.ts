@@ -30,7 +30,7 @@ export default class ThemesAddNames extends Command {
       // Validate theme exists
       const theme = getTheme(workspaceInfo.path, args.theme);
       if (!theme) {
-        this.error(`Theme "${args.theme}" not found. Run "prlt agents themes list" to see available themes.`);
+        this.error(`Theme "${args.theme}" not found. Run "prlt agent themes list" to see available themes.`);
       }
 
       // Get names from remaining arguments (skip the theme arg)

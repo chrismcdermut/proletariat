@@ -88,7 +88,7 @@ export default class WorksStart extends PMOCommand {
     }
 
     if (workspaceInfo.agents.length === 0) {
-      this.error('No agents found in workspace. Add agents first with "prlt agents add".')
+      this.error('No agents found in workspace. Add agents first with "prlt agent add".')
     }
 
     // Open database for execution storage
