@@ -37,7 +37,7 @@ export default class Status extends PMOCommand {
     const workspaceInfo = getWorkspaceInfo();
 
     if (workspaceInfo.agents.length === 0) {
-      this.log(colors.warning('No agents found. Add agents with "prlt agents add"'));
+      this.log(colors.warning('No agents found. Add agents with "prlt agent add"'));
       return;
     }
 
@@ -80,7 +80,7 @@ export default class Status extends PMOCommand {
 
     if (!agentStatus.exists) {
       this.log(colors.error('   Agent directory not found'));
-      this.log(colors.textSecondary('   Run "prlt agents add" to recreate'));
+      this.log(colors.textSecondary('   Run "prlt agent add" to recreate'));
       return;
     }
 

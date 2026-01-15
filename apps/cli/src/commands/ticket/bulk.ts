@@ -58,63 +58,54 @@ export default class TicketBulk extends PMOCommand {
           // List doesn't need bulk mode
           const { default: ListCommand } = await import('./list.js');
           const cmd = new ListCommand(['--project', this.projectId], this.config);
-          await cmd.init();
           await cmd.run();
           break;
         }
         case 'move': {
           const { default: MoveCommand } = await import('./move.js');
           const cmd = new MoveCommand(projectArgs, this.config);
-          await cmd.init();
           await cmd.run();
           break;
         }
         case 'delete': {
           const { default: DeleteCommand } = await import('./delete.js');
           const cmd = new DeleteCommand(projectArgs, this.config);
-          await cmd.init();
           await cmd.run();
           break;
         }
         case 'complete': {
           const { default: CompleteCommand } = await import('./complete.js');
           const cmd = new CompleteCommand(projectArgs, this.config);
-          await cmd.init();
           await cmd.run();
           break;
         }
         case 'reassign': {
           const { default: ReassignCommand } = await import('./reassign.js');
           const cmd = new ReassignCommand(projectArgs, this.config);
-          await cmd.init();
           await cmd.run();
           break;
         }
         case 'epic': {
           const { default: EpicCommand } = await import('./epic.js');
           const cmd = new EpicCommand(projectArgs, this.config);
-          await cmd.init();
           await cmd.run();
           break;
         }
         case 'spec': {
           const { default: SpecCommand } = await import('./spec.js');
           const cmd = new SpecCommand(projectArgs, this.config);
-          await cmd.init();
           await cmd.run();
           break;
         }
         case 'project': {
           const { default: ProjectCommand } = await import('./project.js');
           const cmd = new ProjectCommand(projectArgs, this.config);
-          await cmd.init();
           await cmd.run();
           break;
         }
         case 'update': {
           const { default: UpdateCommand } = await import('./update.js');
           const cmd = new UpdateCommand(projectArgs, this.config);
-          await cmd.init();
           await cmd.run();
           break;
         }

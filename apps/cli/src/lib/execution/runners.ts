@@ -771,7 +771,7 @@ export async function runDevcontainer(
   if (!fs.existsSync(devcontainerJson)) {
     return {
       success: false,
-      error: `No devcontainer.json found at ${devcontainerPath}. Run 'prlt agents add' to set up the agent with devcontainer config.`,
+      error: `No devcontainer.json found at ${devcontainerPath}. Run 'prlt agent add' to set up the agent with devcontainer config.`,
     }
   }
 

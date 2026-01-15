@@ -42,7 +42,7 @@ export default class ThemesList extends Command {
         this.log('');
       }
 
-      this.log(chalk.blue('Use: prlt agents add --theme <theme-id>'));
+      this.log(chalk.blue('Use: prlt agent add --theme <theme-id>'));
 
     } catch (error) {
       this.error(error instanceof Error ? error.message : String(error));

@@ -321,7 +321,7 @@ export default class WorkStart extends PMOCommand {
         db.close()
         this.error(
           `Agent "${assignedAgent}" not found in workspace.\n` +
-            `Add agent first with "prlt agents add ${assignedAgent}"`
+            `Add agent first with "prlt agent add ${assignedAgent}"`
         )
       }
 
@@ -356,7 +356,7 @@ export default class WorkStart extends PMOCommand {
         db.close()
         this.error(
           `Agent directory not found at ${agentDir}.\n` +
-            `Create agent with "prlt agents add ${assignedAgent}"`
+            `Create agent with "prlt agent add ${assignedAgent}"`
         )
       }
 

@@ -438,7 +438,7 @@ export async function showNextSteps(options: InitOptions, workspacePath?: string
     if (hasCommands) {
       console.log(chalk.cyan(`\nOnce you're in the ${dirName}, you can run:`));
       if (options.selectedAgents.length === 0) {
-        console.log(chalk.white(`  prlt agents add <name>`));
+        console.log(chalk.white(`  prlt agent add <name>`));
       }
 
       if (options.workspaceType === 'hq' && hasPMO) {

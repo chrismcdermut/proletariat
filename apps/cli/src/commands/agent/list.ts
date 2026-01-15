@@ -22,7 +22,7 @@ export default class List extends Command {
       const workspaceInfo = getWorkspaceInfo();
 
       if (workspaceInfo.agents.length === 0) {
-        this.log(chalk.yellow('No agents found. Add agents with "prlt agents add"'));
+        this.log(chalk.yellow('No agents found. Add agents with "prlt agent add"'));
         return;
       }
 
@@ -80,7 +80,7 @@ export default class List extends Command {
           } else {
             this.log(chalk.red(`   Agent directory not found`));
           }
-          this.log(chalk.white('   Run "prlt agents add" to recreate'));
+          this.log(chalk.white('   Run "prlt agent add" to recreate'));
         }
 
         this.log(''); // Empty line between agents
