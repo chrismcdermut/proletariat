@@ -49,7 +49,7 @@ export default class WorkspaceUse extends Command {
         workspacePath = allHQs[0];
       } else {
         // Prompt user to select a workspace
-        const choices = allHQs.map((hq, index) => {
+        const choices = allHQs.map((hq) => {
           const configPath = path.join(hq, '.proletariat', 'config.json');
           let name = path.basename(hq);
           try {

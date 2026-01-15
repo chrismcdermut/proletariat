@@ -57,7 +57,7 @@ export default class WorkspaceList extends Command {
       // Check if it has PMO and get stats
       const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
       const hasPMO = fs.existsSync(dbPath);
-      let pmoMarker = hasPMO ? chalk.gray(' [has PMO]') : chalk.gray(' [no PMO]');
+      const pmoMarker = hasPMO ? chalk.gray(' [has PMO]') : chalk.gray(' [no PMO]');
       let statsLine = '';
 
       if (hasPMO) {
