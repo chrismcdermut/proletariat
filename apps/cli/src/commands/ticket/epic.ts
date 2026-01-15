@@ -5,12 +5,13 @@ import { styles } from '../../lib/styles.js';
 import { Ticket } from '../../lib/pmo/types.js';
 
 export default class TicketEpic extends PMOCommand {
-  static description = 'Assign a ticket to an epic (parent-child relationship)';
+  static description = 'Assign ticket(s) to an epic (parent-child relationship)';
 
   static examples = [
     '<%= config.bin %> <%= command.id %> TKT-001 EPIC-001',
     '<%= config.bin %> <%= command.id %> TKT-001 --unlink',
     '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> --bulk --to-epic EPIC-001',
   ];
 
   static args = {
@@ -31,10 +32,32 @@ export default class TicketEpic extends PMOCommand {
       description: 'Remove epic link instead of adding',
       default: false,
     }),
+    bulk: Flags.boolean({
+      char: 'b',
+      description: 'Enable bulk mode to link multiple tickets to an epic',
+      default: false,
+    }),
+    'to-epic': Flags.string({
+      description: 'Target epic ID (for bulk mode)',
+    }),
+    'from-epic': Flags.string({
+      description: 'Filter tickets by current epic (bulk mode)',
+    }),
+    force: Flags.boolean({
+      char: 'f',
+      description: 'Skip confirmation prompt (bulk mode)',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketEpic);
+
+    // Bulk mode
+    if (flags.bulk) {
+      await this.executeBulk(flags);
+      return;
+    }
 
     // Get all tickets
     const allTickets = await this.storage.listTickets();
@@ -181,5 +204,162 @@ export default class TicketEpic extends PMOCommand {
     this.log(styles.success(`\n✅ Linked ${styles.emphasis(ticketId)} to ${styles.emphasis(epicId!)}`));
     this.log(styles.muted(`   Title: ${ticket.title}`));
     this.log(styles.muted(`   Epic: ${epic.title}`));
+  }
+
+  private async executeBulk(flags: {
+    'to-epic'?: string;
+    'from-epic'?: string;
+    force: boolean;
+    unlink: boolean;
+  }): Promise<void> {
+    this.log(styles.emphasis('🔗 Link Tickets to Epic\n'));
+
+    // Get all tickets
+    const allTickets = await this.storage.listTickets();
+
+    if (allTickets.length === 0) {
+      this.log(styles.warning('No tickets found.'));
+      return;
+    }
+
+    // Get epics from database
+    const db = (this.storage as unknown as { db: { prepare: (sql: string) => { all: (...args: unknown[]) => unknown[]; get: (...args: unknown[]) => unknown; run: (...args: unknown[]) => unknown } } }).db;
+    const epics = db.prepare(`
+      SELECT id, title, status FROM pmo_epics
+      WHERE project_id = ?
+      ORDER BY status, title
+    `).all(this.storage.getCurrentProjectId()) as Array<{ id: string; title: string; status: string }>;
+
+    // Filter tickets if --from-epic specified
+    let filteredTickets = allTickets;
+    if (flags['from-epic']) {
+      // Get tickets with matching epic_id via metadata or direct query
+      const epicTickets = db.prepare(`
+        SELECT id FROM pmo_tickets
+        WHERE project_id = ? AND epic_id = ?
+      `).all(this.storage.getCurrentProjectId(), flags['from-epic']) as Array<{ id: string }>;
+      const epicTicketIds = new Set(epicTickets.map(t => t.id));
+      filteredTickets = allTickets.filter(t => epicTicketIds.has(t.id));
+    }
+
+    if (filteredTickets.length === 0) {
+      this.log(styles.warning('No tickets found matching filter.'));
+      return;
+    }
+
+    // Get current epic for each ticket
+    const ticketEpics = new Map<string, string | null>();
+    for (const ticket of filteredTickets) {
+      const row = db.prepare(`
+        SELECT epic_id FROM pmo_tickets WHERE id = ?
+      `).get(ticket.id) as { epic_id: string | null } | undefined;
+      ticketEpics.set(ticket.id, row?.epic_id || null);
+    }
+
+    // Select tickets to link
+    const { selectedTickets } = await inquirer.prompt([{
+      type: 'checkbox',
+      name: 'selectedTickets',
+      message: 'Select tickets to link:',
+      choices: filteredTickets.map(t => {
+        const epicId = ticketEpics.get(t.id);
+        const epicTitle = epicId ? epics.find(e => e.id === epicId)?.title || epicId : '(none)';
+        return {
+          name: `${t.id} - ${t.title}  [Epic: ${epicTitle}]`,
+          value: t.id,
+        };
+      }),
+    }]);
+
+    if (selectedTickets.length === 0) {
+      this.log(styles.muted('No tickets selected.'));
+      return;
+    }
+
+    // Select target epic
+    let targetEpic: string | null | undefined = flags['to-epic'];
+    if (targetEpic === undefined) {
+      const { epic } = await inquirer.prompt([{
+        type: 'list',
+        name: 'epic',
+        message: 'Link to which epic?',
+        choices: [
+          { name: 'None (remove epic link)', value: null },
+          ...epics.map(e => ({
+            name: `${e.title} (${e.status})`,
+            value: e.id,
+          })),
+        ],
+      }]);
+      targetEpic = epic;
+    }
+
+    // Confirmation
+    if (!flags.force) {
+      const epicLabel = targetEpic
+        ? epics.find(e => e.id === targetEpic)?.title || targetEpic
+        : 'None (removing link)';
+
+      this.log(styles.primary('\nWill link to epic:'));
+      this.log(styles.primary(`  → ${epicLabel}\n`));
+      this.log(styles.primary('Tickets:'));
+      for (const ticketId of selectedTickets) {
+        const ticket = filteredTickets.find(t => t.id === ticketId);
+        this.log(styles.primary(`  • ${ticketId}: ${ticket?.title}`));
+      }
+      this.log('');
+
+      const { confirm } = await inquirer.prompt([{
+        type: 'list',
+        name: 'confirm',
+        message: 'Continue?',
+        choices: [
+          { name: 'No, cancel', value: false },
+          { name: 'Yes, link tickets', value: true }
+        ],
+        default: 0
+      }]);
+
+      if (!confirm) {
+        this.log(styles.muted('Operation cancelled.'));
+        return;
+      }
+    }
+
+    this.log('');
+
+    // Link each ticket
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const ticketId of selectedTickets) {
+      try {
+        db.prepare(`
+          UPDATE pmo_tickets
+          SET epic_id = ?, updated_at = ?
+          WHERE id = ?
+        `).run(targetEpic, Date.now(), ticketId);
+
+        const action = targetEpic ? `Linked to ${targetEpic}` : 'Removed epic link';
+        this.log(styles.success(`${ticketId}: ${action}`));
+        successCount++;
+      } catch (error) {
+        this.log(styles.error(`Failed to link ${ticketId}: ${error instanceof Error ? error.message : String(error)}`));
+        failCount++;
+      }
+    }
+
+    // Auto-export to kanban.md
+    await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+
+    // Summary
+    this.log('');
+    if (successCount > 0) {
+      const action = targetEpic ? 'Linked' : 'Unlinked';
+      this.log(styles.success(`${action} ${successCount} ticket(s)`));
+    }
+    if (failCount > 0) {
+      this.log(styles.error(`Failed to link ${failCount} ticket(s)`));
+    }
   }
 }
