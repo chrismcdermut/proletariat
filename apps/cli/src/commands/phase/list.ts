@@ -1,5 +1,5 @@
 import { Flags } from '@oclif/core';
-import { PMOCommand, pmoBaseFlags, PMOCommandOptions } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER, ProjectPhase } from '../../lib/pmo/types.js';
 
@@ -24,11 +24,6 @@ export default class PhaseList extends PMOCommand {
       default: false,
     }),
   };
-
-  // Phases are workspace-scoped, no project selection needed
-  protected getPMOOptions(): PMOCommandOptions {
-    return { promptIfMultiple: false };
-  }
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(PhaseList);

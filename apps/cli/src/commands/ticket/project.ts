@@ -1,9 +1,9 @@
 import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { TicketCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class TicketProject extends TicketCommand {
+export default class TicketProject extends PMOCommand {
   static description = 'Move ticket(s) to a different project';
 
   static examples = [

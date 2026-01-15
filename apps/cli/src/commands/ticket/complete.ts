@@ -2,12 +2,12 @@ import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import {
   autoExportToBoard,
-  TicketCommand,
+  PMOCommand,
   pmoBaseFlags,
 } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class TicketComplete extends TicketCommand {
+export default class TicketComplete extends PMOCommand {
   static description = 'Mark ticket(s) as complete (move to Done column)';
 
   static examples = [

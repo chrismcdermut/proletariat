@@ -420,7 +420,7 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
 
     // Clear ticket assignees for removed agents
     try {
-      const { storage } = await getPMOContext(undefined, () => {}, false);
+      const { storage } = await getPMOContext();
       const allTickets = await storage.listTickets();
       for (const ticket of allTickets) {
         if (ticket.assignee && removed.includes(ticket.assignee)) {

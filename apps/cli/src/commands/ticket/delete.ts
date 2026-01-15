@@ -2,12 +2,12 @@ import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import {
   autoExportToBoard,
-  TicketCommand,
+  PMOCommand,
   pmoBaseFlags,
 } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
-export default class TicketDelete extends TicketCommand {
+export default class TicketDelete extends PMOCommand {
   static description = 'Delete ticket(s) permanently';
 
   static examples = [

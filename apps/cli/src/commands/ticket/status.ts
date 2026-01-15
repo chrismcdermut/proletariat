@@ -1,9 +1,9 @@
 import { Args } from '@oclif/core';
 import inquirer from 'inquirer';
-import { TicketCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles, formatPriority, formatCategory } from '../../lib/styles.js';
 
-export default class TicketStatus extends TicketCommand {
+export default class TicketStatus extends PMOCommand {
   static description = 'Show ticket status and details';
 
   static examples = [

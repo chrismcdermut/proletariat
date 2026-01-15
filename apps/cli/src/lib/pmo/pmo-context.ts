@@ -1,6 +1,5 @@
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import inquirer from 'inquirer';
 import Database from 'better-sqlite3';
 import { SQLiteStorage, getStorageWithAutoSync, getWorkspaceDbPath } from './index.js';
 import { findPMO } from './find-pmo.js';
@@ -24,42 +23,38 @@ export interface PMOContext {
 export interface GetPMOContextOptions {
   projectId?: string;
   logger?: (msg: string) => void;
-  promptIfMultiple?: boolean;
-  filterEmptyProjects?: boolean;  // Hide projects with no tickets (for work commands)
-  skipProjectSelection?: boolean; // For cross-project operations, skip project selection entirely
 }
 
 /**
  * Get PMO context (path, storage, columns) without requiring config.json
  * Reads everything from workspace.db instead
  *
+ * Note: This function does NOT prompt for project selection. It initializes storage
+ * with the provided projectId, or 'default' if none specified. Commands that need
+ * project context should call requireProject() after context initialization.
+ *
  * @param options - Configuration options
- * @param options.projectId - Optional project ID (defaults to 'default' or HQ name, or prompts if multiple projects)
+ * @param options.projectId - Optional project ID (defaults to 'default')
  * @param options.logger - Optional logging function
- * @param options.promptIfMultiple - Whether to prompt user to select project if multiple exist (default: false)
- * @param options.filterEmptyProjects - Hide projects with no tickets in picker (default: false)
  * @returns PMO context with storage and metadata
  */
 export async function getPMOContext(
   projectId?: string | GetPMOContextOptions,
-  logger?: (msg: string) => void,
-  promptIfMultiple: boolean = false
+  logger?: (msg: string) => void
 ): Promise<PMOContext> {
   // Support both old signature and new options object
   let options: GetPMOContextOptions;
   if (typeof projectId === 'object' && projectId !== null) {
     options = projectId;
   } else {
-    options = { projectId, logger, promptIfMultiple };
+    options = { projectId, logger };
   }
 
   const {
     projectId: projectIdOpt,
     logger: loggerOpt,
-    promptIfMultiple: promptIfMultipleOpt = false,
-    filterEmptyProjects = false,
-    skipProjectSelection = false,
   } = options;
+
   // Find PMO
   const pmoPath = findPMO();
   if (!pmoPath) {
@@ -75,59 +70,9 @@ export async function getPMOContext(
   // Get workspace.db path (searches upward from PMO)
   const dbPath = getWorkspaceDbPath(pmoPath);
 
-  // If no project ID specified, try to auto-detect from config or prompt if multiple exist
-  let resolvedProjectId = projectIdOpt;
-  if (!resolvedProjectId && !skipProjectSelection) {
-    // Check if there are multiple projects
-    const db = new Database(dbPath);
-
-    // Get projects with ticket counts
-    const projects = db.prepare(`
-      SELECT
-        p.id,
-        p.name,
-        (SELECT COUNT(*) FROM pmo_tickets WHERE project_id = p.id) as ticket_count
-      FROM pmo_projects p
-      ORDER BY created_at
-    `).all() as Array<{ id: string; name: string; ticket_count: number }>;
-    db.close();
-
-    if (projects.length === 0) {
-      throw new Error('No projects found. Run "prlt pmo init" first.');
-    }
-
-    // Filter to only projects with tickets if requested
-    let filteredProjects = projects;
-    if (filterEmptyProjects) {
-      filteredProjects = projects.filter(p => p.ticket_count > 0);
-      if (filteredProjects.length === 0) {
-        throw new Error('No projects with tickets found. Create a ticket first with "prlt ticket create".');
-      }
-    }
-
-    if (filteredProjects.length === 1) {
-      // Only one project (or one with tickets), use it - no prompt needed
-      resolvedProjectId = filteredProjects[0].id;
-    } else if (filteredProjects.length > 1) {
-      // Multiple projects - always prompt for selection
-      // (promptIfMultiple is only false when --project flag is already provided,
-      // but if we're here, no project was provided so we must ask)
-      const { selectedProjectId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedProjectId',
-        message: 'Select project:',
-        choices: filteredProjects.map(p => ({
-          name: filterEmptyProjects ? `${p.name} (${p.ticket_count} tickets)` : p.name,
-          value: p.id,
-        })),
-      }]);
-      resolvedProjectId = selectedProjectId;
-    }
-  } else if (skipProjectSelection && !resolvedProjectId) {
-    // For cross-project operations, use 'default' as a placeholder project ID
-    // The storage will be initialized but the project filter will be skipped in queries
-    resolvedProjectId = 'default';
-  }
+  // Use provided projectId or 'default' as placeholder
+  // Commands that need project context should call requireProject()
+  const resolvedProjectId = projectIdOpt || 'default';
 
   // Detect sync mode: 'git' enables multi-machine sync via git push/pull of board.md
   // Note: Storage is always SQLite (workspace.db). This flag controls sync strategy.
