@@ -3,6 +3,13 @@ import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { Ticket } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class TicketEpic extends PMOCommand {
   static description = 'Assign ticket(s) to an epic (parent-child relationship)';
@@ -27,6 +34,14 @@ export default class TicketEpic extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     unlink: Flags.boolean({
       char: 'u',
       description: 'Remove epic link instead of adding',
@@ -53,6 +68,9 @@ export default class TicketEpic extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketEpic);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
     // Bulk mode
     if (flags.bulk) {
       await this.executeBulk(flags);
@@ -62,6 +80,10 @@ export default class TicketEpic extends PMOCommand {
     // Get all tickets
     const allTickets = await this.storage.listTickets();
     if (allTickets.length === 0) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_TICKETS', 'No tickets found.', createMetadata('ticket epic', flags));
+        return;
+      }
       this.log(styles.muted('\nNo tickets found.'));
       return;
     }

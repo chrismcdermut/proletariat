@@ -1,5 +1,12 @@
+import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class Ticket extends PMOCommand {
   static description = 'Interactive menu for ticket operations';
@@ -10,6 +17,14 @@ export default class Ticket extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -17,6 +32,34 @@ export default class Ticket extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    const { flags } = await this.parse(Ticket);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // In JSON mode, output action selection prompt
+    if (jsonMode) {
+      const actionChoices = [
+        { name: 'Create new ticket', value: 'create' },
+        { name: 'Create from template', value: 'template' },
+        { name: 'List all tickets', value: 'list' },
+        { name: 'View ticket details', value: 'view' },
+        { name: 'Edit ticket', value: 'edit' },
+        { name: 'Move ticket (column)', value: 'move' },
+        { name: 'Move to different project', value: 'project' },
+        { name: 'Assign to epic', value: 'epic' },
+        { name: 'Assign to spec', value: 'spec' },
+        { name: 'Manage dependencies', value: 'link' },
+        { name: 'Manage templates', value: 'templates' },
+        { name: 'Delete ticket', value: 'delete' },
+      ];
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', 'Ticket Operations - What would you like to do?', actionChoices),
+        createMetadata('ticket', flags)
+      );
+      return;
+    }
+
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',

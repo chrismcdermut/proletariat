@@ -2,6 +2,13 @@ import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class TicketProject extends PMOCommand {
   static description = 'Move ticket(s) to a different project';
@@ -26,6 +33,14 @@ export default class TicketProject extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     'keep-epic': Flags.boolean({
       description: 'Keep ticket assigned to its epic (if epic is in source project, will unlink)',
       default: false,
@@ -44,6 +59,9 @@ export default class TicketProject extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketProject);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
     // Bulk mode
     if (flags.bulk) {
       await this.executeBulk(flags);
@@ -57,7 +75,24 @@ export default class TicketProject extends PMOCommand {
     if (!ticketId) {
       const tickets = await this.storage.listTickets();
       if (tickets.length === 0) {
+        if (jsonMode) {
+          outputErrorAsJson('NO_TICKETS', 'No tickets found in this project.', createMetadata('ticket project', flags));
+          return;
+        }
         this.log(styles.muted('\nNo tickets found in this project.'));
+        return;
+      }
+
+      // In JSON mode, output ticket selection prompt
+      if (jsonMode) {
+        const ticketChoices = tickets.map(t => ({
+          name: `${t.id} - ${t.title} (${t.statusName})`,
+          value: t.id,
+        }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'ticketId', 'Select ticket to move:', ticketChoices),
+          createMetadata('ticket project', flags)
+        );
         return;
       }
 

@@ -1,6 +1,13 @@
+import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class TicketBulk extends PMOCommand {
   static description = 'Manage tickets in bulk (interactive menu)';
@@ -11,6 +18,14 @@ export default class TicketBulk extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -18,6 +33,31 @@ export default class TicketBulk extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    const { flags } = await this.parse(TicketBulk);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // In JSON mode, output action selection prompt
+    if (jsonMode) {
+      const actionChoices = [
+        { name: 'List all tickets', value: 'list' },
+        { name: 'Move multiple tickets', value: 'move' },
+        { name: 'Complete multiple tickets', value: 'complete' },
+        { name: 'Reassign tickets (change assignee)', value: 'reassign' },
+        { name: 'Link tickets to epic', value: 'epic' },
+        { name: 'Link tickets to spec', value: 'spec' },
+        { name: 'Move tickets to project', value: 'project' },
+        { name: 'Update tickets (priority/category)', value: 'update' },
+        { name: 'Delete multiple tickets', value: 'delete' },
+      ];
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', 'Ticket Management (Bulk Operations) - What would you like to do?', actionChoices),
+        createMetadata('ticket bulk', flags)
+      );
+      return;
+    }
+
     this.log(styles.emphasis('🎫 Ticket Management (Bulk Operations)'));
     this.log('');
 

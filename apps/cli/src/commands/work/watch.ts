@@ -15,6 +15,13 @@ import {
 } from '../../lib/execution/spawner.js'
 import { DisplayMode, ExecutionEnvironment, ExecutionConfig } from '../../lib/execution/types.js'
 import { promptExecutionSettings } from '../../lib/execution/config.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js'
 
 export default class WorkWatch extends PMOCommand {
   static description = 'Watch a column and auto-spawn agents for new tickets'
@@ -29,6 +36,14 @@ export default class WorkWatch extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     column: Flags.string({
       char: 'c',
       description: 'Column to watch for new tickets (prompts if not provided)',
@@ -87,16 +102,28 @@ export default class WorkWatch extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(WorkWatch)
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags)
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('work watch', flags))
+        this.exit(1)
+      }
+      this.error(message)
+    }
+
     // Get workspace info
     let workspaceInfo
     try {
       workspaceInfo = getWorkspaceInfo()
     } catch {
-      this.error('Not in a workspace. Run "prlt init" first.')
+      return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt init" first.')
     }
 
     if (workspaceInfo.agents.length === 0) {
-      this.error('No agents found in workspace. Add agents first with "prlt agent add".')
+      return handleError('NO_AGENTS', 'No agents found in workspace. Add agents first with "prlt agent add".')
     }
 
     // Open database for execution storage
@@ -129,6 +156,23 @@ export default class WorkWatch extends PMOCommand {
       // Prompt for column if not provided
       this.columnName = flags.column || ''
       if (!this.columnName) {
+        // In JSON mode, output column selection prompt
+        if (jsonMode) {
+          const columnChoices = columns.map(col => {
+            const ticketCount = board.columns.find(c => c.name === col)?.tickets?.length || 0
+            return {
+              name: `${col} (${ticketCount} tickets)`,
+              value: col,
+            }
+          })
+          outputPromptAsJson(
+            buildPromptConfig('list', 'column', 'Select column to watch for new tickets:', columnChoices),
+            createMetadata('work watch', flags)
+          )
+          db.close()
+          return
+        }
+
         const { selectedColumn } = await inquirer.prompt([
           {
             type: 'list',

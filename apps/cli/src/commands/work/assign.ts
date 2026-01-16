@@ -3,6 +3,13 @@ import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js'
 
 export default class WorkAssign extends PMOCommand {
   static description = 'Assign work to an agent or person'
@@ -27,6 +34,14 @@ export default class WorkAssign extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     owner: Flags.string({
       description: 'Also set the owner',
     }),
@@ -39,6 +54,18 @@ export default class WorkAssign extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkAssign)
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags)
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('work assign', flags))
+        this.exit(1)
+      }
+      this.error(message)
+    }
 
     // Get workspace info for agent list
     let workspaceAgents: string[] = []
@@ -56,7 +83,20 @@ export default class WorkAssign extends PMOCommand {
       const allTickets = await this.storage.listTickets()
 
       if (allTickets.length === 0) {
-        this.error('No tickets found. Create a ticket first with "prlt ticket create".')
+        return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".')
+      }
+
+      // In JSON mode, output ticket selection prompt
+      if (jsonMode) {
+        const ticketChoices = allTickets.map((t) => ({
+          name: `${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
+          value: t.id,
+        }))
+        outputPromptAsJson(
+          buildPromptConfig('list', 'ticketId', 'Select ticket to assign:', ticketChoices),
+          createMetadata('work assign', flags)
+        )
+        return
       }
 
       const { selectedTicketId } = await inquirer.prompt([

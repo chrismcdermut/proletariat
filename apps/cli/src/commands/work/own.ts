@@ -1,7 +1,14 @@
-import { Args } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js'
 
 export default class WorkOwn extends PMOCommand {
   static description = 'Take ownership of work (you are accountable for it getting done)'
@@ -20,10 +27,30 @@ export default class WorkOwn extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   }
 
   async execute(): Promise<void> {
-    const { args } = await this.parse(WorkOwn)
+    const { args, flags } = await this.parse(WorkOwn)
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags)
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('work own', flags))
+        this.exit(1)
+      }
+      this.error(message)
+    }
 
     // Get current user (from git config or environment)
     const currentUser = this.getCurrentUser()
@@ -35,7 +62,20 @@ export default class WorkOwn extends PMOCommand {
       const allTickets = await this.storage.listTickets()
 
       if (allTickets.length === 0) {
-        this.error('No tickets found. Create a ticket first with "prlt ticket create".')
+        return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".')
+      }
+
+      // In JSON mode, output ticket selection prompt
+      if (jsonMode) {
+        const ticketChoices = allTickets.map((t) => ({
+          name: `${t.id} - ${t.title} (${t.owner ? `owner: ${t.owner}` : 'unowned'})`,
+          value: t.id,
+        }))
+        outputPromptAsJson(
+          buildPromptConfig('list', 'ticketId', 'Select work to own:', ticketChoices),
+          createMetadata('work own', flags)
+        )
+        return
       }
 
       const { selectedTicketId } = await inquirer.prompt([
