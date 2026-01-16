@@ -6,6 +6,13 @@ import {
   pmoBaseFlags,
 } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class TicketDelete extends PMOCommand {
   static description = 'Delete ticket(s) permanently';
@@ -15,6 +22,7 @@ export default class TicketDelete extends PMOCommand {
     '<%= config.bin %> <%= command.id %> TICK-001 --force',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
     '<%= config.bin %> <%= command.id %> --bulk',
+    '<%= config.bin %> <%= command.id %> --json  # Output choices as JSON',
   ];
 
   static args = {
@@ -26,6 +34,14 @@ export default class TicketDelete extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation prompt',
@@ -41,11 +57,23 @@ export default class TicketDelete extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketDelete);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('ticket delete', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Get all tickets for selection
     const allTickets = await this.storage.listTickets();
 
     if (allTickets.length === 0) {
-      this.error('No tickets found.');
+      return handleError('NO_TICKETS', 'No tickets found.');
     }
 
     // Bulk mode
@@ -58,6 +86,19 @@ export default class TicketDelete extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
+      // In JSON mode, output ticket selection prompt
+      if (jsonMode) {
+        const ticketChoices = allTickets.map(t => ({
+          name: `${t.id} - ${t.title} (${t.statusName})`,
+          value: t.id,
+        }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'ticketId', 'Select ticket to delete:', ticketChoices),
+          createMetadata('ticket delete', flags)
+        );
+        return;
+      }
+
       const { selectedTicketId } = await inquirer.prompt([{
         type: 'list',
         name: 'selectedTicketId',

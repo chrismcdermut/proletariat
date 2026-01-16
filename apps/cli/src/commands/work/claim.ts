@@ -4,6 +4,13 @@ import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js'
 
 export default class WorkClaim extends PMOCommand {
   static description = 'Claim work: take ownership and assign to yourself or an agent'
@@ -13,6 +20,7 @@ export default class WorkClaim extends PMOCommand {
     '<%= config.bin %> <%= command.id %> TKT-001 --self',
     '<%= config.bin %> <%= command.id %> TKT-001 --agent altman',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
+    '<%= config.bin %> <%= command.id %> --json  # Output choices as JSON',
   ]
 
   static args = {
@@ -24,6 +32,14 @@ export default class WorkClaim extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     self: Flags.boolean({
       description: 'Assign to yourself (skip prompt)',
       default: false,
@@ -35,6 +51,18 @@ export default class WorkClaim extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkClaim)
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags)
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('work claim', flags))
+        this.exit(1)
+      }
+      this.error(message)
+    }
 
     // Get current user
     const currentUser = this.getCurrentUser()
@@ -60,7 +88,20 @@ export default class WorkClaim extends PMOCommand {
       )
 
       if (availableTickets.length === 0) {
-        this.error('No available tickets to claim.')
+        return handleError('NO_AVAILABLE_TICKETS', 'No available tickets to claim.')
+      }
+
+      // In JSON mode, output ticket selection prompt
+      if (jsonMode) {
+        const ticketChoices = availableTickets.map((t) => ({
+          name: `${t.id} - ${t.title} (${t.statusName || t.statusCategory || 'no status'}${t.assignee ? `, assignee: ${t.assignee}` : ''})`,
+          value: t.id,
+        }))
+        outputPromptAsJson(
+          buildPromptConfig('list', 'ticketId', 'Select ticket to claim:', ticketChoices),
+          createMetadata('work claim', flags)
+        )
+        return
       }
 
       const { selectedTicketId } = await inquirer.prompt([
@@ -80,7 +121,7 @@ export default class WorkClaim extends PMOCommand {
     // Get ticket
     const ticket = await this.storage.getTicket(ticketId!)
     if (!ticket) {
-      this.error(`Ticket "${ticketId}" not found.`)
+      return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`)
     }
 
     this.log('')

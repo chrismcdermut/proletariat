@@ -2,6 +2,13 @@ import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class TicketUpdate extends PMOCommand {
   static description = 'Update priority/category for ticket(s)';
@@ -11,6 +18,7 @@ export default class TicketUpdate extends PMOCommand {
     '<%= config.bin %> <%= command.id %> TKT-001 --category bug',
     '<%= config.bin %> <%= command.id %> --bulk',
     '<%= config.bin %> <%= command.id %> --bulk --priority HIGH',
+    '<%= config.bin %> <%= command.id %> --json  # Output choices as JSON',
   ];
 
   static args = {
@@ -22,6 +30,14 @@ export default class TicketUpdate extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     priority: Flags.string({
       char: 'p',
       description: 'Set priority (URGENT, HIGH, MEDIUM, LOW)',
@@ -46,10 +62,17 @@ export default class TicketUpdate extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketUpdate);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
     // Get all tickets
     const allTickets = await this.storage.listTickets();
 
     if (allTickets.length === 0) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_TICKETS', 'No tickets found.', createMetadata('ticket update', flags));
+        return;
+      }
       this.log(styles.warning('No tickets found.'));
       return;
     }
@@ -64,6 +87,19 @@ export default class TicketUpdate extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
+      // In JSON mode, output ticket selection prompt
+      if (jsonMode) {
+        const ticketChoices = allTickets.map(t => ({
+          name: `${t.id} - ${t.title}  [P:${t.priority || 'none'} C:${t.category || 'none'}]`,
+          value: t.id,
+        }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'ticketId', 'Select ticket to update:', ticketChoices),
+          createMetadata('ticket update', flags)
+        );
+        return;
+      }
+
       const { selectedTicketId } = await inquirer.prompt([{
         type: 'list',
         name: 'selectedTicketId',
