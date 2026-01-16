@@ -24,8 +24,14 @@ export default class SpecLinkRemove extends PMOCommand {
   }
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
-    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     type: Flags.string({ char: 't', description: 'Dependency type', options: ['depends_on', 'relates_to', 'duplicates'] }),
     all: Flags.boolean({ char: 'a', description: 'Remove all dependencies', default: false }),
   }

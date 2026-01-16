@@ -37,8 +37,14 @@ export default class DockerStop extends Command {
       description: 'Seconds to wait before killing the container',
       default: 10,
     }),
-    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
-    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   }
 
   static args = {

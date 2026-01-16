@@ -29,8 +29,14 @@ export default class EpicArchive extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
-    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     force: Flags.boolean({
       char: 'f',
       description: 'Skip ticket completion check',

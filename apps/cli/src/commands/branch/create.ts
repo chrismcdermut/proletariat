@@ -103,8 +103,14 @@ export default class BranchCreate extends PMOCommand {
       description: 'Non-interactive mode: skip prompts, switch to existing branch if it exists',
       default: false,
     }),
-    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
-    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   }
 
   protected getPMOOptions() {

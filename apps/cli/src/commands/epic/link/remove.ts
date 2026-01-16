@@ -27,8 +27,14 @@ export default class EpicLinkRemove extends PMOCommand {
     project: Flags.string({ char: 'P', description: 'Project ID' }),
     type: Flags.string({ char: 't', description: 'Dependency type', options: ['blocks', 'relates_to', 'duplicates'] }),
     all: Flags.boolean({ char: 'a', description: 'Remove all dependencies', default: false }),
-    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
-    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   }
 
   async execute(): Promise<void> {

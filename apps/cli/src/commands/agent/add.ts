@@ -48,8 +48,14 @@ export default class Add extends Command {
       char: 't',
       description: 'Pick agent name(s) from a theme (billionaires, toyotas, companies, or custom)',
     }),
-    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
-    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   static strict = false; // Allow multiple agent names

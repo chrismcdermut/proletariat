@@ -50,8 +50,14 @@ export default class ExecutionStop extends PMOCommand {
       char: 'a',
       description: 'Stop all executions for a specific agent',
     }),
-    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
-    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   }
 
   protected getPMOOptions() {
