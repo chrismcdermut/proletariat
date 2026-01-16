@@ -17,7 +17,8 @@ import chalk from 'chalk';
  * working in different workspaces simultaneously. Each agent uses the workspace
  * they're physically in, not a global env var that could cause conflicts.
  *
- * For testing and CI/CD workspace isolation, see TKT-XXX.
+ * For testing workspace isolation, see TKT-400.
+ * For CI/CD workspace isolation, see TKT-401.
  */
 
 export interface WorkspaceLocation {
