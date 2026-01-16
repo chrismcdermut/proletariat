@@ -1,6 +1,13 @@
+import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class Agent extends PMOCommand {
   static description = 'Manage agents in the workspace';
@@ -19,6 +26,8 @@ export default class Agent extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   };
 
   protected getPMOOptions() {
@@ -26,6 +35,32 @@ export default class Agent extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    const { flags } = await this.parse(Agent);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // In JSON mode, output menu prompt
+    if (jsonMode) {
+      const menuChoices = [
+        { name: 'List all agents', value: 'list' },
+        { name: 'Show status', value: 'status' },
+        { name: 'Visit directory', value: 'visit' },
+        { name: 'Add agent', value: 'add' },
+        { name: 'Remove agent', value: 'remove' },
+        { name: 'Manage themes', value: 'themes' },
+        { name: 'Open shell', value: 'shell' },
+        { name: 'Restart', value: 'restart' },
+        { name: 'Rebuild', value: 'rebuild' },
+        { name: 'Cancel', value: 'cancel' },
+      ];
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', 'What would you like to do?', menuChoices),
+        createMetadata('agent', flags)
+      );
+      return;
+    }
+
     this.log(colors.primary('🤖 Agent Management'));
     this.log('');
 

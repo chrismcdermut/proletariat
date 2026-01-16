@@ -14,6 +14,13 @@ import {
   markThemeNameUsed,
   getActiveTheme
 } from '../../lib/database/index.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class Add extends Command {
   static description = 'Add new agents to the workspace';
@@ -41,12 +48,17 @@ export default class Add extends Command {
       char: 't',
       description: 'Pick agent name(s) from a theme (billionaires, toyotas, companies, or custom)',
     }),
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   };
 
   static strict = false; // Allow multiple agent names
 
   async run(): Promise<void> {
     const { argv, flags } = await this.parse(Add);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
 
     try {
       // Get workspace information
@@ -64,6 +76,10 @@ export default class Add extends Command {
         const theme = getTheme(workspaceInfo.path, flags.theme);
         if (!theme) {
           const available = BUILTIN_THEMES.map(t => t.name).join(', ');
+          if (jsonMode) {
+            outputErrorAsJson('THEME_NOT_FOUND', `Theme "${flags.theme}" not found. Available: ${available}`, createMetadata('agent add', flags));
+            return;
+          }
           this.error(`Theme "${flags.theme}" not found. Available: ${available}`);
         }
 
@@ -72,7 +88,21 @@ export default class Add extends Command {
         // Get available names from theme
         const availableNames = getAvailableThemeNames(workspaceInfo.path, themeId);
         if (availableNames.length === 0) {
+          if (jsonMode) {
+            outputErrorAsJson('NO_AVAILABLE_NAMES', `No available names in theme "${theme.display_name}". All names are in use.`, createMetadata('agent add', flags));
+            return;
+          }
           this.error(`No available names in theme "${theme.display_name}". All names are in use.`);
+        }
+
+        // In JSON mode, output theme names selection prompt
+        if (jsonMode) {
+          const nameChoices = availableNames.map(name => ({ name, value: name }));
+          outputPromptAsJson(
+            buildPromptConfig('checkbox', 'names', `Select agent names from ${theme.display_name}:`, nameChoices),
+            createMetadata('agent add', flags)
+          );
+          return;
         }
 
         // Interactive selection from theme
@@ -105,8 +135,25 @@ export default class Add extends Command {
           const availableNames = getAvailableThemeNames(workspaceInfo.path, activeTheme.id);
 
           if (availableNames.length === 0) {
+            if (jsonMode) {
+              outputErrorAsJson('NO_AVAILABLE_NAMES', `No available names in ${activeTheme.display_name}. All names are in use.`, createMetadata('agent add', flags));
+              return;
+            }
             this.log(chalk.yellow(`No available names in ${activeTheme.display_name}. All names are in use.`));
             this.log(chalk.blue('Use --theme to pick from a different theme, or enter names directly.'));
+            return;
+          }
+
+          // In JSON mode, output agent names selection prompt
+          if (jsonMode) {
+            const nameChoices = [
+              ...availableNames.map(name => ({ name, value: name })),
+              { name: 'Enter custom name(s)...', value: '__custom__' },
+            ];
+            outputPromptAsJson(
+              buildPromptConfig('checkbox', 'names', `Select agents from ${activeTheme.display_name}:`, nameChoices),
+              createMetadata('agent add', flags)
+            );
             return;
           }
 
@@ -159,6 +206,22 @@ export default class Add extends Command {
             theme: t,
             availableCount: getAvailableThemeNames(workspaceInfo.path, t.id).length
           })).filter(t => t.availableCount > 0);
+
+          // In JSON mode, output theme selection prompt
+          if (jsonMode) {
+            const themeChoices = [
+              ...themesWithNames.map(({ theme, availableCount }) => ({
+                name: `${theme.display_name} (${availableCount} available)`,
+                value: theme.id
+              })),
+              { name: 'Enter custom name(s)', value: '__custom__' },
+            ];
+            outputPromptAsJson(
+              buildPromptConfig('list', 'theme', 'No theme set. Select a theme or enter custom names:', themeChoices),
+              createMetadata('agent add', flags)
+            );
+            return;
+          }
 
           // Build theme selection choices
           const themeChoices: any[] = themesWithNames.map(({ theme, availableCount }) => ({
