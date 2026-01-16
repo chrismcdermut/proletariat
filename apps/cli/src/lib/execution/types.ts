@@ -313,6 +313,7 @@ export interface ExecutionConfig {
   tmux: {
     session: string
     layout: 'split' | 'window'
+    controlMode: boolean  // Use tmux -CC for iTerm native integration
   }
   terminal: {
     app: TerminalApp
@@ -347,6 +348,7 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   tmux: {
     session: 'proletariat',
     layout: 'window',
+    controlMode: true,  // Enable -CC for iTerm native integration by default
   },
   terminal: {
     app: 'Terminal',
