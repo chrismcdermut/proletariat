@@ -85,14 +85,17 @@ export default class WorkspaceUse extends Command {
       }
 
       if (matches.length > 1) {
+        // Build choices once, use for both JSON and interactive modes
+        const workspaceChoices = matches.map((w) => ({
+          name: `${w.name} - ${w.path}`,
+          value: w.path,
+        }));
+        const message = `Multiple workspaces found with name "${input}". Which workspace do you want to use?`;
+
         // In JSON mode, output workspace selection prompt
         if (jsonMode) {
-          const workspaceChoices = matches.map((w) => ({
-            name: `${w.name} - ${w.path}`,
-            value: w.path,
-          }));
           outputPromptAsJson(
-            buildPromptConfig('list', 'workspacePath', `Multiple workspaces found with name "${input}". Which workspace do you want to use?`, workspaceChoices),
+            buildPromptConfig('list', 'workspacePath', message, workspaceChoices),
             createMetadata('workspace use', flags)
           );
           return;
@@ -106,10 +109,7 @@ export default class WorkspaceUse extends Command {
             type: 'list',
             name: 'selected',
             message: 'Which workspace do you want to use?',
-            choices: matches.map((w) => ({
-              name: `${w.name} - ${w.path}`,
-              value: w.path,
-            })),
+            choices: workspaceChoices,
           },
         ]);
 

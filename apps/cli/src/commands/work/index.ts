@@ -38,20 +38,24 @@ export default class Work extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'Claim work (own + assign)', value: 'claim' },
+      { name: 'Assign work to agent/person', value: 'assign' },
+      { name: 'Take ownership (accountable)', value: 'own' },
+      { name: 'Start work (launch single agent)', value: 'start' },
+      { name: 'Spawn work (batch by column)', value: 'spawn' },
+      { name: 'Watch column (auto-spawn)', value: 'watch' },
+      { name: 'Mark work ready for review', value: 'ready' },
+      { name: 'Mark work complete', value: 'complete' },
+      { name: 'Cancel', value: 'cancel' },
+    ];
+    const message = 'Work Operations - What would you like to do?';
+
     // In JSON mode, output action selection prompt
     if (jsonMode) {
-      const actionChoices = [
-        { name: 'Claim work (own + assign)', value: 'claim' },
-        { name: 'Assign work to agent/person', value: 'assign' },
-        { name: 'Take ownership (accountable)', value: 'own' },
-        { name: 'Start work (launch single agent)', value: 'start' },
-        { name: 'Spawn work (batch by column)', value: 'spawn' },
-        { name: 'Watch column (auto-spawn)', value: 'watch' },
-        { name: 'Mark work ready for review', value: 'ready' },
-        { name: 'Mark work complete', value: 'complete' },
-      ];
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', 'Work Operations - What would you like to do?', actionChoices),
+        buildPromptConfig('list', 'action', message, menuChoices),
         createMetadata('work', flags)
       );
       return;
@@ -61,20 +65,20 @@ export default class Work extends PMOCommand {
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: '🔨 Work Operations - What would you like to do?',
+      message: '🔨 ' + message,
       choices: [
         new inquirer.Separator('── Ownership ──'),
-        { name: 'Claim work (own + assign)', value: 'claim' },
-        { name: 'Assign work to agent/person', value: 'assign' },
-        { name: 'Take ownership (accountable)', value: 'own' },
+        menuChoices[0],
+        menuChoices[1],
+        menuChoices[2],
         new inquirer.Separator('── Execution ──'),
-        { name: 'Start work (launch single agent)', value: 'start' },
-        { name: 'Spawn work (batch by column)', value: 'spawn' },
-        { name: 'Watch column (auto-spawn)', value: 'watch' },
-        { name: 'Mark work ready for review', value: 'ready' },
-        { name: 'Mark work complete', value: 'complete' },
+        menuChoices[3],
+        menuChoices[4],
+        menuChoices[5],
+        menuChoices[6],
+        menuChoices[7],
         new inquirer.Separator('──────────────'),
-        { name: 'Cancel', value: 'cancel' },
+        menuChoices[8],
       ],
     }]);
 

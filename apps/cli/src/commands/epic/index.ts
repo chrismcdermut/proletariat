@@ -31,24 +31,27 @@ export default class Epic extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'Create new epic', value: 'create' },
+      { name: 'List all epics', value: 'list' },
+      { name: 'View epic', value: 'view' },
+      { name: 'Show progress', value: 'progress' },
+      { name: 'Assign tickets to epic', value: 'ticket' },
+      { name: 'Assign spec to epic', value: 'spec' },
+      { name: 'Manage dependencies', value: 'link' },
+      { name: 'Archive epic (complete)', value: 'archive' },
+      { name: 'Activate epic', value: 'activate' },
+      { name: 'Reorder epic', value: 'move' },
+      { name: 'Move to different project', value: 'project' },
+      { name: 'Cancel', value: 'cancel' },
+    ];
+    const message = 'Epic Operations - What would you like to do?';
+
     // In JSON mode, output menu prompt
     if (jsonMode) {
-      const menuChoices = [
-        { name: 'Create new epic', value: 'create' },
-        { name: 'List all epics', value: 'list' },
-        { name: 'View epic', value: 'view' },
-        { name: 'Show progress', value: 'progress' },
-        { name: 'Assign tickets to epic', value: 'ticket' },
-        { name: 'Assign spec to epic', value: 'spec' },
-        { name: 'Manage dependencies', value: 'link' },
-        { name: 'Archive epic (complete)', value: 'archive' },
-        { name: 'Activate epic', value: 'activate' },
-        { name: 'Reorder epic', value: 'move' },
-        { name: 'Move to different project', value: 'project' },
-        { name: 'Cancel', value: 'cancel' },
-      ];
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', 'Epic Operations - What would you like to do?', menuChoices),
+        buildPromptConfig('list', 'action', message, menuChoices),
         createMetadata('epic', flags)
       );
       return;
@@ -58,22 +61,13 @@ export default class Epic extends PMOCommand {
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: '🎯 Epic Operations - What would you like to do?',
+      message: '🎯 ' + message,
       choices: [
-        { name: 'Create new epic', value: 'create' },
-        { name: 'List all epics', value: 'list' },
-        { name: 'View epic', value: 'view' },
-        { name: 'Show progress', value: 'progress' },
-        { name: 'Assign tickets to epic', value: 'ticket' },
-        { name: 'Assign spec to epic', value: 'spec' },
-        { name: 'Manage dependencies', value: 'link' },
+        ...menuChoices.slice(0, 7),
         new inquirer.Separator(),
-        { name: 'Archive epic (complete)', value: 'archive' },
-        { name: 'Activate epic', value: 'activate' },
-        { name: 'Reorder epic', value: 'move' },
-        { name: 'Move to different project', value: 'project' },
+        ...menuChoices.slice(7, 11),
         new inquirer.Separator(),
-        { name: 'Cancel', value: 'cancel' },
+        menuChoices[11],
       ],
     }]);
 

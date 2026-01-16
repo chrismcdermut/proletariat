@@ -240,14 +240,17 @@ export default class PMOInit extends Command {
       // Use default if table doesn't exist
     }
 
+    // Define choices once, use for both JSON and interactive modes
+    const actionChoices = [
+      { name: 'Cancel (keep existing PMO)', value: 'cancel' },
+      { name: 'Reinitialize (DELETES all data)', value: 'reinitialize' },
+    ];
+    const message = `PMO already exists at ${pmoPath} (${projectCount} projects, ${ticketCount} tickets). What would you like to do?`;
+
     // In JSON mode, output reinitialize prompt
     if (jsonMode) {
-      const actionChoices = [
-        { name: 'Cancel (keep existing PMO)', value: 'cancel' },
-        { name: 'Reinitialize (DELETES all data)', value: 'reinitialize' },
-      ];
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', `PMO already exists at ${pmoPath} (${projectCount} projects, ${ticketCount} tickets). What would you like to do?`, actionChoices),
+        buildPromptConfig('list', 'action', message, actionChoices),
         createMetadata('pmo init', flags)
       );
       return null;
@@ -262,10 +265,7 @@ export default class PMOInit extends Command {
       type: 'list',
       name: 'action',
       message: 'What would you like to do?',
-      choices: [
-        { name: 'Cancel (keep existing PMO)', value: 'cancel' },
-        { name: 'Reinitialize (DELETES all data)', value: 'reinitialize' },
-      ],
+      choices: actionChoices,
       default: 'cancel',
     }]);
 

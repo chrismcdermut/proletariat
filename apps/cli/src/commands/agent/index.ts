@@ -40,22 +40,25 @@ export default class Agent extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'List all agents', value: 'list' },
+      { name: 'Show status', value: 'status' },
+      { name: 'Visit directory', value: 'visit' },
+      { name: 'Add agent', value: 'add' },
+      { name: 'Remove agent', value: 'remove' },
+      { name: 'Manage themes', value: 'themes' },
+      { name: 'Open shell', value: 'shell' },
+      { name: 'Restart', value: 'restart' },
+      { name: 'Rebuild', value: 'rebuild' },
+      { name: 'Cancel', value: 'cancel' },
+    ];
+    const message = 'What would you like to do?';
+
     // In JSON mode, output menu prompt
     if (jsonMode) {
-      const menuChoices = [
-        { name: 'List all agents', value: 'list' },
-        { name: 'Show status', value: 'status' },
-        { name: 'Visit directory', value: 'visit' },
-        { name: 'Add agent', value: 'add' },
-        { name: 'Remove agent', value: 'remove' },
-        { name: 'Manage themes', value: 'themes' },
-        { name: 'Open shell', value: 'shell' },
-        { name: 'Restart', value: 'restart' },
-        { name: 'Rebuild', value: 'rebuild' },
-        { name: 'Cancel', value: 'cancel' },
-      ];
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', 'What would you like to do?', menuChoices),
+        buildPromptConfig('list', 'action', message, menuChoices),
         createMetadata('agent', flags)
       );
       return;
@@ -67,22 +70,22 @@ export default class Agent extends PMOCommand {
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: 'What would you like to do?',
+      message,
       choices: [
         new inquirer.Separator('── View ──'),
-        { name: '📋 List all agents', value: 'list' },
-        { name: '📊 Show status', value: 'status' },
-        { name: '📁 Visit directory', value: 'visit' },
+        { name: '📋 ' + menuChoices[0].name, value: menuChoices[0].value },
+        { name: '📊 ' + menuChoices[1].name, value: menuChoices[1].value },
+        { name: '📁 ' + menuChoices[2].name, value: menuChoices[2].value },
         new inquirer.Separator('── Manage ──'),
-        { name: '➕ Add agent', value: 'add' },
-        { name: '🗑️  Remove agent', value: 'remove' },
-        { name: '🎨 Manage themes', value: 'themes' },
+        { name: '➕ ' + menuChoices[3].name, value: menuChoices[3].value },
+        { name: '🗑️  ' + menuChoices[4].name, value: menuChoices[4].value },
+        { name: '🎨 ' + menuChoices[5].name, value: menuChoices[5].value },
         new inquirer.Separator('── Container ──'),
-        { name: '🐚 Open shell', value: 'shell' },
-        { name: '🔄 Restart', value: 'restart' },
-        { name: '🔨 Rebuild', value: 'rebuild' },
+        { name: '🐚 ' + menuChoices[6].name, value: menuChoices[6].value },
+        { name: '🔄 ' + menuChoices[7].name, value: menuChoices[7].value },
+        { name: '🔨 ' + menuChoices[8].name, value: menuChoices[8].value },
         new inquirer.Separator(),
-        { name: '❌ Cancel', value: 'cancel' }
+        { name: '❌ ' + menuChoices[9].name, value: menuChoices[9].value },
       ]
     }]);
 

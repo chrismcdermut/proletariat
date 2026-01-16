@@ -89,25 +89,35 @@ export default class Remove extends PMOCommand {
 
     // Interactive selection if no name provided
     if (!repoName) {
+      const { repositories } = getWorkspaceRepoInfo();
+      if (repositories.length === 0) {
+        return handleError('NO_REPOSITORIES', 'No repositories found.');
+      }
+
+      // Build choices once, use for both JSON and interactive modes
+      const repoChoices = repositories.map(r => ({
+        name: r.name,
+        value: r.name,
+      }));
+      const selectMessage = 'Select repository to remove:';
+
       // In JSON mode, output repo selection prompt
       if (jsonMode) {
-        const { repositories } = getWorkspaceRepoInfo();
-        if (repositories.length === 0) {
-          outputErrorAsJson('NO_REPOSITORIES', 'No repositories found.', createMetadata('repo remove', flags));
-          this.exit(1);
-        }
-        const repoChoices = repositories.map(r => ({
-          name: r.name,
-          value: r.name,
-        }));
         outputPromptAsJson(
-          buildPromptConfig('list', 'repoName', 'Select repository to remove:', repoChoices),
+          buildPromptConfig('list', 'repoName', selectMessage, repoChoices),
           createMetadata('repo remove', flags)
         );
         return;
       }
 
-      repoName = await promptSelectRepo('Select repository to remove:');
+      const { selected } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selected',
+        message: selectMessage,
+        choices: repoChoices,
+      }]);
+      repoName = selected;
+
       if (!repoName) {
         this.log(colors.textMuted('Operation cancelled.'));
         return;
@@ -123,14 +133,17 @@ export default class Remove extends PMOCommand {
 
     // Confirmation unless --force
     if (!flags.force) {
+      // Build choices once, use for both JSON and interactive modes
+      const confirmChoices = [
+        { name: 'No, cancel', value: 'false' },
+        { name: 'Yes, remove repository', value: 'true' },
+      ];
+      const confirmMessage = `Remove repository "${repoName}"? (This will remove repos/${repoName} directory and agent worktrees)`;
+
       // In JSON mode, output confirmation prompt
       if (jsonMode) {
-        const confirmChoices = [
-          { name: 'No, cancel', value: 'false' },
-          { name: 'Yes, remove repository', value: 'true' },
-        ];
         outputPromptAsJson(
-          buildPromptConfig('list', 'confirmed', `Remove repository "${repoName}"? (This will remove repos/${repoName} directory and agent worktrees)`, confirmChoices),
+          buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
           createMetadata('repo remove', flags)
         );
         return;
@@ -146,8 +159,8 @@ export default class Remove extends PMOCommand {
         name: 'confirm',
         message: `Are you sure you want to remove "${repoName}"?`,
         choices: [
-          { name: '❌ No, cancel', value: false },
-          { name: '⚠️  Yes, remove repository', value: true }
+          { name: '❌ ' + confirmChoices[0].name, value: false },
+          { name: '⚠️  ' + confirmChoices[1].name, value: true }
         ],
         default: 0
       }]);

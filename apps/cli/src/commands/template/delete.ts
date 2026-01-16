@@ -51,14 +51,17 @@ export default class TemplateDelete extends PMOCommand {
       return;
     }
 
+    // Build choices once, use for both JSON and interactive modes
+    const templateChoices = templates.map(t => ({
+      name: `${t.name} (${t.statuses.length} statuses)`,
+      value: t.id,
+    }));
+    const message = 'Select templates to delete:';
+
     // In JSON mode, output template selection prompt
     if (jsonMode) {
-      const templateChoices = templates.map(t => ({
-        name: `${t.name} (${t.statuses.length} statuses)`,
-        value: t.id,
-      }));
       outputPromptAsJson(
-        buildPromptConfig('checkbox', 'templateIds', 'Select templates to delete:', templateChoices),
+        buildPromptConfig('checkbox', 'templateIds', message, templateChoices),
         createMetadata('template delete', flags)
       );
       return;
@@ -68,11 +71,8 @@ export default class TemplateDelete extends PMOCommand {
     const { selected } = await inquirer.prompt<{ selected: string[] }>([{
       type: 'checkbox',
       name: 'selected',
-      message: 'Select templates to delete:',
-      choices: templates.map(t => ({
-        name: `${t.name} (${t.statuses.length} statuses)`,
-        value: t.id,
-      })),
+      message,
+      choices: templateChoices,
     }]);
 
     if (selected.length === 0) {

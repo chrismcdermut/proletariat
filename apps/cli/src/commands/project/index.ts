@@ -31,18 +31,21 @@ export default class Project extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'Create new project', value: 'create' },
+      { name: 'List all projects', value: 'list' },
+      { name: 'View project board', value: 'view' },
+      { name: 'Manage project specs', value: 'spec' },
+      { name: 'Delete project', value: 'delete' },
+      { name: 'Cancel', value: 'cancel' },
+    ];
+    const message = 'Project Operations - What would you like to do?';
+
     // In JSON mode, output menu prompt
     if (jsonMode) {
-      const menuChoices = [
-        { name: 'Create new project', value: 'create' },
-        { name: 'List all projects', value: 'list' },
-        { name: 'View project board', value: 'view' },
-        { name: 'Manage project specs', value: 'spec' },
-        { name: 'Delete project', value: 'delete' },
-        { name: 'Cancel', value: 'cancel' },
-      ];
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', 'Project Operations - What would you like to do?', menuChoices),
+        buildPromptConfig('list', 'action', message, menuChoices),
         createMetadata('project', flags)
       );
       return;
@@ -52,15 +55,11 @@ export default class Project extends PMOCommand {
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: 'Project Operations - What would you like to do?',
+      message,
       choices: [
-        { name: 'Create new project', value: 'create' },
-        { name: 'List all projects', value: 'list' },
-        { name: 'View project board', value: 'view' },
-        { name: 'Manage project specs', value: 'spec' },
-        { name: 'Delete project', value: 'delete' },
+        ...menuChoices.slice(0, -1),
         new inquirer.Separator(),
-        { name: 'Cancel', value: 'cancel' },
+        menuChoices[menuChoices.length - 1],
       ],
     }]);
 

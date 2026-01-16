@@ -99,14 +99,17 @@ export default class WorkspaceRemove extends Command {
       return matches[0].path;
     }
 
+    // Build choices once, use for both JSON and interactive modes
+    const workspaceChoices = matches.map((w) => ({
+      name: `${w.name} - ${w.path}`,
+      value: w.path,
+    }));
+    const message = `Multiple workspaces found with name "${input}". Which workspace do you want to remove?`;
+
     // In JSON mode, output workspace selection prompt
     if (jsonMode) {
-      const workspaceChoices = matches.map((w) => ({
-        name: `${w.name} - ${w.path}`,
-        value: w.path,
-      }));
       outputPromptAsJson(
-        buildPromptConfig('list', 'workspacePath', `Multiple workspaces found with name "${input}". Which workspace do you want to remove?`, workspaceChoices),
+        buildPromptConfig('list', 'workspacePath', message, workspaceChoices),
         createMetadata('workspace remove', flags)
       );
       this.exit(0);
@@ -120,10 +123,7 @@ export default class WorkspaceRemove extends Command {
         type: 'list',
         name: 'selected',
         message: 'Which workspace do you want to remove?',
-        choices: matches.map((w) => ({
-          name: `${w.name} - ${w.path}`,
-          value: w.path,
-        })),
+        choices: workspaceChoices,
       },
     ]);
 
