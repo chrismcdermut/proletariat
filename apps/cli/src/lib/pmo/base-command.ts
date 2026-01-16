@@ -1,4 +1,5 @@
 import { Command, Flags } from '@oclif/core';
+import inquirer from 'inquirer';
 import { getPMOContext, type PMOContext } from './pmo-context.js';
 import { styles } from '../styles.js';
 
@@ -14,21 +15,10 @@ export const pmoBaseFlags = {
 };
 
 /**
- * Options for PMOCommand initialization
- */
-export interface PMOCommandOptions {
-  /**
-   * Whether to prompt user to select project if multiple exist
-   * Default: true
-   */
-  promptIfMultiple?: boolean;
-}
-
-/**
  * Base command class for PMO commands
  *
  * Provides automatic PMO context initialization and cleanup:
- * - Initializes storage and pmoPath before run() executes
+ * - Initializes storage before run() executes (no project selection required)
  * - Ensures storage.close() is called even if errors occur
  * - Provides common PMO flags (--project)
  *
@@ -43,23 +33,18 @@ export interface PMOCommandOptions {
  *   };
  *
  *   async execute(): Promise<void> {
- *     // Access this.pmoContext.storage, this.pmoContext.pmoPath, etc.
- *     const tickets = await this.pmoContext.storage.listTickets();
- *   }
- * }
- * ```
+ *     // Storage is always available
+ *     const ticket = await this.storage.getTicket('TKT-123');
  *
- * For commands that need different initialization behavior (e.g., no prompting),
- * override getPMOOptions():
- * ```typescript
- * protected getPMOOptions(): PMOCommandOptions {
- *   return { promptIfMultiple: false };
+ *     // If you need project context, request it explicitly:
+ *     const projectId = await this.requireProject();
+ *   }
  * }
  * ```
  */
 export abstract class PMOCommand extends Command {
   /**
-   * PMO context with storage, pmoPath, columns, etc.
+   * PMO context with storage, pmoPath, etc.
    * Available after init() runs (before execute())
    */
   protected pmoContext!: PMOContext;
@@ -70,12 +55,9 @@ export abstract class PMOCommand extends Command {
   private contextInitialized = false;
 
   /**
-   * Get PMO initialization options
-   * Override in subclass to customize behavior
+   * Cached project ID from -P flag
    */
-  protected getPMOOptions(): PMOCommandOptions {
-    return { promptIfMultiple: true };
-  }
+  private projectFlag?: string;
 
   /**
    * Logger function for PMO context
@@ -87,28 +69,91 @@ export abstract class PMOCommand extends Command {
 
   /**
    * oclif init hook - runs before the command executes
-   * Initializes PMO context automatically
+   * Initializes PMO context with storage access (no project selection)
    */
   async init(): Promise<void> {
     await super.init();
 
-    // Parse flags to get project ID
+    // Parse flags to get project ID if provided
     const { flags } = await this.parse(this.constructor as typeof Command);
-    const projectFlag = (flags as { project?: string }).project;
-
-    const options = this.getPMOOptions();
+    this.projectFlag = (flags as { project?: string }).project;
 
     try {
-      this.pmoContext = await getPMOContext(
-        projectFlag,
-        (msg) => this.pmoLogger(msg),
-        options.promptIfMultiple ?? true
-      );
+      this.pmoContext = await getPMOContext({
+        projectId: this.projectFlag,
+        logger: (msg) => this.pmoLogger(msg),
+      });
       this.contextInitialized = true;
     } catch (error) {
-      // Let the error propagate - run() won't execute
       throw error;
     }
+  }
+
+  /**
+   * Require a project to be selected.
+   * If a project was provided via -P flag, uses that.
+   * If only one project exists, uses that.
+   * If multiple projects exist, prompts user to select one.
+   *
+   * @param options.filterEmptyProjects - Only show projects with tickets
+   * @returns The selected project ID
+   */
+  protected async requireProject(options?: { filterEmptyProjects?: boolean }): Promise<string> {
+    // If project already selected, return it
+    if (this.pmoContext.projectId && this.pmoContext.projectId !== 'default') {
+      return this.pmoContext.projectId;
+    }
+
+    // If -P flag was provided, use it
+    if (this.projectFlag) {
+      this.storage.setCurrentProject(this.projectFlag);
+      return this.projectFlag;
+    }
+
+    // Get all projects
+    const projects = await this.storage.listProjects();
+
+    if (projects.length === 0) {
+      throw new Error('No projects found. Run "prlt pmo init" first.');
+    }
+
+    // Filter to projects with tickets if requested
+    let filteredProjects = projects;
+    if (options?.filterEmptyProjects) {
+      const projectsWithTickets: typeof projects = [];
+      for (const p of projects) {
+        const tickets = await this.storage.listTickets({ projectId: p.id });
+        if (tickets.length > 0) {
+          projectsWithTickets.push(p);
+        }
+      }
+      filteredProjects = projectsWithTickets;
+
+      if (filteredProjects.length === 0) {
+        throw new Error('No projects with tickets found. Create a ticket first.');
+      }
+    }
+
+    // If only one project, use it
+    if (filteredProjects.length === 1) {
+      const projectId = filteredProjects[0].id;
+      this.storage.setCurrentProject(projectId);
+      return projectId;
+    }
+
+    // Multiple projects - prompt for selection
+    const { selectedProjectId } = await inquirer.prompt([{
+      type: 'list',
+      name: 'selectedProjectId',
+      message: 'Select project:',
+      choices: filteredProjects.map(p => ({
+        name: `${p.name} (${p.id})`,
+        value: p.id,
+      })),
+    }]);
+
+    this.storage.setCurrentProject(selectedProjectId);
+    return selectedProjectId;
   }
 
   /**
@@ -148,18 +193,14 @@ export abstract class PMOCommand extends Command {
    * Ensures cleanup even on errors
    */
   async catch(error: Error & { exitCode?: number }): Promise<void> {
-    // Cleanup is already handled by run()'s finally block,
-    // but we keep this for safety in case init() fails
     await this.cleanup();
     throw error;
   }
 
   /**
    * oclif finally hook - called after run() completes
-   * Additional cleanup opportunity (though run() already handles it)
    */
   async finally(_: Error | undefined): Promise<void> {
-    // Cleanup already handled by run(), but double-check
     await this.cleanup();
   }
 
@@ -175,12 +216,12 @@ export abstract class PMOCommand extends Command {
     return this.pmoContext.pmoPath;
   }
 
-  /** Available columns */
+  /** Available columns (requires project) */
   protected get columns() {
     return this.pmoContext.columns;
   }
 
-  /** Current project ID */
+  /** Current project ID (may be 'default' if not selected) */
   protected get projectId() {
     return this.pmoContext.projectId;
   }

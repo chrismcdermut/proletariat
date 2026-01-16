@@ -325,7 +325,7 @@ describe('PMO Workflow Status and Templates', () => {
       // Create a ticket
       const ticket = await storage.createTicket({
         title: 'Test Ticket',
-        column: 'Backlog',
+        statusName: 'Backlog',
       });
 
       // Move ticket to "Done" column (which matches "Done" status)

@@ -102,13 +102,13 @@ describe('PMO SQLite Storage', () => {
     it('creates a ticket', async () => {
       const ticket = await storage.createTicket({
         title: 'Implement feature',
-        column: 'Backlog',
+        statusName: 'Backlog',
         priority: 'URGENT',
       });
 
       expect(ticket.id).to.match(/^TKT-\d{3,}$/);
       expect(ticket.title).to.equal('Implement feature');
-      expect(ticket.column).to.equal('Backlog');
+      expect(ticket.statusName).to.equal('Backlog');
       expect(ticket.priority).to.equal('URGENT');
     });
 
@@ -116,7 +116,7 @@ describe('PMO SQLite Storage', () => {
       const ticket = await storage.createTicket({
         id: 'my-custom-id',
         title: 'Custom ticket',
-        column: 'Backlog',
+        statusName: 'Backlog',
       });
 
       expect(ticket.id).to.equal('my-custom-id');
@@ -125,7 +125,7 @@ describe('PMO SQLite Storage', () => {
     it('retrieves a ticket', async () => {
       const created = await storage.createTicket({
         title: 'Implement feature',
-        column: 'Backlog',
+        statusName: 'Backlog',
       });
 
       const ticket = await storage.getTicket(created.id);
@@ -142,7 +142,7 @@ describe('PMO SQLite Storage', () => {
     it('updates a ticket', async () => {
       const created = await storage.createTicket({
         title: 'Original title',
-        column: 'Backlog',
+        statusName: 'Backlog',
       });
 
       const updated = await storage.updateTicket(created.id, {
@@ -157,18 +157,18 @@ describe('PMO SQLite Storage', () => {
     it('moves a ticket to a different column', async () => {
       const created = await storage.createTicket({
         title: 'My ticket',
-        column: 'Backlog',
+        statusName: 'Backlog',
       });
 
       const moved = await storage.moveTicket(created.id, 'In Progress');
 
-      expect(moved.column).to.equal('In Progress');
+      expect(moved.statusName).to.equal('In Progress');
     });
 
     it('moves a ticket to a specific position', async () => {
-      await storage.createTicket({ title: 'Ticket 1', column: 'Backlog' });
-      await storage.createTicket({ title: 'Ticket 2', column: 'Backlog' });
-      const ticket3 = await storage.createTicket({ title: 'Ticket 3', column: 'Backlog' });
+      await storage.createTicket({ title: 'Ticket 1', statusName: 'Backlog' });
+      await storage.createTicket({ title: 'Ticket 2', statusName: 'Backlog' });
+      const ticket3 = await storage.createTicket({ title: 'Ticket 3', statusName: 'Backlog' });
 
       await storage.moveTicket(ticket3.id, 'Backlog', 0);
 
@@ -179,7 +179,7 @@ describe('PMO SQLite Storage', () => {
     it('deletes a ticket', async () => {
       const created = await storage.createTicket({
         title: 'To delete',
-        column: 'Backlog',
+        statusName: 'Backlog',
       });
 
       await storage.deleteTicket(created.id);
@@ -189,16 +189,16 @@ describe('PMO SQLite Storage', () => {
     });
 
     it('lists all tickets', async () => {
-      await storage.createTicket({ title: 'Ticket 1', column: 'Backlog' });
-      await storage.createTicket({ title: 'Ticket 2', column: 'In Progress' });
+      await storage.createTicket({ title: 'Ticket 1', statusName: 'Backlog' });
+      await storage.createTicket({ title: 'Ticket 2', statusName: 'In Progress' });
 
       const tickets = await storage.listTickets();
       expect(tickets).to.have.length(2);
     });
 
     it('lists tickets filtered by column', async () => {
-      await storage.createTicket({ title: 'Ticket 1', column: 'Backlog' });
-      await storage.createTicket({ title: 'Ticket 2', column: 'In Progress' });
+      await storage.createTicket({ title: 'Ticket 1', statusName: 'Backlog' });
+      await storage.createTicket({ title: 'Ticket 2', statusName: 'In Progress' });
 
       const tickets = await storage.listTickets({ column: 'Backlog' });
       expect(tickets).to.have.length(1);
@@ -206,8 +206,8 @@ describe('PMO SQLite Storage', () => {
     });
 
     it('lists tickets filtered by priority', async () => {
-      await storage.createTicket({ title: 'Urgent bug', column: 'Backlog', priority: 'URGENT' });
-      await storage.createTicket({ title: 'Feature', column: 'Backlog', priority: 'LOW' });
+      await storage.createTicket({ title: 'Urgent bug', statusName: 'Backlog', priority: 'URGENT' });
+      await storage.createTicket({ title: 'Feature', statusName: 'Backlog', priority: 'LOW' });
 
       const tickets = await storage.listTickets({ priority: 'URGENT' });
       expect(tickets).to.have.length(1);
@@ -215,8 +215,8 @@ describe('PMO SQLite Storage', () => {
     });
 
     it('lists tickets filtered by category', async () => {
-      await storage.createTicket({ title: 'Bug 1', column: 'Backlog', category: 'bug' });
-      await storage.createTicket({ title: 'Feature 1', column: 'Backlog', category: 'feature' });
+      await storage.createTicket({ title: 'Bug 1', statusName: 'Backlog', category: 'bug' });
+      await storage.createTicket({ title: 'Feature 1', statusName: 'Backlog', category: 'feature' });
 
       const tickets = await storage.listTickets({ category: 'bug' });
       expect(tickets).to.have.length(1);
@@ -224,8 +224,8 @@ describe('PMO SQLite Storage', () => {
     });
 
     it('searches tickets by title/description', async () => {
-      await storage.createTicket({ title: 'Fix login bug', column: 'Backlog', description: 'Users cannot log in' });
-      await storage.createTicket({ title: 'Add feature', column: 'Backlog', description: 'New dashboard' });
+      await storage.createTicket({ title: 'Fix login bug', statusName: 'Backlog', description: 'Users cannot log in' });
+      await storage.createTicket({ title: 'Add feature', statusName: 'Backlog', description: 'New dashboard' });
 
       const results = await storage.listTickets({ search: 'login' });
       expect(results).to.have.length(1);
@@ -239,7 +239,7 @@ describe('PMO SQLite Storage', () => {
     beforeEach(async () => {
       const ticket = await storage.createTicket({
         title: 'Main ticket',
-        column: 'Backlog',
+        statusName: 'Backlog',
       });
       mainTicketId = ticket.id;
     });
@@ -307,7 +307,7 @@ describe('PMO SQLite Storage', () => {
     });
 
     it('links spec to ticket', async () => {
-      const ticket = await storage.createTicket({ title: 'My ticket', column: 'Backlog' });
+      const ticket = await storage.createTicket({ title: 'My ticket', statusName: 'Backlog' });
       await storage.createSpec({ id: 'spec-1', title: 'Spec 1' });
 
       await storage.linkTicketToSpec(ticket.id, 'spec-1');
@@ -318,8 +318,8 @@ describe('PMO SQLite Storage', () => {
     });
 
     it('gets tickets for a spec', async () => {
-      const ticket1 = await storage.createTicket({ title: 'Ticket 1', column: 'Backlog' });
-      const ticket2 = await storage.createTicket({ title: 'Ticket 2', column: 'Backlog' });
+      const ticket1 = await storage.createTicket({ title: 'Ticket 1', statusName: 'Backlog' });
+      const ticket2 = await storage.createTicket({ title: 'Ticket 2', statusName: 'Backlog' });
       await storage.createSpec({ id: 'spec-1', title: 'Spec 1' });
 
       await storage.linkTicketToSpec(ticket1.id, 'spec-1');
@@ -366,7 +366,7 @@ describe('PMO SQLite Storage', () => {
                 title: 'Imported ticket',
                 status: 'backlog' as const,
                 statusId: 'status-backlog',
-                column: 'Backlog',
+                statusName: 'Backlog',
                 position: 0,
                 priority: 'HIGH',
                 specs: [],
@@ -408,9 +408,9 @@ describe('PMO SQLite Storage', () => {
     let ticket3Id: string;
 
     beforeEach(async () => {
-      const ticket1 = await storage.createTicket({ title: 'Ticket 1', column: 'Backlog' });
-      const ticket2 = await storage.createTicket({ title: 'Ticket 2', column: 'Backlog' });
-      const ticket3 = await storage.createTicket({ title: 'Ticket 3', column: 'Backlog' });
+      const ticket1 = await storage.createTicket({ title: 'Ticket 1', statusName: 'Backlog' });
+      const ticket2 = await storage.createTicket({ title: 'Ticket 2', statusName: 'Backlog' });
+      const ticket3 = await storage.createTicket({ title: 'Ticket 3', statusName: 'Backlog' });
       ticket1Id = ticket1.id;
       ticket2Id = ticket2.id;
       ticket3Id = ticket3.id;
@@ -636,6 +636,203 @@ describe('PMO SQLite Storage', () => {
 
       const isBlocked = await storage.isEpicBlocked(epic1Id);
       expect(isBlocked).to.be.false;
+    });
+  });
+
+  describe('Cross-Project Ticket Operations', () => {
+    let project1Id: string;
+    let project2Id: string;
+
+    beforeEach(async () => {
+      // Create a second project
+      const project2 = await storage.createProject({
+        id: 'project-2',
+        name: 'Second Project',
+        template: 'kanban',
+      });
+      project2Id = project2.id;
+      project1Id = storage.getCurrentProjectId();
+
+      // Initialize the second project's board (use same columns as project 1)
+      storage.setCurrentProject(project2Id);
+      await storage.init({
+        name: 'Second Board',
+        columns: ['Backlog', 'In Progress', 'Done'],
+      });
+      await storage.applyTemplate(project2Id, 'kanban');
+
+      // Switch back to the first project
+      storage.setCurrentProject(project1Id);
+    });
+
+    it('retrieves a ticket by ID without project scoping', async () => {
+      // Create ticket in project 1
+      const ticket = await storage.createTicket({
+        title: 'Cross-project ticket',
+        statusName: 'Backlog',
+      });
+
+      // Switch to project 2
+      storage.setCurrentProject(project2Id);
+
+      // Should still be able to get the ticket
+      const retrieved = await storage.getTicket(ticket.id);
+      expect(retrieved).to.not.be.null;
+      expect(retrieved!.title).to.equal('Cross-project ticket');
+      expect(retrieved!.projectId).to.equal(project1Id);
+    });
+
+    it('updates a ticket by ID without project scoping', async () => {
+      // Create ticket in project 1
+      const ticket = await storage.createTicket({
+        title: 'Original title',
+        statusName: 'Backlog',
+      });
+
+      // Switch to project 2
+      storage.setCurrentProject(project2Id);
+
+      // Should still be able to update the ticket
+      const updated = await storage.updateTicket(ticket.id, {
+        title: 'Updated title',
+        priority: 'HIGH',
+      });
+
+      expect(updated.title).to.equal('Updated title');
+      expect(updated.priority).to.equal('HIGH');
+    });
+
+    it('deletes a ticket by ID without project scoping', async () => {
+      // Create ticket in project 1
+      const ticket = await storage.createTicket({
+        title: 'To be deleted',
+        statusName: 'Backlog',
+      });
+
+      // Switch to project 2
+      storage.setCurrentProject(project2Id);
+
+      // Should still be able to delete the ticket
+      await storage.deleteTicket(ticket.id);
+
+      const retrieved = await storage.getTicket(ticket.id);
+      expect(retrieved).to.be.null;
+    });
+
+    it('lists tickets across all projects with allProjects flag', async () => {
+      // Create ticket in project 1
+      storage.setCurrentProject(project1Id);
+      await storage.createTicket({
+        title: 'Project 1 ticket',
+        statusName: 'Backlog',
+      });
+
+      // Create ticket in project 2
+      storage.setCurrentProject(project2Id);
+      await storage.createTicket({
+        title: 'Project 2 ticket',
+        statusName: 'Backlog',
+      });
+
+      // List all tickets
+      const allTickets = await storage.listTickets({ allProjects: true });
+      expect(allTickets).to.have.length(2);
+
+      const titles = allTickets.map(t => t.title);
+      expect(titles).to.include('Project 1 ticket');
+      expect(titles).to.include('Project 2 ticket');
+    });
+
+    it('lists tickets in specific project with projectId filter', async () => {
+      // Create ticket in project 1
+      storage.setCurrentProject(project1Id);
+      await storage.createTicket({
+        title: 'Project 1 ticket',
+        statusName: 'Backlog',
+      });
+
+      // Create ticket in project 2
+      storage.setCurrentProject(project2Id);
+      await storage.createTicket({
+        title: 'Project 2 ticket',
+        statusName: 'Backlog',
+      });
+
+      // List only project 1 tickets
+      const project1Tickets = await storage.listTickets({ projectId: project1Id });
+      expect(project1Tickets).to.have.length(1);
+      expect(project1Tickets[0].title).to.equal('Project 1 ticket');
+    });
+
+    it('moves ticket to a different project', async () => {
+      // Create ticket in project 1
+      storage.setCurrentProject(project1Id);
+      const ticket = await storage.createTicket({
+        title: 'To be moved',
+        statusName: 'Backlog',
+      });
+
+      expect(ticket.projectId).to.equal(project1Id);
+
+      // Move to project 2
+      const movedTicket = await storage.moveTicketToProject(ticket.id, project2Id);
+
+      expect(movedTicket.projectId).to.equal(project2Id);
+
+      // Verify the ticket is now in project 2
+      storage.setCurrentProject(project2Id);
+      const project2Tickets = await storage.listTickets();
+      expect(project2Tickets).to.have.length(1);
+      expect(project2Tickets[0].id).to.equal(ticket.id);
+
+      // Verify ticket is not in project 1
+      storage.setCurrentProject(project1Id);
+      const project1Tickets = await storage.listTickets();
+      expect(project1Tickets).to.have.length(0);
+    });
+
+    it('places moved ticket in first column of target project', async () => {
+      // Create ticket in project 1
+      storage.setCurrentProject(project1Id);
+      const ticket = await storage.createTicket({
+        title: 'To be moved',
+        statusName: 'In Progress', // Start in middle column
+      });
+
+      // Move to project 2
+      const movedTicket = await storage.moveTicketToProject(ticket.id, project2Id);
+
+      // Should be in first column of project 2 (Todo)
+      // Get the board to check column
+      storage.setCurrentProject(project2Id);
+      const board = await storage.getBoard();
+      const firstColumn = board.columns[0];
+      const ticketInBoard = firstColumn.tickets.find(t => t.id === ticket.id);
+      expect(ticketInBoard).to.not.be.undefined;
+    });
+
+    it('throws error when moving to non-existent project', async () => {
+      storage.setCurrentProject(project1Id);
+      const ticket = await storage.createTicket({
+        title: 'Test ticket',
+        statusName: 'Backlog',
+      });
+
+      try {
+        await storage.moveTicketToProject(ticket.id, 'non-existent-project');
+        expect.fail('Should have thrown');
+      } catch (error: unknown) {
+        expect((error as Error).message).to.include('Project not found');
+      }
+    });
+
+    it('throws error when moving non-existent ticket', async () => {
+      try {
+        await storage.moveTicketToProject('non-existent-ticket', project2Id);
+        expect.fail('Should have thrown');
+      } catch (error: unknown) {
+        expect((error as Error).message).to.include('Ticket not found');
+      }
     });
   });
 });

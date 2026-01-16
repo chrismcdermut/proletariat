@@ -61,19 +61,10 @@ export default class TicketList extends Command {
     // Otherwise, use the normal project selection flow
     let pmoContext: PMOContext | undefined;
 
-    if (!flags.all) {
-      pmoContext = await getPMOContext({
-        projectId: flags.project,
-        logger: (msg) => this.log(styles.muted(msg)),
-        promptIfMultiple: true,
-      });
-    } else {
-      // For --all, we still need a storage connection but skip project selection entirely
-      pmoContext = await getPMOContext({
-        logger: (msg) => this.log(styles.muted(msg)),
-        skipProjectSelection: true,
-      });
-    }
+    // Get PMO context - no project selection needed
+    pmoContext = await getPMOContext({
+      logger: (msg) => this.log(styles.muted(msg)),
+    });
 
     try {
       // Build filter
@@ -81,6 +72,8 @@ export default class TicketList extends Command {
 
       if (flags.all) {
         filter.allProjects = true;
+      } else if (flags.project) {
+        filter.projectId = flags.project;
       }
       if (flags.column) {
         filter.column = flags.column;

@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'node:url';
-import { PMOCommand, pmoBaseFlags, PMOCommandOptions } from '../../src/lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../src/lib/pmo/index.js';
 import { PMO_SCHEMA_SQL } from '../../src/lib/pmo/schema.js';
 import { Flags, Config } from '@oclif/core';
 
@@ -72,7 +72,7 @@ describe('PMO Base Command', () => {
       static projectIdValue: string | undefined;
       static projectNameValue: string | undefined;
       static columnsValue: string[] | undefined;
-      static optionsUsed: PMOCommandOptions | undefined;
+      static storageAvailable = false;
 
       static reset() {
         this.initCalled = false;
@@ -83,7 +83,7 @@ describe('PMO Base Command', () => {
         this.projectIdValue = undefined;
         this.projectNameValue = undefined;
         this.columnsValue = undefined;
-        this.optionsUsed = undefined;
+        this.storageAvailable = false;
       }
 
       async init(): Promise<void> {
@@ -91,15 +91,10 @@ describe('PMO Base Command', () => {
         await super.init();
       }
 
-      protected getPMOOptions(): PMOCommandOptions {
-        const opts = { promptIfMultiple: true };
-        TestableCommand.optionsUsed = opts;
-        return opts;
-      }
-
       async execute(): Promise<void> {
         TestableCommand.executeCalled = true;
         TestableCommand.contextWasAvailable = !!this.pmoContext;
+        TestableCommand.storageAvailable = !!this.storage;
 
         if (this.pmoContext) {
           TestableCommand.pmoPathValue = this.pmoPath;
@@ -115,24 +110,19 @@ describe('PMO Base Command', () => {
       }
     }
 
-    // Command that customizes promptIfMultiple
-    class NoPromptCommand extends PMOCommand {
-      static id = 'noprompt';
+    // Command that tests requireProject()
+    class RequireProjectCommand extends PMOCommand {
+      static id = 'requireproject';
       static flags = { ...pmoBaseFlags };
-      static optionsUsed: PMOCommandOptions | undefined;
+      static projectIdValue: string | undefined;
 
       static reset() {
-        this.optionsUsed = undefined;
-      }
-
-      protected getPMOOptions(): PMOCommandOptions {
-        const opts = { promptIfMultiple: false };
-        NoPromptCommand.optionsUsed = opts;
-        return opts;
+        this.projectIdValue = undefined;
       }
 
       async execute(): Promise<void> {
-        expect(this.pmoContext).to.exist;
+        // When requireProject is called, it should return a project ID
+        RequireProjectCommand.projectIdValue = await this.requireProject();
       }
     }
 
@@ -158,7 +148,7 @@ describe('PMO Base Command', () => {
 
     beforeEach(() => {
       TestableCommand.reset();
-      NoPromptCommand.reset();
+      RequireProjectCommand.reset();
       ErrorCommand.reset();
     });
 
@@ -176,6 +166,7 @@ describe('PMO Base Command', () => {
       await TestableCommand.run([], config);
 
       expect(TestableCommand.contextWasAvailable).to.be.true;
+      expect(TestableCommand.storageAvailable).to.be.true;
     });
 
     it('should provide correct context values via getters', async () => {
@@ -183,11 +174,8 @@ describe('PMO Base Command', () => {
       await TestableCommand.run([], config);
 
       expect(TestableCommand.pmoPathValue).to.be.a('string');
-      // Project values should be set (actual values may vary based on test database)
+      // Project ID defaults to 'default' when no project is selected
       expect(TestableCommand.projectIdValue).to.be.a('string');
-      expect(TestableCommand.projectNameValue).to.be.a('string');
-      expect(TestableCommand.columnsValue).to.be.an('array');
-      expect(TestableCommand.columnsValue!.length).to.be.greaterThan(0);
     });
 
     it('should call cleanup after execute', async () => {
@@ -210,18 +198,19 @@ describe('PMO Base Command', () => {
       expect(ErrorCommand.cleanupCalled).to.be.true;
     });
 
-    it('should allow subclasses to customize getPMOOptions', async () => {
+    it('should allow requireProject to get a project ID', async () => {
       const config = await Config.load({ root: path.join(__dirname, '../..') });
-      await NoPromptCommand.run([], config);
+      await RequireProjectCommand.run([], config);
 
-      expect(NoPromptCommand.optionsUsed).to.deep.equal({ promptIfMultiple: false });
+      // Since there's only one project in test DB, it should be selected automatically
+      expect(RequireProjectCommand.projectIdValue).to.equal('test-project');
     });
 
-    it('should use getPMOOptions in init', async () => {
+    it('should use -P flag when provided for requireProject', async () => {
       const config = await Config.load({ root: path.join(__dirname, '../..') });
-      await TestableCommand.run([], config);
+      await RequireProjectCommand.run(['-P', 'test-project'], config);
 
-      expect(TestableCommand.optionsUsed).to.deep.equal({ promptIfMultiple: true });
+      expect(RequireProjectCommand.projectIdValue).to.equal('test-project');
     });
   });
 });

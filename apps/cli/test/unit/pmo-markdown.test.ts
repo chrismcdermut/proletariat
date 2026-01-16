@@ -118,10 +118,10 @@ kanban-plugin: basic
 - [ ] [[ticket-3]]
 `;
       const board = parseBoard(markdown);
-      expect(board.columns[0].tickets[0].column).to.equal('Backlog');
+      expect(board.columns[0].tickets[0].statusName).to.equal('Backlog');
       expect(board.columns[0].tickets[0].position).to.equal(0);
       expect(board.columns[0].tickets[1].position).to.equal(1);
-      expect(board.columns[1].tickets[0].column).to.equal('In Progress');
+      expect(board.columns[1].tickets[0].statusName).to.equal('In Progress');
       expect(board.columns[1].tickets[0].position).to.equal(0);
     });
   });
@@ -169,7 +169,7 @@ kanban-plugin: basic
                 title: 'implement-auth',
                 status: 'backlog',
                 statusId: 'status-backlog',
-                column: 'Backlog',
+                statusName: 'Backlog',
                 position: 0,
                 subtasks: [],
                 labels: [],
@@ -202,7 +202,7 @@ kanban-plugin: basic
                 title: 'ticket-1',
                 status: 'backlog',
                 statusId: 'status-backlog',
-                column: 'Backlog',
+                statusName: 'Backlog',
                 position: 0,
                 priority: 'URGENT',
                 category: 'feature',
@@ -238,7 +238,7 @@ kanban-plugin: basic
                 title: 'ticket-1',
                 status: 'backlog',
                 statusId: 'status-backlog',
-                column: 'Backlog',
+                statusName: 'Backlog',
                 position: 0,
                 subtasks: [
                   { id: 'sub-1', title: 'Task 1', done: false },
@@ -274,7 +274,7 @@ kanban-plugin: basic
                 title: 'ticket-1',
                 status: 'backlog',
                 statusId: 'status-backlog',
-                column: 'Backlog',
+                statusName: 'Backlog',
                 position: 0,
                 description: 'This is the description',
                 subtasks: [],
@@ -341,7 +341,7 @@ kanban-plugin: basic
             title: t.title || `Ticket ${i}`,
             status: 'backlog' as const,
             statusId: 'status-backlog',
-            column: 'Backlog',
+            statusName: 'Backlog',
             position: i,
             subtasks: [],
             labels: [],

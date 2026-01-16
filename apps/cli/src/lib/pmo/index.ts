@@ -42,7 +42,7 @@ export {
 } from './create-spec-folders.js';
 export { findPMO } from './find-pmo.js';
 export { getPMOContext, type PMOContext, type GetPMOContextOptions } from './pmo-context.js';
-export { PMOCommand, pmoBaseFlags, type PMOCommandOptions } from './base-command.js';
+export { PMOCommand, pmoBaseFlags } from './base-command.js';
 export {
   PMO_TABLES,
   PMO_TABLE_SCHEMAS,

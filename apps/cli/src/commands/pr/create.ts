@@ -100,11 +100,9 @@ export default class PRCreate extends Command {
 
     try {
       workspaceInfo = getWorkspaceInfo();
-      const pmoContext = await getPMOContext(
-        undefined,
-        (msg) => this.log(styles.muted(msg)),
-        true
-      );
+      const pmoContext = await getPMOContext({
+        logger: (msg) => this.log(styles.muted(msg)),
+      });
       storage = pmoContext.storage;
       db = new Database(path.join(workspaceInfo.path, '.proletariat', 'workspace.db'));
     } catch {

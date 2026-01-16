@@ -60,11 +60,9 @@ export default class PRLink extends Command {
       this.error('Not in a workspace. Run "prlt init" first.');
     }
 
-    const { storage } = await getPMOContext(
-      undefined,
-      (msg) => this.log(styles.muted(msg)),
-      true
-    );
+    const { storage } = await getPMOContext({
+      logger: (msg) => this.log(styles.muted(msg)),
+    });
 
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db');
     const db = new Database(dbPath);

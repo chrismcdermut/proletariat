@@ -1,5 +1,5 @@
 import { Flags } from '@oclif/core';
-import { PMOCommand, pmoBaseFlags, PMOCommandOptions } from '../../lib/pmo/index.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, WorkAction } from '../../lib/pmo/types.js';
 
@@ -32,11 +32,6 @@ export default class ActionList extends PMOCommand {
       default: false,
     }),
   };
-
-  // Actions are workspace-scoped, no project selection needed
-  protected getPMOOptions(): PMOCommandOptions {
-    return { promptIfMultiple: false };
-  }
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(ActionList);
