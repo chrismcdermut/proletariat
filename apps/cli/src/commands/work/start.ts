@@ -822,15 +822,25 @@ export default class WorkStart extends PMOCommand {
       // Add createPR to context
       context.createPR = createPR
 
-      // Handle git branch - only if action modifies code
+      // Handle git operations
       let finalBranch = branch
-      if (context.modifiesCode !== false) {
-        // If we have multiple repo worktrees, use the first for branch detection
-        const gitRepos = repoWorktrees.length > 0
-          ? repoWorktrees.map(r => path.join(agentDir, r))
-          : [worktreePath]
-        const primaryRepo = gitRepos[0]
 
+      // Set up repo paths (needed for all action types)
+      const gitRepos = repoWorktrees.length > 0
+        ? repoWorktrees.map(r => path.join(agentDir, r))
+        : [worktreePath]
+      const primaryRepo = gitRepos[0]
+
+      // Always fetch latest from origin (regardless of action type)
+      // This ensures groom and other non-code-modifying actions see current code
+      for (const repoPath of gitRepos) {
+        if (isGitRepo(repoPath)) {
+          tryGitCommand('git fetch origin', repoPath)
+        }
+      }
+
+      // Branch handling - only if action modifies code
+      if (context.modifiesCode !== false) {
         if (isExistingBranch) {
           // Ticket already has a branch linked - just use it
           this.log(styles.muted(`Using existing branch: ${branch}`))
@@ -935,8 +945,7 @@ export default class WorkStart extends PMOCommand {
             continue
           }
 
-          // Fetch latest from origin (best-effort, may fail if offline)
-          tryGitCommand('git fetch origin', repoPath)
+          // Note: fetch already happened above (unconditionally for all action types)
 
           try {
             // Check if branch exists and checkout
@@ -962,7 +971,29 @@ export default class WorkStart extends PMOCommand {
         // Update context with final branch
         context.branch = finalBranch
       } else {
-        this.log(styles.muted('Skipping branch (action does not modify code)'))
+        // Non-code-modifying action (e.g., groom) - checkout main/latest to see current code
+        this.log(styles.muted('Skipping branch creation (action does not modify code)'))
+
+        for (const repoPath of gitRepos) {
+          const repoName = path.basename(repoPath)
+
+          if (!isGitRepo(repoPath)) {
+            continue
+          }
+
+          try {
+            // Checkout the latest main/master branch
+            const baseBranch = findBaseBranch(repoPath)
+            // Extract local branch name from origin/main -> main
+            const localBranch = baseBranch.replace('origin/', '')
+            execSync(`git checkout ${localBranch}`, { cwd: repoPath, stdio: 'pipe' })
+            // Pull latest changes
+            tryGitCommand(`git pull origin ${localBranch}`, repoPath)
+            this.log(styles.muted(`   ${repoName}: checked out ${localBranch} (latest)`))
+          } catch (error) {
+            this.warn(`Could not checkout main in ${repoName}: ${error instanceof Error ? error.message : error}`)
+          }
+        }
       }
 
       // Create execution record
