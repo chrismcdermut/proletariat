@@ -162,17 +162,20 @@ export default class PRCreate extends Command {
         );
 
         if (inProgressTickets.length > 0) {
+          // Build choices once, use for both JSON and interactive modes
+          const ticketChoices = [
+            ...inProgressTickets.map(t => ({
+              name: `${t.id} - ${t.title}`,
+              value: t.id,
+            })),
+            { name: 'Skip - create PR without linking', value: '__skip__' },
+          ];
+          const message = 'Link PR to a ticket?';
+
           // In JSON mode, output ticket selection prompt
           if (jsonMode) {
-            const ticketChoices = [
-              ...inProgressTickets.map(t => ({
-                name: `${t.id} - ${t.title}`,
-                value: t.id,
-              })),
-              { name: 'Skip - create PR without linking', value: '__skip__' },
-            ];
             outputPromptAsJson(
-              buildPromptConfig('list', 'ticketId', 'Link PR to a ticket?', ticketChoices),
+              buildPromptConfig('list', 'ticketId', message, ticketChoices),
               createMetadata('pr create', flags)
             );
             if (storage) await storage.close();
@@ -184,14 +187,11 @@ export default class PRCreate extends Command {
             {
               type: 'list',
               name: 'selectedTicketId',
-              message: 'Link PR to a ticket?',
+              message,
               choices: [
-                ...inProgressTickets.map(t => ({
-                  name: `${t.id} - ${t.title}`,
-                  value: t.id,
-                })),
+                ...ticketChoices.slice(0, -1),
                 new inquirer.Separator(),
-                { name: 'Skip - create PR without linking', value: '__skip__' },
+                ticketChoices[ticketChoices.length - 1],
               ],
             },
           ]);

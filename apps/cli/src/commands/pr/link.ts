@@ -109,14 +109,17 @@ export default class PRLink extends Command {
           return;
         }
 
+        // Build choices once, use for both JSON and interactive modes
+        const ticketChoices = activeTickets.map(t => ({
+          name: `${t.id} - ${t.title} (${t.statusName})`,
+          value: t.id,
+        }));
+        const ticketMessage = 'Select ticket to link PR to:';
+
         // In JSON mode, output ticket selection prompt
         if (jsonMode) {
-          const ticketChoices = activeTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.statusName})`,
-            value: t.id,
-          }));
           outputPromptAsJson(
-            buildPromptConfig('list', 'ticketId', 'Select ticket to link PR to:', ticketChoices),
+            buildPromptConfig('list', 'ticketId', ticketMessage, ticketChoices),
             createMetadata('pr link', flags)
           );
           await storage.close();
@@ -127,11 +130,8 @@ export default class PRLink extends Command {
         const { selectedTicketId } = await inquirer.prompt([{
           type: 'list',
           name: 'selectedTicketId',
-          message: 'Select ticket to link PR to:',
-          choices: activeTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.statusName})`,
-            value: t.id,
-          })),
+          message: ticketMessage,
+          choices: ticketChoices,
         }]);
         ticketId = selectedTicketId;
       }
@@ -146,14 +146,17 @@ export default class PRLink extends Command {
 
       // Check if ticket already has a PR linked
       if (ticket.metadata?.pr_url) {
+        // Build choices once, use for both JSON and interactive modes
+        const confirmChoices = [
+          { name: 'No', value: 'false' },
+          { name: 'Yes', value: 'true' },
+        ];
+        const confirmMessage = `Ticket ${ticketId} already has a linked PR (${ticket.metadata.pr_url}). Replace with a different PR?`;
+
         // In JSON mode, output overwrite confirmation prompt
         if (jsonMode) {
-          const confirmChoices = [
-            { name: 'No', value: 'false' },
-            { name: 'Yes', value: 'true' },
-          ];
           outputPromptAsJson(
-            buildPromptConfig('list', 'overwrite', `Ticket ${ticketId} already has a linked PR (${ticket.metadata.pr_url}). Replace with a different PR?`, confirmChoices),
+            buildPromptConfig('list', 'overwrite', confirmMessage, confirmChoices),
             createMetadata('pr link', flags)
           );
           await storage.close();
@@ -168,10 +171,7 @@ export default class PRLink extends Command {
           type: 'list',
           name: 'overwrite',
           message: 'Replace with a different PR?',
-          choices: [
-            { name: 'No', value: false },
-            { name: 'Yes', value: true },
-          ],
+          choices: confirmChoices.map(c => ({ name: c.name, value: c.value === 'true' })),
           default: false,
         }]);
 
@@ -210,14 +210,17 @@ export default class PRLink extends Command {
           this.error('No open PRs found. Create one first with "prlt pr create".');
         }
 
+        // Build choices once, use for both JSON and interactive modes
+        const prChoices = openPRs.map(pr => ({
+          name: `#${pr.number} - ${pr.title} (${pr.headBranch})`,
+          value: String(pr.number),
+        }));
+        const prMessage = 'Select PR to link:';
+
         // In JSON mode, output PR selection prompt
         if (jsonMode) {
-          const prChoices = openPRs.map(pr => ({
-            name: `#${pr.number} - ${pr.title} (${pr.headBranch})`,
-            value: String(pr.number),
-          }));
           outputPromptAsJson(
-            buildPromptConfig('list', 'prNumber', 'Select PR to link:', prChoices),
+            buildPromptConfig('list', 'prNumber', prMessage, prChoices),
             createMetadata('pr link', flags)
           );
           await storage.close();
@@ -228,11 +231,8 @@ export default class PRLink extends Command {
         const { selectedPR } = await inquirer.prompt([{
           type: 'list',
           name: 'selectedPR',
-          message: 'Select PR to link:',
-          choices: openPRs.map(pr => ({
-            name: `#${pr.number} - ${pr.title} (${pr.headBranch})`,
-            value: pr.number,
-          })),
+          message: prMessage,
+          choices: prChoices.map(c => ({ name: c.name, value: parseInt(c.value, 10) })),
         }]);
         prNumber = selectedPR;
       }

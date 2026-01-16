@@ -85,21 +85,22 @@ export default class PRStatus extends Command {
           return;
         }
 
-        const ticketChoices = [
-          ...ticketsWithPR.map(t => ({
-            name: `${t.id} - ${t.title} [PR linked]`,
-            value: t.id,
-          })),
-          ...ticketsWithoutPR.slice(0, 10).map(t => ({
-            name: `${t.id} - ${t.title} (${t.statusName})`,
-            value: t.id,
-          })),
-        ];
+        // Build choices once, use for both JSON and interactive modes
+        const ticketsWithPRChoices = ticketsWithPR.map(t => ({
+          name: `${t.id} - ${t.title} [PR linked]`,
+          value: t.id,
+        }));
+        const ticketsWithoutPRChoices = ticketsWithoutPR.slice(0, 10).map(t => ({
+          name: `${t.id} - ${t.title} (${t.statusName})`,
+          value: t.id,
+        }));
+        const ticketChoices = [...ticketsWithPRChoices, ...ticketsWithoutPRChoices];
+        const message = 'Select ticket to check PR status:';
 
         // In JSON mode, output ticket selection prompt
         if (jsonMode) {
           outputPromptAsJson(
-            buildPromptConfig('list', 'ticketId', 'Select ticket to check PR status:', ticketChoices),
+            buildPromptConfig('list', 'ticketId', message, ticketChoices),
             createMetadata('pr status', flags)
           );
           await storage.close();
@@ -107,28 +108,18 @@ export default class PRStatus extends Command {
           return;
         }
 
-        const choices = [
-          ...ticketsWithPR.map(t => ({
-            name: `${t.id} - ${t.title} [PR linked]`,
-            value: t.id,
-          })),
-        ];
-
-        if (ticketsWithoutPR.length > 0) {
-          choices.push(new inquirer.Separator('── No PR Linked ──') as any);
-          choices.push(
-            ...ticketsWithoutPR.slice(0, 10).map(t => ({
-              name: `${t.id} - ${t.title} (${t.statusName})`,
-              value: t.id,
-            }))
-          );
+        // Build interactive choices with separator
+        const interactiveChoices: Array<{ name: string; value: string } | inquirer.Separator> = [...ticketsWithPRChoices];
+        if (ticketsWithoutPRChoices.length > 0) {
+          interactiveChoices.push(new inquirer.Separator('── No PR Linked ──'));
+          interactiveChoices.push(...ticketsWithoutPRChoices);
         }
 
         const { selectedTicketId } = await inquirer.prompt([{
           type: 'list',
           name: 'selectedTicketId',
-          message: 'Select ticket to check PR status:',
-          choices,
+          message,
+          choices: interactiveChoices,
         }]);
         ticketId = selectedTicketId;
       }

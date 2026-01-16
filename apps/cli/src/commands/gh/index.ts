@@ -28,15 +28,18 @@ export default class GH extends Command {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'Check status', value: 'status' },
+      { name: 'Login to GitHub', value: 'login' },
+      { name: 'Show GH_TOKEN setup', value: 'token' },
+    ];
+    const message = 'GitHub CLI Setup';
+
     // In JSON mode, output menu prompt
     if (jsonMode) {
-      const menuChoices = [
-        { name: 'Check status', value: 'status' },
-        { name: 'Login to GitHub', value: 'login' },
-        { name: 'Show GH_TOKEN setup', value: 'token' },
-      ];
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', 'GitHub CLI Setup', menuChoices),
+        buildPromptConfig('list', 'action', message, menuChoices),
         createMetadata('gh', flags)
       );
       return;
@@ -46,12 +49,8 @@ export default class GH extends Command {
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: 'GitHub CLI Setup',
-      choices: [
-        { name: 'Check status', value: 'status' },
-        { name: 'Login to GitHub', value: 'login' },
-        { name: 'Show GH_TOKEN setup', value: 'token' },
-      ],
+      message,
+      choices: menuChoices,
     }]);
 
     switch (action) {

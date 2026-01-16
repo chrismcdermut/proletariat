@@ -33,16 +33,19 @@ export default class Template extends Command {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'List all workflow templates', value: 'list' },
+      { name: 'Delete workflow templates', value: 'delete' },
+      { name: 'Manage Status Templates (ticket workflow states)', value: 'status' },
+      { name: 'Manage Phase Templates (project lifecycle phases)', value: 'phase' },
+    ];
+    const message = 'What would you like to do?';
+
     // In JSON mode, output menu prompt
     if (jsonMode) {
-      const menuChoices = [
-        { name: 'List all workflow templates', value: 'list' },
-        { name: 'Delete workflow templates', value: 'delete' },
-        { name: 'Manage Status Templates (ticket workflow states)', value: 'status' },
-        { name: 'Manage Phase Templates (project lifecycle phases)', value: 'phase' },
-      ];
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', 'What would you like to do?', menuChoices),
+        buildPromptConfig('list', 'action', message, menuChoices),
         createMetadata('template', flags)
       );
       return;
@@ -55,25 +58,13 @@ export default class Template extends Command {
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: 'What would you like to do?',
+      message,
       choices: [
-        {
-          name: '📋 List all workflow templates',
-          value: 'list',
-        },
-        {
-          name: '🗑️  Delete workflow templates',
-          value: 'delete',
-        },
+        { name: '📋 ' + menuChoices[0].name, value: menuChoices[0].value },
+        { name: '🗑️  ' + menuChoices[1].name, value: menuChoices[1].value },
         new inquirer.Separator(),
-        {
-          name: '📊 Manage Status Templates (ticket workflow states)',
-          value: 'status',
-        },
-        {
-          name: '🔄 Manage Phase Templates (project lifecycle phases)',
-          value: 'phase',
-        },
+        { name: '📊 ' + menuChoices[2].name, value: menuChoices[2].value },
+        { name: '🔄 ' + menuChoices[3].name, value: menuChoices[3].value },
       ],
     }]);
 

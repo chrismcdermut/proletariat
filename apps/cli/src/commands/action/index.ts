@@ -34,36 +34,39 @@ export default class Action extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'List all actions', value: 'list' },
+      { name: 'View action details', value: 'show' },
+      { name: 'Create custom action', value: 'create' },
+      { name: 'Update action', value: 'update' },
+      { name: 'Delete action', value: 'delete' },
+      { name: 'Cancel', value: 'cancel' },
+    ];
+    const message = 'Work Actions - What would you like to do?';
+
     // In JSON mode, output menu prompt
     if (jsonMode) {
-      const menuChoices = [
-        { name: 'List all actions', value: 'list' },
-        { name: 'View action details', value: 'show' },
-        { name: 'Create custom action', value: 'create' },
-        { name: 'Update action', value: 'update' },
-        { name: 'Delete action', value: 'delete' },
-        { name: 'Cancel', value: 'cancel' },
-      ];
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', 'Work Actions - What would you like to do?', menuChoices),
+        buildPromptConfig('list', 'action', message, menuChoices),
         createMetadata('action', flags)
       );
       return;
     }
 
-    // Show interactive menu
+    // Show interactive menu (with separator after create)
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: '🎬 Work Actions - What would you like to do?',
+      message: '🎬 ' + message,
       choices: [
-        { name: 'List all actions', value: 'list' },
-        { name: 'View action details', value: 'show' },
-        { name: 'Create custom action', value: 'create' },
+        menuChoices[0],
+        menuChoices[1],
+        menuChoices[2],
         new inquirer.Separator('──────────────'),
-        { name: 'Update action', value: 'update' },
-        { name: 'Delete action', value: 'delete' },
-        { name: 'Cancel', value: 'cancel' },
+        menuChoices[3],
+        menuChoices[4],
+        menuChoices[5],
       ],
     }]);
 

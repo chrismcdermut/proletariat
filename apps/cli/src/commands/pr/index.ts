@@ -36,32 +36,33 @@ export default class PR extends Command {
       this.error('PMO not found. Run "prlt pmo init" first.');
     }
 
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'Create PR from current branch', value: 'create' },
+      { name: 'Link existing PR to ticket', value: 'link' },
+      { name: 'View PR status for ticket', value: 'status' },
+      { name: 'Cancel', value: 'cancel' },
+    ];
+    const message = 'Pull Request Operations - What would you like to do?';
+
     // In JSON mode, output menu prompt
     if (jsonMode) {
-      const menuChoices = [
-        { name: 'Create PR from current branch', value: 'create' },
-        { name: 'Link existing PR to ticket', value: 'link' },
-        { name: 'View PR status for ticket', value: 'status' },
-        { name: 'Cancel', value: 'cancel' },
-      ];
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', 'Pull Request Operations - What would you like to do?', menuChoices),
+        buildPromptConfig('list', 'action', message, menuChoices),
         createMetadata('pr', flags)
       );
       return;
     }
 
-    // Show interactive menu
+    // Show interactive menu (with separator before Cancel)
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: 'Pull Request Operations - What would you like to do?',
+      message,
       choices: [
-        { name: 'Create PR from current branch', value: 'create' },
-        { name: 'Link existing PR to ticket', value: 'link' },
-        { name: 'View PR status for ticket', value: 'status' },
+        ...menuChoices.slice(0, -1),
         new inquirer.Separator('──────────────'),
-        { name: 'Cancel', value: 'cancel' },
+        menuChoices[menuChoices.length - 1],
       ],
     }]);
 
