@@ -1,5 +1,12 @@
+import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class Status extends PMOCommand {
   static description = 'Interactive menu for workflow status operations';
@@ -12,6 +19,14 @@ export default class Status extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -19,6 +34,28 @@ export default class Status extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    const { flags } = await this.parse(Status);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // In JSON mode, output action menu prompt
+    if (jsonMode) {
+      const actionChoices = [
+        { name: 'List all statuses', value: 'list' },
+        { name: 'Create new status', value: 'create' },
+        { name: 'Update status', value: 'update' },
+        { name: 'Move status (change order)', value: 'move' },
+        { name: 'Delete status', value: 'delete' },
+        { name: 'Cancel', value: 'cancel' },
+      ];
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', '📊 Workflow Statuses - What would you like to do?', actionChoices),
+        createMetadata('status', flags)
+      );
+      return;
+    }
+
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',

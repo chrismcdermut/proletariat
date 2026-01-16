@@ -2,6 +2,13 @@ import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand } from '../../../lib/pmo/index.js';
 import { styles } from '../../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../../lib/prompt-json.js';
 
 export default class StatusTemplateDelete extends PMOCommand {
   static description = 'Delete a workflow status template';
@@ -19,6 +26,14 @@ export default class StatusTemplateDelete extends PMOCommand {
   };
 
   static flags = {
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation',
@@ -33,16 +48,37 @@ export default class StatusTemplateDelete extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusTemplateDelete);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('status template delete', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     const template = await this.storage.getTemplate(args.id);
     if (!template) {
-      this.error(`Template "${args.id}" not found.`);
+      return handleError('TEMPLATE_NOT_FOUND', `Template "${args.id}" not found.`);
     }
 
     if (template.isBuiltin) {
-      this.error('Cannot delete built-in templates.');
+      return handleError('CANNOT_DELETE_BUILTIN', 'Cannot delete built-in templates.');
     }
 
     if (!flags.force) {
+      // In JSON mode, output confirmation prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('confirm', 'confirm', `Delete template "${template.name}"?`),
+          createMetadata('status template delete', flags)
+        );
+        return;
+      }
+
       const { confirm } = await inquirer.prompt<{ confirm: boolean }>([{
         type: 'confirm',
         name: 'confirm',

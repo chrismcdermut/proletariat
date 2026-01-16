@@ -24,19 +24,37 @@ export interface PromptChoice {
 }
 
 /**
- * Prompt configuration for JSON output
+ * Form field configuration for multi-field prompts
  */
-export interface PromptConfig {
-  /** Type of prompt: list (single select), checkbox (multi select), or confirm */
-  type: 'list' | 'checkbox' | 'confirm'
-  /** Field name for the prompt answer */
+export interface FormField {
+  /** Type of field: input, list, checkbox, confirm, editor */
+  type: 'input' | 'list' | 'checkbox' | 'confirm' | 'editor'
+  /** Field name */
   name: string
-  /** User-facing prompt message */
+  /** User-facing message */
   message: string
   /** Available choices (for list/checkbox types) */
   choices?: PromptChoice[]
   /** Default value if applicable */
   default?: string | boolean | string[]
+}
+
+/**
+ * Prompt configuration for JSON output
+ */
+export interface PromptConfig {
+  /** Type of prompt: list (single select), checkbox (multi select), confirm, input, editor, or form (multi-field) */
+  type: 'list' | 'checkbox' | 'confirm' | 'input' | 'editor' | 'form'
+  /** Field name for the prompt answer (not used for form type) */
+  name?: string
+  /** User-facing prompt message (not used for form type) */
+  message?: string
+  /** Available choices (for list/checkbox types) */
+  choices?: PromptChoice[]
+  /** Default value if applicable */
+  default?: string | boolean | string[]
+  /** Fields for form type prompts */
+  fields?: FormField[]
 }
 
 /**
@@ -294,7 +312,7 @@ export function normalizeChoices(
  * @returns PromptConfig object
  */
 export function buildPromptConfig(
-  type: 'list' | 'checkbox' | 'confirm',
+  type: 'list' | 'checkbox' | 'confirm' | 'input' | 'editor',
   name: string,
   message: string,
   choices?: Array<string | { name: string; value: string; disabled?: boolean | string } | unknown>,
@@ -315,4 +333,19 @@ export function buildPromptConfig(
   }
 
   return config
+}
+
+/**
+ * Build a form prompt config with multiple fields
+ *
+ * @param fields - Array of form field configurations
+ * @returns PromptConfig object with type 'form'
+ */
+export function buildFormPromptConfig(
+  fields: FormField[]
+): PromptConfig {
+  return {
+    type: 'form',
+    fields,
+  }
 }

@@ -3,6 +3,13 @@ import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class StatusUpdate extends PMOCommand {
   static description = 'Update a workflow status';
@@ -23,6 +30,14 @@ export default class StatusUpdate extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     name: Flags.string({
       char: 'n',
       description: 'New status name',
@@ -53,13 +68,38 @@ export default class StatusUpdate extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusUpdate);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('status update', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Get status ID - prompt if not provided
     let statusId = args.id;
 
     if (!statusId) {
       const statuses = await this.storage.listStatuses(this.projectId);
       if (statuses.length === 0) {
-        this.error('No statuses found. Create a status first with "prlt status create".');
+        return handleError('NO_STATUSES', 'No statuses found. Create a status first with "prlt status create".');
+      }
+
+      // In JSON mode, output status selection prompt
+      if (jsonMode) {
+        const statusChoices = statuses.map(s => ({
+          name: `${s.name} (${s.category})`,
+          value: s.id,
+        }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'id', 'Select status to update:', statusChoices),
+          createMetadata('status update', flags)
+        );
+        return;
       }
 
       const { selectedId } = await inquirer.prompt([{
@@ -77,7 +117,7 @@ export default class StatusUpdate extends PMOCommand {
     // Get existing status
     const existing = await this.storage.getStatus(statusId!);
     if (!existing) {
-      this.error(`Status not found: ${statusId}`);
+      return handleError('STATUS_NOT_FOUND', `Status not found: ${statusId}`);
     }
 
     let changes: Partial<{
@@ -97,6 +137,22 @@ export default class StatusUpdate extends PMOCommand {
 
     // Auto-enter interactive mode if no change flags provided
     if (flags.interactive || !hasChangeFlags) {
+      // In JSON mode, output form prompts
+      if (jsonMode) {
+        const formFields = [
+          { type: 'input' as const, name: 'name', message: 'Status name:', default: existing.name },
+          { type: 'list' as const, name: 'category', message: 'Category:', choices: STATE_CATEGORY_ORDER.map(cat => ({ name: cat, value: cat })), default: existing.category },
+          { type: 'input' as const, name: 'color', message: 'Color (hex, optional):', default: existing.color || '' },
+          { type: 'input' as const, name: 'description', message: 'Description (optional):', default: existing.description || '' },
+          { type: 'confirm' as const, name: 'isDefault', message: 'Set as default status for new tickets?', default: existing.isDefault || false },
+        ];
+        outputPromptAsJson(
+          { type: 'form', fields: formFields },
+          createMetadata('status update', flags)
+        );
+        return;
+      }
+
       changes = await this.promptChanges(existing);
     } else {
       changes = {};

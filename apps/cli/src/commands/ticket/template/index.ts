@@ -1,7 +1,14 @@
+import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import { TicketTemplate } from '../../../lib/pmo/types.js';
 import { styles } from '../../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../../lib/prompt-json.js';
 
 export default class TicketTemplateIndex extends PMOCommand {
   static description = 'Interactive menu for ticket template operations';
@@ -14,6 +21,14 @@ export default class TicketTemplateIndex extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -21,6 +36,27 @@ export default class TicketTemplateIndex extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    const { flags } = await this.parse(TicketTemplateIndex);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // In JSON mode, output action menu prompt
+    if (jsonMode) {
+      const actionChoices = [
+        { name: 'List available templates', value: 'list' },
+        { name: 'Create ticket from template', value: 'apply' },
+        { name: 'Save ticket as template', value: 'save' },
+        { name: 'Delete template', value: 'delete' },
+        { name: 'Cancel', value: 'cancel' },
+      ];
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', '📋 Ticket Templates - What would you like to do?', actionChoices),
+        createMetadata('ticket template', flags)
+      );
+      return;
+    }
+
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',

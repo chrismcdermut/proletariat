@@ -3,6 +3,11 @@ import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+} from '../../lib/prompt-json.js';
 
 export default class StatusCreate extends PMOCommand {
   static description = 'Create a new workflow status';
@@ -47,10 +52,21 @@ export default class StatusCreate extends PMOCommand {
       description: 'Interactive mode',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusCreate);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
 
     let statusData: {
       name: string;
@@ -63,6 +79,25 @@ export default class StatusCreate extends PMOCommand {
     // Auto-enter interactive mode if any required value is missing
     const name = args.name || flags.name;
     if (flags.interactive || !name || !flags.category) {
+      // In JSON mode, output form prompts
+      if (jsonMode) {
+        const formFields = [
+          { type: 'input' as const, name: 'name', message: 'Status name:', default: name || flags.name },
+          { type: 'list' as const, name: 'category', message: 'Category:', choices: STATE_CATEGORY_ORDER.map(cat => ({
+            name: `${cat} - ${this.getCategoryDescription(cat)}`,
+            value: cat,
+          })), default: flags.category || 'backlog' },
+          { type: 'input' as const, name: 'color', message: 'Color (hex, optional):', default: flags.color },
+          { type: 'input' as const, name: 'description', message: 'Description (optional):', default: flags.description },
+          { type: 'confirm' as const, name: 'isDefault', message: 'Set as default status for new tickets?', default: flags.default || false },
+        ];
+        outputPromptAsJson(
+          { type: 'form', fields: formFields },
+          createMetadata('status create', flags)
+        );
+        return;
+      }
+
       statusData = await this.promptStatusData(flags, name);
     } else {
       statusData = {

@@ -2,6 +2,13 @@ import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../../lib/pmo/index.js';
 import { styles } from '../../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../../lib/prompt-json.js';
 
 export default class TicketTemplateApply extends PMOCommand {
   static description = 'Create a new ticket from a template';
@@ -63,6 +70,14 @@ export default class TicketTemplateApply extends PMOCommand {
       description: 'Interactive mode - prompt for values',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     'no-subtasks': Flags.boolean({
       description: 'Do not create suggested subtasks',
       default: false,
@@ -76,10 +91,22 @@ export default class TicketTemplateApply extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketTemplateApply);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('ticket template apply', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Get the template
     const template = await this.storage.getTicketTemplate(args.template);
     if (!template) {
-      this.error(`Template not found: ${args.template}\nRun 'prlt ticket template list' to see available templates.`);
+      return handleError('TEMPLATE_NOT_FOUND', `Template not found: ${args.template}\nRun 'prlt ticket template list' to see available templates.`);
     }
 
     // Validate epic if provided
@@ -103,6 +130,30 @@ export default class TicketTemplateApply extends PMOCommand {
 
     // Interactive mode - prompt for values
     if (flags.interactive || !title) {
+      // In JSON mode, output form prompts
+      if (jsonMode) {
+        const formFields = [
+          { type: 'input' as const, name: 'title', message: 'Ticket title:', default: title || undefined },
+          { type: 'list' as const, name: 'column', message: 'Column:', choices: this.columns.map(c => ({ name: c, value: c })), default: column },
+          { type: 'list' as const, name: 'priority', message: 'Priority:', choices: [
+            { name: 'None', value: '' },
+            { name: 'URGENT', value: 'URGENT' },
+            { name: 'HIGH', value: 'HIGH' },
+            { name: 'MEDIUM', value: 'MEDIUM' },
+            { name: 'LOW', value: 'LOW' },
+          ], default: priority },
+          { type: 'input' as const, name: 'category', message: 'Category:', default: category },
+          { type: 'input' as const, name: 'assignee', message: 'Assignee:', default: assignee },
+          { type: 'input' as const, name: 'owner', message: 'Owner:', default: owner },
+          { type: 'editor' as const, name: 'description', message: 'Description:', default: description },
+        ];
+        outputPromptAsJson(
+          { type: 'form', fields: formFields },
+          createMetadata('ticket template apply', flags)
+        );
+        return;
+      }
+
       const answers = await inquirer.prompt<{
         title: string;
         column: string;
