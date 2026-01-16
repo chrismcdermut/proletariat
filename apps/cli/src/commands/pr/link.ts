@@ -11,6 +11,13 @@ import {
   getPRByNumber,
   listOpenPRs,
 } from '../../lib/pr/index.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class PRLink extends Command {
   static description = 'Link an existing GitHub pull request to a ticket';
@@ -38,18 +45,32 @@ export default class PRLink extends Command {
       char: 'u',
       description: 'PR URL to link',
     }),
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   };
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(PRLink);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('pr link', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Check gh CLI
     if (!isGHInstalled()) {
-      this.error('GitHub CLI (gh) is not installed. Install it from https://cli.github.com/');
+      return handleError('GH_NOT_INSTALLED', 'GitHub CLI (gh) is not installed. Install it from https://cli.github.com/');
     }
 
     if (!isGHAuthenticated()) {
-      this.error('GitHub CLI is not authenticated. Run "gh auth login" first.');
+      return handleError('GH_NOT_AUTHENTICATED', 'GitHub CLI is not authenticated. Run "gh auth login" first.');
     }
 
     // Get workspace and PMO context
@@ -57,7 +78,7 @@ export default class PRLink extends Command {
     try {
       workspaceInfo = getWorkspaceInfo();
     } catch {
-      this.error('Not in a workspace. Run "prlt init" first.');
+      return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt init" first.');
     }
 
     const { storage } = await getPMOContext({
@@ -80,7 +101,26 @@ export default class PRLink extends Command {
         if (activeTickets.length === 0) {
           await storage.close();
           db.close();
+          if (jsonMode) {
+            outputErrorAsJson('NO_ACTIVE_TICKETS', 'No active tickets found.', createMetadata('pr link', flags));
+            this.exit(1);
+          }
           this.log(styles.info('No active tickets found.'));
+          return;
+        }
+
+        // In JSON mode, output ticket selection prompt
+        if (jsonMode) {
+          const ticketChoices = activeTickets.map(t => ({
+            name: `${t.id} - ${t.title} (${t.statusName})`,
+            value: t.id,
+          }));
+          outputPromptAsJson(
+            buildPromptConfig('list', 'ticketId', 'Select ticket to link PR to:', ticketChoices),
+            createMetadata('pr link', flags)
+          );
+          await storage.close();
+          db.close();
           return;
         }
 
@@ -106,6 +146,21 @@ export default class PRLink extends Command {
 
       // Check if ticket already has a PR linked
       if (ticket.metadata?.pr_url) {
+        // In JSON mode, output overwrite confirmation prompt
+        if (jsonMode) {
+          const confirmChoices = [
+            { name: 'No', value: 'false' },
+            { name: 'Yes', value: 'true' },
+          ];
+          outputPromptAsJson(
+            buildPromptConfig('list', 'overwrite', `Ticket ${ticketId} already has a linked PR (${ticket.metadata.pr_url}). Replace with a different PR?`, confirmChoices),
+            createMetadata('pr link', flags)
+          );
+          await storage.close();
+          db.close();
+          return;
+        }
+
         this.log(styles.info(`Ticket ${ticketId} already has a linked PR:`));
         this.log(styles.muted(`   URL: ${ticket.metadata.pr_url}`));
 
@@ -148,7 +203,26 @@ export default class PRLink extends Command {
         if (openPRs.length === 0) {
           await storage.close();
           db.close();
+          if (jsonMode) {
+            outputErrorAsJson('NO_OPEN_PRS', 'No open PRs found. Create one first with "prlt pr create".', createMetadata('pr link', flags));
+            this.exit(1);
+          }
           this.error('No open PRs found. Create one first with "prlt pr create".');
+        }
+
+        // In JSON mode, output PR selection prompt
+        if (jsonMode) {
+          const prChoices = openPRs.map(pr => ({
+            name: `#${pr.number} - ${pr.title} (${pr.headBranch})`,
+            value: String(pr.number),
+          }));
+          outputPromptAsJson(
+            buildPromptConfig('list', 'prNumber', 'Select PR to link:', prChoices),
+            createMetadata('pr link', flags)
+          );
+          await storage.close();
+          db.close();
+          return;
         }
 
         const { selectedPR } = await inquirer.prompt([{

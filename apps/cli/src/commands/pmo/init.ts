@@ -18,6 +18,14 @@ import {
 } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { isGHInstalled, isGHAuthenticated, getGHUsername, isGHTokenInEnv } from '../../lib/pr/index.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+  buildFormPromptConfig,
+  FormField,
+} from '../../lib/prompt-json.js';
 
 export default class PMOInit extends Command {
   static description = 'Initialize PMO (Project Management Office) in current directory or HQ';
@@ -42,10 +50,15 @@ export default class PMOInit extends Command {
       char: 'n',
       description: 'Board name',
     }),
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   };
 
   async run(): Promise<void> {
     const { flags } = await this.parse(PMOInit);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
 
     // Check if PMO already exists
     const hqRoot = this.findHQRoot();
@@ -81,7 +94,11 @@ export default class PMOInit extends Command {
 
     // If PMO exists, prompt for reinitialize
     if (existingPMO) {
-      const shouldReinitialize = await this.promptReinitialize(hqRoot!, projectCount, ticketCount);
+      const shouldReinitialize = await this.promptReinitialize(hqRoot!, projectCount, ticketCount, jsonMode, flags);
+      if (shouldReinitialize === null) {
+        // JSON mode returned early
+        return;
+      }
       if (!shouldReinitialize) {
         this.log(chalk.yellow('\nCancelled. Existing PMO preserved.'));
         return;
@@ -207,7 +224,7 @@ export default class PMOInit extends Command {
     return null;
   }
 
-  private async promptReinitialize(hqRoot: string, projectCount: number, ticketCount: number): Promise<boolean> {
+  private async promptReinitialize(hqRoot: string, projectCount: number, ticketCount: number, jsonMode = false, flags: Record<string, unknown> = {}): Promise<boolean | null> {
     // Find PMO location from database
     const dbPath = path.join(hqRoot, '.proletariat', 'workspace.db');
     let pmoPath = path.join(hqRoot, 'pmo'); // Default fallback
@@ -221,6 +238,19 @@ export default class PMOInit extends Command {
       db.close();
     } catch {
       // Use default if table doesn't exist
+    }
+
+    // In JSON mode, output reinitialize prompt
+    if (jsonMode) {
+      const actionChoices = [
+        { name: 'Cancel (keep existing PMO)', value: 'cancel' },
+        { name: 'Reinitialize (DELETES all data)', value: 'reinitialize' },
+      ];
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', `PMO already exists at ${pmoPath} (${projectCount} projects, ${ticketCount} tickets). What would you like to do?`, actionChoices),
+        createMetadata('pmo init', flags)
+      );
+      return null;
     }
 
     this.log(chalk.yellow('\n⚠️  PMO already exists'));

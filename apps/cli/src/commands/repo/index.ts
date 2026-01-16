@@ -1,6 +1,13 @@
+import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class Repo extends PMOCommand {
   static description = 'Repository management operations';
@@ -14,6 +21,8 @@ export default class Repo extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   };
 
   protected getPMOOptions() {
@@ -21,6 +30,29 @@ export default class Repo extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    const { flags } = await this.parse(Repo);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // In JSON mode, output menu prompt
+    if (jsonMode) {
+      const menuChoices = [
+        { name: 'List all repositories', value: 'list' },
+        { name: 'Add repository', value: 'add' },
+        { name: 'Remove repository', value: 'remove' },
+        { name: 'View repository details', value: 'view' },
+        { name: 'Add multiple repositories', value: 'add-bulk' },
+        { name: 'Remove multiple repositories', value: 'remove-bulk' },
+        { name: 'Cancel', value: 'cancel' },
+      ];
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', 'What would you like to do?', menuChoices),
+        createMetadata('repo', flags)
+      );
+      return;
+    }
+
     this.log(colors.primary('📦 Repository Operations'));
     this.log('');
 

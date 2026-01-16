@@ -1,6 +1,13 @@
-import { Command } from '@oclif/core';
+import { Command, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { findPMO } from '../../lib/pmo/index.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class PR extends Command {
   static description = 'Interactive menu for pull request operations';
@@ -9,10 +16,39 @@ export default class PR extends Command {
     '<%= config.bin %> <%= command.id %>',
   ];
 
+  static flags = {
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
+  };
+
   async run(): Promise<void> {
+    const { flags } = await this.parse(PR);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
     const pmoPath = findPMO();
     if (!pmoPath) {
+      if (jsonMode) {
+        outputErrorAsJson('PMO_NOT_FOUND', 'PMO not found. Run "prlt pmo init" first.', createMetadata('pr', flags));
+        this.exit(1);
+      }
       this.error('PMO not found. Run "prlt pmo init" first.');
+    }
+
+    // In JSON mode, output menu prompt
+    if (jsonMode) {
+      const menuChoices = [
+        { name: 'Create PR from current branch', value: 'create' },
+        { name: 'Link existing PR to ticket', value: 'link' },
+        { name: 'View PR status for ticket', value: 'status' },
+        { name: 'Cancel', value: 'cancel' },
+      ];
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', 'Pull Request Operations - What would you like to do?', menuChoices),
+        createMetadata('pr', flags)
+      );
+      return;
     }
 
     // Show interactive menu
