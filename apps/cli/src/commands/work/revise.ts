@@ -31,6 +31,13 @@ import {
   hasPendingFeedback,
   formatPRFeedbackForPrompt,
 } from '../../lib/pr/index.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js'
 
 export default class WorkRevise extends PMOCommand {
   static description = 'Address PR feedback on a ticket (fetches reviews/comments and spawns agent)'
@@ -38,6 +45,7 @@ export default class WorkRevise extends PMOCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %> TKT-001',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
+    '<%= config.bin %> <%= command.id %> --json  # Output choices as JSON',
   ]
 
   static args = {
@@ -49,6 +57,14 @@ export default class WorkRevise extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     mode: Flags.string({
       char: 'm',
       description: 'Runtime mode',
@@ -79,14 +95,27 @@ export default class WorkRevise extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkRevise)
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags)
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('work revise', flags))
+        this.exit(1)
+      }
+      this.error(message)
+    }
+
     // Check gh CLI is available
     if (!isGHInstalled() || !isGHAuthenticated()) {
-      this.error('GitHub CLI (gh) is required for fetching PR feedback.\nRun: prlt gh login')
+      return handleError('GH_NOT_AVAILABLE', 'GitHub CLI (gh) is required for fetching PR feedback.\nRun: prlt gh login')
     }
 
     // Early Docker check
     if (!flags['run-on-host'] && !isDockerRunning()) {
-      this.error(
+      return handleError(
+        'DOCKER_NOT_RUNNING',
         'Docker is not running.\n\n' +
         'Docker is required for devcontainer execution (recommended for agent sandboxing).\n' +
         'Please start Docker Desktop and try again.\n\n' +
