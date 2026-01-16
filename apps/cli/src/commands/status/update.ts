@@ -9,6 +9,7 @@ import {
   outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
+  buildFormPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class StatusUpdate extends PMOCommand {
@@ -139,15 +140,14 @@ export default class StatusUpdate extends PMOCommand {
     if (flags.interactive || !hasChangeFlags) {
       // In JSON mode, output form prompts
       if (jsonMode) {
-        const formFields = [
-          { type: 'input' as const, name: 'name', message: 'Status name:', default: existing.name },
-          { type: 'list' as const, name: 'category', message: 'Category:', choices: STATE_CATEGORY_ORDER.map(cat => ({ name: cat, value: cat })), default: existing.category },
-          { type: 'input' as const, name: 'color', message: 'Color (hex, optional):', default: existing.color || '' },
-          { type: 'input' as const, name: 'description', message: 'Description (optional):', default: existing.description || '' },
-          { type: 'confirm' as const, name: 'isDefault', message: 'Set as default status for new tickets?', default: existing.isDefault || false },
-        ];
         outputPromptAsJson(
-          { type: 'form', fields: formFields },
+          buildFormPromptConfig([
+            { type: 'input', name: 'name', message: 'Status name:', default: existing.name },
+            { type: 'list', name: 'category', message: 'Category:', choices: STATE_CATEGORY_ORDER.map(cat => ({ name: cat, value: cat })), default: existing.category },
+            { type: 'input', name: 'color', message: 'Color (hex, optional):', default: existing.color || '' },
+            { type: 'input', name: 'description', message: 'Description (optional):', default: existing.description || '' },
+            { type: 'confirm', name: 'isDefault', message: 'Set as default status for new tickets?', default: existing.isDefault || false },
+          ]),
           createMetadata('status update', flags)
         );
         return;

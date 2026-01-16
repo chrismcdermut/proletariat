@@ -8,6 +8,7 @@ import {
   outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
+  buildFormPromptConfig,
 } from '../../../lib/prompt-json.js';
 
 export default class TicketTemplateApply extends PMOCommand {
@@ -132,23 +133,22 @@ export default class TicketTemplateApply extends PMOCommand {
     if (flags.interactive || !title) {
       // In JSON mode, output form prompts
       if (jsonMode) {
-        const formFields = [
-          { type: 'input' as const, name: 'title', message: 'Ticket title:', default: title || undefined },
-          { type: 'list' as const, name: 'column', message: 'Column:', choices: this.columns.map(c => ({ name: c, value: c })), default: column },
-          { type: 'list' as const, name: 'priority', message: 'Priority:', choices: [
-            { name: 'None', value: '' },
-            { name: 'URGENT', value: 'URGENT' },
-            { name: 'HIGH', value: 'HIGH' },
-            { name: 'MEDIUM', value: 'MEDIUM' },
-            { name: 'LOW', value: 'LOW' },
-          ], default: priority },
-          { type: 'input' as const, name: 'category', message: 'Category:', default: category },
-          { type: 'input' as const, name: 'assignee', message: 'Assignee:', default: assignee },
-          { type: 'input' as const, name: 'owner', message: 'Owner:', default: owner },
-          { type: 'editor' as const, name: 'description', message: 'Description:', default: description },
-        ];
         outputPromptAsJson(
-          { type: 'form', fields: formFields },
+          buildFormPromptConfig([
+            { type: 'input', name: 'title', message: 'Ticket title:', default: title || undefined },
+            { type: 'list', name: 'column', message: 'Column:', choices: this.columns.map(c => ({ name: c, value: c })), default: column },
+            { type: 'list', name: 'priority', message: 'Priority:', choices: [
+              { name: 'None', value: '' },
+              { name: 'URGENT', value: 'URGENT' },
+              { name: 'HIGH', value: 'HIGH' },
+              { name: 'MEDIUM', value: 'MEDIUM' },
+              { name: 'LOW', value: 'LOW' },
+            ], default: priority },
+            { type: 'input', name: 'category', message: 'Category:', default: category },
+            { type: 'input', name: 'assignee', message: 'Assignee:', default: assignee },
+            { type: 'input', name: 'owner', message: 'Owner:', default: owner },
+            { type: 'editor', name: 'description', message: 'Description:', default: description },
+          ]),
           createMetadata('ticket template apply', flags)
         );
         return;

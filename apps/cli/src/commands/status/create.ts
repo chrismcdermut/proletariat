@@ -7,6 +7,7 @@ import {
   shouldOutputJson,
   outputPromptAsJson,
   createMetadata,
+  buildFormPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class StatusCreate extends PMOCommand {
@@ -81,18 +82,17 @@ export default class StatusCreate extends PMOCommand {
     if (flags.interactive || !name || !flags.category) {
       // In JSON mode, output form prompts
       if (jsonMode) {
-        const formFields = [
-          { type: 'input' as const, name: 'name', message: 'Status name:', default: name || flags.name },
-          { type: 'list' as const, name: 'category', message: 'Category:', choices: STATE_CATEGORY_ORDER.map(cat => ({
-            name: `${cat} - ${this.getCategoryDescription(cat)}`,
-            value: cat,
-          })), default: flags.category || 'backlog' },
-          { type: 'input' as const, name: 'color', message: 'Color (hex, optional):', default: flags.color },
-          { type: 'input' as const, name: 'description', message: 'Description (optional):', default: flags.description },
-          { type: 'confirm' as const, name: 'isDefault', message: 'Set as default status for new tickets?', default: flags.default || false },
-        ];
         outputPromptAsJson(
-          { type: 'form', fields: formFields },
+          buildFormPromptConfig([
+            { type: 'input', name: 'name', message: 'Status name:', default: name || flags.name },
+            { type: 'list', name: 'category', message: 'Category:', choices: STATE_CATEGORY_ORDER.map(cat => ({
+              name: `${cat} - ${this.getCategoryDescription(cat)}`,
+              value: cat,
+            })), default: flags.category || 'backlog' },
+            { type: 'input', name: 'color', message: 'Color (hex, optional):', default: flags.color },
+            { type: 'input', name: 'description', message: 'Description (optional):', default: flags.description },
+            { type: 'confirm', name: 'isDefault', message: 'Set as default status for new tickets?', default: flags.default || false },
+          ]),
           createMetadata('status create', flags)
         );
         return;

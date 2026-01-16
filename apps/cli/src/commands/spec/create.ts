@@ -8,6 +8,7 @@ import {
   shouldOutputJson,
   outputPromptAsJson,
   createMetadata,
+  buildFormPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class SpecCreate extends PMOCommand {
@@ -91,14 +92,13 @@ export default class SpecCreate extends PMOCommand {
 
       // In JSON mode, output form prompts
       if (jsonMode) {
-        const formFields = [
-          { type: 'input' as const, name: 'title', message: 'Spec title:', default: flags.title },
-          { type: 'list' as const, name: 'type', message: 'Spec type:', choices: typeChoices, default: flags.type },
-          { type: 'list' as const, name: 'status', message: 'Status:', choices: statusChoices, default: flags.status || 'draft' },
-          { type: 'input' as const, name: 'problem', message: 'Problem statement (optional):', default: flags.problem },
-        ];
         outputPromptAsJson(
-          { type: 'form', fields: formFields },
+          buildFormPromptConfig([
+            { type: 'input', name: 'title', message: 'Spec title:', default: flags.title },
+            { type: 'list', name: 'type', message: 'Spec type:', choices: typeChoices, default: flags.type },
+            { type: 'list', name: 'status', message: 'Status:', choices: statusChoices, default: flags.status || 'draft' },
+            { type: 'input', name: 'problem', message: 'Problem statement (optional):', default: flags.problem },
+          ]),
           createMetadata('spec create', flags)
         );
         return;

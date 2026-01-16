@@ -9,7 +9,29 @@
  * - Stateless functions for easy unit testing
  * - Designed for future extraction as standalone npm package
  * - Supports both explicit --json flag and automatic non-TTY detection
+ *
+ * Exit code conventions:
+ * - EXIT_SUCCESS (0): Command completed successfully
+ * - EXIT_ERROR (1): Command failed with an error
+ * - EXIT_NEEDS_INPUT (2): Command needs additional input (prompt required)
  */
+
+/**
+ * Exit code for successful command completion
+ */
+export const EXIT_SUCCESS = 0
+
+/**
+ * Exit code for command failure/error
+ */
+export const EXIT_ERROR = 1
+
+/**
+ * Exit code when command needs additional input (prompt required)
+ * Use this exit code when outputting a prompt in JSON mode to signal
+ * to scripts/agents that the command didn't fail, but needs more input.
+ */
+export const EXIT_NEEDS_INPUT = 2
 
 /**
  * Choice item for list/checkbox prompts
@@ -187,10 +209,16 @@ export function createMetadata(
 }
 
 /**
- * Output a prompt configuration as JSON and exit
+ * Output a prompt configuration as JSON
  *
  * Use this when a command would normally show an interactive prompt.
  * Outputs the prompt config so agents can understand what input is needed.
+ *
+ * Recommended usage:
+ * ```typescript
+ * outputPromptAsJson(config, metadata)
+ * process.exit(EXIT_NEEDS_INPUT)  // Exit with code 2 to signal input needed
+ * ```
  *
  * @param config - Prompt configuration
  * @param metadata - Command metadata
