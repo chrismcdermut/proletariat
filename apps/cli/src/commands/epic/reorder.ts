@@ -2,6 +2,13 @@ import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class EpicReorder extends PMOCommand {
   static description = 'Reorder epic priority/rank';
@@ -41,14 +48,38 @@ export default class EpicReorder extends PMOCommand {
       description: 'Move before this epic ID',
       exclusive: ['first', 'last', 'after'],
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(EpicReorder);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('epic reorder', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Get all epics for context
     const epics = await this.storage.listEpics({ status: 'active' });
     if (epics.length === 0) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_ACTIVE_EPICS', 'No active epics to reorder.', createMetadata('epic reorder', flags));
+        return;
+      }
       this.log(styles.muted('\nNo active epics to reorder.'));
       return;
     }
@@ -62,6 +93,15 @@ export default class EpicReorder extends PMOCommand {
         value: e.id,
       }));
 
+      // In JSON mode, output epic selection prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'id', 'Select epic to reorder:', choices),
+          createMetadata('epic reorder', flags)
+        );
+        return;
+      }
+
       const { selected } = await inquirer.prompt([{
         type: 'list',
         name: 'selected',
@@ -73,7 +113,7 @@ export default class EpicReorder extends PMOCommand {
 
     const epic = await this.storage.getEpic(epicId!);
     if (!epic) {
-      this.error(`Epic not found: ${epicId}`);
+      return handleError('EPIC_NOT_FOUND', `Epic not found: ${epicId}`);
     }
 
     // Determine new position
@@ -101,6 +141,15 @@ export default class EpicReorder extends PMOCommand {
       if (newPosition < 0) newPosition = 0;
       if (newPosition >= epics.length) newPosition = epics.length - 1;
     } else {
+      // In JSON mode, output rank input prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('input', 'rank', `New rank for ${epicId} (1-${epics.length}):`, undefined, String(epic.position + 1)),
+          createMetadata('epic reorder', flags)
+        );
+        return;
+      }
+
       // Interactive: show current order and ask for new position
       this.log(`\nCurrent order:`);
       epics.forEach((e, i) => {

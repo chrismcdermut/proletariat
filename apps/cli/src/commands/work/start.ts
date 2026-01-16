@@ -5,6 +5,13 @@ import { execSync } from 'node:child_process'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js'
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { StateCategory, WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
@@ -80,6 +87,14 @@ export default class WorkStart extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     all: Flags.boolean({
       char: 'a',
       description: 'Start work on all unassigned backlog tickets (batch mode)',
@@ -160,12 +175,24 @@ export default class WorkStart extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkStart)
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags)
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('work start', flags))
+        this.exit(1)
+      }
+      this.error(message)
+    }
+
     // Get workspace info (for agent worktree paths)
     let workspaceInfo
     try {
       workspaceInfo = getWorkspaceInfo()
     } catch {
-      this.error('Not in a workspace. Run "prlt init" first.')
+      return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt init" first.')
     }
 
     // Open database for execution storage
@@ -189,18 +216,32 @@ export default class WorkStart extends PMOCommand {
 
         if (allTickets.length === 0) {
           db.close()
-          this.error('No tickets found. Create a ticket first with "prlt ticket create".')
+          return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".')
+        }
+
+        // Build choices once, use for both JSON and interactive modes
+        const ticketChoices = allTickets.map((t) => ({
+          name: `${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
+          value: t.id,
+        }))
+        const selectMessage = 'Select ticket to work on:'
+
+        // In JSON mode, output ticket selection prompt
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildPromptConfig('list', 'ticketId', selectMessage, ticketChoices),
+            createMetadata('work start', flags)
+          )
+          db.close()
+          return
         }
 
         const { selectedTicketId } = await inquirer.prompt([
           {
             type: 'list',
             name: 'selectedTicketId',
-            message: 'Select ticket to work on:',
-            choices: allTickets.map((t) => ({
-              name: `${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
-              value: t.id,
-            })),
+            message: selectMessage,
+            choices: ticketChoices,
           },
         ])
         ticketId = selectedTicketId
@@ -210,7 +251,7 @@ export default class WorkStart extends PMOCommand {
       const ticket = await this.storage.getTicket(ticketId!)
       if (!ticket) {
         db.close()
-        this.error(`Ticket "${ticketId}" not found.`)
+        return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`)
       }
 
       // Check if ticket is blocked by dependencies

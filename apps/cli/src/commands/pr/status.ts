@@ -1,4 +1,4 @@
-import { Command, Args } from '@oclif/core';
+import { Command, Args, Flags } from '@oclif/core';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
 import inquirer from 'inquirer';
@@ -10,6 +10,13 @@ import {
   isGHAuthenticated,
   getPRByNumber,
 } from '../../lib/pr/index.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class PRStatus extends Command {
   static description = 'View PR status for a ticket';
@@ -26,15 +33,38 @@ export default class PRStatus extends Command {
     }),
   };
 
+  static flags = {
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
+  };
+
   async run(): Promise<void> {
-    const { args } = await this.parse(PRStatus);
+    const { args, flags } = await this.parse(PRStatus);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('pr status', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
 
     // Get workspace and PMO context
     let workspaceInfo;
     try {
       workspaceInfo = getWorkspaceInfo();
     } catch {
-      this.error('Not in a workspace. Run "prlt init" first.');
+      return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt init" first.');
     }
 
     const { storage } = await getPMOContext({
@@ -61,28 +91,38 @@ export default class PRStatus extends Command {
           return;
         }
 
-        const choices = [
-          ...ticketsWithPR.map(t => ({
-            name: `${t.id} - ${t.title} [PR linked]`,
-            value: t.id,
-          })),
-        ];
+        // Build choices once, use for both JSON and interactive modes
+        const ticketsWithPRChoices = ticketsWithPR.map(t => ({
+          name: `${t.id} - ${t.title} [PR linked]`,
+          value: t.id,
+        }));
+        const ticketsWithoutPRChoices = ticketsWithoutPR.slice(0, 10).map(t => ({
+          name: `${t.id} - ${t.title} (${t.statusName})`,
+          value: t.id,
+        }));
+        const ticketChoices = [...ticketsWithPRChoices, ...ticketsWithoutPRChoices];
+        const message = 'Select ticket to check PR status:';
 
-        if (ticketsWithoutPR.length > 0) {
-          choices.push(new inquirer.Separator('── No PR Linked ──') as any);
-          choices.push(
-            ...ticketsWithoutPR.slice(0, 10).map(t => ({
-              name: `${t.id} - ${t.title} (${t.statusName})`,
-              value: t.id,
-            }))
+        // In JSON mode, output ticket selection prompt and exit
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildPromptConfig('list', 'ticketId', message, ticketChoices),
+            createMetadata('pr status', flags)
           );
+        }
+
+        // Build interactive choices with separator
+        const interactiveChoices: Array<{ name: string; value: string } | inquirer.Separator> = [...ticketsWithPRChoices];
+        if (ticketsWithoutPRChoices.length > 0) {
+          interactiveChoices.push(new inquirer.Separator('── No PR Linked ──'));
+          interactiveChoices.push(...ticketsWithoutPRChoices);
         }
 
         const { selectedTicketId } = await inquirer.prompt([{
           type: 'list',
           name: 'selectedTicketId',
-          message: 'Select ticket to check PR status:',
-          choices,
+          message,
+          choices: interactiveChoices,
         }]);
         ticketId = selectedTicketId;
       }

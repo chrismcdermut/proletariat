@@ -2,6 +2,13 @@ import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class PhaseDelete extends PMOCommand {
   static description = 'Delete a project lifecycle phase';
@@ -25,6 +32,14 @@ export default class PhaseDelete extends PMOCommand {
       description: 'Skip confirmation',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -34,12 +49,37 @@ export default class PhaseDelete extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(PhaseDelete);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('phase delete', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     const phase = await this.storage.getPhase(args.id);
     if (!phase) {
-      this.error(`Phase "${args.id}" not found.`);
+      return handleError('PHASE_NOT_FOUND', `Phase "${args.id}" not found.`);
     }
 
     if (!flags.force) {
+      // In JSON mode, output confirmation prompt
+      if (jsonMode) {
+        const confirmChoices = [
+          { name: 'No', value: 'false' },
+          { name: 'Yes', value: 'true' },
+        ];
+        outputPromptAsJson(
+          buildPromptConfig('list', 'confirmed', `Delete phase "${phase.name}"?`, confirmChoices),
+          createMetadata('phase delete', flags)
+        );
+        return;
+      }
+
       const { confirm } = await inquirer.prompt<{ confirm: boolean }>([{
         type: 'confirm',
         name: 'confirm',

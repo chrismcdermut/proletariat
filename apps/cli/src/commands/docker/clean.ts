@@ -8,6 +8,12 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { sanitizeContainerId } from '../../lib/docker/resolve.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js'
 
 interface OrphanedContainer {
   id: string
@@ -41,6 +47,14 @@ export default class DockerClean extends Command {
     all: Flags.boolean({
       char: 'a',
       description: 'Remove all stopped devcontainers (not just orphaned)',
+      default: false,
+    }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
       default: false,
     }),
   }
@@ -116,11 +130,31 @@ export default class DockerClean extends Command {
 
       // Confirm removal
       if (!flags.force) {
+        // Check if JSON output mode is active
+        const jsonMode = shouldOutputJson(flags)
+
+        // Build choices once, use for both JSON and interactive modes
+        const confirmChoices = [
+          { name: 'No', value: 'false' },
+          { name: 'Yes', value: 'true' },
+        ]
+        const confirmMessage = `Remove ${orphanedContainers.length} orphaned container(s)?`
+
+        // In JSON mode, output confirmation prompt
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
+            createMetadata('docker clean', flags)
+          )
+          db.close()
+          return
+        }
+
         const { confirm } = await inquirer.prompt([
           {
             type: 'confirm',
             name: 'confirm',
-            message: `Remove ${orphanedContainers.length} orphaned container(s)?`,
+            message: confirmMessage,
             default: false,
           },
         ])

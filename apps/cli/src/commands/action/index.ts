@@ -1,6 +1,13 @@
+import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { WorkAction } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class Action extends PMOCommand {
   static description = 'Interactive menu for work action operations';
@@ -13,6 +20,14 @@ export default class Action extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -20,19 +35,44 @@ export default class Action extends PMOCommand {
   }
 
   async execute(): Promise<void> {
-    // Show interactive menu
+    const { flags } = await this.parse(Action);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'List all actions', value: 'list' },
+      { name: 'View action details', value: 'show' },
+      { name: 'Create custom action', value: 'create' },
+      { name: 'Update action', value: 'update' },
+      { name: 'Delete action', value: 'delete' },
+      { name: 'Cancel', value: 'cancel' },
+    ];
+    const message = 'Work Actions - What would you like to do?';
+
+    // In JSON mode, output menu prompt
+    if (jsonMode) {
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', message, menuChoices),
+        createMetadata('action', flags)
+      );
+      return;
+    }
+
+    // Show interactive menu (with separator after create)
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: '🎬 Work Actions - What would you like to do?',
+      message: '🎬 ' + message,
       choices: [
-        { name: 'List all actions', value: 'list' },
-        { name: 'View action details', value: 'show' },
-        { name: 'Create custom action', value: 'create' },
+        menuChoices[0],
+        menuChoices[1],
+        menuChoices[2],
         new inquirer.Separator('──────────────'),
-        { name: 'Update action', value: 'update' },
-        { name: 'Delete action', value: 'delete' },
-        { name: 'Cancel', value: 'cancel' },
+        menuChoices[3],
+        menuChoices[4],
+        menuChoices[5],
       ],
     }]);
 

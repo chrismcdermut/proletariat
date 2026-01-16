@@ -2,6 +2,13 @@ import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class ProjectSpec extends PMOCommand {
   static description = 'Manage specs associated with a project (many-to-many)';
@@ -30,6 +37,14 @@ export default class ProjectSpec extends PMOCommand {
       char: 'r',
       description: 'Remove a spec from this project',
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -39,9 +54,25 @@ export default class ProjectSpec extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(ProjectSpec);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('project spec', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Get all projects
     const projects = await this.storage.listProjects();
     if (projects.length === 0) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_PROJECTS', 'No projects found. Create one with: prlt project create', createMetadata('project spec', flags));
+        return;
+      }
       this.log(styles.muted('\nNo projects found. Create one with: prlt project create'));
       return;
     }
@@ -50,6 +81,16 @@ export default class ProjectSpec extends PMOCommand {
 
     // If no project ID provided, prompt for selection
     if (!projectId) {
+      // In JSON mode, output project selection prompt
+      if (jsonMode) {
+        const projectChoices = projects.map(p => ({ name: `${p.id} - ${p.name} (${p.status})`, value: p.id }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'projectId', 'Select project:', projectChoices),
+          createMetadata('project spec', flags)
+        );
+        return;
+      }
+
       const { selected } = await inquirer.prompt([{
         type: 'list',
         name: 'selected',
@@ -65,7 +106,7 @@ export default class ProjectSpec extends PMOCommand {
     // Validate project exists
     const project = projects.find(p => p.id === projectId);
     if (!project) {
-      this.error(`Project not found: ${projectId}`);
+      return handleError('PROJECT_NOT_FOUND', `Project not found: ${projectId}`);
     }
 
     // Get specs currently associated with this project
@@ -101,6 +142,27 @@ export default class ProjectSpec extends PMOCommand {
     }
 
     // Interactive mode: show menu
+    // In JSON mode, output the menu prompt (no loop - AI will call back)
+    if (jsonMode) {
+      const currentSpecs = await this.storage.getSpecsForProject(projectId!);
+      const menuChoices = [
+        { name: 'Add spec to project', value: 'add' },
+        { name: 'Remove spec from project', value: 'remove' },
+        { name: 'Done', value: 'done' },
+      ];
+      outputPromptAsJson(
+        {
+          ...buildPromptConfig('list', 'action', `Manage specs for ${projectId}:`, menuChoices),
+          context: {
+            projectId,
+            currentSpecs: currentSpecs.map(s => ({ id: s.id, title: s.title, status: s.status })),
+          },
+        },
+        createMetadata('project spec', flags)
+      );
+      return;
+    }
+
     let continueLoop = true;
     while (continueLoop) {
       // Refresh project specs each iteration

@@ -4,6 +4,13 @@ import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { EpicStatus, Ticket } from '../../lib/pmo/types.js';
 import { moveEpicFile, getRelativeEpicPath } from '../../lib/pmo/epic-files.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 const STATUS_CHOICES = [
   { name: 'active (currently working on)', value: 'active' },
@@ -35,6 +42,14 @@ export default class EpicMove extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     force: Flags.boolean({
       char: 'f',
       description: 'Skip validation checks',
@@ -45,6 +60,18 @@ export default class EpicMove extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(EpicMove);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('epic move', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     let epicId = args.id;
     let targetStatus = args.status as EpicStatus | undefined;
 
@@ -52,6 +79,10 @@ export default class EpicMove extends PMOCommand {
     if (!epicId) {
       const epics = await this.storage.listEpics();
       if (epics.length === 0) {
+        if (jsonMode) {
+          outputErrorAsJson('NO_EPICS', 'No epics found.', createMetadata('epic move', flags));
+          return;
+        }
         this.log(styles.muted('\nNo epics found.'));
         return;
       }
@@ -66,6 +97,15 @@ export default class EpicMove extends PMOCommand {
         };
       }));
 
+      // In JSON mode, output epic selection prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'id', 'Select epic to move:', choices),
+          createMetadata('epic move', flags)
+        );
+        return;
+      }
+
       const { selected } = await inquirer.prompt([{
         type: 'list',
         name: 'selected',
@@ -77,16 +117,27 @@ export default class EpicMove extends PMOCommand {
 
     const epic = await this.storage.getEpic(epicId!);
     if (!epic) {
-      this.error(`Epic not found: ${epicId}`);
+      return handleError('EPIC_NOT_FOUND', `Epic not found: ${epicId}`);
     }
 
     // If no status provided, prompt for selection
     if (!targetStatus) {
+      const statusChoices = STATUS_CHOICES.filter(c => c.value !== epic.status);
+
+      // In JSON mode, output status selection prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'status', 'Move to which status?', statusChoices),
+          createMetadata('epic move', flags)
+        );
+        return;
+      }
+
       const { selected } = await inquirer.prompt([{
         type: 'list',
         name: 'selected',
         message: 'Move to which status?',
-        choices: STATUS_CHOICES.filter(c => c.value !== epic.status),
+        choices: statusChoices,
       }]);
       targetStatus = selected as EpicStatus;
     }
@@ -103,6 +154,19 @@ export default class EpicMove extends PMOCommand {
 
     // Moving to complete - check ticket completion
     if (targetStatus === 'complete' && !allComplete && !flags.force) {
+      // In JSON mode, output confirmation prompt
+      if (jsonMode) {
+        const confirmChoices = [
+          { name: 'No', value: 'false' },
+          { name: 'Yes', value: 'true' },
+        ];
+        outputPromptAsJson(
+          buildPromptConfig('list', 'confirm', `Not all tickets are complete (${doneTickets}/${tickets.length} done). Continue moving to complete anyway?`, confirmChoices),
+          createMetadata('epic move', flags)
+        );
+        return;
+      }
+
       this.log(styles.warning(`\n⚠️  Not all tickets are complete (${doneTickets}/${tickets.length} done)`));
       const { confirm } = await inquirer.prompt([{
         type: 'list',
@@ -123,6 +187,19 @@ export default class EpicMove extends PMOCommand {
 
     // Moving to dropped - confirm cancellation
     if (targetStatus === 'dropped' && !flags.force) {
+      // In JSON mode, output confirmation prompt
+      if (jsonMode) {
+        const confirmChoices = [
+          { name: 'No', value: 'false' },
+          { name: 'Yes', value: 'true' },
+        ];
+        outputPromptAsJson(
+          buildPromptConfig('list', 'confirmDrop', 'This will mark the epic as dropped/cancelled. Continue?', confirmChoices),
+          createMetadata('epic move', flags)
+        );
+        return;
+      }
+
       this.log(styles.warning('\n⚠️  This will mark the epic as dropped/cancelled'));
       const { confirm } = await inquirer.prompt([{
         type: 'list',

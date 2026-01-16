@@ -2,6 +2,13 @@ import { Args, Flags } from '@oclif/core'
 import inquirer from 'inquirer'
 import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js'
 import { styles } from '../../../lib/styles.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../../lib/prompt-json.js'
 
 export default class TicketLinkBlock extends PMOCommand {
   static description = 'Add a blocking dependency (ticket is blocked by another)'
@@ -24,14 +31,34 @@ export default class TicketLinkBlock extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   }
 
   async execute(): Promise<void> {
-    const { args } = await this.parse(TicketLinkBlock)
+    const { args, flags } = await this.parse(TicketLinkBlock)
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags)
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('ticket link block', flags))
+        this.exit(1)
+      }
+      this.error(message)
+    }
 
     const ticket = await this.storage.getTicket(args.id)
     if (!ticket) {
-      this.error(`Ticket not found: ${args.id}`)
+      return handleError('TICKET_NOT_FOUND', `Ticket not found: ${args.id}`)
     }
 
     let blockerId = args.blocker
@@ -42,7 +69,24 @@ export default class TicketLinkBlock extends PMOCommand {
       const otherTickets = allTickets.filter(t => t.id !== args.id)
 
       if (otherTickets.length === 0) {
+        if (jsonMode) {
+          outputErrorAsJson('NO_OTHER_TICKETS', 'No other tickets to create dependency with.', createMetadata('ticket link block', flags))
+          return
+        }
         this.log(styles.muted('\nNo other tickets to create dependency with.'))
+        return
+      }
+
+      // In JSON mode, output ticket selection prompt
+      if (jsonMode) {
+        const ticketChoices = otherTickets.map(t => ({
+          name: `${t.id} - ${t.title} (${t.statusName || t.status})`,
+          value: t.id,
+        }))
+        outputPromptAsJson(
+          buildPromptConfig('list', 'blocker', `Select ticket that blocks ${args.id}:`, ticketChoices),
+          createMetadata('ticket link block', flags)
+        )
         return
       }
 

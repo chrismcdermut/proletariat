@@ -3,6 +3,13 @@ import inquirer from 'inquirer'
 import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js'
 import { styles } from '../../../lib/styles.js'
 import { TicketDependencyType } from '../../../lib/pmo/types.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../../lib/prompt-json.js'
 
 export default class TicketLink extends PMOCommand {
   static description = 'Manage ticket dependencies (links)'
@@ -24,6 +31,14 @@ export default class TicketLink extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     blocks: Flags.string({
       char: 'b',
       description: 'Add blocking dependency: this ticket is blocked by TARGET',
@@ -46,13 +61,31 @@ export default class TicketLink extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketLink)
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags)
+
     let ticketId = args.id
     if (!ticketId) {
       const tickets = await this.storage.listTickets()
       if (tickets.length === 0) {
+        if (jsonMode) {
+          outputErrorAsJson('NO_TICKETS', 'No tickets found.', createMetadata('ticket link', flags))
+          return
+        }
         this.log(styles.muted('\nNo tickets found.'))
         return
       }
+
+      // In JSON mode, output ticket selection prompt
+      if (jsonMode) {
+        const ticketChoices = tickets.map(t => ({ name: `${t.id} - ${t.title}`, value: t.id }))
+        outputPromptAsJson(
+          buildPromptConfig('list', 'id', 'Select ticket to manage dependencies:', ticketChoices),
+          createMetadata('ticket link', flags)
+        )
+        return
+      }
+
       const { selected } = await inquirer.prompt([{
         type: 'list',
         name: 'selected',

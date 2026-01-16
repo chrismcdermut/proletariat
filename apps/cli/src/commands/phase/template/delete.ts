@@ -2,6 +2,13 @@ import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import { styles } from '../../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../../lib/prompt-json.js';
 
 export default class PhaseTemplateDelete extends PMOCommand {
   static description = 'Delete a phase template';
@@ -25,6 +32,14 @@ export default class PhaseTemplateDelete extends PMOCommand {
       description: 'Skip confirmation',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -34,17 +49,42 @@ export default class PhaseTemplateDelete extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(PhaseTemplateDelete);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('phase template delete', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Verify template exists
     const template = await this.storage.getPhaseTemplate(args.id);
     if (!template) {
-      this.error(`Phase template not found: ${args.id}`);
+      return handleError('TEMPLATE_NOT_FOUND', `Phase template not found: ${args.id}`);
     }
 
     if (template.isBuiltin) {
-      this.error('Cannot delete built-in templates');
+      return handleError('CANNOT_DELETE_BUILTIN', 'Cannot delete built-in templates');
     }
 
     if (!flags.force) {
+      // In JSON mode, output confirmation prompt
+      if (jsonMode) {
+        const confirmChoices = [
+          { name: 'No', value: 'false' },
+          { name: 'Yes', value: 'true' },
+        ];
+        outputPromptAsJson(
+          buildPromptConfig('list', 'confirmed', `Delete phase template "${template.name}"?`, confirmChoices),
+          createMetadata('phase template delete', flags)
+        );
+        return;
+      }
+
       const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
         {
           type: 'confirm',

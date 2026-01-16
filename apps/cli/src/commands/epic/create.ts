@@ -4,6 +4,13 @@ import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { EpicStatus } from '../../lib/pmo/types.js';
 import { createEpicFile, getRelativeEpicPath } from '../../lib/pmo/epic-files.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildFormPromptConfig,
+  FormField,
+} from '../../lib/prompt-json.js';
 
 export default class EpicCreate extends PMOCommand {
   static description = 'Create a new epic';
@@ -34,10 +41,27 @@ export default class EpicCreate extends PMOCommand {
     spec: Flags.string({
       description: 'Link to spec ID (the design spec that describes this epic)',
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(EpicCreate);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Build choices once, use for both JSON and interactive modes
+    const statusChoices = [
+      { name: 'Active (currently working on)', value: 'active' },
+      { name: 'Draft (planning phase)', value: 'draft' },
+    ];
 
     // Get epic data
     let epicData: {
@@ -48,7 +72,39 @@ export default class EpicCreate extends PMOCommand {
     };
 
     if (!flags.title) {
-      epicData = await this.promptEpicData(flags);
+      // Get specs once, use for both modes
+      const specs = await this.storage.listSpecs();
+      const specChoices = [
+        { name: 'None (no spec linked)', value: '' },
+        ...specs.map(s => ({
+          name: `${s.id} - ${s.title}`,
+          value: s.id,
+        })),
+      ];
+
+      // Define fields once - single source of truth for both JSON and interactive modes
+      const fields: FormField[] = [
+        { type: 'input', name: 'title', message: 'Epic title:', default: flags.title },
+        { type: 'list', name: 'status', message: 'Initial status:', choices: statusChoices, default: flags.status || 'active' },
+        { type: 'input', name: 'description', message: 'Description (optional):', default: flags.description },
+      ];
+
+      if (specs.length > 0) {
+        fields.push({
+          type: 'list', name: 'specId', message: 'Link to spec (design document):',
+          choices: specChoices, default: flags.spec || ''
+        });
+      }
+
+      // In JSON mode, output form prompt for epic creation
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildFormPromptConfig(fields),
+          createMetadata('epic create', flags)
+        );
+      }
+
+      epicData = await this.promptEpicData(fields, specChoices.length > 1);
     } else {
       epicData = {
         title: flags.title,
@@ -97,72 +153,33 @@ export default class EpicCreate extends PMOCommand {
   }
 
   private async promptEpicData(
-    flags: {
-      title?: string;
-      status?: string;
-      description?: string;
-      spec?: string;
-    }
+    fields: FormField[],
+    hasSpecs: boolean
   ): Promise<{
     title: string;
     status: EpicStatus;
     description?: string;
     specId?: string;
   }> {
-    // Get available specs for linking
-    const specs = await this.storage.listSpecs();
-    const specChoices = [
-      { name: 'None (no spec linked)', value: '' },
-      ...specs.map(s => ({
-        name: `${s.id} - ${s.title}`,
-        value: s.id,
-      })),
-    ];
-
+    // Build inquirer prompts from fields, adding validators and conditionals
     const answers = await inquirer.prompt<{
       title: string;
       status: string;
       description?: string;
       specId?: string;
-    }>([
-      {
-        type: 'input',
-        name: 'title',
-        message: 'Epic title:',
-        default: flags.title,
-        validate: (input: string) => input.length > 0 || 'Title is required',
-      },
-      {
-        type: 'list',
-        name: 'status',
-        message: 'Initial status:',
-        choices: [
-          { name: 'Active (currently working on)', value: 'active' },
-          { name: 'Draft (planning phase)', value: 'draft' },
-        ],
-        default: flags.status || 'active',
-      },
-      {
-        type: 'input',
-        name: 'description',
-        message: 'Description (optional):',
-        default: flags.description,
-      },
-      {
-        type: 'list',
-        name: 'specId',
-        message: 'Link to spec (design document):',
-        choices: specChoices,
-        default: flags.spec || '',
-        when: () => specs.length > 0,
-      },
-    ]);
+    }>(fields.map(field => ({
+      ...field,
+      validate: field.name === 'title'
+        ? ((input: string) => input.length > 0 || 'Title is required')
+        : undefined,
+      when: field.name === 'specId' ? () => hasSpecs : undefined,
+    })));
 
     return {
       title: answers.title,
       status: answers.status as EpicStatus,
       description: answers.description || undefined,
-      specId: answers.specId || flags.spec || undefined,
+      specId: answers.specId || undefined,
     };
   }
 }

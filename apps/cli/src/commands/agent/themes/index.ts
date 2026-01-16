@@ -1,9 +1,15 @@
-import { Command } from '@oclif/core';
+import { Command, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { getWorkspaceInfo } from '../../../lib/agents/commands.js';
 import { ensureBuiltinThemes } from '../../../lib/themes.js';
 import { getThemes, getThemeNames } from '../../../lib/database/index.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../../lib/prompt-json.js';
 
 export default class Themes extends Command {
   static description = 'Manage agent naming themes';
@@ -14,20 +20,52 @@ export default class Themes extends Command {
     '<%= config.bin %> <%= command.id %> add-names greek-gods zeus athena',
   ];
 
+  static flags = {
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
+  };
+
   async run(): Promise<void> {
+    const { flags } = await this.parse(Themes);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'List themes', value: 'list' },
+      { name: 'Create a new theme', value: 'create' },
+      { name: 'Add names to a theme', value: 'add-names' },
+      { name: 'Cancel', value: 'cancel' },
+    ];
+    const message = 'What would you like to do?';
+
+    // In JSON mode, output menu prompt
+    if (jsonMode) {
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', message, menuChoices),
+        createMetadata('agent themes', flags)
+      );
+      return;
+    }
+
     this.log(chalk.bold('\nAgent Themes'));
     this.log(chalk.dim('Optional themed name pools for your agents.\n'));
 
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: 'What would you like to do?',
+      message,
       choices: [
-        { name: 'List themes', value: 'list' },
-        { name: 'Create a new theme', value: 'create' },
-        { name: 'Add names to a theme', value: 'add-names' },
+        ...menuChoices.slice(0, 3),
         new inquirer.Separator(),
-        { name: 'Cancel', value: 'cancel' }
+        menuChoices[3]
       ]
     }]);
 

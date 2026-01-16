@@ -2,6 +2,13 @@ import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import { styles } from '../../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../../lib/prompt-json.js';
 
 export default class PhaseTemplateApply extends PMOCommand {
   static description = 'Apply a phase template to the workspace';
@@ -26,6 +33,14 @@ export default class PhaseTemplateApply extends PMOCommand {
       description: 'Skip confirmation prompt (will replace existing phases)',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -35,15 +50,40 @@ export default class PhaseTemplateApply extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(PhaseTemplateApply);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('phase template apply', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Verify template exists
     const template = await this.storage.getPhaseTemplate(args.template);
     if (!template) {
-      this.error(`Phase template not found: ${args.template}\nRun 'prlt phase template list' to see available templates.`);
+      return handleError('TEMPLATE_NOT_FOUND', `Phase template not found: ${args.template}. Run 'prlt phase template list' to see available templates.`);
     }
 
     // Check if workspace has existing phases
     const existingPhases = await this.storage.listPhases();
     if (existingPhases.length > 0 && !flags.force) {
+      // In JSON mode, output confirmation prompt
+      if (jsonMode) {
+        const confirmChoices = [
+          { name: 'No', value: 'false' },
+          { name: 'Yes', value: 'true' },
+        ];
+        outputPromptAsJson(
+          buildPromptConfig('list', 'confirmed', `Workspace has ${existingPhases.length} existing phase(s). Applying will REPLACE all. Apply template "${template.name}"?`, confirmChoices),
+          createMetadata('phase template apply', flags)
+        );
+        return;
+      }
+
       this.log(styles.warning(`\nWorkspace has ${existingPhases.length} existing phase(s).`));
       this.log(styles.warning('Applying a template will REPLACE all existing phases.'));
       this.log('');

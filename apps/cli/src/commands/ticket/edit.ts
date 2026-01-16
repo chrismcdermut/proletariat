@@ -2,6 +2,13 @@ import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class TicketEdit extends PMOCommand {
   static description = 'Edit an existing ticket';
@@ -77,10 +84,30 @@ export default class TicketEdit extends PMOCommand {
       description: 'Interactive mode - prompts for all fields',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketEdit);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('ticket edit', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
 
     // Get ticketId - prompt if not provided
     let ticketId = args.ticketId;
@@ -90,7 +117,20 @@ export default class TicketEdit extends PMOCommand {
       const allTickets = await this.storage.listTickets();
 
       if (allTickets.length === 0) {
-        this.error('No tickets found. Create a ticket first with "prlt ticket create".');
+        return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".');
+      }
+
+      // In JSON mode, output ticket selection prompt
+      if (jsonMode) {
+        const ticketChoices = allTickets.map(t => ({
+          name: `${t.id} - ${t.title} (${t.statusName})`,
+          value: t.id,
+        }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'ticketId', 'Select ticket to edit:', ticketChoices),
+          createMetadata('ticket edit', flags)
+        );
+        return;
       }
 
       const { selectedTicketId } = await inquirer.prompt([{

@@ -1,7 +1,14 @@
-import { Args } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, Subtask } from '../../lib/pmo/index.js';
 import { styles, getColumnStyle, getColumnEmoji, formatPriority, formatCategory } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class ProjectView extends PMOCommand {
   static description = 'View a project\'s board';
@@ -20,6 +27,14 @@ export default class ProjectView extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -27,7 +42,19 @@ export default class ProjectView extends PMOCommand {
   }
 
   async execute(): Promise<void> {
-    const { args } = await this.parse(ProjectView);
+    const { args, flags } = await this.parse(ProjectView);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('project view', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
 
     // Get project ID - prompt if not provided
     let projectId = args.id;
@@ -36,7 +63,17 @@ export default class ProjectView extends PMOCommand {
       const projects = await this.storage.listProjects();
 
       if (projects.length === 0) {
-        this.error('No projects found. Create a project first with "prlt project create".');
+        return handleError('NO_PROJECTS', 'No projects found. Create a project first with "prlt project create".');
+      }
+
+      // In JSON mode, output project selection prompt
+      if (jsonMode) {
+        const projectChoices = projects.map(p => ({ name: `${p.id} - ${p.name}`, value: p.id }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'id', 'Select project to view:', projectChoices),
+          createMetadata('project view', flags)
+        );
+        return;
       }
 
       const { selectedProjectId } = await inquirer.prompt([{
@@ -55,7 +92,7 @@ export default class ProjectView extends PMOCommand {
 
     const project = await this.storage.getProjectBoard(projectId!);
     if (!project) {
-      this.error(`Project "${projectId}" not found.`);
+      return handleError('PROJECT_NOT_FOUND', `Project "${projectId}" not found.`);
     }
 
     this.log(styles.title(`\n${project.name}`));

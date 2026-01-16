@@ -9,6 +9,12 @@ import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import type { AgentWork } from '../../lib/execution/types.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js'
 
 export default class ExecutionStop extends PMOCommand {
   static description = 'Stop running execution(s)'
@@ -43,6 +49,14 @@ export default class ExecutionStop extends PMOCommand {
     agent: Flags.string({
       char: 'a',
       description: 'Stop all executions for a specific agent',
+    }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
     }),
   }
 
@@ -137,7 +151,7 @@ export default class ExecutionStop extends PMOCommand {
   private async singleStop(
     executionStorage: ExecutionStorage,
     execId: string | undefined,
-    flags: { force?: boolean }
+    flags: { force?: boolean; json?: boolean; 'no-interactive'?: boolean }
   ): Promise<void> {
     // Get execution ID - prompt if not provided
     let id = execId
@@ -158,6 +172,22 @@ export default class ExecutionStop extends PMOCommand {
 
       if (activeExecutions.length === 0) {
         this.log(styles.muted('\nNo running executions found.\n'))
+        return
+      }
+
+      // Check if JSON output mode is active
+      const jsonMode = shouldOutputJson(flags)
+
+      // In JSON mode, output execution selection prompt
+      if (jsonMode) {
+        const execChoices = activeExecutions.map((e) => ({
+          name: `${e.id} - ${e.ticketId} (${e.agentName}, ${e.mode})`,
+          value: e.id,
+        }))
+        outputPromptAsJson(
+          buildPromptConfig('list', 'executionId', 'Select execution to stop:', execChoices),
+          createMetadata('execution stop', flags)
+        )
         return
       }
 

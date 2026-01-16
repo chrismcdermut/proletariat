@@ -3,6 +3,13 @@ import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../../lib/pmo/index.js'
 import { styles } from '../../../lib/styles.js'
 import { EpicDependencyType } from '../../../lib/pmo/types.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../../lib/prompt-json.js'
 
 export default class EpicLink extends PMOCommand {
   static description = 'Manage epic dependencies (links)'
@@ -45,18 +52,53 @@ export default class EpicLink extends PMOCommand {
       description: 'Show all dependencies (blockers and blocking)',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   }
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(EpicLink)
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags)
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('epic link', flags))
+        this.exit(1)
+      }
+      this.error(message)
+    }
+
     let epicId = args.id
     if (!epicId) {
       const epics = await this.storage.listEpics()
       if (epics.length === 0) {
+        if (jsonMode) {
+          outputErrorAsJson('NO_EPICS', 'No epics found.', createMetadata('epic link', flags))
+          return
+        }
         this.log(styles.muted('\nNo epics found.'))
         return
       }
+
+      // In JSON mode, output epic selection prompt
+      if (jsonMode) {
+        const epicChoices = epics.map(e => ({ name: `${e.id} - ${e.title}`, value: e.id }))
+        outputPromptAsJson(
+          buildPromptConfig('list', 'id', 'Select epic to manage dependencies:', epicChoices),
+          createMetadata('epic link', flags)
+        )
+        return
+      }
+
       const { selected } = await inquirer.prompt([{
         type: 'list',
         name: 'selected',
@@ -68,7 +110,7 @@ export default class EpicLink extends PMOCommand {
 
     const epic = await this.storage.getEpic(epicId!)
     if (!epic) {
-      this.error(`Epic not found: ${epicId}`)
+      return handleError('EPIC_NOT_FOUND', `Epic not found: ${epicId}`)
     }
 
     // If a dependency flag is provided, add the dependency directly

@@ -3,6 +3,13 @@ import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildFormPromptConfig,
+  FormField,
+} from '../../lib/prompt-json.js';
 
 export default class PhaseCreate extends PMOCommand {
   static description = 'Create a new project lifecycle phase';
@@ -43,6 +50,14 @@ export default class PhaseCreate extends PMOCommand {
       description: 'Interactive mode',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -63,7 +78,37 @@ export default class PhaseCreate extends PMOCommand {
 
       // Auto-enter interactive mode if any required value is missing
       if (flags.interactive || !args.name || !flags.category) {
-        phaseData = await this.promptPhaseData(args, flags);
+        // Check if JSON output mode is active
+        const jsonMode = shouldOutputJson(flags);
+
+        // In JSON mode, output form prompt
+        // Define labels once - single source of truth
+        const categoryLabels: Record<StateCategory, string> = {
+          backlog: 'Backlog - Not yet scheduled for work',
+          unstarted: 'Unstarted - Scheduled but work hasn\'t begun',
+          started: 'Started - Work is actively in progress',
+          completed: 'Completed - Work finished successfully',
+          canceled: 'Canceled - Work won\'t be done',
+        };
+        const categoryChoices = STATE_CATEGORY_ORDER.map(cat => ({ name: categoryLabels[cat], value: cat }));
+
+        // Define fields once - single source of truth for both JSON and interactive modes
+        const fields: FormField[] = [
+          { type: 'input', name: 'name', message: 'Phase name:', default: args.name },
+          { type: 'list', name: 'category', message: 'Category:', choices: categoryChoices, default: flags.category },
+          { type: 'input', name: 'color', message: 'Color (hex, optional):', default: flags.color },
+          { type: 'input', name: 'description', message: 'Description (optional):', default: flags.description },
+          { type: 'confirm', name: 'isDefault', message: 'Set as default for new projects?', default: flags.default || false },
+        ];
+
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildFormPromptConfig(fields),
+            createMetadata('phase create', flags)
+          );
+        }
+
+        phaseData = await this.promptPhaseData(fields);
       } else {
         phaseData = {
           name: args.name,
@@ -91,69 +136,28 @@ export default class PhaseCreate extends PMOCommand {
     }
   }
 
-  private async promptPhaseData(args: { name?: string }, flags: {
-    category?: string;
-    color?: string;
-    description?: string;
-    default?: boolean;
-  }): Promise<{
+  private async promptPhaseData(
+    fields: FormField[]
+  ): Promise<{
     name: string;
     category: StateCategory;
     color?: string;
     description?: string;
     isDefault?: boolean;
   }> {
-    const categoryLabels: Record<StateCategory, string> = {
-      backlog: 'Backlog - Not yet scheduled for work',
-      unstarted: 'Unstarted - Scheduled but work hasn\'t begun',
-      started: 'Started - Work is actively in progress',
-      completed: 'Completed - Work finished successfully',
-      canceled: 'Canceled - Work won\'t be done',
-    };
-
+    // Build inquirer prompts from fields, adding validators
     const answers = await inquirer.prompt<{
       name: string;
       category: StateCategory;
       color: string;
       description: string;
       isDefault: boolean;
-    }>([
-      {
-        type: 'input',
-        name: 'name',
-        message: 'Phase name:',
-        default: args.name,
-        validate: (input: string) => input.length > 0 || 'Name is required',
-      },
-      {
-        type: 'list',
-        name: 'category',
-        message: 'Category:',
-        choices: STATE_CATEGORY_ORDER.map(cat => ({
-          name: categoryLabels[cat],
-          value: cat,
-        })),
-        default: flags.category,
-      },
-      {
-        type: 'input',
-        name: 'color',
-        message: 'Color (hex, optional):',
-        default: flags.color,
-      },
-      {
-        type: 'input',
-        name: 'description',
-        message: 'Description (optional):',
-        default: flags.description,
-      },
-      {
-        type: 'confirm',
-        name: 'isDefault',
-        message: 'Set as default for new projects?',
-        default: flags.default || false,
-      },
-    ]);
+    }>(fields.map(field => ({
+      ...field,
+      validate: field.name === 'name'
+        ? ((input: string) => input.length > 0 || 'Name is required')
+        : undefined,
+    })));
 
     return {
       name: answers.name,

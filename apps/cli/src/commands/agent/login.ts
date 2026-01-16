@@ -1,4 +1,4 @@
-import { Args } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';
@@ -7,6 +7,13 @@ import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { isDockerRunning } from '../../lib/execution/runners.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class Login extends PMOCommand {
   static description = 'Authenticate Claude Code inside an agent container (one-time setup)';
@@ -25,6 +32,14 @@ export default class Login extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -32,17 +47,33 @@ export default class Login extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    const { args, flags } = await this.parse(Login);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('agent login', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Check Docker is running
     if (!isDockerRunning()) {
-      this.error('Docker is not running. Please start Docker Desktop and try again.');
+      return handleError('DOCKER_NOT_RUNNING', 'Docker is not running. Please start Docker Desktop and try again.');
     }
-
-    const { args } = await this.parse(Login);
 
     // Get workspace information
     const workspaceInfo = getWorkspaceInfo();
 
     if (workspaceInfo.agents.length === 0) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_AGENTS', 'No agents found. Add agents with "prlt agent add"', createMetadata('agent login', flags));
+        return;
+      }
       this.log(colors.warning('No agents found. Add agents with "prlt agent add"'));
       return;
     }
@@ -51,6 +82,16 @@ export default class Login extends PMOCommand {
 
     // Interactive mode if no agent specified
     if (!agentName) {
+      // In JSON mode, output agent selection prompt
+      if (jsonMode) {
+        const agentChoices = workspaceInfo.agents.map((agent: any) => ({ name: agent.name, value: agent.name }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'name', 'Select agent to authenticate:', agentChoices),
+          createMetadata('agent login', flags)
+        );
+        return;
+      }
+
       const { selected } = await inquirer.prompt([
         {
           type: 'list',

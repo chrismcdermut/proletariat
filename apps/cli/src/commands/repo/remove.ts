@@ -9,6 +9,13 @@ import {
   removeRepository,
   getWorkspaceRepoInfo
 } from '../../lib/repos/index.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class Remove extends PMOCommand {
   static description = 'Remove a repository from the HQ';
@@ -43,6 +50,14 @@ export default class Remove extends PMOCommand {
       description: 'Remove multiple repositories interactively',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -52,15 +67,27 @@ export default class Remove extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(Remove);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('repo remove', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Find HQ root
     const hqPath = findHQRoot();
     if (!hqPath) {
-      this.error('Not in an HQ directory. Run "prlt init" first.');
+      return handleError('NOT_IN_HQ', 'Not in an HQ directory. Run "prlt init" first.');
     }
 
     // Bulk mode: remove multiple repositories interactively
     if (flags.bulk) {
-      await this.executeBulk(hqPath, flags.force, flags['keep-files']);
+      await this.executeBulk(hqPath, flags.force, flags['keep-files'], jsonMode, flags);
       return;
     }
 
@@ -68,7 +95,35 @@ export default class Remove extends PMOCommand {
 
     // Interactive selection if no name provided
     if (!repoName) {
-      repoName = await promptSelectRepo('Select repository to remove:');
+      const { repositories } = getWorkspaceRepoInfo();
+      if (repositories.length === 0) {
+        return handleError('NO_REPOSITORIES', 'No repositories found.');
+      }
+
+      // Build choices once, use for both JSON and interactive modes
+      const repoChoices = repositories.map(r => ({
+        name: r.name,
+        value: r.name,
+      }));
+      const selectMessage = 'Select repository to remove:';
+
+      // In JSON mode, output repo selection prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'repoName', selectMessage, repoChoices),
+          createMetadata('repo remove', flags)
+        );
+        return;
+      }
+
+      const { selected } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selected',
+        message: selectMessage,
+        choices: repoChoices,
+      }]);
+      repoName = selected;
+
       if (!repoName) {
         this.log(colors.textMuted('Operation cancelled.'));
         return;
@@ -79,11 +134,27 @@ export default class Remove extends PMOCommand {
     const { repositories } = getWorkspaceRepoInfo();
     const repo = repositories.find(r => r.name === repoName);
     if (!repo) {
-      this.error(`Repository "${repoName}" not found.`);
+      return handleError('REPO_NOT_FOUND', `Repository "${repoName}" not found.`);
     }
 
     // Confirmation unless --force
     if (!flags.force) {
+      // Build choices once, use for both JSON and interactive modes
+      const confirmChoices = [
+        { name: 'No, cancel', value: 'false' },
+        { name: 'Yes, remove repository', value: 'true' },
+      ];
+      const confirmMessage = `Remove repository "${repoName}"? (This will remove repos/${repoName} directory and agent worktrees)`;
+
+      // In JSON mode, output confirmation prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
+          createMetadata('repo remove', flags)
+        );
+        return;
+      }
+
       this.log(colors.warning('\n⚠️  This will:'));
       this.log(colors.text(`  • Remove repos/${repoName} directory`));
       this.log(colors.text('  • Remove agent worktrees for this repo'));
@@ -94,8 +165,8 @@ export default class Remove extends PMOCommand {
         name: 'confirm',
         message: `Are you sure you want to remove "${repoName}"?`,
         choices: [
-          { name: '❌ No, cancel', value: false },
-          { name: '⚠️  Yes, remove repository', value: true }
+          { name: '❌ ' + confirmChoices[0].name, value: false },
+          { name: '⚠️  ' + confirmChoices[1].name, value: true }
         ],
         default: 0
       }]);
@@ -121,7 +192,25 @@ export default class Remove extends PMOCommand {
   /**
    * Bulk mode: remove multiple repositories interactively
    */
-  private async executeBulk(hqPath: string, force: boolean, keepFiles: boolean): Promise<void> {
+  private async executeBulk(hqPath: string, force: boolean, keepFiles: boolean, jsonMode = false, flags: Record<string, unknown> = {}): Promise<void> {
+    // In JSON mode, output repo selection prompt for bulk mode
+    if (jsonMode) {
+      const { repositories } = getWorkspaceRepoInfo();
+      if (repositories.length === 0) {
+        outputErrorAsJson('NO_REPOSITORIES', 'No repositories found.', createMetadata('repo remove', flags));
+        this.exit(1);
+      }
+      const repoChoices = repositories.map(r => ({
+        name: r.name,
+        value: r.name,
+      }));
+      outputPromptAsJson(
+        buildPromptConfig('checkbox', 'repoNames', 'Select repositories to remove:', repoChoices),
+        createMetadata('repo remove', flags)
+      );
+      return;
+    }
+
     this.log(colors.primary('📦 Remove Repositories (Bulk Mode)\n'));
 
     // Select repositories to remove

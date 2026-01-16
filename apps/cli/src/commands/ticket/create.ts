@@ -4,6 +4,14 @@ import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index
 import { styles } from '../../lib/styles.js';
 import { updateEpicTicketsSection } from '../../lib/pmo/epic-files.js';
 import { TicketTemplate } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  outputSuccessAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class TicketCreate extends PMOCommand {
   static description = 'Create a new ticket on the PMO board';
@@ -14,10 +22,19 @@ export default class TicketCreate extends PMOCommand {
     '<%= config.bin %> <%= command.id %> -t "Add feature" -c "In Progress" -p HIGH',
     '<%= config.bin %> <%= command.id %> --project mobile-app -t "New feature"',
     '<%= config.bin %> <%= command.id %> --epic EPIC-001 -t "Implement auth flow"',
+    '<%= config.bin %> <%= command.id %> --json  # Output column choices as JSON',
   ];
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     title: Flags.string({
       char: 't',
       description: 'Ticket title',
@@ -63,11 +80,33 @@ export default class TicketCreate extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(TicketCreate);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('ticket create', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
+    // In JSON mode without required data, output column selection prompt
+    if (jsonMode && !flags.title && !flags.column) {
+      const columnChoices = this.columns.map(c => ({ name: c, value: c }));
+      outputPromptAsJson(
+        buildPromptConfig('list', 'column', 'Select column to place the ticket in:', columnChoices),
+        createMetadata('ticket create', flags)
+      );
+      return;
+    }
+
     // Validate epic if provided
     if (flags.epic) {
       const epic = await this.storage.getEpic(flags.epic);
       if (!epic) {
-        this.error(`Epic not found: ${flags.epic}. Use 'prlt epic list' to see available epics.`);
+        return handleError('EPIC_NOT_FOUND', `Epic not found: ${flags.epic}. Use 'prlt epic list' to see available epics.`);
       }
     }
 

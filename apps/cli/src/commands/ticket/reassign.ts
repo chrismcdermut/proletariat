@@ -2,6 +2,13 @@ import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class TicketReassign extends PMOCommand {
   static description = 'Reassign ticket(s) to a different agent';
@@ -11,6 +18,7 @@ export default class TicketReassign extends PMOCommand {
     '<%= config.bin %> <%= command.id %> TKT-001 alice',
     '<%= config.bin %> <%= command.id %> --bulk --to alice',
     '<%= config.bin %> <%= command.id %> --bulk --from bob --to alice',
+    '<%= config.bin %> <%= command.id %> --json  # Output choices as JSON',
   ];
 
   static args = {
@@ -26,6 +34,14 @@ export default class TicketReassign extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     to: Flags.string({
       description: 'Target agent name (for bulk mode)',
     }),
@@ -47,10 +63,17 @@ export default class TicketReassign extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketReassign);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
     // Get all tickets
     const allTickets = await this.storage.listTickets();
 
     if (allTickets.length === 0) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_TICKETS', 'No tickets found.', createMetadata('ticket reassign', flags));
+        return;
+      }
       this.log(styles.warning('No tickets found.'));
       return;
     }
@@ -84,6 +107,19 @@ export default class TicketReassign extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
+      // In JSON mode, output ticket selection prompt
+      if (jsonMode) {
+        const ticketChoices = allTickets.map(t => ({
+          name: `${t.id} - ${t.title} [${t.assignee || 'unassigned'}]`,
+          value: t.id,
+        }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'ticketId', 'Select ticket to reassign:', ticketChoices),
+          createMetadata('ticket reassign', flags)
+        );
+        return;
+      }
+
       const { selectedTicketId } = await inquirer.prompt([{
         type: 'list',
         name: 'selectedTicketId',

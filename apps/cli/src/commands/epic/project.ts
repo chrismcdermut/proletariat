@@ -2,6 +2,13 @@ import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class EpicProject extends PMOCommand {
   static description = 'Move an epic to a different project (optionally with its tickets)';
@@ -26,6 +33,14 @@ export default class EpicProject extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     'with-tickets': Flags.boolean({
       char: 't',
       description: 'Also move all tickets assigned to this epic',
@@ -36,6 +51,18 @@ export default class EpicProject extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(EpicProject);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('epic project', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     const sourceProjectId = this.storage.getCurrentProjectId();
 
     // Get epic ID
@@ -43,7 +70,21 @@ export default class EpicProject extends PMOCommand {
     if (!epicId) {
       const epics = await this.storage.listEpics();
       if (epics.length === 0) {
+        if (jsonMode) {
+          outputErrorAsJson('NO_EPICS', 'No epics found in this project.', createMetadata('epic project', flags));
+          return;
+        }
         this.log(styles.muted('\nNo epics found in this project.'));
+        return;
+      }
+
+      // In JSON mode, output epic selection prompt
+      if (jsonMode) {
+        const epicChoices = epics.map(e => ({ name: `${e.id} - ${e.title} (${e.status})`, value: e.id }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'epicId', 'Select epic to move:', epicChoices),
+          createMetadata('epic project', flags)
+        );
         return;
       }
 
@@ -62,7 +103,7 @@ export default class EpicProject extends PMOCommand {
     // Get epic details
     const epic = await this.storage.getEpic(epicId!);
     if (!epic) {
-      this.error(`Epic not found: ${epicId}`);
+      return handleError('EPIC_NOT_FOUND', `Epic not found: ${epicId}`);
     }
 
     // Get all projects
@@ -70,6 +111,18 @@ export default class EpicProject extends PMOCommand {
     const otherProjects = projects.filter(p => p.id !== sourceProjectId);
 
     if (otherProjects.length === 0) {
+      if (jsonMode) {
+        const actionChoices = [
+          { name: 'Create a new project', value: 'create' },
+          { name: 'Cancel', value: 'cancel' },
+        ];
+        outputPromptAsJson(
+          buildPromptConfig('list', 'action', 'No other projects to move to. What would you like to do?', actionChoices),
+          createMetadata('epic project', flags)
+        );
+        return;
+      }
+
       this.log(styles.muted('\nNo other projects to move to.'));
       const { action } = await inquirer.prompt([{
         type: 'list',
@@ -90,6 +143,16 @@ export default class EpicProject extends PMOCommand {
     // Get target project
     let targetProjectId = args.targetProject;
     if (!targetProjectId) {
+      // In JSON mode, output project selection prompt
+      if (jsonMode) {
+        const projectChoices = otherProjects.map(p => ({ name: `${p.id} - ${p.name} (${p.status})`, value: p.id }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'targetProject', 'Select target project:', projectChoices),
+          createMetadata('epic project', flags)
+        );
+        return;
+      }
+
       const { selected } = await inquirer.prompt([{
         type: 'list',
         name: 'selected',
@@ -122,6 +185,20 @@ export default class EpicProject extends PMOCommand {
     // Handle tickets
     let moveTickets = flags['with-tickets'];
     if (epicTickets.length > 0 && !flags['with-tickets']) {
+      // In JSON mode, output ticket handling prompt
+      if (jsonMode) {
+        const ticketActionChoices = [
+          { name: 'Move tickets with epic', value: 'move' },
+          { name: 'Keep tickets in source project (unlink from epic)', value: 'unlink' },
+          { name: 'Cancel', value: 'cancel' },
+        ];
+        outputPromptAsJson(
+          buildPromptConfig('list', 'ticketAction', `Epic has ${epicTickets.length} ticket(s) assigned. How to handle tickets?`, ticketActionChoices),
+          createMetadata('epic project', flags)
+        );
+        return;
+      }
+
       this.log(styles.warning(`\nEpic has ${epicTickets.length} ticket(s) assigned.`));
       const { action } = await inquirer.prompt([{
         type: 'list',

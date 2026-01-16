@@ -2,6 +2,13 @@ import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class TicketSpec extends PMOCommand {
   static description = 'Assign a spec to ticket(s)';
@@ -27,6 +34,14 @@ export default class TicketSpec extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     unlink: Flags.boolean({
       char: 'u',
       description: 'Remove spec from ticket instead of adding',
@@ -46,6 +61,9 @@ export default class TicketSpec extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketSpec);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
     // Bulk mode
     if (flags.bulk) {
       await this.executeBulk(flags);
@@ -55,6 +73,10 @@ export default class TicketSpec extends PMOCommand {
     // Get all tickets
     const tickets = await this.storage.listTickets();
     if (tickets.length === 0) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_TICKETS', 'No tickets found.', createMetadata('ticket spec', flags));
+        return;
+      }
       this.log(styles.muted('\nNo tickets found. Create one with: prlt ticket create'));
       return;
     }

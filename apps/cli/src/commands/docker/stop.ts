@@ -8,6 +8,13 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { resolveContainerId, isContainerRunning, sanitizeContainerId } from '../../lib/docker/resolve.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js'
 
 export default class DockerStop extends Command {
   static description = 'Stop a running container (by execution ID, agent name, or container ID)'
@@ -29,6 +36,14 @@ export default class DockerStop extends Command {
       char: 't',
       description: 'Seconds to wait before killing the container',
       default: 10,
+    }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
     }),
   }
 
@@ -86,11 +101,31 @@ export default class DockerStop extends Command {
 
       // Confirm
       if (!flags.force) {
+        // Check if JSON output mode is active
+        const jsonMode = shouldOutputJson(flags)
+
+        // Build choices once, use for both JSON and interactive modes
+        const confirmChoices = [
+          { name: 'No', value: 'false' },
+          { name: 'Yes', value: 'true' },
+        ]
+        const confirmMessage = `Stop container ${result.displayName}?`
+
+        // In JSON mode, output confirmation prompt
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
+            createMetadata('docker stop', flags)
+          )
+          db.close()
+          return
+        }
+
         const { confirm } = await inquirer.prompt([
           {
             type: 'confirm',
             name: 'confirm',
-            message: `Stop container ${result.displayName}?`,
+            message: confirmMessage,
             default: false,
           },
         ])

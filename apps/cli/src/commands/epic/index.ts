@@ -1,5 +1,12 @@
+import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class Epic extends PMOCommand {
   static description = 'Interactive menu for epic operations';
@@ -10,6 +17,14 @@ export default class Epic extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -17,26 +32,48 @@ export default class Epic extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    const { flags } = await this.parse(Epic);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'Create new epic', value: 'create' },
+      { name: 'List all epics', value: 'list' },
+      { name: 'View epic', value: 'view' },
+      { name: 'Show progress', value: 'progress' },
+      { name: 'Assign tickets to epic', value: 'ticket' },
+      { name: 'Assign spec to epic', value: 'spec' },
+      { name: 'Manage dependencies', value: 'link' },
+      { name: 'Archive epic (complete)', value: 'archive' },
+      { name: 'Activate epic', value: 'activate' },
+      { name: 'Reorder epic', value: 'move' },
+      { name: 'Move to different project', value: 'project' },
+      { name: 'Cancel', value: 'cancel' },
+    ];
+    const message = 'Epic Operations - What would you like to do?';
+
+    // In JSON mode, output menu prompt
+    if (jsonMode) {
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', message, menuChoices),
+        createMetadata('epic', flags)
+      );
+      return;
+    }
+
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: '🎯 Epic Operations - What would you like to do?',
+      message: '🎯 ' + message,
       choices: [
-        { name: 'Create new epic', value: 'create' },
-        { name: 'List all epics', value: 'list' },
-        { name: 'View epic', value: 'view' },
-        { name: 'Show progress', value: 'progress' },
-        { name: 'Assign tickets to epic', value: 'ticket' },
-        { name: 'Assign spec to epic', value: 'spec' },
-        { name: 'Manage dependencies', value: 'link' },
+        ...menuChoices.slice(0, 7),
         new inquirer.Separator(),
-        { name: 'Archive epic (complete)', value: 'archive' },
-        { name: 'Activate epic', value: 'activate' },
-        { name: 'Reorder epic', value: 'move' },
-        { name: 'Move to different project', value: 'project' },
+        ...menuChoices.slice(7, 11),
         new inquirer.Separator(),
-        { name: 'Cancel', value: 'cancel' },
+        menuChoices[11],
       ],
     }]);
 

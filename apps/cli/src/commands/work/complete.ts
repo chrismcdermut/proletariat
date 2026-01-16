@@ -1,4 +1,4 @@
-import { Args } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
 import inquirer from 'inquirer';
@@ -7,6 +7,13 @@ import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ExecutionStorage } from '../../lib/execution/storage.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class WorkComplete extends PMOCommand {
   static description = 'Mark work as complete (moves ticket to Done column)';
@@ -25,17 +32,37 @@ export default class WorkComplete extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
-    const { args } = await this.parse(WorkComplete);
+    const { args, flags } = await this.parse(WorkComplete);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('work complete', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
 
     // Get workspace info for execution storage
     let workspaceInfo;
     try {
       workspaceInfo = getWorkspaceInfo();
     } catch {
-      this.error('Not in a workspace. Run "prlt init" first.');
+      return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt init" first.');
     }
 
     // Open database for execution storage
@@ -56,8 +83,24 @@ export default class WorkComplete extends PMOCommand {
 
         if (completableTickets.length === 0) {
           db.close();
+          if (jsonMode) {
+            outputErrorAsJson('NO_COMPLETABLE_WORK', 'No in-progress work found.', createMetadata('work complete', flags));
+            return;
+          }
           this.log(styles.info('No in-progress work found.'));
           return;
+        }
+
+        // In JSON mode, output ticket selection prompt and exit
+        if (jsonMode) {
+          const ticketChoices = completableTickets.map(t => ({
+            name: `${t.id} - ${t.title} (${t.statusName})`,
+            value: t.id,
+          }));
+          outputPromptAsJson(
+            buildPromptConfig('list', 'ticketId', 'Select work to mark as complete:', ticketChoices),
+            createMetadata('work complete', flags)
+          );
         }
 
         const { selectedTicketId } = await inquirer.prompt([{

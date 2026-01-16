@@ -1,6 +1,13 @@
+import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import { PhaseTemplate } from '../../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../../lib/prompt-json.js';
 
 export default class PhaseTemplateMenu extends PMOCommand {
   static description = 'Interactive menu for project phase template operations';
@@ -13,6 +20,14 @@ export default class PhaseTemplateMenu extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -20,20 +35,41 @@ export default class PhaseTemplateMenu extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    const { flags } = await this.parse(PhaseTemplateMenu);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'List available templates', value: 'list' },
+      { name: 'Apply template to workspace', value: 'apply' },
+      { name: 'Save current phases as template', value: 'create' },
+      { name: 'Update template', value: 'update' },
+      { name: 'Delete template', value: 'delete' },
+      { name: 'Cancel', value: 'cancel' },
+    ];
+    const message = 'Phase Templates - What would you like to do?';
+
+    // In JSON mode, output menu prompt
+    if (jsonMode) {
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', message, menuChoices),
+        createMetadata('phase template', flags)
+      );
+      return;
+    }
+
     {
       // Show interactive menu
       const { action } = await inquirer.prompt([{
         type: 'list',
         name: 'action',
-        message: '📊 Phase Templates - What would you like to do?',
+        message: '📊 ' + message,
         choices: [
-          { name: 'List available templates', value: 'list' },
-          { name: 'Apply template to workspace', value: 'apply' },
-          { name: 'Save current phases as template', value: 'create' },
+          ...menuChoices.slice(0, 3),
           new inquirer.Separator('──────────────'),
-          { name: 'Update template', value: 'update' },
-          { name: 'Delete template', value: 'delete' },
-          { name: 'Cancel', value: 'cancel' },
+          ...menuChoices.slice(3),
         ],
       }]);
 

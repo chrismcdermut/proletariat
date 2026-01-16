@@ -8,6 +8,13 @@ import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js'
 
 export default class ExecutionLogs extends PMOCommand {
   static description = 'View execution logs'
@@ -36,6 +43,14 @@ export default class ExecutionLogs extends PMOCommand {
     tail: Flags.integer({
       char: 'n',
       description: 'Show last n lines',
+    }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
     }),
   }
 
@@ -66,8 +81,30 @@ export default class ExecutionLogs extends PMOCommand {
       if (!execId) {
         const executions = executionStorage.listExecutions({ limit: 20 })
 
+        // Check if JSON output mode is active
+        const jsonMode = shouldOutputJson(flags)
+
         if (executions.length === 0) {
+          if (jsonMode) {
+            outputErrorAsJson('NO_EXECUTIONS', 'No executions found.', createMetadata('execution logs', flags))
+            db.close()
+            this.exit(1)
+          }
           this.error('No executions found.')
+        }
+
+        // In JSON mode, output execution selection prompt
+        if (jsonMode) {
+          const execChoices = executions.map((e) => ({
+            name: `${e.id} - ${e.ticketId} (${e.agentName}, ${e.status})`,
+            value: e.id,
+          }))
+          outputPromptAsJson(
+            buildPromptConfig('list', 'executionId', 'Select execution to view logs:', execChoices),
+            createMetadata('execution logs', flags)
+          )
+          db.close()
+          return
         }
 
         const { selectedId } = await inquirer.prompt([

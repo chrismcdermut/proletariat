@@ -3,6 +3,13 @@ import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { Ticket } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 // Progress bar helper
 function progressBar(percent: number, width = 20): string {
@@ -28,10 +35,30 @@ export default class EpicView extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
-    const { args } = await this.parse(EpicView);
+    const { args, flags } = await this.parse(EpicView);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('epic view', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
 
     let epicId = args.id;
 
@@ -39,8 +66,22 @@ export default class EpicView extends PMOCommand {
     if (!epicId) {
       const epics = await this.storage.listEpics();
       if (epics.length === 0) {
+        if (jsonMode) {
+          outputErrorAsJson('NO_EPICS', 'No epics found.', createMetadata('epic view', flags));
+          return;
+        }
         this.log(styles.muted('\nNo epics found.'));
         this.log(styles.muted('Create one with: prlt epic create'));
+        return;
+      }
+
+      // In JSON mode, output epic selection prompt
+      if (jsonMode) {
+        const epicChoices = epics.map(e => ({ name: `${e.id} ${e.title} (${e.status})`, value: e.id }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'id', 'Select epic to view:', epicChoices),
+          createMetadata('epic view', flags)
+        );
         return;
       }
 
@@ -58,7 +99,7 @@ export default class EpicView extends PMOCommand {
 
     const epic = await this.storage.getEpic(epicId!);
     if (!epic) {
-      this.error(`Epic not found: ${epicId}`);
+      return handleError('EPIC_NOT_FOUND', `Epic not found: ${epicId}`);
     }
 
     const tickets = await this.storage.getTicketsForEpic(epicId!);

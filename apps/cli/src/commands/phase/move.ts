@@ -2,6 +2,13 @@ import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class PhaseMove extends PMOCommand {
   static description = 'Change the position of a phase within its category';
@@ -26,6 +33,14 @@ export default class PhaseMove extends PMOCommand {
       description: 'New position (0-indexed)',
       required: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -35,13 +50,38 @@ export default class PhaseMove extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(PhaseMove);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('phase move', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Get phase ID - prompt if not provided
     let phaseId = args.id;
 
     if (!phaseId) {
       const phases = await this.storage.listPhases();
       if (phases.length === 0) {
-        this.error('No phases found. Create a phase first with "prlt phase create".');
+        return handleError('NO_PHASES', 'No phases found. Create a phase first with "prlt phase create".');
+      }
+
+      // In JSON mode, output phase selection prompt
+      if (jsonMode) {
+        const phaseChoices = phases.map(p => ({
+          name: `${p.name} (${p.category}, position ${p.position})`,
+          value: p.id,
+        }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'phaseId', 'Select phase to move:', phaseChoices),
+          createMetadata('phase move', flags)
+        );
+        return;
       }
 
       const { selectedId } = await inquirer.prompt([{
@@ -58,7 +98,7 @@ export default class PhaseMove extends PMOCommand {
 
     const phase = await this.storage.getPhase(phaseId!);
     if (!phase) {
-      this.error(`Phase "${phaseId}" not found.`);
+      return handleError('PHASE_NOT_FOUND', `Phase "${phaseId}" not found.`);
     }
 
     // Get position - prompt if not provided
@@ -68,6 +108,19 @@ export default class PhaseMove extends PMOCommand {
       // Get phases in the same category to show valid positions
       const phases = await this.storage.listPhases();
       const categoryPhases = phases.filter(p => p.category === phase.category);
+
+      // In JSON mode, output position selection prompt
+      if (jsonMode) {
+        const positionChoices = categoryPhases.map((_, idx) => ({
+          name: `Position ${idx}${idx === phase.position ? ' (current)' : ''}`,
+          value: String(idx),
+        }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'position', `New position within ${phase.category} (currently ${phase.position}):`, positionChoices),
+          createMetadata('phase move', flags)
+        );
+        return;
+      }
 
       const { position } = await inquirer.prompt([{
         type: 'list',

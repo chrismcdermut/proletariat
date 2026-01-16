@@ -1,4 +1,4 @@
-import { Args } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { colors, format } from '../../lib/colors.js';
 import {
@@ -6,6 +6,13 @@ import {
   getAgentStatus
 } from '../../lib/agents/commands.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class Status extends PMOCommand {
   static description = 'Show detailed status for a specific agent';
@@ -24,6 +31,14 @@ export default class Status extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -31,12 +46,19 @@ export default class Status extends PMOCommand {
   }
 
   async execute(): Promise<void> {
-    const { args } = await this.parse(Status);
+    const { args, flags } = await this.parse(Status);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
 
     // Get workspace information
     const workspaceInfo = getWorkspaceInfo();
 
     if (workspaceInfo.agents.length === 0) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_AGENTS', 'No agents found. Add agents with "prlt agent add"', createMetadata('agent status', flags));
+        return;
+      }
       this.log(colors.warning('No agents found. Add agents with "prlt agent add"'));
       return;
     }
@@ -45,6 +67,16 @@ export default class Status extends PMOCommand {
 
     // Interactive mode if no agent specified
     if (!agentName) {
+      // In JSON mode, output agent selection prompt
+      if (jsonMode) {
+        const agentChoices = workspaceInfo.agents.map((agent: any) => ({ name: agent.name, value: agent.name }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'name', 'Select agent to view status:', agentChoices),
+          createMetadata('agent status', flags)
+        );
+        return;
+      }
+
       const { selected } = await inquirer.prompt([
         {
           type: 'list',

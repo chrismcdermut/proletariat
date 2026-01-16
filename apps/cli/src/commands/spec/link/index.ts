@@ -3,6 +3,13 @@ import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js'
 import { styles } from '../../../lib/styles.js'
 import { SpecDependencyType } from '../../../lib/pmo/types.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../../lib/prompt-json.js'
 
 export default class SpecLink extends PMOCommand {
   static description = 'Manage spec dependencies (links)'
@@ -21,6 +28,14 @@ export default class SpecLink extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     depends: Flags.string({ char: 'd', description: 'Add depends_on dependency' }),
     relates: Flags.string({ char: 'r', description: 'Add relates_to dependency' }),
     duplicates: Flags.string({ description: 'Add duplicates dependency' }),
@@ -30,13 +45,31 @@ export default class SpecLink extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SpecLink)
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags)
+
     let specId = args.id
     if (!specId) {
       const specs = await this.storage.listSpecs()
       if (specs.length === 0) {
+        if (jsonMode) {
+          outputErrorAsJson('NO_SPECS', 'No specs found.', createMetadata('spec link', flags))
+          return
+        }
         this.log(styles.muted('\nNo specs found.'))
         return
       }
+
+      // In JSON mode, output spec selection prompt
+      if (jsonMode) {
+        const specChoices = specs.map(s => ({ name: `${s.id} - ${s.title}`, value: s.id }))
+        outputPromptAsJson(
+          buildPromptConfig('list', 'id', 'Select spec to manage dependencies:', specChoices),
+          createMetadata('spec link', flags)
+        )
+        return
+      }
+
       const { selected } = await inquirer.prompt([{
         type: 'list',
         name: 'selected',

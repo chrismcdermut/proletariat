@@ -2,6 +2,13 @@ import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import { styles } from '../../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../../lib/prompt-json.js';
 
 export default class StatusTemplateApply extends PMOCommand {
   static description = 'Apply a workflow status template to a project';
@@ -21,6 +28,14 @@ export default class StatusTemplateApply extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation prompt (will replace existing statuses)',
@@ -31,15 +46,36 @@ export default class StatusTemplateApply extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusTemplateApply);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('status template apply', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Verify template exists
     const template = await this.storage.getTemplate(args.template);
     if (!template) {
-      this.error(`Template not found: ${args.template}\nRun 'prlt status template list' to see available templates.`);
+      return handleError('TEMPLATE_NOT_FOUND', `Template not found: ${args.template}\nRun 'prlt status template list' to see available templates.`);
     }
 
     // Check if project has existing statuses
     const existingStatuses = await this.storage.listStatuses(this.projectId);
     if (existingStatuses.length > 0 && !flags.force) {
+      // In JSON mode, output confirmation prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('confirm', 'confirm', `Apply template "${template.name}" and replace existing ${existingStatuses.length} statuses?`),
+          createMetadata('status template apply', flags)
+        );
+        return;
+      }
+
       this.log(styles.warning(`\nProject "${this.projectName}" has ${existingStatuses.length} existing status(es).`));
       this.log(styles.warning('Applying a template will REPLACE all existing statuses.'));
       this.log('');

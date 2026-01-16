@@ -3,6 +3,15 @@ import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+  buildFormPromptConfig,
+  FormField,
+} from '../../lib/prompt-json.js';
 
 export default class PhaseUpdate extends PMOCommand {
   static description = 'Update a project lifecycle phase';
@@ -47,6 +56,14 @@ export default class PhaseUpdate extends PMOCommand {
       description: 'Interactive mode',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -56,13 +73,38 @@ export default class PhaseUpdate extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(PhaseUpdate);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('phase update', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Get phase ID - prompt if not provided
     let phaseId = args.id;
 
     if (!phaseId) {
       const phases = await this.storage.listPhases();
       if (phases.length === 0) {
-        this.error('No phases found. Create a phase first with "prlt phase create".');
+        return handleError('NO_PHASES', 'No phases found. Create a phase first with "prlt phase create".');
+      }
+
+      // In JSON mode, output phase selection prompt
+      if (jsonMode) {
+        const phaseChoices = phases.map(p => ({
+          name: `${p.name} (${p.category})`,
+          value: p.id,
+        }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'phaseId', 'Select phase to update:', phaseChoices),
+          createMetadata('phase update', flags)
+        );
+        return;
       }
 
       const { selectedId } = await inquirer.prompt([{
@@ -79,7 +121,7 @@ export default class PhaseUpdate extends PMOCommand {
 
     const existing = await this.storage.getPhase(phaseId!);
     if (!existing) {
-      this.error(`Phase "${phaseId}" not found.`);
+      return handleError('PHASE_NOT_FOUND', `Phase "${phaseId}" not found.`);
     }
 
     let updates: {
@@ -99,7 +141,34 @@ export default class PhaseUpdate extends PMOCommand {
 
     // Auto-enter interactive mode if no change flags provided
     if (flags.interactive || !hasChangeFlags) {
-      updates = await this.promptUpdates(existing);
+      // Define labels and choices once - single source of truth
+      const categoryLabels: Record<StateCategory, string> = {
+        backlog: 'Backlog - Not yet scheduled for work',
+        unstarted: 'Unstarted - Scheduled but work hasn\'t begun',
+        started: 'Started - Work is actively in progress',
+        completed: 'Completed - Work finished successfully',
+        canceled: 'Canceled - Work won\'t be done',
+      };
+      const categoryChoices = STATE_CATEGORY_ORDER.map(cat => ({ name: categoryLabels[cat], value: cat }));
+
+      // Define fields once - single source of truth for both JSON and interactive modes
+      const fields: FormField[] = [
+        { type: 'input', name: 'name', message: 'Name:', default: existing.name },
+        { type: 'list', name: 'category', message: 'Category:', choices: categoryChoices, default: existing.category },
+        { type: 'input', name: 'color', message: 'Color (hex):', default: existing.color || '' },
+        { type: 'input', name: 'description', message: 'Description:', default: existing.description || '' },
+        { type: 'confirm', name: 'isDefault', message: 'Default for new projects?', default: existing.isDefault || false },
+      ];
+
+      // In JSON mode, output form prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildFormPromptConfig(fields),
+          createMetadata('phase update', flags)
+        );
+      }
+
+      updates = await this.promptUpdates(fields, existing);
     } else {
       updates = {};
       if (flags.name) updates.name = flags.name;
@@ -125,69 +194,30 @@ export default class PhaseUpdate extends PMOCommand {
     }
   }
 
-  private async promptUpdates(existing: {
-    name: string;
-    category: StateCategory;
-    color?: string;
-    description?: string;
-    isDefault?: boolean;
-  }): Promise<{
+  private async promptUpdates(
+    fields: FormField[],
+    existing: {
+      name: string;
+      category: StateCategory;
+      color?: string;
+      description?: string;
+      isDefault?: boolean;
+    }
+  ): Promise<{
     name?: string;
     category?: StateCategory;
     color?: string;
     description?: string;
     isDefault?: boolean;
   }> {
-    const categoryLabels: Record<StateCategory, string> = {
-      backlog: 'Backlog - Not yet scheduled for work',
-      unstarted: 'Unstarted - Scheduled but work hasn\'t begun',
-      started: 'Started - Work is actively in progress',
-      completed: 'Completed - Work finished successfully',
-      canceled: 'Canceled - Work won\'t be done',
-    };
-
+    // Build inquirer prompts from fields
     const answers = await inquirer.prompt<{
       name: string;
       category: StateCategory;
       color: string;
       description: string;
       isDefault: boolean;
-    }>([
-      {
-        type: 'input',
-        name: 'name',
-        message: 'Name:',
-        default: existing.name,
-      },
-      {
-        type: 'list',
-        name: 'category',
-        message: 'Category:',
-        choices: STATE_CATEGORY_ORDER.map(cat => ({
-          name: categoryLabels[cat],
-          value: cat,
-        })),
-        default: existing.category,
-      },
-      {
-        type: 'input',
-        name: 'color',
-        message: 'Color (hex):',
-        default: existing.color || '',
-      },
-      {
-        type: 'input',
-        name: 'description',
-        message: 'Description:',
-        default: existing.description || '',
-      },
-      {
-        type: 'confirm',
-        name: 'isDefault',
-        message: 'Default for new projects?',
-        default: existing.isDefault || false,
-      },
-    ]);
+    }>(fields);
 
     const updates: {
       name?: string;

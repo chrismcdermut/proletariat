@@ -2,6 +2,13 @@ import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class SpecView extends PMOCommand {
   static description = 'View a spec and its linked tickets';
@@ -20,6 +27,14 @@ export default class SpecView extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     spec: Flags.string({
       char: 's',
       description: 'Spec ID',
@@ -34,12 +49,37 @@ export default class SpecView extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SpecView);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('spec view', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Get spec ID
     let specId = args.spec || flags.spec;
     if (!specId) {
       const specs = await this.storage.listSpecs();
       if (specs.length === 0) {
-        this.error('No specs found. Create one first with: prlt spec create');
+        return handleError('NO_SPECS', 'No specs found. Create one first with: prlt spec create');
+      }
+
+      // In JSON mode, output spec selection prompt
+      if (jsonMode) {
+        const specChoices = specs.map(s => ({
+          name: `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
+          value: s.id,
+        }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'spec', 'Select spec to view:', specChoices),
+          createMetadata('spec view', flags)
+        );
+        return;
       }
 
       const { selectedSpec } = await inquirer.prompt([{

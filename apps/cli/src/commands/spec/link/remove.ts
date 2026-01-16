@@ -3,6 +3,13 @@ import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js'
 import { styles } from '../../../lib/styles.js'
 import { SpecDependencyType } from '../../../lib/pmo/types.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../../lib/prompt-json.js'
 
 export default class SpecLinkRemove extends PMOCommand {
   static description = 'Remove a dependency from a spec'
@@ -17,6 +24,14 @@ export default class SpecLinkRemove extends PMOCommand {
   }
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     type: Flags.string({ char: 't', description: 'Dependency type', options: ['depends_on', 'relates_to', 'duplicates'] }),
     all: Flags.boolean({ char: 'a', description: 'Remove all dependencies', default: false }),
   }
@@ -24,13 +39,45 @@ export default class SpecLinkRemove extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SpecLinkRemove)
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags)
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('spec link remove', flags))
+        this.exit(1)
+      }
+      this.error(message)
+    }
+
     const spec = await this.storage.getSpec(args.id)
-    if (!spec) this.error(`Spec not found: ${args.id}`)
+    if (!spec) return handleError('SPEC_NOT_FOUND', `Spec not found: ${args.id}`)
 
     const dependencies = await this.storage.listSpecDependencies(args.id)
-    if (dependencies.length === 0) { this.log(styles.muted(`\nSpec ${args.id} has no dependencies.`)); return }
+    if (dependencies.length === 0) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_DEPENDENCIES', `Spec ${args.id} has no dependencies.`, createMetadata('spec link remove', flags))
+        return
+      }
+      this.log(styles.muted(`\nSpec ${args.id} has no dependencies.`))
+      return
+    }
 
     if (flags.all) {
+      // In JSON mode, output confirmation prompt
+      if (jsonMode) {
+        const confirmChoices = [
+          { name: 'No', value: 'false' },
+          { name: 'Yes', value: 'true' },
+        ]
+        outputPromptAsJson(
+          buildPromptConfig('list', 'confirmed', `Remove all ${dependencies.length} dependencies?`, confirmChoices),
+          createMetadata('spec link remove', flags)
+        )
+        return
+      }
+
       const { confirmed } = await inquirer.prompt([{
         type: 'list',
         name: 'confirmed',
@@ -52,6 +99,16 @@ export default class SpecLinkRemove extends PMOCommand {
         const depSpec = await this.storage.getSpec(dep.dependsOnSpecId)
         return { name: `${dep.dependsOnSpecId} - ${depSpec?.title || 'Unknown'} (${dep.dependencyType})`, value: dep.dependsOnSpecId }
       }))
+
+      // In JSON mode, output dependency selection prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'target', 'Select dependency to remove:', choices),
+          createMetadata('spec link remove', flags)
+        )
+        return
+      }
+
       const { selected } = await inquirer.prompt([{ type: 'list', name: 'selected', message: 'Select dependency to remove:', choices }])
       targetId = selected
     }

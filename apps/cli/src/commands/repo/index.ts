@@ -1,6 +1,13 @@
+import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class Repo extends PMOCommand {
   static description = 'Repository management operations';
@@ -14,6 +21,14 @@ export default class Repo extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -21,24 +36,50 @@ export default class Repo extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    const { flags } = await this.parse(Repo);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'List all repositories', value: 'list' },
+      { name: 'Add repository', value: 'add' },
+      { name: 'Remove repository', value: 'remove' },
+      { name: 'View repository details', value: 'view' },
+      { name: 'Add multiple repositories', value: 'add-bulk' },
+      { name: 'Remove multiple repositories', value: 'remove-bulk' },
+      { name: 'Cancel', value: 'cancel' },
+    ];
+    const message = 'What would you like to do?';
+
+    // In JSON mode, output menu prompt
+    if (jsonMode) {
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', message, menuChoices),
+        createMetadata('repo', flags)
+      );
+      return;
+    }
+
     this.log(colors.primary('📦 Repository Operations'));
     this.log('');
 
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: 'What would you like to do?',
+      message,
       choices: [
-        { name: '📋 List all repositories', value: 'list' },
+        { name: '📋 ' + menuChoices[0].name, value: menuChoices[0].value },
         new inquirer.Separator('─── Single Repository ───'),
-        { name: '➕ Add repository', value: 'add' },
-        { name: '🗑️  Remove repository', value: 'remove' },
-        { name: '📄 View repository details', value: 'view' },
+        { name: '➕ ' + menuChoices[1].name, value: menuChoices[1].value },
+        { name: '🗑️  ' + menuChoices[2].name, value: menuChoices[2].value },
+        { name: '📄 ' + menuChoices[3].name, value: menuChoices[3].value },
         new inquirer.Separator('─── Bulk Operations ───'),
-        { name: '📦 Add multiple repositories', value: 'add-bulk' },
-        { name: '🗑️  Remove multiple repositories', value: 'remove-bulk' },
+        { name: '📦 ' + menuChoices[4].name, value: menuChoices[4].value },
+        { name: '🗑️  ' + menuChoices[5].name, value: menuChoices[5].value },
         new inquirer.Separator(),
-        { name: '❌ Cancel', value: 'cancel' }
+        { name: '❌ ' + menuChoices[6].name, value: menuChoices[6].value }
       ]
     }]);
 

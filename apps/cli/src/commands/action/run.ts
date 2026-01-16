@@ -3,6 +3,13 @@ import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, Ticket } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class ActionRun extends PMOCommand {
   static description = 'Run an action on one or more tickets (bulk action support)';
@@ -49,16 +56,36 @@ export default class ActionRun extends PMOCommand {
       description: 'Skip confirmation prompt',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
     const { argv, flags } = await this.parse(ActionRun);
     const ticketIds = argv as string[];
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('action run', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Get the action
     const action = await this.storage.getAction(flags.action);
     if (!action) {
-      this.error(`Action not found: ${flags.action}\nRun 'prlt action list' to see available actions.`);
+      return handleError('ACTION_NOT_FOUND', `Action not found: ${flags.action}\nRun 'prlt action list' to see available actions.`);
     }
 
     // Get tickets to operate on
@@ -89,7 +116,20 @@ export default class ActionRun extends PMOCommand {
       const allTickets = await this.storage.listTickets();
 
       if (allTickets.length === 0) {
-        this.error('No tickets found.');
+        return handleError('NO_TICKETS', 'No tickets found.');
+      }
+
+      // In JSON mode, output ticket selection prompt
+      if (jsonMode) {
+        const ticketChoices = allTickets.map(t => ({
+          name: `${t.id} - ${t.title} [${t.statusName || t.statusCategory || 'unknown'}]`,
+          value: t.id,
+        }));
+        outputPromptAsJson(
+          buildPromptConfig('checkbox', 'ticketIds', `Select tickets for "${action.name}" action:`, ticketChoices),
+          createMetadata('action run', flags)
+        );
+        return;
       }
 
       const { selectedTickets } = await inquirer.prompt([{

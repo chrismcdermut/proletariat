@@ -3,6 +3,13 @@ import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildFormPromptConfig,
+  FormField,
+} from '../../lib/prompt-json.js';
 
 export default class ActionCreate extends PMOCommand {
   static description = 'Create a new work action';
@@ -42,6 +49,14 @@ export default class ActionCreate extends PMOCommand {
       description: 'Interactive mode - prompt for all fields',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -51,6 +66,9 @@ export default class ActionCreate extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(ActionCreate);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
     let name = args.name;
     let prompt = flags.prompt;
     let description = flags.description;
@@ -59,53 +77,46 @@ export default class ActionCreate extends PMOCommand {
 
     // Interactive mode if name or prompt is missing
     if (!name || !prompt || flags.interactive) {
+      // Build choices once, use for both JSON and interactive modes
+      const suggestedForChoices = STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c }));
+      const moveToChoices = [
+        { name: '(no automatic move)', value: '' },
+        ...STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
+      ];
+
+      // Define fields once - single source of truth for both JSON and interactive modes
+      const fields: FormField[] = [
+        { type: 'input', name: 'name', message: 'Action name:', default: name },
+        { type: 'input', name: 'description', message: 'Description (optional):', default: description || '' },
+        { type: 'editor', name: 'prompt', message: 'Prompt (opens editor):', default: prompt || 'Enter the prompt that will be sent to the agent...' },
+        { type: 'checkbox', name: 'suggestedFor', message: 'Suggested for categories (optional):', choices: suggestedForChoices },
+        { type: 'list', name: 'moveTo', message: 'Move ticket to category after action:', choices: moveToChoices, default: moveTo || '' },
+      ];
+
+      // In JSON mode, output form prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildFormPromptConfig(fields),
+          createMetadata('action create', flags)
+        );
+      }
+
       this.log('');
       this.log(styles.header('Create Custom Action'));
       this.log('');
 
-      const answers = await inquirer.prompt([
-        {
-          type: 'input',
-          name: 'name',
-          message: 'Action name:',
-          default: name,
-          validate: (input: string) => input.trim() ? true : 'Name is required',
-          when: !name,
-        },
-        {
-          type: 'input',
-          name: 'description',
-          message: 'Description (optional):',
-          default: description || '',
-        },
-        {
-          type: 'editor',
-          name: 'prompt',
-          message: 'Prompt (opens editor):',
-          default: prompt || 'Enter the prompt that will be sent to the agent...',
-          validate: (input: string) => input.trim() ? true : 'Prompt is required',
-          when: !prompt,
-        },
-        {
-          type: 'checkbox',
-          name: 'suggestedFor',
-          message: 'Suggested for categories (optional):',
-          choices: STATE_CATEGORY_ORDER.map(c => ({
-            name: c,
-            value: c,
-          })),
-        },
-        {
-          type: 'list',
-          name: 'moveTo',
-          message: 'Move ticket to category after action:',
-          choices: [
-            { name: '(no automatic move)', value: '' },
-            ...STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
-          ],
-          default: moveTo || '',
-        },
-      ]);
+      // Build inquirer prompts from fields, adding validators and conditionals
+      const answers = await inquirer.prompt(fields.map(field => ({
+        ...field,
+        // Add validators for required fields
+        validate: field.name === 'name' ? ((input: string) => input.trim() ? true : 'Name is required')
+          : field.name === 'prompt' ? ((input: string) => input.trim() ? true : 'Prompt is required')
+          : undefined,
+        // Skip fields that already have values
+        when: field.name === 'name' ? !name
+          : field.name === 'prompt' ? !prompt
+          : true,
+      })));
 
       name = answers.name || name;
       prompt = answers.prompt || prompt;

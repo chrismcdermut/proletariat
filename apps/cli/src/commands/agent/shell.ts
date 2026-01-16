@@ -1,4 +1,4 @@
-import { Args } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { execSync, spawn } from 'node:child_process';
@@ -11,6 +11,13 @@ import { getTerminalApp } from '../../lib/execution/config.js';
 import { TerminalApp } from '../../lib/execution/types.js';
 import { isDockerRunning } from '../../lib/execution/runners.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class Shell extends PMOCommand {
   static description = 'Open an interactive shell in an agent workspace';
@@ -29,6 +36,14 @@ export default class Shell extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -36,12 +51,28 @@ export default class Shell extends PMOCommand {
   }
 
   async execute(): Promise<void> {
-    const { args } = await this.parse(Shell);
+    const { args, flags } = await this.parse(Shell);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('agent shell', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
 
     // Get workspace information
     const workspaceInfo = getWorkspaceInfo();
 
     if (workspaceInfo.agents.length === 0) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_AGENTS', 'No agents found. Add agents with "prlt agent add"', createMetadata('agent shell', flags));
+        return;
+      }
       this.log(colors.warning('No agents found. Add agents with "prlt agent add"'));
       return;
     }
@@ -50,15 +81,24 @@ export default class Shell extends PMOCommand {
 
     // Interactive mode if no agent specified
     if (!agentName) {
+      // Build choices once, use for both JSON and interactive modes
+      const agentChoices = workspaceInfo.agents.map((agent: any) => ({ name: agent.name, value: agent.name }));
+      const selectMessage = 'Select agent to open shell in:';
+
+      // In JSON mode, output agent selection prompt and exit
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'name', selectMessage, agentChoices),
+          createMetadata('agent shell', flags)
+        );
+      }
+
       const { selected } = await inquirer.prompt([
         {
           type: 'list',
           name: 'selected',
-          message: 'Select agent to open shell in:',
-          choices: workspaceInfo.agents.map(agent => ({
-            name: agent.name,
-            value: agent.name
-          }))
+          message: selectMessage,
+          choices: agentChoices
         }
       ]);
       agentName = selected;
@@ -67,13 +107,35 @@ export default class Shell extends PMOCommand {
     // Validate agent exists
     const agent = workspaceInfo.agents.find(a => a.name === agentName);
     if (!agent) {
-      this.error(`Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map(a => a.name).join(', ')}`);
+      return handleError('AGENT_NOT_FOUND', `Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map(a => a.name).join(', ')}`);
     }
 
     const agentDir = path.join(workspaceInfo.agentsPath, agentName!);
 
     // Check if agent has devcontainer
     const hasDevcontainer = hasDevcontainerConfig(agentDir);
+
+    // In JSON mode with agent name provided, output config choices prompt and exit
+    if (jsonMode) {
+      const configChoices = [
+        { name: 'terminal - safe - devcontainer', value: 'terminal-safe-devcontainer' },
+        { name: 'terminal - safe - host', value: 'terminal-safe-host' },
+        { name: 'terminal - danger - devcontainer', value: 'terminal-danger-devcontainer' },
+        { name: 'terminal - danger - host', value: 'terminal-danger-host' },
+        { name: 'foreground - safe - devcontainer', value: 'foreground-safe-devcontainer' },
+        { name: 'foreground - safe - host', value: 'foreground-safe-host' },
+        { name: 'foreground - danger - devcontainer', value: 'foreground-danger-devcontainer' },
+        { name: 'foreground - danger - host', value: 'foreground-danger-host' },
+      ];
+      outputPromptAsJson(
+        {
+          ...buildPromptConfig('list', 'config', 'Select shell configuration (displayMode-permissionMode-environment):',
+            hasDevcontainer ? configChoices : configChoices.filter(c => c.value.endsWith('-host'))),
+          context: { agentName, hasDevcontainer },
+        },
+        createMetadata('agent shell', flags)
+      );
+    }
 
     // Prompt for environment
     let environment: 'devcontainer' | 'host' = 'host';

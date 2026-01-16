@@ -4,6 +4,13 @@ import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { Epic, EpicStatus, Ticket } from '../../lib/pmo/types.js';
 import { getRelativeEpicPath } from '../../lib/pmo/epic-files.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 // Progress bar helper
 function progressBar(percent: number, width = 20): string {
@@ -29,6 +36,14 @@ export default class EpicProgress extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     all: Flags.boolean({
       char: 'a',
       description: 'Show progress for all epics',
@@ -39,6 +54,9 @@ export default class EpicProgress extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(EpicProgress);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
     if (flags.all) {
       await this.showAllProgress();
     } else {
@@ -48,7 +66,21 @@ export default class EpicProgress extends PMOCommand {
       if (!epicId) {
         const epics = await this.storage.listEpics();
         if (epics.length === 0) {
+          if (jsonMode) {
+            outputErrorAsJson('NO_EPICS', 'No epics found.', createMetadata('epic progress', flags));
+            return;
+          }
           this.log(styles.muted('\nNo epics found.'));
+          return;
+        }
+
+        // In JSON mode, output epic selection prompt
+        if (jsonMode) {
+          const epicChoices = epics.map(e => ({ name: `${e.id} ${e.title} (${e.status})`, value: e.id }));
+          outputPromptAsJson(
+            buildPromptConfig('list', 'id', 'Select epic to view progress:', epicChoices),
+            createMetadata('epic progress', flags)
+          );
           return;
         }
 

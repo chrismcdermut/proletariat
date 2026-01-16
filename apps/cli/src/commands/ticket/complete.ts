@@ -6,6 +6,13 @@ import {
   pmoBaseFlags,
 } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class TicketComplete extends PMOCommand {
   static description = 'Mark ticket(s) as complete (move to Done column)';
@@ -25,6 +32,14 @@ export default class TicketComplete extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     bulk: Flags.boolean({
       char: 'b',
       description: 'Enable bulk mode to complete multiple tickets',
@@ -40,6 +55,18 @@ export default class TicketComplete extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketComplete);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('ticket complete', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Get all incomplete tickets
     const allTickets = await this.storage.listTickets();
     const incompleteTickets = allTickets.filter(t =>
@@ -47,6 +74,10 @@ export default class TicketComplete extends PMOCommand {
     );
 
     if (incompleteTickets.length === 0) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_INCOMPLETE_TICKETS', 'No incomplete tickets found. All tickets are done!', createMetadata('ticket complete', flags));
+        return;
+      }
       this.log(styles.info('No incomplete tickets found. All tickets are done!'));
       return;
     }
@@ -60,7 +91,7 @@ export default class TicketComplete extends PMOCommand {
     );
 
     if (!doneColumn) {
-      this.error('No "Done" column found in board configuration.');
+      return handleError('NO_DONE_COLUMN', 'No "Done" column found in board configuration.');
     }
 
     // Bulk mode
@@ -73,6 +104,19 @@ export default class TicketComplete extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
+      // In JSON mode, output ticket selection prompt
+      if (jsonMode) {
+        const ticketChoices = incompleteTickets.map(t => ({
+          name: `${t.id} - ${t.title} (${t.statusName})`,
+          value: t.id,
+        }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'ticketId', 'Select ticket to complete:', ticketChoices),
+          createMetadata('ticket complete', flags)
+        );
+        return;
+      }
+
       const { selectedTicketId } = await inquirer.prompt([{
         type: 'list',
         name: 'selectedTicketId',

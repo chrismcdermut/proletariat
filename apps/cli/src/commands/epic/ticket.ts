@@ -3,6 +3,13 @@ import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { Ticket } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class EpicTicket extends PMOCommand {
   static description = 'Assign tickets to an epic, or link epic to a spec (parent-child)';
@@ -31,6 +38,14 @@ export default class EpicTicket extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     unlink: Flags.boolean({
       char: 'u',
       description: 'Remove tickets from this epic instead of adding',
@@ -49,9 +64,25 @@ export default class EpicTicket extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags, argv } = await this.parse(EpicTicket);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('epic ticket', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Get all epics
     const epics = await this.storage.listEpics();
     if (epics.length === 0) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_EPICS', 'No epics found.', createMetadata('epic ticket', flags));
+        return;
+      }
       this.log(styles.muted('\nNo epics found. Create one with: prlt epic create'));
       return;
     }
@@ -59,6 +90,10 @@ export default class EpicTicket extends PMOCommand {
     // Get all tickets
     const allTickets = await this.storage.listTickets();
     if (allTickets.length === 0) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_TICKETS', 'No tickets found.', createMetadata('epic ticket', flags));
+        return;
+      }
       this.log(styles.muted('\nNo tickets found.'));
       return;
     }
@@ -83,14 +118,25 @@ export default class EpicTicket extends PMOCommand {
         }
       }
 
+      const epicChoices = epics.map(e => ({
+        name: `${e.id} ${e.title} (${e.status}) [${ticketCounts.get(e.id) || 0} tickets]`,
+        value: e.id,
+      }));
+
+      // In JSON mode, output epic selection prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'id', 'Select epic to link tickets to:', epicChoices),
+          createMetadata('epic ticket', flags)
+        );
+        return;
+      }
+
       const { selected } = await inquirer.prompt([{
         type: 'list',
         name: 'selected',
         message: 'Select epic to link tickets to:',
-        choices: epics.map(e => ({
-          name: `${e.id} ${e.title} (${e.status}) [${ticketCounts.get(e.id) || 0} tickets]`,
-          value: e.id,
-        })),
+        choices: epicChoices,
       }]);
       epicId = selected;
     }
@@ -98,7 +144,7 @@ export default class EpicTicket extends PMOCommand {
     // Validate epic exists
     const epic = epics.find(e => e.id === epicId);
     if (!epic) {
-      this.error(`Epic not found: ${epicId}`);
+      return handleError('EPIC_NOT_FOUND', `Epic not found: ${epicId}`);
     }
 
     // Handle spec linking if --spec or --unlink-spec provided
@@ -154,6 +200,15 @@ export default class EpicTicket extends PMOCommand {
           checked: false,
         };
       });
+
+      // In JSON mode, output ticket selection prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('checkbox', 'tickets', `Select tickets to ${flags.unlink ? 'unlink from' : 'link to'} ${epicId}:`, choices),
+          createMetadata('epic ticket', flags)
+        );
+        return;
+      }
 
       const { selected } = await inquirer.prompt([{
         type: 'checkbox',

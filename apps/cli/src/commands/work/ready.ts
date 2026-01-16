@@ -22,6 +22,13 @@ import {
   generatePRTitle,
   generatePRBody,
 } from '../../lib/pr/index.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class WorkReady extends PMOCommand {
   static description = 'Mark work as ready for review (moves ticket to In Review column)';
@@ -31,6 +38,7 @@ export default class WorkReady extends PMOCommand {
     '<%= config.bin %> <%= command.id %> TKT-001',
     '<%= config.bin %> <%= command.id %> --pr',
     '<%= config.bin %> <%= command.id %> TKT-001 --pr --draft',
+    '<%= config.bin %> <%= command.id %> --json  # Output choices as JSON',
   ];
 
   static args = {
@@ -42,6 +50,14 @@ export default class WorkReady extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     pr: Flags.boolean({
       description: 'Create a pull request for this work',
       default: false,
@@ -59,12 +75,24 @@ export default class WorkReady extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkReady);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('work ready', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Get workspace info for execution storage
     let workspaceInfo;
     try {
       workspaceInfo = getWorkspaceInfo();
     } catch {
-      this.error('Not in a workspace. Run "prlt init" first.');
+      return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt init" first.');
     }
 
     // Open database for execution storage
@@ -85,8 +113,24 @@ export default class WorkReady extends PMOCommand {
 
         if (inProgressTickets.length === 0) {
           db.close();
+          if (jsonMode) {
+            outputErrorAsJson('NO_IN_PROGRESS_WORK', 'No in-progress work found.', createMetadata('work ready', flags));
+            return;
+          }
           this.log(styles.info('No in-progress work found.'));
           return;
+        }
+
+        // In JSON mode, output ticket selection prompt and exit
+        if (jsonMode) {
+          const ticketChoices = inProgressTickets.map(t => ({
+            name: `${t.id} - ${t.title} (${t.statusName})`,
+            value: t.id,
+          }));
+          outputPromptAsJson(
+            buildPromptConfig('list', 'ticketId', 'Select work to mark as ready for review:', ticketChoices),
+            createMetadata('work ready', flags)
+          );
         }
 
         const { selectedTicketId } = await inquirer.prompt([{

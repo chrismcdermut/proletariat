@@ -3,6 +3,12 @@ import { execSync } from 'child_process'
 import inquirer from 'inquirer'
 import { styles } from '../../lib/styles.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js'
 
 export default class DockerPrune extends Command {
   static description = 'Remove unused Docker resources (containers, images, volumes, networks)'
@@ -33,6 +39,14 @@ export default class DockerPrune extends Command {
     }),
     volumes: Flags.boolean({
       description: 'Also prune volumes (dangerous - data loss possible)',
+      default: false,
+    }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
       default: false,
     }),
   }
@@ -83,15 +97,32 @@ export default class DockerPrune extends Command {
 
     // Confirm
     if (!flags.force) {
-      const message = flags.volumes
+      // Check if JSON output mode is active
+      const jsonMode = shouldOutputJson(flags)
+
+      // Build choices once, use for both JSON and interactive modes
+      const confirmChoices = [
+        { name: 'No', value: 'false' },
+        { name: 'Yes', value: 'true' },
+      ]
+      const confirmMessage = flags.volumes
         ? 'This will remove unused resources INCLUDING VOLUMES. Data may be lost. Continue?'
         : 'Remove unused Docker resources?'
+
+      // In JSON mode, output confirmation prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
+          createMetadata('docker prune', flags)
+        )
+        return
+      }
 
       const { confirm } = await inquirer.prompt([
         {
           type: 'confirm',
           name: 'confirm',
-          message,
+          message: confirmMessage,
           default: false,
         },
       ])

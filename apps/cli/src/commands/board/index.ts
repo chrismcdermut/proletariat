@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';
+import { Flags } from '@oclif/core';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import {
@@ -20,6 +21,12 @@ import {
   getColumnEmoji,
   divider,
 } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class Board extends PMOCommand {
   static description = 'Interactive menu for board operations';
@@ -30,23 +37,52 @@ export default class Board extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
-    // Show interactive menu
+    const { flags } = await this.parse(Board);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'View board in terminal', value: 'view' },
+      { name: 'Open board in Obsidian', value: 'open' },
+      { name: 'Show as markdown', value: 'markdown' },
+      { name: 'Export board', value: 'export' },
+      { name: 'Sync board', value: 'sync' },
+      { name: 'Watch for changes', value: 'watch' },
+      { name: 'Cancel', value: 'cancel' },
+    ];
+    const message = `Board Operations - ${this.projectName} - What would you like to do?`;
+
+    // In JSON mode, output menu prompt
+    if (jsonMode) {
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', message, menuChoices),
+        createMetadata('board', flags)
+      );
+      return;
+    }
+
+    // Show interactive menu (with separator before Cancel)
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: `📋 Board Operations - ${this.projectName} - What would you like to do?`,
+      message: '📋 ' + message,
       choices: [
-        { name: 'View board in terminal', value: 'view' },
-        { name: 'Open board in Obsidian', value: 'open' },
-        { name: 'Show as markdown', value: 'markdown' },
-        { name: 'Export board', value: 'export' },
-        { name: 'Sync board', value: 'sync' },
-        { name: 'Watch for changes', value: 'watch' },
+        ...menuChoices.slice(0, -1),
         new inquirer.Separator(),
-        { name: 'Cancel', value: 'cancel' },
+        menuChoices[menuChoices.length - 1],
       ],
     }]);
 

@@ -19,6 +19,13 @@ import {
   generatePRTitle,
   generatePRBody,
 } from '../../lib/pr/index.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class PRCreate extends Command {
   static description = 'Create a GitHub pull request from the current branch';
@@ -58,30 +65,50 @@ export default class PRCreate extends Command {
     body: Flags.string({
       description: 'PR body/description',
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(PRCreate);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('pr create', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Check gh CLI
     if (!isGHInstalled()) {
-      this.error('GitHub CLI (gh) is not installed. Install it from https://cli.github.com/');
+      return handleError('GH_NOT_INSTALLED', 'GitHub CLI (gh) is not installed. Install it from https://cli.github.com/');
     }
 
     if (!isGHAuthenticated()) {
-      this.error('GitHub CLI is not authenticated. Run "gh auth login" first.');
+      return handleError('GH_NOT_AUTHENTICATED', 'GitHub CLI is not authenticated. Run "gh auth login" first.');
     }
 
     // Get current branch
     const currentBranch = getCurrentBranch();
     if (!currentBranch) {
-      this.error('Not in a git repository or unable to determine current branch.');
+      return handleError('NO_GIT_REPO', 'Not in a git repository or unable to determine current branch.');
     }
 
     // Check if on main/master
     const baseBranch = flags.base || getDefaultBaseBranch();
     if (currentBranch === baseBranch) {
-      this.error(`Cannot create PR from ${baseBranch} branch. Switch to a feature branch first.`);
+      return handleError('ON_BASE_BRANCH', `Cannot create PR from ${baseBranch} branch. Switch to a feature branch first.`);
     }
 
     // Check if PR already exists for this branch
@@ -141,18 +168,33 @@ export default class PRCreate extends Command {
         );
 
         if (inProgressTickets.length > 0) {
+          // Build choices once, use for both JSON and interactive modes
+          const ticketChoices = [
+            ...inProgressTickets.map(t => ({
+              name: `${t.id} - ${t.title}`,
+              value: t.id,
+            })),
+            { name: 'Skip - create PR without linking', value: '__skip__' },
+          ];
+          const message = 'Link PR to a ticket?';
+
+          // In JSON mode, output ticket selection prompt and exit
+          if (jsonMode) {
+            outputPromptAsJson(
+              buildPromptConfig('list', 'ticketId', message, ticketChoices),
+              createMetadata('pr create', flags)
+            );
+          }
+
           const { selectedTicketId } = await inquirer.prompt([
             {
               type: 'list',
               name: 'selectedTicketId',
-              message: 'Link PR to a ticket?',
+              message,
               choices: [
-                ...inProgressTickets.map(t => ({
-                  name: `${t.id} - ${t.title}`,
-                  value: t.id,
-                })),
+                ...ticketChoices.slice(0, -1),
                 new inquirer.Separator(),
-                { name: 'Skip - create PR without linking', value: '__skip__' },
+                ticketChoices[ticketChoices.length - 1],
               ],
             },
           ]);

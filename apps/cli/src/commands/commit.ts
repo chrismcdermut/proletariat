@@ -3,6 +3,13 @@ import { execSync } from 'child_process'
 import inquirer from 'inquirer'
 import { validateBranchName, BranchType } from '../lib/branch/index.js'
 import { styles } from '../lib/styles.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../lib/prompt-json.js'
 
 /**
  * Format context passed to format functions.
@@ -219,10 +226,30 @@ export default class Commit extends Command {
       description: 'Show what would be committed without committing',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   }
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(Commit)
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags)
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('commit', flags))
+        this.exit(1)
+      }
+      this.error(message)
+    }
 
     // List formats if requested
     if (flags.formats) {
@@ -241,19 +268,13 @@ export default class Commit extends Command {
     // Get current branch first (needed for dynamic examples)
     const branch = getCurrentBranch()
     if (!branch) {
-      this.error('Not in a git repository or could not determine current branch')
+      return handleError('NOT_GIT_REPO', 'Not in a git repository or could not determine current branch')
     }
 
     // Parse branch name
     const validation = validateBranchName(branch)
     if (!validation.valid || !validation.parts) {
-      this.error(
-        `Could not parse branch name: ${branch}\n\n` +
-        `Expected format: {ticketId}/{type}/{owner}/{agent}/{description}\n` +
-        `Example: TKT-053/feat/chris/bezos/add-login\n\n` +
-        `Use -t to specify commit type manually:\n` +
-        `  prlt commit -t feat "your message"`
-      )
+      return handleError('INVALID_BRANCH_NAME', `Could not parse branch name: ${branch}. Expected format: {ticketId}/{type}/{owner}/{agent}/{description}. Example: TKT-053/feat/chris/bezos/add-login. Use -t to specify commit type manually.`)
     }
 
     const { type: branchType, ticketId: branchTicketId, agent } = validation.parts
@@ -299,7 +320,35 @@ export default class Commit extends Command {
         const hasChanges = hasStaged || hasUnstaged || hasUntracked
 
         if (!hasChanges) {
-          this.error('No changes to commit. Working tree is clean.')
+          return handleError('NO_CHANGES', 'No changes to commit. Working tree is clean.')
+        }
+
+        // In JSON mode, output the staging action prompt first
+        if (jsonMode) {
+          const stagingChoicesJson: Array<{ name: string; value: string }> = []
+          if (hasStaged) {
+            stagingChoicesJson.push({
+              name: `Commit staged only (${status.staged.length} file${status.staged.length === 1 ? '' : 's'})`,
+              value: 'staged',
+            })
+          }
+          if (hasUnstaged || hasUntracked) {
+            const totalUnstaged = status.unstaged.length + status.untracked.length
+            stagingChoicesJson.push({
+              name: `Add all & commit (${totalUnstaged} unstaged + ${status.staged.length} staged)`,
+              value: 'all',
+            })
+            stagingChoicesJson.push({
+              name: 'Select files to add...',
+              value: 'select',
+            })
+          }
+          stagingChoicesJson.push({ name: 'Cancel', value: 'cancel' })
+          outputPromptAsJson(
+            buildPromptConfig('list', 'stagingAction', 'What would you like to commit?', stagingChoicesJson),
+            createMetadata('commit', flags)
+          )
+          return
         }
 
         // Build status display
@@ -418,6 +467,15 @@ export default class Commit extends Command {
           value: name,
         }))
 
+        // In JSON mode, output format selection prompt
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildPromptConfig('list', 'format', 'Commit format:', formatChoices),
+            createMetadata('commit', flags)
+          )
+          return
+        }
+
         const { chosenFormat } = await inquirer.prompt([
           {
             type: 'list',
@@ -428,6 +486,15 @@ export default class Commit extends Command {
           },
         ])
         selectedFormat = chosenFormat
+      }
+
+      // In JSON mode with format specified, output message input prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('input', 'message', 'Commit message:', []),
+          createMetadata('commit', flags)
+        )
+        return
       }
 
       // Prompt for message

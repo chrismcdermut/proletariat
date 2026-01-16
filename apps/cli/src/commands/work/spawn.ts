@@ -8,6 +8,14 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputSuccessAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js'
 
 export default class WorkSpawn extends PMOCommand {
   static description = 'Spawn work for multiple tickets by column (batch mode)'
@@ -21,10 +29,19 @@ export default class WorkSpawn extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --many             # Multi-select specific tickets',
     '<%= config.bin %> <%= command.id %> TKT-001 TKT-002    # Spawn specific tickets by ID',
     '<%= config.bin %> <%= command.id %> --dry-run          # Preview without executing',
+    '<%= config.bin %> <%= command.id %> --many --json      # Output ticket choices as JSON (for agents)',
   ]
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     all: Flags.boolean({
       char: 'a',
       description: 'Spawn all unassigned tickets in a column',
@@ -110,6 +127,18 @@ export default class WorkSpawn extends PMOCommand {
   async execute(): Promise<void> {
     const { flags, argv } = await this.parse(WorkSpawn)
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags)
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('work spawn', flags))
+        this.exit(1)
+      }
+      this.error(message)
+    }
+
     // Parse ticket IDs from args (everything after flags)
     const ticketIdArgs = argv as string[]
 
@@ -121,7 +150,7 @@ export default class WorkSpawn extends PMOCommand {
     try {
       workspaceInfo = getWorkspaceInfo()
     } catch {
-      this.error('Not in a workspace. Run "prlt init" first.')
+      return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt init" first.')
     }
 
     // Open database for execution storage
@@ -136,7 +165,7 @@ export default class WorkSpawn extends PMOCommand {
 
       if (columnNames.length === 0) {
         db.close()
-        this.error('No columns found on the board.')
+        return handleError('NO_COLUMNS', 'No columns found on the board.')
       }
 
       // Get all tickets
@@ -145,6 +174,14 @@ export default class WorkSpawn extends PMOCommand {
 
       if (unassignedTickets.length === 0) {
         db.close()
+        if (jsonMode) {
+          outputErrorAsJson(
+            'NO_UNASSIGNED_TICKETS',
+            'No unassigned tickets to spawn.',
+            createMetadata('work spawn', flags)
+          )
+          return
+        }
         this.log(styles.muted('No unassigned tickets to spawn.'))
         return
       }
@@ -170,6 +207,23 @@ export default class WorkSpawn extends PMOCommand {
       } else if (flags.many) {
         spawnMode = 'many'
       } else if (!flags.column) {
+        // In JSON mode without explicit flags, output the mode selection prompt
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildPromptConfig(
+              'list',
+              'mode',
+              'How would you like to spawn work?',
+              [
+                { name: 'All - Spawn all unassigned tickets in a column', value: 'all' },
+                { name: 'Many - Select specific tickets to spawn', value: 'many' },
+              ]
+            ),
+            createMetadata('work spawn', flags)
+          )
+          db.close()
+          return
+        }
         // Interactive: ask user
         const { mode } = await inquirer.prompt([
           {
@@ -195,13 +249,32 @@ export default class WorkSpawn extends PMOCommand {
           if (ticket) {
             ticketsToSpawn.push(ticket)
           } else {
-            this.warn(`Ticket "${ticketId}" not found, skipping.`)
+            if (!jsonMode) {
+              this.warn(`Ticket "${ticketId}" not found, skipping.`)
+            }
           }
         }
 
         if (ticketsToSpawn.length === 0) {
           db.close()
-          this.error('No valid tickets found from provided IDs.')
+          return handleError('NO_VALID_TICKETS', 'No valid tickets found from provided IDs.')
+        }
+
+        // In JSON mode with explicit tickets, output success
+        if (jsonMode) {
+          outputSuccessAsJson(
+            {
+              ticketsSelected: ticketsToSpawn.map(t => ({
+                id: t.id,
+                title: t.title,
+                status: t.statusName,
+              })),
+              count: ticketsToSpawn.length,
+            },
+            createMetadata('work spawn', flags)
+          )
+          db.close()
+          return
         }
 
         this.log('')
@@ -222,6 +295,21 @@ export default class WorkSpawn extends PMOCommand {
             }
           })
 
+          // In JSON mode, output the column selection prompt
+          if (jsonMode) {
+            outputPromptAsJson(
+              buildPromptConfig(
+                'list',
+                'selectedColumn',
+                'Select column to spawn all unassigned tickets from:',
+                columnChoices
+              ),
+              createMetadata('work spawn', flags)
+            )
+            db.close()
+            return
+          }
+
           const { selectedColumn } = await inquirer.prompt([
             {
               type: 'list',
@@ -240,9 +328,9 @@ export default class WorkSpawn extends PMOCommand {
 
         if (!matchedColumn) {
           db.close()
-          this.error(
-            `Column "${targetColumn}" not found.\n` +
-            `Available columns: ${columnNames.join(', ')}`
+          return handleError(
+            'COLUMN_NOT_FOUND',
+            `Column "${targetColumn}" not found.\nAvailable columns: ${columnNames.join(', ')}`
           )
         }
 
@@ -250,6 +338,14 @@ export default class WorkSpawn extends PMOCommand {
 
         if (ticketsToSpawn.length === 0) {
           db.close()
+          if (jsonMode) {
+            outputErrorAsJson(
+              'NO_TICKETS_IN_COLUMN',
+              `No unassigned tickets in column "${matchedColumn}".`,
+              createMetadata('work spawn', flags)
+            )
+            return
+          }
           this.log(styles.muted(`No unassigned tickets in column "${matchedColumn}".`))
           return
         }
@@ -259,6 +355,28 @@ export default class WorkSpawn extends PMOCommand {
 
       } else {
         // MANY MODE: First pick column (or all), then multi-select tickets
+
+        // In JSON mode with --many, output the ticket selection prompt directly
+        // (skip column selection for simplicity - show all tickets)
+        if (jsonMode) {
+          // Build choices from all unassigned tickets
+          const ticketChoices = unassignedTickets.map(ticket => ({
+            name: `${ticket.id} - ${ticket.title} (${ticket.statusName || 'No Status'})`,
+            value: ticket.id,
+          }))
+
+          outputPromptAsJson(
+            buildPromptConfig(
+              'checkbox',
+              'selectedTickets',
+              'Select tickets to spawn (provide ticket IDs as positional args to execute):',
+              ticketChoices
+            ),
+            createMetadata('work spawn', flags)
+          )
+          db.close()
+          return
+        }
 
         // Build column choices with counts
         const columnChoices: Array<{ name: string; value: string }> = [

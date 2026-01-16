@@ -2,6 +2,15 @@ import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../../lib/pmo/index.js';
 import { styles } from '../../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+  buildFormPromptConfig,
+  FormField,
+} from '../../../lib/prompt-json.js';
 
 export default class TicketTemplateApply extends PMOCommand {
   static description = 'Create a new ticket from a template';
@@ -63,6 +72,14 @@ export default class TicketTemplateApply extends PMOCommand {
       description: 'Interactive mode - prompt for values',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     'no-subtasks': Flags.boolean({
       description: 'Do not create suggested subtasks',
       default: false,
@@ -76,10 +93,22 @@ export default class TicketTemplateApply extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketTemplateApply);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('ticket template apply', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Get the template
     const template = await this.storage.getTicketTemplate(args.template);
     if (!template) {
-      this.error(`Template not found: ${args.template}\nRun 'prlt ticket template list' to see available templates.`);
+      return handleError('TEMPLATE_NOT_FOUND', `Template not found: ${args.template}\nRun 'prlt ticket template list' to see available templates.`);
     }
 
     // Validate epic if provided
@@ -103,6 +132,36 @@ export default class TicketTemplateApply extends PMOCommand {
 
     // Interactive mode - prompt for values
     if (flags.interactive || !title) {
+      // Build choices once - single source of truth
+      const columnChoices = this.columns.map(c => ({ name: c, value: c }));
+      const priorityChoices = [
+        { name: 'None', value: '' },
+        { name: 'URGENT', value: 'URGENT' },
+        { name: 'HIGH', value: 'HIGH' },
+        { name: 'MEDIUM', value: 'MEDIUM' },
+        { name: 'LOW', value: 'LOW' },
+      ];
+
+      // Define fields once - single source of truth for both JSON and interactive modes
+      const fields: FormField[] = [
+        { type: 'input', name: 'title', message: 'Ticket title:', default: title || undefined },
+        { type: 'list', name: 'column', message: 'Column:', choices: columnChoices, default: column },
+        { type: 'list', name: 'priority', message: 'Priority:', choices: priorityChoices, default: priority },
+        { type: 'input', name: 'category', message: 'Category:', default: category },
+        { type: 'input', name: 'assignee', message: 'Assignee:', default: assignee },
+        { type: 'input', name: 'owner', message: 'Owner:', default: owner },
+        { type: 'editor', name: 'description', message: 'Description:', default: description },
+      ];
+
+      // In JSON mode, output form prompts
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildFormPromptConfig(fields),
+          createMetadata('ticket template apply', flags)
+        );
+      }
+
+      // Build inquirer prompts from fields, adding validators and inquirer-specific options
       const answers = await inquirer.prompt<{
         title: string;
         column: string;
@@ -111,60 +170,23 @@ export default class TicketTemplateApply extends PMOCommand {
         assignee?: string;
         owner?: string;
         description?: string;
-      }>([
-        {
-          type: 'input',
-          name: 'title',
-          message: 'Ticket title:',
-          default: title || undefined,
-          validate: (input: string) => input.length > 0 || 'Title is required',
-        },
-        {
-          type: 'list',
-          name: 'column',
-          message: 'Column:',
-          choices: this.columns,
-          default: column,
-        },
-        {
-          type: 'list',
-          name: 'priority',
-          message: 'Priority:',
-          choices: [
-            { name: 'None', value: undefined },
-            { name: 'URGENT', value: 'URGENT' },
-            { name: 'HIGH', value: 'HIGH' },
-            { name: 'MEDIUM', value: 'MEDIUM' },
-            { name: 'LOW', value: 'LOW' },
-          ],
-          default: priority,
-        },
-        {
-          type: 'input',
-          name: 'category',
-          message: 'Category:',
-          default: category,
-        },
-        {
-          type: 'input',
-          name: 'assignee',
-          message: 'Assignee:',
-          default: assignee,
-        },
-        {
-          type: 'input',
-          name: 'owner',
-          message: 'Owner:',
-          default: owner,
-        },
-        {
-          type: 'editor',
-          name: 'description',
-          message: 'Description (opens editor):',
-          default: description,
-          waitForUseInput: false,
-        },
-      ]);
+      }>(fields.map(field => ({
+        ...field,
+        // Convert empty string to undefined for priority choices in inquirer
+        choices: field.name === 'priority' && field.choices
+          ? field.choices.map(c => ({ ...c, value: c.value || undefined }))
+          : field.name === 'column'
+          ? this.columns  // Use simple array for column in interactive mode
+          : field.choices,
+        // Add validator for title
+        validate: field.name === 'title'
+          ? ((input: string) => input.length > 0 || 'Title is required')
+          : undefined,
+        // Update editor message for interactive mode
+        message: field.name === 'description' ? 'Description (opens editor):' : field.message,
+        // Add waitForUseInput for editor
+        waitForUseInput: field.type === 'editor' ? false : undefined,
+      })));
 
       title = answers.title;
       column = answers.column;
