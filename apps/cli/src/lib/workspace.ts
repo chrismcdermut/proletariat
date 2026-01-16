@@ -1,25 +1,29 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import chalk from 'chalk';
 
 /**
  * Central workspace resolution utilities.
  *
- * Supports PRLT_HQ_PATH environment variable to override workspace discovery.
- * This is critical for:
- * - Local development testing (isolate test databases)
- * - Devcontainer environments (explicit path specification)
- * - CI/CD environments (deterministic workspace location)
- *
  * Search priority:
- * 1. PRLT_HQ_PATH environment variable (explicit override)
+ * 1. PRLT_HQ_PATH env var (ONLY when DEVCONTAINER=true - for devcontainer mounts)
  * 2. Walk up directory tree looking for .proletariat/config.json with type='hq'
- * 3. Global config ~/.proletariat/config.json for default workspace
+ *    - If found but not registered, emit warning to register
+ * 3. ~/.proletariat/config.json activeWorkspace (fallback when NOT in any workspace)
+ * 4. Global config ~/.proletariat/config.json defaultHQ (legacy fallback)
+ *
+ * NOTE: PRLT_HQ_PATH is ignored on host machines to support multiple agents
+ * working in different workspaces simultaneously. Each agent uses the workspace
+ * they're physically in, not a global env var that could cause conflicts.
+ *
+ * For testing workspace isolation, see TKT-400.
+ * For CI/CD workspace isolation, see TKT-401.
  */
 
 export interface WorkspaceLocation {
   path: string;
-  source: 'env' | 'cwd' | 'global';
+  source: 'env' | 'registry' | 'cwd' | 'global';
 }
 
 /**
@@ -43,32 +47,52 @@ export function findHQRoot(startDir: string = process.cwd()): string | null {
  * Useful for debugging and logging where the workspace was resolved from.
  */
 export function findHQRootWithSource(startDir: string = process.cwd()): WorkspaceLocation | null {
-  // 1. Check PRLT_HQ_PATH environment variable first
+  // 1. Check PRLT_HQ_PATH environment variable (only in devcontainers)
+  // On host machines, we use directory walk to support multiple workspaces/agents
   const envHqPath = process.env.PRLT_HQ_PATH;
-  if (envHqPath) {
+  const isDevcontainer = process.env.DEVCONTAINER === 'true';
+
+  if (envHqPath && isDevcontainer) {
     const resolvedPath = path.resolve(envHqPath);
     // Validate it's actually an HQ
     if (isValidHQ(resolvedPath)) {
       return { path: resolvedPath, source: 'env' };
     }
     // If PRLT_HQ_PATH is set but invalid, warn and continue search
-    console.warn(chalk.yellow(`Warning: PRLT_HQ_PATH (${envHqPath}) is not a valid HQ workspace. Searching directory tree...`));
+    console.warn(chalk.yellow(`Warning: PRLT_HQ_PATH (${envHqPath}) is not a valid HQ workspace. Searching...`));
   }
 
   // 2. Walk up directory tree looking for HQ
+  // This takes precedence over activeWorkspace to support multiple agents
+  // working in different workspaces simultaneously
   let currentDir = startDir;
   while (currentDir !== '/' && currentDir !== path.dirname(currentDir)) {
     if (isValidHQ(currentDir)) {
+      // Emit warning if workspace is not registered (helps users discover the registry)
+      emitUnregisteredWarning(currentDir);
       return { path: currentDir, source: 'cwd' };
     }
     currentDir = path.dirname(currentDir);
   }
 
-  // 3. Check global config for default workspace
-  const globalConfigPath = path.join(process.env.HOME || '', '.proletariat', 'config.json');
-  if (fs.existsSync(globalConfigPath)) {
+  // 3. Check machine config for activeWorkspace (fallback when NOT in any workspace)
+  // This is useful when running prlt from a directory outside any workspace
+  const machineConfigPath = path.join(os.homedir(), '.proletariat', 'config.json');
+  if (fs.existsSync(machineConfigPath)) {
     try {
-      const config = JSON.parse(fs.readFileSync(globalConfigPath, 'utf-8'));
+      const config = JSON.parse(fs.readFileSync(machineConfigPath, 'utf-8'));
+      if (config.activeWorkspace && fs.existsSync(config.activeWorkspace) && isValidHQ(config.activeWorkspace)) {
+        return { path: config.activeWorkspace, source: 'registry' };
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  // 4. Check global config for default workspace (legacy fallback)
+  if (fs.existsSync(machineConfigPath)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(machineConfigPath, 'utf-8'));
       if (config.defaultHQ && isValidHQ(config.defaultHQ)) {
         return { path: config.defaultHQ, source: 'global' };
       }
@@ -78,6 +102,56 @@ export function findHQRootWithSource(startDir: string = process.cwd()): Workspac
   }
 
   return null;
+}
+
+// Track whether we've already emitted the unregistered warning in this process
+let hasEmittedUnregisteredWarning = false;
+
+/**
+ * Emit a warning when a workspace is found via directory walk but not registered.
+ * Only emits once per process to avoid spam.
+ */
+function emitUnregisteredWarning(workspacePath: string): void {
+  // Only warn once per process
+  if (hasEmittedUnregisteredWarning) {
+    return;
+  }
+
+  // Check if this workspace is registered
+  const machineConfigPath = path.join(os.homedir(), '.proletariat', 'config.json');
+  if (fs.existsSync(machineConfigPath)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(machineConfigPath, 'utf-8'));
+      if (config.workspaces && Array.isArray(config.workspaces)) {
+        const isRegistered = config.workspaces.some((w: { path: string }) => {
+          // Normalize paths for comparison
+          try {
+            const normalizedWorkspace = fs.existsSync(workspacePath)
+              ? fs.realpathSync(workspacePath)
+              : path.resolve(workspacePath);
+            const normalizedEntry = fs.existsSync(w.path)
+              ? fs.realpathSync(w.path)
+              : path.resolve(w.path);
+            return normalizedWorkspace === normalizedEntry;
+          } catch {
+            return workspacePath === w.path;
+          }
+        });
+
+        if (isRegistered) {
+          return; // Already registered, no warning needed
+        }
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  // Emit warning
+  hasEmittedUnregisteredWarning = true;
+  console.warn(
+    chalk.yellow(`Warning: Workspace not registered. Run 'prlt workspace add ${workspacePath}' to register.`)
+  );
 }
 
 /**
