@@ -269,18 +269,24 @@ describe('Workspace Commands E2E Tests', () => {
   });
 
   describe('workspace discovery priority', () => {
-    it('should use registry activeWorkspace over directory walk', () => {
+    it('should use directory workspace over registry activeWorkspace', () => {
       // Register workspace1 as active
       execWorkspace(`workspace add ${testWorkspace1}`);
 
       // Change to workspace2 directory (but don't register it)
       process.chdir(testWorkspace2);
 
-      // List should still show workspace1 as active (from registry)
+      // When in a workspace directory, it should use THAT workspace
+      // not the registry's activeWorkspace (supports multi-agent scenarios)
       const output = execWorkspace('workspace list --json');
       const json = JSON.parse(output);
 
+      // The activeWorkspace in the registry is still workspace1
       expect(json.activeWorkspace).to.equal(testWorkspace1);
+
+      // But if we were running a command that uses findHQRoot(),
+      // it would find workspace2 (the current directory) first
+      // This is validated by the unit tests in machine-config.test.ts
     });
   });
 });

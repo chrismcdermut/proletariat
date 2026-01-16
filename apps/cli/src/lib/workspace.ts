@@ -14,10 +14,14 @@ import chalk from 'chalk';
  *
  * Search priority:
  * 1. PRLT_HQ_PATH environment variable (explicit override)
- * 2. ~/.proletariat/config.json activeWorkspace (if set and path exists)
- * 3. Walk up directory tree looking for .proletariat/config.json with type='hq'
- *    - Emit warning: "Workspace not registered. Run 'prlt workspace add' to register."
- * 4. Global config ~/.proletariat/config.json for default workspace (legacy fallback)
+ * 2. Walk up directory tree looking for .proletariat/config.json with type='hq'
+ *    - If found but not registered, emit warning to register
+ * 3. ~/.proletariat/config.json activeWorkspace (fallback when NOT in any workspace)
+ * 4. Global config ~/.proletariat/config.json defaultHQ (legacy fallback)
+ *
+ * NOTE: Directory tree walk takes precedence over activeWorkspace to support
+ * multiple agents working in different workspaces simultaneously. Each agent
+ * uses the workspace they're physically in, not a global "active" setting.
  */
 
 export interface WorkspaceLocation {
@@ -46,7 +50,7 @@ export function findHQRoot(startDir: string = process.cwd()): string | null {
  * Useful for debugging and logging where the workspace was resolved from.
  */
 export function findHQRootWithSource(startDir: string = process.cwd()): WorkspaceLocation | null {
-  // 1. Check PRLT_HQ_PATH environment variable first
+  // 1. Check PRLT_HQ_PATH environment variable first (explicit override)
   const envHqPath = process.env.PRLT_HQ_PATH;
   if (envHqPath) {
     const resolvedPath = path.resolve(envHqPath);
@@ -58,7 +62,21 @@ export function findHQRootWithSource(startDir: string = process.cwd()): Workspac
     console.warn(chalk.yellow(`Warning: PRLT_HQ_PATH (${envHqPath}) is not a valid HQ workspace. Searching...`));
   }
 
-  // 2. Check machine config for activeWorkspace
+  // 2. Walk up directory tree looking for HQ
+  // This takes precedence over activeWorkspace to support multiple agents
+  // working in different workspaces simultaneously
+  let currentDir = startDir;
+  while (currentDir !== '/' && currentDir !== path.dirname(currentDir)) {
+    if (isValidHQ(currentDir)) {
+      // Emit warning if workspace is not registered (helps users discover the registry)
+      emitUnregisteredWarning(currentDir);
+      return { path: currentDir, source: 'cwd' };
+    }
+    currentDir = path.dirname(currentDir);
+  }
+
+  // 3. Check machine config for activeWorkspace (fallback when NOT in any workspace)
+  // This is useful when running prlt from a directory outside any workspace
   const machineConfigPath = path.join(os.homedir(), '.proletariat', 'config.json');
   if (fs.existsSync(machineConfigPath)) {
     try {
@@ -69,17 +87,6 @@ export function findHQRootWithSource(startDir: string = process.cwd()): Workspac
     } catch {
       // Ignore parse errors
     }
-  }
-
-  // 3. Walk up directory tree looking for HQ (fallback)
-  let currentDir = startDir;
-  while (currentDir !== '/' && currentDir !== path.dirname(currentDir)) {
-    if (isValidHQ(currentDir)) {
-      // Emit warning that workspace is not registered
-      emitUnregisteredWarning(currentDir);
-      return { path: currentDir, source: 'cwd' };
-    }
-    currentDir = path.dirname(currentDir);
   }
 
   // 4. Check global config for default workspace (legacy fallback)

@@ -63,10 +63,13 @@ function hasPMOTables(dbPath: string): boolean {
  *
  * Search priority:
  * 1. PRLT_HQ_PATH environment variable (used in devcontainers)
- * 2. ~/.proletariat/config.json activeWorkspace (if set and has PMO)
- * 3. Current directory tree for HQ with PMO
- * 4. Current directory tree for standalone PMO (.pmo/)
+ * 2. Current directory tree for HQ with PMO
+ * 3. Current directory tree for standalone PMO (.pmo/)
+ * 4. ~/.proletariat/config.json activeWorkspace (fallback when NOT in any workspace)
  * 5. Global config for default PMO
+ *
+ * NOTE: Directory tree walk takes precedence over activeWorkspace to support
+ * multiple agents working in different workspaces simultaneously.
  */
 export function findPMO(): string | null {
   // Check PRLT_HQ_PATH environment variable first (used in devcontainers)
@@ -95,36 +98,6 @@ export function findPMO(): string | null {
       // Fallback: default location at HQ root
       const pmoPath = path.join(hqPath, 'pmo');
       return pmoPath;
-    }
-  }
-
-  // Check machine config for activeWorkspace
-  const machineConfigPath = path.join(os.homedir(), '.proletariat', 'config.json');
-  if (fs.existsSync(machineConfigPath)) {
-    try {
-      const machineConfig = JSON.parse(fs.readFileSync(machineConfigPath, 'utf-8'));
-      if (machineConfig.activeWorkspace && fs.existsSync(machineConfig.activeWorkspace) && isValidHQ(machineConfig.activeWorkspace)) {
-        const activeHqPath = machineConfig.activeWorkspace;
-        const dbPath = path.join(activeHqPath, '.proletariat', 'workspace.db');
-        if (hasPMOTables(dbPath)) {
-          try {
-            const db = new Database(dbPath);
-            const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
-            db.close();
-
-            if (result) {
-              return resolvePmoPath(result.value, activeHqPath);
-            }
-          } catch {
-            // Table might not exist yet
-          }
-
-          // Fallback: default location at HQ root
-          return path.join(activeHqPath, 'pmo');
-        }
-      }
-    } catch {
-      // Ignore parse errors
     }
   }
 
@@ -186,7 +159,37 @@ export function findPMO(): string | null {
     currentDir = path.dirname(currentDir);
   }
 
-  // Check global config for default PMO
+  // Check machine config for activeWorkspace (fallback when NOT in any workspace)
+  const machineConfigPath = path.join(os.homedir(), '.proletariat', 'config.json');
+  if (fs.existsSync(machineConfigPath)) {
+    try {
+      const machineConfig = JSON.parse(fs.readFileSync(machineConfigPath, 'utf-8'));
+      if (machineConfig.activeWorkspace && fs.existsSync(machineConfig.activeWorkspace) && isValidHQ(machineConfig.activeWorkspace)) {
+        const activeHqPath = machineConfig.activeWorkspace;
+        const dbPath = path.join(activeHqPath, '.proletariat', 'workspace.db');
+        if (hasPMOTables(dbPath)) {
+          try {
+            const db = new Database(dbPath);
+            const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
+            db.close();
+
+            if (result) {
+              return resolvePmoPath(result.value, activeHqPath);
+            }
+          } catch {
+            // Table might not exist yet
+          }
+
+          // Fallback: default location at HQ root
+          return path.join(activeHqPath, 'pmo');
+        }
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  // Check global config for default PMO (legacy fallback)
   const globalConfigPath = path.join(process.env.HOME || '', '.proletariat', 'config.json');
   if (fs.existsSync(globalConfigPath)) {
     try {
