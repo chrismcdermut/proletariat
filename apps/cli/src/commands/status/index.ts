@@ -39,18 +39,21 @@ export default class Status extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'List all statuses', value: 'list' },
+      { name: 'Create new status', value: 'create' },
+      { name: 'Update status', value: 'update' },
+      { name: 'Move status (change order)', value: 'move' },
+      { name: 'Delete status', value: 'delete' },
+      { name: 'Cancel', value: 'cancel' },
+    ];
+    const message = 'Workflow Statuses - What would you like to do?';
+
     // In JSON mode, output action menu prompt
     if (jsonMode) {
-      const actionChoices = [
-        { name: 'List all statuses', value: 'list' },
-        { name: 'Create new status', value: 'create' },
-        { name: 'Update status', value: 'update' },
-        { name: 'Move status (change order)', value: 'move' },
-        { name: 'Delete status', value: 'delete' },
-        { name: 'Cancel', value: 'cancel' },
-      ];
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', '📊 Workflow Statuses - What would you like to do?', actionChoices),
+        buildPromptConfig('list', 'action', message, menuChoices),
         createMetadata('status', flags)
       );
       return;
@@ -60,15 +63,12 @@ export default class Status extends PMOCommand {
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: '📊 Workflow Statuses - What would you like to do?',
+      message: '📊 ' + message,
       choices: [
-        { name: 'List all statuses', value: 'list' },
-        { name: 'Create new status', value: 'create' },
-        { name: 'Update status', value: 'update' },
-        { name: 'Move status (change order)', value: 'move' },
+        ...menuChoices.slice(0, 4),
         new inquirer.Separator('──────────────'),
-        { name: 'Delete status', value: 'delete' },
-        { name: 'Cancel', value: 'cancel' },
+        menuChoices[4],
+        menuChoices[5],
       ],
     }]);
 

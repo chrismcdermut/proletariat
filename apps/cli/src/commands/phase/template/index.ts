@@ -34,18 +34,21 @@ export default class PhaseTemplateMenu extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'List available templates', value: 'list' },
+      { name: 'Apply template to workspace', value: 'apply' },
+      { name: 'Save current phases as template', value: 'create' },
+      { name: 'Update template', value: 'update' },
+      { name: 'Delete template', value: 'delete' },
+      { name: 'Cancel', value: 'cancel' },
+    ];
+    const message = 'Phase Templates - What would you like to do?';
+
     // In JSON mode, output menu prompt
     if (jsonMode) {
-      const menuChoices = [
-        { name: 'List available templates', value: 'list' },
-        { name: 'Apply template to workspace', value: 'apply' },
-        { name: 'Save current phases as template', value: 'create' },
-        { name: 'Update template', value: 'update' },
-        { name: 'Delete template', value: 'delete' },
-        { name: 'Cancel', value: 'cancel' },
-      ];
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', 'Phase Templates - What would you like to do?', menuChoices),
+        buildPromptConfig('list', 'action', message, menuChoices),
         createMetadata('phase template', flags)
       );
       return;
@@ -56,15 +59,11 @@ export default class PhaseTemplateMenu extends PMOCommand {
       const { action } = await inquirer.prompt([{
         type: 'list',
         name: 'action',
-        message: '📊 Phase Templates - What would you like to do?',
+        message: '📊 ' + message,
         choices: [
-          { name: 'List available templates', value: 'list' },
-          { name: 'Apply template to workspace', value: 'apply' },
-          { name: 'Save current phases as template', value: 'create' },
+          ...menuChoices.slice(0, 3),
           new inquirer.Separator('──────────────'),
-          { name: 'Update template', value: 'update' },
-          { name: 'Delete template', value: 'delete' },
-          { name: 'Cancel', value: 'cancel' },
+          ...menuChoices.slice(3),
         ],
       }]);
 

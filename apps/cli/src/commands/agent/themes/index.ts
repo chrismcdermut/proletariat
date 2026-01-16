@@ -31,16 +31,19 @@ export default class Themes extends Command {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'List themes', value: 'list' },
+      { name: 'Create a new theme', value: 'create' },
+      { name: 'Add names to a theme', value: 'add-names' },
+      { name: 'Cancel', value: 'cancel' },
+    ];
+    const message = 'What would you like to do?';
+
     // In JSON mode, output menu prompt
     if (jsonMode) {
-      const menuChoices = [
-        { name: 'List themes', value: 'list' },
-        { name: 'Create a new theme', value: 'create' },
-        { name: 'Add names to a theme', value: 'add-names' },
-        { name: 'Cancel', value: 'cancel' },
-      ];
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', 'What would you like to do?', menuChoices),
+        buildPromptConfig('list', 'action', message, menuChoices),
         createMetadata('agent themes', flags)
       );
       return;
@@ -52,13 +55,11 @@ export default class Themes extends Command {
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: 'What would you like to do?',
+      message,
       choices: [
-        { name: 'List themes', value: 'list' },
-        { name: 'Create a new theme', value: 'create' },
-        { name: 'Add names to a theme', value: 'add-names' },
+        ...menuChoices.slice(0, 3),
         new inquirer.Separator(),
-        { name: 'Cancel', value: 'cancel' }
+        menuChoices[3]
       ]
     }]);
 

@@ -42,23 +42,26 @@ export default class Docker extends Command {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
 
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'Check Docker status', value: 'status' },
+      { name: 'List containers', value: 'list' },
+      { name: 'View container logs', value: 'logs' },
+      { name: 'Start a container', value: 'start' },
+      { name: 'Stop a container', value: 'stop' },
+      { name: 'Shell into container', value: 'shell' },
+      { name: 'Restart a container', value: 'restart' },
+      { name: 'Sync containers from Docker', value: 'sync' },
+      { name: 'Clean orphaned containers', value: 'clean' },
+      { name: 'Prune unused resources', value: 'prune' },
+      { name: 'Exit', value: 'exit' },
+    ]
+    const message = 'What would you like to do?'
+
     // In JSON mode, output menu prompt
     if (jsonMode) {
-      const menuChoices = [
-        { name: 'Check Docker status', value: 'status' },
-        { name: 'List containers', value: 'list' },
-        { name: 'View container logs', value: 'logs' },
-        { name: 'Start a container', value: 'start' },
-        { name: 'Stop a container', value: 'stop' },
-        { name: 'Shell into container', value: 'shell' },
-        { name: 'Restart a container', value: 'restart' },
-        { name: 'Sync containers from Docker', value: 'sync' },
-        { name: 'Clean orphaned containers', value: 'clean' },
-        { name: 'Prune unused resources', value: 'prune' },
-        { name: 'Exit', value: 'exit' },
-      ]
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', 'What would you like to do?', menuChoices),
+        buildPromptConfig('list', 'action', message, menuChoices),
         createMetadata('docker', flags)
       )
       return
@@ -72,21 +75,13 @@ export default class Docker extends Command {
       {
         type: 'list',
         name: 'action',
-        message: 'What would you like to do?',
+        message,
         choices: [
-          { name: 'Check Docker status', value: 'status' },
-          { name: 'List containers', value: 'list' },
-          { name: 'View container logs', value: 'logs' },
-          { name: 'Start a container', value: 'start' },
-          { name: 'Stop a container', value: 'stop' },
-          { name: 'Shell into container', value: 'shell' },
-          { name: 'Restart a container', value: 'restart' },
+          ...menuChoices.slice(0, 7),
           new inquirer.Separator(),
-          { name: 'Sync containers from Docker', value: 'sync' },
-          { name: 'Clean orphaned containers', value: 'clean' },
-          { name: 'Prune unused resources', value: 'prune' },
+          ...menuChoices.slice(7, 10),
           new inquirer.Separator(),
-          { name: 'Exit', value: 'exit' },
+          menuChoices[10],
         ],
       },
     ])

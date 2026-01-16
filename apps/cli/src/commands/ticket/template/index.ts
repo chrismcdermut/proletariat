@@ -41,17 +41,20 @@ export default class TicketTemplateIndex extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'List available templates', value: 'list' },
+      { name: 'Create ticket from template', value: 'apply' },
+      { name: 'Save ticket as template', value: 'save' },
+      { name: 'Delete template', value: 'delete' },
+      { name: 'Cancel', value: 'cancel' },
+    ];
+    const message = 'Ticket Templates - What would you like to do?';
+
     // In JSON mode, output action menu prompt
     if (jsonMode) {
-      const actionChoices = [
-        { name: 'List available templates', value: 'list' },
-        { name: 'Create ticket from template', value: 'apply' },
-        { name: 'Save ticket as template', value: 'save' },
-        { name: 'Delete template', value: 'delete' },
-        { name: 'Cancel', value: 'cancel' },
-      ];
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', '📋 Ticket Templates - What would you like to do?', actionChoices),
+        buildPromptConfig('list', 'action', message, menuChoices),
         createMetadata('ticket template', flags)
       );
       return;
@@ -61,14 +64,11 @@ export default class TicketTemplateIndex extends PMOCommand {
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
-      message: '📋 Ticket Templates - What would you like to do?',
+      message: '📋 ' + message,
       choices: [
-        { name: 'List available templates', value: 'list' },
-        { name: 'Create ticket from template', value: 'apply' },
-        { name: 'Save ticket as template', value: 'save' },
+        ...menuChoices.slice(0, 3),
         new inquirer.Separator('──────────────'),
-        { name: 'Delete template', value: 'delete' },
-        { name: 'Cancel', value: 'cancel' },
+        ...menuChoices.slice(3),
       ],
     }]);
 

@@ -29,16 +29,19 @@ export default class Branch extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
 
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'Create new branch', value: 'create' },
+      { name: 'List branches', value: 'list' },
+      { name: 'Validate branch name', value: 'validate' },
+      { name: 'Cancel', value: 'cancel' },
+    ]
+    const message = 'What would you like to do?'
+
     // In JSON mode, output menu prompt
     if (jsonMode) {
-      const menuChoices = [
-        { name: 'Create new branch', value: 'create' },
-        { name: 'List branches', value: 'list' },
-        { name: 'Validate branch name', value: 'validate' },
-        { name: 'Cancel', value: 'cancel' },
-      ]
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', 'What would you like to do?', menuChoices),
+        buildPromptConfig('list', 'action', message, menuChoices),
         createMetadata('branch', flags)
       )
       return
@@ -48,13 +51,13 @@ export default class Branch extends PMOCommand {
       {
         type: 'list',
         name: 'action',
-        message: 'What would you like to do?',
+        message,
         choices: [
-          { name: '✨ Create new branch', value: 'create' },
-          { name: '📋 List branches', value: 'list' },
-          { name: '✅ Validate branch name', value: 'validate' },
+          { name: '✨ ' + menuChoices[0].name, value: menuChoices[0].value },
+          { name: '📋 ' + menuChoices[1].name, value: menuChoices[1].value },
+          { name: '✅ ' + menuChoices[2].name, value: menuChoices[2].value },
           new inquirer.Separator(),
-          { name: '❌ Cancel', value: 'cancel' },
+          { name: '❌ ' + menuChoices[3].name, value: menuChoices[3].value },
         ],
       },
     ])

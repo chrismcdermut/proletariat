@@ -33,17 +33,20 @@ export default class Execution extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
 
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'List all executions', value: 'list' },
+      { name: 'View logs for an execution', value: 'logs' },
+      { name: 'Stop an execution', value: 'stop' },
+      { name: 'Stop all running', value: 'stop-all' },
+      { name: 'Cancel', value: 'cancel' },
+    ]
+    const message = 'What would you like to do?'
+
     // In JSON mode, output menu prompt
     if (jsonMode) {
-      const menuChoices = [
-        { name: 'List all executions', value: 'list' },
-        { name: 'View logs for an execution', value: 'logs' },
-        { name: 'Stop an execution', value: 'stop' },
-        { name: 'Stop all running', value: 'stop-all' },
-        { name: 'Cancel', value: 'cancel' },
-      ]
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', 'What would you like to do?', menuChoices),
+        buildPromptConfig('list', 'action', message, menuChoices),
         createMetadata('execution', flags)
       )
       return
@@ -53,14 +56,14 @@ export default class Execution extends PMOCommand {
       {
         type: 'list',
         name: 'action',
-        message: 'What would you like to do?',
+        message,
         choices: [
-          { name: '📋 List all executions', value: 'list' },
-          { name: '📜 View logs for an execution', value: 'logs' },
-          { name: '🛑 Stop an execution', value: 'stop' },
-          { name: '🛑 Stop all running', value: 'stop-all' },
+          { name: '📋 ' + menuChoices[0].name, value: menuChoices[0].value },
+          { name: '📜 ' + menuChoices[1].name, value: menuChoices[1].value },
+          { name: '🛑 ' + menuChoices[2].name, value: menuChoices[2].value },
+          { name: '🛑 ' + menuChoices[3].name, value: menuChoices[3].value },
           new inquirer.Separator(),
-          { name: '❌ Cancel', value: 'cancel' },
+          { name: '❌ ' + menuChoices[4].name, value: menuChoices[4].value },
         ],
       },
     ])
