@@ -1,4 +1,4 @@
-import { Command } from '@oclif/core'
+import { Command, Flags } from '@oclif/core'
 import inquirer from 'inquirer'
 import { execSync } from 'child_process'
 import * as path from 'path'
@@ -7,6 +7,12 @@ import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js'
 
 export default class Docker extends Command {
   static description = 'Manage Docker containers used by agents'
@@ -25,7 +31,39 @@ export default class Docker extends Command {
     '<%= config.bin %> docker prune',
   ]
 
+  static flags = {
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
+  }
+
   async run(): Promise<void> {
+    const { flags } = await this.parse(Docker)
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags)
+
+    // In JSON mode, output menu prompt
+    if (jsonMode) {
+      const menuChoices = [
+        { name: 'Check Docker status', value: 'status' },
+        { name: 'List containers', value: 'list' },
+        { name: 'View container logs', value: 'logs' },
+        { name: 'Start a container', value: 'start' },
+        { name: 'Stop a container', value: 'stop' },
+        { name: 'Shell into container', value: 'shell' },
+        { name: 'Restart a container', value: 'restart' },
+        { name: 'Sync containers from Docker', value: 'sync' },
+        { name: 'Clean orphaned containers', value: 'clean' },
+        { name: 'Prune unused resources', value: 'prune' },
+        { name: 'Exit', value: 'exit' },
+      ]
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', 'What would you like to do?', menuChoices),
+        createMetadata('docker', flags)
+      )
+      return
+    }
+
     this.log('')
     this.log(styles.header('Docker Management'))
     this.log('')

@@ -3,6 +3,12 @@ import { execSync } from 'child_process'
 import inquirer from 'inquirer'
 import { styles } from '../../lib/styles.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js'
 
 export default class DockerPrune extends Command {
   static description = 'Remove unused Docker resources (containers, images, volumes, networks)'
@@ -35,6 +41,8 @@ export default class DockerPrune extends Command {
       description: 'Also prune volumes (dangerous - data loss possible)',
       default: false,
     }),
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   }
 
   async run(): Promise<void> {
@@ -86,6 +94,22 @@ export default class DockerPrune extends Command {
       const message = flags.volumes
         ? 'This will remove unused resources INCLUDING VOLUMES. Data may be lost. Continue?'
         : 'Remove unused Docker resources?'
+
+      // Check if JSON output mode is active
+      const jsonMode = shouldOutputJson(flags)
+
+      // In JSON mode, output confirmation prompt
+      if (jsonMode) {
+        const confirmChoices = [
+          { name: 'No', value: 'false' },
+          { name: 'Yes', value: 'true' },
+        ]
+        outputPromptAsJson(
+          buildPromptConfig('list', 'confirmed', message, confirmChoices),
+          createMetadata('docker prune', flags)
+        )
+        return
+      }
 
       const { confirm } = await inquirer.prompt([
         {

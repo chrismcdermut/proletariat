@@ -1,5 +1,12 @@
+import { Flags } from '@oclif/core'
 import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js'
 
 export default class Execution extends PMOCommand {
   static description = 'Single execution operations (logs, stop)'
@@ -12,6 +19,8 @@ export default class Execution extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   }
 
   protected getPMOOptions() {
@@ -19,6 +28,27 @@ export default class Execution extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    const { flags } = await this.parse(Execution)
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags)
+
+    // In JSON mode, output menu prompt
+    if (jsonMode) {
+      const menuChoices = [
+        { name: 'List all executions', value: 'list' },
+        { name: 'View logs for an execution', value: 'logs' },
+        { name: 'Stop an execution', value: 'stop' },
+        { name: 'Stop all running', value: 'stop-all' },
+        { name: 'Cancel', value: 'cancel' },
+      ]
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', 'What would you like to do?', menuChoices),
+        createMetadata('execution', flags)
+      )
+      return
+    }
+
     const { action } = await inquirer.prompt([
       {
         type: 'list',

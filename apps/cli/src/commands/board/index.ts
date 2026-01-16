@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';
+import { Flags } from '@oclif/core';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import {
@@ -20,6 +21,12 @@ import {
   getColumnEmoji,
   divider,
 } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class Board extends PMOCommand {
   static description = 'Interactive menu for board operations';
@@ -30,9 +37,34 @@ export default class Board extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   };
 
   async execute(): Promise<void> {
+    const { flags } = await this.parse(Board);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // In JSON mode, output menu prompt
+    if (jsonMode) {
+      const menuChoices = [
+        { name: 'View board in terminal', value: 'view' },
+        { name: 'Open board in Obsidian', value: 'open' },
+        { name: 'Show as markdown', value: 'markdown' },
+        { name: 'Export board', value: 'export' },
+        { name: 'Sync board', value: 'sync' },
+        { name: 'Watch for changes', value: 'watch' },
+        { name: 'Cancel', value: 'cancel' },
+      ];
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', `Board Operations - ${this.projectName} - What would you like to do?`, menuChoices),
+        createMetadata('board', flags)
+      );
+      return;
+    }
+
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',

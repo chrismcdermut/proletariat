@@ -6,6 +6,15 @@ import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+  buildFormPromptConfig,
+  FormField,
+} from '../../lib/prompt-json.js'
+import {
   BRANCH_TYPES,
   BranchType,
   DEVELOPMENT_TYPES,
@@ -94,6 +103,8 @@ export default class BranchCreate extends PMOCommand {
       description: 'Non-interactive mode: skip prompts, switch to existing branch if it exists',
       default: false,
     }),
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   }
 
   protected getPMOOptions() {
@@ -103,9 +114,21 @@ export default class BranchCreate extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(BranchCreate)
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags)
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('branch create', flags))
+        this.exit(1)
+      }
+      this.error(message)
+    }
+
     // Check if in git repo
     if (!isGitRepo()) {
-      this.error('Not in a git repository.')
+      return handleError('NOT_GIT_REPO', 'Not in a git repository.')
     }
 
     let branchName: string
@@ -116,6 +139,19 @@ export default class BranchCreate extends PMOCommand {
       const validation = validateBranchName(branchName)
 
       if (!validation.valid) {
+        // In JSON mode, output validation warning prompt
+        if (jsonMode) {
+          const confirmChoices = [
+            { name: 'No', value: 'false' },
+            { name: 'Yes', value: 'true' },
+          ]
+          outputPromptAsJson(
+            buildPromptConfig('list', 'proceed', `Branch name doesn't follow conventional format. ${validation.error} Continue anyway?`, confirmChoices),
+            createMetadata('branch create', flags)
+          )
+          return
+        }
+
         // Warn but allow creation
         const { proceed } = await inquirer.prompt([
           {
@@ -138,7 +174,7 @@ export default class BranchCreate extends PMOCommand {
       // Ticket-only mode: look up ticket and auto-generate branch name
       const ticketResult = await this.createFromTicketId(flags.ticket, flags.owner)
       if (!ticketResult) {
-        this.error(`Could not find ticket: ${flags.ticket}`)
+        return handleError('TICKET_NOT_FOUND', `Could not find ticket: ${flags.ticket}`)
       }
       branchName = ticketResult.branchName
       ;(this as any)._selectedTicket = ticketResult.ticket
@@ -147,25 +183,19 @@ export default class BranchCreate extends PMOCommand {
       const type = flags.type as BranchType
 
       if (!isValidBranchType(type)) {
-        this.error(`Invalid branch type: "${type}"`)
+        return handleError('INVALID_BRANCH_TYPE', `Invalid branch type: "${type}"`)
       }
 
       const description = flags.description
       if (!isKebabCase(description)) {
-        this.error(
-          `Description must be kebab-case: "${description}"\n` +
-            `Example: add-user-auth, fix-login-bug`
-        )
+        return handleError('INVALID_DESCRIPTION', `Description must be kebab-case: "${description}". Example: add-user-auth, fix-login-bug`)
       }
 
       // Use provided owner name or fall back to configured default
       const ownerName = flags.owner || this.getDefaultOwnerName()
 
       if (ownerName && !isKebabCase(ownerName)) {
-        this.error(
-          `Owner name must be kebab-case: "${ownerName}"\n` +
-            `Example: chris, chris-m, team-alpha`
-        )
+        return handleError('INVALID_OWNER', `Owner name must be kebab-case: "${ownerName}". Example: chris, chris-m, team-alpha`)
       }
 
       branchName = buildBranchName(type, description, {
@@ -174,7 +204,7 @@ export default class BranchCreate extends PMOCommand {
       })
     } else {
       // Interactive wizard
-      const wizardResult = await this.runWizard()
+      const wizardResult = await this.runWizard(jsonMode, flags)
       if (!wizardResult) return
       branchName = wizardResult.branchName
       // Store ticket info, autoCommit, fromOrigin, and customStartPoint flags for later
@@ -361,11 +391,7 @@ export default class BranchCreate extends PMOCommand {
     }
   }
 
-  private async runWizard(): Promise<WizardResult | null> {
-    this.log('')
-    this.log(styles.header('🌿 Create New Branch'))
-    this.log('')
-
+  private async runWizard(jsonMode = false, flags: Record<string, unknown> = {}): Promise<WizardResult | null> {
     // Get default owner name from config or GitHub
     const defaultOwnerName = this.getDefaultOwnerName()
 
@@ -389,6 +415,27 @@ export default class BranchCreate extends PMOCommand {
 
     // First choice: from ticket or custom
     const hasTickets = tickets.length > 0
+
+    // In JSON mode, output mode selection prompt
+    if (jsonMode) {
+      const modeChoices = [
+        ...(hasTickets ? [
+          { name: 'From ticket - quick', value: 'ticket-quick' },
+          { name: 'From ticket - customize', value: 'ticket' },
+        ] : []),
+        { name: 'Custom branch name', value: 'custom' },
+      ]
+      outputPromptAsJson(
+        buildPromptConfig('list', 'mode', 'Create branch:', modeChoices),
+        createMetadata('branch create', flags)
+      )
+      return null
+    }
+
+    this.log('')
+    this.log(styles.header('🌿 Create New Branch'))
+    this.log('')
+
     const { mode } = await inquirer.prompt([
       {
         type: 'list',

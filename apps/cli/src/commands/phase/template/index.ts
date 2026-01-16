@@ -1,6 +1,13 @@
+import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import { PhaseTemplate } from '../../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../../lib/prompt-json.js';
 
 export default class PhaseTemplateMenu extends PMOCommand {
   static description = 'Interactive menu for project phase template operations';
@@ -13,6 +20,8 @@ export default class PhaseTemplateMenu extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   };
 
   protected getPMOOptions() {
@@ -20,6 +29,28 @@ export default class PhaseTemplateMenu extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    const { flags } = await this.parse(PhaseTemplateMenu);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // In JSON mode, output menu prompt
+    if (jsonMode) {
+      const menuChoices = [
+        { name: 'List available templates', value: 'list' },
+        { name: 'Apply template to workspace', value: 'apply' },
+        { name: 'Save current phases as template', value: 'create' },
+        { name: 'Update template', value: 'update' },
+        { name: 'Delete template', value: 'delete' },
+        { name: 'Cancel', value: 'cancel' },
+      ];
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', 'Phase Templates - What would you like to do?', menuChoices),
+        createMetadata('phase template', flags)
+      );
+      return;
+    }
+
     {
       // Show interactive menu
       const { action } = await inquirer.prompt([{

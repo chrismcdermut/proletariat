@@ -3,6 +3,13 @@ import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildFormPromptConfig,
+  FormField,
+} from '../../lib/prompt-json.js';
 
 export default class PhaseCreate extends PMOCommand {
   static description = 'Create a new project lifecycle phase';
@@ -43,6 +50,8 @@ export default class PhaseCreate extends PMOCommand {
       description: 'Interactive mode',
       default: false,
     }),
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   };
 
   protected getPMOOptions() {
@@ -63,6 +72,36 @@ export default class PhaseCreate extends PMOCommand {
 
       // Auto-enter interactive mode if any required value is missing
       if (flags.interactive || !args.name || !flags.category) {
+        // Check if JSON output mode is active
+        const jsonMode = shouldOutputJson(flags);
+
+        // In JSON mode, output form prompt
+        if (jsonMode) {
+          const categoryLabels: Record<StateCategory, string> = {
+            backlog: 'Backlog - Not yet scheduled for work',
+            unstarted: 'Unstarted - Scheduled but work hasn\'t begun',
+            started: 'Started - Work is actively in progress',
+            completed: 'Completed - Work finished successfully',
+            canceled: 'Canceled - Work won\'t be done',
+          };
+          const fields: FormField[] = [
+            { type: 'input', name: 'name', message: 'Phase name:', default: args.name },
+            {
+              type: 'list', name: 'category', message: 'Category:',
+              choices: STATE_CATEGORY_ORDER.map(cat => ({ name: categoryLabels[cat], value: cat })),
+              default: flags.category,
+            },
+            { type: 'input', name: 'color', message: 'Color (hex, optional):', default: flags.color },
+            { type: 'input', name: 'description', message: 'Description (optional):', default: flags.description },
+            { type: 'confirm', name: 'isDefault', message: 'Set as default for new projects?', default: flags.default || false },
+          ];
+          outputPromptAsJson(
+            buildFormPromptConfig(fields),
+            createMetadata('phase create', flags)
+          );
+          return;
+        }
+
         phaseData = await this.promptPhaseData(args, flags);
       } else {
         phaseData = {

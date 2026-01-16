@@ -8,6 +8,12 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { sanitizeContainerId } from '../../lib/docker/resolve.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js'
 
 interface OrphanedContainer {
   id: string
@@ -43,6 +49,8 @@ export default class DockerClean extends Command {
       description: 'Remove all stopped devcontainers (not just orphaned)',
       default: false,
     }),
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   }
 
   async run(): Promise<void> {
@@ -116,6 +124,23 @@ export default class DockerClean extends Command {
 
       // Confirm removal
       if (!flags.force) {
+        // Check if JSON output mode is active
+        const jsonMode = shouldOutputJson(flags)
+
+        // In JSON mode, output confirmation prompt
+        if (jsonMode) {
+          const confirmChoices = [
+            { name: 'No', value: 'false' },
+            { name: 'Yes', value: 'true' },
+          ]
+          outputPromptAsJson(
+            buildPromptConfig('list', 'confirmed', `Remove ${orphanedContainers.length} orphaned container(s)?`, confirmChoices),
+            createMetadata('docker clean', flags)
+          )
+          db.close()
+          return
+        }
+
         const { confirm } = await inquirer.prompt([
           {
             type: 'confirm',

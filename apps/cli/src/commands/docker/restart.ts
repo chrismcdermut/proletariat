@@ -8,6 +8,12 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { resolveContainerId, containerExists, sanitizeContainerId } from '../../lib/docker/resolve.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js'
 
 export default class DockerRestart extends Command {
   static description = 'Restart a container (by execution ID, agent name, or container ID)'
@@ -30,6 +36,8 @@ export default class DockerRestart extends Command {
       description: 'Seconds to wait before killing the container during stop',
       default: 10,
     }),
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   }
 
   static args = {
@@ -85,6 +93,23 @@ export default class DockerRestart extends Command {
 
       // Confirm
       if (!flags.force) {
+        // Check if JSON output mode is active
+        const jsonMode = shouldOutputJson(flags)
+
+        // In JSON mode, output confirmation prompt
+        if (jsonMode) {
+          const confirmChoices = [
+            { name: 'Yes', value: 'true' },
+            { name: 'No', value: 'false' },
+          ]
+          outputPromptAsJson(
+            buildPromptConfig('list', 'confirmed', `Restart container ${result.displayName}?`, confirmChoices),
+            createMetadata('docker restart', flags)
+          )
+          db.close()
+          return
+        }
+
         const { confirm } = await inquirer.prompt([
           {
             type: 'confirm',
