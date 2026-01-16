@@ -4,6 +4,11 @@ import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { slugify } from '../../lib/pmo/utils.js';
 import { SpecType, SpecStatus } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+} from '../../lib/prompt-json.js';
 
 export default class SpecCreate extends PMOCommand {
   static description = 'Create a new spec';
@@ -45,10 +50,21 @@ export default class SpecCreate extends PMOCommand {
       description: 'Interactive mode',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SpecCreate);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
 
     // Get spec data
     let specData: {
@@ -59,6 +75,31 @@ export default class SpecCreate extends PMOCommand {
     };
 
     if (flags.interactive || (!args.title && !flags.title)) {
+      // In JSON mode, output form prompts
+      if (jsonMode) {
+        const formFields = [
+          { type: 'input' as const, name: 'title', message: 'Spec title:', default: flags.title },
+          { type: 'list' as const, name: 'type', message: 'Spec type:', choices: [
+            { name: 'Product (user-facing feature)', value: 'product' },
+            { name: 'Platform (internal tooling)', value: 'platform' },
+            { name: 'Infra (technical infrastructure)', value: 'infra' },
+            { name: 'Integration (external service)', value: 'integration' },
+            { name: 'None', value: '' },
+          ], default: flags.type },
+          { type: 'list' as const, name: 'status', message: 'Status:', choices: [
+            { name: 'Draft (planning)', value: 'draft' },
+            { name: 'Active (in progress)', value: 'active' },
+            { name: 'Implemented (complete)', value: 'implemented' },
+          ], default: flags.status || 'draft' },
+          { type: 'input' as const, name: 'problem', message: 'Problem statement (optional):', default: flags.problem },
+        ];
+        outputPromptAsJson(
+          { type: 'form', fields: formFields },
+          createMetadata('spec create', flags)
+        );
+        return;
+      }
+
       specData = await this.promptSpecData(flags);
     } else {
       specData = {

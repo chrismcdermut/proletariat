@@ -4,6 +4,13 @@ import * as path from 'node:path';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class SpecTicket extends PMOCommand {
   static description = 'Assign a ticket to a spec document';
@@ -26,6 +33,14 @@ export default class SpecTicket extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'no-interactive': Flags.boolean({
+      description: 'Alias for --json flag',
+      default: false,
+    }),
     ticket: Flags.string({
       char: 't',
       description: 'Ticket ID',
@@ -39,12 +54,34 @@ export default class SpecTicket extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SpecTicket);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('spec ticket', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Get ticket ID
     let ticketId = args.ticketId || flags.ticket;
     if (!ticketId) {
       const tickets = await this.storage.listTickets();
       if (tickets.length === 0) {
-        this.error('No tickets found. Create one first with: prlt ticket create');
+        return handleError('NO_TICKETS', 'No tickets found. Create one first with: prlt ticket create');
+      }
+
+      // In JSON mode, output ticket selection prompt
+      if (jsonMode) {
+        const ticketChoices = tickets.map(t => ({ name: `${t.id}: ${t.title}`, value: t.id }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'ticketId', 'Select ticket to link:', ticketChoices),
+          createMetadata('spec ticket', flags)
+        );
+        return;
       }
 
       const { selectedTicket } = await inquirer.prompt([{
@@ -57,13 +94,13 @@ export default class SpecTicket extends PMOCommand {
     }
 
     if (!ticketId) {
-      this.error('No ticket selected');
+      return handleError('NO_TICKET_SELECTED', 'No ticket selected');
     }
 
     // Get ticket
     const ticket = await this.storage.getTicket(ticketId);
     if (!ticket) {
-      this.error(`Ticket "${ticketId}" not found in project "${this.projectName}"`);
+      return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found in project "${this.projectName}"`);
     }
 
     // Get spec ID
@@ -71,7 +108,17 @@ export default class SpecTicket extends PMOCommand {
     if (!specId) {
       const specs = await this.listAvailableSpecs(this.pmoPath, this.projectId);
       if (specs.length === 0) {
-        this.error('No specs found. Create one first with: prlt spec create');
+        return handleError('NO_SPECS', 'No specs found. Create one first with: prlt spec create');
+      }
+
+      // In JSON mode, output spec selection prompt
+      if (jsonMode) {
+        const specChoices = specs.map(s => ({ name: `${s.name} (${s.status})`, value: s.id }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'specId', 'Select spec to link:', specChoices),
+          createMetadata('spec ticket', flags)
+        );
+        return;
       }
 
       const { selectedSpec } = await inquirer.prompt([{
