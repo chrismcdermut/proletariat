@@ -96,16 +96,8 @@ function buildPrompt(context: ExecutionContext): string {
     }
   }
 
-  // Add branch instructions (only for code-modifying actions)
-  if (context.branch && !context.isRevision && context.modifiesCode) {
-    prompt += `\n---\n\n## Before You Start\n\n`
-    prompt += `**IMPORTANT:** You must be on the correct branch before making changes.\n\n`
-    prompt += `\`\`\`bash\n`
-    prompt += `# Create/checkout the target branch from origin/main with initial commit (seeds PR title)\n`
-    prompt += `prlt branch create ${context.branch} --from-origin --force --empty-commit\n`
-    prompt += `\`\`\`\n\n`
-    prompt += `**Target branch:** \`${context.branch}\`\n`
-  }
+  // Note: Branch setup (fetch + checkout/create) is now handled programmatically
+  // in work/start.ts before the agent spawns, so no prompt instructions needed
 
   // END HOOK - Action-specific completion instructions
   prompt += `\n---\n\n## When Complete\n\n`
