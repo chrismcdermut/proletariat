@@ -206,6 +206,9 @@ export abstract class PMOCommand extends Command {
       return { allProjects: false, projectId };
     }
 
+    // Sort projects by ID for consistent ordering
+    projectsWithCounts.sort((a, b) => a.id.localeCompare(b.id));
+
     // Build choices: "All Tickets" first, then separator, then projects
     const choices: Array<{ name: string; value: string } | inquirer.Separator> = [
       {
