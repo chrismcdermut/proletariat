@@ -38,27 +38,31 @@ export default class TicketBulk extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
+    // Define choices once, use for both JSON and interactive modes
+    const menuChoices = [
+      { name: 'List all tickets', value: 'list' },
+      { name: 'Move multiple tickets', value: 'move' },
+      { name: 'Complete multiple tickets', value: 'complete' },
+      { name: 'Reassign tickets (change assignee)', value: 'reassign' },
+      { name: 'Link tickets to epic', value: 'epic' },
+      { name: 'Link tickets to spec', value: 'spec' },
+      { name: 'Move tickets to project', value: 'project' },
+      { name: 'Update tickets (priority/category)', value: 'update' },
+      { name: 'Delete multiple tickets', value: 'delete' },
+      { name: 'Cancel', value: 'cancel' },
+    ];
+    const message = 'Ticket Management (Bulk Operations) - What would you like to do?';
+
     // In JSON mode, output action selection prompt
     if (jsonMode) {
-      const actionChoices = [
-        { name: 'List all tickets', value: 'list' },
-        { name: 'Move multiple tickets', value: 'move' },
-        { name: 'Complete multiple tickets', value: 'complete' },
-        { name: 'Reassign tickets (change assignee)', value: 'reassign' },
-        { name: 'Link tickets to epic', value: 'epic' },
-        { name: 'Link tickets to spec', value: 'spec' },
-        { name: 'Move tickets to project', value: 'project' },
-        { name: 'Update tickets (priority/category)', value: 'update' },
-        { name: 'Delete multiple tickets', value: 'delete' },
-      ];
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', 'Ticket Management (Bulk Operations) - What would you like to do?', actionChoices),
+        buildPromptConfig('list', 'action', message, menuChoices),
         createMetadata('ticket bulk', flags)
       );
       return;
     }
 
-    this.log(styles.emphasis('🎫 Ticket Management (Bulk Operations)'));
+    this.log(styles.emphasis('🎫 ' + message.split(' - ')[0]));
     this.log('');
 
     const { action } = await inquirer.prompt([{
@@ -66,19 +70,19 @@ export default class TicketBulk extends PMOCommand {
       name: 'action',
       message: 'What would you like to do?',
       choices: [
-        { name: '📋 List all tickets', value: 'list' },
-        { name: '📦 Move multiple tickets', value: 'move' },
-        { name: '✅ Complete multiple tickets', value: 'complete' },
+        { name: '📋 ' + menuChoices[0].name, value: menuChoices[0].value },
+        { name: '📦 ' + menuChoices[1].name, value: menuChoices[1].value },
+        { name: '✅ ' + menuChoices[2].name, value: menuChoices[2].value },
         new inquirer.Separator(),
-        { name: '👤 Reassign tickets (change assignee)', value: 'reassign' },
-        { name: '🔗 Link tickets to epic', value: 'epic' },
-        { name: '📄 Link tickets to spec', value: 'spec' },
-        { name: '📁 Move tickets to project', value: 'project' },
-        { name: '✏️  Update tickets (priority/category)', value: 'update' },
+        { name: '👤 ' + menuChoices[3].name, value: menuChoices[3].value },
+        { name: '🔗 ' + menuChoices[4].name, value: menuChoices[4].value },
+        { name: '📄 ' + menuChoices[5].name, value: menuChoices[5].value },
+        { name: '📁 ' + menuChoices[6].name, value: menuChoices[6].value },
+        { name: '✏️  ' + menuChoices[7].name, value: menuChoices[7].value },
         new inquirer.Separator(),
-        { name: '🗑️  Delete multiple tickets', value: 'delete' },
+        { name: '🗑️  ' + menuChoices[8].name, value: menuChoices[8].value },
         new inquirer.Separator(),
-        { name: 'Cancel', value: 'cancel' }
+        menuChoices[9]
       ]
     }]);
 
