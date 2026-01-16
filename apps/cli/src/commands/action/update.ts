@@ -3,6 +3,14 @@ import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildFormPromptConfig,
+  FormField,
+} from '../../lib/prompt-json.js';
 
 export default class ActionUpdate extends PMOCommand {
   static description = 'Update a work action';
@@ -46,6 +54,8 @@ export default class ActionUpdate extends PMOCommand {
       description: 'Interactive mode - prompt for all fields',
       default: false,
     }),
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   };
 
   protected getPMOOptions() {
@@ -55,14 +65,26 @@ export default class ActionUpdate extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(ActionUpdate);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('action update', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Get current action
     const existingAction = await this.storage.getAction(args.id);
     if (!existingAction) {
-      this.error(`Action not found: ${args.id}`);
+      return handleError('ACTION_NOT_FOUND', `Action not found: ${args.id}`);
     }
 
     if (existingAction.isBuiltin) {
-      this.error('Cannot update built-in actions. Create a custom action instead.');
+      return handleError('CANNOT_UPDATE_BUILTIN', 'Cannot update built-in actions. Create a custom action instead.');
     }
 
     const hasFlags = flags.name || flags.prompt || flags.description !== undefined ||
@@ -78,6 +100,33 @@ export default class ActionUpdate extends PMOCommand {
 
     // Interactive mode if no flags provided or --interactive flag
     if (!hasFlags || flags.interactive) {
+      // In JSON mode, output form prompt
+      if (jsonMode) {
+        const fields: FormField[] = [
+          { type: 'input', name: 'name', message: 'Name:', default: existingAction.name },
+          { type: 'input', name: 'description', message: 'Description:', default: existingAction.description || '' },
+          { type: 'editor', name: 'prompt', message: 'Prompt (opens editor):', default: existingAction.prompt },
+          {
+            type: 'checkbox', name: 'suggestedFor', message: 'Suggested for categories:',
+            choices: STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
+            default: existingAction.suggestedForCategories || [],
+          },
+          {
+            type: 'list', name: 'moveTo', message: 'Move ticket to category after action:',
+            choices: [
+              { name: '(no change)', value: '__none__' },
+              ...STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
+            ],
+            default: existingAction.defaultMoveToCategory || '__none__',
+          },
+        ];
+        outputPromptAsJson(
+          buildFormPromptConfig(fields),
+          createMetadata('action update', flags)
+        );
+        return;
+      }
+
       this.log('');
       this.log(styles.header(`Updating action: ${existingAction.name}`));
       this.log(styles.muted('Press Enter to keep current value, or enter new value.'));

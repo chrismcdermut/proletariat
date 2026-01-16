@@ -1,6 +1,13 @@
+import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { WorkAction } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class Action extends PMOCommand {
   static description = 'Interactive menu for work action operations';
@@ -13,6 +20,8 @@ export default class Action extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   };
 
   protected getPMOOptions() {
@@ -20,6 +29,28 @@ export default class Action extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    const { flags } = await this.parse(Action);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // In JSON mode, output menu prompt
+    if (jsonMode) {
+      const menuChoices = [
+        { name: 'List all actions', value: 'list' },
+        { name: 'View action details', value: 'show' },
+        { name: 'Create custom action', value: 'create' },
+        { name: 'Update action', value: 'update' },
+        { name: 'Delete action', value: 'delete' },
+        { name: 'Cancel', value: 'cancel' },
+      ];
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', 'Work Actions - What would you like to do?', menuChoices),
+        createMetadata('action', flags)
+      );
+      return;
+    }
+
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',

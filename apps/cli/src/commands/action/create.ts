@@ -3,6 +3,13 @@ import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildFormPromptConfig,
+  FormField,
+} from '../../lib/prompt-json.js';
 
 export default class ActionCreate extends PMOCommand {
   static description = 'Create a new work action';
@@ -42,6 +49,8 @@ export default class ActionCreate extends PMOCommand {
       description: 'Interactive mode - prompt for all fields',
       default: false,
     }),
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   };
 
   protected getPMOOptions() {
@@ -51,6 +60,9 @@ export default class ActionCreate extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(ActionCreate);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
     let name = args.name;
     let prompt = flags.prompt;
     let description = flags.description;
@@ -59,6 +71,32 @@ export default class ActionCreate extends PMOCommand {
 
     // Interactive mode if name or prompt is missing
     if (!name || !prompt || flags.interactive) {
+      // In JSON mode, output form prompt
+      if (jsonMode) {
+        const fields: FormField[] = [
+          { type: 'input', name: 'name', message: 'Action name:', default: name },
+          { type: 'input', name: 'description', message: 'Description (optional):' },
+          { type: 'editor', name: 'prompt', message: 'Prompt (opens editor):', default: prompt },
+          {
+            type: 'checkbox', name: 'suggestedFor', message: 'Suggested for categories (optional):',
+            choices: STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
+          },
+          {
+            type: 'list', name: 'moveTo', message: 'Move ticket to category after action:',
+            choices: [
+              { name: '(no automatic move)', value: '' },
+              ...STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
+            ],
+            default: moveTo || '',
+          },
+        ];
+        outputPromptAsJson(
+          buildFormPromptConfig(fields),
+          createMetadata('action create', flags)
+        );
+        return;
+      }
+
       this.log('');
       this.log(styles.header('Create Custom Action'));
       this.log('');
