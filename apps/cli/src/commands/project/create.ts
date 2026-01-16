@@ -82,32 +82,32 @@ export default class ProjectCreate extends PMOCommand {
     };
 
     if (flags.interactive || (!args.name && !flags.name)) {
+      // Build choices once - single source of truth
+      const templateChoices = [
+        { name: 'Kanban - Backlog → To Do → In Progress → Done', value: 'kanban' },
+        { name: 'Linear - Backlog, Triage, Todo, In Progress, In Review, Done', value: 'linear' },
+        { name: 'Bug Smash - Reported → Confirmed → Fixing → Verifying → Fixed', value: 'bug-smash' },
+        { name: '5-Tool Founder - Ideas → Next Up → Building → Shipping → Shipped', value: '5-tool-founder' },
+        { name: 'GTM - Ideation → Planning → In Development → Ready to Launch → Launched', value: 'gtm' },
+      ];
+
+      // Define fields once - single source of truth for both JSON and interactive modes
+      const fields: FormField[] = [
+        { type: 'input', name: 'name', message: 'Project name:', default: flags.name },
+        { type: 'input', name: 'id', message: 'Project ID (leave blank to auto-generate):' },
+        { type: 'input', name: 'description', message: 'Description (optional):', default: flags.description },
+        { type: 'list', name: 'template', message: 'Workflow template:', choices: templateChoices, default: flags.template || 'kanban' },
+      ];
+
       // In JSON mode, output form prompt for project creation
       if (jsonMode) {
-        const fields: FormField[] = [
-          { type: 'input', name: 'name', message: 'Project name:', default: flags.name },
-          { type: 'input', name: 'id', message: 'Project ID (leave blank to auto-generate):' },
-          { type: 'input', name: 'description', message: 'Description (optional):', default: flags.description },
-          {
-            type: 'list', name: 'template', message: 'Workflow template:',
-            choices: [
-              { name: 'Kanban - Backlog → To Do → In Progress → Done', value: 'kanban' },
-              { name: 'Linear - Backlog, Triage, Todo, In Progress, In Review, Done', value: 'linear' },
-              { name: 'Bug Smash - Reported → Confirmed → Fixing → Verifying → Fixed', value: 'bug-smash' },
-              { name: '5-Tool Founder - Ideas → Next Up → Building → Shipping → Shipped', value: '5-tool-founder' },
-              { name: 'GTM - Ideation → Planning → In Development → Ready to Launch → Launched', value: 'gtm' },
-            ],
-            default: flags.template || 'kanban'
-          },
-        ];
         outputPromptAsJson(
           buildFormPromptConfig(fields),
           createMetadata('project create', flags)
         );
-        return;
       }
 
-      projectData = await this.promptProjectData(flags);
+      projectData = await this.promptProjectData(fields);
     } else {
       projectData = {
         name: args.name || flags.name!,
@@ -159,56 +159,30 @@ export default class ProjectCreate extends PMOCommand {
     this.log(styles.muted(`  prlt project view ${project.id}`));
   }
 
-  private async promptProjectData(flags: {
-    name?: string;
-    id?: string;
-    description?: string;
-    template?: string;
-  }): Promise<{
+  private async promptProjectData(
+    fields: FormField[]
+  ): Promise<{
     name: string;
     id?: string;
     description?: string;
     template: string;
   }> {
+    // Build inquirer prompts from fields, adding validators and dynamic defaults
     const answers = await inquirer.prompt<{
       name: string;
       id: string;
       description: string;
       template: string;
-    }>([
-      {
-        type: 'input',
-        name: 'name',
-        message: 'Project name:',
-        default: flags.name,
-        validate: (input: string) => input.length > 0 || 'Name is required',
-      },
-      {
-        type: 'input',
-        name: 'id',
-        message: 'Project ID (leave blank to auto-generate):',
-        default: (answers: { name: string }) => slugify(answers.name),
-      },
-      {
-        type: 'input',
-        name: 'description',
-        message: 'Description (optional):',
-        default: flags.description,
-      },
-      {
-        type: 'list',
-        name: 'template',
-        message: 'Workflow template:',
-        choices: [
-          { name: 'Kanban - Backlog → To Do → In Progress → Done', value: 'kanban' },
-          { name: 'Linear - Backlog, Triage, Todo, In Progress, In Review, Done', value: 'linear' },
-          { name: 'Bug Smash - Reported → Confirmed → Fixing → Verifying → Fixed', value: 'bug-smash' },
-          { name: '5-Tool Founder - Ideas → Next Up → Building → Shipping → Shipped', value: '5-tool-founder' },
-          { name: 'GTM - Ideation → Planning → In Development → Ready to Launch → Launched', value: 'gtm' },
-        ],
-        default: flags.template || 'kanban',
-      },
-    ]);
+    }>(fields.map(field => ({
+      ...field,
+      validate: field.name === 'name'
+        ? ((input: string) => input.length > 0 || 'Name is required')
+        : undefined,
+      // Dynamic default for id based on name
+      default: field.name === 'id'
+        ? ((answers: { name: string }) => slugify(answers.name))
+        : field.default,
+    })));
 
     return {
       name: answers.name,

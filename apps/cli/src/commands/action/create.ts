@@ -84,70 +84,39 @@ export default class ActionCreate extends PMOCommand {
         ...STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
       ];
 
+      // Define fields once - single source of truth for both JSON and interactive modes
+      const fields: FormField[] = [
+        { type: 'input', name: 'name', message: 'Action name:', default: name },
+        { type: 'input', name: 'description', message: 'Description (optional):', default: description || '' },
+        { type: 'editor', name: 'prompt', message: 'Prompt (opens editor):', default: prompt || 'Enter the prompt that will be sent to the agent...' },
+        { type: 'checkbox', name: 'suggestedFor', message: 'Suggested for categories (optional):', choices: suggestedForChoices },
+        { type: 'list', name: 'moveTo', message: 'Move ticket to category after action:', choices: moveToChoices, default: moveTo || '' },
+      ];
+
       // In JSON mode, output form prompt
       if (jsonMode) {
-        const fields: FormField[] = [
-          { type: 'input', name: 'name', message: 'Action name:', default: name },
-          { type: 'input', name: 'description', message: 'Description (optional):' },
-          { type: 'editor', name: 'prompt', message: 'Prompt (opens editor):', default: prompt },
-          {
-            type: 'checkbox', name: 'suggestedFor', message: 'Suggested for categories (optional):',
-            choices: suggestedForChoices,
-          },
-          {
-            type: 'list', name: 'moveTo', message: 'Move ticket to category after action:',
-            choices: moveToChoices,
-            default: moveTo || '',
-          },
-        ];
         outputPromptAsJson(
           buildFormPromptConfig(fields),
           createMetadata('action create', flags)
         );
-        return;
       }
 
       this.log('');
       this.log(styles.header('Create Custom Action'));
       this.log('');
 
-      const answers = await inquirer.prompt([
-        {
-          type: 'input',
-          name: 'name',
-          message: 'Action name:',
-          default: name,
-          validate: (input: string) => input.trim() ? true : 'Name is required',
-          when: !name,
-        },
-        {
-          type: 'input',
-          name: 'description',
-          message: 'Description (optional):',
-          default: description || '',
-        },
-        {
-          type: 'editor',
-          name: 'prompt',
-          message: 'Prompt (opens editor):',
-          default: prompt || 'Enter the prompt that will be sent to the agent...',
-          validate: (input: string) => input.trim() ? true : 'Prompt is required',
-          when: !prompt,
-        },
-        {
-          type: 'checkbox',
-          name: 'suggestedFor',
-          message: 'Suggested for categories (optional):',
-          choices: suggestedForChoices,
-        },
-        {
-          type: 'list',
-          name: 'moveTo',
-          message: 'Move ticket to category after action:',
-          choices: moveToChoices,
-          default: moveTo || '',
-        },
-      ]);
+      // Build inquirer prompts from fields, adding validators and conditionals
+      const answers = await inquirer.prompt(fields.map(field => ({
+        ...field,
+        // Add validators for required fields
+        validate: field.name === 'name' ? ((input: string) => input.trim() ? true : 'Name is required')
+          : field.name === 'prompt' ? ((input: string) => input.trim() ? true : 'Prompt is required')
+          : undefined,
+        // Skip fields that already have values
+        when: field.name === 'name' ? !name
+          : field.name === 'prompt' ? !prompt
+          : true,
+      })));
 
       name = answers.name || name;
       prompt = answers.prompt || prompt;

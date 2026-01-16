@@ -141,34 +141,34 @@ export default class PhaseUpdate extends PMOCommand {
 
     // Auto-enter interactive mode if no change flags provided
     if (flags.interactive || !hasChangeFlags) {
+      // Define labels and choices once - single source of truth
+      const categoryLabels: Record<StateCategory, string> = {
+        backlog: 'Backlog - Not yet scheduled for work',
+        unstarted: 'Unstarted - Scheduled but work hasn\'t begun',
+        started: 'Started - Work is actively in progress',
+        completed: 'Completed - Work finished successfully',
+        canceled: 'Canceled - Work won\'t be done',
+      };
+      const categoryChoices = STATE_CATEGORY_ORDER.map(cat => ({ name: categoryLabels[cat], value: cat }));
+
+      // Define fields once - single source of truth for both JSON and interactive modes
+      const fields: FormField[] = [
+        { type: 'input', name: 'name', message: 'Name:', default: existing.name },
+        { type: 'list', name: 'category', message: 'Category:', choices: categoryChoices, default: existing.category },
+        { type: 'input', name: 'color', message: 'Color (hex):', default: existing.color || '' },
+        { type: 'input', name: 'description', message: 'Description:', default: existing.description || '' },
+        { type: 'confirm', name: 'isDefault', message: 'Default for new projects?', default: existing.isDefault || false },
+      ];
+
       // In JSON mode, output form prompt
       if (jsonMode) {
-        const categoryLabels: Record<StateCategory, string> = {
-          backlog: 'Backlog - Not yet scheduled for work',
-          unstarted: 'Unstarted - Scheduled but work hasn\'t begun',
-          started: 'Started - Work is actively in progress',
-          completed: 'Completed - Work finished successfully',
-          canceled: 'Canceled - Work won\'t be done',
-        };
-        const fields: FormField[] = [
-          { type: 'input', name: 'name', message: 'Name:', default: existing.name },
-          {
-            type: 'list', name: 'category', message: 'Category:',
-            choices: STATE_CATEGORY_ORDER.map(cat => ({ name: categoryLabels[cat], value: cat })),
-            default: existing.category,
-          },
-          { type: 'input', name: 'color', message: 'Color (hex):', default: existing.color || '' },
-          { type: 'input', name: 'description', message: 'Description:', default: existing.description || '' },
-          { type: 'confirm', name: 'isDefault', message: 'Default for new projects?', default: existing.isDefault || false },
-        ];
         outputPromptAsJson(
           buildFormPromptConfig(fields),
           createMetadata('phase update', flags)
         );
-        return;
       }
 
-      updates = await this.promptUpdates(existing);
+      updates = await this.promptUpdates(fields, existing);
     } else {
       updates = {};
       if (flags.name) updates.name = flags.name;
@@ -194,69 +194,30 @@ export default class PhaseUpdate extends PMOCommand {
     }
   }
 
-  private async promptUpdates(existing: {
-    name: string;
-    category: StateCategory;
-    color?: string;
-    description?: string;
-    isDefault?: boolean;
-  }): Promise<{
+  private async promptUpdates(
+    fields: FormField[],
+    existing: {
+      name: string;
+      category: StateCategory;
+      color?: string;
+      description?: string;
+      isDefault?: boolean;
+    }
+  ): Promise<{
     name?: string;
     category?: StateCategory;
     color?: string;
     description?: string;
     isDefault?: boolean;
   }> {
-    const categoryLabels: Record<StateCategory, string> = {
-      backlog: 'Backlog - Not yet scheduled for work',
-      unstarted: 'Unstarted - Scheduled but work hasn\'t begun',
-      started: 'Started - Work is actively in progress',
-      completed: 'Completed - Work finished successfully',
-      canceled: 'Canceled - Work won\'t be done',
-    };
-
+    // Build inquirer prompts from fields
     const answers = await inquirer.prompt<{
       name: string;
       category: StateCategory;
       color: string;
       description: string;
       isDefault: boolean;
-    }>([
-      {
-        type: 'input',
-        name: 'name',
-        message: 'Name:',
-        default: existing.name,
-      },
-      {
-        type: 'list',
-        name: 'category',
-        message: 'Category:',
-        choices: STATE_CATEGORY_ORDER.map(cat => ({
-          name: categoryLabels[cat],
-          value: cat,
-        })),
-        default: existing.category,
-      },
-      {
-        type: 'input',
-        name: 'color',
-        message: 'Color (hex):',
-        default: existing.color || '',
-      },
-      {
-        type: 'input',
-        name: 'description',
-        message: 'Description:',
-        default: existing.description || '',
-      },
-      {
-        type: 'confirm',
-        name: 'isDefault',
-        message: 'Default for new projects?',
-        default: existing.isDefault || false,
-      },
-    ]);
+    }>(fields);
 
     const updates: {
       name?: string;

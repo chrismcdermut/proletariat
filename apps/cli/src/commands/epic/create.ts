@@ -82,33 +82,29 @@ export default class EpicCreate extends PMOCommand {
         })),
       ];
 
+      // Define fields once - single source of truth for both JSON and interactive modes
+      const fields: FormField[] = [
+        { type: 'input', name: 'title', message: 'Epic title:', default: flags.title },
+        { type: 'list', name: 'status', message: 'Initial status:', choices: statusChoices, default: flags.status || 'active' },
+        { type: 'input', name: 'description', message: 'Description (optional):', default: flags.description },
+      ];
+
+      if (specs.length > 0) {
+        fields.push({
+          type: 'list', name: 'specId', message: 'Link to spec (design document):',
+          choices: specChoices, default: flags.spec || ''
+        });
+      }
+
       // In JSON mode, output form prompt for epic creation
       if (jsonMode) {
-        const fields: FormField[] = [
-          { type: 'input', name: 'title', message: 'Epic title:', default: flags.title },
-          {
-            type: 'list', name: 'status', message: 'Initial status:',
-            choices: statusChoices,
-            default: flags.status || 'active'
-          },
-          { type: 'input', name: 'description', message: 'Description (optional):', default: flags.description },
-        ];
-
-        if (specs.length > 0) {
-          fields.push({
-            type: 'list', name: 'specId', message: 'Link to spec (design document):',
-            choices: specChoices, default: flags.spec || ''
-          });
-        }
-
         outputPromptAsJson(
           buildFormPromptConfig(fields),
           createMetadata('epic create', flags)
         );
-        return;
       }
 
-      epicData = await this.promptEpicData(flags, statusChoices, specChoices);
+      epicData = await this.promptEpicData(fields, specChoices.length > 1);
     } else {
       epicData = {
         title: flags.title,
@@ -157,61 +153,33 @@ export default class EpicCreate extends PMOCommand {
   }
 
   private async promptEpicData(
-    flags: {
-      title?: string;
-      status?: string;
-      description?: string;
-      spec?: string;
-    },
-    statusChoices: Array<{ name: string; value: string }>,
-    specChoices: Array<{ name: string; value: string }>
+    fields: FormField[],
+    hasSpecs: boolean
   ): Promise<{
     title: string;
     status: EpicStatus;
     description?: string;
     specId?: string;
   }> {
+    // Build inquirer prompts from fields, adding validators and conditionals
     const answers = await inquirer.prompt<{
       title: string;
       status: string;
       description?: string;
       specId?: string;
-    }>([
-      {
-        type: 'input',
-        name: 'title',
-        message: 'Epic title:',
-        default: flags.title,
-        validate: (input: string) => input.length > 0 || 'Title is required',
-      },
-      {
-        type: 'list',
-        name: 'status',
-        message: 'Initial status:',
-        choices: statusChoices,
-        default: flags.status || 'active',
-      },
-      {
-        type: 'input',
-        name: 'description',
-        message: 'Description (optional):',
-        default: flags.description,
-      },
-      {
-        type: 'list',
-        name: 'specId',
-        message: 'Link to spec (design document):',
-        choices: specChoices,
-        default: flags.spec || '',
-        when: () => specChoices.length > 1, // More than just "None"
-      },
-    ]);
+    }>(fields.map(field => ({
+      ...field,
+      validate: field.name === 'title'
+        ? ((input: string) => input.length > 0 || 'Title is required')
+        : undefined,
+      when: field.name === 'specId' ? () => hasSpecs : undefined,
+    })));
 
     return {
       title: answers.title,
       status: answers.status as EpicStatus,
       description: answers.description || undefined,
-      specId: answers.specId || flags.spec || undefined,
+      specId: answers.specId || undefined,
     };
   }
 }

@@ -9,6 +9,7 @@ import {
   outputPromptAsJson,
   createMetadata,
   buildFormPromptConfig,
+  FormField,
 } from '../../lib/prompt-json.js';
 
 export default class SpecCreate extends PMOCommand {
@@ -76,7 +77,7 @@ export default class SpecCreate extends PMOCommand {
     };
 
     if (flags.interactive || (!args.title && !flags.title)) {
-      // Build choices once, use for both JSON and interactive modes
+      // Build choices once - single source of truth
       const typeChoices = [
         { name: 'Product (user-facing feature)', value: 'product' },
         { name: 'Platform (internal tooling)', value: 'platform' },
@@ -90,21 +91,23 @@ export default class SpecCreate extends PMOCommand {
         { name: 'Implemented (complete)', value: 'implemented' },
       ];
 
+      // Define fields once - single source of truth for both JSON and interactive modes
+      const fields: FormField[] = [
+        { type: 'input', name: 'title', message: 'Spec title:', default: flags.title },
+        { type: 'list', name: 'type', message: 'Spec type:', choices: typeChoices, default: flags.type },
+        { type: 'list', name: 'status', message: 'Status:', choices: statusChoices, default: flags.status || 'draft' },
+        { type: 'input', name: 'problem', message: 'Problem statement (optional):', default: flags.problem },
+      ];
+
       // In JSON mode, output form prompts
       if (jsonMode) {
         outputPromptAsJson(
-          buildFormPromptConfig([
-            { type: 'input', name: 'title', message: 'Spec title:', default: flags.title },
-            { type: 'list', name: 'type', message: 'Spec type:', choices: typeChoices, default: flags.type },
-            { type: 'list', name: 'status', message: 'Status:', choices: statusChoices, default: flags.status || 'draft' },
-            { type: 'input', name: 'problem', message: 'Problem statement (optional):', default: flags.problem },
-          ]),
+          buildFormPromptConfig(fields),
           createMetadata('spec create', flags)
         );
-        return;
       }
 
-      specData = await this.promptSpecData(flags, typeChoices, statusChoices);
+      specData = await this.promptSpecData(fields);
     } else {
       specData = {
         title: args.title || flags.title || 'Untitled Spec',
@@ -137,49 +140,25 @@ export default class SpecCreate extends PMOCommand {
   }
 
   private async promptSpecData(
-    flags: {
-      title?: string;
-      status?: string;
-      type?: string;
-      problem?: string;
-    },
-    typeChoices: Array<{ name: string; value: string }>,
-    statusChoices: Array<{ name: string; value: string }>
+    fields: FormField[]
   ): Promise<{
     title: string;
     status: SpecStatus;
     type?: SpecType;
     problem?: string;
   }> {
-    const answers = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'title',
-        message: 'Spec title:',
-        default: flags.title,
-        validate: (input: string) => input.length > 0 || 'Title is required',
-      },
-      {
-        type: 'list',
-        name: 'type',
-        message: 'Spec type:',
-        choices: typeChoices.map(c => ({ ...c, value: c.value || undefined })),
-        default: flags.type,
-      },
-      {
-        type: 'list',
-        name: 'status',
-        message: 'Status:',
-        choices: statusChoices,
-        default: flags.status || 'draft',
-      },
-      {
-        type: 'input',
-        name: 'problem',
-        message: 'Problem statement (optional):',
-        default: flags.problem,
-      },
-    ]);
+    // Build inquirer prompts from fields, adding validators
+    const answers = await inquirer.prompt(fields.map(field => ({
+      ...field,
+      // Convert empty string value to undefined for 'type' field
+      choices: field.name === 'type' && field.choices
+        ? field.choices.map(c => ({ ...c, value: c.value || undefined }))
+        : field.choices,
+      // Add validator for required title field
+      validate: field.name === 'title'
+        ? ((input: string) => input.length > 0 || 'Title is required')
+        : undefined,
+    })));
 
     return {
       title: answers.title,

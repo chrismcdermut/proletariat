@@ -10,6 +10,7 @@ import {
   createMetadata,
   buildPromptConfig,
   buildFormPromptConfig,
+  FormField,
 } from '../../lib/prompt-json.js';
 
 export default class StatusUpdate extends PMOCommand {
@@ -138,22 +139,27 @@ export default class StatusUpdate extends PMOCommand {
 
     // Auto-enter interactive mode if no change flags provided
     if (flags.interactive || !hasChangeFlags) {
+      // Build choices once - single source of truth
+      const categoryChoices = STATE_CATEGORY_ORDER.map(cat => ({ name: cat, value: cat }));
+
+      // Define fields once - single source of truth for both JSON and interactive modes
+      const fields: FormField[] = [
+        { type: 'input', name: 'name', message: 'Status name:', default: existing.name },
+        { type: 'list', name: 'category', message: 'Category:', choices: categoryChoices, default: existing.category },
+        { type: 'input', name: 'color', message: 'Color (hex, optional):', default: existing.color || '' },
+        { type: 'input', name: 'description', message: 'Description (optional):', default: existing.description || '' },
+        { type: 'confirm', name: 'isDefault', message: 'Set as default status for new tickets?', default: existing.isDefault || false },
+      ];
+
       // In JSON mode, output form prompts
       if (jsonMode) {
         outputPromptAsJson(
-          buildFormPromptConfig([
-            { type: 'input', name: 'name', message: 'Status name:', default: existing.name },
-            { type: 'list', name: 'category', message: 'Category:', choices: STATE_CATEGORY_ORDER.map(cat => ({ name: cat, value: cat })), default: existing.category },
-            { type: 'input', name: 'color', message: 'Color (hex, optional):', default: existing.color || '' },
-            { type: 'input', name: 'description', message: 'Description (optional):', default: existing.description || '' },
-            { type: 'confirm', name: 'isDefault', message: 'Set as default status for new tickets?', default: existing.isDefault || false },
-          ]),
+          buildFormPromptConfig(fields),
           createMetadata('status update', flags)
         );
-        return;
       }
 
-      changes = await this.promptChanges(existing);
+      changes = await this.promptChanges(fields, existing);
     } else {
       changes = {};
       if (flags.name !== undefined) changes.name = flags.name;
@@ -176,66 +182,40 @@ export default class StatusUpdate extends PMOCommand {
     }
   }
 
-  private async promptChanges(existing: {
-    name: string;
-    category: StateCategory;
-    color?: string;
-    description?: string;
-    isDefault?: boolean;
-  }): Promise<Partial<{
+  private async promptChanges(
+    fields: FormField[],
+    existing: {
+      name: string;
+      category: StateCategory;
+      color?: string;
+      description?: string;
+      isDefault?: boolean;
+    }
+  ): Promise<Partial<{
     name: string;
     category: StateCategory;
     color: string;
     description: string;
     isDefault: boolean;
   }>> {
+    // Build inquirer prompts from fields, adding validators
     const answers = await inquirer.prompt<{
       name: string;
       category: StateCategory;
       color: string;
       description: string;
       isDefault: boolean;
-    }>([
-      {
-        type: 'input',
-        name: 'name',
-        message: 'Status name:',
-        default: existing.name,
-        validate: (input: string) => input.length > 0 || 'Name is required',
-      },
-      {
-        type: 'list',
-        name: 'category',
-        message: 'Category:',
-        choices: STATE_CATEGORY_ORDER.map(cat => ({
-          name: cat,
-          value: cat,
-        })),
-        default: existing.category,
-      },
-      {
-        type: 'input',
-        name: 'color',
-        message: 'Color (hex, optional):',
-        default: existing.color || '',
-        validate: (input: string) => {
-          if (!input) return true;
-          return /^#[0-9A-Fa-f]{6}$/.test(input) || 'Invalid hex color (e.g., #FF0000)';
-        },
-      },
-      {
-        type: 'input',
-        name: 'description',
-        message: 'Description (optional):',
-        default: existing.description || '',
-      },
-      {
-        type: 'confirm',
-        name: 'isDefault',
-        message: 'Set as default status for new tickets?',
-        default: existing.isDefault || false,
-      },
-    ]);
+    }>(fields.map(field => ({
+      ...field,
+      validate: field.name === 'name'
+        ? ((input: string) => input.length > 0 || 'Name is required')
+        : field.name === 'color'
+        ? ((input: string) => {
+            if (!input) return true;
+            return /^#[0-9A-Fa-f]{6}$/.test(input) || 'Invalid hex color (e.g., #FF0000)';
+          })
+        : undefined,
+    })));
 
     const changes: Partial<{
       name: string;

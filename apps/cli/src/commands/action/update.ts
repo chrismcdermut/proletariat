@@ -106,31 +106,28 @@ export default class ActionUpdate extends PMOCommand {
 
     // Interactive mode if no flags provided or --interactive flag
     if (!hasFlags || flags.interactive) {
+      // Build choices once - single source of truth
+      const suggestedForChoices = STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c }));
+      const moveToChoices = [
+        { name: '(no change)', value: '__none__' },
+        ...STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
+      ];
+
+      // Define fields once - single source of truth for both JSON and interactive modes
+      const fields: FormField[] = [
+        { type: 'input', name: 'name', message: 'Name:', default: existingAction.name },
+        { type: 'input', name: 'description', message: 'Description:', default: existingAction.description || '' },
+        { type: 'editor', name: 'prompt', message: 'Prompt (opens editor):', default: existingAction.prompt },
+        { type: 'checkbox', name: 'suggestedFor', message: 'Suggested for categories:', choices: suggestedForChoices, default: existingAction.suggestedForCategories || [] },
+        { type: 'list', name: 'moveTo', message: 'Move ticket to category after action:', choices: moveToChoices, default: existingAction.defaultMoveToCategory || '__none__' },
+      ];
+
       // In JSON mode, output form prompt
       if (jsonMode) {
-        const fields: FormField[] = [
-          { type: 'input', name: 'name', message: 'Name:', default: existingAction.name },
-          { type: 'input', name: 'description', message: 'Description:', default: existingAction.description || '' },
-          { type: 'editor', name: 'prompt', message: 'Prompt (opens editor):', default: existingAction.prompt },
-          {
-            type: 'checkbox', name: 'suggestedFor', message: 'Suggested for categories:',
-            choices: STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
-            default: existingAction.suggestedForCategories || [],
-          },
-          {
-            type: 'list', name: 'moveTo', message: 'Move ticket to category after action:',
-            choices: [
-              { name: '(no change)', value: '__none__' },
-              ...STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
-            ],
-            default: existingAction.defaultMoveToCategory || '__none__',
-          },
-        ];
         outputPromptAsJson(
           buildFormPromptConfig(fields),
           createMetadata('action update', flags)
         );
-        return;
       }
 
       this.log('');
@@ -138,46 +135,17 @@ export default class ActionUpdate extends PMOCommand {
       this.log(styles.muted('Press Enter to keep current value, or enter new value.'));
       this.log('');
 
-      const answers = await inquirer.prompt([
-        {
-          type: 'input',
-          name: 'name',
-          message: 'Name:',
-          default: existingAction.name,
-        },
-        {
-          type: 'input',
-          name: 'description',
-          message: 'Description:',
-          default: existingAction.description || '',
-        },
-        {
-          type: 'editor',
-          name: 'prompt',
-          message: 'Prompt (opens editor):',
-          default: existingAction.prompt,
-        },
-        {
-          type: 'checkbox',
-          name: 'suggestedFor',
-          message: 'Suggested for categories:',
-          choices: STATE_CATEGORY_ORDER.map(c => ({
-            name: c,
-            value: c,
-            checked: existingAction.suggestedForCategories?.includes(c),
-          })),
-        },
-        {
-          type: 'list',
-          name: 'moveTo',
-          message: 'Move ticket to category after action:',
-          choices: [
-            { name: '(no change)', value: '__none__' },
-            ...STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
-          ],
-          default: existingAction.defaultMoveToCategory || '__none__',
-        },
-      ]);
+      // Build inquirer prompts from fields, adding checkbox 'checked' state
+      const answers = await inquirer.prompt(fields.map(field => ({
+        ...field,
+        // For checkbox, convert default array to checked property on choices
+        choices: field.type === 'checkbox' && field.choices
+          ? field.choices.map(c => ({
+              ...c,
+              checked: (field.default as string[] | undefined)?.includes(c.value),
+            }))
+          : field.choices,
+      })));
 
       if (answers.name !== existingAction.name) changes.name = answers.name;
       if (answers.description !== (existingAction.description || '')) changes.description = answers.description;
