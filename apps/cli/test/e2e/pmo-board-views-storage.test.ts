@@ -37,25 +37,25 @@ describe('PMO Board Views Storage Tests', () => {
     await storage.createTicket({
       id: 'TEST-001',
       title: 'High priority task',
-      priority: 'HIGH',
+      priority: 'P1',
       assignee: 'alice',
     });
     await storage.createTicket({
       id: 'TEST-002',
       title: 'Medium priority task',
-      priority: 'MEDIUM',
+      priority: 'P2',
       assignee: 'bob',
     });
     await storage.createTicket({
       id: 'TEST-003',
       title: 'Low priority task',
-      priority: 'LOW',
+      priority: 'P3',
       assignee: 'alice',
     });
     await storage.createTicket({
       id: 'TEST-004',
       title: 'Unassigned task',
-      priority: 'HIGH',
+      priority: 'P1',
     });
   });
 
@@ -86,13 +86,13 @@ describe('PMO Board Views Storage Tests', () => {
       const created = await storage.createBoardView({
         projectId: 'test-project',
         name: 'High Priority',
-        filters: { priority: 'HIGH' },
+        filters: { priority: 'P1' },
       });
 
       const fetched = await storage.getBoardView(created.id);
       expect(fetched).to.not.be.null;
       expect(fetched!.name).to.equal('High Priority');
-      expect(fetched!.filters.priority).to.equal('HIGH');
+      expect(fetched!.filters.priority).to.equal('P1');
     });
 
     it('should list board views for a project', async () => {
@@ -104,7 +104,7 @@ describe('PMO Board Views Storage Tests', () => {
       await storage.createBoardView({
         projectId: 'test-project',
         name: 'View 2',
-        filters: { priority: 'HIGH' },
+        filters: { priority: 'P1' },
       });
 
       const views = await storage.listBoardViews({ projectId: 'test-project' });
@@ -220,12 +220,12 @@ describe('PMO Board Views Storage Tests', () => {
     });
 
     it('should filter board by priority', async () => {
-      const board = await storage.getBoardWithView(undefined, { priority: 'HIGH' });
+      const board = await storage.getBoardWithView(undefined, { priority: 'P1' });
 
       let matchingTickets = 0;
       for (const column of board.columns) {
         for (const ticket of column.tickets) {
-          expect(ticket.priority?.toUpperCase()).to.equal('HIGH');
+          expect(ticket.priority?.toUpperCase()).to.equal('P1');
           matchingTickets++;
         }
       }
@@ -287,14 +287,14 @@ describe('PMO Board Views Storage Tests', () => {
     it('should combine multiple filters', async () => {
       const board = await storage.getBoardWithView(undefined, {
         assignee: 'alice',
-        priority: 'HIGH',
+        priority: 'P1',
       });
 
       let matchingTickets = 0;
       for (const column of board.columns) {
         for (const ticket of column.tickets) {
           expect(ticket.assignee).to.equal('alice');
-          expect(ticket.priority?.toUpperCase()).to.equal('HIGH');
+          expect(ticket.priority?.toUpperCase()).to.equal('P1');
           matchingTickets++;
         }
       }
@@ -355,7 +355,7 @@ describe('PMO Board Views Storage Tests', () => {
         description: 'A view with all options',
         filters: {
           assignee: 'alice',
-          priority: 'HIGH',
+          priority: 'P1',
           search: 'task',
         },
         sortBy: 'priority',
@@ -373,7 +373,7 @@ describe('PMO Board Views Storage Tests', () => {
       expect(loaded!.name).to.equal('Full View');
       expect(loaded!.description).to.equal('A view with all options');
       expect(loaded!.filters.assignee).to.equal('alice');
-      expect(loaded!.filters.priority).to.equal('HIGH');
+      expect(loaded!.filters.priority).to.equal('P1');
       expect(loaded!.filters.search).to.equal('task');
       expect(loaded!.sortBy).to.equal('priority');
       expect(loaded!.groupBy).to.equal('assignee');

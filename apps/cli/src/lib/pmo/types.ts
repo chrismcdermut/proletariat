@@ -630,7 +630,6 @@ export interface TicketFilter {
   spec?: string
   epic?: string
   column?: string
-  projectId?: string          // Filter to a specific project
   allProjects?: boolean       // If true, list tickets across all projects (ignores current project scope)
 }
 

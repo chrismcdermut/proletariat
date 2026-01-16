@@ -13,10 +13,6 @@ export default class Ticket extends PMOCommand {
     ...pmoBaseFlags,
   };
 
-  protected getPMOOptions() {
-    return { promptIfMultiple: false };
-  }
-
   async execute(): Promise<void> {
     // Check for non-interactive mode (Claude Code, pipes, etc.)
     if (!isInteractive()) {

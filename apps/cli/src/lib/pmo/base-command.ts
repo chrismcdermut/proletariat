@@ -157,6 +157,84 @@ export abstract class PMOCommand extends Command {
   }
 
   /**
+   * Select a project or "All Projects" for cross-project operations.
+   * Shows a picker with "All Tickets" at the top followed by individual projects.
+   *
+   * @param options.filterEmptyProjects - Only show projects with tickets
+   * @param options.message - Custom message for the picker
+   * @returns Object with { allProjects: boolean, projectId?: string }
+   */
+  protected async selectProjectOrAll(options?: {
+    filterEmptyProjects?: boolean;
+    message?: string;
+  }): Promise<{ allProjects: boolean; projectId?: string }> {
+    // If -P flag was provided, use specific project
+    if (this.projectFlag) {
+      this.storage.setCurrentProject(this.projectFlag);
+      return { allProjects: false, projectId: this.projectFlag };
+    }
+
+    // Get all projects with ticket counts
+    const projects = await this.storage.listProjects();
+
+    if (projects.length === 0) {
+      throw new Error('No projects found. Run "prlt pmo init" first.');
+    }
+
+    // Get ticket counts for each project
+    const projectsWithCounts: Array<{ id: string; name: string; ticketCount: number }> = [];
+    let totalTickets = 0;
+
+    for (const p of projects) {
+      const tickets = await this.storage.listTickets({ projectId: p.id });
+      const count = tickets.length;
+      totalTickets += count;
+
+      if (!options?.filterEmptyProjects || count > 0) {
+        projectsWithCounts.push({ id: p.id, name: p.name, ticketCount: count });
+      }
+    }
+
+    if (projectsWithCounts.length === 0) {
+      throw new Error('No projects with tickets found. Create a ticket first.');
+    }
+
+    // If only one project, auto-select it (no need for "All" option)
+    if (projectsWithCounts.length === 1) {
+      const projectId = projectsWithCounts[0].id;
+      this.storage.setCurrentProject(projectId);
+      return { allProjects: false, projectId };
+    }
+
+    // Build choices: "All Tickets" first, then separator, then projects
+    const choices: Array<{ name: string; value: string } | inquirer.Separator> = [
+      {
+        name: `🌐 All Tickets (${totalTickets} total)`,
+        value: '__ALL__',
+      },
+      new inquirer.Separator('─────────────────────'),
+      ...projectsWithCounts.map(p => ({
+        name: `${p.name} (${p.ticketCount} tickets)`,
+        value: p.id,
+      })),
+    ];
+
+    const { selectedValue } = await inquirer.prompt([{
+      type: 'list',
+      name: 'selectedValue',
+      message: options?.message || 'Select scope:',
+      choices,
+    }]);
+
+    if (selectedValue === '__ALL__') {
+      return { allProjects: true };
+    }
+
+    this.storage.setCurrentProject(selectedValue);
+    return { allProjects: false, projectId: selectedValue };
+  }
+
+  /**
    * Override run() to delegate to execute() and ensure cleanup
    * Subclasses should implement execute() instead of run()
    */

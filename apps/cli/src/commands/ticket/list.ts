@@ -1,6 +1,5 @@
-import { Command, Flags } from '@oclif/core';
-import { Ticket, pmoBaseFlags, TicketFilter } from '../../lib/pmo/index.js';
-import { getPMOContext, type PMOContext } from '../../lib/pmo/pmo-context.js';
+import { Flags } from '@oclif/core';
+import { Ticket, pmoBaseFlags, TicketFilter, PMOCommand } from '../../lib/pmo/index.js';
 import {
   styles,
   formatPriority,
@@ -10,16 +9,16 @@ import {
   divider,
 } from '../../lib/styles.js';
 
-export default class TicketList extends Command {
+export default class TicketList extends PMOCommand {
   static description = 'List tickets from the PMO board';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --column Backlog',
-    '<%= config.bin %> <%= command.id %> --priority URGENT',
+    '<%= config.bin %> <%= command.id %> --priority P1',
     '<%= config.bin %> <%= command.id %> --category bug',
     '<%= config.bin %> <%= command.id %> --search "login"',
-    '<%= config.bin %> <%= command.id %> --project mobile-app',
+    '<%= config.bin %> <%= command.id %> -P PROJ-001',
     '<%= config.bin %> <%= command.id %> --all',
   ];
 
@@ -32,7 +31,7 @@ export default class TicketList extends Command {
     priority: Flags.string({
       char: 'p',
       description: 'Filter by priority',
-      options: ['URGENT', 'HIGH', 'MEDIUM', 'LOW'],
+      options: ['P0', 'P1', 'P2', 'P3'],
     }),
     category: Flags.string({
       description: 'Filter by category',
@@ -49,83 +48,83 @@ export default class TicketList extends Command {
     }),
     all: Flags.boolean({
       char: 'a',
-      description: 'Show tickets across all projects',
+      description: 'Show tickets across all projects (skip project picker)',
       default: false,
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { flags } = await this.parse(TicketList);
 
-    // When --all is set, we don't need to select a specific project
-    // Otherwise, use the normal project selection flow
-    let pmoContext: PMOContext | undefined;
+    // Build filter
+    const filter: TicketFilter = {};
 
-    // Get PMO context - no project selection needed
-    pmoContext = await getPMOContext({
-      logger: (msg) => this.log(styles.muted(msg)),
-    });
+    // Determine project scope
+    if (flags.all) {
+      // Explicit --all flag: skip picker, show all
+      filter.allProjects = true;
+    } else {
+      // Show project picker (or use -P flag if provided)
+      const selection = await this.selectProjectOrAll({
+        message: 'Select tickets to view:',
+      });
 
-    try {
-      // Build filter
-      const filter: TicketFilter = {};
-
-      if (flags.all) {
+      if (selection.allProjects) {
         filter.allProjects = true;
-      } else if (flags.project) {
-        filter.projectId = flags.project;
+      } else if (selection.projectId) {
+        filter.projectId = selection.projectId;
       }
-      if (flags.column) {
-        filter.column = flags.column;
-      }
-      if (flags.priority) {
-        filter.priority = flags.priority;
-      }
-      if (flags.category) {
-        filter.category = flags.category;
-      }
-      if (flags.search) {
-        filter.search = flags.search;
-      }
+    }
 
-      const tickets = await pmoContext.storage.listTickets(filter);
+    // Apply additional filters
+    if (flags.column) {
+      filter.column = flags.column;
+    }
+    if (flags.priority) {
+      filter.priority = flags.priority;
+    }
+    if (flags.category) {
+      filter.category = flags.category;
+    }
+    if (flags.search) {
+      filter.search = flags.search;
+    }
 
-      if (tickets.length === 0) {
-        this.log(styles.warning('No tickets found.'));
-        return;
+    const tickets = await this.storage.listTickets(filter);
+
+    if (tickets.length === 0) {
+      this.log(styles.warning('No tickets found.'));
+      return;
+    }
+
+    // Output based on format and scope
+    if (filter.allProjects) {
+      // Cross-project view
+      switch (flags.format) {
+        case 'json':
+          this.log(JSON.stringify(tickets, null, 2));
+          break;
+        case 'compact':
+          this.outputCrossProjectCompact(tickets);
+          break;
+        default:
+          this.outputCrossProjectTable(tickets);
       }
+    } else {
+      // Single project view
+      const board = await this.storage.getBoard();
+      const columns = board.columns.map(col => col.name);
 
-      // Output based on format
-      if (flags.all) {
-        // Cross-project view
-        switch (flags.format) {
-          case 'json':
-            this.log(JSON.stringify(tickets, null, 2));
-            break;
-          case 'compact':
-            this.outputCrossProjectCompact(tickets);
-            break;
-          default:
-            this.outputCrossProjectTable(tickets);
-        }
-      } else {
-        // Single project view
-        const board = await pmoContext.storage.getBoard();
-        const columns = board.columns.map(col => col.name);
-
-        switch (flags.format) {
-          case 'json':
-            this.log(JSON.stringify(tickets, null, 2));
-            break;
-          case 'compact':
-            this.outputCompact(tickets, columns);
-            break;
-          default:
-            this.outputTable(tickets, columns);
-        }
+      switch (flags.format) {
+        case 'json':
+          this.log(JSON.stringify(tickets, null, 2));
+          break;
+        case 'compact':
+          this.outputCompact(tickets, columns);
+          break;
+        default:
+          this.outputTable(tickets, columns);
       }
-    } finally {
-      await pmoContext.storage.close();
     }
   }
 

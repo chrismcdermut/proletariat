@@ -94,7 +94,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
       // Verify ticket was created
       const ticket = db.prepare('SELECT * FROM pmo_tickets WHERE title LIKE ?').get('%Login page crashes%') as { id: string; title: string; priority: string; category: string } | undefined;
       expect(ticket).to.not.be.undefined;
-      expect(ticket?.priority).to.equal('HIGH');
+      expect(ticket?.priority).to.equal('P1');
       expect(ticket?.category).to.equal('bug');
     });
 
@@ -106,7 +106,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
 
       const ticket = db.prepare('SELECT * FROM pmo_tickets WHERE title LIKE ?').get('%Add dark mode%') as { priority: string; category: string } | undefined;
       expect(ticket).to.not.be.undefined;
-      expect(ticket?.priority).to.equal('MEDIUM');
+      expect(ticket?.priority).to.equal('P2');
       expect(ticket?.category).to.equal('feature');
     });
 
@@ -125,7 +125,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
 
       const ticket = db.prepare('SELECT * FROM pmo_tickets WHERE title LIKE ?').get('%Minor issue%') as { priority: string; category: string } | undefined;
       expect(ticket).to.not.be.undefined;
-      expect(ticket?.priority).to.equal('LOW');
+      expect(ticket?.priority).to.equal('P3');
       expect(ticket?.category).to.equal('chore');
     });
 
@@ -149,7 +149,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
   describe('prlt ticket template save', () => {
     beforeEach(() => {
       createTestTicket(db, 'TKT-001', 'Original Ticket', {
-        priority: 'HIGH',
+        priority: 'P1',
         category: 'feature',
         description: 'Test description',
       });
@@ -163,7 +163,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
 
       const template = db.prepare('SELECT * FROM pmo_ticket_templates WHERE name = ?').get('My Template') as { id: string; default_priority: string; default_category: string } | undefined;
       expect(template).to.not.be.undefined;
-      expect(template?.default_priority).to.equal('HIGH');
+      expect(template?.default_priority).to.equal('P1');
       expect(template?.default_category).to.equal('feature');
     });
 
@@ -220,7 +220,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
     it('should save ticket as template and create new ticket from it', () => {
       // Create source ticket
       createTestTicket(db, 'TKT-001', 'Sprint Planning Template', {
-        priority: 'MEDIUM',
+        priority: 'P2',
         category: 'chore',
         description: 'Sprint planning checklist',
       });
@@ -236,7 +236,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
 
       const ticket = db.prepare('SELECT * FROM pmo_tickets WHERE title LIKE ?').get('%Sprint 42%') as { priority: string; category: string } | undefined;
       expect(ticket).to.not.be.undefined;
-      expect(ticket?.priority).to.equal('MEDIUM');
+      expect(ticket?.priority).to.equal('P2');
       expect(ticket?.category).to.equal('chore');
     });
   });

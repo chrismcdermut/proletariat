@@ -50,7 +50,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
       // Verify in database
       const tickets = db.prepare('SELECT * FROM pmo_tickets WHERE title = ?').all('Add login') as Array<{ priority: string }>;
       expect(tickets).to.have.lengthOf(1);
-      expect(tickets[0].priority).to.equal('HIGH');
+      expect(tickets[0].priority).to.equal('P1');
     });
 
     it('should auto-generate ticket ID', () => {
@@ -209,7 +209,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
       exec(`ticket edit ${ticket.id} --priority HIGH`);
 
       const updatedTicket = db.prepare('SELECT priority FROM pmo_tickets WHERE id = ?').get(ticket.id) as { priority: string };
-      expect(updatedTicket.priority).to.equal('HIGH');
+      expect(updatedTicket.priority).to.equal('P1');
     });
 
     it('should edit ticket description', () => {
@@ -240,7 +240,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
 
       const updatedTicket = db.prepare('SELECT title, priority, category FROM pmo_tickets WHERE id = ?').get(ticket.id) as { title: string; priority: string; category: string };
       expect(updatedTicket.title).to.equal('New multi');
-      expect(updatedTicket.priority).to.equal('URGENT');
+      expect(updatedTicket.priority).to.equal('P0');
       expect(updatedTicket.category).to.equal('security');
     });
 

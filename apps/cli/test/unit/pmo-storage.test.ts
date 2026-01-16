@@ -103,13 +103,13 @@ describe('PMO SQLite Storage', () => {
       const ticket = await storage.createTicket({
         title: 'Implement feature',
         statusName: 'Backlog',
-        priority: 'URGENT',
+        priority: 'P0',
       });
 
       expect(ticket.id).to.match(/^TKT-\d{3,}$/);
       expect(ticket.title).to.equal('Implement feature');
       expect(ticket.statusName).to.equal('Backlog');
-      expect(ticket.priority).to.equal('URGENT');
+      expect(ticket.priority).to.equal('P0');
     });
 
     it('creates ticket with custom id', async () => {
@@ -147,11 +147,11 @@ describe('PMO SQLite Storage', () => {
 
       const updated = await storage.updateTicket(created.id, {
         title: 'Updated title',
-        priority: 'HIGH',
+        priority: 'P1',
       });
 
       expect(updated.title).to.equal('Updated title');
-      expect(updated.priority).to.equal('HIGH');
+      expect(updated.priority).to.equal('P1');
     });
 
     it('moves a ticket to a different column', async () => {
@@ -206,10 +206,10 @@ describe('PMO SQLite Storage', () => {
     });
 
     it('lists tickets filtered by priority', async () => {
-      await storage.createTicket({ title: 'Urgent bug', statusName: 'Backlog', priority: 'URGENT' });
-      await storage.createTicket({ title: 'Feature', statusName: 'Backlog', priority: 'LOW' });
+      await storage.createTicket({ title: 'Urgent bug', statusName: 'Backlog', priority: 'P0' });
+      await storage.createTicket({ title: 'Feature', statusName: 'Backlog', priority: 'P3' });
 
-      const tickets = await storage.listTickets({ priority: 'URGENT' });
+      const tickets = await storage.listTickets({ priority: 'P0' });
       expect(tickets).to.have.length(1);
       expect(tickets[0].title).to.equal('Urgent bug');
     });
@@ -368,7 +368,7 @@ describe('PMO SQLite Storage', () => {
                 statusId: 'status-backlog',
                 statusName: 'Backlog',
                 position: 0,
-                priority: 'HIGH',
+                priority: 'P1' as const,
                 specs: [],
                 subtasks: [
                   { id: 'sub-1', title: 'Subtask', done: false },
@@ -695,11 +695,11 @@ describe('PMO SQLite Storage', () => {
       // Should still be able to update the ticket
       const updated = await storage.updateTicket(ticket.id, {
         title: 'Updated title',
-        priority: 'HIGH',
+        priority: 'P1',
       });
 
       expect(updated.title).to.equal('Updated title');
-      expect(updated.priority).to.equal('HIGH');
+      expect(updated.priority).to.equal('P1');
     });
 
     it('deletes a ticket by ID without project scoping', async () => {

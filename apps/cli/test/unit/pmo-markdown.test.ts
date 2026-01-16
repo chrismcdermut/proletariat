@@ -68,12 +68,12 @@ kanban-plugin: basic
       const markdown = `## Backlog
 
 - [ ] [[implement-auth]]
-      **Priority:** URGENT
+      **Priority:** P0
       **Category:** feature
 `;
       const board = parseBoard(markdown);
       const ticket = board.columns[0].tickets[0];
-      expect(ticket.priority).to.equal('URGENT');
+      expect(ticket.priority).to.equal('P0');
       expect(ticket.category).to.equal('feature');
     });
 
@@ -204,7 +204,7 @@ kanban-plugin: basic
                 statusId: 'status-backlog',
                 statusName: 'Backlog',
                 position: 0,
-                priority: 'URGENT',
+                priority: 'P0',
                 category: 'feature',
                 subtasks: [],
                 labels: [],
@@ -218,7 +218,7 @@ kanban-plugin: basic
         updatedAt: new Date(),
       };
       const markdown = generateBoardMarkdown(board);
-      expect(markdown).to.include('**Priority:** URGENT');
+      expect(markdown).to.include('**Priority:** P0');
       expect(markdown).to.include('**Category:** feature');
       expect(markdown).to.include('**Assignee:** John');
     });
@@ -303,7 +303,7 @@ kanban-plugin: basic
 ## Backlog
 
 - [ ] [[implement-auth]]
-      **Priority:** URGENT
+      **Priority:** P0
       **Category:** feature
       ***
       - [ ] Design API
@@ -322,7 +322,7 @@ kanban-plugin: basic
 
       expect(reparsed.columns).to.have.length(board.columns.length);
       expect(reparsed.columns[0].tickets).to.have.length(board.columns[0].tickets.length);
-      expect(reparsed.columns[0].tickets[0].priority).to.equal('URGENT');
+      expect(reparsed.columns[0].tickets[0].priority).to.equal('P0');
       expect(reparsed.columns[0].tickets[0].subtasks).to.have.length(2);
     });
   });

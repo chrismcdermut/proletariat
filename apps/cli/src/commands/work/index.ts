@@ -13,11 +13,6 @@ export default class Work extends PMOCommand {
     ...pmoBaseFlags,
   };
 
-  protected getPMOOptions() {
-    // Prompt for project selection so we can pass it to subcommands
-    return { promptIfMultiple: true };
-  }
-
   async execute(): Promise<void> {
     // Check for non-interactive mode (Claude Code, pipes, etc.)
     if (!isInteractive()) {
@@ -57,32 +52,31 @@ export default class Work extends PMOCommand {
     }
 
     // Run the selected subcommand
-    // Pass --project to avoid re-prompting for project selection
-    const projectArgs = ['--project', this.projectId];
+    // Each subcommand handles its own project/scope selection
     switch (action) {
       case 'claim':
-        await this.config.runCommand('work:claim', projectArgs);
+        await this.config.runCommand('work:claim');
         break;
       case 'assign':
-        await this.config.runCommand('work:assign', projectArgs);
+        await this.config.runCommand('work:assign');
         break;
       case 'own':
-        await this.config.runCommand('work:own', projectArgs);
+        await this.config.runCommand('work:own');
         break;
       case 'start':
-        await this.config.runCommand('work:start', projectArgs);
+        await this.config.runCommand('work:start');
         break;
       case 'spawn':
-        await this.config.runCommand('work:spawn', projectArgs);
+        await this.config.runCommand('work:spawn');
         break;
       case 'watch':
-        await this.config.runCommand('work:watch', projectArgs);
+        await this.config.runCommand('work:watch');
         break;
       case 'ready':
-        await this.config.runCommand('work:ready', projectArgs);
+        await this.config.runCommand('work:ready');
         break;
       case 'complete':
-        await this.config.runCommand('work:complete', projectArgs);
+        await this.config.runCommand('work:complete');
         break;
     }
   }

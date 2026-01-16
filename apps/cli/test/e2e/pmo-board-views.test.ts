@@ -371,13 +371,13 @@ function createTestTickets(db: Database.Database) {
   };
 
   const tickets = [
-    { id: 'TEST-001', title: 'Add login', assignee: 'alice', priority: 'HIGH', column: 'backlog', status: 'backlog' },
-    { id: 'TEST-002', title: 'Setup CI', assignee: 'bob', priority: 'MEDIUM', column: 'backlog', status: 'backlog' },
-    { id: 'TEST-003', title: 'Navigation', assignee: 'alice', priority: 'HIGH', column: 'in-progress', status: 'in_progress' },
-    { id: 'TEST-004', title: 'Database', assignee: 'bob', priority: 'HIGH', column: 'in-progress', status: 'in_progress' },
-    { id: 'TEST-005', title: 'Linting', assignee: 'alice', priority: 'LOW', column: 'merged', status: 'done' },
-    { id: 'TEST-006', title: 'Docs', assignee: null, priority: 'LOW', column: 'backlog', status: 'backlog' },
-    { id: 'TEST-007', title: 'Blocked task', assignee: 'alice', priority: 'HIGH', column: 'in-progress', status: 'blocked' },
+    { id: 'TEST-001', title: 'Add login', assignee: 'alice', priority: 'P1', column: 'backlog', status: 'backlog' },
+    { id: 'TEST-002', title: 'Setup CI', assignee: 'bob', priority: 'P2', column: 'backlog', status: 'backlog' },
+    { id: 'TEST-003', title: 'Navigation', assignee: 'alice', priority: 'P1', column: 'in-progress', status: 'in_progress' },
+    { id: 'TEST-004', title: 'Database', assignee: 'bob', priority: 'P1', column: 'in-progress', status: 'in_progress' },
+    { id: 'TEST-005', title: 'Linting', assignee: 'alice', priority: 'P3', column: 'merged', status: 'done' },
+    { id: 'TEST-006', title: 'Docs', assignee: null, priority: 'P3', column: 'backlog', status: 'backlog' },
+    { id: 'TEST-007', title: 'Blocked task', assignee: 'alice', priority: 'P1', column: 'in-progress', status: 'blocked' },
   ];
 
   for (let i = 0; i < tickets.length; i++) {

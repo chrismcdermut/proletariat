@@ -33,6 +33,9 @@ export default class Board extends PMOCommand {
   };
 
   async execute(): Promise<void> {
+    // Board operations require project context (columns are per-project)
+    await this.requireProject()
+
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',

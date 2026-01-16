@@ -130,17 +130,32 @@ export default class WorkSpawn extends PMOCommand {
     const executionStorage = new ExecutionStorage(db)
 
     try {
-      // Get board to list available columns
-      const board = await this.storage.getBoard()
-      const columnNames = board.columns.map(col => col.name)
+      // Select project scope (or All Tickets)
+      const selection = await this.selectProjectOrAll({
+        filterEmptyProjects: true,
+        message: 'Select tickets to spawn from:',
+      })
 
-      if (columnNames.length === 0) {
-        db.close()
-        this.error('No columns found on the board.')
+      // Get tickets based on selection
+      let allTickets: Awaited<ReturnType<typeof this.storage.listTickets>>
+      let columnNames: string[] = []
+
+      if (selection.allProjects) {
+        // Cross-project: get all tickets, no column filtering
+        allTickets = await this.storage.listTickets({ allProjects: true })
+      } else {
+        // Single project: get board for columns
+        const board = await this.storage.getBoard()
+        columnNames = board.columns.map(col => col.name)
+
+        if (columnNames.length === 0) {
+          db.close()
+          this.error('No columns found on the board.')
+        }
+
+        allTickets = await this.storage.listTickets({ projectId: selection.projectId })
       }
 
-      // Get all tickets
-      const allTickets = await this.storage.listTickets()
       const unassignedTickets = allTickets.filter(t => !t.assignee)
 
       if (unassignedTickets.length === 0) {
@@ -240,49 +255,65 @@ export default class WorkSpawn extends PMOCommand {
         let targetColumn = flags.column
 
         if (!targetColumn) {
-          // Show columns with ticket counts
-          const columnChoices = columnNames.map(name => {
-            const count = unassignedTickets.filter(t => t.statusName === name).length
-            return {
-              name: `${name} (${count} unassigned)`,
-              value: name,
+          if (selection.allProjects || columnNames.length === 0) {
+            // Cross-project mode: derive columns from ticket statuses
+            const statusCounts = new Map<string, number>()
+            for (const ticket of unassignedTickets) {
+              const status = ticket.statusName || 'Unknown'
+              statusCounts.set(status, (statusCounts.get(status) || 0) + 1)
             }
-          })
 
-          const { selectedColumn } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedColumn',
-              message: 'Select column to spawn all unassigned tickets from:',
-              choices: columnChoices,
-            },
-          ])
-          targetColumn = selectedColumn
+            const columnChoices = Array.from(statusCounts.entries())
+              .sort((a, b) => b[1] - a[1]) // Sort by count descending
+              .map(([name, count]) => ({
+                name: `${name} (${count} unassigned)`,
+                value: name,
+              }))
+
+            const { selectedColumn } = await inquirer.prompt([
+              {
+                type: 'list',
+                name: 'selectedColumn',
+                message: 'Select status/column to spawn all unassigned tickets from:',
+                choices: columnChoices,
+              },
+            ])
+            targetColumn = selectedColumn
+          } else {
+            // Single project mode: use board columns
+            const columnChoices = columnNames.map(name => {
+              const count = unassignedTickets.filter(t => t.statusName === name).length
+              return {
+                name: `${name} (${count} unassigned)`,
+                value: name,
+              }
+            })
+
+            const { selectedColumn } = await inquirer.prompt([
+              {
+                type: 'list',
+                name: 'selectedColumn',
+                message: 'Select column to spawn all unassigned tickets from:',
+                choices: columnChoices,
+              },
+            ])
+            targetColumn = selectedColumn
+          }
         }
 
-        // Verify column exists
-        const matchedColumn = columnNames.find(
-          c => c.toLowerCase() === targetColumn!.toLowerCase()
+        // Filter tickets by selected status/column
+        ticketsToSpawn = unassignedTickets.filter(
+          t => t.statusName?.toLowerCase() === targetColumn!.toLowerCase()
         )
-
-        if (!matchedColumn) {
-          db.close()
-          this.error(
-            `Column "${targetColumn}" not found.\n` +
-            `Available columns: ${columnNames.join(', ')}`
-          )
-        }
-
-        ticketsToSpawn = unassignedTickets.filter(t => t.statusName === matchedColumn)
 
         if (ticketsToSpawn.length === 0) {
           db.close()
-          this.log(styles.muted(`No unassigned tickets in column "${matchedColumn}".`))
+          this.log(styles.muted(`No unassigned tickets in column "${targetColumn}".`))
           return
         }
 
         this.log('')
-        this.log(styles.header(`🚀 Spawn All from: ${matchedColumn}`))
+        this.log(styles.header(`🚀 Spawn All from: ${targetColumn}`))
 
         // Display tickets grouped by priority
         const priorityGroups = new Map<string, typeof ticketsToSpawn>()
