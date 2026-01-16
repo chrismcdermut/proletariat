@@ -95,11 +95,14 @@ export default class Add extends Command {
           this.error(`No available names in theme "${theme.display_name}". All names are in use.`);
         }
 
+        // Build choices once, use for both JSON and interactive modes
+        const nameChoices = availableNames.map(name => ({ name, value: name }));
+        const selectMessage = `Select agent names from ${theme.display_name}:`;
+
         // In JSON mode, output theme names selection prompt
         if (jsonMode) {
-          const nameChoices = availableNames.map(name => ({ name, value: name }));
           outputPromptAsJson(
-            buildPromptConfig('checkbox', 'names', `Select agent names from ${theme.display_name}:`, nameChoices),
+            buildPromptConfig('checkbox', 'names', selectMessage, nameChoices),
             createMetadata('agent add', flags)
           );
           return;
@@ -109,8 +112,8 @@ export default class Add extends Command {
         const { selected } = await inquirer.prompt([{
           type: 'checkbox',
           name: 'selected',
-          message: `Select agent names from ${theme.display_name}:`,
-          choices: availableNames.map(name => ({ name, value: name })),
+          message: selectMessage,
+          choices: nameChoices,
           validate: (input) => input.length > 0 || 'Please select at least one name'
         }]);
 
@@ -144,30 +147,33 @@ export default class Add extends Command {
             return;
           }
 
+          // Build choices once, use for both JSON and interactive modes
+          const nameChoices = [
+            ...availableNames.map(name => ({ name, value: name })),
+            { name: 'Enter custom name(s)...', value: '__custom__' },
+          ];
+          const selectMessage = `Select agents from ${activeTheme.display_name}:`;
+
           // In JSON mode, output agent names selection prompt
           if (jsonMode) {
-            const nameChoices = [
-              ...availableNames.map(name => ({ name, value: name })),
-              { name: 'Enter custom name(s)...', value: '__custom__' },
-            ];
             outputPromptAsJson(
-              buildPromptConfig('checkbox', 'names', `Select agents from ${activeTheme.display_name}:`, nameChoices),
+              buildPromptConfig('checkbox', 'names', selectMessage, nameChoices),
               createMetadata('agent add', flags)
             );
             return;
           }
 
-          // Add custom option at the end
+          // Add separator before custom option for interactive mode
           const choices = [
-            ...availableNames.map(name => ({ name, value: name })),
+            ...nameChoices.slice(0, -1),
             new inquirer.Separator(),
-            { name: chalk.blue('Enter custom name(s)...'), value: '__custom__' }
+            { name: chalk.blue(nameChoices[nameChoices.length - 1].name), value: nameChoices[nameChoices.length - 1].value }
           ];
 
           const { selected } = await inquirer.prompt([{
             type: 'checkbox',
             name: 'selected',
-            message: `Select agents from ${activeTheme.display_name}:`,
+            message: selectMessage,
             choices,
             pageSize: 20,
             validate: (input) => input.length > 0 || 'Please select at least one name'
@@ -207,35 +213,40 @@ export default class Add extends Command {
             availableCount: getAvailableThemeNames(workspaceInfo.path, t.id).length
           })).filter(t => t.availableCount > 0);
 
+          // Build choices once, use for both JSON and interactive modes
+          const themeChoices = [
+            ...themesWithNames.map(({ theme, availableCount }) => ({
+              name: `${theme.display_name} (${availableCount} available)`,
+              value: theme.id
+            })),
+            { name: 'Enter custom name(s)', value: '__custom__' },
+          ];
+          const selectMessage = 'No theme set. Select a theme or enter custom names:';
+
           // In JSON mode, output theme selection prompt
           if (jsonMode) {
-            const themeChoices = [
-              ...themesWithNames.map(({ theme, availableCount }) => ({
-                name: `${theme.display_name} (${availableCount} available)`,
-                value: theme.id
-              })),
-              { name: 'Enter custom name(s)', value: '__custom__' },
-            ];
             outputPromptAsJson(
-              buildPromptConfig('list', 'theme', 'No theme set. Select a theme or enter custom names:', themeChoices),
+              buildPromptConfig('list', 'theme', selectMessage, themeChoices),
               createMetadata('agent add', flags)
             );
             return;
           }
 
-          // Build theme selection choices
-          const themeChoices: any[] = themesWithNames.map(({ theme, availableCount }) => ({
-            name: `${theme.display_name} ${chalk.dim(`(${availableCount} available)`)}`,
-            value: theme.id
-          }));
-          themeChoices.push(new inquirer.Separator());
-          themeChoices.push({ name: chalk.blue('Enter custom name(s)'), value: '__custom__' });
+          // Add separator and styling for interactive mode
+          const interactiveChoices: any[] = [
+            ...themeChoices.slice(0, -1).map(c => ({
+              name: c.name.replace(/\((\d+) available\)/, chalk.dim(`($1 available)`)),
+              value: c.value
+            })),
+            new inquirer.Separator(),
+            { name: chalk.blue(themeChoices[themeChoices.length - 1].name), value: themeChoices[themeChoices.length - 1].value }
+          ];
 
           const { selectedTheme } = await inquirer.prompt([{
             type: 'list',
             name: 'selectedTheme',
-            message: 'No theme set. Select a theme or enter custom names:',
-            choices: themeChoices
+            message: selectMessage,
+            choices: interactiveChoices
           }]);
 
           if (selectedTheme === '__custom__') {

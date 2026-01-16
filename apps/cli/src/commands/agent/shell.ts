@@ -75,11 +75,14 @@ export default class Shell extends PMOCommand {
 
     // Interactive mode if no agent specified
     if (!agentName) {
+      // Build choices once, use for both JSON and interactive modes
+      const agentChoices = workspaceInfo.agents.map((agent: any) => ({ name: agent.name, value: agent.name }));
+      const selectMessage = 'Select agent to open shell in:';
+
       // In JSON mode, output agent selection prompt
       if (jsonMode) {
-        const agentChoices = workspaceInfo.agents.map((agent: any) => ({ name: agent.name, value: agent.name }));
         outputPromptAsJson(
-          buildPromptConfig('list', 'name', 'Select agent to open shell in:', agentChoices),
+          buildPromptConfig('list', 'name', selectMessage, agentChoices),
           createMetadata('agent shell', flags)
         );
         return;
@@ -89,11 +92,8 @@ export default class Shell extends PMOCommand {
         {
           type: 'list',
           name: 'selected',
-          message: 'Select agent to open shell in:',
-          choices: workspaceInfo.agents.map(agent => ({
-            name: agent.name,
-            value: agent.name
-          }))
+          message: selectMessage,
+          choices: agentChoices
         }
       ]);
       agentName = selected;

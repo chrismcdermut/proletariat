@@ -96,14 +96,17 @@ export default class DockerRestart extends Command {
         // Check if JSON output mode is active
         const jsonMode = shouldOutputJson(flags)
 
+        // Build choices once, use for both JSON and interactive modes
+        const confirmChoices = [
+          { name: 'Yes', value: 'true' },
+          { name: 'No', value: 'false' },
+        ]
+        const confirmMessage = `Restart container ${result.displayName}?`
+
         // In JSON mode, output confirmation prompt
         if (jsonMode) {
-          const confirmChoices = [
-            { name: 'Yes', value: 'true' },
-            { name: 'No', value: 'false' },
-          ]
           outputPromptAsJson(
-            buildPromptConfig('list', 'confirmed', `Restart container ${result.displayName}?`, confirmChoices),
+            buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
             createMetadata('docker restart', flags)
           )
           db.close()
@@ -114,7 +117,7 @@ export default class DockerRestart extends Command {
           {
             type: 'confirm',
             name: 'confirm',
-            message: `Restart container ${result.displayName}?`,
+            message: confirmMessage,
             default: true,
           },
         ])

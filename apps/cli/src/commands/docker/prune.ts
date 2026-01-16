@@ -91,21 +91,22 @@ export default class DockerPrune extends Command {
 
     // Confirm
     if (!flags.force) {
-      const message = flags.volumes
-        ? 'This will remove unused resources INCLUDING VOLUMES. Data may be lost. Continue?'
-        : 'Remove unused Docker resources?'
-
       // Check if JSON output mode is active
       const jsonMode = shouldOutputJson(flags)
 
+      // Build choices once, use for both JSON and interactive modes
+      const confirmChoices = [
+        { name: 'No', value: 'false' },
+        { name: 'Yes', value: 'true' },
+      ]
+      const confirmMessage = flags.volumes
+        ? 'This will remove unused resources INCLUDING VOLUMES. Data may be lost. Continue?'
+        : 'Remove unused Docker resources?'
+
       // In JSON mode, output confirmation prompt
       if (jsonMode) {
-        const confirmChoices = [
-          { name: 'No', value: 'false' },
-          { name: 'Yes', value: 'true' },
-        ]
         outputPromptAsJson(
-          buildPromptConfig('list', 'confirmed', message, confirmChoices),
+          buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
           createMetadata('docker prune', flags)
         )
         return
@@ -115,7 +116,7 @@ export default class DockerPrune extends Command {
         {
           type: 'confirm',
           name: 'confirm',
-          message,
+          message: confirmMessage,
           default: false,
         },
       ])

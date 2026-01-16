@@ -139,14 +139,17 @@ export default class BranchCreate extends PMOCommand {
       const validation = validateBranchName(branchName)
 
       if (!validation.valid) {
+        // Build choices once, use for both JSON and interactive modes
+        const confirmChoices = [
+          { name: 'No', value: 'false' },
+          { name: 'Yes', value: 'true' },
+        ]
+        const confirmMessage = `Branch name doesn't follow conventional format. ${validation.error} Continue anyway?`
+
         // In JSON mode, output validation warning prompt
         if (jsonMode) {
-          const confirmChoices = [
-            { name: 'No', value: 'false' },
-            { name: 'Yes', value: 'true' },
-          ]
           outputPromptAsJson(
-            buildPromptConfig('list', 'proceed', `Branch name doesn't follow conventional format. ${validation.error} Continue anyway?`, confirmChoices),
+            buildPromptConfig('list', 'proceed', confirmMessage, confirmChoices),
             createMetadata('branch create', flags)
           )
           return
@@ -157,11 +160,8 @@ export default class BranchCreate extends PMOCommand {
           {
             type: 'list',
             name: 'proceed',
-            message: `Branch name doesn't follow conventional format.\n   ${validation.error}\n   Continue anyway?`,
-            choices: [
-              { name: 'No', value: false },
-              { name: 'Yes', value: true },
-            ],
+            message: confirmMessage.replace('. ', '.\n   ').replace('?', '?\n   '),
+            choices: confirmChoices.map(c => ({ name: c.name, value: c.value === 'true' })),
             default: false,
           },
         ])
@@ -416,17 +416,20 @@ export default class BranchCreate extends PMOCommand {
     // First choice: from ticket or custom
     const hasTickets = tickets.length > 0
 
+    // Build choices once, use for both JSON and interactive modes
+    const modeChoices = [
+      ...(hasTickets ? [
+        { name: 'From ticket - quick', value: 'ticket-quick' },
+        { name: 'From ticket - customize', value: 'ticket' },
+      ] : []),
+      { name: 'Custom branch name', value: 'custom' },
+    ]
+    const modeMessage = 'Create branch:'
+
     // In JSON mode, output mode selection prompt
     if (jsonMode) {
-      const modeChoices = [
-        ...(hasTickets ? [
-          { name: 'From ticket - quick', value: 'ticket-quick' },
-          { name: 'From ticket - customize', value: 'ticket' },
-        ] : []),
-        { name: 'Custom branch name', value: 'custom' },
-      ]
       outputPromptAsJson(
-        buildPromptConfig('list', 'mode', 'Create branch:', modeChoices),
+        buildPromptConfig('list', 'mode', modeMessage, modeChoices),
         createMetadata('branch create', flags)
       )
       return null
@@ -440,14 +443,11 @@ export default class BranchCreate extends PMOCommand {
       {
         type: 'list',
         name: 'mode',
-        message: 'Create branch:',
-        choices: [
-          ...(hasTickets ? [
-            { name: `📋 From ticket - quick`, value: 'ticket-quick' },
-            { name: `📋 From ticket - customize`, value: 'ticket' },
-          ] : []),
-          { name: '✏️  Custom branch name', value: 'custom' },
-        ],
+        message: modeMessage,
+        choices: modeChoices.map((c, i) => ({
+          name: hasTickets && i < 2 ? `📋 ${c.name}` : (c.value === 'custom' ? `✏️  ${c.name}` : c.name),
+          value: c.value,
+        })),
       },
     ])
 

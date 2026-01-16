@@ -127,14 +127,17 @@ export default class DockerClean extends Command {
         // Check if JSON output mode is active
         const jsonMode = shouldOutputJson(flags)
 
+        // Build choices once, use for both JSON and interactive modes
+        const confirmChoices = [
+          { name: 'No', value: 'false' },
+          { name: 'Yes', value: 'true' },
+        ]
+        const confirmMessage = `Remove ${orphanedContainers.length} orphaned container(s)?`
+
         // In JSON mode, output confirmation prompt
         if (jsonMode) {
-          const confirmChoices = [
-            { name: 'No', value: 'false' },
-            { name: 'Yes', value: 'true' },
-          ]
           outputPromptAsJson(
-            buildPromptConfig('list', 'confirmed', `Remove ${orphanedContainers.length} orphaned container(s)?`, confirmChoices),
+            buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
             createMetadata('docker clean', flags)
           )
           db.close()
@@ -145,7 +148,7 @@ export default class DockerClean extends Command {
           {
             type: 'confirm',
             name: 'confirm',
-            message: `Remove ${orphanedContainers.length} orphaned container(s)?`,
+            message: confirmMessage,
             default: false,
           },
         ])

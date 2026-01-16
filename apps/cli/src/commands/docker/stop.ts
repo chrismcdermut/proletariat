@@ -98,14 +98,17 @@ export default class DockerStop extends Command {
         // Check if JSON output mode is active
         const jsonMode = shouldOutputJson(flags)
 
+        // Build choices once, use for both JSON and interactive modes
+        const confirmChoices = [
+          { name: 'No', value: 'false' },
+          { name: 'Yes', value: 'true' },
+        ]
+        const confirmMessage = `Stop container ${result.displayName}?`
+
         // In JSON mode, output confirmation prompt
         if (jsonMode) {
-          const confirmChoices = [
-            { name: 'No', value: 'false' },
-            { name: 'Yes', value: 'true' },
-          ]
           outputPromptAsJson(
-            buildPromptConfig('list', 'confirmed', `Stop container ${result.displayName}?`, confirmChoices),
+            buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
             createMetadata('docker stop', flags)
           )
           db.close()
@@ -116,7 +119,7 @@ export default class DockerStop extends Command {
           {
             type: 'confirm',
             name: 'confirm',
-            message: `Stop container ${result.displayName}?`,
+            message: confirmMessage,
             default: false,
           },
         ])

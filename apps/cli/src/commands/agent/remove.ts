@@ -70,34 +70,32 @@ export default class Remove extends PMOCommand {
 
     // Interactive mode if no agent specified
     if (!agentName) {
+      // Build choices once, use for both JSON and interactive modes
+      const agentChoices = [
+        ...workspaceInfo.agents.map((agent: any) => ({ name: agent.name, value: agent.name })),
+        { name: 'Cancel', value: 'cancel' },
+      ];
+      const selectMessage = 'Select agent to remove:';
+
       // In JSON mode, output agent selection prompt
       if (jsonMode) {
-        const agentChoices = [
-          ...workspaceInfo.agents.map((agent: any) => ({ name: agent.name, value: agent.name })),
-          { name: 'Cancel', value: 'cancel' },
-        ];
         outputPromptAsJson(
-          buildPromptConfig('list', 'name', 'Select agent to remove:', agentChoices),
+          buildPromptConfig('list', 'name', selectMessage, agentChoices),
           createMetadata('agent remove', flags)
         );
         return;
       }
 
-      const choices = [
-        ...workspaceInfo.agents.map((agent: any) => ({
-          name: agent.name,
-          value: agent.name
-        })),
-        new inquirer.Separator(),
-        { name: '❌ Cancel', value: 'cancel' }
-      ];
-
       const { selected } = await inquirer.prompt([
         {
           type: 'list',
           name: 'selected',
-          message: 'Select agent to remove:',
-          choices
+          message: selectMessage,
+          choices: [
+            ...agentChoices.slice(0, -1),
+            new inquirer.Separator(),
+            { name: '❌ ' + agentChoices[agentChoices.length - 1].name, value: agentChoices[agentChoices.length - 1].value }
+          ]
         }
       ]);
 
@@ -117,15 +115,18 @@ export default class Remove extends PMOCommand {
 
     const agentsToRemove = [agentName!];
 
+    // Build choices once, use for both JSON and interactive modes
+    const confirmChoices = [
+      { name: 'No, cancel', value: 'false' },
+      { name: 'Yes, remove agent', value: 'true' },
+    ];
+    const confirmMessage = `Are you sure you want to remove agent "${agentName!}"? This will delete its worktree.`;
+
     // Confirm removal
     // In JSON mode, output confirmation prompt
     if (jsonMode) {
-      const confirmChoices = [
-        { name: 'No, cancel', value: 'false' },
-        { name: 'Yes, remove agent', value: 'true' },
-      ];
       outputPromptAsJson(
-        buildPromptConfig('list', 'confirmed', `Are you sure you want to remove agent "${agentName!}"? This will delete its worktree.`, confirmChoices),
+        buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
         createMetadata('agent remove', flags)
       );
       return;
@@ -135,10 +136,10 @@ export default class Remove extends PMOCommand {
       {
         type: 'list',
         name: 'confirm',
-        message: `Are you sure you want to remove agent "${agentName!}"? This will delete its worktree.`,
+        message: confirmMessage,
         choices: [
-          { name: '❌ No, cancel', value: false },
-          { name: '⚠️  Yes, remove agent', value: true }
+          { name: '❌ ' + confirmChoices[0].name, value: false },
+          { name: '⚠️  ' + confirmChoices[1].name, value: true }
         ],
         default: 0 // Default to "No, cancel"
       }

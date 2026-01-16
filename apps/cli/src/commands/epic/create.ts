@@ -51,6 +51,12 @@ export default class EpicCreate extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
+    // Build choices once, use for both JSON and interactive modes
+    const statusChoices = [
+      { name: 'Active (currently working on)', value: 'active' },
+      { name: 'Draft (planning phase)', value: 'draft' },
+    ];
+
     // Get epic data
     let epicData: {
       title: string;
@@ -60,25 +66,23 @@ export default class EpicCreate extends PMOCommand {
     };
 
     if (!flags.title) {
+      // Get specs once, use for both modes
+      const specs = await this.storage.listSpecs();
+      const specChoices = [
+        { name: 'None (no spec linked)', value: '' },
+        ...specs.map(s => ({
+          name: `${s.id} - ${s.title}`,
+          value: s.id,
+        })),
+      ];
+
       // In JSON mode, output form prompt for epic creation
       if (jsonMode) {
-        const specs = await this.storage.listSpecs();
-        const specChoices = [
-          { name: 'None (no spec linked)', value: '' },
-          ...specs.map(s => ({
-            name: `${s.id} - ${s.title}`,
-            value: s.id,
-          })),
-        ];
-
         const fields: FormField[] = [
           { type: 'input', name: 'title', message: 'Epic title:', default: flags.title },
           {
             type: 'list', name: 'status', message: 'Initial status:',
-            choices: [
-              { name: 'Active (currently working on)', value: 'active' },
-              { name: 'Draft (planning phase)', value: 'draft' },
-            ],
+            choices: statusChoices,
             default: flags.status || 'active'
           },
           { type: 'input', name: 'description', message: 'Description (optional):', default: flags.description },
@@ -98,7 +102,7 @@ export default class EpicCreate extends PMOCommand {
         return;
       }
 
-      epicData = await this.promptEpicData(flags);
+      epicData = await this.promptEpicData(flags, statusChoices, specChoices);
     } else {
       epicData = {
         title: flags.title,
@@ -152,23 +156,15 @@ export default class EpicCreate extends PMOCommand {
       status?: string;
       description?: string;
       spec?: string;
-    }
+    },
+    statusChoices: Array<{ name: string; value: string }>,
+    specChoices: Array<{ name: string; value: string }>
   ): Promise<{
     title: string;
     status: EpicStatus;
     description?: string;
     specId?: string;
   }> {
-    // Get available specs for linking
-    const specs = await this.storage.listSpecs();
-    const specChoices = [
-      { name: 'None (no spec linked)', value: '' },
-      ...specs.map(s => ({
-        name: `${s.id} - ${s.title}`,
-        value: s.id,
-      })),
-    ];
-
     const answers = await inquirer.prompt<{
       title: string;
       status: string;
@@ -186,10 +182,7 @@ export default class EpicCreate extends PMOCommand {
         type: 'list',
         name: 'status',
         message: 'Initial status:',
-        choices: [
-          { name: 'Active (currently working on)', value: 'active' },
-          { name: 'Draft (planning phase)', value: 'draft' },
-        ],
+        choices: statusChoices,
         default: flags.status || 'active',
       },
       {
@@ -204,7 +197,7 @@ export default class EpicCreate extends PMOCommand {
         message: 'Link to spec (design document):',
         choices: specChoices,
         default: flags.spec || '',
-        when: () => specs.length > 0,
+        when: () => specChoices.length > 1, // More than just "None"
       },
     ]);
 
