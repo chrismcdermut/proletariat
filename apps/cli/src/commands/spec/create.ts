@@ -75,22 +75,26 @@ export default class SpecCreate extends PMOCommand {
     };
 
     if (flags.interactive || (!args.title && !flags.title)) {
+      // Build choices once, use for both JSON and interactive modes
+      const typeChoices = [
+        { name: 'Product (user-facing feature)', value: 'product' },
+        { name: 'Platform (internal tooling)', value: 'platform' },
+        { name: 'Infra (technical infrastructure)', value: 'infra' },
+        { name: 'Integration (external service)', value: 'integration' },
+        { name: 'None', value: '' },
+      ];
+      const statusChoices = [
+        { name: 'Draft (planning)', value: 'draft' },
+        { name: 'Active (in progress)', value: 'active' },
+        { name: 'Implemented (complete)', value: 'implemented' },
+      ];
+
       // In JSON mode, output form prompts
       if (jsonMode) {
         const formFields = [
           { type: 'input' as const, name: 'title', message: 'Spec title:', default: flags.title },
-          { type: 'list' as const, name: 'type', message: 'Spec type:', choices: [
-            { name: 'Product (user-facing feature)', value: 'product' },
-            { name: 'Platform (internal tooling)', value: 'platform' },
-            { name: 'Infra (technical infrastructure)', value: 'infra' },
-            { name: 'Integration (external service)', value: 'integration' },
-            { name: 'None', value: '' },
-          ], default: flags.type },
-          { type: 'list' as const, name: 'status', message: 'Status:', choices: [
-            { name: 'Draft (planning)', value: 'draft' },
-            { name: 'Active (in progress)', value: 'active' },
-            { name: 'Implemented (complete)', value: 'implemented' },
-          ], default: flags.status || 'draft' },
+          { type: 'list' as const, name: 'type', message: 'Spec type:', choices: typeChoices, default: flags.type },
+          { type: 'list' as const, name: 'status', message: 'Status:', choices: statusChoices, default: flags.status || 'draft' },
           { type: 'input' as const, name: 'problem', message: 'Problem statement (optional):', default: flags.problem },
         ];
         outputPromptAsJson(
@@ -100,7 +104,7 @@ export default class SpecCreate extends PMOCommand {
         return;
       }
 
-      specData = await this.promptSpecData(flags);
+      specData = await this.promptSpecData(flags, typeChoices, statusChoices);
     } else {
       specData = {
         title: args.title || flags.title || 'Untitled Spec',
@@ -132,12 +136,16 @@ export default class SpecCreate extends PMOCommand {
     this.log(styles.muted(`  3. prlt spec plan ${spec.id}  (to generate tickets)`));
   }
 
-  private async promptSpecData(flags: {
-    title?: string;
-    status?: string;
-    type?: string;
-    problem?: string;
-  }): Promise<{
+  private async promptSpecData(
+    flags: {
+      title?: string;
+      status?: string;
+      type?: string;
+      problem?: string;
+    },
+    typeChoices: Array<{ name: string; value: string }>,
+    statusChoices: Array<{ name: string; value: string }>
+  ): Promise<{
     title: string;
     status: SpecStatus;
     type?: SpecType;
@@ -155,24 +163,14 @@ export default class SpecCreate extends PMOCommand {
         type: 'list',
         name: 'type',
         message: 'Spec type:',
-        choices: [
-          { name: 'Product (user-facing feature)', value: 'product' },
-          { name: 'Platform (internal tooling)', value: 'platform' },
-          { name: 'Infra (technical infrastructure)', value: 'infra' },
-          { name: 'Integration (external service)', value: 'integration' },
-          { name: 'None', value: undefined },
-        ],
+        choices: typeChoices.map(c => ({ ...c, value: c.value || undefined })),
         default: flags.type,
       },
       {
         type: 'list',
         name: 'status',
         message: 'Status:',
-        choices: [
-          { name: 'Draft (planning)', value: 'draft' },
-          { name: 'Active (in progress)', value: 'active' },
-          { name: 'Implemented (complete)', value: 'implemented' },
-        ],
+        choices: statusChoices,
         default: flags.status || 'draft',
       },
       {

@@ -71,6 +71,13 @@ export default class ActionCreate extends PMOCommand {
 
     // Interactive mode if name or prompt is missing
     if (!name || !prompt || flags.interactive) {
+      // Build choices once, use for both JSON and interactive modes
+      const suggestedForChoices = STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c }));
+      const moveToChoices = [
+        { name: '(no automatic move)', value: '' },
+        ...STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
+      ];
+
       // In JSON mode, output form prompt
       if (jsonMode) {
         const fields: FormField[] = [
@@ -79,14 +86,11 @@ export default class ActionCreate extends PMOCommand {
           { type: 'editor', name: 'prompt', message: 'Prompt (opens editor):', default: prompt },
           {
             type: 'checkbox', name: 'suggestedFor', message: 'Suggested for categories (optional):',
-            choices: STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
+            choices: suggestedForChoices,
           },
           {
             type: 'list', name: 'moveTo', message: 'Move ticket to category after action:',
-            choices: [
-              { name: '(no automatic move)', value: '' },
-              ...STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
-            ],
+            choices: moveToChoices,
             default: moveTo || '',
           },
         ];
@@ -128,19 +132,13 @@ export default class ActionCreate extends PMOCommand {
           type: 'checkbox',
           name: 'suggestedFor',
           message: 'Suggested for categories (optional):',
-          choices: STATE_CATEGORY_ORDER.map(c => ({
-            name: c,
-            value: c,
-          })),
+          choices: suggestedForChoices,
         },
         {
           type: 'list',
           name: 'moveTo',
           message: 'Move ticket to category after action:',
-          choices: [
-            { name: '(no automatic move)', value: '' },
-            ...STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
-          ],
+          choices: moveToChoices,
           default: moveTo || '',
         },
       ]);
