@@ -79,13 +79,12 @@ export default class Shell extends PMOCommand {
       const agentChoices = workspaceInfo.agents.map((agent: any) => ({ name: agent.name, value: agent.name }));
       const selectMessage = 'Select agent to open shell in:';
 
-      // In JSON mode, output agent selection prompt
+      // In JSON mode, output agent selection prompt and exit
       if (jsonMode) {
         outputPromptAsJson(
           buildPromptConfig('list', 'name', selectMessage, agentChoices),
           createMetadata('agent shell', flags)
         );
-        return;
       }
 
       const { selected } = await inquirer.prompt([
@@ -110,7 +109,7 @@ export default class Shell extends PMOCommand {
     // Check if agent has devcontainer
     const hasDevcontainer = hasDevcontainerConfig(agentDir);
 
-    // In JSON mode with agent name provided, output config choices prompt
+    // In JSON mode with agent name provided, output config choices prompt and exit
     if (jsonMode) {
       const configChoices = [
         { name: 'terminal - safe - devcontainer', value: 'terminal-safe-devcontainer' },
@@ -130,7 +129,6 @@ export default class Shell extends PMOCommand {
         },
         createMetadata('agent shell', flags)
       );
-      return;
     }
 
     // Prompt for environment

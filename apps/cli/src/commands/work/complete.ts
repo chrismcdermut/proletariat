@@ -91,7 +91,7 @@ export default class WorkComplete extends PMOCommand {
           return;
         }
 
-        // In JSON mode, output ticket selection prompt
+        // In JSON mode, output ticket selection prompt and exit
         if (jsonMode) {
           const ticketChoices = completableTickets.map(t => ({
             name: `${t.id} - ${t.title} (${t.statusName})`,
@@ -101,8 +101,6 @@ export default class WorkComplete extends PMOCommand {
             buildPromptConfig('list', 'ticketId', 'Select work to mark as complete:', ticketChoices),
             createMetadata('work complete', flags)
           );
-          db.close();
-          return;
         }
 
         const { selectedTicketId } = await inquirer.prompt([{

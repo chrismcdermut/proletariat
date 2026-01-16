@@ -209,16 +209,11 @@ export function createMetadata(
 }
 
 /**
- * Output a prompt configuration as JSON
+ * Output a prompt configuration as JSON and exit
  *
  * Use this when a command would normally show an interactive prompt.
- * Outputs the prompt config so agents can understand what input is needed.
- *
- * Recommended usage:
- * ```typescript
- * outputPromptAsJson(config, metadata)
- * process.exit(EXIT_NEEDS_INPUT)  // Exit with code 2 to signal input needed
- * ```
+ * Outputs the prompt config so agents can understand what input is needed,
+ * then exits with EXIT_NEEDS_INPUT (2) to signal the command needs more input.
  *
  * @param config - Prompt configuration
  * @param metadata - Command metadata
@@ -226,12 +221,13 @@ export function createMetadata(
 export function outputPromptAsJson(
   config: PromptConfig,
   metadata: OutputMetadata
-): void {
+): never {
   const output: PromptJsonOutput = {
     prompt: config,
     metadata,
   }
   console.log(JSON.stringify(output, null, 2))
+  process.exit(EXIT_NEEDS_INPUT)
 }
 
 /**
@@ -257,10 +253,11 @@ export function outputSuccessAsJson(
 }
 
 /**
- * Output error as JSON
+ * Output error as JSON and exit
  *
  * Use this when an error occurs and --json flag is active.
- * Provides structured error output for programmatic handling.
+ * Provides structured error output for programmatic handling,
+ * then exits with EXIT_ERROR (1).
  *
  * @param code - Machine-readable error code (e.g., "NO_TICKETS_AVAILABLE")
  * @param message - Human-readable error message
@@ -270,7 +267,7 @@ export function outputErrorAsJson(
   code: string,
   message: string,
   metadata: OutputMetadata
-): void {
+): never {
   const output: ErrorJsonOutput = {
     error: {
       code,
@@ -279,6 +276,7 @@ export function outputErrorAsJson(
     metadata,
   }
   console.log(JSON.stringify(output, null, 2))
+  process.exit(EXIT_ERROR)
 }
 
 /**

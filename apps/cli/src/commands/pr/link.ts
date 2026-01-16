@@ -116,15 +116,12 @@ export default class PRLink extends Command {
         }));
         const ticketMessage = 'Select ticket to link PR to:';
 
-        // In JSON mode, output ticket selection prompt
+        // In JSON mode, output ticket selection prompt and exit
         if (jsonMode) {
           outputPromptAsJson(
             buildPromptConfig('list', 'ticketId', ticketMessage, ticketChoices),
             createMetadata('pr link', flags)
           );
-          await storage.close();
-          db.close();
-          return;
         }
 
         const { selectedTicketId } = await inquirer.prompt([{
@@ -153,15 +150,12 @@ export default class PRLink extends Command {
         ];
         const confirmMessage = `Ticket ${ticketId} already has a linked PR (${ticket.metadata.pr_url}). Replace with a different PR?`;
 
-        // In JSON mode, output overwrite confirmation prompt
+        // In JSON mode, output overwrite confirmation prompt and exit
         if (jsonMode) {
           outputPromptAsJson(
             buildPromptConfig('list', 'overwrite', confirmMessage, confirmChoices),
             createMetadata('pr link', flags)
           );
-          await storage.close();
-          db.close();
-          return;
         }
 
         this.log(styles.info(`Ticket ${ticketId} already has a linked PR:`));
@@ -217,15 +211,12 @@ export default class PRLink extends Command {
         }));
         const prMessage = 'Select PR to link:';
 
-        // In JSON mode, output PR selection prompt
+        // In JSON mode, output PR selection prompt and exit
         if (jsonMode) {
           outputPromptAsJson(
             buildPromptConfig('list', 'prNumber', prMessage, prChoices),
             createMetadata('pr link', flags)
           );
-          await storage.close();
-          db.close();
-          return;
         }
 
         const { selectedPR } = await inquirer.prompt([{

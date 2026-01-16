@@ -172,15 +172,12 @@ export default class PRCreate extends Command {
           ];
           const message = 'Link PR to a ticket?';
 
-          // In JSON mode, output ticket selection prompt
+          // In JSON mode, output ticket selection prompt and exit
           if (jsonMode) {
             outputPromptAsJson(
               buildPromptConfig('list', 'ticketId', message, ticketChoices),
               createMetadata('pr create', flags)
             );
-            if (storage) await storage.close();
-            if (db) db.close();
-            return;
           }
 
           const { selectedTicketId } = await inquirer.prompt([

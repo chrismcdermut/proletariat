@@ -247,13 +247,12 @@ export default class PMOInit extends Command {
     ];
     const message = `PMO already exists at ${pmoPath} (${projectCount} projects, ${ticketCount} tickets). What would you like to do?`;
 
-    // In JSON mode, output reinitialize prompt
+    // In JSON mode, output reinitialize prompt and exit
     if (jsonMode) {
       outputPromptAsJson(
         buildPromptConfig('list', 'action', message, actionChoices),
         createMetadata('pmo init', flags)
       );
-      return null;
     }
 
     this.log(chalk.yellow('\n⚠️  PMO already exists'));

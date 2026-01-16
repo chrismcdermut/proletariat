@@ -97,15 +97,12 @@ export default class PRStatus extends Command {
         const ticketChoices = [...ticketsWithPRChoices, ...ticketsWithoutPRChoices];
         const message = 'Select ticket to check PR status:';
 
-        // In JSON mode, output ticket selection prompt
+        // In JSON mode, output ticket selection prompt and exit
         if (jsonMode) {
           outputPromptAsJson(
             buildPromptConfig('list', 'ticketId', message, ticketChoices),
             createMetadata('pr status', flags)
           );
-          await storage.close();
-          db.close();
-          return;
         }
 
         // Build interactive choices with separator
