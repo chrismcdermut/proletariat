@@ -6,22 +6,18 @@ import chalk from 'chalk';
 /**
  * Central workspace resolution utilities.
  *
- * Supports PRLT_HQ_PATH environment variable to override workspace discovery.
- * This is critical for:
- * - Local development testing (isolate test databases)
- * - Devcontainer environments (explicit path specification)
- * - CI/CD environments (deterministic workspace location)
- *
  * Search priority:
- * 1. PRLT_HQ_PATH environment variable (explicit override)
+ * 1. PRLT_HQ_PATH env var (ONLY when DEVCONTAINER=true - for devcontainer mounts)
  * 2. Walk up directory tree looking for .proletariat/config.json with type='hq'
  *    - If found but not registered, emit warning to register
  * 3. ~/.proletariat/config.json activeWorkspace (fallback when NOT in any workspace)
  * 4. Global config ~/.proletariat/config.json defaultHQ (legacy fallback)
  *
- * NOTE: Directory tree walk takes precedence over activeWorkspace to support
- * multiple agents working in different workspaces simultaneously. Each agent
- * uses the workspace they're physically in, not a global "active" setting.
+ * NOTE: PRLT_HQ_PATH is ignored on host machines to support multiple agents
+ * working in different workspaces simultaneously. Each agent uses the workspace
+ * they're physically in, not a global env var that could cause conflicts.
+ *
+ * For testing and CI/CD workspace isolation, see TKT-XXX.
  */
 
 export interface WorkspaceLocation {
@@ -50,9 +46,12 @@ export function findHQRoot(startDir: string = process.cwd()): string | null {
  * Useful for debugging and logging where the workspace was resolved from.
  */
 export function findHQRootWithSource(startDir: string = process.cwd()): WorkspaceLocation | null {
-  // 1. Check PRLT_HQ_PATH environment variable first (explicit override)
+  // 1. Check PRLT_HQ_PATH environment variable (only in devcontainers)
+  // On host machines, we use directory walk to support multiple workspaces/agents
   const envHqPath = process.env.PRLT_HQ_PATH;
-  if (envHqPath) {
+  const isDevcontainer = process.env.DEVCONTAINER === 'true';
+
+  if (envHqPath && isDevcontainer) {
     const resolvedPath = path.resolve(envHqPath);
     // Validate it's actually an HQ
     if (isValidHQ(resolvedPath)) {
