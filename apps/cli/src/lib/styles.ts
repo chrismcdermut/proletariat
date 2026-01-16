@@ -64,19 +64,31 @@ export const styles = {
 
 /**
  * Format a priority badge
+ * Supports both P0-P3 format and legacy URGENT/HIGH/MEDIUM/LOW
  */
 export function formatPriority(priority?: string): string {
   if (!priority) return '';
 
-  switch (priority) {
+  const p = priority.toUpperCase();
+  switch (p) {
+    // P0-P3 format (preferred)
+    case 'P0':
+      return styles.priorityUrgent(`[${p}]`);
+    case 'P1':
+      return styles.priorityHigh(`[${p}]`);
+    case 'P2':
+      return styles.priorityMedium(`[${p}]`);
+    case 'P3':
+      return styles.priorityLow(`[${p}]`);
+    // Legacy format (backward compatibility)
     case 'URGENT':
-      return styles.priorityUrgent(`[${priority}]`);
+      return styles.priorityUrgent(`[${p}]`);
     case 'HIGH':
-      return styles.priorityHigh(`[${priority}]`);
+      return styles.priorityHigh(`[${p}]`);
     case 'MEDIUM':
-      return styles.priorityMedium(`[${priority}]`);
+      return styles.priorityMedium(`[${p}]`);
     case 'LOW':
-      return styles.priorityLow(`[${priority}]`);
+      return styles.priorityLow(`[${p}]`);
     default:
       return styles.muted(`[${priority}]`);
   }

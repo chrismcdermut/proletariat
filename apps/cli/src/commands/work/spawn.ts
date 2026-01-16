@@ -206,7 +206,34 @@ export default class WorkSpawn extends PMOCommand {
 
         this.log('')
         this.log(styles.header(`🚀 Spawn: ${ticketsToSpawn.length} ticket(s)`))
-        this.log(styles.muted(`Tickets: ${ticketsToSpawn.map(t => t.id).join(', ')}`))
+
+        // Display tickets grouped by priority
+        const priorityGroupsArgs = new Map<string, typeof ticketsToSpawn>()
+        for (const ticket of ticketsToSpawn) {
+          const pri = this.normalizePriorityForDisplay(ticket.priority)
+          if (!priorityGroupsArgs.has(pri)) {
+            priorityGroupsArgs.set(pri, [])
+          }
+          priorityGroupsArgs.get(pri)!.push(ticket)
+        }
+
+        const priorityLabelsArgs: Record<string, string> = {
+          'P0': 'P0 - Urgent',
+          'P1': 'P1 - High',
+          'P2': 'P2 - Medium',
+          'P3': 'P3 - Low',
+        }
+
+        this.log('')
+        for (const pri of ['P0', 'P1', 'P2', 'P3']) {
+          const priTickets = priorityGroupsArgs.get(pri)
+          if (priTickets && priTickets.length > 0) {
+            this.log(styles.muted(`── ${priorityLabelsArgs[pri]} (${priTickets.length}) ──`))
+            for (const ticket of priTickets) {
+              this.log(styles.muted(`  ${ticket.id} - ${ticket.title}`))
+            }
+          }
+        }
 
       } else if (spawnMode === 'all') {
         // ALL MODE: Column picker, then spawn all unassigned in that column
@@ -256,6 +283,34 @@ export default class WorkSpawn extends PMOCommand {
 
         this.log('')
         this.log(styles.header(`🚀 Spawn All from: ${matchedColumn}`))
+
+        // Display tickets grouped by priority
+        const priorityGroups = new Map<string, typeof ticketsToSpawn>()
+        for (const ticket of ticketsToSpawn) {
+          const pri = this.normalizePriorityForDisplay(ticket.priority)
+          if (!priorityGroups.has(pri)) {
+            priorityGroups.set(pri, [])
+          }
+          priorityGroups.get(pri)!.push(ticket)
+        }
+
+        const priorityLabelsAll: Record<string, string> = {
+          'P0': 'P0 - Urgent',
+          'P1': 'P1 - High',
+          'P2': 'P2 - Medium',
+          'P3': 'P3 - Low',
+        }
+
+        this.log('')
+        for (const pri of ['P0', 'P1', 'P2', 'P3']) {
+          const priTickets = priorityGroups.get(pri)
+          if (priTickets && priTickets.length > 0) {
+            this.log(styles.muted(`── ${priorityLabelsAll[pri]} (${priTickets.length}) ──`))
+            for (const ticket of priTickets) {
+              this.log(styles.muted(`  ${ticket.id} - ${ticket.title}`))
+            }
+          }
+        }
 
       } else {
         // MANY MODE: First pick column (or all), then multi-select tickets
@@ -827,5 +882,18 @@ export default class WorkSpawn extends PMOCommand {
       db.close()
       throw error
     }
+  }
+
+  /**
+   * Normalize priority to P0-P3 format for display grouping
+   */
+  private normalizePriorityForDisplay(priority: string | undefined): string {
+    if (!priority) return 'P2'
+    const p = priority.toUpperCase()
+    if (p === 'URGENT' || p === 'P0') return 'P0'
+    if (p === 'HIGH' || p === 'P1') return 'P1'
+    if (p === 'MEDIUM' || p === 'P2') return 'P2'
+    if (p === 'LOW' || p === 'P3') return 'P3'
+    return 'P2'
   }
 }

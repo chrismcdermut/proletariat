@@ -3,16 +3,42 @@
 Generate ROADMAP.md from the PMO database.
 
 Usage:
-    python scripts/generate-roadmap.py > ROADMAP.md
+    python scripts/generate-roadmap.py
 
-Or to update in place:
-    python scripts/generate-roadmap.py --output ROADMAP.md
+Output goes to: <workspace>/pmo/roadmaps/ROADMAP.md by default
+Override with: python scripts/generate-roadmap.py --output /path/to/output.md
 """
 
 import sqlite3
 import argparse
 import os
 import sys
+
+def find_workspace_root():
+    """Find workspace root by walking up from script location looking for .proletariat."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.dirname(script_dir)
+
+    # Check common locations
+    candidates = [
+        os.path.normpath(os.path.join(repo_root, '..', '..')),  # HQ level
+        repo_root,  # Repo level
+        os.path.expanduser('~'),  # Home level
+    ]
+
+    for path in candidates:
+        if os.path.exists(os.path.join(path, '.proletariat', 'workspace.db')):
+            return path
+
+    # Walk up from repo root
+    current = repo_root
+    while current != '/':
+        if os.path.exists(os.path.join(current, '.proletariat', 'workspace.db')):
+            return current
+        current = os.path.dirname(current)
+
+    return None
+
 
 def find_workspace_db():
     """Find workspace.db by walking up from script location."""
@@ -176,7 +202,8 @@ def generate_roadmap(db_path, output_file=None):
 def main():
     parser = argparse.ArgumentParser(description='Generate ROADMAP.md from PMO database')
     parser.add_argument('--db', help='Path to workspace.db (auto-detected if not specified)')
-    parser.add_argument('--output', '-o', help='Output file path (stdout if not specified)')
+    parser.add_argument('--output', '-o', help='Output file path (defaults to <workspace>/pmo/roadmaps/ROADMAP.md)')
+    parser.add_argument('--stdout', action='store_true', help='Print to stdout instead of file')
     args = parser.parse_args()
 
     db_path = args.db or find_workspace_db()
@@ -189,7 +216,23 @@ def main():
         print(f"Error: Database not found at {db_path}", file=sys.stderr)
         sys.exit(1)
 
-    generate_roadmap(db_path, args.output)
+    # Determine output path
+    output_file = None
+    if args.stdout:
+        output_file = None
+    elif args.output:
+        output_file = args.output
+    else:
+        # Default to workspace/pmo/roadmaps/ROADMAP.md
+        workspace_root = find_workspace_root()
+        if workspace_root:
+            roadmaps_dir = os.path.join(workspace_root, 'pmo', 'roadmaps')
+            os.makedirs(roadmaps_dir, exist_ok=True)
+            output_file = os.path.join(roadmaps_dir, 'ROADMAP.md')
+        else:
+            print("Warning: Could not find workspace root, printing to stdout", file=sys.stderr)
+
+    generate_roadmap(db_path, output_file)
 
 
 if __name__ == '__main__':
