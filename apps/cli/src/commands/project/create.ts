@@ -5,6 +5,13 @@ import inquirer from 'inquirer';
 import { createBoardContent, createSpecFolders, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { slugify } from '../../lib/pmo/utils.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildFormPromptConfig,
+  FormField,
+} from '../../lib/prompt-json.js';
 
 export default class ProjectCreate extends PMOCommand {
   static description = 'Create a new project in the PMO';
@@ -46,6 +53,8 @@ export default class ProjectCreate extends PMOCommand {
       description: 'Interactive mode',
       default: false,
     }),
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   };
 
   protected getPMOOptions() {
@@ -54,6 +63,9 @@ export default class ProjectCreate extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(ProjectCreate);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
 
     // Get project data first (before storage so prompts work)
     let projectData: {
@@ -64,6 +76,31 @@ export default class ProjectCreate extends PMOCommand {
     };
 
     if (flags.interactive || (!args.name && !flags.name)) {
+      // In JSON mode, output form prompt for project creation
+      if (jsonMode) {
+        const fields: FormField[] = [
+          { type: 'input', name: 'name', message: 'Project name:', default: flags.name },
+          { type: 'input', name: 'id', message: 'Project ID (leave blank to auto-generate):' },
+          { type: 'input', name: 'description', message: 'Description (optional):', default: flags.description },
+          {
+            type: 'list', name: 'template', message: 'Workflow template:',
+            choices: [
+              { name: 'Kanban - Backlog → To Do → In Progress → Done', value: 'kanban' },
+              { name: 'Linear - Backlog, Triage, Todo, In Progress, In Review, Done', value: 'linear' },
+              { name: 'Bug Smash - Reported → Confirmed → Fixing → Verifying → Fixed', value: 'bug-smash' },
+              { name: '5-Tool Founder - Ideas → Next Up → Building → Shipping → Shipped', value: '5-tool-founder' },
+              { name: 'GTM - Ideation → Planning → In Development → Ready to Launch → Launched', value: 'gtm' },
+            ],
+            default: flags.template || 'kanban'
+          },
+        ];
+        outputPromptAsJson(
+          buildFormPromptConfig(fields),
+          createMetadata('project create', flags)
+        );
+        return;
+      }
+
       projectData = await this.promptProjectData(flags);
     } else {
       projectData = {

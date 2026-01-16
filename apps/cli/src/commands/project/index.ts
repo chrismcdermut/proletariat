@@ -1,5 +1,12 @@
+import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class Project extends PMOCommand {
   static description = 'Interactive menu for project operations';
@@ -10,6 +17,8 @@ export default class Project extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   };
 
   protected getPMOOptions() {
@@ -17,6 +26,28 @@ export default class Project extends PMOCommand {
   }
 
   async execute(): Promise<void> {
+    const { flags } = await this.parse(Project);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // In JSON mode, output menu prompt
+    if (jsonMode) {
+      const menuChoices = [
+        { name: 'Create new project', value: 'create' },
+        { name: 'List all projects', value: 'list' },
+        { name: 'View project board', value: 'view' },
+        { name: 'Manage project specs', value: 'spec' },
+        { name: 'Delete project', value: 'delete' },
+        { name: 'Cancel', value: 'cancel' },
+      ];
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', 'Project Operations - What would you like to do?', menuChoices),
+        createMetadata('project', flags)
+      );
+      return;
+    }
+
     // Show interactive menu
     const { action } = await inquirer.prompt([{
       type: 'list',

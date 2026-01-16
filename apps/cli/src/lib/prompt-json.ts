@@ -55,6 +55,8 @@ export interface PromptConfig {
   default?: string | boolean | string[]
   /** Fields for form type prompts */
   fields?: FormField[]
+  /** Optional context data for complex prompts */
+  context?: Record<string, unknown>
 }
 
 /**
