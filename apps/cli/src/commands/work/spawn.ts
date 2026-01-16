@@ -156,11 +156,12 @@ export default class WorkSpawn extends PMOCommand {
         allTickets = await this.storage.listTickets({ projectId: selection.projectId })
       }
 
-      const unassignedTickets = allTickets.filter(t => !t.assignee)
+      // Show all tickets (don't filter by assignee - user can choose any ticket)
+      const availableTickets = allTickets
 
-      if (unassignedTickets.length === 0) {
+      if (availableTickets.length === 0) {
         db.close()
-        this.log(styles.muted('No unassigned tickets to spawn.'))
+        this.log(styles.muted('No tickets to spawn.'))
         return
       }
 
@@ -729,38 +730,23 @@ export default class WorkSpawn extends PMOCommand {
               batchMode = 'devcontainer'
               environmentSelected = true
 
-              // For devcontainer, also prompt for display mode
+              // For devcontainer, prompt for display mode (terminal or tmux only)
               const { selectedDisplay } = await inquirer.prompt([
                 {
                   type: 'list',
                   name: 'selectedDisplay',
                   message: 'How should agent output be displayed?',
                   choices: [
-                    { name: '🖥️  terminal     - New terminal tab (recommended)', value: 'terminal' },
-                    { name: '📺 foreground  - Current terminal (one at a time)', value: 'foreground' },
-                    { name: '🔲 tmux        - Tmux pane/window', value: 'tmux' },
-                    { name: '📦 background  - Detached (logs to file)', value: 'background' },
+                    { name: 'terminal - New terminal tab (recommended)', value: 'terminal' },
+                    { name: 'tmux     - Tmux pane/window', value: 'tmux' },
                   ],
                   default: 'terminal',
                 },
               ])
               batchDisplayMode = selectedDisplay
 
-              // Prompt for session manager inside the container
-              const { selectedSession } = await inquirer.prompt([
-                {
-                  type: 'list',
-                  name: 'selectedSession',
-                  message: 'How should sessions be managed inside the container?',
-                  choices: [
-                    { name: '🔲 tmux   - Run in tmux (attach with: docker exec -it <container> tmux attach)', value: 'tmux' },
-                    { name: '⚡ direct - Run directly (simpler, no session management)', value: 'direct' },
-                  ],
-                  default: 'tmux',
-                },
-              ])
-              // Store session choice for passing to work:start
-              flags.session = selectedSession
+              // Always use tmux inside container (no prompt)
+              flags.session = 'tmux'
             } else {
               batchRunOnHost = true
               environmentSelected = true
@@ -776,31 +762,17 @@ export default class WorkSpawn extends PMOCommand {
               name: 'selectedMode',
               message: 'How should agent output be displayed?',
               choices: [
-                { name: '🖥️  terminal     - New terminal window (recommended)', value: 'terminal' },
-                { name: '📺 foreground  - Current terminal', value: 'foreground' },
-                { name: '🔲 tmux        - Tmux pane/window', value: 'tmux' },
-                { name: '📦 background  - Detached (logs to file)', value: 'background' },
+                { name: 'terminal - New terminal window (recommended)', value: 'terminal' },
+                { name: 'tmux     - Tmux pane/window', value: 'tmux' },
               ],
             },
           ])
           batchMode = selectedMode
         }
 
-        // Prompt for output mode if not provided
+        // Always use interactive mode (no prompt)
         if (!batchOutput) {
-          const { selectedOutput } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedOutput',
-              message: 'How should Claude display output?',
-              choices: [
-                { name: 'interactive  - Watch Claude work in real-time', value: 'interactive' },
-                { name: 'print        - Show final result only', value: 'print' },
-              ],
-              default: 'interactive',
-            },
-          ])
-          batchOutput = selectedOutput
+          batchOutput = 'interactive'
         }
 
         // Prompt for permissions mode if not provided

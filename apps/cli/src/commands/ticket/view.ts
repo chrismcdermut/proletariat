@@ -29,21 +29,59 @@ export default class TicketView extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
-      // Get all tickets for selection
-      const allTickets = await this.storage.listTickets();
+      // Select project scope first
+      const selection = await this.selectProjectOrAll({
+        message: 'Select tickets to view from:',
+      });
+
+      // Get tickets based on selection
+      const allTickets = selection.allProjects
+        ? await this.storage.listTickets({ allProjects: true })
+        : await this.storage.listTickets({ projectId: selection.projectId });
 
       if (allTickets.length === 0) {
         this.error('No tickets found. Create a ticket first with "prlt ticket create".');
+      }
+
+      // Group tickets by priority
+      const priorityOrder = ['P0', 'P1', 'P2', 'P3', null];
+      const priorityLabels: Record<string, string> = {
+        'P0': 'P0 - Critical',
+        'P1': 'P1 - High',
+        'P2': 'P2 - Medium',
+        'P3': 'P3 - Low',
+        'none': 'No Priority',
+      };
+
+      // Sort tickets by priority
+      const sortedTickets = [...allTickets].sort((a, b) => {
+        const aIdx = priorityOrder.indexOf(a.priority || null);
+        const bIdx = priorityOrder.indexOf(b.priority || null);
+        return aIdx - bIdx;
+      });
+
+      // Build choices with priority separators
+      const choices: Array<{ name: string; value: string } | inquirer.Separator> = [];
+      let currentPriority: string | null | undefined = undefined;
+
+      for (const t of sortedTickets) {
+        const ticketPriority = t.priority || null;
+        if (ticketPriority !== currentPriority) {
+          currentPriority = ticketPriority;
+          const label = priorityLabels[ticketPriority || 'none'] || '⚪ Other';
+          choices.push(new inquirer.Separator(`── ${label} ──`));
+        }
+        choices.push({
+          name: `${t.id} - ${t.title} (${t.statusName})`,
+          value: t.id,
+        });
       }
 
       const { selectedTicketId } = await inquirer.prompt([{
         type: 'list',
         name: 'selectedTicketId',
         message: 'Select ticket to view:',
-        choices: allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        })),
+        choices,
       }]);
       ticketId = selectedTicketId;
     }

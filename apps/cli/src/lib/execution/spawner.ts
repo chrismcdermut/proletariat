@@ -353,12 +353,25 @@ export async function spawnAgentForTicket(
             continue
           }
 
-          // Check if branch exists
+          // Check if branch exists, otherwise create from origin/main
           try {
             execSync(`docker exec ${containerId} git -C "${containerRepoPath}" rev-parse --verify ${branch}`, { stdio: 'pipe' })
             execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout ${branch}`, { stdio: 'pipe' })
           } catch {
-            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout -b ${branch}`, { stdio: 'pipe' })
+            // Fetch latest and branch from origin/main (or origin/master as fallback)
+            try {
+              execSync(`docker exec ${containerId} git -C "${containerRepoPath}" fetch origin main`, { stdio: 'pipe' })
+              execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout -b ${branch} origin/main`, { stdio: 'pipe' })
+            } catch {
+              // Fallback to origin/master if main doesn't exist
+              try {
+                execSync(`docker exec ${containerId} git -C "${containerRepoPath}" fetch origin master`, { stdio: 'pipe' })
+                execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout -b ${branch} origin/master`, { stdio: 'pipe' })
+              } catch {
+                // Last resort: branch from current HEAD
+                execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout -b ${branch}`, { stdio: 'pipe' })
+              }
+            }
           }
           log(`Created branch ${branch} in ${repoName} (inside container)`)
         } catch (error) {
@@ -379,12 +392,25 @@ export async function spawnAgentForTicket(
           continue
         }
 
-        // Check if branch exists
+        // Check if branch exists, otherwise create from origin/main
         try {
           execSync(`git rev-parse --verify ${branch}`, { cwd: repoPath, stdio: 'pipe' })
           execSync(`git checkout ${branch}`, { cwd: repoPath, stdio: 'pipe' })
         } catch {
-          execSync(`git checkout -b ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+          // Fetch latest and branch from origin/main (or origin/master as fallback)
+          try {
+            execSync('git fetch origin main', { cwd: repoPath, stdio: 'pipe' })
+            execSync(`git checkout -b ${branch} origin/main`, { cwd: repoPath, stdio: 'pipe' })
+          } catch {
+            // Fallback to origin/master if main doesn't exist
+            try {
+              execSync('git fetch origin master', { cwd: repoPath, stdio: 'pipe' })
+              execSync(`git checkout -b ${branch} origin/master`, { cwd: repoPath, stdio: 'pipe' })
+            } catch {
+              // Last resort: branch from current HEAD
+              execSync(`git checkout -b ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+            }
+          }
         }
       } catch (error) {
         log(`Could not create branch in ${path.basename(repoPath)}: ${error instanceof Error ? error.message : error}`)

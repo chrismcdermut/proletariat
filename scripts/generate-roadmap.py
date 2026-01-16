@@ -143,7 +143,7 @@ def generate_roadmap(db_path, output_file=None):
             LEFT JOIN pmo_statuses s ON t.status_id = s.id
             WHERE t.project_id = ?
             ORDER BY
-                CASE s.category
+                CASE COALESCE(s.category, 'backlog')
                     WHEN 'started' THEN 1
                     WHEN 'unstarted' THEN 2
                     WHEN 'backlog' THEN 3
