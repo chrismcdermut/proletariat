@@ -4,6 +4,13 @@ import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { EpicStatus } from '../../lib/pmo/types.js';
 import { createEpicFile, getRelativeEpicPath } from '../../lib/pmo/epic-files.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildFormPromptConfig,
+  FormField,
+} from '../../lib/prompt-json.js';
 
 export default class EpicCreate extends PMOCommand {
   static description = 'Create a new epic';
@@ -34,10 +41,15 @@ export default class EpicCreate extends PMOCommand {
     spec: Flags.string({
       description: 'Link to spec ID (the design spec that describes this epic)',
     }),
+    json: Flags.boolean({ description: 'Output prompt configuration as JSON (for AI agents/scripts)', default: false }),
+    'no-interactive': Flags.boolean({ description: 'Alias for --json flag', default: false }),
   };
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(EpicCreate);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
 
     // Get epic data
     let epicData: {
@@ -48,6 +60,44 @@ export default class EpicCreate extends PMOCommand {
     };
 
     if (!flags.title) {
+      // In JSON mode, output form prompt for epic creation
+      if (jsonMode) {
+        const specs = await this.storage.listSpecs();
+        const specChoices = [
+          { name: 'None (no spec linked)', value: '' },
+          ...specs.map(s => ({
+            name: `${s.id} - ${s.title}`,
+            value: s.id,
+          })),
+        ];
+
+        const fields: FormField[] = [
+          { type: 'input', name: 'title', message: 'Epic title:', default: flags.title },
+          {
+            type: 'list', name: 'status', message: 'Initial status:',
+            choices: [
+              { name: 'Active (currently working on)', value: 'active' },
+              { name: 'Draft (planning phase)', value: 'draft' },
+            ],
+            default: flags.status || 'active'
+          },
+          { type: 'input', name: 'description', message: 'Description (optional):', default: flags.description },
+        ];
+
+        if (specs.length > 0) {
+          fields.push({
+            type: 'list', name: 'specId', message: 'Link to spec (design document):',
+            choices: specChoices, default: flags.spec || ''
+          });
+        }
+
+        outputPromptAsJson(
+          buildFormPromptConfig(fields),
+          createMetadata('epic create', flags)
+        );
+        return;
+      }
+
       epicData = await this.promptEpicData(flags);
     } else {
       epicData = {
