@@ -39,7 +39,12 @@ export default class SessionAttach extends PMOCommand {
     ...pmoBaseFlags,
     'new-tab': Flags.boolean({
       char: 'n',
-      description: 'Open in a new terminal tab instead of current terminal',
+      description: 'Open in a new terminal tab (default: true)',
+      default: true,
+    }),
+    'current-terminal': Flags.boolean({
+      char: 'c',
+      description: 'Attach in current terminal instead of new tab',
       default: false,
     }),
     terminal: Flags.string({
@@ -107,10 +112,11 @@ export default class SessionAttach extends PMOCommand {
     this.log('')
     this.log(styles.info(`Attaching to session: ${selectedSession.name}`))
 
-    if (flags['new-tab']) {
-      await this.attachInNewTab(selectedSession, flags.terminal)
-    } else {
+    // Default to new tab unless --current-terminal is specified
+    if (flags['current-terminal']) {
       await this.attachInCurrentTerminal(selectedSession)
+    } else {
+      await this.attachInNewTab(selectedSession, flags.terminal)
     }
   }
 

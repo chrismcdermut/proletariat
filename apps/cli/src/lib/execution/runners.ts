@@ -731,8 +731,7 @@ function buildDevcontainerCommand(
   containerId?: string,
   outputMode: OutputMode = 'interactive',
   sandboxed: boolean = true,
-  displayMode: DisplayMode = 'foreground',
-  sessionManager: SessionManager = 'direct'
+  displayMode: DisplayMode = 'foreground'
 ): string {
   // Get base command (just 'claude' for claude-code)
   let baseCmd: string
@@ -765,39 +764,17 @@ function buildDevcontainerCommand(
   // Build the claude command
   const claudeCmd = `${cdCmd}${baseCmd} ${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}`
 
-  // Session name for tmux (based on ticket ID)
-  const sessionName = context.ticketId.replace(/[^a-zA-Z0-9-]/g, '-')
-
   // If we have a container ID, use docker exec for streaming
   if (containerId) {
     // Use -it flags only for terminal/foreground modes where a TTY is available
     // Background mode runs without a TTY, so -it flags would cause "not a TTY" error
     const ttyFlags = displayMode === 'background' ? '' : '-it '
 
-    if (sessionManager === 'tmux') {
-      // Run inside tmux session within the container
-      // User can attach with: docker exec -it <container> tmux attach -t <session>
-      // Use base64 encoding to avoid all shell escaping issues
-      const tmuxScript = `#!/bin/bash\n${claudeCmd}\nexec bash`
-      const base64Script = Buffer.from(tmuxScript).toString('base64')
-      const scriptPath = `/tmp/tmux-${sessionName}.sh`
-      // Decode base64, write to script, make executable, run in tmux
-      const setupCmd = `echo ${base64Script} | base64 -d > ${scriptPath} && chmod +x ${scriptPath} && tmux new-session -d -s ${sessionName} ${scriptPath} && echo "Started tmux session: ${sessionName}" && echo "Attach with: docker exec -it ${containerId} tmux attach -t ${sessionName}"`
-      return `docker exec ${ttyFlags}${containerId} bash -c '${setupCmd}'`
-    }
-
-    // Direct mode - run claude directly
+    // Direct mode - run claude directly (tmux setup is handled by runDevcontainerInTmux)
     return `docker exec ${ttyFlags}${containerId} bash -c '${claudeCmd}'`
   }
 
   // Fallback to devcontainer exec (no streaming, but works)
-  if (sessionManager === 'tmux') {
-    const tmuxScript = `#!/bin/bash\n${claudeCmd}\nexec bash`
-    const base64Script = Buffer.from(tmuxScript).toString('base64')
-    const scriptPath = `/tmp/tmux-${sessionName}.sh`
-    const setupCmd = `echo ${base64Script} | base64 -d > ${scriptPath} && chmod +x ${scriptPath} && tmux new-session -d -s ${sessionName} ${scriptPath}`
-    return `devcontainer exec --workspace-folder "${context.agentDir}" bash -c '${setupCmd}'`
-  }
   return `devcontainer exec --workspace-folder "${context.agentDir}" bash -c '${claudeCmd}'`
 }
 
@@ -927,13 +904,9 @@ export async function runDevcontainer(
     // Get container ID for docker exec (enables streaming output with TTY)
     const containerId = getDevcontainerContainerId(context.agentDir)
 
-    // Build the devcontainer exec command
-    // When using tmux session manager, we DON'T want buildDevcontainerCommand to set up tmux
-    // because runDevcontainerInTmux handles the nested tmux setup itself
-    const effectiveSessionManager = (sessionManager === 'tmux' && (displayMode === 'terminal' || displayMode === 'tmux'))
-      ? 'direct' // Let runDevcontainerInTmux handle tmux setup
-      : sessionManager
-    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId || undefined, config.outputMode, config.sandboxed, displayMode, effectiveSessionManager)
+    // Build the devcontainer exec command (just runs claude directly)
+    // tmux session setup is handled by runDevcontainerInTmux, not buildDevcontainerCommand
+    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId || undefined, config.outputMode, config.sandboxed, displayMode)
 
     // Execute based on display mode
     // When sessionManager is 'tmux', use runDevcontainerInTmux for nested tmux (except background)
