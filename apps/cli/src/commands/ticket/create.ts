@@ -3,7 +3,7 @@ import inquirer from 'inquirer';
 import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { updateEpicTicketsSection } from '../../lib/pmo/epic-files.js';
-import { TicketTemplate } from '../../lib/pmo/types.js';
+import { TicketTemplate, PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
@@ -46,7 +46,7 @@ export default class TicketCreate extends PMOCommand {
     priority: Flags.string({
       char: 'p',
       description: 'Ticket priority',
-      options: ['URGENT', 'HIGH', 'MEDIUM', 'LOW'],
+      options: [...PRIORITIES],
     }),
     category: Flags.string({
       description: 'Ticket category (e.g., bug, feature, refactor)',
@@ -298,10 +298,7 @@ export default class TicketCreate extends PMOCommand {
         message: 'Priority:',
         choices: [
           { name: 'None', value: undefined },
-          { name: 'URGENT', value: 'URGENT' },
-          { name: 'HIGH', value: 'HIGH' },
-          { name: 'MEDIUM', value: 'MEDIUM' },
-          { name: 'LOW', value: 'LOW' },
+          ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p })),
         ],
         default: flags.priority || template?.defaultPriority,
       },

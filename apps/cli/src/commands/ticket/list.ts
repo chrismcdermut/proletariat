@@ -1,5 +1,6 @@
 import { Command, Flags } from '@oclif/core';
 import { Ticket, pmoBaseFlags, TicketFilter } from '../../lib/pmo/index.js';
+import { PRIORITIES } from '../../lib/pmo/types.js';
 import { getPMOContext, type PMOContext } from '../../lib/pmo/pmo-context.js';
 import {
   styles,
@@ -32,7 +33,7 @@ export default class TicketList extends Command {
     priority: Flags.string({
       char: 'p',
       description: 'Filter by priority',
-      options: ['URGENT', 'HIGH', 'MEDIUM', 'LOW'],
+      options: [...PRIORITIES],
     }),
     category: Flags.string({
       description: 'Filter by category',

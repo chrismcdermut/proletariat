@@ -73,6 +73,83 @@ export interface Epic {
 export type TicketStatus = string
 
 // =============================================================================
+// Priority Types
+// =============================================================================
+
+/**
+ * Standardized priority values: P0 (critical) through P3 (low).
+ */
+export type Priority = 'P0' | 'P1' | 'P2' | 'P3'
+
+/**
+ * Valid priority values as a const array for validation and CLI options.
+ */
+export const PRIORITIES: readonly Priority[] = ['P0', 'P1', 'P2', 'P3'] as const
+
+/**
+ * Priority display names for UI presentation.
+ */
+export const PRIORITY_LABELS: Record<Priority, string> = {
+  P0: 'P0 - Critical',
+  P1: 'P1 - High',
+  P2: 'P2 - Medium',
+  P3: 'P3 - Low',
+}
+
+/**
+ * Legacy priority values for backwards compatibility.
+ */
+export type LegacyPriority = 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW'
+
+/**
+ * Mapping from legacy priority values to new P0-P3 format.
+ */
+export const LEGACY_PRIORITY_MAP: Record<LegacyPriority, Priority> = {
+  URGENT: 'P0',
+  HIGH: 'P1',
+  MEDIUM: 'P2',
+  LOW: 'P3',
+}
+
+/**
+ * Check if a string is a valid Priority value.
+ */
+export function isValidPriority(value: string | undefined | null): value is Priority {
+  if (!value) return false
+  return (PRIORITIES as readonly string[]).includes(value)
+}
+
+/**
+ * Check if a string is a legacy priority value.
+ */
+export function isLegacyPriority(value: string | undefined | null): value is LegacyPriority {
+  if (!value) return false
+  return value in LEGACY_PRIORITY_MAP
+}
+
+/**
+ * Normalize a priority value to the new P0-P3 format.
+ * Converts legacy values (URGENT/HIGH/MEDIUM/LOW) to P0-P3.
+ * Returns undefined for invalid values.
+ */
+export function normalizePriority(value: string | undefined | null): Priority | undefined {
+  if (!value) return undefined
+
+  // Already in new format
+  if (isValidPriority(value)) {
+    return value
+  }
+
+  // Convert from legacy format
+  if (isLegacyPriority(value)) {
+    return LEGACY_PRIORITY_MAP[value]
+  }
+
+  // Unknown value
+  return undefined
+}
+
+// =============================================================================
 // Workflow Types (Two-Tier State/Status Model)
 // =============================================================================
 
