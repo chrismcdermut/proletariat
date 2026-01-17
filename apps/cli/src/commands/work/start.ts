@@ -211,8 +211,9 @@ export default class WorkStart extends PMOCommand {
       let ticketId = args.ticketId
 
       if (!ticketId) {
-        // Get all tickets
-        const allTickets = await this.storage.listTickets()
+        // Get all tickets from all projects (no project filter)
+        // This allows interactive selection across all projects
+        const allTickets = await this.storage.listTickets({ allProjects: true })
 
         if (allTickets.length === 0) {
           db.close()
@@ -1093,6 +1094,14 @@ export default class WorkStart extends PMOCommand {
         // Move ticket to target column based on action's defaultMoveToCategory
         // If action has a target category, find the matching column; otherwise use "started" default
         const targetCategory = selectedAction?.defaultMoveToCategory || 'started'
+
+        // Set project context from ticket before calling getBoard()
+        // This is necessary for non-interactive mode (e.g., devcontainer agents)
+        // where the storage may have been initialized with 'default' project
+        if (ticket.projectId) {
+          this.storage.setCurrentProject(ticket.projectId)
+        }
+
         const board = await this.storage.getBoard()
         const columnNames = board.columns.map(col => col.name)
 
@@ -1253,7 +1262,7 @@ export default class WorkStart extends PMOCommand {
    * Spawn work on a single ticket with non-interactive defaults.
    */
   private async spawnSingleTicket(
-    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; subtasks?: Array<{ title: string; done: boolean }> },
+    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; projectId?: string; subtasks?: Array<{ title: string; done: boolean }> },
     agent: { name: string },
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
     executionStorage: ExecutionStorage,
@@ -1439,6 +1448,14 @@ export default class WorkStart extends PMOCommand {
 
       // Move ticket to In Progress column ONLY after successful spawn
       const targetColumnName = getWorkColumnSetting(db, 'in_progress')
+
+      // Set project context from ticket before calling getBoard()
+      // This is necessary for non-interactive mode (e.g., devcontainer agents)
+      // where the storage may have been initialized with 'default' project
+      if (ticket.projectId) {
+        this.storage.setCurrentProject(ticket.projectId)
+      }
+
       const board = await this.storage.getBoard()
       const columnNames = board.columns.map(col => col.name)
       const inProgressColumn = findColumnByName(columnNames, targetColumnName)
