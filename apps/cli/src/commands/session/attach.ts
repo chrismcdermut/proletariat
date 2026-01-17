@@ -7,7 +7,7 @@ import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
-import { ExecutionStorage } from '../../lib/execution/storage.js'
+import { ExecutionStorage, extractTicketFromSession } from '../../lib/execution/index.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 
 interface SessionChoice {
@@ -135,8 +135,8 @@ export default class SessionAttach extends PMOCommand {
       const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
       db = new Database(dbPath)
       executionStorage = new ExecutionStorage(db)
-    } catch {
-      // Not in workspace
+    } catch (err) {
+      console.debug('[session:attach] Not in workspace, skipping execution storage:', err)
     }
 
     try {
@@ -187,13 +187,13 @@ export default class SessionAttach extends PMOCommand {
                   })
                 }
               }
-            } catch {
-              // No tmux in container
+            } catch (err) {
+              console.debug(`[session:attach] No tmux in container ${containerId}:`, err)
             }
           }
         }
-      } catch {
-        // Docker not available
+      } catch (err) {
+        console.debug('[session:attach] Docker not available:', err)
       }
     } finally {
       db?.close()
@@ -310,14 +310,4 @@ exec $SHELL
       this.error(`Failed to open terminal tab: ${error instanceof Error ? error.message : error}`)
     }
   }
-}
-
-/**
- * Try to extract ticket ID from session name
- */
-function extractTicketFromSession(sessionName: string | null | undefined): string | undefined {
-  if (!sessionName) return undefined
-  const name = sessionName.replace(/^prlt-/, '')
-  const match = name.match(/^(TKT-\d+)/)
-  return match ? match[1] : undefined
 }

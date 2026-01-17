@@ -4,7 +4,7 @@ import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
-import { ExecutionStorage } from '../../lib/execution/storage.js'
+import { ExecutionStorage, extractTicketFromSession } from '../../lib/execution/index.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 
 interface TmuxSession {
@@ -60,8 +60,8 @@ export default class SessionList extends PMOCommand {
       const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
       db = new Database(dbPath)
       executionStorage = new ExecutionStorage(db)
-    } catch {
-      // Not in workspace - can still show sessions, just no execution info
+    } catch (err) {
+      console.debug('[session:list] Not in workspace, skipping execution storage:', err)
     }
 
     try {
@@ -175,8 +175,8 @@ export default class SessionList extends PMOCommand {
           }
         })
         .filter(session => includeAll || session.name.startsWith('prlt-'))
-    } catch {
-      // tmux not available or no sessions
+    } catch (err) {
+      console.debug('[session:list] tmux not available or no sessions:', err)
       return []
     }
   }
@@ -197,7 +197,7 @@ export default class SessionList extends PMOCommand {
       if (!containersOutput) return sessions
 
       for (const line of containersOutput.split('\n')) {
-        const [containerId, _name, labels] = line.split('|')
+        const [containerId, , labels] = line.split('|')
 
         // Extract agent name from local_folder label
         const localFolderMatch = labels.match(/devcontainer\.local_folder=([^,]+)/)
@@ -220,12 +220,12 @@ export default class SessionList extends PMOCommand {
               })
             }
           }
-        } catch {
-          // No tmux or no sessions in this container
+        } catch (err) {
+          console.debug(`[session:list] No tmux in container ${containerId}:`, err)
         }
       }
-    } catch {
-      // Docker not available or no containers
+    } catch (err) {
+      console.debug('[session:list] Docker not available:', err)
     }
 
     return sessions
@@ -238,17 +238,4 @@ export default class SessionList extends PMOCommand {
 
 function padEnd(str: string, length: number): string {
   return str.padEnd(length)
-}
-
-/**
- * Try to extract ticket ID from session name
- * Session names like: prlt-TKT-347-implement or TKT-347-implement
- */
-function extractTicketFromSession(sessionName: string): string | null {
-  // Remove prlt- prefix if present
-  const name = sessionName.replace(/^prlt-/, '')
-
-  // Match TKT-XXX pattern
-  const match = name.match(/^(TKT-\d+)/)
-  return match ? match[1] : null
 }

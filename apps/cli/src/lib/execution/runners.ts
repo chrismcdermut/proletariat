@@ -424,7 +424,8 @@ export async function runTmux(
     try {
       execSync(`tmux has-session -t ${sessionName}`, { stdio: 'pipe' })
       sessionExists = true
-    } catch {
+    } catch (err) {
+      console.debug(`[runners:tmux] Session ${sessionName} does not exist:`, err)
       sessionExists = false
     }
 
@@ -631,7 +632,8 @@ export function isDockerRunning(): boolean {
   try {
     execSync('docker info', { stdio: 'pipe', timeout: 5000 })
     return true
-  } catch {
+  } catch (err) {
+    console.debug('[runners:docker] Docker not running:', err)
     return false
   }
 }
@@ -656,13 +658,13 @@ function cleanupOldPromptFiles(worktreePath: string, ticketId?: string): void {
       if (pattern.test(file)) {
         try {
           fs.unlinkSync(path.join(worktreePath, file))
-        } catch {
-          // Ignore individual file deletion errors
+        } catch (err) {
+          console.debug(`[runners:cleanup] Failed to delete ${file}:`, err)
         }
       }
     }
-  } catch {
-    // Ignore errors reading directory - may not exist yet
+  } catch (err) {
+    console.debug(`[runners:cleanup] Failed to read directory ${worktreePath}:`, err)
   }
 }
 
@@ -710,15 +712,16 @@ function getDevcontainerContainerId(agentDir: string): string | null {
     )
     const json = JSON.parse(result.trim())
     return json.containerId || null
-  } catch {
-    // Fallback: find container by label
+  } catch (err) {
+    console.debug('[runners:devcontainer] devcontainer up failed, trying docker ps fallback:', err)
     try {
       const containerId = execSync(
         `docker ps -q --filter "label=devcontainer.local_folder=${agentDir}"`,
         { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
       ).trim()
       return containerId || null
-    } catch {
+    } catch (fallbackErr) {
+      console.debug('[runners:devcontainer] docker ps fallback also failed:', fallbackErr)
       return null
     }
   }
@@ -790,8 +793,8 @@ function copyClaudeCredentials(agentDir: string): void {
   if (fs.existsSync(sourceFile)) {
     try {
       fs.copyFileSync(sourceFile, destFile)
-    } catch {
-      // Silently fail - user may be using API key instead
+    } catch (err) {
+      console.debug('[runners:credentials] Failed to copy .claude.json:', err)
     }
   }
 }
@@ -829,7 +832,8 @@ export async function runDevcontainer(
     // Check devcontainer CLI is installed
     try {
       execSync('which devcontainer', { stdio: 'pipe' })
-    } catch {
+    } catch (err) {
+      console.debug('[runners:devcontainer] devcontainer CLI not found:', err)
       return {
         success: false,
         error: 'devcontainer CLI not found. Install with: npm install -g @devcontainers/cli',
@@ -868,8 +872,8 @@ export async function runDevcontainer(
           env.GITHUB_TOKEN = token
           env.GH_TOKEN = token
         }
-      } catch {
-        // gh CLI not authenticated or not installed, container will warn about no token
+      } catch (err) {
+        console.debug('[runners:devcontainer] gh auth token failed:', err)
       }
     }
     // Set repo path to the proletariat monorepo (auto-detect from current CLI location)
@@ -931,8 +935,8 @@ export async function runDevcontainer(
     if (!result.success && fs.existsSync(promptHostPath)) {
       try {
         fs.unlinkSync(promptHostPath)
-      } catch {
-        // Ignore cleanup errors
+      } catch (err) {
+        console.debug('[runners:devcontainer] Failed to cleanup prompt file:', err)
       }
     }
 
@@ -959,8 +963,8 @@ export async function runDevcontainer(
             { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
           )
           // Session exists - success
-        } catch {
-          // Session doesn't exist - the tmux command failed
+        } catch (err) {
+          console.debug(`[runners:devcontainer] tmux session ${sessionId} not found in container:`, err)
           result.success = false
           result.error = `Failed to create tmux session "${sessionId}" inside container. Check terminal for errors.`
         }
@@ -1357,7 +1361,8 @@ exec $SHELL
     try {
       execSync(`tmux has-session -t ${sessionName}`, { stdio: 'pipe' })
       sessionExists = true
-    } catch {
+    } catch (err) {
+      console.debug(`[runners:hostTmux] Session ${sessionName} does not exist:`, err)
       sessionExists = false
     }
 

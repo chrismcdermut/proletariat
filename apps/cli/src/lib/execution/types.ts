@@ -336,6 +336,18 @@ export interface ExecutionConfig {
   }
 }
 
+/**
+ * Extract ticket ID from a tmux session name.
+ * Session names like: prlt-TKT-347-implement or TKT-347-implement
+ * Returns the ticket ID (e.g., "TKT-347") or undefined if not found.
+ */
+export function extractTicketFromSession(sessionName: string | null | undefined): string | undefined {
+  if (!sessionName) return undefined
+  const name = sessionName.replace(/^prlt-/, '')
+  const match = name.match(/^(TKT-\d+)/)
+  return match ? match[1] : undefined
+}
+
 export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   defaultMode: 'terminal',
   defaultExecutor: 'claude-code',
