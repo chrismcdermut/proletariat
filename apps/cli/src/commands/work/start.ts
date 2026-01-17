@@ -616,17 +616,19 @@ export default class WorkStart extends PMOCommand {
               continue  // Re-prompt for environment selection
             }
             environment = 'devcontainer'
-            // Pick display mode for devcontainer (limited to tmux/background)
+            // Pick display mode for devcontainer
             const { selectedDisplay } = await inquirer.prompt([
               {
                 type: 'list',
                 name: 'selectedDisplay',
                 message: 'How should the agent output be displayed?',
                 choices: [
-                  { name: 'tmux         - New tmux pane/window (recommended)', value: 'tmux' },
+                  { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
+                  { name: 'foreground   - Run in current terminal', value: 'foreground' },
+                  { name: 'tmux         - New tmux pane/window', value: 'tmux' },
                   { name: 'background   - Detached process, logs to file', value: 'background' },
                 ],
-                default: 'tmux',
+                default: 'terminal',
               },
             ])
             displayMode = selectedDisplay as DisplayMode
