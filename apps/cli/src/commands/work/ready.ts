@@ -105,8 +105,8 @@ export default class WorkReady extends PMOCommand {
       let ticketId = args.ticketId;
 
       if (!ticketId) {
-        // Get all in-progress (started) tickets for selection
-        const allTickets = await this.storage.listTickets();
+        // Get all in-progress (started) tickets for selection from all projects
+        const allTickets = await this.storage.listTickets({ allProjects: true });
         const inProgressTickets = allTickets.filter(t =>
           t.statusCategory === 'started' || (t.statusName && t.statusName.toLowerCase().includes('progress'))
         );
@@ -155,6 +155,14 @@ export default class WorkReady extends PMOCommand {
       // Get configured column name (from pmo_settings or default)
       // In Linear-style workflow, "ready" moves ticket to Done (review is implicit via PR)
       const targetColumnName = getWorkColumnSetting(db, 'done');
+
+      // Set project context from ticket before calling getBoard()
+      // This is necessary for non-interactive mode (e.g., devcontainer agents)
+      // where the storage may have been initialized with 'default' project
+      if (ticket.projectId) {
+        this.storage.setCurrentProject(ticket.projectId);
+      }
+
       const board = await this.storage.getBoard();
       const columnNames = board.columns.map(col => col.name);
       const doneColumn = findColumnByName(columnNames, targetColumnName);

@@ -81,7 +81,7 @@ export default class WorkClaim extends PMOCommand {
     let ticketId = args.ticketId
 
     if (!ticketId) {
-      const allTickets = await this.storage.listTickets()
+      const allTickets = await this.storage.listTickets({ allProjects: true })
       // Filter to unassigned or backlog/unstarted tickets
       const availableTickets = allTickets.filter(
         (t) => !t.assignee || t.statusCategory === 'backlog' || t.statusCategory === 'unstarted'
@@ -178,6 +178,14 @@ export default class WorkClaim extends PMOCommand {
     if (!executeAgent) {
       const db = this.storage.getDatabase()
       const targetColumnName = getWorkColumnSetting(db, 'in_progress')
+
+      // Set project context from ticket before calling getBoard()
+      // This is necessary for non-interactive mode (e.g., devcontainer agents)
+      // where the storage may have been initialized with 'default' project
+      if (ticket.projectId) {
+        this.storage.setCurrentProject(ticket.projectId)
+      }
+
       const board = await this.storage.getBoard()
       const columnNames = board.columns.map(col => col.name)
       const inProgressColumn = findColumnByName(columnNames, targetColumnName)

@@ -141,7 +141,7 @@ export default class WorkRevise extends PMOCommand {
       let ticketId = args.ticketId
 
       if (!ticketId) {
-        const allTickets = await this.storage.listTickets()
+        const allTickets = await this.storage.listTickets({ allProjects: true })
         // Filter to done tickets that have a PR (may need revision based on PR feedback)
         const reviewTickets = allTickets.filter(t => {
           const isDone = t.status === 'done' || (t.statusName && t.statusName.toLowerCase().includes('done'))
@@ -370,6 +370,14 @@ export default class WorkRevise extends PMOCommand {
 
       // Move ticket back to In Progress column
       const inProgressColumnName = getWorkColumnSetting(db, 'in_progress')
+
+      // Set project context from ticket before calling getBoard()
+      // This is necessary for non-interactive mode (e.g., devcontainer agents)
+      // where the storage may have been initialized with 'default' project
+      if (ticket.projectId) {
+        this.storage.setCurrentProject(ticket.projectId)
+      }
+
       const board = await this.storage.getBoard()
       const columnNames = board.columns.map(col => col.name)
       const inProgressColumn = findColumnByName(columnNames, inProgressColumnName)
