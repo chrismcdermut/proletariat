@@ -70,8 +70,8 @@ export default class TicketSpec extends PMOCommand {
       return;
     }
 
-    // Get all tickets
-    const tickets = await this.storage.listTickets();
+    // Get all tickets (undefined = all projects)
+    const tickets = await this.storage.listTickets(undefined);
     if (tickets.length === 0) {
       if (jsonMode) {
         outputErrorAsJson('NO_TICKETS', 'No tickets found.', createMetadata('ticket spec', flags));
@@ -211,8 +211,8 @@ export default class TicketSpec extends PMOCommand {
   private async executeBulk(flags: { spec?: string; unlink: boolean }): Promise<void> {
     this.log(styles.emphasis('📄 Bulk Assign Spec to Tickets\n'));
 
-    // Get all tickets
-    const tickets = await this.storage.listTickets();
+    // Get all tickets (undefined = all projects)
+    const tickets = await this.storage.listTickets(undefined);
     if (tickets.length === 0) {
       this.log(styles.muted('\nNo tickets found.'));
       return;

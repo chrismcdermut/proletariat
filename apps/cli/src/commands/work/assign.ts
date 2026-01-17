@@ -80,7 +80,7 @@ export default class WorkAssign extends PMOCommand {
     let ticketId = args.ticketId
 
     if (!ticketId) {
-      const allTickets = await this.storage.listTickets()
+      const allTickets = await this.storage.listTickets(undefined)
 
       if (allTickets.length === 0) {
         return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".')

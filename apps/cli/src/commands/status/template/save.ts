@@ -29,17 +29,18 @@ export default class StatusTemplateSave extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusTemplateSave);
     // This command requires project context
-    await this.requireProject();
+    const projectId = await this.requireProject();
 
     // Check if project has statuses
-    const statuses = await this.storage.listStatuses(this.requireProjectId());
+    const statuses = await this.storage.listStatuses(projectId);
     if (statuses.length === 0) {
-      this.error(`Project "${this.projectName}" has no statuses to save.\nApply a template first: prlt status template apply kanban`);
+      const projectName = await this.getProjectName(projectId);
+      this.error(`Project "${projectName}" has no statuses to save.\nApply a template first: prlt status template apply kanban`);
     }
 
     // Save as template
     try {
-      const template = await this.storage.saveTemplate(args.name, this.requireProjectId(), flags.description);
+      const template = await this.storage.saveTemplate(args.name, projectId, flags.description);
 
       this.log(styles.success(`\nCreated template "${styles.emphasis(template.name)}"`));
       this.log(styles.muted(`  ID: ${template.id}`));

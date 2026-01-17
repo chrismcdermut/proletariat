@@ -76,8 +76,10 @@ export default class EpicTicket extends PMOCommand {
       this.error(message);
     };
 
+    const projectId = await this.requireProject();
+
     // Get all epics
-    const epics = await this.storage.listEpics();
+    const epics = await this.storage.listEpics(projectId);
     if (epics.length === 0) {
       if (jsonMode) {
         outputErrorAsJson('NO_EPICS', 'No epics found.', createMetadata('epic ticket', flags));
@@ -88,7 +90,7 @@ export default class EpicTicket extends PMOCommand {
     }
 
     // Get all tickets
-    const allTickets = await this.storage.listTickets();
+    const allTickets = await this.storage.listTickets(undefined);
     if (allTickets.length === 0) {
       if (jsonMode) {
         outputErrorAsJson('NO_TICKETS', 'No tickets found.', createMetadata('epic ticket', flags));

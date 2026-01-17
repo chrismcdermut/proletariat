@@ -90,7 +90,8 @@ export default class Work extends PMOCommand {
 
     // Run the selected subcommand
     // Pass --project to avoid re-prompting for project selection
-    const projectArgs = ['--project', this.requireProjectId()];
+    const projectId = await this.requireProject();
+    const projectArgs = ['--project', projectId];
     switch (action) {
       case 'claim':
         await this.config.runCommand('work:claim', projectArgs);

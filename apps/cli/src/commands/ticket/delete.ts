@@ -69,8 +69,8 @@ export default class TicketDelete extends PMOCommand {
       this.error(message);
     };
 
-    // Get all tickets for selection
-    const allTickets = await this.storage.listTickets();
+    // Get all tickets for selection (undefined = all projects)
+    const allTickets = await this.storage.listTickets(undefined);
 
     if (allTickets.length === 0) {
       return handleError('NO_TICKETS', 'No tickets found.');
@@ -118,7 +118,7 @@ export default class TicketDelete extends PMOCommand {
     }
 
     // Get board for project name
-    const board = await this.storage.getBoard();
+    const board = await this.storage.getBoard(ticket.projectId!);
 
     // Confirmation prompt (unless --force)
     if (!flags.force) {

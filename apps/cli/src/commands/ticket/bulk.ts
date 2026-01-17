@@ -34,8 +34,8 @@ export default class TicketBulk extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(TicketBulk);
-    // This command requires project context
-    await this.requireProject();
+    // This command requires project context - store the projectId
+    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -100,7 +100,7 @@ export default class TicketBulk extends PMOCommand {
     }
 
     // Build args for the sub-command
-    const projectArgs = ['--project', this.requireProjectId(), '--bulk'];
+    const projectArgs = ['--project', projectId, '--bulk'];
 
     try {
       this.log(styles.muted(`\nExecuting: ticket ${action} --bulk`));
@@ -109,7 +109,7 @@ export default class TicketBulk extends PMOCommand {
         case 'list': {
           // List doesn't need bulk mode
           const { default: ListCommand } = await import('./list.js');
-          const cmd = new ListCommand(['--project', this.requireProjectId()], this.config);
+          const cmd = new ListCommand(['--project', projectId], this.config);
           await cmd.run();
           break;
         }

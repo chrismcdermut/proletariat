@@ -56,8 +56,8 @@ export default class TicketView extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
-      // Get all tickets for selection
-      const allTickets = await this.storage.listTickets();
+      // Get all tickets for selection (undefined = all projects)
+      const allTickets = await this.storage.listTickets(undefined);
 
       if (allTickets.length === 0) {
         return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".');
@@ -94,7 +94,7 @@ export default class TicketView extends PMOCommand {
       this.error(`Ticket "${ticketId}" not found.`);
     }
 
-    const board = await this.storage.getBoard();
+    const board = await this.storage.getBoard(ticket.projectId!);
 
     // Display ticket details
     this.log(`\n${styles.header('📄 Ticket')} ${styles.emphasis(ticket.id)}\n`);

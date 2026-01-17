@@ -2,7 +2,6 @@
  * Subtask operations for tickets.
  */
 
-import Database from 'better-sqlite3'
 import { PMO_TABLES } from '../schema.js'
 import { PMOError, Subtask, AcceptanceCriterion } from '../types.js'
 import { slugify } from '../utils.js'
@@ -17,10 +16,10 @@ export class SubtaskStorage {
    * Add a subtask to a ticket.
    */
   async addSubtask(ticketId: string, title: string): Promise<Subtask> {
-    // Verify ticket exists
+    // Verify ticket exists and get project_id
     const ticket = this.ctx.db.prepare(`
-      SELECT id FROM ${T.tickets} WHERE id = ?
-    `).get(ticketId) as { id: string } | undefined
+      SELECT id, project_id FROM ${T.tickets} WHERE id = ?
+    `).get(ticketId) as { id: string; project_id: string } | undefined
 
     if (!ticket) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${ticketId}`, ticketId)
@@ -45,7 +44,7 @@ export class SubtaskStorage {
       UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?
     `).run(Date.now(), ticketId)
 
-    this.ctx.updateBoardTimestamp()
+    this.ctx.updateBoardTimestamp(ticket.project_id)
 
     return {
       id,
@@ -58,6 +57,11 @@ export class SubtaskStorage {
    * Toggle a subtask's done status.
    */
   async toggleSubtask(ticketId: string, subtaskId: string): Promise<Subtask> {
+    // Get ticket's project_id for board timestamp update
+    const ticket = this.ctx.db.prepare(`
+      SELECT project_id FROM ${T.tickets} WHERE id = ?
+    `).get(ticketId) as { project_id: string } | undefined
+
     const existing = this.ctx.db.prepare(`
       SELECT * FROM ${T.subtasks}
       WHERE ticket_id = ? AND id = ?
@@ -81,7 +85,9 @@ export class SubtaskStorage {
       UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?
     `).run(Date.now(), ticketId)
 
-    this.ctx.updateBoardTimestamp()
+    if (ticket) {
+      this.ctx.updateBoardTimestamp(ticket.project_id)
+    }
 
     return {
       id: existing.id,
@@ -94,6 +100,11 @@ export class SubtaskStorage {
    * Remove a subtask from a ticket.
    */
   async removeSubtask(ticketId: string, subtaskId: string): Promise<void> {
+    // Get ticket's project_id for board timestamp update
+    const ticket = this.ctx.db.prepare(`
+      SELECT project_id FROM ${T.tickets} WHERE id = ?
+    `).get(ticketId) as { project_id: string } | undefined
+
     const result = this.ctx.db.prepare(`
       DELETE FROM ${T.subtasks}
       WHERE ticket_id = ? AND id = ?
@@ -108,7 +119,9 @@ export class SubtaskStorage {
       UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?
     `).run(Date.now(), ticketId)
 
-    this.ctx.updateBoardTimestamp()
+    if (ticket) {
+      this.ctx.updateBoardTimestamp(ticket.project_id)
+    }
   }
 }
 
@@ -122,10 +135,10 @@ export class AcceptanceCriteriaStorage {
     ticketId: string,
     criterion: string
   ): Promise<AcceptanceCriterion> {
-    // Verify ticket exists
+    // Verify ticket exists and get project_id
     const ticket = this.ctx.db.prepare(`
-      SELECT id FROM ${T.tickets} WHERE id = ?
-    `).get(ticketId) as { id: string } | undefined
+      SELECT id, project_id FROM ${T.tickets} WHERE id = ?
+    `).get(ticketId) as { id: string; project_id: string } | undefined
 
     if (!ticket) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${ticketId}`, ticketId)
@@ -149,7 +162,7 @@ export class AcceptanceCriteriaStorage {
       UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?
     `).run(Date.now(), ticketId)
 
-    this.ctx.updateBoardTimestamp()
+    this.ctx.updateBoardTimestamp(ticket.project_id)
 
     return {
       id,
@@ -168,6 +181,11 @@ export class AcceptanceCriteriaStorage {
     ticketId: string,
     criterionId: string
   ): Promise<void> {
+    // Get ticket's project_id for board timestamp update
+    const ticket = this.ctx.db.prepare(`
+      SELECT project_id FROM ${T.tickets} WHERE id = ?
+    `).get(ticketId) as { project_id: string } | undefined
+
     const result = this.ctx.db.prepare(`
       DELETE FROM ${T.ticket_acceptance_criteria}
       WHERE ticket_id = ? AND id = ?
@@ -184,13 +202,20 @@ export class AcceptanceCriteriaStorage {
       UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?
     `).run(Date.now(), ticketId)
 
-    this.ctx.updateBoardTimestamp()
+    if (ticket) {
+      this.ctx.updateBoardTimestamp(ticket.project_id)
+    }
   }
 
   /**
    * Clear all acceptance criteria from a ticket.
    */
   async clearAcceptanceCriteria(ticketId: string): Promise<void> {
+    // Get ticket's project_id for board timestamp update
+    const ticket = this.ctx.db.prepare(`
+      SELECT project_id FROM ${T.tickets} WHERE id = ?
+    `).get(ticketId) as { project_id: string } | undefined
+
     this.ctx.db.prepare(`
       DELETE FROM ${T.ticket_acceptance_criteria} WHERE ticket_id = ?
     `).run(ticketId)
@@ -199,6 +224,8 @@ export class AcceptanceCriteriaStorage {
       UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?
     `).run(Date.now(), ticketId)
 
-    this.ctx.updateBoardTimestamp()
+    if (ticket) {
+      this.ctx.updateBoardTimestamp(ticket.project_id)
+    }
   }
 }

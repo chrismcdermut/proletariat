@@ -364,8 +364,7 @@ export default class BranchCreate extends PMOCommand {
       let foundTicket: { id: string; title: string; category?: string } | null = null
 
       for (const project of projects) {
-        this.storage.setCurrentProject(project.id)
-        const tickets = await this.storage.listTickets()
+        const tickets = await this.storage.listTickets(undefined)
         const match = tickets.find(t => t.id === ticketId)
         if (match) {
           foundTicket = match
@@ -407,8 +406,7 @@ export default class BranchCreate extends PMOCommand {
       // Get all projects and their tickets
       const projects = await this.storage.listProjects()
       for (const project of projects) {
-        this.storage.setCurrentProject(project.id)
-        const projectTickets = await this.storage.listTickets()
+        const projectTickets = await this.storage.listTickets(undefined)
         // Filter to actionable tickets (todo, in-progress, backlog)
         const actionable = projectTickets.filter(t =>
           !t.status || ['todo', 'in-progress', 'backlog', 'in_progress'].includes(t.status.toLowerCase())

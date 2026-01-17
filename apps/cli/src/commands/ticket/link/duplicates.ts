@@ -64,7 +64,7 @@ export default class TicketLinkDuplicates extends PMOCommand {
     let originalId = args.original
 
     if (!originalId) {
-      const allTickets = await this.storage.listTickets()
+      const allTickets = await this.storage.listTickets(undefined)
       const otherTickets = allTickets.filter(t => t.id !== args.id)
 
       if (otherTickets.length === 0) {

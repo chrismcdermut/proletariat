@@ -426,9 +426,8 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
     template: boardTemplate,
   });
 
-  // Set as current project and initialize board with columns
-  storage.setCurrentProject(projectId);
-  await storage.init({
+  // Initialize board with columns (projectId already created above)
+  await storage.init(projectId, {
     name: boardName,
     columns,
   });

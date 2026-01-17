@@ -63,12 +63,12 @@ export default class EpicProject extends PMOCommand {
       this.error(message);
     };
 
-    const sourceProjectId = this.storage.getCurrentProjectId();
+    const sourceProjectId = await this.requireProject();
 
     // Get epic ID
     let epicId = args.epicId;
     if (!epicId) {
-      const epics = await this.storage.listEpics();
+      const epics = await this.storage.listEpics(sourceProjectId);
       if (epics.length === 0) {
         if (jsonMode) {
           outputErrorAsJson('NO_EPICS', 'No epics found in this project.', createMetadata('epic project', flags));
@@ -180,7 +180,7 @@ export default class EpicProject extends PMOCommand {
     const db = (this.storage as unknown as { db: { prepare: (sql: string) => { run: (...args: unknown[]) => void; get: (...args: unknown[]) => unknown; all: (...args: unknown[]) => unknown[] } } }).db;
 
     // Get tickets associated with this epic
-    const epicTickets = await this.storage.getTicketsForEpic(epicId!);
+    const epicTickets = await this.storage.getTicketsForEpic(sourceProjectId, epicId!);
 
     // Handle tickets
     let moveTickets = flags['with-tickets'];

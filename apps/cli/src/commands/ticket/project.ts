@@ -68,12 +68,13 @@ export default class TicketProject extends PMOCommand {
       return;
     }
 
-    const sourceProjectId = this.storage.getCurrentProjectId();
+    // Get source project ID
+    const sourceProjectId = await this.requireProject();
 
     // Get ticket ID
     let ticketId = args.ticketId;
     if (!ticketId) {
-      const tickets = await this.storage.listTickets();
+      const tickets = await this.storage.listTickets(sourceProjectId);
       if (tickets.length === 0) {
         if (jsonMode) {
           outputErrorAsJson('NO_TICKETS', 'No tickets found in this project.', createMetadata('ticket project', flags));
@@ -202,10 +203,11 @@ export default class TicketProject extends PMOCommand {
   private async executeBulk(flags: { target?: string }): Promise<void> {
     this.log(styles.emphasis('📁 Bulk Move Tickets to Project\n'));
 
-    const sourceProjectId = this.storage.getCurrentProjectId();
+    // Get source project ID
+    const sourceProjectId = await this.requireProject();
 
     // Get all tickets in current project
-    const tickets = await this.storage.listTickets();
+    const tickets = await this.storage.listTickets(sourceProjectId);
     if (tickets.length === 0) {
       this.log(styles.muted('\nNo tickets found in this project.'));
       return;

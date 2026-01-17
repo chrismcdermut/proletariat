@@ -7,20 +7,13 @@ import Database from 'better-sqlite3'
 
 /**
  * Base context passed to all storage modules.
- * Contains the database connection and current project context.
+ * Contains the database connection only - project ID is passed explicitly to operations.
  */
 export interface StorageContext {
   /** Database connection */
   db: Database.Database
-  /** Get the current project ID (may be undefined if not set) */
-  getCurrentProjectId: () => string | undefined
-  /**
-   * Get the current project ID, throwing if not set.
-   * Use this for operations that require project context.
-   */
-  requireProjectId: () => string
-  /** Update the board timestamp */
-  updateBoardTimestamp: () => void
+  /** Update the board timestamp for a project */
+  updateBoardTimestamp: (projectId: string) => void
 }
 
 /**

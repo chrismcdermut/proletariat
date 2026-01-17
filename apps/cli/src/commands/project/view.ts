@@ -88,8 +88,6 @@ export default class ProjectView extends PMOCommand {
       projectId = selectedProjectId;
     }
 
-    this.storage.setCurrentProject(projectId!);
-
     const project = await this.storage.getProjectBoard(projectId!);
     if (!project) {
       return handleError('PROJECT_NOT_FOUND', `Project "${projectId}" not found.`);

@@ -113,8 +113,8 @@ export default class TicketEdit extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
-      // Get all tickets for selection
-      const allTickets = await this.storage.listTickets();
+      // Get all tickets for selection (undefined = all projects)
+      const allTickets = await this.storage.listTickets(undefined);
 
       if (allTickets.length === 0) {
         return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".');
@@ -167,7 +167,9 @@ export default class TicketEdit extends PMOCommand {
 
     if (flags.interactive || !hasFlags) {
       // Interactive mode - prompt for all editable fields
-      updates = await this.promptForEdits(ticket, this.columns);
+      const board = await this.storage.getBoard(ticket.projectId!);
+      const columns = board.columns.map(col => col.name);
+      updates = await this.promptForEdits(ticket, columns);
     } else {
       // Use flag values
       if (flags.title) updates.title = flags.title;

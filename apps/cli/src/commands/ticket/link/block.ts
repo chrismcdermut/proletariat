@@ -65,7 +65,7 @@ export default class TicketLinkBlock extends PMOCommand {
 
     // If no blocker provided, prompt for selection
     if (!blockerId) {
-      const allTickets = await this.storage.listTickets()
+      const allTickets = await this.storage.listTickets(undefined)
       const otherTickets = allTickets.filter(t => t.id !== args.id)
 
       if (otherTickets.length === 0) {

@@ -59,6 +59,7 @@ export default class EpicMove extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(EpicMove);
+    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -77,7 +78,7 @@ export default class EpicMove extends PMOCommand {
 
     // If no ID provided, prompt for selection
     if (!epicId) {
-      const epics = await this.storage.listEpics();
+      const epics = await this.storage.listEpics(projectId);
       if (epics.length === 0) {
         if (jsonMode) {
           outputErrorAsJson('NO_EPICS', 'No epics found.', createMetadata('epic move', flags));
@@ -89,7 +90,7 @@ export default class EpicMove extends PMOCommand {
 
       // Get ticket counts
       const choices = await Promise.all(epics.map(async e => {
-        const tickets = await this.storage.getTicketsForEpic(e.id);
+        const tickets = await this.storage.getTicketsForEpic(projectId, e.id);
         const done = tickets.filter((t: Ticket) => t.status === 'done').length;
         return {
           name: `${e.id} ${e.title} (${e.status}) [${done}/${tickets.length} complete]`,
@@ -148,7 +149,7 @@ export default class EpicMove extends PMOCommand {
     }
 
     // Validation checks
-    const tickets = await this.storage.getTicketsForEpic(epicId!);
+    const tickets = await this.storage.getTicketsForEpic(projectId, epicId!);
     const doneTickets = tickets.filter((t: Ticket) => t.status === 'done').length;
     const allComplete = doneTickets === tickets.length;
 
@@ -222,13 +223,13 @@ export default class EpicMove extends PMOCommand {
     this.log(`From: ${epic.status} → ${targetStatus}`);
 
     // Move the epic file to new status directory
-    const moveResult = moveEpicFile(this.pmoPath, epicId!, epic.status, targetStatus, this.projectId);
+    const moveResult = moveEpicFile(this.pmoPath, epicId!, epic.status, targetStatus, projectId);
 
     await this.storage.updateEpic(epicId!, { status: targetStatus });
 
     this.log(styles.success(`\n✅ Moved epic ${styles.emphasis(epicId)} "${epic.title}" to ${targetStatus}`));
     if (moveResult) {
-      const relativePath = getRelativeEpicPath(this.pmoPath, epicId!, targetStatus, this.projectId);
+      const relativePath = getRelativeEpicPath(this.pmoPath, epicId!, targetStatus, projectId);
       this.log(styles.muted(`   File: ${relativePath}`));
     }
   }

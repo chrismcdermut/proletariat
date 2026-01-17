@@ -431,12 +431,12 @@ export async function spawnAgentForTicket(
     })
 
     const targetColumnName = getWorkColumnSetting(db, 'in_progress')
-    const board = await storage.getBoard()
+    const board = await storage.getBoard(ticket.projectId!)
     const columnNames = board.columns.map(col => col.name)
     const inProgressColumn = findColumnByName(columnNames, targetColumnName)
 
     if (inProgressColumn && ticket.statusName !== inProgressColumn) {
-      await storage.moveTicket(ticket.id, inProgressColumn)
+      await storage.moveTicket(ticket.projectId!, ticket.id, inProgressColumn)
     }
 
     await autoExportToBoard(pmoPath, storage, log)
@@ -463,6 +463,7 @@ export async function spawnAgentForTicket(
  * Spawn agents for all tickets in a column.
  */
 export async function spawnForColumn(
+  projectId: string,
   columnName: string,
   storage: SQLiteStorage,
   executionStorage: ExecutionStorage,
@@ -489,7 +490,7 @@ export async function spawnForColumn(
   }
 
   // Get tickets in the specified column
-  let allTickets = await storage.listTickets({ column: columnName })
+  let allTickets = await storage.listTickets(projectId, { column: columnName })
 
   // If specific ticket IDs provided, filter to only those tickets
   if (options.ticketIds && options.ticketIds.length > 0) {

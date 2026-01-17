@@ -25,8 +25,7 @@ export class ProjectStorage {
   /**
    * Initialize a project with columns.
    */
-  async init(config: BoardConfig): Promise<Board> {
-    const projectId = this.ctx.getCurrentProjectId()
+  async init(projectId: string, config: BoardConfig): Promise<Board> {
     const projectName = config.name || 'Project Board'
     const columns = config.columns || ['Backlog', 'Planned', 'In Progress', 'Done']
     const now = Date.now()
@@ -50,16 +49,13 @@ export class ProjectStorage {
       insertColumn.run(slugify(name), projectId, name, position, now)
     })
 
-    return this.getBoard()
+    return this.getBoard(projectId)
   }
 
   /**
-   * Get the current project board.
-   * Throws if no project is selected - call setCurrentProject() first.
+   * Get the project board.
    */
-  async getBoard(): Promise<Board> {
-    const projectId = this.ctx.requireProjectId()
-
+  async getBoard(projectId: string): Promise<Board> {
     // Get project metadata
     const projectRow = this.ctx.db.prepare(`SELECT * FROM ${T.projects} WHERE id = ?`).get(
       projectId
@@ -101,8 +97,8 @@ export class ProjectStorage {
   /**
    * Get the board as markdown.
    */
-  async getBoardMarkdown(): Promise<string> {
-    const board = await this.getBoard()
+  async getBoardMarkdown(projectId: string): Promise<string> {
+    const board = await this.getBoard(projectId)
     return generateBoardMarkdown(board)
   }
 

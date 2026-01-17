@@ -66,8 +66,8 @@ export default class TicketReassign extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // Get all tickets
-    const allTickets = await this.storage.listTickets();
+    // Get all tickets (undefined = all projects)
+    const allTickets = await this.storage.listTickets(undefined);
 
     if (allTickets.length === 0) {
       if (jsonMode) {
