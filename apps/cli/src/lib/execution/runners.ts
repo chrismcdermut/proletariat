@@ -342,6 +342,38 @@ export async function runTmux(
     // Check if tmux is available
     execSync('which tmux', { stdio: 'pipe' })
 
+    // Determine if we should use iTerm control mode (-CC)
+    // Control mode makes iTerm handle windows/tabs natively instead of tmux's text UI
+    const useControlMode = config.terminal.app === 'iTerm' && config.tmux.controlMode
+
+    if (useControlMode) {
+      // iTerm control mode: spawn an iTerm tab running tmux -CC
+      // The -CC flag makes tmux output control commands that iTerm understands
+      // The -A flag attaches to existing session or creates new one
+      // iTerm will create native tabs for each tmux window
+      const tmuxCmd = `tmux -CC new-session -A -s ${sessionName} -n "${windowName}" -c "${context.worktreePath}" "${scriptPath}"`
+      // Escape double quotes and backslashes for AppleScript
+      const escapedCmd = tmuxCmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+
+      execSync(`osascript -e '
+        tell application "iTerm"
+          activate
+          tell current window
+            create tab with default profile
+            tell current session
+              write text "${escapedCmd}"
+            end tell
+          end tell
+        end tell
+      '`)
+
+      return {
+        success: true,
+        sessionId: `${sessionName}:${windowName}`,
+      }
+    }
+
+    // Standard tmux mode (non-iTerm or control mode disabled)
     // Check if session exists
     let sessionExists = false
     try {
@@ -1115,6 +1147,8 @@ async function runDevcontainerInBackground(
 /**
  * Run devcontainer command in tmux pane/window.
  * Uses a temp script file to avoid shell escaping issues with complex prompts.
+ * When iTerm is the terminal app and control mode is enabled, uses tmux -CC
+ * for native iTerm tab/window integration.
  */
 async function runDevcontainerInTmux(
   context: ExecutionContext,
@@ -1153,6 +1187,39 @@ exec $SHELL
 `
     fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
 
+    // Determine if we should use iTerm control mode (-CC)
+    // Control mode makes iTerm handle windows/tabs natively instead of tmux's text UI
+    const useControlMode = config.terminal.app === 'iTerm' && config.tmux.controlMode
+
+    if (useControlMode) {
+      // iTerm control mode: spawn an iTerm tab running tmux -CC
+      // The -CC flag makes tmux output control commands that iTerm understands
+      // The -A flag attaches to existing session or creates new one
+      // iTerm will create native tabs for each tmux window
+      const tmuxCmd = `tmux -CC new-session -A -s ${sessionName} -n "${windowName}" '${scriptPath}'`
+      // Escape double quotes and backslashes for AppleScript
+      const escapedCmd = tmuxCmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+
+      execSync(`osascript -e '
+        tell application "iTerm"
+          activate
+          tell current window
+            create tab with default profile
+            tell current session
+              write text "${escapedCmd}"
+            end tell
+          end tell
+        end tell
+      '`)
+
+      return {
+        success: true,
+        containerId: `devcontainer-${context.agentName}`,
+        sessionId: `${sessionName}:${windowName}`,
+      }
+    }
+
+    // Standard tmux mode (non-iTerm or control mode disabled)
     // Check if session exists
     let sessionExists = false
     try {

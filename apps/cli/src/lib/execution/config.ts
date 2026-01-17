@@ -23,6 +23,7 @@ const CONFIG_KEYS = {
   autoExecute: 'execution.auto_execute',
   tmuxSession: 'execution.tmux.session',
   tmuxLayout: 'execution.tmux.layout',
+  tmuxControlMode: 'execution.tmux.control_mode',
   dockerImage: 'execution.docker.image',
   dockerNetwork: 'execution.docker.network',
   dockerMemory: 'execution.docker.memory',
@@ -100,6 +101,10 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
   if (tmuxLayout) {
     config.tmux = { ...config.tmux, layout: tmuxLayout as 'split' | 'window' }
   }
+  const tmuxControlMode = getSetting(db, CONFIG_KEYS.tmuxControlMode)
+  if (tmuxControlMode !== null) {
+    config.tmux = { ...config.tmux, controlMode: tmuxControlMode === 'true' }
+  }
 
   // Load docker settings
   const dockerImage = getSetting(db, CONFIG_KEYS.dockerImage)
@@ -162,6 +167,14 @@ export function saveShell(db: Database.Database, shell: Shell): void {
 }
 
 /**
+ * Save tmux control mode preference.
+ * When enabled and using iTerm, tmux -CC is used for native tab integration.
+ */
+export function saveTmuxControlMode(db: Database.Database, enabled: boolean): void {
+  setSetting(db, CONFIG_KEYS.tmuxControlMode, enabled.toString())
+}
+
+/**
  * Check if terminal app preference has been set
  */
 export function hasTerminalPreference(db: Database.Database): boolean {
@@ -201,7 +214,42 @@ export async function promptTerminalPreference(db: Database.Database): Promise<T
   // Save preference to database
   saveTerminalApp(db, terminalApp)
 
+  // If iTerm selected, prompt for control mode preference
+  if (terminalApp === 'iTerm') {
+    await promptTmuxControlModePreference(db)
+  }
+
   return terminalApp
+}
+
+/**
+ * Prompt user for tmux control mode preference (iTerm only).
+ * When enabled, tmux -CC is used for native iTerm tab/window integration.
+ */
+export async function promptTmuxControlModePreference(db: Database.Database): Promise<boolean> {
+  const { useControlMode } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'useControlMode',
+      message: 'iTerm tmux integration mode:',
+      choices: [
+        {
+          name: 'Native tabs (tmux -CC) - iTerm handles windows/scrollback natively (Recommended)',
+          value: true,
+        },
+        {
+          name: 'Standard tmux - Traditional tmux interface inside iTerm',
+          value: false,
+        },
+      ],
+      default: true,
+    },
+  ])
+
+  // Save preference to database
+  saveTmuxControlMode(db, useControlMode)
+
+  return useControlMode
 }
 
 /**
