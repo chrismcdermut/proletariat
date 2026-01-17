@@ -1,6 +1,7 @@
 import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
@@ -42,7 +43,7 @@ export default class TicketEdit extends PMOCommand {
     priority: Flags.string({
       char: 'p',
       description: 'New ticket priority',
-      options: ['URGENT', 'HIGH', 'MEDIUM', 'LOW', 'none'],
+      options: [...PRIORITIES, 'none'],
     }),
     category: Flags.string({
       description: 'New ticket category',
@@ -312,10 +313,7 @@ export default class TicketEdit extends PMOCommand {
         message: 'Priority:',
         choices: [
           { name: 'None', value: '' },
-          { name: 'URGENT', value: 'URGENT' },
-          { name: 'HIGH', value: 'HIGH' },
-          { name: 'MEDIUM', value: 'MEDIUM' },
-          { name: 'LOW', value: 'LOW' },
+          ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p })),
         ],
         default: ticket.priority || '',
       },

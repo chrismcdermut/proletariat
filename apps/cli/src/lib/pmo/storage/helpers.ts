@@ -10,6 +10,7 @@ import {
   StateCategory,
   Ticket,
   Subtask,
+  normalizePriority,
 } from '../types.js'
 import {
   AcceptanceCriterionRow,
@@ -83,7 +84,7 @@ export async function rowToTicket(
     projectName: row.project_name || undefined,
     title: row.title,
     description: row.description || undefined,
-    priority: row.priority || undefined,
+    priority: normalizePriority(row.priority),
     category: row.category || undefined,
     statusId: row.status_id,
     statusName,

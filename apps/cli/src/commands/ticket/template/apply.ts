@@ -1,6 +1,7 @@
 import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../../lib/pmo/index.js';
+import { PRIORITIES, PRIORITY_LABELS } from '../../../lib/pmo/types.js';
 import { styles } from '../../../lib/styles.js';
 import {
   shouldOutputJson,
@@ -42,7 +43,7 @@ export default class TicketTemplateApply extends PMOCommand {
     priority: Flags.string({
       char: 'p',
       description: 'Priority (overrides template default)',
-      options: ['URGENT', 'HIGH', 'MEDIUM', 'LOW'],
+      options: [...PRIORITIES],
     }),
     category: Flags.string({
       description: 'Category (overrides template default)',
@@ -136,10 +137,7 @@ export default class TicketTemplateApply extends PMOCommand {
       const columnChoices = this.columns.map(c => ({ name: c, value: c }));
       const priorityChoices = [
         { name: 'None', value: '' },
-        { name: 'URGENT', value: 'URGENT' },
-        { name: 'HIGH', value: 'HIGH' },
-        { name: 'MEDIUM', value: 'MEDIUM' },
-        { name: 'LOW', value: 'LOW' },
+        ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p })),
       ];
 
       // Define fields once - single source of truth for both JSON and interactive modes

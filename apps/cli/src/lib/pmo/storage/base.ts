@@ -186,6 +186,31 @@ export function runMigrations(db: Database.Database): void {
       }
     }
   }
+
+  // Migration: Convert legacy priority values (URGENT/HIGH/MEDIUM/LOW) to P0-P3
+  if (tableExists(T.tickets)) {
+    try {
+      // Convert ticket priorities
+      db.exec(`UPDATE ${T.tickets} SET priority = 'P0' WHERE priority = 'URGENT'`)
+      db.exec(`UPDATE ${T.tickets} SET priority = 'P1' WHERE priority = 'HIGH'`)
+      db.exec(`UPDATE ${T.tickets} SET priority = 'P2' WHERE priority = 'MEDIUM'`)
+      db.exec(`UPDATE ${T.tickets} SET priority = 'P3' WHERE priority = 'LOW'`)
+    } catch {
+      // Ignore errors if migration already ran
+    }
+  }
+
+  // Migration: Convert legacy priority values in ticket templates
+  if (tableExists(T.ticket_templates)) {
+    try {
+      db.exec(`UPDATE ${T.ticket_templates} SET default_priority = 'P0' WHERE default_priority = 'URGENT'`)
+      db.exec(`UPDATE ${T.ticket_templates} SET default_priority = 'P1' WHERE default_priority = 'HIGH'`)
+      db.exec(`UPDATE ${T.ticket_templates} SET default_priority = 'P2' WHERE default_priority = 'MEDIUM'`)
+      db.exec(`UPDATE ${T.ticket_templates} SET default_priority = 'P3' WHERE default_priority = 'LOW'`)
+    } catch {
+      // Ignore errors if migration already ran
+    }
+  }
 }
 
 /**
@@ -438,7 +463,7 @@ Do NOT implement the ticket - only improve its definition so it's ready to be wo
 |-------|------|--------------|----------|
 | title | string | any text | --title |
 | description | markdown | requirements, context, notes | --description |
-| priority | enum | URGENT, HIGH, MEDIUM, LOW | --priority |
+| priority | enum | P0 (critical), P1 (high), P2 (medium), P3 (low) | --priority |
 | category | enum | feature, bug, refactor, docs, test, chore, performance, ci, build, security, database, release | --category |
 | subtasks | list | task descriptions | --add-subtask (--clear-subtasks to replace) |
 | acceptanceCriteria | list | testable statements | --add-ac (--clear-ac to replace) |
@@ -455,7 +480,7 @@ Do NOT implement the ticket - only improve its definition so it's ready to be wo
 | Acceptance Criteria | --add-ac | One per criterion (testable statement) |
 | Subtasks | --add-subtask | One per subtask |
 | Complexity (S/M/L/XL) | --add-label | \`complexity:M\` or \`complexity:L\` |
-| Priority | --priority | URGENT, HIGH, MEDIUM, or LOW only |
+| Priority | --priority | P0, P1, P2, or P3 only |
 | Category | --category | feature, bug, refactor, docs, test, chore |
 | Needs clarification | --add-label | \`needs-clarification\` |
 | Ready for work | --add-label | \`ready\` |
@@ -469,7 +494,7 @@ prlt ticket edit {{TICKET_ID}} \\
 Requirements:
 - R1: Sessions expire after 30 minutes of inactivity
 - R2: Users see a warning 5 minutes before timeout" \\
-  --priority MEDIUM \\
+  --priority P2 \\
   --category feature \\
   --add-label "complexity:M" \\
   --add-ac "Sessions expire after 30 min inactivity" \\
@@ -479,7 +504,7 @@ Requirements:
 \`\`\`
 
 ## Important Rules
-- Priority must be exactly: URGENT, HIGH, MEDIUM, or LOW (not custom values)
+- Priority must be exactly: P0, P1, P2, or P3 (not custom values)
 - Use \`--add-label "complexity:S|M|L|XL"\` for complexity (not a separate field)
 - Technical notes/flagged ambiguities go in description
 - Use \`--clear-subtasks\` if replacing existing subtasks
@@ -685,7 +710,7 @@ Brief description of the bug.
 - OS:
 - Version:
 `,
-      defaultPriority: 'HIGH',
+      defaultPriority: 'P1',
       defaultCategory: 'bug',
       suggestedSubtasks: [
         { title: 'Reproduce the bug' },
@@ -712,7 +737,7 @@ As a [type of user], I want [goal] so that [benefit].
 ## Design Notes
 
 `,
-      defaultPriority: 'MEDIUM',
+      defaultPriority: 'P2',
       defaultCategory: 'feature',
       suggestedSubtasks: [
         { title: 'Design implementation approach' },
@@ -734,7 +759,7 @@ Describe what needs to be done.
 ## Context
 Any relevant context or notes.
 `,
-      defaultPriority: 'MEDIUM',
+      defaultPriority: 'P2',
       defaultCategory: 'chore',
       suggestedSubtasks: [],
     },
@@ -755,7 +780,7 @@ Why is this refactor needed?
 ## Scope
 - [ ] Files/modules to change
 `,
-      defaultPriority: 'LOW',
+      defaultPriority: 'P3',
       defaultCategory: 'refactor',
       suggestedSubtasks: [
         { title: 'Analyze current code' },
@@ -781,7 +806,7 @@ Why is this refactor needed?
 ## Target Audience
 
 `,
-      defaultPriority: 'LOW',
+      defaultPriority: 'P3',
       defaultCategory: 'docs',
       suggestedSubtasks: [
         { title: 'Draft content' },

@@ -69,14 +69,24 @@ export function formatPriority(priority?: string): string {
   if (!priority) return '';
 
   switch (priority) {
-    case 'URGENT':
+    // New P0-P3 format
+    case 'P0':
       return styles.priorityUrgent(`[${priority}]`);
-    case 'HIGH':
+    case 'P1':
       return styles.priorityHigh(`[${priority}]`);
-    case 'MEDIUM':
+    case 'P2':
       return styles.priorityMedium(`[${priority}]`);
-    case 'LOW':
+    case 'P3':
       return styles.priorityLow(`[${priority}]`);
+    // Legacy format (for backwards compatibility during display)
+    case 'URGENT':
+      return styles.priorityUrgent('[P0]');
+    case 'HIGH':
+      return styles.priorityHigh('[P1]');
+    case 'MEDIUM':
+      return styles.priorityMedium('[P2]');
+    case 'LOW':
+      return styles.priorityLow('[P3]');
     default:
       return styles.muted(`[${priority}]`);
   }

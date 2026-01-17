@@ -1,6 +1,7 @@
 import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
+import { PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
@@ -40,8 +41,8 @@ export default class TicketUpdate extends PMOCommand {
     }),
     priority: Flags.string({
       char: 'p',
-      description: 'Set priority (URGENT, HIGH, MEDIUM, LOW)',
-      options: ['URGENT', 'HIGH', 'MEDIUM', 'LOW'],
+      description: 'Set priority (P0, P1, P2, P3)',
+      options: [...PRIORITIES],
     }),
     category: Flags.string({
       char: 'c',
@@ -142,10 +143,7 @@ export default class TicketUpdate extends PMOCommand {
           message: 'Set priority to:',
           choices: [
             { name: `(Keep existing: ${ticket.priority || 'none'})`, value: null },
-            { name: 'URGENT', value: 'URGENT' },
-            { name: 'HIGH', value: 'HIGH' },
-            { name: 'MEDIUM', value: 'MEDIUM' },
-            { name: 'LOW', value: 'LOW' },
+            ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p })),
             { name: 'None (clear priority)', value: '' },
           ],
         }]);
@@ -261,10 +259,7 @@ export default class TicketUpdate extends PMOCommand {
           message: 'Set priority to:',
           choices: [
             { name: '(Keep existing)', value: null },
-            { name: 'URGENT', value: 'URGENT' },
-            { name: 'HIGH', value: 'HIGH' },
-            { name: 'MEDIUM', value: 'MEDIUM' },
-            { name: 'LOW', value: 'LOW' },
+            ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p })),
             { name: 'None (clear priority)', value: '' },
           ],
         }]);
