@@ -362,10 +362,13 @@ export default class WorkSpawn extends PMOCommand {
         // (skip column selection for simplicity - show all tickets)
         if (jsonMode) {
           // Build choices from all unassigned tickets
-          const ticketChoices = unassignedTickets.map(ticket => ({
-            name: `${ticket.id} - ${ticket.title} (${ticket.statusName || 'No Status'})`,
-            value: ticket.id,
-          }))
+          const ticketChoices = unassignedTickets.map(ticket => {
+            const priority = ticket.priority ? `[${ticket.priority}] ` : ''
+            return {
+              name: `${priority}${ticket.id} - ${ticket.title} (${ticket.statusName || 'No Status'})`,
+              value: ticket.id,
+            }
+          })
 
           outputPromptAsJson(
             buildPromptConfig(
@@ -380,18 +383,16 @@ export default class WorkSpawn extends PMOCommand {
           return
         }
 
-        // Build column choices with counts
+        // Build column choices with counts - show ALL columns even if empty
         const columnChoices: Array<{ name: string; value: string }> = [
           { name: '🌐 All columns (select from anywhere)', value: '__ALL__' },
         ]
         for (const name of columnNames) {
           const count = unassignedTickets.filter(t => t.statusName === name).length
-          if (count > 0) {
-            columnChoices.push({
-              name: `${name} (${count} unassigned)`,
-              value: name,
-            })
-          }
+          columnChoices.push({
+            name: count > 0 ? `${name} (${count} unassigned)` : `${name} (0)`,
+            value: name,
+          })
         }
 
         const { manyColumn } = await inquirer.prompt([
@@ -431,8 +432,9 @@ export default class WorkSpawn extends PMOCommand {
             choices.push(new inquirer.Separator(`── ${column} ──`))
           }
           for (const ticket of tickets) {
+            const priority = ticket.priority ? `[${ticket.priority}] ` : ''
             choices.push({
-              name: `${ticket.id} - ${ticket.title}`,
+              name: `${priority}${ticket.id} - ${ticket.title}`,
               value: ticket.id,
             })
           }

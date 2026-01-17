@@ -20,6 +20,48 @@ import {
 } from './types.js'
 
 // =============================================================================
+// Terminal Title Helpers
+// =============================================================================
+
+/**
+ * Build a unified name for tmux sessions, window names, and tab titles.
+ * Format: "{ticketId}-{action}-{agentName}"
+ * Example: "TKT-347-implement-altman"
+ */
+function buildSessionName(context: ExecutionContext): string {
+  const action = context.actionName || 'work'
+  const agent = context.agentName || 'agent'
+  return `${context.ticketId}-${action}-${agent}`
+}
+
+// Legacy aliases for backwards compatibility
+function buildWindowTitle(context: ExecutionContext): string {
+  return buildSessionName(context)
+}
+
+function buildTmuxWindowName(context: ExecutionContext): string {
+  return buildSessionName(context)
+}
+
+/**
+ * Generate shell commands to set the terminal tab/window title.
+ * Uses ANSI escape sequences that work across most terminal emulators.
+ *
+ * \033]0;Title\007 - Sets both window and tab title (most compatible)
+ * \033]1;Title\007 - Sets tab title only (iTerm2, some others)
+ * \033]2;Title\007 - Sets window title only
+ */
+function getSetTitleCommands(title: string): string {
+  // Escape any special characters in the title
+  const safeTitle = title.replace(/[\\'"]/g, '')
+  return `
+# Set terminal tab/window title
+echo -ne "\\033]0;${safeTitle}\\007"
+echo -ne "\\033]1;${safeTitle}\\007"
+`
+}
+
+// =============================================================================
 // Executor Commands
 // =============================================================================
 
@@ -278,13 +320,17 @@ function createTmuxScript(
   // Build the permissions flag for the script
   const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
 
+  // Build window title for terminal tab
+  const windowTitle = buildWindowTitle(context)
+  const setTitleCmds = getSetTitleCommands(windowTitle)
+
   // Create script that initializes shell environment properly
   // We use --rcfile/ZDOTDIR to inject nvm init into the shell that stays open
   const scriptContent = `#!/bin/bash
 # Auto-generated tmux script for ticket ${context.ticketId}
 SCRIPT_PATH="${scriptPath}"
 PROMPT_PATH="${promptPath}"
-
+${setTitleCmds}
 # Initialize nvm if available (ensures correct Node version)
 export NVM_DIR="\${HOME}/.nvm"
 [ -s "\$NVM_DIR/nvm.sh" ] && source "\$NVM_DIR/nvm.sh"
@@ -333,7 +379,7 @@ export async function runTmux(
   const { cmd, args } = getExecutorCommand(executor, prompt, skipPermissions)
 
   const sessionName = config.tmux.session
-  const windowName = context.ticketId
+  const windowName = buildTmuxWindowName(context)
 
   // Create wrapper script that initializes shell environment
   const { scriptPath } = createTmuxScript(context, cmd, args, skipPermissions)
@@ -347,10 +393,9 @@ export async function runTmux(
     const useControlMode = config.terminal.app === 'iTerm' && config.tmux.controlMode
 
     if (useControlMode) {
-      // iTerm control mode: spawn an iTerm tab running tmux -CC
-      // The -CC flag makes tmux output control commands that iTerm understands
-      // The -A flag attaches to existing session or creates new one
-      // iTerm will create native tabs for each tmux window
+      // iTerm control mode: tmux -CC integrates with iTerm's native UI
+      // This fixes nested scroll issues by using iTerm's scrollback instead of tmux's
+      // Each tmux window becomes a native iTerm tab with proper scrolling
       const tmuxCmd = `tmux -CC new-session -A -s ${sessionName} -n "${windowName}" -c "${context.worktreePath}" "${scriptPath}"`
       // Escape double quotes and backslashes for AppleScript
       const escapedCmd = tmuxCmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
@@ -459,13 +504,17 @@ export async function runTerminal(
   // Build permissions flag based on sandboxed setting
   const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
 
+  // Build window title for terminal tab
+  const windowTitle = buildWindowTitle(context)
+  const setTitleCmds = getSetTitleCommands(windowTitle)
+
   // Build script that reads prompt from file
   // This completely avoids shell escaping issues with special characters
   const scriptContent = `#!/bin/bash
 # Auto-generated script for ticket ${context.ticketId}
 SCRIPT_PATH="${scriptPath}"
 PROMPT_PATH="${promptPath}"
-
+${setTitleCmds}
 cd "${context.worktreePath}"
 ${cmd} ${permissionsFlag}-p "$(cat "$PROMPT_PATH")"
 
@@ -879,24 +928,35 @@ export async function runDevcontainer(
     const containerId = getDevcontainerContainerId(context.agentDir)
 
     // Build the devcontainer exec command
-    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId || undefined, config.outputMode, config.sandboxed, displayMode, sessionManager)
+    // When using tmux session manager, we DON'T want buildDevcontainerCommand to set up tmux
+    // because runDevcontainerInTmux handles the nested tmux setup itself
+    const effectiveSessionManager = (sessionManager === 'tmux' && (displayMode === 'terminal' || displayMode === 'tmux'))
+      ? 'direct' // Let runDevcontainerInTmux handle tmux setup
+      : sessionManager
+    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId || undefined, config.outputMode, config.sandboxed, displayMode, effectiveSessionManager)
 
     // Execute based on display mode
+    // When sessionManager is 'tmux', use runDevcontainerInTmux for nested tmux (except background)
     let result: RunnerResult
-    switch (displayMode) {
-      case 'terminal':
-        result = await runDevcontainerInTerminal(context, devcontainerCmd, config)
-        break
-      case 'background':
-        result = await runDevcontainerInBackground(context, devcontainerCmd)
-        break
-      case 'tmux':
-        result = await runDevcontainerInTmux(context, devcontainerCmd, config)
-        break
-      case 'foreground':
-      default:
-        result = await runDevcontainerForeground(context, devcontainerCmd)
-        break
+    if (sessionManager === 'tmux' && displayMode !== 'background') {
+      // Use nested tmux for all display modes when sessionManager is tmux
+      result = await runDevcontainerInTmux(context, devcontainerCmd, config)
+    } else {
+      switch (displayMode) {
+        case 'terminal':
+          result = await runDevcontainerInTerminal(context, devcontainerCmd, config)
+          break
+        case 'background':
+          result = await runDevcontainerInBackground(context, devcontainerCmd)
+          break
+        case 'tmux':
+          result = await runDevcontainerInTmux(context, devcontainerCmd, config)
+          break
+        case 'foreground':
+        default:
+          result = await runDevcontainerForeground(context, devcontainerCmd)
+          break
+      }
     }
 
     // Clean up prompt file if execution failed to start
@@ -1003,12 +1063,16 @@ async function runDevcontainerInTerminal(
   fs.mkdirSync(baseDir, { recursive: true })
   const scriptPath = path.join(baseDir, `exec-${context.ticketId}-${Date.now()}.sh`)
 
+  // Build window title for terminal tab
+  const windowTitle = buildWindowTitle(context)
+  const setTitleCmds = getSetTitleCommands(windowTitle)
+
   // Write script - run the command directly
   // No auth check needed - if auth is required, Claude will show "Invalid API key"
   // and user can run /login from there
   const scriptContent = `#!/bin/bash
 # Auto-generated script for ticket ${context.ticketId}
-
+${setTitleCmds}
 echo "🚀 Starting ticket execution: ${context.ticketId}"
 echo ""
 
@@ -1145,81 +1209,209 @@ async function runDevcontainerInBackground(
 }
 
 /**
- * Run devcontainer command in tmux pane/window.
- * Uses a temp script file to avoid shell escaping issues with complex prompts.
- * When iTerm is the terminal app and control mode is enabled, uses tmux -CC
- * for native iTerm tab/window integration.
+ * Run devcontainer command in tmux session INSIDE the container.
+ *
+ * Architecture: Container tmux only (simple, no nesting)
+ * 1. Start tmux session INSIDE the container (detached) - runs claude
+ * 2. Open iTerm tab that attaches directly to the container's tmux
+ *
+ * Benefits:
+ * - Session persists even if you close iTerm tab
+ * - No nested tmux = proper scrolling
+ * - Can reattach anytime via `prlt session attach`
+ * - Sessions tracked in workspace.db
  */
 async function runDevcontainerInTmux(
   context: ExecutionContext,
   devcontainerCmd: string,
   config: ExecutionConfig
 ): Promise<RunnerResult> {
-  const sessionName = config.tmux.session
-  const windowName = context.ticketId
+  // Session name: {ticketId}-{action} (e.g., TKT-347-implement)
+  const sessionName = buildTmuxWindowName(context)
+  const windowTitle = buildWindowTitle(context)
 
   try {
-    // Check if tmux is available
+    // Get container ID from the devcontainer command
+    // The devcontainerCmd is like: docker exec -it <containerId> bash -c '...'
+    const containerIdMatch = devcontainerCmd.match(/docker exec -it\s+(\S+)/)
+    if (!containerIdMatch) {
+      return {
+        success: false,
+        error: 'Could not extract container ID from devcontainer command',
+      }
+    }
+    const containerId = containerIdMatch[1]
+
+    // Step 1: Start tmux session INSIDE the container (detached)
+    // Extract the claude command from the devcontainer command
+    const cmdMatch = devcontainerCmd.match(/bash -c '(.+)'$/)
+    const claudeCmd = cmdMatch ? cmdMatch[1] : devcontainerCmd
+
+    // Create a script inside the container that runs claude and keeps shell open
+    const tmuxScript = `#!/bin/bash
+echo "🚀 Starting: ${sessionName}"
+echo ""
+${claudeCmd}
+echo ""
+echo "✅ Agent work complete. Press Enter to close or run more commands."
+exec bash
+`
+    const base64Script = Buffer.from(tmuxScript).toString('base64')
+    const scriptPath = `/tmp/prlt-${sessionName}.sh`
+
+    // Write script and start tmux session inside container
+    // -n sets the window name (shows in iTerm tab title with -CC mode)
+    // sessionName is already ticket-action-agent format
+    // Enable mouse mode for native scrolling (trackpad/mouse wheel works without -CC mode)
+    // set-titles on + set-titles-string: makes tmux set terminal title to window name
+    const setupCmd = `echo ${base64Script} | base64 -d > ${scriptPath} && chmod +x ${scriptPath} && tmux new-session -d -s "${sessionName}" -n "${sessionName}" "${scriptPath}" \\; set-option -g mouse on \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
+
+    try {
+      execSync(`docker exec ${containerId} bash -c '${setupCmd}'`, { stdio: 'pipe' })
+    } catch (error) {
+      return {
+        success: false,
+        error: `Failed to start tmux inside container: ${error instanceof Error ? error.message : error}`,
+      }
+    }
+
+    // Step 2: Open iTerm tab that attaches directly to container's tmux
+    // NOTE: We don't use tmux -CC (control mode) here because we're already
+    // creating a tab via AppleScript. Using -CC would cause iTerm to create
+    // another window for the tmux session (double windows).
+    // Users can reattach with `prlt session attach` which uses -CC for native scrolling.
+    const attachCmd = `docker exec -it ${containerId} tmux -u attach -t "${sessionName}"`
+
+    const baseDir = context.hqPath
+      ? path.join(context.hqPath, '.proletariat', 'scripts')
+      : path.join(os.homedir(), '.proletariat', 'scripts')
+    fs.mkdirSync(baseDir, { recursive: true })
+    const hostScriptPath = path.join(baseDir, `attach-${sessionName}-${Date.now()}.sh`)
+
+    const setTitleCmds = getSetTitleCommands(windowTitle)
+
+    const hostScript = `#!/bin/bash
+${setTitleCmds}
+# Attach to container tmux session
+# Session: ${sessionName}
+# Container: ${containerId}
+${attachCmd}
+
+# Clean up
+rm -f "${hostScriptPath}"
+exec $SHELL
+`
+    fs.writeFileSync(hostScriptPath, hostScript, { mode: 0o755 })
+
+    // Open iTerm tab and run the attach script
+    const terminalApp = config.terminal.app
+
+    switch (terminalApp) {
+      case 'iTerm':
+        // Create new tab in existing window, or create new window if none exists
+        // Set tab name via AppleScript for reliable naming
+        execSync(`osascript -e '
+          tell application "iTerm"
+            activate
+            if (count of windows) = 0 then
+              create window with default profile
+              tell current session of current window
+                set name to "${windowTitle}"
+                write text "${hostScriptPath}"
+              end tell
+            else
+              tell current window
+                create tab with default profile
+                tell current session
+                  set name to "${windowTitle}"
+                  write text "${hostScriptPath}"
+                end tell
+              end tell
+            end if
+          end tell
+        '`)
+        break
+
+      case 'Ghostty':
+        execSync(`osascript -e '
+          tell application "Ghostty"
+            activate
+          end tell
+          tell application "System Events"
+            tell process "Ghostty"
+              keystroke "t" using command down
+              delay 0.3
+              keystroke "${hostScriptPath}"
+              keystroke return
+            end tell
+          end tell
+        '`)
+        break
+
+      case 'Terminal':
+      default:
+        execSync(`osascript -e '
+          tell application "Terminal"
+            activate
+            tell application "System Events"
+              tell process "Terminal"
+                keystroke "t" using command down
+              end tell
+            end tell
+            delay 0.3
+            do script "${hostScriptPath}" in front window
+          end tell
+        '`)
+        break
+    }
+
+    return {
+      success: true,
+      containerId,
+      sessionId: sessionName, // Container tmux session name for tracking
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to start tmux session in container',
+    }
+  }
+}
+
+/**
+ * Legacy: Run devcontainer in host-side tmux (kept for non-container modes)
+ */
+async function runDevcontainerInHostTmux(
+  context: ExecutionContext,
+  devcontainerCmd: string,
+  config: ExecutionConfig
+): Promise<RunnerResult> {
+  const sessionName = config.tmux.session
+  const windowName = buildTmuxWindowName(context)
+
+  try {
+    // Check if tmux is available on host
     execSync('which tmux', { stdio: 'pipe' })
 
-    // Write command to temp script to avoid shell escaping issues
+    // Write command to temp script
     const baseDir = context.hqPath
       ? path.join(context.hqPath, '.proletariat', 'scripts')
       : path.join(os.homedir(), '.proletariat', 'scripts')
     fs.mkdirSync(baseDir, { recursive: true })
     const scriptPath = path.join(baseDir, `exec-${context.ticketId}-${Date.now()}.sh`)
 
-    // Write script that runs the devcontainer command
+    const windowTitle = buildWindowTitle(context)
+    const setTitleCmds = getSetTitleCommands(windowTitle)
+
     const scriptContent = `#!/bin/bash
-# Auto-generated script for ticket ${context.ticketId}
-
+${setTitleCmds}
 echo "🚀 Starting ticket execution: ${context.ticketId}"
-echo ""
-
-# Run the ticket - tmux provides a PTY so docker exec -it should work
 ${devcontainerCmd}
-
-# Clean up script file
 rm -f "${scriptPath}"
-
-# Keep shell open after completion
 exec $SHELL
 `
     fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
 
-    // Determine if we should use iTerm control mode (-CC)
-    // Control mode makes iTerm handle windows/tabs natively instead of tmux's text UI
-    const useControlMode = config.terminal.app === 'iTerm' && config.tmux.controlMode
-
-    if (useControlMode) {
-      // iTerm control mode: spawn an iTerm tab running tmux -CC
-      // The -CC flag makes tmux output control commands that iTerm understands
-      // The -A flag attaches to existing session or creates new one
-      // iTerm will create native tabs for each tmux window
-      const tmuxCmd = `tmux -CC new-session -A -s ${sessionName} -n "${windowName}" '${scriptPath}'`
-      // Escape double quotes and backslashes for AppleScript
-      const escapedCmd = tmuxCmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-
-      execSync(`osascript -e '
-        tell application "iTerm"
-          activate
-          tell current window
-            create tab with default profile
-            tell current session
-              write text "${escapedCmd}"
-            end tell
-          end tell
-        end tell
-      '`)
-
-      return {
-        success: true,
-        containerId: `devcontainer-${context.agentName}`,
-        sessionId: `${sessionName}:${windowName}`,
-      }
-    }
-
-    // Standard tmux mode (non-iTerm or control mode disabled)
     // Check if session exists
     let sessionExists = false
     try {
@@ -1229,12 +1421,9 @@ exec $SHELL
       sessionExists = false
     }
 
-    // Create window with interactive shell, then send the script command
-    // This ensures proper TTY allocation for docker exec -it
     const targetPane = `${sessionName}:${windowName}`
 
     if (!sessionExists) {
-      // Create new session with window (starts with shell)
       execSync(
         `tmux new-session -d -s ${sessionName} -n "${windowName}"`,
         { stdio: 'pipe' }
