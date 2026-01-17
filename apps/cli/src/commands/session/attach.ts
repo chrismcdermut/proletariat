@@ -232,37 +232,7 @@ export default class SessionAttach extends PMOCommand {
       ? `${session.ticketId}${session.agentName ? ` (${session.agentName})` : ''}`
       : session.name
 
-    // For iTerm, use tmux -CC which handles its own window/tab creation
-    if (terminalApp === 'iTerm') {
-      this.log('')
-      this.log(styles.muted('Using iTerm tmux integration (control mode).'))
-      this.log(styles.muted('Tip: Configure tab/window behavior in iTerm Settings > General > tmux'))
-      this.log('')
-
-      // Rename the tmux window to show a readable title, then attach
-      // This ensures iTerm picks up the correct tab name via tmux integration
-      try {
-        execSync(
-          `docker exec ${session.containerId} tmux rename-window -t "${session.name}" "${title}"`,
-          { stdio: 'pipe' }
-        )
-      } catch {
-        // Window rename failed - not critical, continue with attach
-      }
-
-      // Run directly - iTerm's tmux integration will create the window/tab
-      try {
-        execSync(
-          `docker exec -it ${session.containerId} tmux -u -CC attach -t "${session.name}"`,
-          { stdio: 'inherit' }
-        )
-      } catch {
-        // User detached or session ended - this is normal
-      }
-      return
-    }
-
-    // For other terminals, create a new tab and run the attach command there
+    // Create a script that sets tab title and attaches to tmux
     const baseDir = path.join(os.homedir(), '.proletariat', 'scripts')
     fs.mkdirSync(baseDir, { recursive: true })
     const scriptPath = path.join(baseDir, `attach-${Date.now()}.sh`)
@@ -283,9 +253,25 @@ exec $SHELL
 `
     fs.writeFileSync(scriptPath, script, { mode: 0o755 })
 
-    // Open in new tab
+    // Open in new tab and run the attach script
     try {
       switch (terminalApp) {
+        case 'iTerm':
+          // Create new tab via AppleScript and set tab name
+          execSync(`osascript -e '
+            tell application "iTerm"
+              activate
+              tell current window
+                set newTab to (create tab with default profile)
+                tell current session of newTab
+                  set name to "${title}"
+                  write text "${scriptPath}"
+                end tell
+              end tell
+            end tell
+          '`)
+          break
+
         case 'Ghostty':
           execSync(`osascript -e '
             tell application "Ghostty"
