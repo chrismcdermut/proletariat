@@ -54,6 +54,7 @@ export default class TicketComplete extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketComplete);
+    const projectId = (flags as { project?: string }).project;
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -68,7 +69,7 @@ export default class TicketComplete extends PMOCommand {
     };
 
     // Get all incomplete tickets
-    const allTickets = await this.storage.listTickets(undefined);
+    const allTickets = await this.storage.listTickets(projectId);
     const incompleteTickets = allTickets.filter(t =>
       t.statusName && !t.statusName.toLowerCase().includes('done')
     );

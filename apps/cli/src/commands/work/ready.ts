@@ -74,6 +74,7 @@ export default class WorkReady extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkReady);
+    const projectId = (flags as { project?: string }).project;
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -105,8 +106,8 @@ export default class WorkReady extends PMOCommand {
       let ticketId = args.ticketId;
 
       if (!ticketId) {
-        // Get all in-progress (started) tickets for selection from all projects
-        const allTickets = await this.storage.listTickets(undefined);
+        // Get all in-progress (started) tickets for selection, optionally filtered by project
+        const allTickets = await this.storage.listTickets(projectId);
         const inProgressTickets = allTickets.filter(t =>
           t.statusCategory === 'started' || (t.statusName && t.statusName.toLowerCase().includes('progress'))
         );

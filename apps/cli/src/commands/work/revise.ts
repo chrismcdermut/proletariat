@@ -94,6 +94,7 @@ export default class WorkRevise extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkRevise)
+    const projectId = (flags as { project?: string }).project
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
@@ -141,7 +142,7 @@ export default class WorkRevise extends PMOCommand {
       let ticketId = args.ticketId
 
       if (!ticketId) {
-        const allTickets = await this.storage.listTickets(undefined)
+        const allTickets = await this.storage.listTickets(projectId)
         // Filter to done tickets that have a PR (may need revision based on PR feedback)
         const reviewTickets = allTickets.filter(t => {
           const isDone = t.status === 'done' || (t.statusName && t.statusName.toLowerCase().includes('done'))

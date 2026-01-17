@@ -61,12 +61,13 @@ export default class TicketUpdate extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketUpdate);
+    const projectId = (flags as { project?: string }).project;
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // Get all tickets (undefined = all projects)
-    const allTickets = await this.storage.listTickets(undefined);
+    // Get all tickets
+    const allTickets = await this.storage.listTickets(projectId);
 
     if (allTickets.length === 0) {
       if (jsonMode) {

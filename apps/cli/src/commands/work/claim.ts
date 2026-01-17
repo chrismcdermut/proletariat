@@ -51,6 +51,7 @@ export default class WorkClaim extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkClaim)
+    const projectId = (flags as { project?: string }).project
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
@@ -81,7 +82,7 @@ export default class WorkClaim extends PMOCommand {
     let ticketId = args.ticketId
 
     if (!ticketId) {
-      const allTickets = await this.storage.listTickets(undefined)
+      const allTickets = await this.storage.listTickets(projectId)
       // Filter to unassigned or backlog/unstarted tickets
       const availableTickets = allTickets.filter(
         (t) => !t.assignee || t.statusCategory === 'backlog' || t.statusCategory === 'unstarted'

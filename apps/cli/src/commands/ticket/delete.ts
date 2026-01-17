@@ -56,6 +56,7 @@ export default class TicketDelete extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketDelete);
+    const projectId = (flags as { project?: string }).project;
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -69,8 +70,8 @@ export default class TicketDelete extends PMOCommand {
       this.error(message);
     };
 
-    // Get all tickets for selection (undefined = all projects)
-    const allTickets = await this.storage.listTickets(undefined);
+    // Get all tickets for selection
+    const allTickets = await this.storage.listTickets(projectId);
 
     if (allTickets.length === 0) {
       return handleError('NO_TICKETS', 'No tickets found.');

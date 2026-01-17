@@ -174,6 +174,7 @@ export default class WorkStart extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkStart)
+    const projectId = (flags as { project?: string }).project
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
@@ -211,9 +212,8 @@ export default class WorkStart extends PMOCommand {
       let ticketId = args.ticketId
 
       if (!ticketId) {
-        // Get all tickets from all projects (projectId = undefined)
-        // This allows interactive selection across all projects
-        const allTickets = await this.storage.listTickets(undefined)
+        // Get all tickets, optionally filtered by project if -P/--project flag is provided
+        const allTickets = await this.storage.listTickets(projectId)
 
         if (allTickets.length === 0) {
           db.close()
@@ -1153,6 +1153,7 @@ export default class WorkStart extends PMOCommand {
     flags: { mode?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean }
   ): Promise<void> {
     // Get all tickets and filter to unassigned backlog/unstarted (not in progress)
+    // Note: In batch mode, we use undefined to get all tickets across all projects
     const allTickets = await this.storage.listTickets(undefined)
     const backlogTickets = allTickets.filter(t =>
       !t.assignee && (t.statusCategory === 'backlog' || t.statusCategory === 'unstarted' || !t.statusCategory)

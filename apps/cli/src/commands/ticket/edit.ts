@@ -96,6 +96,7 @@ export default class TicketEdit extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketEdit);
+    const projectId = (flags as { project?: string }).project;
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -113,8 +114,8 @@ export default class TicketEdit extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
-      // Get all tickets for selection (undefined = all projects)
-      const allTickets = await this.storage.listTickets(undefined);
+      // Get all tickets for selection
+      const allTickets = await this.storage.listTickets(projectId);
 
       if (allTickets.length === 0) {
         return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".');

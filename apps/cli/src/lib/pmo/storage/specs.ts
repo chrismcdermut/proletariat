@@ -4,7 +4,7 @@
 
 import { PMO_TABLES } from '../schema.js'
 import { PMOError, Project, Spec, SpecFilter, Ticket } from '../types.js'
-import { slugify } from '../utils.js'
+import { generateEntityId } from '../utils.js'
 import { StorageContext, SpecRow, TicketRow } from './types.js'
 import { rowToSpec, rowToTicket } from './helpers.js'
 
@@ -17,7 +17,7 @@ export class SpecStorage {
    * Create a new spec.
    */
   async createSpec(spec: Partial<Spec>): Promise<Spec> {
-    const id = spec.id || slugify(spec.title || 'untitled')
+    const id = spec.id || generateEntityId(this.ctx.db, 'spec')
     const now = Date.now()
 
     this.ctx.db.prepare(`

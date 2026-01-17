@@ -44,6 +44,7 @@ export default class WorkComplete extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkComplete);
+    const projectId = (flags as { project?: string }).project;
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -75,8 +76,8 @@ export default class WorkComplete extends PMOCommand {
       let ticketId = args.ticketId;
 
       if (!ticketId) {
-        // Get all tickets that could be completed (in progress / started) from all projects
-        const allTickets = await this.storage.listTickets(undefined);
+        // Get all tickets that could be completed (in progress / started), optionally filtered by project
+        const allTickets = await this.storage.listTickets(projectId);
         const completableTickets = allTickets.filter(t =>
           t.statusCategory === 'started' || (t.statusName && t.statusName.toLowerCase().includes('progress'))
         );

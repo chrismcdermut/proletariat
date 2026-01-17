@@ -63,6 +63,7 @@ export default class EpicTicket extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags, argv } = await this.parse(EpicTicket);
+    const filterProjectId = (flags as { project?: string }).project;
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -90,7 +91,7 @@ export default class EpicTicket extends PMOCommand {
     }
 
     // Get all tickets
-    const allTickets = await this.storage.listTickets(undefined);
+    const allTickets = await this.storage.listTickets(filterProjectId);
     if (allTickets.length === 0) {
       if (jsonMode) {
         outputErrorAsJson('NO_TICKETS', 'No tickets found.', createMetadata('epic ticket', flags));

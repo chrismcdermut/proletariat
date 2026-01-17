@@ -12,7 +12,7 @@ import {
   ProjectFilter,
   WorkflowStatus,
 } from '../types.js'
-import { slugify } from '../utils.js'
+import { slugify, generateEntityId } from '../utils.js'
 import { generateBoardMarkdown } from '../markdown.js'
 import { StorageContext, ProjectRow, TicketRow } from './types.js'
 import { rowToTicket } from './helpers.js'
@@ -111,7 +111,7 @@ export class ProjectStorage {
     listStatuses: (projectId: string) => Promise<WorkflowStatus[]>,
     getTemplate: (id: string) => Promise<{ id: string } | null>
   ): Promise<Board> {
-    const id = project.id || slugify(project.name)
+    const id = project.id || generateEntityId(this.ctx.db, 'project')
     const templateId = project.template || 'kanban'
     const now = Date.now()
 
