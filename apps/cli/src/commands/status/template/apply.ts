@@ -45,6 +45,8 @@ export default class StatusTemplateApply extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusTemplateApply);
+    // This command requires project context
+    await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -65,7 +67,7 @@ export default class StatusTemplateApply extends PMOCommand {
     }
 
     // Check if project has existing statuses
-    const existingStatuses = await this.storage.listStatuses(this.projectId);
+    const existingStatuses = await this.storage.listStatuses(this.requireProjectId());
     if (existingStatuses.length > 0 && !flags.force) {
       // In JSON mode, output confirmation prompt
       if (jsonMode) {
@@ -96,7 +98,7 @@ export default class StatusTemplateApply extends PMOCommand {
     }
 
     // Apply template
-    const statuses = await this.storage.applyTemplate(this.projectId, args.template);
+    const statuses = await this.storage.applyTemplate(this.requireProjectId(), args.template);
 
     this.log(styles.success(`\nApplied template "${styles.emphasis(template.name)}" to project "${this.projectName}"`));
     this.log(styles.muted(`Created ${statuses.length} statuses:`));

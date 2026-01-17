@@ -62,6 +62,8 @@ export default class TicketMove extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketMove);
+    // This command requires project context
+    await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -128,7 +130,7 @@ export default class TicketMove extends PMOCommand {
 
     if (!targetColumn) {
       // Get columns from the database (not config.json) to ensure accuracy
-      const project = await this.storage.getProjectBoard(this.storage.getCurrentProjectId());
+      const project = await this.storage.getProjectBoard(this.requireProjectId());
       if (!project) {
         this.error('Project not found.');
       }

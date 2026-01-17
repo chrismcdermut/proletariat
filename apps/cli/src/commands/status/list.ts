@@ -27,8 +27,10 @@ export default class StatusList extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(StatusList);
+    // This command requires project context
+    await this.requireProject();
 
-    const statuses = await this.storage.listStatuses(this.projectId);
+    const statuses = await this.storage.listStatuses(this.requireProjectId());
 
     if (flags.json) {
       this.log(JSON.stringify(statuses, null, 2));

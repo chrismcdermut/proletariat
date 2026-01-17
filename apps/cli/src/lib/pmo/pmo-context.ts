@@ -14,10 +14,11 @@ let hasWarnedAboutMultipleHQs = false;
 export interface PMOContext {
   pmoPath: string;
   storage: SQLiteStorage;
-  columns: string[];
   storageType: 'sqlite' | 'git';
-  projectId: string;
-  projectName: string;
+  /** Current project ID - undefined if no project selected yet */
+  projectId?: string;
+  /** Current project name - undefined if no project selected yet */
+  projectName?: string;
 }
 
 export interface GetPMOContextOptions {
@@ -26,15 +27,17 @@ export interface GetPMOContextOptions {
 }
 
 /**
- * Get PMO context (path, storage, columns) without requiring config.json
+ * Get PMO context (path, storage) without requiring config.json
  * Reads everything from workspace.db instead
  *
- * Note: This function does NOT prompt for project selection. It initializes storage
- * with the provided projectId, or 'default' if none specified. Commands that need
- * project context should call requireProject() after context initialization.
+ * Note: This function does NOT prompt for project selection. Storage is initialized
+ * without a project context. Commands that need project-scoped operations should
+ * either:
+ * - Derive project from an entity (e.g., ticket.projectId)
+ * - Call requireProject() to prompt user for selection
  *
  * @param options - Configuration options
- * @param options.projectId - Optional project ID (defaults to 'default')
+ * @param options.projectId - Optional project ID to pre-select
  * @param options.logger - Optional logging function
  * @returns PMO context with storage and metadata
  */
@@ -70,41 +73,34 @@ export async function getPMOContext(
   // Get workspace.db path (searches upward from PMO)
   const dbPath = getWorkspaceDbPath(pmoPath);
 
-  // Use provided projectId or 'default' as placeholder
-  // Commands that need project context should call requireProject()
-  const resolvedProjectId = projectIdOpt || 'default';
-
   // Detect sync mode: 'git' enables multi-machine sync via git push/pull of board.md
   // Note: Storage is always SQLite (workspace.db). This flag controls sync strategy.
   // TODO: Read from pmo_settings table when implemented
   const gitPath = path.join(pmoPath, '.git');
   const storageType: 'sqlite' | 'git' = fs.existsSync(gitPath) ? 'git' : 'sqlite';
 
-  // Get storage with auto-sync
+  // Get storage - projectId is optional, commands derive it from entities or prompt
   const storage = getStorageWithAutoSync(
     pmoPath,
     storageType,
     loggerOpt,
-    resolvedProjectId
+    projectIdOpt  // Pass through - may be undefined
   );
 
-  // Get columns from database
-  const columns = storage.getColumnNames();
-
-  // Get project name
-  const db = new Database(dbPath);
-  const project = db.prepare('SELECT name FROM pmo_projects WHERE id = ?').get(resolvedProjectId) as { name: string } | undefined;
-  db.close();
-
-  const finalProjectId = resolvedProjectId || 'default';
-  const finalProjectName = project?.name || finalProjectId;
+  // Get project name if projectId was provided
+  let projectName: string | undefined;
+  if (projectIdOpt) {
+    const db = new Database(dbPath);
+    const project = db.prepare('SELECT name FROM pmo_projects WHERE id = ?').get(projectIdOpt) as { name: string } | undefined;
+    db.close();
+    projectName = project?.name;
+  }
 
   return {
     pmoPath,
     storage,
-    columns,
     storageType,
-    projectId: finalProjectId,
-    projectName: finalProjectName,
+    projectId: projectIdOpt,
+    projectName,
   };
 }

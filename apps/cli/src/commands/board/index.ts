@@ -50,6 +50,9 @@ export default class Board extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(Board);
 
+    // Board operations require project context
+    await this.requireProject();
+
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
@@ -208,7 +211,7 @@ export default class Board extends PMOCommand {
   private async exportMarkdown(): Promise<void> {
     const markdown = await this.storage.getBoardMarkdown();
 
-    const boardPath = getBoardPath(this.pmoPath, this.projectId);
+    const boardPath = getBoardPath(this.pmoPath, this.requireProjectId());
     fs.writeFileSync(boardPath, markdown);
 
     this.log(chalk.green(`✅ Exported board to ${boardPath}`));
@@ -217,7 +220,7 @@ export default class Board extends PMOCommand {
   private async syncFromMarkdown(
     flags: { force: boolean; 'dry-run': boolean }
   ): Promise<void> {
-    const boardPath = getBoardPath(this.pmoPath, this.projectId);
+    const boardPath = getBoardPath(this.pmoPath, this.requireProjectId());
 
     if (!fs.existsSync(boardPath)) {
       this.error('board.md not found. Run "prlt board export" first to create it.');

@@ -53,6 +53,8 @@ export default class SpecTicket extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SpecTicket);
+    // This command requires project context
+    await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -106,7 +108,7 @@ export default class SpecTicket extends PMOCommand {
     // Get spec ID
     let specId = args.specId || flags.spec;
     if (!specId) {
-      const specs = await this.listAvailableSpecs(this.pmoPath, this.projectId);
+      const specs = await this.listAvailableSpecs(this.pmoPath, this.requireProjectId());
       if (specs.length === 0) {
         return handleError('NO_SPECS', 'No specs found. Create one first with: prlt spec create');
       }
@@ -135,7 +137,7 @@ export default class SpecTicket extends PMOCommand {
     }
 
     // Verify spec exists
-    const specPath = this.findSpecFile(this.pmoPath, this.projectId, specId);
+    const specPath = this.findSpecFile(this.pmoPath, this.requireProjectId(), specId);
     if (!specPath) {
       this.error(`Spec "${specId}" not found in project "${this.projectName}"`);
     }

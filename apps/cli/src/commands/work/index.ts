@@ -34,6 +34,8 @@ export default class Work extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(Work);
+    // This command requires project context
+    await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -88,7 +90,7 @@ export default class Work extends PMOCommand {
 
     // Run the selected subcommand
     // Pass --project to avoid re-prompting for project selection
-    const projectArgs = ['--project', this.projectId];
+    const projectArgs = ['--project', this.requireProjectId()];
     switch (action) {
       case 'claim':
         await this.config.runCommand('work:claim', projectArgs);

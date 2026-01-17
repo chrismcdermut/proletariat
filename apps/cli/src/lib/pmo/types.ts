@@ -647,7 +647,7 @@ export interface Conflict {
 // Error Types
 // =============================================================================
 
-export type PMOErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'INVALID' | 'SYNC_FAILED'
+export type PMOErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'INVALID' | 'SYNC_FAILED' | 'NO_PROJECT'
 
 export class PMOError extends Error {
   constructor(

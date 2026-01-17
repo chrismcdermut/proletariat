@@ -1230,10 +1230,10 @@ export default class WorkStart extends PMOCommand {
         this.log(styles.muted(`Starting ${ticket.id} with ${agent.name}...`))
 
         // Use the work:start command for each ticket
-        // Pass --project to avoid re-prompting for project selection
+        // Pass --project from ticket to avoid re-prompting for project selection
         await this.config.runCommand('work:start', [
           ticket.id,
-          '--project', this.projectId,
+          ...(ticket.projectId ? ['--project', ticket.projectId] : []),
           '--mode', flags.mode || 'background',
           ...(flags.executor ? ['--executor', flags.executor] : []),
           ...(flags['run-on-host'] ? ['--run-on-host'] : []),

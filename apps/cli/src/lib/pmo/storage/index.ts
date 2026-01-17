@@ -80,7 +80,7 @@ export class SQLiteStorage implements PMOStorage {
   readonly type = 'sqlite' as const
   private db: Database.Database
   private dbPath: string
-  private currentProjectId: string
+  private currentProjectId: string | undefined
 
   // Domain-specific storage modules
   private projectStorage: ProjectStorage
@@ -97,7 +97,7 @@ export class SQLiteStorage implements PMOStorage {
   private actionStorage: ActionStorage
   private viewStorage: ViewStorage
 
-  constructor(dbPath: string, projectId: string = 'default') {
+  constructor(dbPath: string, projectId?: string) {
     this.dbPath = dbPath
     this.currentProjectId = projectId
 
@@ -109,7 +109,20 @@ export class SQLiteStorage implements PMOStorage {
     const ctx: StorageContext = {
       db: this.db,
       getCurrentProjectId: () => this.currentProjectId,
-      updateBoardTimestamp: () => updateBoardTimestamp(this.db, this.currentProjectId),
+      requireProjectId: () => {
+        if (!this.currentProjectId) {
+          throw new PMOError(
+            'NO_PROJECT',
+            'No project selected. Use -P flag or call setCurrentProject() first.'
+          )
+        }
+        return this.currentProjectId
+      },
+      updateBoardTimestamp: () => {
+        if (this.currentProjectId) {
+          updateBoardTimestamp(this.db, this.currentProjectId)
+        }
+      },
     }
 
     // Initialize domain-specific storage modules
@@ -140,8 +153,9 @@ export class SQLiteStorage implements PMOStorage {
 
   /**
    * Get the current project ID
+   * Returns undefined if no project has been selected
    */
-  getCurrentProjectId(): string {
+  getCurrentProjectId(): string | undefined {
     return this.currentProjectId
   }
 

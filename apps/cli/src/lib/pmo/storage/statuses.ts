@@ -51,7 +51,7 @@ export class StatusStorage {
    * Create a new status.
    */
   async createStatus(status: Partial<WorkflowStatus>): Promise<WorkflowStatus> {
-    const projectId = status.projectId || this.ctx.getCurrentProjectId()
+    const projectId = status.projectId || this.ctx.requireProjectId()
     const id = status.id || slugify(status.name || 'status')
     const category = status.category || 'backlog'
     const now = new Date().toISOString()

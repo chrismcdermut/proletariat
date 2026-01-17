@@ -21,7 +21,7 @@ export class TicketStorage {
   async createTicket(ticket: CreateTicketInput): Promise<Ticket> {
     const id = ticket.id || generateEntityId(this.ctx.db, 'ticket')
     const title = ticket.title || 'Untitled'
-    const projectId = this.ctx.getCurrentProjectId()
+    const projectId = this.ctx.requireProjectId()
 
     // Get first column as default
     const firstColumn = this.ctx.db.prepare(`
@@ -281,7 +281,7 @@ export class TicketStorage {
    * Move a ticket to a different column/position.
    */
   async moveTicket(id: string, column: string, position?: number): Promise<Ticket> {
-    const projectId = this.ctx.getCurrentProjectId()
+    const projectId = this.ctx.requireProjectId()
     const existing = await this.getTicketById(id)
     if (!existing) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
@@ -442,9 +442,9 @@ export class TicketStorage {
       query += ' AND t.project_id = ?'
       params.push(filter.projectId)
     } else {
-      // Default: filter to current project
+      // Default: filter to current project (requires project to be set)
       query += ' AND t.project_id = ?'
-      params.push(this.ctx.getCurrentProjectId())
+      params.push(this.ctx.requireProjectId())
     }
 
     if (filter?.statusId) {

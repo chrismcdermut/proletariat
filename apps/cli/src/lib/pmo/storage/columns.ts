@@ -19,7 +19,7 @@ export class ColumnStorage {
    * Get column names for current project.
    */
   getColumnNames(): string[] {
-    const projectId = this.ctx.getCurrentProjectId()
+    const projectId = this.ctx.requireProjectId()
     const rows = this.ctx.db.prepare(`
       SELECT name FROM ${T.columns}
       WHERE project_id = ?
@@ -32,7 +32,7 @@ export class ColumnStorage {
    * Create a new column.
    */
   async createColumn(name: string, position?: number): Promise<Column> {
-    const projectId = this.ctx.getCurrentProjectId()
+    const projectId = this.ctx.requireProjectId()
     const id = slugify(name)
     const pos = position ?? getMaxColumnPosition(this.ctx.db, projectId) + 1
     const now = Date.now()
@@ -75,7 +75,7 @@ export class ColumnStorage {
    * Rename a column.
    */
   async renameColumn(id: string, name: string): Promise<Column> {
-    const projectId = this.ctx.getCurrentProjectId()
+    const projectId = this.ctx.requireProjectId()
     const existing = this.ctx.db.prepare(`
       SELECT * FROM ${T.columns}
       WHERE project_id = ? AND id = ?
@@ -105,7 +105,7 @@ export class ColumnStorage {
    * Move a column to a new position.
    */
   async moveColumn(id: string, position: number): Promise<Column> {
-    const projectId = this.ctx.getCurrentProjectId()
+    const projectId = this.ctx.requireProjectId()
     const existing = this.ctx.db.prepare(`
       SELECT * FROM ${T.columns}
       WHERE project_id = ? AND id = ?
@@ -153,7 +153,7 @@ export class ColumnStorage {
    * Delete a column.
    */
   async deleteColumn(id: string, cascade?: boolean): Promise<void> {
-    const projectId = this.ctx.getCurrentProjectId()
+    const projectId = this.ctx.requireProjectId()
     const existing = this.ctx.db.prepare(`
       SELECT * FROM ${T.columns}
       WHERE project_id = ? AND id = ?
@@ -204,7 +204,7 @@ export class ColumnStorage {
    * Get tickets for a specific column.
    */
   async getTicketsForColumn(columnId: string, projectId?: string): Promise<Ticket[]> {
-    const pid = projectId ?? this.ctx.getCurrentProjectId()
+    const pid = projectId ?? this.ctx.requireProjectId()
     const rows = this.ctx.db.prepare(`
       SELECT t.*, bt.column_id, bt.position, c.name as column_name
       FROM ${T.tickets} t

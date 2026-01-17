@@ -99,7 +99,7 @@ export abstract class PMOCommand extends Command {
    * @returns The selected project ID
    */
   protected async requireProject(options?: { filterEmptyProjects?: boolean }): Promise<string> {
-    // If project already selected, return it
+    // If project already selected (and not 'default' placeholder), return it
     if (this.pmoContext.projectId && this.pmoContext.projectId !== 'default') {
       return this.pmoContext.projectId;
     }
@@ -107,6 +107,7 @@ export abstract class PMOCommand extends Command {
     // If -P flag was provided, use it
     if (this.projectFlag) {
       this.storage.setCurrentProject(this.projectFlag);
+      this.pmoContext.projectId = this.projectFlag;
       return this.projectFlag;
     }
 
@@ -138,6 +139,7 @@ export abstract class PMOCommand extends Command {
     if (filteredProjects.length === 1) {
       const projectId = filteredProjects[0].id;
       this.storage.setCurrentProject(projectId);
+      this.pmoContext.projectId = projectId;
       return projectId;
     }
 
@@ -153,6 +155,7 @@ export abstract class PMOCommand extends Command {
     }]);
 
     this.storage.setCurrentProject(selectedProjectId);
+    this.pmoContext.projectId = selectedProjectId;
     return selectedProjectId;
   }
 
@@ -216,18 +219,34 @@ export abstract class PMOCommand extends Command {
     return this.pmoContext.pmoPath;
   }
 
-  /** Available columns (requires project) */
-  protected get columns() {
-    return this.pmoContext.columns;
+  /**
+   * Available columns for current project.
+   * Requires project to be selected first (via -P flag, requireProject(), or setCurrentProject()).
+   */
+  protected get columns(): string[] {
+    return this.storage.getColumnNames();
   }
 
-  /** Current project ID (may be 'default' if not selected) */
-  protected get projectId() {
+  /** Current project ID (undefined if not selected) */
+  protected get projectId(): string | undefined {
     return this.pmoContext.projectId;
   }
 
-  /** Current project name */
-  protected get projectName() {
+  /** Current project name (undefined if not selected) */
+  protected get projectName(): string | undefined {
     return this.pmoContext.projectName;
+  }
+
+  /**
+   * Get project ID, throwing if not set.
+   * Use this in commands that require project context.
+   * Prefer calling requireProject() first to allow user selection.
+   */
+  protected requireProjectId(): string {
+    const id = this.pmoContext.projectId;
+    if (!id) {
+      throw new Error('No project selected. Use -P flag or run requireProject() first.');
+    }
+    return id;
   }
 }

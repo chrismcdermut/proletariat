@@ -270,7 +270,7 @@ export function getStorageWithAutoSync(
   pmoPath: string,
   storageType: 'sqlite' | 'git',
   logger?: (msg: string) => void,
-  projectId: string = 'default'
+  projectId?: string
 ): SQLiteStorage {
   // Storage is always workspace.db (unified PMO tables with foreign keys to agents)
   const dbPath = getWorkspaceDbPath(pmoPath);

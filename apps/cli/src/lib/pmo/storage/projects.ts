@@ -55,9 +55,10 @@ export class ProjectStorage {
 
   /**
    * Get the current project board.
+   * Throws if no project is selected - call setCurrentProject() first.
    */
   async getBoard(): Promise<Board> {
-    const projectId = this.ctx.getCurrentProjectId()
+    const projectId = this.ctx.requireProjectId()
 
     // Get project metadata
     const projectRow = this.ctx.db.prepare(`SELECT * FROM ${T.projects} WHERE id = ?`).get(

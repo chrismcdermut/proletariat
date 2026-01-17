@@ -272,7 +272,7 @@ export class SpecStorage {
    * Get tickets for a spec.
    */
   async getTicketsForSpec(specId: string): Promise<Ticket[]> {
-    const projectId = this.ctx.getCurrentProjectId()
+    const projectId = this.ctx.requireProjectId()
     const rows = this.ctx.db.prepare(`
       SELECT t.*, bt.column_id, bt.position, c.name as column_name
       FROM ${T.tickets} t

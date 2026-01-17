@@ -19,7 +19,7 @@ export class EpicStorage {
   async createEpic(epic: Partial<Epic>): Promise<Epic> {
     const id = epic.id || generateEntityId(this.ctx.db, 'epic')
     const title = epic.title || 'Untitled Epic'
-    const projectId = this.ctx.getCurrentProjectId()
+    const projectId = this.ctx.requireProjectId()
     const status = epic.status || 'active'
     const now = Date.now()
 
@@ -81,7 +81,7 @@ export class EpicStorage {
    * List epics with optional filters.
    */
   async listEpics(filter?: EpicFilter): Promise<Epic[]> {
-    const projectId = this.ctx.getCurrentProjectId()
+    const projectId = this.ctx.requireProjectId()
     let query = `SELECT * FROM ${T.epics} WHERE project_id = ?`
     const params: unknown[] = [projectId]
 
@@ -115,7 +115,7 @@ export class EpicStorage {
       return epic
     }
 
-    const projectId = this.ctx.getCurrentProjectId()
+    const projectId = this.ctx.requireProjectId()
 
     if (newPosition < oldPosition) {
       this.ctx.db.prepare(`
@@ -211,7 +211,7 @@ export class EpicStorage {
    * Get tickets for an epic.
    */
   async getTicketsForEpic(epicId: string): Promise<Ticket[]> {
-    const projectId = this.ctx.getCurrentProjectId()
+    const projectId = this.ctx.requireProjectId()
     const rows = this.ctx.db.prepare(`
       SELECT t.*, bt.column_id, bt.position, c.name as column_name
       FROM ${T.tickets} t

@@ -92,6 +92,8 @@ export default class TicketTemplateApply extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketTemplateApply);
+    // This command requires project context
+    await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -206,7 +208,7 @@ export default class TicketTemplateApply extends PMOCommand {
     if (statusId) {
       const status = await this.storage.getStatus(statusId);
       if (!status) {
-        const statuses = await this.storage.listStatuses(this.projectId);
+        const statuses = await this.storage.listStatuses(this.requireProjectId());
         const statusNames = statuses.map(s => `${s.id} (${s.name})`).join(', ');
         this.error(`Invalid status "${statusId}". Available statuses: ${statusNames}`);
       }
