@@ -16,6 +16,7 @@ import {
   createMetadata,
   buildPromptConfig,
 } from '../../lib/prompt-json.js'
+import { CLICommandBuilder, formatCLICommandInline } from '../../lib/cli-command-builder.js'
 
 export default class WorkSpawn extends PMOCommand {
   static description = 'Spawn work for multiple tickets by column (batch mode)'
@@ -142,6 +143,9 @@ export default class WorkSpawn extends PMOCommand {
     // Parse ticket IDs from args (everything after flags)
     const ticketIdArgs = argv as string[]
 
+    // Initialize CLI command builder to track selections for equivalent command display
+    const cliBuilder = new CLICommandBuilder('prlt work spawn')
+
     // Note: Docker check is handled by work:start command when spawning each ticket
     // This allows for the interactive devcontainer/host selection with retry loop
 
@@ -255,6 +259,9 @@ export default class WorkSpawn extends PMOCommand {
           }
         }
 
+        // Track ticket IDs in CLI builder
+        cliBuilder.addArgs(ticketsToSpawn.map(t => t.id))
+
         if (ticketsToSpawn.length === 0) {
           db.close()
           return handleError('NO_VALID_TICKETS', 'No valid tickets found from provided IDs.')
@@ -335,6 +342,10 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         ticketsToSpawn = unassignedTickets.filter(t => t.statusName === matchedColumn)
+
+        // Track --all and --column flags in CLI builder
+        cliBuilder.addBooleanFlag('all')
+        cliBuilder.addFlag('column', matchedColumn)
 
         if (ticketsToSpawn.length === 0) {
           db.close()
@@ -452,6 +463,9 @@ export default class WorkSpawn extends PMOCommand {
         ])
 
         ticketsToSpawn = unassignedTickets.filter(t => selectedTicketIds.includes(t.id))
+
+        // Track ticket IDs in CLI builder (use positional args for specific tickets)
+        cliBuilder.addArgs(ticketsToSpawn.map(t => t.id))
 
         this.log('')
         this.log(styles.header(`🚀 Spawn Many: ${ticketsToSpawn.length} tickets`))
@@ -845,6 +859,42 @@ export default class WorkSpawn extends PMOCommand {
         if (batchAction) {
           selectedActionDetails = await this.storage.getAction(batchAction)
         }
+      }
+
+      // Track all batch settings in CLI builder for equivalent command display
+      if (!flags['per-ticket']) {
+        // Action
+        cliBuilder.addFlagIf('action', batchAction)
+
+        // Mode (runtime mode)
+        cliBuilder.addFlagIf('mode', batchMode)
+
+        // Output mode
+        cliBuilder.addFlagIf('output', batchOutput)
+
+        // Permission mode
+        if (batchSkipPermissions) {
+          cliBuilder.addBooleanFlag('skip-permissions')
+        }
+
+        // PR creation
+        if (batchCreatePr) {
+          cliBuilder.addBooleanFlag('create-pr')
+        } else if (batchNoPr) {
+          cliBuilder.addBooleanFlag('no-pr')
+        }
+
+        // Other flags from user input
+        cliBuilder.addBooleanFlagIf('yes', true)  // Since we confirmed, add --yes for non-interactive
+        cliBuilder.addFlagIf('strategy', flags.strategy !== 'round-robin' ? flags.strategy : undefined)
+        cliBuilder.addFlagIf('limit', flags.limit)
+        cliBuilder.addBooleanFlagIf('run-on-host', batchRunOnHost)
+        cliBuilder.addFlagIf('session', flags.session !== 'tmux' ? flags.session : undefined)
+        cliBuilder.addFlagIf('executor', flags.executor)
+
+        // Display the equivalent CLI command
+        this.log(styles.muted(formatCLICommandInline(cliBuilder.toString())))
+        this.log('')
       }
 
       // Spawn each ticket

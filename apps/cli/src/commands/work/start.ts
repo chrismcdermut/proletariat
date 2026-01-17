@@ -34,6 +34,7 @@ import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.
 import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js'
+import { CLICommandBuilder, formatCLICommandInline } from '../../lib/cli-command-builder.js'
 
 /**
  * Try to execute a git command, return true if successful
@@ -817,6 +818,28 @@ export default class WorkStart extends PMOCommand {
       }
       this.log(styles.muted(`   Worktree: ${worktreePath}`))
       this.log(styles.muted(`   Branch: ${branch}`))
+      this.log('')
+
+      // Build and display equivalent CLI command
+      const cliBuilder = new CLICommandBuilder('prlt work start')
+      cliBuilder.addArg(ticket.id)
+      cliBuilder.addFlagIf('action', context.actionId)
+      cliBuilder.addFlagIf('mode', mode)
+      if (mode === 'devcontainer' && displayMode !== 'terminal') {
+        cliBuilder.addFlag('display', displayMode)
+      }
+      cliBuilder.addFlagIf('output', outputMode !== 'interactive' ? outputMode : undefined)
+      if (!sandboxed) {
+        cliBuilder.addBooleanFlag('skip-permissions')
+      }
+      if (createPR) {
+        cliBuilder.addBooleanFlag('create-pr')
+      } else if (ghAvailable) {
+        cliBuilder.addBooleanFlag('no-pr')
+      }
+      cliBuilder.addFlagIf('executor', executor !== 'claude-code' ? executor : undefined)
+      cliBuilder.addFlagIf('agent', flags.agent)
+      this.log(styles.muted(formatCLICommandInline(cliBuilder.toString())))
       this.log('')
 
       // Add createPR to context
