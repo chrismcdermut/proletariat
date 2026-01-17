@@ -724,19 +724,18 @@ export default class WorkSpawn extends PMOCommand {
               batchMode = 'devcontainer'
               environmentSelected = true
 
-              // For devcontainer, also prompt for display mode
+              // For devcontainer, display options are limited (tmux or background)
+              // Terminal/foreground don't apply since container handles isolation
               const { selectedDisplay } = await inquirer.prompt([
                 {
                   type: 'list',
                   name: 'selectedDisplay',
                   message: 'How should agent output be displayed?',
                   choices: [
-                    { name: '🖥️  terminal     - New terminal tab (recommended)', value: 'terminal' },
-                    { name: '📺 foreground  - Current terminal (one at a time)', value: 'foreground' },
-                    { name: '🔲 tmux        - Tmux pane/window', value: 'tmux' },
+                    { name: '🔲 tmux        - Tmux pane/window (recommended)', value: 'tmux' },
                     { name: '📦 background  - Detached (logs to file)', value: 'background' },
                   ],
-                  default: 'terminal',
+                  default: 'tmux',
                 },
               ])
               batchDisplayMode = selectedDisplay
