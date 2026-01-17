@@ -34,22 +34,23 @@ export default class Work extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(Work);
-    // This command requires project context
-    await this.requireProject();
+    // This command requires project context - get it once and reuse
+    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices once, use for both JSON and interactive modes
+    // Execution actions first (most common), then ownership
     const menuChoices = [
-      { name: 'Claim work (own + assign)', value: 'claim' },
-      { name: 'Assign work to agent/person', value: 'assign' },
-      { name: 'Take ownership (accountable)', value: 'own' },
       { name: 'Start work (launch single agent)', value: 'start' },
       { name: 'Spawn work (batch by column)', value: 'spawn' },
       { name: 'Watch column (auto-spawn)', value: 'watch' },
       { name: 'Mark work ready for review', value: 'ready' },
       { name: 'Mark work complete', value: 'complete' },
+      { name: 'Claim work (own + assign)', value: 'claim' },
+      { name: 'Assign work to agent/person', value: 'assign' },
+      { name: 'Take ownership (accountable)', value: 'own' },
       { name: 'Cancel', value: 'cancel' },
     ];
     const message = 'Work Operations - What would you like to do?';
@@ -69,18 +70,18 @@ export default class Work extends PMOCommand {
       name: 'action',
       message: '🔨 ' + message,
       choices: [
-        new inquirer.Separator('── Ownership ──'),
-        menuChoices[0],
-        menuChoices[1],
-        menuChoices[2],
         new inquirer.Separator('── Execution ──'),
-        menuChoices[3],
-        menuChoices[4],
-        menuChoices[5],
-        menuChoices[6],
-        menuChoices[7],
+        menuChoices[0],  // start
+        menuChoices[1],  // spawn
+        menuChoices[2],  // watch
+        menuChoices[3],  // ready
+        menuChoices[4],  // complete
+        new inquirer.Separator('── Ownership ──'),
+        menuChoices[5],  // claim
+        menuChoices[6],  // assign
+        menuChoices[7],  // own
         new inquirer.Separator('──────────────'),
-        menuChoices[8],
+        menuChoices[8],  // cancel
       ],
     }]);
 
@@ -90,7 +91,6 @@ export default class Work extends PMOCommand {
 
     // Run the selected subcommand
     // Pass --project to avoid re-prompting for project selection
-    const projectId = await this.requireProject();
     const projectArgs = ['--project', projectId];
     switch (action) {
       case 'claim':
