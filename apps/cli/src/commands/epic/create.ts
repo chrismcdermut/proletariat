@@ -53,6 +53,7 @@ export default class EpicCreate extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(EpicCreate);
+    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -122,7 +123,7 @@ export default class EpicCreate extends PMOCommand {
       }
     }
 
-    const epic = await this.storage.createEpic({
+    const epic = await this.storage.createEpic(projectId, {
       title: epicData.title,
       status: epicData.status,
       description: epicData.description,
@@ -130,14 +131,15 @@ export default class EpicCreate extends PMOCommand {
     });
 
     // Create markdown file for the epic
-    const filePath = createEpicFile(this.pmoPath, epic, this.projectId);
-    const relativePath = getRelativeEpicPath(this.pmoPath, epic.id, epic.status, this.projectId);
+    const filePath = createEpicFile(this.pmoPath, epic, projectId);
+    const relativePath = getRelativeEpicPath(this.pmoPath, epic.id, epic.status, projectId);
 
     // Update epic with file path
     await this.storage.updateEpic(epic.id, { filePath });
 
+    const projectName = await this.getProjectName(projectId);
     this.log(styles.success(`\n✅ Created epic ${styles.emphasis(epic.id)} "${epic.title}"`));
-    this.log(styles.muted(`   Project: ${this.projectName}`));
+    this.log(styles.muted(`   Project: ${projectName}`));
     this.log(styles.muted(`   Status: ${epic.status}`));
     if (epic.specId) {
       this.log(styles.muted(`   Spec: ${epic.specId}`));

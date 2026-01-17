@@ -4,7 +4,7 @@
 
 import { PMO_TABLES } from '../schema.js'
 import { PMOError, Project, Spec, SpecFilter, Ticket } from '../types.js'
-import { slugify } from '../utils.js'
+import { generateEntityId } from '../utils.js'
 import { StorageContext, SpecRow, TicketRow } from './types.js'
 import { rowToSpec, rowToTicket } from './helpers.js'
 
@@ -17,7 +17,7 @@ export class SpecStorage {
    * Create a new spec.
    */
   async createSpec(spec: Partial<Spec>): Promise<Spec> {
-    const id = spec.id || slugify(spec.title || 'untitled')
+    const id = spec.id || generateEntityId(this.ctx.db, 'spec')
     const now = Date.now()
 
     this.ctx.db.prepare(`
@@ -232,10 +232,10 @@ export class SpecStorage {
    * Link a ticket to a spec.
    */
   async linkTicketToSpec(ticketId: string, specId: string): Promise<void> {
-    // Verify ticket exists
+    // Verify ticket exists and get its project
     const ticket = this.ctx.db.prepare(`
-      SELECT id FROM ${T.tickets} WHERE id = ?
-    `).get(ticketId)
+      SELECT id, project_id FROM ${T.tickets} WHERE id = ?
+    `).get(ticketId) as { id: string; project_id: string } | undefined
     if (!ticket) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${ticketId}`, ticketId)
     }
@@ -252,27 +252,33 @@ export class SpecStorage {
       WHERE id = ?
     `).run(specId, Date.now(), ticketId)
 
-    this.ctx.updateBoardTimestamp()
+    this.ctx.updateBoardTimestamp(ticket.project_id)
   }
 
   /**
    * Unlink a ticket from a spec.
    */
   async unlinkTicketFromSpec(ticketId: string, specId: string): Promise<void> {
+    // Get ticket's project for board timestamp update
+    const ticket = this.ctx.db.prepare(`
+      SELECT project_id FROM ${T.tickets} WHERE id = ?
+    `).get(ticketId) as { project_id: string } | undefined
+
     this.ctx.db.prepare(`
       UPDATE ${T.tickets}
       SET spec_id = NULL, updated_at = ?
       WHERE id = ? AND spec_id = ?
     `).run(Date.now(), ticketId, specId)
 
-    this.ctx.updateBoardTimestamp()
+    if (ticket) {
+      this.ctx.updateBoardTimestamp(ticket.project_id)
+    }
   }
 
   /**
    * Get tickets for a spec.
    */
-  async getTicketsForSpec(specId: string): Promise<Ticket[]> {
-    const projectId = this.ctx.getCurrentProjectId()
+  async getTicketsForSpec(projectId: string, specId: string): Promise<Ticket[]> {
     const rows = this.ctx.db.prepare(`
       SELECT t.*, bt.column_id, bt.position, c.name as column_name
       FROM ${T.tickets} t

@@ -174,6 +174,7 @@ export default class WorkStart extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkStart)
+    const projectId = (flags as { project?: string }).project
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
@@ -211,8 +212,8 @@ export default class WorkStart extends PMOCommand {
       let ticketId = args.ticketId
 
       if (!ticketId) {
-        // Get all tickets
-        const allTickets = await this.storage.listTickets()
+        // Get all tickets, optionally filtered by project if -P/--project flag is provided
+        const allTickets = await this.storage.listTickets(projectId)
 
         if (allTickets.length === 0) {
           db.close()
@@ -1093,7 +1094,8 @@ export default class WorkStart extends PMOCommand {
         // Move ticket to target column based on action's defaultMoveToCategory
         // If action has a target category, find the matching column; otherwise use "started" default
         const targetCategory = selectedAction?.defaultMoveToCategory || 'started'
-        const board = await this.storage.getBoard()
+
+        const board = await this.storage.getBoard(ticket.projectId!)
         const columnNames = board.columns.map(col => col.name)
 
         // Map category to column type for lookup
@@ -1109,7 +1111,7 @@ export default class WorkStart extends PMOCommand {
 
         if (targetColumnName && ticket.statusName !== targetColumnName) {
           try {
-            await this.storage.moveTicket(ticket.id, targetColumnName)
+            await this.storage.moveTicket(ticket.projectId!, ticket.id, targetColumnName)
             this.log(styles.muted(`   Moved to: ${targetColumnName}`))
           } catch (moveError) {
             // Non-fatal - work can proceed even if column move fails
@@ -1151,7 +1153,8 @@ export default class WorkStart extends PMOCommand {
     flags: { mode?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean }
   ): Promise<void> {
     // Get all tickets and filter to unassigned backlog/unstarted (not in progress)
-    const allTickets = await this.storage.listTickets()
+    // Note: In batch mode, we use undefined to get all tickets across all projects
+    const allTickets = await this.storage.listTickets(undefined)
     const backlogTickets = allTickets.filter(t =>
       !t.assignee && (t.statusCategory === 'backlog' || t.statusCategory === 'unstarted' || !t.statusCategory)
     )
@@ -1221,10 +1224,10 @@ export default class WorkStart extends PMOCommand {
         this.log(styles.muted(`Starting ${ticket.id} with ${agent.name}...`))
 
         // Use the work:start command for each ticket
-        // Pass --project to avoid re-prompting for project selection
+        // Pass --project from ticket to avoid re-prompting for project selection
         await this.config.runCommand('work:start', [
           ticket.id,
-          '--project', this.projectId,
+          ...(ticket.projectId ? ['--project', ticket.projectId] : []),
           '--mode', flags.mode || 'background',
           ...(flags.executor ? ['--executor', flags.executor] : []),
           ...(flags['run-on-host'] ? ['--run-on-host'] : []),
@@ -1253,7 +1256,7 @@ export default class WorkStart extends PMOCommand {
    * Spawn work on a single ticket with non-interactive defaults.
    */
   private async spawnSingleTicket(
-    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; subtasks?: Array<{ title: string; done: boolean }> },
+    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; projectId?: string; subtasks?: Array<{ title: string; done: boolean }> },
     agent: { name: string },
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
     executionStorage: ExecutionStorage,
@@ -1439,12 +1442,13 @@ export default class WorkStart extends PMOCommand {
 
       // Move ticket to In Progress column ONLY after successful spawn
       const targetColumnName = getWorkColumnSetting(db, 'in_progress')
-      const board = await this.storage.getBoard()
+
+      const board = await this.storage.getBoard(ticket.projectId!)
       const columnNames = board.columns.map(col => col.name)
       const inProgressColumn = findColumnByName(columnNames, targetColumnName)
 
       if (inProgressColumn && ticket.status !== inProgressColumn) {
-        await this.storage.moveTicket(ticket.id, inProgressColumn)
+        await this.storage.moveTicket(ticket.projectId!, ticket.id, inProgressColumn)
       }
 
       await autoExportToBoard(this.pmoPath, this.storage, () => {})

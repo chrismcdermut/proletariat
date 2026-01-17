@@ -39,6 +39,7 @@ export default class TicketView extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketView);
+    const projectId = (flags as { project?: string }).project;
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -57,7 +58,7 @@ export default class TicketView extends PMOCommand {
 
     if (!ticketId) {
       // Get all tickets for selection
-      const allTickets = await this.storage.listTickets();
+      const allTickets = await this.storage.listTickets(projectId);
 
       if (allTickets.length === 0) {
         return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".');
@@ -94,7 +95,7 @@ export default class TicketView extends PMOCommand {
       this.error(`Ticket "${ticketId}" not found.`);
     }
 
-    const board = await this.storage.getBoard();
+    const board = await this.storage.getBoard(ticket.projectId!);
 
     // Display ticket details
     this.log(`\n${styles.header('📄 Ticket')} ${styles.emphasis(ticket.id)}\n`);

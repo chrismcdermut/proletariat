@@ -53,18 +53,19 @@ export default class EpicProgress extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(EpicProgress);
+    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
     if (flags.all) {
-      await this.showAllProgress();
+      await this.showAllProgress(projectId);
     } else {
       let epicId = args.id;
 
       // If no ID provided, prompt for selection
       if (!epicId) {
-        const epics = await this.storage.listEpics();
+        const epics = await this.storage.listEpics(projectId);
         if (epics.length === 0) {
           if (jsonMode) {
             outputErrorAsJson('NO_EPICS', 'No epics found.', createMetadata('epic progress', flags));
@@ -96,20 +97,20 @@ export default class EpicProgress extends PMOCommand {
         epicId = selected;
       }
 
-      await this.showSingleProgress(epicId!);
+      await this.showSingleProgress(projectId, epicId!);
     }
   }
 
-  private async showSingleProgress(epicId: string): Promise<void> {
+  private async showSingleProgress(projectId: string, epicId: string): Promise<void> {
     const epic = await this.storage.getEpic(epicId);
     if (!epic) {
       this.error(`Epic not found: ${epicId}`);
     }
 
-    const tickets = await this.storage.getTicketsForEpic(epicId);
+    const tickets = await this.storage.getTicketsForEpic(projectId, epicId);
     const doneTickets = tickets.filter((t: Ticket) => t.status === 'done').length;
     const percent = tickets.length > 0 ? Math.round((doneTickets / tickets.length) * 100) : 0;
-    const relativePath = getRelativeEpicPath(this.pmoPath, epic.id, epic.status, this.projectId);
+    const relativePath = getRelativeEpicPath(this.pmoPath, epic.id, epic.status, projectId);
 
     this.log(`\n🎯 Epic Progress: ${styles.emphasis(epic.id)} - ${epic.title}`);
     this.log('═'.repeat(55));
@@ -154,8 +155,8 @@ export default class EpicProgress extends PMOCommand {
     }
   }
 
-  private async showAllProgress(): Promise<void> {
-    const epics = await this.storage.listEpics();
+  private async showAllProgress(projectId: string): Promise<void> {
+    const epics = await this.storage.listEpics(projectId);
 
     if (epics.length === 0) {
       this.log(styles.muted('\nNo epics found.'));
@@ -189,7 +190,7 @@ export default class EpicProgress extends PMOCommand {
       this.log(`\n${statusEmoji[status]} ${status.toUpperCase()} (${statusEpics.length})`);
 
       for (const epic of statusEpics) {
-        const tickets = await this.storage.getTicketsForEpic(epic.id);
+        const tickets = await this.storage.getTicketsForEpic(projectId, epic.id);
         const doneTickets = tickets.filter((t: Ticket) => t.status === 'done').length;
         const percent = tickets.length > 0 ? Math.round((doneTickets / tickets.length) * 100) : 0;
         const bar = progressBar(percent);

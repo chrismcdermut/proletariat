@@ -51,6 +51,7 @@ export default class WorkClaim extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkClaim)
+    const projectId = (flags as { project?: string }).project
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
@@ -81,7 +82,7 @@ export default class WorkClaim extends PMOCommand {
     let ticketId = args.ticketId
 
     if (!ticketId) {
-      const allTickets = await this.storage.listTickets()
+      const allTickets = await this.storage.listTickets(projectId)
       // Filter to unassigned or backlog/unstarted tickets
       const availableTickets = allTickets.filter(
         (t) => !t.assignee || t.statusCategory === 'backlog' || t.statusCategory === 'unstarted'
@@ -178,12 +179,13 @@ export default class WorkClaim extends PMOCommand {
     if (!executeAgent) {
       const db = this.storage.getDatabase()
       const targetColumnName = getWorkColumnSetting(db, 'in_progress')
-      const board = await this.storage.getBoard()
+
+      const board = await this.storage.getBoard(ticket.projectId!)
       const columnNames = board.columns.map(col => col.name)
       const inProgressColumn = findColumnByName(columnNames, targetColumnName)
 
       if (inProgressColumn && ticket.statusName !== inProgressColumn) {
-        await this.storage.moveTicket(ticketId!, inProgressColumn)
+        await this.storage.moveTicket(ticket.projectId!, ticketId!, inProgressColumn)
       } else if (!inProgressColumn) {
         this.warn(`Could not find In Progress column "${targetColumnName}", ticket column unchanged`)
       }

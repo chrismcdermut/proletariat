@@ -2,7 +2,6 @@
  * Ticket operations for PMO.
  */
 
-import Database from 'better-sqlite3'
 import { PMO_TABLES } from '../schema.js'
 import { CreateTicketInput, PMOError, Ticket, TicketFilter } from '../types.js'
 import { slugify, generateEntityId } from '../utils.js'
@@ -18,10 +17,9 @@ export class TicketStorage {
   /**
    * Create a new ticket.
    */
-  async createTicket(ticket: CreateTicketInput): Promise<Ticket> {
+  async createTicket(projectId: string, ticket: CreateTicketInput): Promise<Ticket> {
     const id = ticket.id || generateEntityId(this.ctx.db, 'ticket')
     const title = ticket.title || 'Untitled'
-    const projectId = this.ctx.getCurrentProjectId()
 
     // Get first column as default
     const firstColumn = this.ctx.db.prepare(`
@@ -132,7 +130,7 @@ export class TicketStorage {
       }
     }
 
-    this.ctx.updateBoardTimestamp()
+    this.ctx.updateBoardTimestamp(projectId)
 
     return (await this.getTicketById(id)) as Ticket
   }
@@ -280,8 +278,7 @@ export class TicketStorage {
   /**
    * Move a ticket to a different column/position.
    */
-  async moveTicket(id: string, column: string, position?: number): Promise<Ticket> {
-    const projectId = this.ctx.getCurrentProjectId()
+  async moveTicket(projectId: string, id: string, column: string, position?: number): Promise<Ticket> {
     const existing = await this.getTicketById(id)
     if (!existing) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
@@ -367,7 +364,7 @@ export class TicketStorage {
       `).run(Date.now(), id)
     }
 
-    this.ctx.updateBoardTimestamp()
+    this.ctx.updateBoardTimestamp(projectId)
 
     return (await this.getTicketById(id)) as Ticket
   }
@@ -419,8 +416,10 @@ export class TicketStorage {
 
   /**
    * List tickets with optional filters.
+   * @param projectId - The project to filter by. Pass undefined to list all tickets across all projects.
+   * @param filter - Additional filters to apply.
    */
-  async listTickets(filter?: TicketFilter): Promise<Ticket[]> {
+  async listTickets(projectId: string | undefined, filter?: TicketFilter): Promise<Ticket[]> {
     const params: unknown[] = []
 
     // Build the base query - determine project scope
@@ -435,17 +434,11 @@ export class TicketStorage {
     `
 
     // Apply project scoping
-    if (filter?.allProjects) {
-      // No project filter - list all tickets across all projects
-    } else if (filter?.projectId) {
-      // Filter to a specific project
+    if (projectId !== undefined) {
       query += ' AND t.project_id = ?'
-      params.push(filter.projectId)
-    } else {
-      // Default: filter to current project
-      query += ' AND t.project_id = ?'
-      params.push(this.ctx.getCurrentProjectId())
+      params.push(projectId)
     }
+    // If projectId is undefined, list all tickets across all projects
 
     if (filter?.statusId) {
       query += ' AND t.status_id = ?'
@@ -489,7 +482,7 @@ export class TicketStorage {
     }
 
     // Order by project first when listing all projects, then by column and position
-    if (filter?.allProjects) {
+    if (projectId === undefined) {
       query += ' ORDER BY p.name, c.position, bt.position'
     } else {
       query += ' ORDER BY c.position, bt.position'

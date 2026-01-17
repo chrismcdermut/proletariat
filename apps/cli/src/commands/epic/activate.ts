@@ -41,6 +41,7 @@ export default class EpicActivate extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(EpicActivate);
+    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -58,7 +59,7 @@ export default class EpicActivate extends PMOCommand {
 
     // If no ID provided, prompt for selection (show only non-active epics)
     if (!epicId) {
-      const epics = await this.storage.listEpics();
+      const epics = await this.storage.listEpics(projectId);
       const activatable = epics.filter(e => e.status !== 'active');
 
       if (activatable.length === 0) {
@@ -104,7 +105,7 @@ export default class EpicActivate extends PMOCommand {
 
     // Warn if reactivating a complete epic
     if (epic.status === 'complete') {
-      const tickets = await this.storage.getTicketsForEpic(epicId!);
+      const tickets = await this.storage.getTicketsForEpic(projectId, epicId!);
       const doneTickets = tickets.filter((t: Ticket) => t.status === 'done').length;
 
       // In JSON mode, output confirmation prompt
@@ -144,14 +145,14 @@ export default class EpicActivate extends PMOCommand {
     const previousStatus = epic.status;
 
     // Move the epic file to active status directory
-    const moveResult = moveEpicFile(this.pmoPath, epicId!, previousStatus, 'active', this.projectId);
+    const moveResult = moveEpicFile(this.pmoPath, epicId!, previousStatus, 'active', projectId);
 
     await this.storage.updateEpic(epicId!, { status: 'active' });
 
     this.log(styles.success(`\n✅ Activated epic ${styles.emphasis(epicId)} "${epic.title}"`));
     this.log(styles.muted(`   Status: ${previousStatus} → active`));
     if (moveResult) {
-      const relativePath = getRelativeEpicPath(this.pmoPath, epicId!, 'active', this.projectId);
+      const relativePath = getRelativeEpicPath(this.pmoPath, epicId!, 'active', projectId);
       this.log(styles.muted(`   File: ${relativePath}`));
     }
     this.log(styles.muted('\nNext steps:'));

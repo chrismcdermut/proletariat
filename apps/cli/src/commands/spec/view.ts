@@ -48,6 +48,8 @@ export default class SpecView extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SpecView);
+    // This command requires project context for listing linked tickets
+    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -101,7 +103,7 @@ export default class SpecView extends PMOCommand {
     }
 
     // Get linked tickets
-    const tickets = await this.storage.getTicketsForSpec(spec.id);
+    const tickets = await this.storage.getTicketsForSpec(projectId, spec.id);
 
     // Get dependencies
     const dependencies = await this.storage.getSpecDependencies(spec.id);

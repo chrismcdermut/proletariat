@@ -27,8 +27,10 @@ export default class StatusList extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(StatusList);
+    // This command requires project context
+    const projectId = await this.requireProject();
 
-    const statuses = await this.storage.listStatuses(this.projectId);
+    const statuses = await this.storage.listStatuses(projectId);
 
     if (flags.json) {
       this.log(JSON.stringify(statuses, null, 2));
@@ -44,7 +46,8 @@ export default class StatusList extends PMOCommand {
     // Group by category
     const grouped = this.groupByCategory(statuses);
 
-    this.log(`\n📊 ${styles.emphasis('Workflow Statuses')} - ${this.projectName}`);
+    const projectName = await this.getProjectName(projectId);
+    this.log(`\n📊 ${styles.emphasis('Workflow Statuses')} - ${projectName}`);
     this.log('═'.repeat(60));
 
     const categoryEmoji: Record<StateCategory, string> = {

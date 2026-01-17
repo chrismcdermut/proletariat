@@ -53,9 +53,11 @@ export default class EpicLinkBlock extends PMOCommand {
     const epic = await this.storage.getEpic(args.id)
     if (!epic) return handleError('EPIC_NOT_FOUND', `Epic not found: ${args.id}`)
 
+    const projectId = epic.projectId
+
     let blockerId = args.blocker
     if (!blockerId) {
-      const allEpics = await this.storage.listEpics()
+      const allEpics = await this.storage.listEpics(projectId)
       const otherEpics = allEpics.filter(e => e.id !== args.id)
       if (otherEpics.length === 0) {
         if (jsonMode) {

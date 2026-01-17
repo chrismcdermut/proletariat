@@ -89,11 +89,13 @@ export default class ActionRun extends PMOCommand {
     }
 
     // Get tickets to operate on
+    // Use -P flag to filter by project, or undefined to show all projects
+    const projectId = (flags as { project?: string }).project;
     let tickets: Ticket[] = [];
 
     if (flags.all || flags.category) {
       // Get tickets by filter
-      const allTickets = await this.storage.listTickets();
+      const allTickets = await this.storage.listTickets(projectId);
 
       if (flags.category) {
         tickets = allTickets.filter(t => t.statusCategory === flags.category);
@@ -113,7 +115,7 @@ export default class ActionRun extends PMOCommand {
       }
     } else {
       // Interactive: show list of tickets to select
-      const allTickets = await this.storage.listTickets();
+      const allTickets = await this.storage.listTickets(projectId);
 
       if (allTickets.length === 0) {
         return handleError('NO_TICKETS', 'No tickets found.');

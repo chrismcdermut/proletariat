@@ -126,6 +126,8 @@ export default class WorkSpawn extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags, argv } = await this.parse(WorkSpawn)
+    // This command requires project context
+    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
@@ -160,7 +162,7 @@ export default class WorkSpawn extends PMOCommand {
 
     try {
       // Get board to list available columns
-      const board = await this.storage.getBoard()
+      const board = await this.storage.getBoard(projectId)
       const columnNames = board.columns.map(col => col.name)
 
       if (columnNames.length === 0) {
@@ -169,7 +171,7 @@ export default class WorkSpawn extends PMOCommand {
       }
 
       // Get all tickets
-      const allTickets = await this.storage.listTickets()
+      const allTickets = await this.storage.listTickets(projectId)
       const unassignedTickets = allTickets.filter(t => !t.assignee)
 
       if (unassignedTickets.length === 0) {
@@ -860,7 +862,7 @@ export default class WorkSpawn extends PMOCommand {
           // Build args for work:start
           // IMPORTANT: Pass --project to avoid re-prompting for project selection
           // Pass --agent to skip agent selection prompt (we already have the assignment)
-          const startArgs: string[] = [ticket.id, '--project', this.projectId, '--agent', agent.name]
+          const startArgs: string[] = [ticket.id, '--project', projectId, '--agent', agent.name]
 
           if (flags['per-ticket']) {
             // Per-ticket mode: only pass mode flag, let start prompt for the rest

@@ -10,7 +10,7 @@ import { styles } from '../styles.js';
 export const pmoBaseFlags = {
   project: Flags.string({
     char: 'P',
-    description: 'Project ID (default: auto-detected)',
+    description: 'Project ID (uses first project if only one exists)',
   }),
 };
 
@@ -18,9 +18,11 @@ export const pmoBaseFlags = {
  * Base command class for PMO commands
  *
  * Provides automatic PMO context initialization and cleanup:
- * - Initializes storage before run() executes (no project selection required)
+ * - Initializes storage before run() executes
  * - Ensures storage.close() is called even if errors occur
  * - Provides common PMO flags (--project)
+ *
+ * Storage is project-agnostic - projectId is passed explicitly to operations.
  *
  * Usage:
  * ```typescript
@@ -33,11 +35,16 @@ export const pmoBaseFlags = {
  *   };
  *
  *   async execute(): Promise<void> {
- *     // Storage is always available
- *     const ticket = await this.storage.getTicket('TKT-123');
+ *     // For project-agnostic operations (e.g., get ticket by ID):
+ *     const ticket = await this.storage.getTicketById('TKT-123');
  *
- *     // If you need project context, request it explicitly:
+ *     // For project-scoped operations, get projectId first:
  *     const projectId = await this.requireProject();
+ *     const board = await this.storage.getBoard(projectId);
+ *
+ *     // Or derive from an entity:
+ *     const projectId = ticket.projectId;
+ *     await this.storage.moveTicket(projectId, ticket.id, 'Done');
  *   }
  * }
  * ```
@@ -69,7 +76,7 @@ export abstract class PMOCommand extends Command {
 
   /**
    * oclif init hook - runs before the command executes
-   * Initializes PMO context with storage access (no project selection)
+   * Initializes PMO context with storage access
    */
   async init(): Promise<void> {
     await super.init();
@@ -80,7 +87,6 @@ export abstract class PMOCommand extends Command {
 
     try {
       this.pmoContext = await getPMOContext({
-        projectId: this.projectFlag,
         logger: (msg) => this.pmoLogger(msg),
       });
       this.contextInitialized = true;
@@ -91,22 +97,19 @@ export abstract class PMOCommand extends Command {
 
   /**
    * Require a project to be selected.
-   * If a project was provided via -P flag, uses that.
-   * If only one project exists, uses that.
-   * If multiple projects exist, prompts user to select one.
+   * Returns projectId that should be passed to storage operations.
+   *
+   * Priority:
+   * 1. If -P flag was provided, uses that
+   * 2. If only one project exists, uses that
+   * 3. If multiple projects exist, prompts user to select one
    *
    * @param options.filterEmptyProjects - Only show projects with tickets
-   * @returns The selected project ID
+   * @returns The selected project ID - pass this to storage operations
    */
   protected async requireProject(options?: { filterEmptyProjects?: boolean }): Promise<string> {
-    // If project already selected, return it
-    if (this.pmoContext.projectId && this.pmoContext.projectId !== 'default') {
-      return this.pmoContext.projectId;
-    }
-
     // If -P flag was provided, use it
     if (this.projectFlag) {
-      this.storage.setCurrentProject(this.projectFlag);
       return this.projectFlag;
     }
 
@@ -122,7 +125,7 @@ export abstract class PMOCommand extends Command {
     if (options?.filterEmptyProjects) {
       const projectsWithTickets: typeof projects = [];
       for (const p of projects) {
-        const tickets = await this.storage.listTickets({ projectId: p.id });
+        const tickets = await this.storage.listTickets(p.id);
         if (tickets.length > 0) {
           projectsWithTickets.push(p);
         }
@@ -136,9 +139,7 @@ export abstract class PMOCommand extends Command {
 
     // If only one project, use it
     if (filteredProjects.length === 1) {
-      const projectId = filteredProjects[0].id;
-      this.storage.setCurrentProject(projectId);
-      return projectId;
+      return filteredProjects[0].id;
     }
 
     // Multiple projects - prompt for selection
@@ -152,8 +153,15 @@ export abstract class PMOCommand extends Command {
       })),
     }]);
 
-    this.storage.setCurrentProject(selectedProjectId);
     return selectedProjectId;
+  }
+
+  /**
+   * Get project name by ID
+   */
+  protected async getProjectName(projectId: string): Promise<string> {
+    const project = await this.storage.getProject(projectId);
+    return project?.name || projectId;
   }
 
   /**
@@ -214,20 +222,5 @@ export abstract class PMOCommand extends Command {
   /** PMO directory path */
   protected get pmoPath() {
     return this.pmoContext.pmoPath;
-  }
-
-  /** Available columns (requires project) */
-  protected get columns() {
-    return this.pmoContext.columns;
-  }
-
-  /** Current project ID (may be 'default' if not selected) */
-  protected get projectId() {
-    return this.pmoContext.projectId;
-  }
-
-  /** Current project name */
-  protected get projectName() {
-    return this.pmoContext.projectName;
   }
 }

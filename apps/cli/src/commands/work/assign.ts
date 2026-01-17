@@ -54,6 +54,7 @@ export default class WorkAssign extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkAssign)
+    const projectId = (flags as { project?: string }).project
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
@@ -80,7 +81,7 @@ export default class WorkAssign extends PMOCommand {
     let ticketId = args.ticketId
 
     if (!ticketId) {
-      const allTickets = await this.storage.listTickets()
+      const allTickets = await this.storage.listTickets(projectId)
 
       if (allTickets.length === 0) {
         return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".')

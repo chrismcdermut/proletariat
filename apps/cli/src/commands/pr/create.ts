@@ -162,7 +162,8 @@ export default class PRCreate extends Command {
 
       // If no ticket, prompt for selection (only if we have storage)
       if (!ticketId && !flags['no-link'] && storage) {
-        const allTickets = await storage.listTickets();
+        const projectId = (flags as { project?: string }).project
+        const allTickets = await storage.listTickets(projectId);
         const inProgressTickets = allTickets.filter(t =>
           t.statusName && t.statusName.toLowerCase().includes('progress')
         );

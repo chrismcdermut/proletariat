@@ -12,7 +12,7 @@ import {
   ProjectFilter,
   WorkflowStatus,
 } from '../types.js'
-import { slugify } from '../utils.js'
+import { slugify, generateEntityId } from '../utils.js'
 import { generateBoardMarkdown } from '../markdown.js'
 import { StorageContext, ProjectRow, TicketRow } from './types.js'
 import { rowToTicket } from './helpers.js'
@@ -25,8 +25,7 @@ export class ProjectStorage {
   /**
    * Initialize a project with columns.
    */
-  async init(config: BoardConfig): Promise<Board> {
-    const projectId = this.ctx.getCurrentProjectId()
+  async init(projectId: string, config: BoardConfig): Promise<Board> {
     const projectName = config.name || 'Project Board'
     const columns = config.columns || ['Backlog', 'Planned', 'In Progress', 'Done']
     const now = Date.now()
@@ -50,15 +49,13 @@ export class ProjectStorage {
       insertColumn.run(slugify(name), projectId, name, position, now)
     })
 
-    return this.getBoard()
+    return this.getBoard(projectId)
   }
 
   /**
-   * Get the current project board.
+   * Get the project board.
    */
-  async getBoard(): Promise<Board> {
-    const projectId = this.ctx.getCurrentProjectId()
-
+  async getBoard(projectId: string): Promise<Board> {
     // Get project metadata
     const projectRow = this.ctx.db.prepare(`SELECT * FROM ${T.projects} WHERE id = ?`).get(
       projectId
@@ -100,8 +97,8 @@ export class ProjectStorage {
   /**
    * Get the board as markdown.
    */
-  async getBoardMarkdown(): Promise<string> {
-    const board = await this.getBoard()
+  async getBoardMarkdown(projectId: string): Promise<string> {
+    const board = await this.getBoard(projectId)
     return generateBoardMarkdown(board)
   }
 
@@ -114,7 +111,7 @@ export class ProjectStorage {
     listStatuses: (projectId: string) => Promise<WorkflowStatus[]>,
     getTemplate: (id: string) => Promise<{ id: string } | null>
   ): Promise<Board> {
-    const id = project.id || slugify(project.name)
+    const id = project.id || generateEntityId(this.ctx.db, 'project')
     const templateId = project.template || 'kanban'
     const now = Date.now()
 

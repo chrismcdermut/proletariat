@@ -53,6 +53,8 @@ export default class SpecTicket extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SpecTicket);
+    // This command requires project context
+    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -69,7 +71,7 @@ export default class SpecTicket extends PMOCommand {
     // Get ticket ID
     let ticketId = args.ticketId || flags.ticket;
     if (!ticketId) {
-      const tickets = await this.storage.listTickets();
+      const tickets = await this.storage.listTickets(projectId);
       if (tickets.length === 0) {
         return handleError('NO_TICKETS', 'No tickets found. Create one first with: prlt ticket create');
       }
@@ -100,13 +102,14 @@ export default class SpecTicket extends PMOCommand {
     // Get ticket
     const ticket = await this.storage.getTicket(ticketId);
     if (!ticket) {
-      return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found in project "${this.projectName}"`);
+      const projectName = await this.getProjectName(projectId);
+      return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found in project "${projectName}"`);
     }
 
     // Get spec ID
     let specId = args.specId || flags.spec;
     if (!specId) {
-      const specs = await this.listAvailableSpecs(this.pmoPath, this.projectId);
+      const specs = await this.listAvailableSpecs(this.pmoPath, projectId);
       if (specs.length === 0) {
         return handleError('NO_SPECS', 'No specs found. Create one first with: prlt spec create');
       }
@@ -135,9 +138,10 @@ export default class SpecTicket extends PMOCommand {
     }
 
     // Verify spec exists
-    const specPath = this.findSpecFile(this.pmoPath, this.projectId, specId);
+    const specPath = this.findSpecFile(this.pmoPath, projectId, specId);
     if (!specPath) {
-      this.error(`Spec "${specId}" not found in project "${this.projectName}"`);
+      const projectName = await this.getProjectName(projectId);
+      this.error(`Spec "${specId}" not found in project "${projectName}"`);
     }
 
     // Check if already linked

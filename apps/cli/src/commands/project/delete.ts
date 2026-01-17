@@ -112,8 +112,7 @@ export default class ProjectDelete extends PMOCommand {
     }
 
     // Get ticket count
-    this.storage.setCurrentProject(projectId!);
-    const tickets = await this.storage.listTickets();
+    const tickets = await this.storage.listTickets(projectId!);
     const ticketCount = tickets.length;
 
     // Confirm deletion

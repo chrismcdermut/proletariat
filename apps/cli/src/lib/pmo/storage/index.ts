@@ -80,7 +80,6 @@ export class SQLiteStorage implements PMOStorage {
   readonly type = 'sqlite' as const
   private db: Database.Database
   private dbPath: string
-  private currentProjectId: string
 
   // Domain-specific storage modules
   private projectStorage: ProjectStorage
@@ -97,19 +96,18 @@ export class SQLiteStorage implements PMOStorage {
   private actionStorage: ActionStorage
   private viewStorage: ViewStorage
 
-  constructor(dbPath: string, projectId: string = 'default') {
+  constructor(dbPath: string) {
     this.dbPath = dbPath
-    this.currentProjectId = projectId
 
     // Open database (creates if doesn't exist)
     this.db = new Database(dbPath)
     this.db.pragma('foreign_keys = ON')
 
     // Create the storage context shared by all modules
+    // Note: projectId is passed explicitly to operations, not stored in context
     const ctx: StorageContext = {
       db: this.db,
-      getCurrentProjectId: () => this.currentProjectId,
-      updateBoardTimestamp: () => updateBoardTimestamp(this.db, this.currentProjectId),
+      updateBoardTimestamp: (projectId: string) => updateBoardTimestamp(this.db, projectId),
     }
 
     // Initialize domain-specific storage modules
@@ -129,20 +127,6 @@ export class SQLiteStorage implements PMOStorage {
 
     // Ensure PMO tables exist
     this.ensurePMOTables()
-  }
-
-  /**
-   * Set the current project context for operations
-   */
-  setCurrentProject(projectId: string): void {
-    this.currentProjectId = projectId
-  }
-
-  /**
-   * Get the current project ID
-   */
-  getCurrentProjectId(): string {
-    return this.currentProjectId
   }
 
   /**
@@ -177,48 +161,48 @@ export class SQLiteStorage implements PMOStorage {
   // Board Operations
   // ===========================================================================
 
-  async init(config: BoardConfig): Promise<Board> {
-    return this.projectStorage.init(config)
+  async init(projectId: string, config: BoardConfig): Promise<Board> {
+    return this.projectStorage.init(projectId, config)
   }
 
-  async getBoard(): Promise<Board> {
-    return this.projectStorage.getBoard()
+  async getBoard(projectId: string): Promise<Board> {
+    return this.projectStorage.getBoard(projectId)
   }
 
-  async getBoardMarkdown(): Promise<string> {
-    return this.projectStorage.getBoardMarkdown()
+  async getBoardMarkdown(projectId: string): Promise<string> {
+    return this.projectStorage.getBoardMarkdown(projectId)
   }
 
   // ===========================================================================
   // Column Operations
   // ===========================================================================
 
-  getColumnNames(): string[] {
-    return this.columnStorage.getColumnNames()
+  getColumnNames(projectId: string): string[] {
+    return this.columnStorage.getColumnNames(projectId)
   }
 
-  async createColumn(name: string, position?: number): Promise<Column> {
-    return this.columnStorage.createColumn(name, position)
+  async createColumn(projectId: string, name: string, position?: number): Promise<Column> {
+    return this.columnStorage.createColumn(projectId, name, position)
   }
 
-  async renameColumn(id: string, name: string): Promise<Column> {
-    return this.columnStorage.renameColumn(id, name)
+  async renameColumn(projectId: string, id: string, name: string): Promise<Column> {
+    return this.columnStorage.renameColumn(projectId, id, name)
   }
 
-  async moveColumn(id: string, position: number): Promise<Column> {
-    return this.columnStorage.moveColumn(id, position)
+  async moveColumn(projectId: string, id: string, position: number): Promise<Column> {
+    return this.columnStorage.moveColumn(projectId, id, position)
   }
 
-  async deleteColumn(id: string, cascade?: boolean): Promise<void> {
-    return this.columnStorage.deleteColumn(id, cascade)
+  async deleteColumn(projectId: string, id: string, cascade?: boolean): Promise<void> {
+    return this.columnStorage.deleteColumn(projectId, id, cascade)
   }
 
   // ===========================================================================
   // Ticket Operations
   // ===========================================================================
 
-  async createTicket(ticket: CreateTicketInput): Promise<Ticket> {
-    return this.ticketStorage.createTicket(ticket)
+  async createTicket(projectId: string, ticket: CreateTicketInput): Promise<Ticket> {
+    return this.ticketStorage.createTicket(projectId, ticket)
   }
 
   async getTicket(id: string): Promise<Ticket | null> {
@@ -233,8 +217,8 @@ export class SQLiteStorage implements PMOStorage {
     return this.ticketStorage.updateTicket(id, changes)
   }
 
-  async moveTicket(id: string, column: string, position?: number): Promise<Ticket> {
-    return this.ticketStorage.moveTicket(id, column, position)
+  async moveTicket(projectId: string, id: string, column: string, position?: number): Promise<Ticket> {
+    return this.ticketStorage.moveTicket(projectId, id, column, position)
   }
 
   async moveTicketToProject(ticketId: string, newProjectId: string): Promise<Ticket> {
@@ -245,8 +229,8 @@ export class SQLiteStorage implements PMOStorage {
     return this.ticketStorage.deleteTicket(id)
   }
 
-  async listTickets(filter?: TicketFilter): Promise<Ticket[]> {
-    return this.ticketStorage.listTickets(filter)
+  async listTickets(projectId: string | undefined, filter?: TicketFilter): Promise<Ticket[]> {
+    return this.ticketStorage.listTickets(projectId, filter)
   }
 
   // ===========================================================================
@@ -313,8 +297,8 @@ export class SQLiteStorage implements PMOStorage {
     return this.specStorage.unlinkTicketFromSpec(ticketId, specId)
   }
 
-  async getTicketsForSpec(specId: string): Promise<Ticket[]> {
-    return this.specStorage.getTicketsForSpec(specId)
+  async getTicketsForSpec(projectId: string, specId: string): Promise<Ticket[]> {
+    return this.specStorage.getTicketsForSpec(projectId, specId)
   }
 
   async getSpecsForTicket(ticketId: string): Promise<Spec[]> {
@@ -357,20 +341,20 @@ export class SQLiteStorage implements PMOStorage {
   // Epic Operations
   // ===========================================================================
 
-  async createEpic(epic: Partial<Epic>): Promise<Epic> {
-    return this.epicStorage.createEpic(epic)
+  async createEpic(projectId: string, epic: Partial<Epic>): Promise<Epic> {
+    return this.epicStorage.createEpic(projectId, epic)
   }
 
   async getEpic(id: string): Promise<Epic | null> {
     return this.epicStorage.getEpic(id)
   }
 
-  async listEpics(filter?: EpicFilter): Promise<Epic[]> {
-    return this.epicStorage.listEpics(filter)
+  async listEpics(projectId: string, filter?: EpicFilter): Promise<Epic[]> {
+    return this.epicStorage.listEpics(projectId, filter)
   }
 
-  async reorderEpic(id: string, newPosition: number): Promise<Epic> {
-    return this.epicStorage.reorderEpic(id, newPosition)
+  async reorderEpic(projectId: string, epicId: string, newPosition: number): Promise<Epic> {
+    return this.epicStorage.reorderEpic(projectId, epicId, newPosition)
   }
 
   async updateEpic(id: string, changes: Partial<Epic>): Promise<Epic> {
@@ -381,8 +365,8 @@ export class SQLiteStorage implements PMOStorage {
     return this.epicStorage.deleteEpic(id)
   }
 
-  async getTicketsForEpic(epicId: string): Promise<Ticket[]> {
-    return this.epicStorage.getTicketsForEpic(epicId)
+  async getTicketsForEpic(projectId: string, epicId: string): Promise<Ticket[]> {
+    return this.epicStorage.getTicketsForEpic(projectId, epicId)
   }
 
   async linkTicketToEpic(ticketId: string, epicId: string): Promise<void> {
@@ -485,8 +469,8 @@ export class SQLiteStorage implements PMOStorage {
     return this.statusStorage.getStatus(id)
   }
 
-  async createStatus(status: Partial<WorkflowStatus>): Promise<WorkflowStatus> {
-    return this.statusStorage.createStatus(status)
+  async createStatus(projectId: string, status: Partial<WorkflowStatus>): Promise<WorkflowStatus> {
+    return this.statusStorage.createStatus(projectId, status)
   }
 
   async updateStatus(id: string, changes: Partial<WorkflowStatus>): Promise<WorkflowStatus> {
@@ -744,8 +728,8 @@ export class SQLiteStorage implements PMOStorage {
     return this.viewStorage.getDefaultBoardView(projectId)
   }
 
-  async getBoardWithView(viewId?: string, filters?: BoardViewFilters): Promise<Board> {
-    return this.viewStorage.getBoardWithView(viewId, filters)
+  async getBoardWithView(projectId: string, viewId?: string, filters?: BoardViewFilters): Promise<Board> {
+    return this.viewStorage.getBoardWithView(projectId, viewId, filters)
   }
 
   // ===========================================================================
@@ -769,7 +753,7 @@ export class SQLiteStorage implements PMOStorage {
   // ===========================================================================
 
   rebuildFromBoard(board: Board): void {
-    const projectId = this.currentProjectId
+    const projectId = board.id
     const T = PMO_TABLES
 
     // Clear existing data for current project only

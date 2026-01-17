@@ -69,6 +69,8 @@ export default class StatusUpdate extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusUpdate);
+    // This command requires project context
+    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -86,7 +88,7 @@ export default class StatusUpdate extends PMOCommand {
     let statusId = args.id;
 
     if (!statusId) {
-      const statuses = await this.storage.listStatuses(this.projectId);
+      const statuses = await this.storage.listStatuses(projectId);
       if (statuses.length === 0) {
         return handleError('NO_STATUSES', 'No statuses found. Create a status first with "prlt status create".');
       }

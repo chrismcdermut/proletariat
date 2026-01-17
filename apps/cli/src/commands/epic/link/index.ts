@@ -77,9 +77,11 @@ export default class EpicLink extends PMOCommand {
       this.error(message)
     }
 
+    const projectId = await this.requireProject()
+
     let epicId = args.id
     if (!epicId) {
-      const epics = await this.storage.listEpics()
+      const epics = await this.storage.listEpics(projectId)
       if (epics.length === 0) {
         if (jsonMode) {
           outputErrorAsJson('NO_EPICS', 'No epics found.', createMetadata('epic link', flags))
@@ -125,7 +127,7 @@ export default class EpicLink extends PMOCommand {
     // Interactive mode: show menu in a loop
     let continueLoop = true
     while (continueLoop) {
-      const allEpics = await this.storage.listEpics()
+      const allEpics = await this.storage.listEpics(projectId)
       const otherEpics = allEpics.filter(e => e.id !== epicId)
 
       const { action } = await inquirer.prompt([{
@@ -229,7 +231,7 @@ export default class EpicLink extends PMOCommand {
 
   private async viewDependencies(
     epicId: string,
-    epic: { id: string; title: string },
+    epic: { id: string; title: string; projectId: string },
     showAll: boolean
   ): Promise<void> {
     const dependencies = await this.storage.listEpicDependencies(epicId)
@@ -265,7 +267,7 @@ export default class EpicLink extends PMOCommand {
     }
 
     if (showAll) {
-      const allEpics = await this.storage.listEpics()
+      const allEpics = await this.storage.listEpics(epic.projectId)
       const blocking: Array<{ epic: typeof epic; type: string }> = []
 
       for (const otherEpic of allEpics) {

@@ -16,10 +16,9 @@ export class EpicStorage {
   /**
    * Create a new epic.
    */
-  async createEpic(epic: Partial<Epic>): Promise<Epic> {
+  async createEpic(projectId: string, epic: Partial<Epic>): Promise<Epic> {
     const id = epic.id || generateEntityId(this.ctx.db, 'epic')
     const title = epic.title || 'Untitled Epic'
-    const projectId = this.ctx.getCurrentProjectId()
     const status = epic.status || 'active'
     const now = Date.now()
 
@@ -48,7 +47,7 @@ export class EpicStorage {
       now
     )
 
-    this.ctx.updateBoardTimestamp()
+    this.ctx.updateBoardTimestamp(projectId)
 
     return {
       id,
@@ -80,8 +79,7 @@ export class EpicStorage {
   /**
    * List epics with optional filters.
    */
-  async listEpics(filter?: EpicFilter): Promise<Epic[]> {
-    const projectId = this.ctx.getCurrentProjectId()
+  async listEpics(projectId: string, filter?: EpicFilter): Promise<Epic[]> {
     let query = `SELECT * FROM ${T.epics} WHERE project_id = ?`
     const params: unknown[] = [projectId]
 
@@ -104,7 +102,7 @@ export class EpicStorage {
   /**
    * Reorder an epic to a new position.
    */
-  async reorderEpic(epicId: string, newPosition: number): Promise<Epic> {
+  async reorderEpic(projectId: string, epicId: string, newPosition: number): Promise<Epic> {
     const epic = await this.getEpic(epicId)
     if (!epic) {
       throw new Error(`Epic not found: ${epicId}`)
@@ -114,8 +112,6 @@ export class EpicStorage {
     if (oldPosition === newPosition) {
       return epic
     }
-
-    const projectId = this.ctx.getCurrentProjectId()
 
     if (newPosition < oldPosition) {
       this.ctx.db.prepare(`
@@ -137,7 +133,7 @@ export class EpicStorage {
       WHERE id = ?
     `).run(newPosition, Date.now(), epicId)
 
-    this.ctx.updateBoardTimestamp()
+    this.ctx.updateBoardTimestamp(projectId)
 
     return (await this.getEpic(epicId))!
   }
@@ -185,7 +181,7 @@ export class EpicStorage {
       )
     }
 
-    this.ctx.updateBoardTimestamp()
+    this.ctx.updateBoardTimestamp(epic.projectId)
     return (await this.getEpic(id)) as Epic
   }
 
@@ -204,14 +200,13 @@ export class EpicStorage {
     `).run(id)
 
     this.ctx.db.prepare(`DELETE FROM ${T.epics} WHERE id = ?`).run(id)
-    this.ctx.updateBoardTimestamp()
+    this.ctx.updateBoardTimestamp(epic.projectId)
   }
 
   /**
    * Get tickets for an epic.
    */
-  async getTicketsForEpic(epicId: string): Promise<Ticket[]> {
-    const projectId = this.ctx.getCurrentProjectId()
+  async getTicketsForEpic(projectId: string, epicId: string): Promise<Ticket[]> {
     const rows = this.ctx.db.prepare(`
       SELECT t.*, bt.column_id, bt.position, c.name as column_name
       FROM ${T.tickets} t
@@ -228,10 +223,10 @@ export class EpicStorage {
    * Link a ticket to an epic.
    */
   async linkTicketToEpic(ticketId: string, epicId: string): Promise<void> {
-    // Verify ticket exists
+    // Verify ticket exists and get its project
     const ticket = this.ctx.db.prepare(`
-      SELECT id FROM ${T.tickets} WHERE id = ?
-    `).get(ticketId)
+      SELECT id, project_id FROM ${T.tickets} WHERE id = ?
+    `).get(ticketId) as { id: string; project_id: string } | undefined
     if (!ticket) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${ticketId}`, ticketId)
     }
@@ -248,20 +243,27 @@ export class EpicStorage {
       WHERE id = ?
     `).run(epicId, Date.now(), ticketId)
 
-    this.ctx.updateBoardTimestamp()
+    this.ctx.updateBoardTimestamp(ticket.project_id)
   }
 
   /**
    * Unlink a ticket from its epic.
    */
   async unlinkTicketFromEpic(ticketId: string): Promise<void> {
+    // Get ticket's project for board timestamp update
+    const ticket = this.ctx.db.prepare(`
+      SELECT project_id FROM ${T.tickets} WHERE id = ?
+    `).get(ticketId) as { project_id: string } | undefined
+
     this.ctx.db.prepare(`
       UPDATE ${T.tickets}
       SET epic_id = NULL, updated_at = ?
       WHERE id = ?
     `).run(Date.now(), ticketId)
 
-    this.ctx.updateBoardTimestamp()
+    if (ticket) {
+      this.ctx.updateBoardTimestamp(ticket.project_id)
+    }
   }
 
   private rowToEpic(row: EpicRow): Epic {

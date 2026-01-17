@@ -54,6 +54,7 @@ export default class TicketComplete extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketComplete);
+    const projectId = (flags as { project?: string }).project;
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -68,7 +69,7 @@ export default class TicketComplete extends PMOCommand {
     };
 
     // Get all incomplete tickets
-    const allTickets = await this.storage.listTickets();
+    const allTickets = await this.storage.listTickets(projectId);
     const incompleteTickets = allTickets.filter(t =>
       t.statusName && !t.statusName.toLowerCase().includes('done')
     );
@@ -82,8 +83,8 @@ export default class TicketComplete extends PMOCommand {
       return;
     }
 
-    // Get board for columns
-    const board = await this.storage.getBoard();
+    // Get board for columns (use the first incomplete ticket's project)
+    const board = await this.storage.getBoard(incompleteTickets[0].projectId!);
 
     // Find the "Done" column (case-insensitive)
     const doneColumn = board.columns.find(col =>
@@ -136,7 +137,7 @@ export default class TicketComplete extends PMOCommand {
     }
 
     // Move to Done column
-    await this.storage.moveTicket(ticketId!, doneColumn.name);
+    await this.storage.moveTicket(ticket.projectId!, ticketId!, doneColumn.name);
 
     // Auto-export to board.md if configured
     await autoExportToBoard(this.pmoPath, this.storage);
@@ -203,7 +204,11 @@ export default class TicketComplete extends PMOCommand {
 
     for (const ticketId of selectedTickets) {
       try {
-        await this.storage.moveTicket(ticketId, doneColumnName);
+        const ticket = incompleteTickets.find(t => t.id === ticketId);
+        if (!ticket) {
+          throw new Error('Ticket not found in incomplete tickets list');
+        }
+        await this.storage.moveTicket(ticket.projectId!, ticketId, doneColumnName);
         this.log(styles.success(`Completed ${ticketId}`));
         successCount++;
       } catch (error) {

@@ -89,6 +89,7 @@ export default class WorkWatch extends PMOCommand {
   private isRunning = true
   private knownTickets = new Set<string>()
   private columnName = ''
+  private projectId = ''
   private environment: ExecutionEnvironment = 'host'
   private displayMode: DisplayMode = 'terminal'
   private executionConfig: ExecutionConfig | undefined
@@ -126,6 +127,9 @@ export default class WorkWatch extends PMOCommand {
       return handleError('NO_AGENTS', 'No agents found in workspace. Add agents first with "prlt agent add".')
     }
 
+    // Get project
+    this.projectId = await this.requireProject()
+
     // Open database for execution storage
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
     const db = new Database(dbPath)
@@ -145,7 +149,7 @@ export default class WorkWatch extends PMOCommand {
 
     try {
       // Get board columns for selection
-      const board = await this.storage.getBoard()
+      const board = await this.storage.getBoard(this.projectId)
       const columns = board.columns.map(col => col.name)
 
       if (columns.length === 0) {
@@ -289,7 +293,7 @@ export default class WorkWatch extends PMOCommand {
       this.log('')
 
       // Initial scan - record current tickets as "known"
-      const initialTickets = await this.storage.listTickets({ column: this.columnName })
+      const initialTickets = await this.storage.listTickets(this.projectId, { column: this.columnName })
       for (const ticket of initialTickets) {
         this.knownTickets.add(ticket.id)
       }
@@ -299,6 +303,7 @@ export default class WorkWatch extends PMOCommand {
       if (flags.once) {
         this.log('')
         const result = await spawnForColumn(
+          this.projectId,
           this.columnName,
           this.storage,
           executionStorage,
@@ -360,7 +365,7 @@ export default class WorkWatch extends PMOCommand {
     db: Database.Database
   ): Promise<void> {
     // Get current tickets in column
-    const currentTickets = await this.storage.listTickets({ column: this.columnName })
+    const currentTickets = await this.storage.listTickets(this.projectId, { column: this.columnName })
 
     // Find new tickets (in current but not in known)
     const newTickets = currentTickets.filter(t => !this.knownTickets.has(t.id))
@@ -387,6 +392,7 @@ export default class WorkWatch extends PMOCommand {
 
     // Spawn agents for new tickets
     const result = await spawnForColumn(
+      this.projectId,
       this.columnName,
       this.storage,
       executionStorage,

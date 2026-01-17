@@ -50,6 +50,9 @@ export default class Board extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(Board);
 
+    // Board operations require project context
+    const projectId = await this.requireProject();
+
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
@@ -63,7 +66,8 @@ export default class Board extends PMOCommand {
       { name: 'Watch for changes', value: 'watch' },
       { name: 'Cancel', value: 'cancel' },
     ];
-    const message = `Board Operations - ${this.projectName} - What would you like to do?`;
+    const projectName = await this.getProjectName(projectId);
+    const message = `Board Operations - ${projectName} - What would you like to do?`;
 
     // In JSON mode, output menu prompt
     if (jsonMode) {
@@ -92,7 +96,7 @@ export default class Board extends PMOCommand {
 
     switch (action) {
       case 'view':
-        await this.viewBoard({ all: false, compact: false });
+        await this.viewBoard(projectId, { all: false, compact: false });
         break;
 
       case 'open':
@@ -100,15 +104,15 @@ export default class Board extends PMOCommand {
         break;
 
       case 'markdown':
-        await this.showMarkdown();
+        await this.showMarkdown(projectId);
         break;
 
       case 'export':
-        await this.exportMarkdown();
+        await this.exportMarkdown(projectId);
         break;
 
       case 'sync':
-        await this.syncFromMarkdown({ force: false, 'dry-run': false });
+        await this.syncFromMarkdown(projectId, { force: false, 'dry-run': false });
         break;
 
       case 'watch':
@@ -118,9 +122,10 @@ export default class Board extends PMOCommand {
   }
 
   private async viewBoard(
+    projectId: string,
     flags: { all: boolean; compact: boolean }
   ): Promise<void> {
-    const board = await this.storage.getBoard();
+    const board = await this.storage.getBoard(projectId);
 
     // Header
     this.log(styles.title(`\n${board.name}`));
@@ -200,24 +205,25 @@ export default class Board extends PMOCommand {
     }
   }
 
-  private async showMarkdown(): Promise<void> {
-    const markdown = await this.storage.getBoardMarkdown();
+  private async showMarkdown(projectId: string): Promise<void> {
+    const markdown = await this.storage.getBoardMarkdown(projectId);
     this.log(markdown);
   }
 
-  private async exportMarkdown(): Promise<void> {
-    const markdown = await this.storage.getBoardMarkdown();
+  private async exportMarkdown(projectId: string): Promise<void> {
+    const markdown = await this.storage.getBoardMarkdown(projectId);
 
-    const boardPath = getBoardPath(this.pmoPath, this.projectId);
+    const boardPath = getBoardPath(this.pmoPath, projectId);
     fs.writeFileSync(boardPath, markdown);
 
     this.log(chalk.green(`✅ Exported board to ${boardPath}`));
   }
 
   private async syncFromMarkdown(
+    projectId: string,
     flags: { force: boolean; 'dry-run': boolean }
   ): Promise<void> {
-    const boardPath = getBoardPath(this.pmoPath, this.projectId);
+    const boardPath = getBoardPath(this.pmoPath, projectId);
 
     if (!fs.existsSync(boardPath)) {
       this.error('board.md not found. Run "prlt board export" first to create it.');
@@ -227,7 +233,7 @@ export default class Board extends PMOCommand {
     const markdown = fs.readFileSync(boardPath, 'utf-8');
     const markdownBoard = parseBoard(markdown);
 
-    const sqliteBoard = await this.storage.getBoard();
+    const sqliteBoard = await this.storage.getBoard(projectId);
 
     // Find differences
     const added = findAddedTickets(sqliteBoard, markdownBoard);

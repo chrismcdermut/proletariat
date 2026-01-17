@@ -79,7 +79,8 @@ export default class PRStatus extends Command {
       let ticketId = args.ticketId;
 
       if (!ticketId) {
-        const allTickets = await storage.listTickets();
+        const projectId = (flags as { project?: string }).project
+        const allTickets = await storage.listTickets(projectId);
         // Filter to tickets that have a PR linked
         const ticketsWithPR = allTickets.filter(t => t.metadata?.pr_url);
         const ticketsWithoutPR = allTickets.filter(t => !t.metadata?.pr_url && t.statusName && !t.statusName.toLowerCase().includes('done'));

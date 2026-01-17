@@ -45,6 +45,8 @@ export default class StatusMove extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusMove);
+    // This command requires project context
+    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -62,7 +64,7 @@ export default class StatusMove extends PMOCommand {
     let statusId = args.id;
 
     if (!statusId) {
-      const statuses = await this.storage.listStatuses(this.projectId);
+      const statuses = await this.storage.listStatuses(projectId);
       if (statuses.length === 0) {
         return handleError('NO_STATUSES', 'No statuses found. Create a status first with "prlt status create".');
       }
@@ -103,7 +105,7 @@ export default class StatusMove extends PMOCommand {
 
     if (newPosition === undefined) {
       // Get statuses in the same category to show valid positions
-      const statuses = await this.storage.listStatuses(this.projectId);
+      const statuses = await this.storage.listStatuses(projectId);
       const categoryStatuses = statuses.filter(s => s.category === existing.category);
 
       // In JSON mode, output position selection prompt

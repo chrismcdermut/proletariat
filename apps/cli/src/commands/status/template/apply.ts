@@ -45,6 +45,8 @@ export default class StatusTemplateApply extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusTemplateApply);
+    // This command requires project context
+    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -65,7 +67,7 @@ export default class StatusTemplateApply extends PMOCommand {
     }
 
     // Check if project has existing statuses
-    const existingStatuses = await this.storage.listStatuses(this.projectId);
+    const existingStatuses = await this.storage.listStatuses(projectId);
     if (existingStatuses.length > 0 && !flags.force) {
       // In JSON mode, output confirmation prompt
       if (jsonMode) {
@@ -76,7 +78,8 @@ export default class StatusTemplateApply extends PMOCommand {
         return;
       }
 
-      this.log(styles.warning(`\nProject "${this.projectName}" has ${existingStatuses.length} existing status(es).`));
+      const projectName = await this.getProjectName(projectId);
+      this.log(styles.warning(`\nProject "${projectName}" has ${existingStatuses.length} existing status(es).`));
       this.log(styles.warning('Applying a template will REPLACE all existing statuses.'));
       this.log('');
 
@@ -96,9 +99,10 @@ export default class StatusTemplateApply extends PMOCommand {
     }
 
     // Apply template
-    const statuses = await this.storage.applyTemplate(this.projectId, args.template);
+    const statuses = await this.storage.applyTemplate(projectId, args.template);
 
-    this.log(styles.success(`\nApplied template "${styles.emphasis(template.name)}" to project "${this.projectName}"`));
+    const appliedProjectName = await this.getProjectName(projectId);
+    this.log(styles.success(`\nApplied template "${styles.emphasis(template.name)}" to project "${appliedProjectName}"`));
     this.log(styles.muted(`Created ${statuses.length} statuses:`));
     for (const status of statuses) {
       const defaultBadge = status.isDefault ? ' (default)' : '';

@@ -75,8 +75,11 @@ export default class TicketMove extends PMOCommand {
       this.error(message);
     };
 
+    // This command requires project context - get projectId
+    const projectId = await this.requireProject();
+
     // Get all tickets
-    const allTickets = await this.storage.listTickets();
+    const allTickets = await this.storage.listTickets(projectId);
 
     if (allTickets.length === 0) {
       return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".');
@@ -84,7 +87,7 @@ export default class TicketMove extends PMOCommand {
 
     // Bulk mode
     if (flags.bulk) {
-      await this.executeBulk(allTickets, flags.force);
+      await this.executeBulk(allTickets, flags.force, projectId);
       return;
     }
 
@@ -128,7 +131,7 @@ export default class TicketMove extends PMOCommand {
 
     if (!targetColumn) {
       // Get columns from the database (not config.json) to ensure accuracy
-      const project = await this.storage.getProjectBoard(this.storage.getCurrentProjectId());
+      const project = await this.storage.getProjectBoard(projectId);
       if (!project) {
         this.error('Project not found.');
       }
@@ -155,7 +158,7 @@ export default class TicketMove extends PMOCommand {
     }
 
     // Move ticket (targetColumn is guaranteed to be string after validation above)
-    const moved = await this.storage.moveTicket(ticketId!, targetColumn!, flags.position);
+    const moved = await this.storage.moveTicket(projectId, ticketId!, targetColumn!, flags.position);
 
     // Auto-export to board.md after write
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
@@ -172,12 +175,13 @@ export default class TicketMove extends PMOCommand {
 
   private async executeBulk(
     allTickets: Awaited<ReturnType<typeof this.storage.listTickets>>,
-    force: boolean
+    force: boolean,
+    projectId: string
   ): Promise<void> {
     this.log(styles.emphasis('📦 Move Multiple Tickets\n'));
 
     // Get columns
-    const board = await this.storage.getBoard();
+    const board = await this.storage.getBoard(projectId);
     const columns = board.columns.map(col => col.name);
 
     // Select tickets to move
@@ -238,7 +242,7 @@ export default class TicketMove extends PMOCommand {
 
     for (const ticketId of selectedTickets) {
       try {
-        await this.storage.moveTicket(ticketId, targetColumn);
+        await this.storage.moveTicket(projectId, ticketId, targetColumn);
         this.log(styles.success(`Moved ${ticketId} to ${targetColumn}`));
         successCount++;
       } catch (error) {

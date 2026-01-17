@@ -99,7 +99,8 @@ export default class PRLink extends Command {
       let ticketId = args.ticketId;
 
       if (!ticketId) {
-        const allTickets = await storage.listTickets();
+        const projectId = (flags as { project?: string }).project
+        const allTickets = await storage.listTickets(projectId);
         const activeTickets = allTickets.filter(t =>
           t.statusName && !t.statusName.toLowerCase().includes('done') && !t.statusName.toLowerCase().includes('archive')
         );

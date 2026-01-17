@@ -93,6 +93,11 @@ export default class TicketTemplateApply extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketTemplateApply);
+    // This command requires project context - get projectId and board info
+    const projectId = await this.requireProject();
+    const board = await this.storage.getBoard(projectId);
+    const columns = board.columns.map(col => col.name);
+    const projectName = board.name;
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -122,7 +127,7 @@ export default class TicketTemplateApply extends PMOCommand {
 
     // Determine ticket data
     let title = flags.title || template.titlePattern || '';
-    let column = flags.column || this.columns[0];
+    let column = flags.column || columns[0];
     let priority = flags.priority || template.defaultPriority;
     let category = flags.category || template.defaultCategory;
     let assignee = flags.assignee || template.defaultAssignee;
@@ -134,7 +139,7 @@ export default class TicketTemplateApply extends PMOCommand {
     // Interactive mode - prompt for values
     if (flags.interactive || !title) {
       // Build choices once - single source of truth
-      const columnChoices = this.columns.map(c => ({ name: c, value: c }));
+      const columnChoices = columns.map(c => ({ name: c, value: c }));
       const priorityChoices = [
         { name: 'None', value: '' },
         ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p })),
@@ -174,7 +179,7 @@ export default class TicketTemplateApply extends PMOCommand {
         choices: field.name === 'priority' && field.choices
           ? field.choices.map(c => ({ ...c, value: c.value || undefined }))
           : field.name === 'column'
-          ? this.columns  // Use simple array for column in interactive mode
+          ? columns  // Use simple array for column in interactive mode
           : field.choices,
         // Add validator for title
         validate: field.name === 'title'
@@ -196,22 +201,22 @@ export default class TicketTemplateApply extends PMOCommand {
     }
 
     // Validate column
-    if (!this.columns.includes(column)) {
-      this.error(`Invalid column "${column}". Available columns: ${this.columns.join(', ')}`);
+    if (!columns.includes(column)) {
+      this.error(`Invalid column "${column}". Available columns: ${columns.join(', ')}`);
     }
 
     // Validate status ID if provided
     if (statusId) {
       const status = await this.storage.getStatus(statusId);
       if (!status) {
-        const statuses = await this.storage.listStatuses(this.projectId);
+        const statuses = await this.storage.listStatuses(projectId);
         const statusNames = statuses.map(s => `${s.id} (${s.name})`).join(', ');
         this.error(`Invalid status "${statusId}". Available statuses: ${statusNames}`);
       }
     }
 
     // Create the ticket
-    const ticket = await this.storage.createTicket({
+    const ticket = await this.storage.createTicket(projectId, {
       title,
       statusName: column,
       priority,
@@ -235,7 +240,7 @@ export default class TicketTemplateApply extends PMOCommand {
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
 
     this.log(styles.success(`\nCreated ticket ${styles.emphasis(ticket.id)} from template "${template.name}"`));
-    this.log(styles.muted(`  Project: ${this.projectName}`));
+    this.log(styles.muted(`  Project: ${projectName}`));
     this.log(styles.muted(`  Title: ${ticket.title}`));
     this.log(styles.muted(`  Status: ${ticket.statusName}`));
     if (priority) {

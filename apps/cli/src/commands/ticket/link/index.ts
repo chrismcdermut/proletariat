@@ -64,9 +64,10 @@ export default class TicketLink extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
 
+    const projectId = (flags as { project?: string }).project
     let ticketId = args.id
     if (!ticketId) {
-      const tickets = await this.storage.listTickets()
+      const tickets = await this.storage.listTickets(projectId)
       if (tickets.length === 0) {
         if (jsonMode) {
           outputErrorAsJson('NO_TICKETS', 'No tickets found.', createMetadata('ticket link', flags))
@@ -112,7 +113,7 @@ export default class TicketLink extends PMOCommand {
     // Interactive mode: show menu in a loop
     let continueLoop = true
     while (continueLoop) {
-      const allTickets = await this.storage.listTickets()
+      const allTickets = await this.storage.listTickets(projectId)
       const otherTickets = allTickets.filter(t => t.id !== ticketId)
 
       const { action } = await inquirer.prompt([{

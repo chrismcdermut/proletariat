@@ -80,6 +80,12 @@ export default class TicketCreate extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(TicketCreate);
 
+    // Get project and board info
+    const projectId = await this.requireProject();
+    const board = await this.storage.getBoard(projectId);
+    const columns = board.columns.map(c => c.name);
+    const projectName = await this.getProjectName(projectId);
+
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
@@ -94,7 +100,7 @@ export default class TicketCreate extends PMOCommand {
 
     // In JSON mode without required data, output column selection prompt
     if (jsonMode && !flags.title && !flags.column) {
-      const columnChoices = this.columns.map(c => ({ name: c, value: c }));
+      const columnChoices = columns.map(c => ({ name: c, value: c }));
       outputPromptAsJson(
         buildPromptConfig('list', 'column', 'Select column to place the ticket in:', columnChoices),
         createMetadata('ticket create', flags)
@@ -137,14 +143,14 @@ export default class TicketCreate extends PMOCommand {
     };
 
     if (flags.interactive || !flags.title) {
-      ticketData = await this.promptTicketData(flags, this.storage, template);
+      ticketData = await this.promptTicketData(flags, this.storage, template, columns);
     } else {
       if (!flags.title && !template?.titlePattern) {
         this.error('Title is required. Use --title or -t flag, or use --interactive mode.');
       }
       ticketData = {
         title: flags.title || template?.titlePattern || '',
-        statusName: flags.column || this.columns[0],
+        statusName: flags.column || columns[0],
         priority: flags.priority || template?.defaultPriority,
         category: flags.category || template?.defaultCategory,
         description: flags.description || template?.descriptionTemplate,
@@ -155,11 +161,11 @@ export default class TicketCreate extends PMOCommand {
     }
 
     // Validate status/column
-    if (!this.columns.includes(ticketData.statusName)) {
-      this.error(`Invalid column "${ticketData.statusName}". Available columns: ${this.columns.join(', ')}`);
+    if (!columns.includes(ticketData.statusName)) {
+      this.error(`Invalid column "${ticketData.statusName}". Available columns: ${columns.join(', ')}`);
     }
 
-    const ticket = await this.storage.createTicket({
+    const ticket = await this.storage.createTicket(projectId, {
       id: ticketData.id,
       title: ticketData.title,
       statusName: ticketData.statusName,
@@ -184,18 +190,18 @@ export default class TicketCreate extends PMOCommand {
     if (ticketData.epicId) {
       const epic = await this.storage.getEpic(ticketData.epicId);
       if (epic) {
-        const epicTickets = await this.storage.getTicketsForEpic(ticketData.epicId);
+        const epicTickets = await this.storage.getTicketsForEpic(projectId, ticketData.epicId);
         const ticketInfos = epicTickets.map(t => ({
           id: t.id,
           title: t.title,
           status: t.statusName || 'Unknown',
           priority: t.priority,
         }));
-        updateEpicTicketsSection(this.pmoPath, ticketData.epicId, epic.status, ticketInfos, this.projectId);
+        updateEpicTicketsSection(this.pmoPath, ticketData.epicId, epic.status, ticketInfos, projectId);
       }
     }
 
-    this.log(styles.success(`\n✅ Created ticket ${styles.emphasis(ticket.id)} in project ${styles.emphasis(this.projectName)}`));
+    this.log(styles.success(`\n✅ Created ticket ${styles.emphasis(ticket.id)} in project ${styles.emphasis(projectName)}`));
     if (template) {
       this.log(styles.muted(`   Template: ${template.name}`));
     }
@@ -233,7 +239,8 @@ export default class TicketCreate extends PMOCommand {
       labels?: string;
     },
     storage: { listTicketTemplates: () => Promise<TicketTemplate[]> },
-    existingTemplate: TicketTemplate | null
+    existingTemplate: TicketTemplate | null,
+    columns: string[]
   ): Promise<{
     title: string;
     statusName: string;
@@ -289,8 +296,8 @@ export default class TicketCreate extends PMOCommand {
         type: 'list',
         name: 'column',
         message: 'Column:',
-        choices: this.columns,
-        default: flags.column || this.columns[0],
+        choices: columns,
+        default: flags.column || columns[0],
       },
       {
         type: 'list',

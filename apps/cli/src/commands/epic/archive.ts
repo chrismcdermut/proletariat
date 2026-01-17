@@ -46,6 +46,7 @@ export default class EpicArchive extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(EpicArchive);
+    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -63,7 +64,7 @@ export default class EpicArchive extends PMOCommand {
 
     // If no ID provided, prompt for selection (show only non-complete epics)
     if (!epicId) {
-      const epics = await this.storage.listEpics();
+      const epics = await this.storage.listEpics(projectId);
       const archivable = epics.filter(e => e.status !== 'complete' && e.status !== 'dropped');
 
       if (archivable.length === 0) {
@@ -77,7 +78,7 @@ export default class EpicArchive extends PMOCommand {
 
       // Get ticket counts
       const choices = await Promise.all(archivable.map(async e => {
-        const tickets = await this.storage.getTicketsForEpic(e.id);
+        const tickets = await this.storage.getTicketsForEpic(projectId, e.id);
         const done = tickets.filter((t: Ticket) => t.status === 'done').length;
         const complete = done === tickets.length && tickets.length > 0;
         return {
@@ -115,7 +116,7 @@ export default class EpicArchive extends PMOCommand {
     }
 
     // Check ticket completion
-    const tickets = await this.storage.getTicketsForEpic(epicId!);
+    const tickets = await this.storage.getTicketsForEpic(projectId, epicId!);
     const doneTickets = tickets.filter((t: Ticket) => t.status === 'done').length;
     const allComplete = doneTickets === tickets.length;
 
@@ -155,14 +156,14 @@ export default class EpicArchive extends PMOCommand {
     this.log(`Status: ${doneTickets}/${tickets.length} tickets complete${allComplete ? ' ✅' : ''}`);
 
     // Move the epic file to complete status directory
-    const moveResult = moveEpicFile(this.pmoPath, epicId!, epic.status, 'complete', this.projectId);
+    const moveResult = moveEpicFile(this.pmoPath, epicId!, epic.status, 'complete', projectId);
 
     await this.storage.updateEpic(epicId!, { status: 'complete' });
 
     this.log(styles.success(`\n✅ Archived epic ${styles.emphasis(epicId)} "${epic.title}"`));
     this.log(styles.muted(`   Status: ${epic.status} → complete`));
     if (moveResult) {
-      const relativePath = getRelativeEpicPath(this.pmoPath, epicId!, 'complete', this.projectId);
+      const relativePath = getRelativeEpicPath(this.pmoPath, epicId!, 'complete', projectId);
       this.log(styles.muted(`   File: ${relativePath}`));
     }
     this.log(styles.muted('\nView archived epics:'));

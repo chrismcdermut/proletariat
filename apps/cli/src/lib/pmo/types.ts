@@ -724,7 +724,7 @@ export interface Conflict {
 // Error Types
 // =============================================================================
 
-export type PMOErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'INVALID' | 'SYNC_FAILED'
+export type PMOErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'INVALID' | 'SYNC_FAILED' | 'NO_PROJECT'
 
 export class PMOError extends Error {
   constructor(
@@ -745,24 +745,25 @@ export interface PMOStorage {
   readonly type: 'sqlite' | 'git' | 'cloud' | 'adapter'
 
   // Board Operations
-  init(config: BoardConfig): Promise<Board>
-  getBoard(): Promise<Board>
-  getBoardMarkdown(): Promise<string>
+  init(projectId: string, config: BoardConfig): Promise<Board>
+  getBoard(projectId: string): Promise<Board>
+  getBoardMarkdown(projectId: string): Promise<string>
 
   // Column Operations
-  createColumn(name: string, position?: number): Promise<Column>
-  renameColumn(id: string, name: string): Promise<Column>
-  moveColumn(id: string, position: number): Promise<Column>
-  deleteColumn(id: string, cascade?: boolean): Promise<void>
+  getColumnNames(projectId: string): string[]
+  createColumn(projectId: string, name: string, position?: number): Promise<Column>
+  renameColumn(projectId: string, id: string, name: string): Promise<Column>
+  moveColumn(projectId: string, id: string, position: number): Promise<Column>
+  deleteColumn(projectId: string, id: string, cascade?: boolean): Promise<void>
 
   // Ticket Operations
-  createTicket(ticket: CreateTicketInput): Promise<Ticket>
+  createTicket(projectId: string, ticket: CreateTicketInput): Promise<Ticket>
   getTicket(id: string): Promise<Ticket | null>
   updateTicket(id: string, changes: Partial<Ticket>): Promise<Ticket>
-  moveTicket(id: string, column: string, position?: number): Promise<Ticket>
+  moveTicket(projectId: string, id: string, column: string, position?: number): Promise<Ticket>
   moveTicketToProject(ticketId: string, newProjectId: string): Promise<Ticket>
   deleteTicket(id: string): Promise<void>
-  listTickets(filter?: TicketFilter): Promise<Ticket[]>
+  listTickets(projectId: string | undefined, filter?: TicketFilter): Promise<Ticket[]>
 
   // Subtask Operations
   addSubtask(ticketId: string, title: string): Promise<Subtask>
@@ -777,7 +778,7 @@ export interface PMOStorage {
   deleteSpec(id: string): Promise<void>
   linkTicketToSpec(ticketId: string, specId: string): Promise<void>
   unlinkTicketFromSpec(ticketId: string, specId: string): Promise<void>
-  getTicketsForSpec(specId: string): Promise<Ticket[]>
+  getTicketsForSpec(projectId: string, specId: string): Promise<Ticket[]>
   getSpecsForTicket(ticketId: string): Promise<Spec[]>
   addSpecDependency(specId: string, dependsOnId: string): Promise<void>
   removeSpecDependency(specId: string, dependsOnId: string): Promise<void>
@@ -790,19 +791,20 @@ export interface PMOStorage {
   getProjectsForSpec(specId: string): Promise<Project[]>
 
   // Epic Operations
-  createEpic(epic: Partial<Epic>): Promise<Epic>
+  createEpic(projectId: string, epic: Partial<Epic>): Promise<Epic>
   getEpic(id: string): Promise<Epic | null>
-  listEpics(filter?: EpicFilter): Promise<Epic[]>
+  listEpics(projectId: string, filter?: EpicFilter): Promise<Epic[]>
+  reorderEpic(projectId: string, epicId: string, newPosition: number): Promise<Epic>
   updateEpic(id: string, changes: Partial<Epic>): Promise<Epic>
   deleteEpic(id: string): Promise<void>
-  getTicketsForEpic(epicId: string): Promise<Ticket[]>
+  getTicketsForEpic(projectId: string, epicId: string): Promise<Ticket[]>
   linkTicketToEpic(ticketId: string, epicId: string): Promise<void>
   unlinkTicketFromEpic(ticketId: string): Promise<void>
 
   // Workflow Status Operations
   listStatuses(projectId: string): Promise<WorkflowStatus[]>
   getStatus(id: string): Promise<WorkflowStatus | null>
-  createStatus(status: Partial<WorkflowStatus>): Promise<WorkflowStatus>
+  createStatus(projectId: string, status: Partial<WorkflowStatus>): Promise<WorkflowStatus>
   updateStatus(id: string, changes: Partial<WorkflowStatus>): Promise<WorkflowStatus>
   deleteStatus(id: string): Promise<void>
   reorderStatus(id: string, newPosition: number): Promise<WorkflowStatus>
@@ -863,7 +865,7 @@ export interface PMOStorage {
   updateBoardView(id: string, changes: Partial<BoardView>): Promise<BoardView>
   deleteBoardView(id: string): Promise<void>
   getDefaultBoardView(projectId: string): Promise<BoardView | null>
-  getBoardWithView(viewId?: string, filters?: BoardViewFilters): Promise<Board>
+  getBoardWithView(projectId: string, viewId?: string, filters?: BoardViewFilters): Promise<Board>
 
   // Sync Operations
   pull(): Promise<SyncResult>

@@ -66,6 +66,7 @@ export default class StatusCreate extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusCreate);
+    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -115,8 +116,7 @@ export default class StatusCreate extends PMOCommand {
       };
     }
 
-    const status = await this.storage.createStatus({
-      projectId: this.projectId,
+    const status = await this.storage.createStatus(projectId, {
       name: statusData.name,
       category: statusData.category,
       color: statusData.color,
@@ -124,9 +124,10 @@ export default class StatusCreate extends PMOCommand {
       isDefault: statusData.isDefault,
     });
 
+    const projectName = await this.getProjectName(projectId);
     this.log(styles.success(`\nCreated status "${styles.emphasis(status.name)}"`));
     this.log(styles.muted(`  Category: ${status.category}`));
-    this.log(styles.muted(`  Project: ${this.projectName}`));
+    this.log(styles.muted(`  Project: ${projectName}`));
     if (status.color) {
       this.log(styles.muted(`  Color: ${status.color}`));
     }

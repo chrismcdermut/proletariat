@@ -2,7 +2,6 @@
  * Column operations for board management.
  */
 
-import Database from 'better-sqlite3'
 import { PMO_TABLES } from '../schema.js'
 import { Column, PMOError, Ticket } from '../types.js'
 import { slugify } from '../utils.js'
@@ -16,10 +15,9 @@ export class ColumnStorage {
   constructor(private ctx: StorageContext) {}
 
   /**
-   * Get column names for current project.
+   * Get column names for a project.
    */
-  getColumnNames(): string[] {
-    const projectId = this.ctx.getCurrentProjectId()
+  getColumnNames(projectId: string): string[] {
     const rows = this.ctx.db.prepare(`
       SELECT name FROM ${T.columns}
       WHERE project_id = ?
@@ -31,8 +29,7 @@ export class ColumnStorage {
   /**
    * Create a new column.
    */
-  async createColumn(name: string, position?: number): Promise<Column> {
-    const projectId = this.ctx.getCurrentProjectId()
+  async createColumn(projectId: string, name: string, position?: number): Promise<Column> {
     const id = slugify(name)
     const pos = position ?? getMaxColumnPosition(this.ctx.db, projectId) + 1
     const now = Date.now()
@@ -61,7 +58,7 @@ export class ColumnStorage {
       VALUES (?, ?, ?, ?, ?)
     `).run(id, projectId, name, pos, now)
 
-    this.ctx.updateBoardTimestamp()
+    this.ctx.updateBoardTimestamp(projectId)
 
     return {
       id,
@@ -74,8 +71,7 @@ export class ColumnStorage {
   /**
    * Rename a column.
    */
-  async renameColumn(id: string, name: string): Promise<Column> {
-    const projectId = this.ctx.getCurrentProjectId()
+  async renameColumn(projectId: string, id: string, name: string): Promise<Column> {
     const existing = this.ctx.db.prepare(`
       SELECT * FROM ${T.columns}
       WHERE project_id = ? AND id = ?
@@ -91,21 +87,20 @@ export class ColumnStorage {
       WHERE project_id = ? AND id = ?
     `).run(name, projectId, id)
 
-    this.ctx.updateBoardTimestamp()
+    this.ctx.updateBoardTimestamp(projectId)
 
     return {
       id,
       name,
       position: existing.position,
-      tickets: await this.getTicketsForColumn(id),
+      tickets: await this.getTicketsForColumn(projectId, id),
     }
   }
 
   /**
    * Move a column to a new position.
    */
-  async moveColumn(id: string, position: number): Promise<Column> {
-    const projectId = this.ctx.getCurrentProjectId()
+  async moveColumn(projectId: string, id: string, position: number): Promise<Column> {
     const existing = this.ctx.db.prepare(`
       SELECT * FROM ${T.columns}
       WHERE project_id = ? AND id = ?
@@ -139,21 +134,20 @@ export class ColumnStorage {
       WHERE project_id = ? AND id = ?
     `).run(position, projectId, id)
 
-    this.ctx.updateBoardTimestamp()
+    this.ctx.updateBoardTimestamp(projectId)
 
     return {
       id,
       name: existing.name,
       position,
-      tickets: await this.getTicketsForColumn(id),
+      tickets: await this.getTicketsForColumn(projectId, id),
     }
   }
 
   /**
    * Delete a column.
    */
-  async deleteColumn(id: string, cascade?: boolean): Promise<void> {
-    const projectId = this.ctx.getCurrentProjectId()
+  async deleteColumn(projectId: string, id: string, cascade?: boolean): Promise<void> {
     const existing = this.ctx.db.prepare(`
       SELECT * FROM ${T.columns}
       WHERE project_id = ? AND id = ?
@@ -197,14 +191,13 @@ export class ColumnStorage {
       WHERE project_id = ? AND position > ?
     `).run(projectId, existing.position)
 
-    this.ctx.updateBoardTimestamp()
+    this.ctx.updateBoardTimestamp(projectId)
   }
 
   /**
    * Get tickets for a specific column.
    */
-  async getTicketsForColumn(columnId: string, projectId?: string): Promise<Ticket[]> {
-    const pid = projectId ?? this.ctx.getCurrentProjectId()
+  async getTicketsForColumn(projectId: string, columnId: string): Promise<Ticket[]> {
     const rows = this.ctx.db.prepare(`
       SELECT t.*, bt.column_id, bt.position, c.name as column_name
       FROM ${T.tickets} t
@@ -212,7 +205,7 @@ export class ColumnStorage {
       JOIN ${T.columns} c ON bt.project_id = c.project_id AND bt.column_id = c.id
       WHERE t.project_id = ? AND bt.column_id = ?
       ORDER BY bt.position
-    `).all(pid, columnId) as TicketRow[]
+    `).all(projectId, columnId) as TicketRow[]
 
     return Promise.all(rows.map((row) => rowToTicket(this.ctx.db, row)))
   }

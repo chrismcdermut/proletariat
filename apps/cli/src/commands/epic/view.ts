@@ -60,11 +60,13 @@ export default class EpicView extends PMOCommand {
       this.error(message);
     };
 
+    const projectId = await this.requireProject();
+
     let epicId = args.id;
 
     // If no ID provided, prompt for selection
     if (!epicId) {
-      const epics = await this.storage.listEpics();
+      const epics = await this.storage.listEpics(projectId);
       if (epics.length === 0) {
         if (jsonMode) {
           outputErrorAsJson('NO_EPICS', 'No epics found.', createMetadata('epic view', flags));
@@ -102,7 +104,7 @@ export default class EpicView extends PMOCommand {
       return handleError('EPIC_NOT_FOUND', `Epic not found: ${epicId}`);
     }
 
-    const tickets = await this.storage.getTicketsForEpic(epicId!);
+    const tickets = await this.storage.getTicketsForEpic(projectId, epicId!);
     const doneTickets = tickets.filter((t: Ticket) => t.statusCategory === 'completed').length;
     const percent = tickets.length > 0 ? Math.round((doneTickets / tickets.length) * 100) : 0;
 
@@ -113,11 +115,13 @@ export default class EpicView extends PMOCommand {
       specTitle = spec?.title;
     }
 
+    const projectName = await this.getProjectName(projectId);
+
     this.log(`\n🎯 Epic: ${styles.emphasis(epic.id)} - ${epic.title}`);
     this.log('═'.repeat(55));
     this.log(`ID: ${epic.id}`);
     this.log(`Title: ${epic.title}`);
-    this.log(`Project: ${this.projectName}`);
+    this.log(`Project: ${projectName}`);
     this.log(`Status: ${epic.status}`);
     if (epic.specId) {
       this.log(`Spec: ${epic.specId}${specTitle ? ` - ${specTitle}` : ''}`);

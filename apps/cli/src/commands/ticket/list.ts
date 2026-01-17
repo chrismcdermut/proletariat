@@ -89,7 +89,9 @@ export default class TicketList extends Command {
         filter.search = flags.search;
       }
 
-      const tickets = await pmoContext.storage.listTickets(filter);
+      // Determine projectId for the query
+      const projectId = flags.all ? undefined : (filter.projectId || undefined);
+      const tickets = await pmoContext.storage.listTickets(projectId, filter);
 
       if (tickets.length === 0) {
         this.log(styles.warning('No tickets found.'));
@@ -110,8 +112,13 @@ export default class TicketList extends Command {
             this.outputCrossProjectTable(tickets);
         }
       } else {
-        // Single project view
-        const board = await pmoContext.storage.getBoard();
+        // Single project view - get projectId from first ticket or use flag
+        const actualProjectId = projectId || tickets[0]?.projectId;
+        if (!actualProjectId) {
+          this.log(styles.warning('No project found.'));
+          return;
+        }
+        const board = await pmoContext.storage.getBoard(actualProjectId);
         const columns = board.columns.map(col => col.name);
 
         switch (flags.format) {

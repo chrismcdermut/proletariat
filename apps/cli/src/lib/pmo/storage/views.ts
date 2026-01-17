@@ -189,7 +189,7 @@ export class ViewStorage {
   /**
    * Get board with optional filters applied.
    */
-  async getBoardWithView(viewId?: string, filters?: BoardViewFilters): Promise<Board> {
+  async getBoardWithView(projectId: string, viewId?: string, filters?: BoardViewFilters): Promise<Board> {
     let viewFilters: BoardViewFilters = {}
     let viewSortBy: BoardViewSortBy | undefined
 
@@ -204,8 +204,6 @@ export class ViewStorage {
 
     // Override with explicit filters if provided
     const effectiveFilters = { ...viewFilters, ...filters }
-
-    const projectId = this.ctx.getCurrentProjectId()
 
     // Get project metadata
     const projectRow = this.ctx.db.prepare(`SELECT * FROM ${T.projects} WHERE id = ?`).get(

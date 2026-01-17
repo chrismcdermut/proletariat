@@ -67,6 +67,7 @@ export default class TicketEpic extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketEpic);
+    const filterProjectId = (flags as { project?: string }).project;
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -78,7 +79,7 @@ export default class TicketEpic extends PMOCommand {
     }
 
     // Get all tickets
-    const allTickets = await this.storage.listTickets();
+    const allTickets = await this.storage.listTickets(filterProjectId);
     if (allTickets.length === 0) {
       if (jsonMode) {
         outputErrorAsJson('NO_TICKETS', 'No tickets found.', createMetadata('ticket epic', flags));
@@ -88,8 +89,11 @@ export default class TicketEpic extends PMOCommand {
       return;
     }
 
+    // Get project for epics - use first ticket's project or prompt
+    const projectId = await this.requireProject();
+
     // Get all epics
-    const epics = await this.storage.listEpics();
+    const epics = await this.storage.listEpics(projectId);
 
     // Get epic_id for each ticket via direct DB query
     const db = (this.storage as unknown as { db: { prepare: (sql: string) => { get: (...args: unknown[]) => unknown; run: (...args: unknown[]) => void } } }).db;
@@ -236,8 +240,11 @@ export default class TicketEpic extends PMOCommand {
   }): Promise<void> {
     this.log(styles.emphasis('🔗 Link Tickets to Epic\n'));
 
+    // Get project first
+    const projectId = await this.requireProject();
+
     // Get all tickets
-    const allTickets = await this.storage.listTickets();
+    const allTickets = await this.storage.listTickets(projectId);
 
     if (allTickets.length === 0) {
       this.log(styles.warning('No tickets found.'));
@@ -250,7 +257,7 @@ export default class TicketEpic extends PMOCommand {
       SELECT id, title, status FROM pmo_epics
       WHERE project_id = ?
       ORDER BY status, title
-    `).all(this.storage.getCurrentProjectId()) as Array<{ id: string; title: string; status: string }>;
+    `).all(projectId) as Array<{ id: string; title: string; status: string }>;
 
     // Filter tickets if --from-epic specified
     let filteredTickets = allTickets;
@@ -259,7 +266,7 @@ export default class TicketEpic extends PMOCommand {
       const epicTickets = db.prepare(`
         SELECT id FROM pmo_tickets
         WHERE project_id = ? AND epic_id = ?
-      `).all(this.storage.getCurrentProjectId(), flags['from-epic']) as Array<{ id: string }>;
+      `).all(projectId, flags['from-epic']) as Array<{ id: string }>;
       const epicTicketIds = new Set(epicTickets.map(t => t.id));
       filteredTickets = allTickets.filter(t => epicTicketIds.has(t.id));
     }

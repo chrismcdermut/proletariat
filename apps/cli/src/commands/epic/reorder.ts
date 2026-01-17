@@ -73,8 +73,10 @@ export default class EpicReorder extends PMOCommand {
       this.error(message);
     };
 
+    const projectId = await this.requireProject();
+
     // Get all epics for context
-    const epics = await this.storage.listEpics({ status: 'active' });
+    const epics = await this.storage.listEpics(projectId, { status: 'active' });
     if (epics.length === 0) {
       if (jsonMode) {
         outputErrorAsJson('NO_ACTIVE_EPICS', 'No active epics to reorder.', createMetadata('epic reorder', flags));
@@ -173,10 +175,10 @@ export default class EpicReorder extends PMOCommand {
     }
 
     // Perform reorder
-    await this.storage.reorderEpic(epicId!, newPosition);
+    await this.storage.reorderEpic(projectId, epicId!, newPosition);
 
     // Show new order
-    const updatedEpics = await this.storage.listEpics({ status: 'active' });
+    const updatedEpics = await this.storage.listEpics(projectId, { status: 'active' });
     this.log(styles.success(`\n✅ Reordered ${epicId}`));
     this.log(`\nNew priority order:`);
     updatedEpics.forEach((e, i) => {
