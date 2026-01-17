@@ -653,18 +653,26 @@ The PR will be updated automatically.`,
     },
   ]
 
-  const insertAction = db.prepare(`
-    INSERT OR IGNORE INTO ${T.actions} (id, name, description, prompt, end_prompt, suggested_for_categories, default_move_to_category, modifies_code, is_builtin, position, created_at)
+  // Use INSERT OR REPLACE to always update builtin actions with latest prompts
+  // This ensures prompt improvements are applied to existing databases
+  const upsertAction = db.prepare(`
+    INSERT INTO ${T.actions} (id, name, description, prompt, end_prompt, suggested_for_categories, default_move_to_category, modifies_code, is_builtin, position, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-  `)
-
-  const updateEndPrompt = db.prepare(`
-    UPDATE ${T.actions} SET end_prompt = ? WHERE id = ? AND is_builtin = 1 AND (end_prompt IS NULL OR end_prompt = '')
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
+      description = excluded.description,
+      prompt = excluded.prompt,
+      end_prompt = excluded.end_prompt,
+      suggested_for_categories = excluded.suggested_for_categories,
+      default_move_to_category = excluded.default_move_to_category,
+      modifies_code = excluded.modifies_code,
+      position = excluded.position
+    WHERE is_builtin = 1
   `)
 
   const now = new Date().toISOString()
   for (const action of builtinActions) {
-    insertAction.run(
+    upsertAction.run(
       action.id,
       action.name,
       action.description,
@@ -676,9 +684,6 @@ The PR will be updated automatically.`,
       action.position,
       now
     )
-    if (action.endPrompt) {
-      updateEndPrompt.run(action.endPrompt, action.id)
-    }
   }
 }
 

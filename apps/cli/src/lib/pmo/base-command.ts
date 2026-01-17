@@ -143,11 +143,18 @@ export abstract class PMOCommand extends Command {
     }
 
     // Multiple projects - prompt for selection
+    // Sort projects by leading number in name (e.g., "1. MVP" before "10. Infra")
+    const sortedProjects = [...filteredProjects].sort((a, b) => {
+      const numA = parseInt(a.name.match(/^(\d+)/)?.[1] || '999', 10);
+      const numB = parseInt(b.name.match(/^(\d+)/)?.[1] || '999', 10);
+      return numA - numB;
+    });
+
     const { selectedProjectId } = await inquirer.prompt([{
       type: 'list',
       name: 'selectedProjectId',
       message: 'Select project:',
-      choices: filteredProjects.map(p => ({
+      choices: sortedProjects.map(p => ({
         name: `${p.name} (${p.id})`,
         value: p.id,
       })),
