@@ -846,6 +846,20 @@ export async function runDevcontainer(
     // Get container ID for docker exec (enables streaming output with TTY)
     const containerId = getDevcontainerContainerId(context.agentDir)
 
+    // Inject fresh GitHub token into container (containers may be reused with stale/empty tokens)
+    // This ensures git push works even if the container was created before token was available
+    if (containerId && (env.GITHUB_TOKEN || env.GH_TOKEN)) {
+      const token = env.GITHUB_TOKEN || env.GH_TOKEN
+      try {
+        // Write token to file and configure git credential helper
+        execSync(`docker exec ${containerId} bash -c 'echo "${token}" > /home/node/.github-token && chmod 600 /home/node/.github-token && git config --global credential.helper "!f() { echo \\"username=x-access-token\\"; echo \\"password=\\$(cat /home/node/.github-token)\\"; }; f" && git config --global url."https://github.com/".insteadOf "git@github.com:"'`, {
+          stdio: 'pipe',
+        })
+      } catch {
+        // Non-fatal - token injection failed but execution can continue
+      }
+    }
+
     // Build the devcontainer exec command
     const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId || undefined, config.outputMode, config.sandboxed, displayMode, sessionManager)
 
