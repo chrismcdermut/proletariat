@@ -227,12 +227,28 @@ export default class SessionAttach extends PMOCommand {
    * - We create a new tab via AppleScript and run the attach command there
    */
   private async attachInNewTab(session: SessionChoice, terminalApp: string): Promise<void> {
+    // Build a readable title for the tab
+    const title = session.ticketId
+      ? `${session.ticketId}${session.agentName ? ` (${session.agentName})` : ''}`
+      : session.name
+
     // For iTerm, use tmux -CC which handles its own window/tab creation
     if (terminalApp === 'iTerm') {
       this.log('')
       this.log(styles.muted('Using iTerm tmux integration (control mode).'))
       this.log(styles.muted('Tip: Configure tab/window behavior in iTerm Settings > General > tmux'))
       this.log('')
+
+      // Rename the tmux window to show a readable title, then attach
+      // This ensures iTerm picks up the correct tab name via tmux integration
+      try {
+        execSync(
+          `docker exec ${session.containerId} tmux rename-window -t "${session.name}" "${title}"`,
+          { stdio: 'pipe' }
+        )
+      } catch {
+        // Window rename failed - not critical, continue with attach
+      }
 
       // Run directly - iTerm's tmux integration will create the window/tab
       try {
@@ -252,11 +268,6 @@ export default class SessionAttach extends PMOCommand {
     const scriptPath = path.join(baseDir, `attach-${Date.now()}.sh`)
 
     const attachCmd = `docker exec -it ${session.containerId} tmux -u attach -t "${session.name}"`
-
-    // Set tab title
-    const title = session.ticketId
-      ? `${session.ticketId}${session.agentName ? ` (${session.agentName})` : ''}`
-      : session.name
 
     const script = `#!/bin/bash
 # Set terminal tab title
