@@ -220,12 +220,14 @@ export default class SessionList extends PMOCommand {
               })
             }
           }
-        } catch (err) {
-          console.debug(`[session:list] No tmux in container ${containerId}:`, err)
+        } catch {
+          // Container has no tmux sessions - expected for containers without active work
+          console.debug(`[session:list] No tmux sessions in container ${containerId}`)
         }
       }
-    } catch (err) {
-      console.debug('[session:list] Docker not available:', err)
+    } catch {
+      // Docker not available or command failed
+      console.debug('[session:list] Docker not available or no devcontainers running')
     }
 
     return sessions

@@ -187,13 +187,15 @@ export default class SessionAttach extends PMOCommand {
                   })
                 }
               }
-            } catch (err) {
-              console.debug(`[session:attach] No tmux in container ${containerId}:`, err)
+            } catch {
+              // Container has no tmux sessions - expected for containers without active work
+              console.debug(`[session:attach] No tmux sessions in container ${containerId}`)
             }
           }
         }
-      } catch (err) {
-        console.debug('[session:attach] Docker not available:', err)
+      } catch {
+        // Docker not available or command failed
+        console.debug('[session:attach] Docker not available or no devcontainers running')
       }
     } finally {
       db?.close()

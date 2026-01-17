@@ -913,11 +913,13 @@ export async function runDevcontainer(
     const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId || undefined, config.outputMode, config.sandboxed, displayMode)
 
     // Execute based on display mode
-    // When sessionManager is 'tmux', use runDevcontainerInTmux for nested tmux (except background)
+    // When sessionManager is 'tmux', always use tmux inside container for session persistence
+    // (allows reattach via `prlt session attach` even for background mode)
     let result: RunnerResult
-    if (sessionManager === 'tmux' && displayMode !== 'background') {
-      // Use nested tmux for all display modes when sessionManager is tmux
-      result = await runDevcontainerInTmux(context, devcontainerCmd, config)
+    if (sessionManager === 'tmux') {
+      // Use tmux inside container - pass displayMode to control whether to open terminal tab
+      // Pass containerId directly to avoid regex extraction issues with devcontainer exec commands
+      result = await runDevcontainerInTmux(context, devcontainerCmd, config, displayMode, containerId || undefined)
     } else {
       switch (displayMode) {
         case 'background':
@@ -1168,23 +1170,31 @@ async function runDevcontainerInBackground(
 async function runDevcontainerInTmux(
   context: ExecutionContext,
   devcontainerCmd: string,
-  config: ExecutionConfig
+  config: ExecutionConfig,
+  displayMode: DisplayMode = 'terminal',
+  containerId?: string
 ): Promise<RunnerResult> {
   // Session name: {ticketId}-{action} (e.g., TKT-347-implement)
   const sessionName = buildTmuxWindowName(context)
   const windowTitle = buildWindowTitle(context)
 
   try {
-    // Get container ID from the devcontainer command
-    // The devcontainerCmd is like: docker exec -it <containerId> bash -c '...'
-    const containerIdMatch = devcontainerCmd.match(/docker exec -it\s+(\S+)/)
-    if (!containerIdMatch) {
-      return {
-        success: false,
-        error: 'Could not extract container ID from devcontainer command',
+    // Get container ID - prefer passed value, fallback to extracting from command
+    // The devcontainerCmd is like: docker exec [-it] <containerId> bash -c '...'
+    // Note: -it flags are optional (not present in background mode)
+    let actualContainerId = containerId
+    if (!actualContainerId) {
+      const containerIdMatch = devcontainerCmd.match(/docker exec\s+(?:-it\s+)?(\S+)/)
+      if (containerIdMatch) {
+        actualContainerId = containerIdMatch[1]
       }
     }
-    const containerId = containerIdMatch[1]
+    if (!actualContainerId) {
+      return {
+        success: false,
+        error: 'Could not determine container ID for tmux session',
+      }
+    }
 
     // Step 1: Start tmux session INSIDE the container (detached)
     // Extract the claude command from the devcontainer command
@@ -1211,7 +1221,7 @@ exec bash
     const setupCmd = `echo ${base64Script} | base64 -d > ${scriptPath} && chmod +x ${scriptPath} && tmux new-session -d -s "${sessionName}" -n "${sessionName}" "${scriptPath}" \\; set-option -g mouse on \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
 
     try {
-      execSync(`docker exec ${containerId} bash -c '${setupCmd}'`, { stdio: 'pipe' })
+      execSync(`docker exec ${actualContainerId} bash -c '${setupCmd}'`, { stdio: 'pipe' })
     } catch (error) {
       return {
         success: false,
@@ -1220,11 +1230,21 @@ exec bash
     }
 
     // Step 2: Open iTerm tab that attaches directly to container's tmux
+    // Skip this step for background mode - just return success after tmux session is created
+    // User can reattach later with `prlt session attach`
+    if (displayMode === 'background') {
+      return {
+        success: true,
+        containerId: actualContainerId,
+        sessionId: sessionName, // Container tmux session name for tracking
+      }
+    }
+
     // NOTE: We don't use tmux -CC (control mode) here because we're already
     // creating a tab via AppleScript. Using -CC would cause iTerm to create
     // another window for the tmux session (double windows).
     // Users can reattach with `prlt session attach` which uses -CC for native scrolling.
-    const attachCmd = `docker exec -it ${containerId} tmux -u attach -t "${sessionName}"`
+    const attachCmd = `docker exec -it ${actualContainerId} tmux -u attach -t "${sessionName}"`
 
     const baseDir = context.hqPath
       ? path.join(context.hqPath, '.proletariat', 'scripts')
@@ -1238,7 +1258,7 @@ exec bash
 ${setTitleCmds}
 # Attach to container tmux session
 # Session: ${sessionName}
-# Container: ${containerId}
+# Container: ${actualContainerId}
 ${attachCmd}
 
 # Clean up
@@ -1311,7 +1331,7 @@ exec $SHELL
 
     return {
       success: true,
-      containerId,
+      containerId: actualContainerId,
       sessionId: sessionName, // Container tmux session name for tracking
     }
   } catch (error) {
