@@ -28,10 +28,8 @@ export type RuntimeMode =
  * When devcontainer is available, this determines how we show the sandboxed execution.
  */
 export type DisplayMode =
-  | 'terminal'      // New terminal window showing devcontainer execution
-  | 'foreground'    // Current terminal showing devcontainer execution
+  | 'terminal'      // New terminal tab showing devcontainer execution
   | 'background'    // Detached, logs to file
-  | 'tmux'          // Tmux pane/window
 
 /**
  * ExecutionEnvironment - Where the agent code runs.

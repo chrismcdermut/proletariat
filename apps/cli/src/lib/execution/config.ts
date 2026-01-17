@@ -377,9 +377,9 @@ export async function promptExecutionSettings(
   }
 
   // Prompt for output mode (interactive vs print)
-  // Only show this for display modes where streaming makes sense (terminal, tmux, foreground)
+  // Only show this for terminal mode where streaming makes sense (not background)
   let outputMode: OutputMode = options.outputMode ?? DEFAULT_EXECUTION_CONFIG.outputMode
-  const streamingDisplayModes: DisplayMode[] = ['terminal', 'tmux', 'foreground']
+  const streamingDisplayModes: DisplayMode[] = ['terminal']
 
   if (options.outputMode === undefined && streamingDisplayModes.includes(displayMode)) {
     const { selectedOutputMode } = await inquirer.prompt([

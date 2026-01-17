@@ -74,7 +74,7 @@ export default class WorkWatch extends PMOCommand {
     mode: Flags.string({
       char: 'm',
       description: 'Display mode for agent output',
-      options: ['terminal', 'foreground', 'background', 'tmux'],
+      options: ['terminal', 'background'],
     }),
     'skip-permissions': Flags.boolean({
       description: 'Skip permission prompts (danger mode)',
@@ -239,10 +239,8 @@ export default class WorkWatch extends PMOCommand {
             name: 'selectedDisplay',
             message: 'How should agent output be displayed?',
             choices: [
-              { name: 'terminal     - New terminal window per agent (macOS)', value: 'terminal' },
-              { name: 'tmux         - New tmux pane/window per agent', value: 'tmux' },
-              { name: 'background   - Detached, logs to file (quiet)', value: 'background' },
-              { name: 'foreground   - Run sequentially in current terminal', value: 'foreground' },
+              { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+              { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
             ],
             default: 'terminal',
           },

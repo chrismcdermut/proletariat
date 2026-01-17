@@ -731,7 +731,7 @@ function buildDevcontainerCommand(
   containerId?: string,
   outputMode: OutputMode = 'interactive',
   sandboxed: boolean = true,
-  displayMode: DisplayMode = 'foreground'
+  displayMode: DisplayMode = 'terminal'
 ): string {
   // Get base command (just 'claude' for claude-code)
   let baseCmd: string
@@ -809,7 +809,7 @@ export async function runDevcontainer(
   context: ExecutionContext,
   executor: ExecutorType,
   config: ExecutionConfig,
-  displayMode: DisplayMode = 'foreground',
+  displayMode: DisplayMode = 'terminal',
   sessionManager: SessionManager = 'direct'
 ): Promise<RunnerResult> {
   // Devcontainer config is in the agent directory, not the worktree
@@ -916,18 +916,12 @@ export async function runDevcontainer(
       result = await runDevcontainerInTmux(context, devcontainerCmd, config)
     } else {
       switch (displayMode) {
-        case 'terminal':
-          result = await runDevcontainerInTerminal(context, devcontainerCmd, config)
-          break
         case 'background':
           result = await runDevcontainerInBackground(context, devcontainerCmd)
           break
-        case 'tmux':
-          result = await runDevcontainerInTmux(context, devcontainerCmd, config)
-          break
-        case 'foreground':
+        case 'terminal':
         default:
-          result = await runDevcontainerForeground(context, devcontainerCmd)
+          result = await runDevcontainerInTerminal(context, devcontainerCmd, config)
           break
       }
     }
@@ -983,33 +977,6 @@ export async function runDevcontainer(
     }
   }
 }
-
-/**
- * Run devcontainer command in foreground (current terminal)
- */
-async function runDevcontainerForeground(
-  context: ExecutionContext,
-  devcontainerCmd: string
-): Promise<RunnerResult> {
-  const child = spawn('sh', ['-c', devcontainerCmd], {
-    stdio: 'inherit',
-  })
-
-  return new Promise((resolve) => {
-    child.on('error', (error) => {
-      resolve({ success: false, error: error.message })
-    })
-
-    child.on('close', (code) => {
-      resolve({
-        success: code === 0,
-        containerId: `devcontainer-${context.agentName}`,
-        error: code !== 0 ? `Process exited with code ${code}` : undefined,
-      })
-    })
-  })
-}
-
 /**
  * Run devcontainer command in a new terminal window.
  * Uses a temp script file to avoid shell escaping issues with complex prompts.
@@ -1022,7 +989,7 @@ async function runDevcontainerInTerminal(
   if (process.platform !== 'darwin') {
     return {
       success: false,
-      error: 'Terminal mode is only supported on macOS. Use foreground or tmux mode instead.',
+      error: 'Terminal mode is only supported on macOS. Use background mode instead.',
     }
   }
 

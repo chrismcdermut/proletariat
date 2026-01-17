@@ -159,7 +159,7 @@ export default class WorkStart extends PMOCommand {
     display: Flags.string({
       char: 'd',
       description: 'Display mode for devcontainer (where to show output)',
-      options: ['terminal', 'foreground', 'background', 'tmux'],
+      options: ['terminal', 'background'],
     }),
     session: Flags.string({
       char: 's',
@@ -715,9 +715,9 @@ export default class WorkStart extends PMOCommand {
       const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
 
       // Prompt for output mode (interactive vs print)
-      // Only show this for display modes where streaming makes sense (terminal, tmux, foreground)
+      // Only show this for terminal mode where streaming makes sense (not background)
       let outputMode: OutputMode = DEFAULT_EXECUTION_CONFIG.outputMode
-      const streamingDisplayModes: DisplayMode[] = ['terminal', 'tmux', 'foreground']
+      const streamingDisplayModes: DisplayMode[] = ['terminal']
       const currentDisplayMode = mode === 'devcontainer' ? displayMode : mode as DisplayMode
 
       if (flags.output) {
