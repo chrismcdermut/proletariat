@@ -377,3 +377,141 @@ export function buildFormPromptConfig(
     fields,
   }
 }
+
+/**
+ * Convert a camelCase or PascalCase string to kebab-case
+ *
+ * @param str - Input string
+ * @returns kebab-case string
+ */
+function toKebabCase(str: string): string {
+  return str.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase()
+}
+
+/**
+ * Flag mapping configuration for buildCliCommand
+ * Maps option names to their CLI flag representations
+ */
+export interface FlagMapping {
+  /** The CLI flag name (without --), e.g., 'column' for --column */
+  flag: string
+  /** Optional short flag alias, e.g., 'c' for -c */
+  short?: string
+  /** If true, this is a positional argument, not a flag */
+  positional?: boolean
+}
+
+/**
+ * Build a CLI command string from collected options
+ *
+ * This function helps users learn CLI flags by showing the equivalent
+ * command after they complete an interactive prompt session.
+ *
+ * @param command - Base command (e.g., 'prlt ticket create')
+ * @param options - Object with option names and their values
+ * @param flagMap - Optional map from option names to FlagMapping or flag strings
+ * @returns Formatted CLI command string
+ *
+ * @example
+ * ```typescript
+ * const cmd = buildCliCommand('prlt ticket create', {
+ *   title: 'Fix login bug',
+ *   column: 'Backlog',
+ *   priority: 'HIGH',
+ * })
+ * // Returns: prlt ticket create --title "Fix login bug" --column Backlog --priority HIGH
+ * ```
+ */
+export function buildCliCommand(
+  command: string,
+  options: Record<string, unknown>,
+  flagMap?: Record<string, string | FlagMapping>
+): string {
+  const parts: string[] = [command]
+  const positionalArgs: string[] = []
+
+  for (const [key, value] of Object.entries(options)) {
+    // Skip empty/null/undefined/false values
+    if (value === undefined || value === null || value === '' || value === false) {
+      continue
+    }
+
+    const mapping = flagMap?.[key]
+    const flagConfig: FlagMapping | undefined = typeof mapping === 'string'
+      ? { flag: mapping }
+      : mapping
+
+    // Handle positional arguments
+    if (flagConfig?.positional) {
+      if (Array.isArray(value)) {
+        positionalArgs.push(...value.map(v => formatArgValue(String(v))))
+      } else {
+        positionalArgs.push(formatArgValue(String(value)))
+      }
+      continue
+    }
+
+    // Get the flag name (use mapping if provided, otherwise kebab-case the key)
+    const flagName = flagConfig?.flag || toKebabCase(key)
+
+    if (value === true) {
+      // Boolean flag
+      parts.push(`--${flagName}`)
+    } else if (Array.isArray(value)) {
+      // For arrays, join with commas (common pattern for labels, tags, etc.)
+      const joined = value.join(',')
+      parts.push(`--${flagName}`, formatArgValue(joined))
+    } else {
+      parts.push(`--${flagName}`, formatArgValue(String(value)))
+    }
+  }
+
+  // Add positional args at the end
+  parts.push(...positionalArgs)
+
+  return parts.join(' ')
+}
+
+/**
+ * Format an argument value, quoting if necessary
+ */
+function formatArgValue(value: string): string {
+  // Quote strings that contain spaces or special shell characters
+  if (value.includes(' ') || value.includes('"') || value.includes("'") || value.includes('$')) {
+    // Escape any existing double quotes and wrap in double quotes
+    return `"${value.replace(/"/g, '\\"')}"`
+  }
+  return value
+}
+
+/**
+ * Display the equivalent CLI command after interactive prompts
+ *
+ * Call this after collecting options interactively to show users
+ * the equivalent CLI command they could use for scripting/automation.
+ *
+ * @param command - Base command
+ * @param options - Collected options from interactive prompts
+ * @param flagMap - Optional flag name mapping
+ * @param log - Optional custom log function (defaults to console.log)
+ *
+ * @example
+ * ```typescript
+ * // After collecting ticket data interactively:
+ * showEquivalentCommand('prlt ticket create', {
+ *   title: ticketData.title,
+ *   column: ticketData.statusName,
+ *   priority: ticketData.priority,
+ * })
+ * // Outputs: Equivalent: prlt ticket create --title "Fix bug" --column Backlog --priority HIGH
+ * ```
+ */
+export function showEquivalentCommand(
+  command: string,
+  options: Record<string, unknown>,
+  flagMap?: Record<string, string | FlagMapping>,
+  log: (msg: string) => void = console.log
+): void {
+  const cliCommand = buildCliCommand(command, options, flagMap)
+  log(`\n  Equivalent: ${cliCommand}\n`)
+}

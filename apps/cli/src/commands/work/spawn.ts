@@ -15,6 +15,7 @@ import {
   outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
+  showEquivalentCommand,
 } from '../../lib/prompt-json.js'
 
 export default class WorkSpawn extends PMOCommand {
@@ -845,6 +846,35 @@ export default class WorkSpawn extends PMOCommand {
         if (batchAction) {
           selectedActionDetails = await this.storage.getAction(batchAction)
         }
+      }
+
+      // Show the equivalent CLI command for educational purposes (only in batch mode)
+      if (!flags['per-ticket'] && !jsonMode) {
+        const ticketIds = ticketsToSpawn.map(t => t.id)
+        showEquivalentCommand(
+          'prlt work spawn',
+          {
+            // Positional ticket IDs
+            tickets: ticketIds,
+            mode: batchMode,
+            output: batchOutput,
+            action: batchAction,
+            'skip-permissions': batchSkipPermissions,
+            'create-pr': batchCreatePr,
+            'no-pr': batchNoPr,
+            'run-on-host': batchRunOnHost,
+            session: flags.session,
+            yes: true, // Skip confirmation when using the equivalent command
+          },
+          {
+            tickets: { flag: '', positional: true },
+            mode: 'm',
+            output: 'o',
+            action: 'action',
+            session: 'session',
+          },
+          (msg) => this.log(styles.muted(msg))
+        )
       }
 
       // Spawn each ticket

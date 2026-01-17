@@ -11,6 +11,7 @@ import {
   outputSuccessAsJson,
   createMetadata,
   buildPromptConfig,
+  showEquivalentCommand,
 } from '../../lib/prompt-json.js';
 
 export default class TicketCreate extends PMOCommand {
@@ -138,6 +139,28 @@ export default class TicketCreate extends PMOCommand {
 
     if (flags.interactive || !flags.title) {
       ticketData = await this.promptTicketData(flags, this.storage, template);
+
+      // Show the equivalent CLI command for educational purposes
+      showEquivalentCommand(
+        'prlt ticket create',
+        {
+          title: ticketData.title,
+          column: ticketData.statusName,
+          priority: ticketData.priority,
+          category: ticketData.category,
+          epic: ticketData.epicId,
+          labels: ticketData.labels?.join(','),
+          id: ticketData.id,
+        },
+        {
+          title: 't',
+          column: 'c',
+          priority: 'p',
+          epic: 'e',
+          labels: 'l',
+        },
+        (msg) => this.log(styles.muted(msg))
+      );
     } else {
       if (!flags.title && !template?.titlePattern) {
         this.error('Title is required. Use --title or -t flag, or use --interactive mode.');
