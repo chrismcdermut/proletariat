@@ -623,10 +623,8 @@ export default class WorkStart extends PMOCommand {
                 name: 'selectedDisplay',
                 message: 'How should the agent output be displayed?',
                 choices: [
-                  { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
-                  { name: 'foreground   - Run in current terminal', value: 'foreground' },
-                  { name: 'tmux         - New tmux pane/window', value: 'tmux' },
-                  { name: 'background   - Detached process, logs to file', value: 'background' },
+                  { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                  { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
                 ],
                 default: 'terminal',
               },
@@ -641,14 +639,12 @@ export default class WorkStart extends PMOCommand {
               {
                 type: 'list',
                 name: 'selectedMode',
-                message: 'Select execution mode:',
+                message: 'How should the agent output be displayed?',
                 choices: [
-                  { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
-                  { name: 'foreground   - Run in current terminal', value: 'foreground' },
-                  { name: 'tmux         - New tmux pane/window', value: 'tmux' },
-                  { name: 'background   - Detached process, logs to file', value: 'background' },
+                  { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                  { name: '📦 Background  - Runs detached (logs to file)', value: 'background' },
                 ],
-                default: DEFAULT_EXECUTION_CONFIG.defaultMode,
+                default: 'terminal',
               },
             ])
             mode = selectedMode as RuntimeMode
@@ -693,16 +689,14 @@ export default class WorkStart extends PMOCommand {
               name: 'selectedMode',
               message: warningMsg,
               choices: [
-                { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
-                { name: 'foreground   - Run in current terminal', value: 'foreground' },
-                { name: 'tmux         - New tmux pane/window', value: 'tmux' },
-                { name: 'background   - Detached process, logs to file', value: 'background' },
+                { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                { name: '📦 Background  - Runs detached (logs to file)', value: 'background' },
                 new inquirer.Separator('── Sandboxed (requires setup) ──'),
-                { name: 'docker       - Container with worktree mounted', value: 'docker' },
+                { name: '🐳 Docker      - Container with worktree mounted', value: 'docker' },
                 new inquirer.Separator('── Remote ──'),
-                { name: 'vm           - Remote VM via SSH', value: 'vm' },
+                { name: '☁️  VM          - Remote VM via SSH', value: 'vm' },
               ],
-              default: DEFAULT_EXECUTION_CONFIG.defaultMode,
+              default: 'terminal',
             },
           ])
           mode = selectedMode as RuntimeMode

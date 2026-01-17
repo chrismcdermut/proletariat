@@ -726,38 +726,24 @@ export default class WorkSpawn extends PMOCommand {
               batchMode = 'devcontainer'
               environmentSelected = true
 
-              // For devcontainer, also prompt for display mode
+              // For devcontainer, prompt for display mode
+              // Simplified: tmux is always used inside container for session persistence
               const { selectedDisplay } = await inquirer.prompt([
                 {
                   type: 'list',
                   name: 'selectedDisplay',
                   message: 'How should agent output be displayed?',
                   choices: [
-                    { name: '🖥️  terminal     - New terminal tab (recommended)', value: 'terminal' },
-                    { name: '📺 foreground  - Current terminal (one at a time)', value: 'foreground' },
-                    { name: '🔲 tmux        - Tmux pane/window', value: 'tmux' },
-                    { name: '📦 background  - Detached (logs to file)', value: 'background' },
+                    { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                    { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
                   ],
                   default: 'terminal',
                 },
               ])
               batchDisplayMode = selectedDisplay
 
-              // Prompt for session manager inside the container
-              const { selectedSession } = await inquirer.prompt([
-                {
-                  type: 'list',
-                  name: 'selectedSession',
-                  message: 'How should sessions be managed inside the container?',
-                  choices: [
-                    { name: '🔲 tmux   - Run in tmux (attach with: docker exec -it <container> tmux attach)', value: 'tmux' },
-                    { name: '⚡ direct - Run directly (simpler, no session management)', value: 'direct' },
-                  ],
-                  default: 'tmux',
-                },
-              ])
-              // Store session choice for passing to work:start
-              flags.session = selectedSession
+              // Always use tmux inside container for session persistence
+              flags.session = 'tmux'
             } else {
               batchRunOnHost = true
               environmentSelected = true
@@ -773,10 +759,8 @@ export default class WorkSpawn extends PMOCommand {
               name: 'selectedMode',
               message: 'How should agent output be displayed?',
               choices: [
-                { name: '🖥️  terminal     - New terminal window (recommended)', value: 'terminal' },
-                { name: '📺 foreground  - Current terminal', value: 'foreground' },
-                { name: '🔲 tmux        - Tmux pane/window', value: 'tmux' },
-                { name: '📦 background  - Detached (logs to file)', value: 'background' },
+                { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                { name: '📦 Background  - Runs detached (logs to file)', value: 'background' },
               ],
             },
           ])
