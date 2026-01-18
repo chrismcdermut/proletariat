@@ -9,7 +9,6 @@ import { PMO_TABLES } from '../pmo/schema.js'
 import {
   AgentWork,
   ExecutionStatus,
-  RuntimeMode,
   ExecutorType,
   ExecutionEnvironment,
   DisplayMode,
@@ -26,7 +25,6 @@ interface AgentWorkRow {
   ticket_id: string
   agent_name: string
   executor: string
-  mode: string
   environment: string
   display_mode: string
   sandboxed: number
@@ -52,7 +50,6 @@ function rowToAgentWork(row: AgentWorkRow): AgentWork {
     ticketId: row.ticket_id,
     agentName: row.agent_name,
     executor: row.executor as ExecutorType,
-    mode: row.mode as RuntimeMode,
     environment: (row.environment || 'host') as ExecutionEnvironment,
     displayMode: (row.display_mode || 'terminal') as DisplayMode,
     sandboxed: row.sandboxed === 1,
@@ -99,7 +96,6 @@ export class ExecutionStorage {
     ticketId: string
     agentName: string
     executor: ExecutorType
-    mode: RuntimeMode
     environment: ExecutionEnvironment
     displayMode: DisplayMode
     sandboxed: boolean
@@ -115,15 +111,14 @@ export class ExecutionStorage {
 
     this.db.prepare(`
       INSERT INTO ${T.agent_work} (
-        id, ticket_id, agent_name, executor, mode, environment, display_mode, sandboxed,
+        id, ticket_id, agent_name, executor, environment, display_mode, sandboxed,
         status, branch, pid, container_id, session_id, host, log_path, started_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       params.ticketId,
       params.agentName,
       params.executor,
-      params.mode,
       params.environment,
       params.displayMode,
       params.sandboxed ? 1 : 0,

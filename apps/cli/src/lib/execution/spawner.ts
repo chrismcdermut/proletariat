@@ -19,7 +19,6 @@ import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
 import { runExecution, isDockerRunning } from './runners.js'
 import {
-  RuntimeMode,
   DisplayMode,
   SessionManager,
   ExecutorType,
@@ -305,16 +304,6 @@ export async function spawnAgentForTicket(
   }
 
   const displayMode: DisplayMode = options.displayMode || 'terminal'
-
-  // Determine runtime mode based on environment and display mode
-  let mode: RuntimeMode
-  if (environment === 'devcontainer') {
-    mode = 'devcontainer'
-  } else {
-    // For host environment, mode matches display mode
-    mode = displayMode as RuntimeMode
-  }
-
   const sandboxed = !(options.skipPermissions ?? false)
 
   // Create branch in worktree(s)
@@ -395,7 +384,6 @@ export async function spawnAgentForTicket(
     ticketId: ticket.id,
     agentName,
     executor,
-    mode,
     environment,
     displayMode,
     sandboxed,
@@ -410,8 +398,8 @@ export async function spawnAgentForTicket(
 
   // Run execution
   const sessionManager = options.sessionManager || 'direct'
-  const result = await runExecution(mode, context, executor, executionConfig, {
-    displayMode: environment === 'devcontainer' ? displayMode : undefined,
+  const result = await runExecution(environment, context, executor, executionConfig, {
+    displayMode,
     sessionManager: environment === 'devcontainer' ? sessionManager : undefined,
   })
 

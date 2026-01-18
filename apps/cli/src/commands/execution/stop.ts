@@ -181,7 +181,7 @@ export default class ExecutionStop extends PMOCommand {
       // In JSON mode, output execution selection prompt
       if (jsonMode) {
         const execChoices = activeExecutions.map((e) => ({
-          name: `${e.id} - ${e.ticketId} (${e.agentName}, ${e.mode})`,
+          name: `${e.id} - ${e.ticketId} (${e.agentName}, ${e.environment})`,
           value: e.id,
         }))
         outputPromptAsJson(
@@ -197,7 +197,7 @@ export default class ExecutionStop extends PMOCommand {
           name: 'selectedId',
           message: 'Select execution to stop:',
           choices: activeExecutions.map((e) => ({
-            name: `${e.id} - ${e.ticketId} (${e.agentName}, ${e.mode})`,
+            name: `${e.id} - ${e.ticketId} (${e.agentName}, ${e.environment})`,
             value: e.id,
           })),
         },
@@ -241,9 +241,26 @@ export default class ExecutionStop extends PMOCommand {
 
   private async stopExecution(execution: AgentWork, force: boolean): Promise<boolean> {
     try {
-      switch (execution.mode) {
-        case 'foreground':
-        case 'background':
+      // First try to kill any tmux session (all environments use tmux for session management)
+      if (execution.sessionId) {
+        try {
+          // Try to kill the tmux session
+          if (execution.environment === 'devcontainer' && execution.containerId) {
+            // Kill tmux session inside container
+            execSync(`docker exec ${execution.containerId} tmux kill-session -t "${execution.sessionId}"`, { stdio: 'pipe' })
+          } else {
+            // Kill host tmux session
+            execSync(`tmux kill-session -t "${execution.sessionId}"`, { stdio: 'pipe' })
+          }
+        } catch {
+          // Session may not exist
+        }
+      }
+
+      // Handle environment-specific cleanup
+      switch (execution.environment) {
+        case 'host':
+          // Kill process if we have a PID
           if (execution.pid) {
             const signal = force ? 'SIGKILL' : 'SIGTERM'
             try {
@@ -254,21 +271,6 @@ export default class ExecutionStop extends PMOCommand {
           }
           return true
 
-        case 'tmux':
-          if (execution.sessionId) {
-            try {
-              const [session, window] = execution.sessionId.split(':')
-              execSync(`tmux kill-window -t ${session}:${window}`, { stdio: 'pipe' })
-            } catch {
-              // Window may not exist
-            }
-          }
-          return true
-
-        case 'terminal':
-          this.warn('Cannot automatically stop Terminal windows. Please close manually.')
-          return true
-
         case 'docker':
         case 'devcontainer':
           if (execution.containerId) {
@@ -276,14 +278,8 @@ export default class ExecutionStop extends PMOCommand {
               this.warn('Docker is not running. Cannot stop container.')
               return true
             }
-            try {
-              const cmd = force
-                ? `docker kill ${execution.containerId}`
-                : `docker stop ${execution.containerId}`
-              execSync(cmd, { stdio: 'pipe' })
-            } catch {
-              // Container may have already stopped
-            }
+            // Note: We don't stop the container itself, just the tmux session inside
+            // The container can be reused for future work
           }
           return true
 
@@ -296,7 +292,7 @@ export default class ExecutionStop extends PMOCommand {
           return true
 
         default:
-          this.warn(`Unknown mode: ${execution.mode}`)
+          this.warn(`Unknown environment: ${execution.environment}`)
           return true
       }
     } catch (error) {

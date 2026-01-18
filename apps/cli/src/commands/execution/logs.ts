@@ -130,13 +130,13 @@ export default class ExecutionLogs extends PMOCommand {
       // Check for log file
       if (!execution.logPath) {
         this.log(styles.muted(`\nNo log file for execution ${execId}`))
-        this.log(styles.muted(`Mode: ${execution.mode}`))
+        this.log(styles.muted(`Environment: ${execution.environment}`))
 
-        if (execution.mode === 'tmux' && execution.sessionId) {
+        if (execution.sessionId) {
           this.log('')
           this.log(styles.muted('View in tmux:'))
           this.log(styles.muted(`  tmux attach -t ${execution.sessionId}`))
-        } else if (execution.mode === 'docker' && execution.containerId) {
+        } else if (execution.environment === 'docker' && execution.containerId) {
           this.log('')
           this.log(styles.muted('View docker logs:'))
           this.log(styles.muted(`  docker logs -f ${execution.containerId}`))

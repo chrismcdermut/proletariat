@@ -292,7 +292,6 @@ export const PMO_TABLE_SCHEMAS = {
       ticket_id TEXT NOT NULL,
       agent_name TEXT NOT NULL,
       executor TEXT NOT NULL,
-      mode TEXT NOT NULL,
       environment TEXT NOT NULL DEFAULT 'host',
       display_mode TEXT NOT NULL DEFAULT 'terminal',
       sandboxed INTEGER NOT NULL DEFAULT 0,

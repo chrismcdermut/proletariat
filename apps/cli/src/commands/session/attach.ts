@@ -7,16 +7,16 @@ import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
-import { ExecutionStorage, extractTicketFromSession } from '../../lib/execution/index.js'
+import { ExecutionStorage } from '../../lib/execution/index.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 
 interface SessionChoice {
-  name: string
-  value: string
+  name: string           // Session name (for display)
+  sessionId: string      // Actual tmux session ID
   type: 'host' | 'container'
   containerId?: string
-  ticketId?: string
-  agentName?: string
+  ticketId: string
+  agentName: string
 }
 
 export default class SessionAttach extends PMOCommand {
@@ -24,13 +24,13 @@ export default class SessionAttach extends PMOCommand {
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> prlt-TKT-347-implement',
-    '<%= config.bin %> <%= command.id %> --new-tab',
+    '<%= config.bin %> <%= command.id %> TKT-347-implement-altman',
+    '<%= config.bin %> <%= command.id %> --current-terminal',
   ]
 
   static args = {
     session: Args.string({
-      description: 'Session name to attach to (optional - will prompt if not provided)',
+      description: 'Session name or ticket ID to attach to (optional - will prompt if not provided)',
       required: false,
     }),
   }
@@ -61,8 +61,8 @@ export default class SessionAttach extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SessionAttach)
 
-    // Get all available sessions
-    const sessions = this.getAllSessions()
+    // Get all available sessions (DB-driven)
+    const sessions = this.getVerifiedSessions()
 
     if (sessions.length === 0) {
       this.log('')
@@ -77,11 +77,12 @@ export default class SessionAttach extends PMOCommand {
     let selectedSession: SessionChoice | undefined
 
     if (args.session) {
-      // Find session by name (partial match)
+      // Find session by name, sessionId, or ticketId (partial match)
       selectedSession = sessions.find(s =>
-        s.name === args.session ||
-        s.name.includes(args.session!) ||
-        s.value === args.session
+        s.sessionId === args.session ||
+        s.sessionId.includes(args.session!) ||
+        s.ticketId === args.session ||
+        s.ticketId.includes(args.session!)
       )
 
       if (!selectedSession) {
@@ -95,13 +96,13 @@ export default class SessionAttach extends PMOCommand {
           name: 'session',
           message: 'Select a session to attach to:',
           choices: sessions.map(s => ({
-            name: `${s.name}${s.ticketId ? ` (${s.ticketId})` : ''}${s.agentName ? ` - ${s.agentName}` : ''} [${s.type}]`,
-            value: s.value,
+            name: `${s.sessionId} (${s.ticketId}) - ${s.agentName} [${s.type}]`,
+            value: s.sessionId,
           })),
         },
       ])
 
-      selectedSession = sessions.find(s => s.value === session)
+      selectedSession = sessions.find(s => s.sessionId === session)
     }
 
     if (!selectedSession) {
@@ -110,7 +111,7 @@ export default class SessionAttach extends PMOCommand {
 
     // Attach to the session
     this.log('')
-    this.log(styles.info(`Attaching to session: ${selectedSession.name}`))
+    this.log(styles.info(`Attaching to session: ${selectedSession.sessionId}`))
 
     // Default to new tab unless --current-terminal is specified
     if (flags['current-terminal']) {
@@ -121,12 +122,12 @@ export default class SessionAttach extends PMOCommand {
   }
 
   /**
-   * Get all available sessions (container tmux only - simplified)
+   * Get verified sessions from DB that have actual tmux processes
+   * DB-driven approach: Start with executions, verify tmux sessions exist
    */
-  private getAllSessions(): SessionChoice[] {
+  private getVerifiedSessions(): SessionChoice[] {
     const sessions: SessionChoice[] = []
 
-    // Get workspace info for execution records
     let executionStorage: ExecutionStorage | null = null
     let db: Database.Database | null = null
 
@@ -135,67 +136,45 @@ export default class SessionAttach extends PMOCommand {
       const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
       db = new Database(dbPath)
       executionStorage = new ExecutionStorage(db)
-    } catch (err) {
-      console.debug('[session:attach] Not in workspace, skipping execution storage:', err)
+    } catch {
+      return sessions  // Not in workspace
     }
 
     try {
-      // Get running executions for metadata
+      // Get active executions from DB
       const activeExecutions = [
-        ...(executionStorage?.listExecutions({ status: 'running' }) || []),
-        ...(executionStorage?.listExecutions({ status: 'starting' }) || []),
+        ...(executionStorage.listExecutions({ status: 'running' }) || []),
+        ...(executionStorage.listExecutions({ status: 'starting' }) || []),
       ]
-      const executionBySession = new Map(
-        activeExecutions
-          .filter(e => e.sessionId)
-          .map(e => [e.sessionId!, e])
-      )
 
-      // Get container tmux sessions (no host tmux - simplified architecture)
-      try {
-        const containersOutput = execSync(
-          'docker ps --filter "label=devcontainer.local_folder" --format "{{.ID}}|{{.Labels}}"',
-          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-        ).trim()
+      // Get actual tmux sessions for verification
+      const hostTmuxSessions = this.getHostTmuxSessionNames()
+      const containerTmuxSessions = this.getContainerTmuxSessionMap()
 
-        if (containersOutput) {
-          for (const line of containersOutput.split('\n')) {
-            const [containerId, labels] = line.split('|')
+      for (const exec of activeExecutions) {
+        if (!exec.sessionId) continue
 
-            // Extract agent name from local_folder label
-            const localFolderMatch = labels.match(/devcontainer\.local_folder=([^,]+)/)
-            const localFolder = localFolderMatch ? localFolderMatch[1] : ''
-            const agentName = localFolder.split('/').pop() || 'unknown'
+        const isContainer = exec.environment === 'devcontainer'
+        let exists = false
 
-            // Check for tmux sessions inside this container
-            try {
-              const tmuxOutput = execSync(
-                `docker exec ${containerId} tmux list-sessions -F "#{session_name}" 2>/dev/null`,
-                { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-              ).trim()
-
-              if (tmuxOutput) {
-                for (const sessionName of tmuxOutput.split('\n')) {
-                  const exec = executionBySession.get(sessionName)
-                  sessions.push({
-                    name: sessionName,
-                    value: `container:${containerId}:${sessionName}`,
-                    type: 'container',
-                    containerId,
-                    ticketId: exec?.ticketId || extractTicketFromSession(sessionName),
-                    agentName,
-                  })
-                }
-              }
-            } catch {
-              // Container has no tmux sessions - expected for containers without active work
-              console.debug(`[session:attach] No tmux sessions in container ${containerId}`)
-            }
-          }
+        if (isContainer && exec.containerId) {
+          const containerSessions = containerTmuxSessions.get(exec.containerId)
+          exists = containerSessions?.includes(exec.sessionId) ?? false
+        } else {
+          exists = hostTmuxSessions.includes(exec.sessionId)
         }
-      } catch {
-        // Docker not available or command failed
-        console.debug('[session:attach] Docker not available or no devcontainers running')
+
+        // Only include sessions that actually exist
+        if (exists) {
+          sessions.push({
+            name: exec.sessionId,
+            sessionId: exec.sessionId,
+            type: isContainer ? 'container' : 'host',
+            containerId: exec.containerId,
+            ticketId: exec.ticketId,
+            agentName: exec.agentName,
+          })
+        }
       }
     } finally {
       db?.close()
@@ -205,48 +184,96 @@ export default class SessionAttach extends PMOCommand {
   }
 
   /**
+   * Get list of host tmux session names
+   */
+  private getHostTmuxSessionNames(): string[] {
+    try {
+      execSync('which tmux', { stdio: 'pipe' })
+      const output = execSync(
+        'tmux list-sessions -F "#{session_name}"',
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+      ).trim()
+
+      if (!output) return []
+      return output.split('\n')
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Get map of containerId -> tmux session names
+   */
+  private getContainerTmuxSessionMap(): Map<string, string[]> {
+    const sessionMap = new Map<string, string[]>()
+
+    try {
+      const containersOutput = execSync(
+        'docker ps --filter "label=devcontainer.local_folder" --format "{{.ID}}"',
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+      ).trim()
+
+      if (!containersOutput) return sessionMap
+
+      for (const containerId of containersOutput.split('\n')) {
+        try {
+          const tmuxOutput = execSync(
+            `docker exec ${containerId} tmux list-sessions -F "#{session_name}" 2>/dev/null`,
+            { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+          ).trim()
+
+          if (tmuxOutput) {
+            sessionMap.set(containerId, tmuxOutput.split('\n'))
+          }
+        } catch {
+          // Container has no tmux sessions
+        }
+      }
+    } catch {
+      // Docker not available
+    }
+
+    return sessionMap
+  }
+
+  /**
    * Attach to session in current terminal
    */
   private async attachInCurrentTerminal(session: SessionChoice): Promise<void> {
-    // Container session - docker exec into container and attach to tmux
-    const { containerId, name } = session
     try {
-      execSync(`docker exec -it ${containerId} tmux attach -t "${name}"`, { stdio: 'inherit' })
+      if (session.type === 'container' && session.containerId) {
+        execSync(`docker exec -it ${session.containerId} tmux attach -t "${session.sessionId}"`, { stdio: 'inherit' })
+      } else {
+        execSync(`tmux attach -t "${session.sessionId}"`, { stdio: 'inherit' })
+      }
     } catch {
-      this.error(`Failed to attach to container session "${name}"`)
+      this.error(`Failed to attach to ${session.type} session "${session.sessionId}"`)
     }
   }
 
   /**
    * Attach to session in a new terminal tab
-   *
-   * For iTerm with tmux -CC (control mode):
-   * - We run the attach command in the CURRENT terminal
-   * - iTerm's tmux integration automatically creates a new window/tab based on user's iTerm preferences
-   * - User can configure this in: iTerm Settings > General > tmux > "When attaching, restore windows as"
-   *
-   * For other terminals (or non-CC mode):
-   * - We create a new tab via AppleScript and run the attach command there
    */
   private async attachInNewTab(session: SessionChoice, terminalApp: string): Promise<void> {
     // Build a readable title for the tab
-    const title = session.ticketId
-      ? `${session.ticketId}${session.agentName ? ` (${session.agentName})` : ''}`
-      : session.name
+    const title = `${session.ticketId} (${session.agentName})`
 
     // Create a script that sets tab title and attaches to tmux
     const baseDir = path.join(os.homedir(), '.proletariat', 'scripts')
     fs.mkdirSync(baseDir, { recursive: true })
     const scriptPath = path.join(baseDir, `attach-${Date.now()}.sh`)
 
-    const attachCmd = `docker exec -it ${session.containerId} tmux -u attach -t "${session.name}"`
+    // Different attach command for container vs host sessions
+    const attachCmd = session.type === 'container' && session.containerId
+      ? `docker exec -it ${session.containerId} tmux -u attach -t "${session.sessionId}"`
+      : `tmux attach -t "${session.sessionId}"`
 
     const script = `#!/bin/bash
 # Set terminal tab title
 echo -ne "\\033]0;${title}\\007"
 echo -ne "\\033]1;${title}\\007"
 
-echo "Attaching to: ${session.name}"
+echo "Attaching to: ${session.sessionId} (${session.type})"
 ${attachCmd}
 
 # Clean up
@@ -259,7 +286,6 @@ exec $SHELL
     try {
       switch (terminalApp) {
         case 'iTerm':
-          // Create new tab via AppleScript and set tab name
           execSync(`osascript -e '
             tell application "iTerm"
               activate

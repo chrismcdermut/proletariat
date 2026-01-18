@@ -74,10 +74,10 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
     config.shell = shell as Shell
   }
 
-  // Load default mode
-  const defaultMode = getSetting(db, CONFIG_KEYS.defaultMode)
-  if (defaultMode) {
-    config.defaultMode = defaultMode as ExecutionConfig['defaultMode']
+  // Load default environment
+  const defaultEnvironment = getSetting(db, CONFIG_KEYS.defaultMode)
+  if (defaultEnvironment) {
+    config.defaultEnvironment = defaultEnvironment as ExecutionConfig['defaultEnvironment']
   }
 
   // Load default executor

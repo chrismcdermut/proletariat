@@ -1,7 +1,7 @@
 /**
  * Execution Runners
  *
- * Implementations for each runtime mode (foreground, background, tmux, terminal, docker, vm).
+ * Implementations for each execution environment (devcontainer, host, docker, vm).
  */
 
 import { spawn, execSync } from 'node:child_process'
@@ -9,7 +9,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
 import {
-  RuntimeMode,
+  ExecutionEnvironment,
   DisplayMode,
   OutputMode,
   SessionManager,
@@ -210,278 +210,29 @@ export type Runner = (
   config: ExecutionConfig
 ) => Promise<RunnerResult>
 
-// =============================================================================
-// Foreground Runner
-// =============================================================================
-
-export async function runForeground(
-  context: ExecutionContext,
-  executor: ExecutorType,
-  config: ExecutionConfig
-): Promise<RunnerResult> {
-  const prompt = buildPrompt(context)
-  // skipPermissions is the inverse of sandboxed
-  // sandboxed=true means safe mode (no --dangerously-skip-permissions)
-  // sandboxed=false means danger mode (use --dangerously-skip-permissions)
-  const skipPermissions = !config.sandboxed
-  const { cmd, args } = getExecutorCommand(executor, prompt, skipPermissions)
-
-  return new Promise((resolve) => {
-    const child = spawn(cmd, args, {
-      cwd: context.worktreePath,
-      stdio: 'inherit',
-    })
-
-    child.on('error', (error) => {
-      resolve({ success: false, error: error.message })
-    })
-
-    child.on('close', (code) => {
-      resolve({
-        success: code === 0,
-        pid: child.pid?.toString(),
-        error: code !== 0 ? `Process exited with code ${code}` : undefined,
-      })
-    })
-  })
-}
 
 // =============================================================================
-// Background Runner
-// =============================================================================
-
-export async function runBackground(
-  context: ExecutionContext,
-  executor: ExecutorType,
-  config: ExecutionConfig
-): Promise<RunnerResult> {
-  const prompt = buildPrompt(context)
-  // Background - use sandboxed setting, also use --print for non-interactive output
-  const skipPermissions = !config.sandboxed
-  const { cmd, args } = getExecutorCommand(executor, prompt, skipPermissions)
-  // Add --print for background mode to avoid interactive prompts
-  if (executor === 'claude-code') {
-    args.unshift('--print')
-  }
-
-  // Create logs directory
-  const logsDir = path.join(os.homedir(), '.proletariat', 'logs')
-  fs.mkdirSync(logsDir, { recursive: true })
-
-  const logPath = path.join(logsDir, `work-${context.ticketId}-${Date.now()}.log`)
-  const logStream = fs.openSync(logPath, 'w')
-
-  const child = spawn(cmd, args, {
-    cwd: context.worktreePath,
-    detached: true,
-    stdio: ['ignore', logStream, logStream],
-  })
-
-  child.unref()
-
-  return {
-    success: true,
-    pid: child.pid?.toString(),
-    logPath,
-  }
-}
-
-// =============================================================================
-// Tmux Runner
+// Host Runner - Host execution with tmux session persistence
 // =============================================================================
 
 /**
- * Create a wrapper script that initializes the shell properly before running commands.
- * This ensures nvm/node environment is correctly set up in tmux sessions.
- */
-function createTmuxScript(
-  context: ExecutionContext,
-  cmd: string,
-  args: string[],
-  skipPermissions: boolean
-): { scriptPath: string; promptPath: string } {
-  // Write prompt to separate file to avoid shell escaping issues
-  const baseDir = context.hqPath
-    ? path.join(context.hqPath, '.proletariat', 'scripts')
-    : path.join(os.homedir(), '.proletariat', 'scripts')
-  fs.mkdirSync(baseDir, { recursive: true })
-
-  const timestamp = Date.now()
-  const scriptPath = path.join(baseDir, `tmux-${context.ticketId}-${timestamp}.sh`)
-  const promptPath = path.join(baseDir, `prompt-${context.ticketId}-${timestamp}.txt`)
-
-  // The prompt is the last argument in args (getExecutorCommand puts it there directly)
-  // Args structure: ['--dangerously-skip-permissions', 'prompt'] or just ['prompt']
-  const prompt = args[args.length - 1] || ''
-
-  // Write prompt to file
-  fs.writeFileSync(promptPath, prompt, { mode: 0o644 })
-
-  // Build the permissions flag for the script
-  const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
-
-  // Build window title for terminal tab
-  const windowTitle = buildWindowTitle(context)
-  const setTitleCmds = getSetTitleCommands(windowTitle)
-
-  // Create script that initializes shell environment properly
-  // We use --rcfile/ZDOTDIR to inject nvm init into the shell that stays open
-  const scriptContent = `#!/bin/bash
-# Auto-generated tmux script for ticket ${context.ticketId}
-SCRIPT_PATH="${scriptPath}"
-PROMPT_PATH="${promptPath}"
-${setTitleCmds}
-# Initialize nvm if available (ensures correct Node version)
-export NVM_DIR="\${HOME}/.nvm"
-[ -s "\$NVM_DIR/nvm.sh" ] && source "\$NVM_DIR/nvm.sh"
-
-cd "${context.worktreePath}"
-${cmd} ${permissionsFlag}"$(cat "$PROMPT_PATH")"
-
-# Clean up prompt file
-rm -f "$PROMPT_PATH"
-
-# Create a temp rc file that sources nvm then the user's normal rc
-TEMP_RC="\$(mktemp)"
-if [ -n "\$ZSH_VERSION" ] || [ "\$SHELL" = */zsh ]; then
-  # For zsh: create temp .zshrc that sources nvm and user's rc
-  cat > "\$TEMP_RC" << 'RCEOF'
-export NVM_DIR="\$HOME/.nvm"
-[ -s "\$NVM_DIR/nvm.sh" ] && source "\$NVM_DIR/nvm.sh"
-[ -f "\$HOME/.zshrc" ] && source "\$HOME/.zshrc"
-RCEOF
-  rm -f "$SCRIPT_PATH"
-  ZDOTDIR="\$(dirname \$TEMP_RC)" exec zsh
-else
-  # For bash: use --rcfile
-  cat > "\$TEMP_RC" << 'RCEOF'
-export NVM_DIR="\$HOME/.nvm"
-[ -s "\$NVM_DIR/nvm.sh" ] && source "\$NVM_DIR/nvm.sh"
-[ -f "\$HOME/.bashrc" ] && source "\$HOME/.bashrc"
-RCEOF
-  rm -f "$SCRIPT_PATH"
-  exec bash --rcfile "\$TEMP_RC"
-fi
-`
-  fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
-
-  return { scriptPath, promptPath }
-}
-
-export async function runTmux(
-  context: ExecutionContext,
-  executor: ExecutorType,
-  config: ExecutionConfig
-): Promise<RunnerResult> {
-  const prompt = buildPrompt(context)
-  // Tmux - use sandboxed setting
-  const skipPermissions = !config.sandboxed
-  const { cmd, args } = getExecutorCommand(executor, prompt, skipPermissions)
-
-  const sessionName = config.tmux.session
-  const windowName = buildTmuxWindowName(context)
-
-  // Create wrapper script that initializes shell environment
-  const { scriptPath } = createTmuxScript(context, cmd, args, skipPermissions)
-
-  try {
-    // Check if tmux is available
-    execSync('which tmux', { stdio: 'pipe' })
-
-    // Determine if we should use iTerm control mode (-CC)
-    // Control mode makes iTerm handle windows/tabs natively instead of tmux's text UI
-    const useControlMode = config.terminal.app === 'iTerm' && config.tmux.controlMode
-
-    if (useControlMode) {
-      // iTerm control mode: tmux -CC integrates with iTerm's native UI
-      // This fixes nested scroll issues by using iTerm's scrollback instead of tmux's
-      // Each tmux window becomes a native iTerm tab with proper scrolling
-      const tmuxCmd = `tmux -CC new-session -A -s ${sessionName} -n "${windowName}" -c "${context.worktreePath}" "${scriptPath}"`
-      // Escape double quotes and backslashes for AppleScript
-      const escapedCmd = tmuxCmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-
-      execSync(`osascript -e '
-        tell application "iTerm"
-          activate
-          tell current window
-            create tab with default profile
-            tell current session
-              write text "${escapedCmd}"
-            end tell
-          end tell
-        end tell
-      '`)
-
-      return {
-        success: true,
-        sessionId: `${sessionName}:${windowName}`,
-      }
-    }
-
-    // Standard tmux mode (non-iTerm or control mode disabled)
-    // Check if session exists
-    let sessionExists = false
-    try {
-      execSync(`tmux has-session -t ${sessionName}`, { stdio: 'pipe' })
-      sessionExists = true
-    } catch (err) {
-      console.debug(`[runners:tmux] Session ${sessionName} does not exist:`, err)
-      sessionExists = false
-    }
-
-    if (!sessionExists) {
-      // Create new session with window
-      execSync(
-        `tmux new-session -d -s ${sessionName} -n "${windowName}" -c "${context.worktreePath}" "${scriptPath}"`,
-        { stdio: 'pipe' }
-      )
-    } else if (config.tmux.layout === 'window') {
-      // Create new window in existing session
-      execSync(
-        `tmux new-window -t ${sessionName} -n "${windowName}" -c "${context.worktreePath}" "${scriptPath}"`,
-        { stdio: 'pipe' }
-      )
-    } else {
-      // Split existing pane
-      execSync(
-        `tmux split-window -t ${sessionName} -h -c "${context.worktreePath}" "${scriptPath}"`,
-        { stdio: 'pipe' }
-      )
-    }
-
-    return {
-      success: true,
-      sessionId: `${sessionName}:${windowName}`,
-    }
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to start tmux session',
-    }
-  }
-}
-
-// =============================================================================
-// Terminal Runner (macOS)
-// =============================================================================
-
-/**
- * Run command in a new terminal tab/window.
+ * Run command on the host machine with tmux session for persistence.
  * Supports multiple terminal emulators on macOS.
- * Opens a new tab (not window) and keeps the tab open after command completes.
- * Uses a temp script file to avoid shell escaping issues with complex prompts.
+ *
+ * Architecture (same as devcontainer):
+ * - Always creates a host tmux session for session persistence
+ * - displayMode controls whether to open a terminal tab attached to the session
+ * - User can reattach with `prlt session attach` if tab is closed
  */
-export async function runTerminal(
+export async function runHost(
   context: ExecutionContext,
   executor: ExecutorType,
-  config: ExecutionConfig
+  config: ExecutionConfig,
+  displayMode: DisplayMode = 'terminal'
 ): Promise<RunnerResult> {
-  if (process.platform !== 'darwin') {
-    return {
-      success: false,
-      error: 'Terminal mode is only supported on macOS. Use tmux mode instead.',
-    }
-  }
+  // Session name: {ticketId}-{action} (e.g., TKT-347-implement)
+  const sessionName = buildTmuxWindowName(context)
+  const windowTitle = buildWindowTitle(context)
 
   const prompt = buildPrompt(context)
   // Terminal - use sandboxed setting
@@ -502,52 +253,96 @@ export async function runTerminal(
   // Write prompt to separate file to avoid any shell escaping issues
   fs.writeFileSync(promptPath, prompt, { mode: 0o644 })
 
-  // Build permissions flag based on sandboxed setting
+  // Build flags based on config
   const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
+  // outputMode: 'print' adds -p flag (final result only), 'interactive' shows streaming UI
+  const printFlag = config.outputMode === 'print' ? '-p ' : ''
 
-  // Build window title for terminal tab
-  const windowTitle = buildWindowTitle(context)
+  // Build script that runs claude and keeps shell open after completion
   const setTitleCmds = getSetTitleCommands(windowTitle)
-
-  // Build script that reads prompt from file
-  // This completely avoids shell escaping issues with special characters
   const scriptContent = `#!/bin/bash
 # Auto-generated script for ticket ${context.ticketId}
 SCRIPT_PATH="${scriptPath}"
 PROMPT_PATH="${promptPath}"
 ${setTitleCmds}
+echo "🚀 Starting: ${sessionName}"
+echo ""
 cd "${context.worktreePath}"
-${cmd} ${permissionsFlag}-p "$(cat "$PROMPT_PATH")"
+${cmd} ${permissionsFlag}${printFlag}"$(cat "$PROMPT_PATH")"
 
 # Clean up script and prompt files
 rm -f "$SCRIPT_PATH" "$PROMPT_PATH"
 
-# Keep shell open after completion
+echo ""
+echo "✅ Agent work complete. Press Enter to close or run more commands."
 exec $SHELL
 `
   fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
 
-  const terminalApp = config.terminal.app
-
   try {
+    // Check if tmux is available
+    execSync('which tmux', { stdio: 'pipe' })
+
+    const terminalApp = config.terminal.app
+
+    // Step 1: Create host tmux session (detached)
+    // Enable mouse mode for native scrolling
+    const tmuxCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" "${scriptPath}" \\; set-option -g mouse on \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
+
+    try {
+      execSync(tmuxCmd, { stdio: 'pipe' })
+    } catch (error) {
+      return {
+        success: false,
+        error: `Failed to create tmux session: ${error instanceof Error ? error.message : error}`,
+      }
+    }
+
+    // Step 2: Open terminal tab attached to tmux session (unless background mode)
+    if (displayMode === 'background') {
+      return {
+        success: true,
+        sessionId: sessionName,
+      }
+    }
+
+    // NOTE: Don't use tmux -CC here. While -CC gives native iTerm scrolling,
+    // it also causes iTerm to create new windows for tmux sessions.
+    // Regular tmux attach inside an iTerm tab works well with mouse mode enabled.
+    // User can reattach with `prlt session attach` which offers -CC option.
+    // Use clear before attach to ensure clean display
+    const attachCmd = `clear && tmux attach -t \\"${sessionName}\\"`
+
     switch (terminalApp) {
       case 'iTerm':
         // iTerm2 - new tab in current window
+        // Write the tmux attach command directly (no script file needed)
         execSync(`osascript -e '
           tell application "iTerm"
             activate
-            tell current window
-              create tab with default profile
-              tell current session
-                write text "${scriptPath}"
+            if (count of windows) = 0 then
+              create window with default profile
+              delay 0.3
+              tell current session of current window
+                set name to "${windowTitle}"
+                write text "${attachCmd}"
               end tell
-            end tell
+            else
+              tell current window
+                set newTab to (create tab with default profile)
+                delay 0.3
+                tell current session of newTab
+                  set name to "${windowTitle}"
+                  write text "${attachCmd}"
+                end tell
+              end tell
+            end if
           end tell
         '`)
         break
 
       case 'Ghostty':
-        // Ghostty - use osascript to open new tab and run script
+        // Ghostty - use osascript to open new tab and run command
         execSync(`osascript -e '
           tell application "Ghostty"
             activate
@@ -556,7 +351,7 @@ exec $SHELL
             tell process "Ghostty"
               keystroke "t" using command down
               delay 0.3
-              keystroke "${scriptPath}"
+              keystroke "${attachCmd}"
               keystroke return
             end tell
           end tell
@@ -565,12 +360,12 @@ exec $SHELL
 
       case 'WezTerm':
         // WezTerm - use wezterm cli to spawn new tab
-        execSync(`wezterm cli spawn --new-window -- ${scriptPath}`)
+        execSync(`wezterm cli spawn --new-window -- bash -c '${attachCmd}'`)
         break
 
       case 'Kitty':
         // Kitty - use kitten to open new tab
-        execSync(`kitty @ launch --type=tab -- ${scriptPath}`)
+        execSync(`kitty @ launch --type=tab -- bash -c '${attachCmd}'`)
         break
 
       case 'Alacritty':
@@ -583,7 +378,7 @@ exec $SHELL
             tell process "Alacritty"
               keystroke "n" using command down
               delay 0.3
-              keystroke "${scriptPath}"
+              keystroke "${attachCmd}"
               keystroke return
             end tell
           end tell
@@ -602,7 +397,7 @@ exec $SHELL
               end tell
             end tell
             delay 0.3
-            do script "${scriptPath}" in front window
+            do script "${attachCmd}" in front window
           end tell
         '`)
         break
@@ -610,12 +405,12 @@ exec $SHELL
 
     return {
       success: true,
-      sessionId: `terminal-${context.ticketId}`,
+      sessionId: sessionName,
     }
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : `Failed to open ${terminalApp}`,
+      error: error instanceof Error ? error.message : `Failed to start host tmux session`,
     }
   }
 }
@@ -1556,28 +1351,23 @@ export async function runVm(
 // =============================================================================
 
 export async function runExecution(
-  mode: RuntimeMode,
+  environment: ExecutionEnvironment,
   context: ExecutionContext,
   executor: ExecutorType,
   config: ExecutionConfig = DEFAULT_EXECUTION_CONFIG,
   options?: { host?: string; displayMode?: DisplayMode; sessionManager?: SessionManager }
 ): Promise<RunnerResult> {
-  switch (mode) {
+  switch (environment) {
     case 'devcontainer':
       return runDevcontainer(context, executor, config, options?.displayMode, options?.sessionManager)
-    case 'foreground':
-      return runForeground(context, executor, config)
-    case 'background':
-      return runBackground(context, executor, config)
-    case 'tmux':
-      return runTmux(context, executor, config)
-    case 'terminal':
-      return runTerminal(context, executor, config)
+    case 'host':
+      // Host uses tmux for session persistence (same as devcontainer)
+      return runHost(context, executor, config, options?.displayMode)
     case 'docker':
       return runDocker(context, executor, config)
     case 'vm':
       return runVm(context, executor, config, options?.host)
     default:
-      return { success: false, error: `Unknown runtime mode: ${mode}` }
+      return { success: false, error: `Unknown execution environment: ${environment}` }
   }
 }

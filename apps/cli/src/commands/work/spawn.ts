@@ -760,28 +760,17 @@ export default class WorkSpawn extends PMOCommand {
               message: 'How should agent output be displayed?',
               choices: [
                 { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-                { name: '📦 Background  - Runs detached (logs to file)', value: 'background' },
+                { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
               ],
             },
           ])
           batchMode = selectedMode
         }
 
-        // Prompt for output mode if not provided
+        // Default to interactive output mode (streaming UI)
+        // Can be overridden via --output flag if needed
         if (!batchOutput) {
-          const { selectedOutput } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedOutput',
-              message: 'How should Claude display output?',
-              choices: [
-                { name: 'interactive  - Watch Claude work in real-time', value: 'interactive' },
-                { name: 'print        - Show final result only', value: 'print' },
-              ],
-              default: 'interactive',
-            },
-          ])
-          batchOutput = selectedOutput
+          batchOutput = 'interactive'
         }
 
         // Prompt for permissions mode if not provided
