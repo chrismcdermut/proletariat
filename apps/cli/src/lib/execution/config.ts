@@ -74,10 +74,10 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
     config.shell = shell as Shell
   }
 
-  // Load default mode
-  const defaultMode = getSetting(db, CONFIG_KEYS.defaultMode)
-  if (defaultMode) {
-    config.defaultMode = defaultMode as ExecutionConfig['defaultMode']
+  // Load default environment
+  const defaultEnvironment = getSetting(db, CONFIG_KEYS.defaultMode)
+  if (defaultEnvironment) {
+    config.defaultEnvironment = defaultEnvironment as ExecutionConfig['defaultEnvironment']
   }
 
   // Load default executor
@@ -377,9 +377,9 @@ export async function promptExecutionSettings(
   }
 
   // Prompt for output mode (interactive vs print)
-  // Only show this for display modes where streaming makes sense (terminal, tmux, foreground)
+  // Only show this for terminal mode where streaming makes sense (not background)
   let outputMode: OutputMode = options.outputMode ?? DEFAULT_EXECUTION_CONFIG.outputMode
-  const streamingDisplayModes: DisplayMode[] = ['terminal', 'tmux', 'foreground']
+  const streamingDisplayModes: DisplayMode[] = ['terminal']
 
   if (options.outputMode === undefined && streamingDisplayModes.includes(displayMode)) {
     const { selectedOutputMode } = await inquirer.prompt([

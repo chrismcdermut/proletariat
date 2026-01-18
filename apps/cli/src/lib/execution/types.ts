@@ -5,42 +5,50 @@
  */
 
 // =============================================================================
-// Runtime Modes
+// Execution Data Models
 // =============================================================================
-
-/**
- * RuntimeMode - The full execution mode (for backwards compatibility).
- * In the new architecture, this is composed of:
- *   - ExecutionEnvironment: Where the code runs (devcontainer, host, docker, vm)
- *   - DisplayMode: How output is shown (terminal, foreground, background, tmux)
- */
-export type RuntimeMode =
-  | 'devcontainer'  // Sandboxed devcontainer (recommended for agents)
-  | 'foreground'    // Subprocess in current terminal
-  | 'background'    // Detached process, logs to file
-  | 'tmux'          // New tmux pane/window
-  | 'terminal'      // New Terminal.app window (macOS)
-  | 'docker'        // Container with worktree mounted
-  | 'vm'            // Remote VM via SSH
-
-/**
- * DisplayMode - How output is displayed to the user.
- * When devcontainer is available, this determines how we show the sandboxed execution.
- */
-export type DisplayMode =
-  | 'terminal'      // New terminal window showing devcontainer execution
-  | 'foreground'    // Current terminal showing devcontainer execution
-  | 'background'    // Detached, logs to file
-  | 'tmux'          // Tmux pane/window
+//
+// Three dimensions control how agent work is executed:
+//
+// 1. ExecutionEnvironment - WHERE the code runs
+//    (devcontainer, host, docker, vm)
+//
+// 2. SessionManager - HOW the process is supervised
+//    (tmux, direct) - currently always tmux for session persistence
+//
+// 3. DisplayMode - HOW output is presented to the user
+//    (terminal, background)
+//
+// =============================================================================
 
 /**
  * ExecutionEnvironment - Where the agent code runs.
  */
 export type ExecutionEnvironment =
-  | 'devcontainer'  // In a devcontainer (sandboxed)
+  | 'devcontainer'  // In a devcontainer (sandboxed, recommended)
   | 'host'          // Directly on host machine
   | 'docker'        // In a Docker container
   | 'vm'            // On a remote VM
+
+/**
+ * SessionManager - How agent sessions are managed inside the execution environment.
+ * - tmux: Run inside tmux session (can attach/detach, persistent)
+ * - direct: Run process directly (simple, no session management)
+ *
+ * Currently always 'tmux' for consistent session persistence across all environments.
+ */
+export type SessionManager =
+  | 'tmux'          // Run inside tmux (attach with `prlt session attach`)
+  | 'direct'        // Run process directly (no session management)
+
+/**
+ * DisplayMode - How output is presented to the user.
+ * - terminal: Opens a new terminal tab attached to the tmux session
+ * - background: Runs detached, reattach later with `prlt session attach`
+ */
+export type DisplayMode =
+  | 'terminal'      // New terminal tab showing execution
+  | 'background'    // Detached tmux session, reattach later
 
 /**
  * OutputMode - How Claude Code displays its output.
@@ -50,15 +58,6 @@ export type ExecutionEnvironment =
 export type OutputMode =
   | 'interactive'   // Streaming UI (no -p flag) - watch Claude work in real-time
   | 'print'         // Print mode (-p flag) - final result only, good for automation
-
-/**
- * SessionManager - How agent sessions are managed inside the execution environment.
- * - tmux: Run inside tmux session (can attach/detach, persistent)
- * - direct: Run process directly (simple, no session management)
- */
-export type SessionManager =
-  | 'tmux'          // Run inside tmux (attach with `docker exec -it <container> tmux attach`)
-  | 'direct'        // Run process directly (no session management)
 
 // =============================================================================
 // Executor Types
@@ -109,9 +108,8 @@ export interface AgentWork {
   ticketId: string
   agentName: string
   executor: ExecutorType
-  mode: RuntimeMode              // Legacy field (for backwards compat)
   environment: ExecutionEnvironment  // Where: devcontainer, host, docker, vm
-  displayMode: DisplayMode       // How shown: terminal, foreground, background, tmux
+  displayMode: DisplayMode       // How shown: terminal, background
   sessionManager?: SessionManager // How session is managed inside environment (tmux/direct)
   sandboxed: boolean             // Whether --dangerously-skip-permissions was NOT used
   status: ExecutionStatus
@@ -304,7 +302,7 @@ export function generateBranchName(
 // =============================================================================
 
 export interface ExecutionConfig {
-  defaultMode: RuntimeMode
+  defaultEnvironment: ExecutionEnvironment
   defaultExecutor: ExecutorType
   autoExecute: boolean
   shell: Shell
@@ -338,8 +336,20 @@ export interface ExecutionConfig {
   }
 }
 
+/**
+ * Extract ticket ID from a tmux session name.
+ * Session names like: prlt-TKT-347-implement or TKT-347-implement
+ * Returns the ticket ID (e.g., "TKT-347") or undefined if not found.
+ */
+export function extractTicketFromSession(sessionName: string | null | undefined): string | undefined {
+  if (!sessionName) return undefined
+  const name = sessionName.replace(/^prlt-/, '')
+  const match = name.match(/^(TKT-\d+)/)
+  return match ? match[1] : undefined
+}
+
 export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
-  defaultMode: 'terminal',
+  defaultEnvironment: 'host',
   defaultExecutor: 'claude-code',
   autoExecute: false,
   shell: 'zsh',  // macOS default

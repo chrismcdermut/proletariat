@@ -362,10 +362,13 @@ export default class WorkSpawn extends PMOCommand {
         // (skip column selection for simplicity - show all tickets)
         if (jsonMode) {
           // Build choices from all unassigned tickets
-          const ticketChoices = unassignedTickets.map(ticket => ({
-            name: `${ticket.id} - ${ticket.title} (${ticket.statusName || 'No Status'})`,
-            value: ticket.id,
-          }))
+          const ticketChoices = unassignedTickets.map(ticket => {
+            const priority = ticket.priority ? `[${ticket.priority}] ` : ''
+            return {
+              name: `${priority}${ticket.id} - ${ticket.title} (${ticket.statusName || 'No Status'})`,
+              value: ticket.id,
+            }
+          })
 
           outputPromptAsJson(
             buildPromptConfig(
@@ -380,18 +383,16 @@ export default class WorkSpawn extends PMOCommand {
           return
         }
 
-        // Build column choices with counts
+        // Build column choices with counts - show ALL columns even if empty
         const columnChoices: Array<{ name: string; value: string }> = [
           { name: '🌐 All columns (select from anywhere)', value: '__ALL__' },
         ]
         for (const name of columnNames) {
           const count = unassignedTickets.filter(t => t.statusName === name).length
-          if (count > 0) {
-            columnChoices.push({
-              name: `${name} (${count} unassigned)`,
-              value: name,
-            })
-          }
+          columnChoices.push({
+            name: count > 0 ? `${name} (${count} unassigned)` : `${name} (0)`,
+            value: name,
+          })
         }
 
         const { manyColumn } = await inquirer.prompt([
@@ -431,8 +432,9 @@ export default class WorkSpawn extends PMOCommand {
             choices.push(new inquirer.Separator(`── ${column} ──`))
           }
           for (const ticket of tickets) {
+            const priority = ticket.priority ? `[${ticket.priority}] ` : ''
             choices.push({
-              name: `${ticket.id} - ${ticket.title}`,
+              name: `${priority}${ticket.id} - ${ticket.title}`,
               value: ticket.id,
             })
           }
@@ -724,38 +726,24 @@ export default class WorkSpawn extends PMOCommand {
               batchMode = 'devcontainer'
               environmentSelected = true
 
-              // For devcontainer, also prompt for display mode
+              // For devcontainer, prompt for display mode
+              // Simplified: tmux is always used inside container for session persistence
               const { selectedDisplay } = await inquirer.prompt([
                 {
                   type: 'list',
                   name: 'selectedDisplay',
                   message: 'How should agent output be displayed?',
                   choices: [
-                    { name: '🖥️  terminal     - New terminal tab (recommended)', value: 'terminal' },
-                    { name: '📺 foreground  - Current terminal (one at a time)', value: 'foreground' },
-                    { name: '🔲 tmux        - Tmux pane/window', value: 'tmux' },
-                    { name: '📦 background  - Detached (logs to file)', value: 'background' },
+                    { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                    { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
                   ],
                   default: 'terminal',
                 },
               ])
               batchDisplayMode = selectedDisplay
 
-              // Prompt for session manager inside the container
-              const { selectedSession } = await inquirer.prompt([
-                {
-                  type: 'list',
-                  name: 'selectedSession',
-                  message: 'How should sessions be managed inside the container?',
-                  choices: [
-                    { name: '🔲 tmux   - Run in tmux (attach with: docker exec -it <container> tmux attach)', value: 'tmux' },
-                    { name: '⚡ direct - Run directly (simpler, no session management)', value: 'direct' },
-                  ],
-                  default: 'tmux',
-                },
-              ])
-              // Store session choice for passing to work:start
-              flags.session = selectedSession
+              // Always use tmux inside container for session persistence
+              flags.session = 'tmux'
             } else {
               batchRunOnHost = true
               environmentSelected = true
@@ -771,31 +759,18 @@ export default class WorkSpawn extends PMOCommand {
               name: 'selectedMode',
               message: 'How should agent output be displayed?',
               choices: [
-                { name: '🖥️  terminal     - New terminal window (recommended)', value: 'terminal' },
-                { name: '📺 foreground  - Current terminal', value: 'foreground' },
-                { name: '🔲 tmux        - Tmux pane/window', value: 'tmux' },
-                { name: '📦 background  - Detached (logs to file)', value: 'background' },
+                { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
               ],
             },
           ])
           batchMode = selectedMode
         }
 
-        // Prompt for output mode if not provided
+        // Default to interactive output mode (streaming UI)
+        // Can be overridden via --output flag if needed
         if (!batchOutput) {
-          const { selectedOutput } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedOutput',
-              message: 'How should Claude display output?',
-              choices: [
-                { name: 'interactive  - Watch Claude work in real-time', value: 'interactive' },
-                { name: 'print        - Show final result only', value: 'print' },
-              ],
-              default: 'interactive',
-            },
-          ])
-          batchOutput = selectedOutput
+          batchOutput = 'interactive'
         }
 
         // Prompt for permissions mode if not provided

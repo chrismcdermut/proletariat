@@ -9,7 +9,6 @@ import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
-  RuntimeMode,
   DisplayMode,
   SessionManager,
   OutputMode,
@@ -279,16 +278,14 @@ export default class WorkRevise extends PMOCommand {
         prFeedback: formattedFeedback,
       }
 
-      // Determine execution mode (simplified from work start)
+      // Determine execution environment and display mode
       const hasDevcontainer = hasDevcontainerConfig(agentDir)
-      let mode: RuntimeMode = 'terminal'
-      let displayMode: DisplayMode = 'terminal'
       let environment: ExecutionEnvironment = 'host'
+      let displayMode: DisplayMode = 'terminal'
       let sandboxed = false
 
       if (hasDevcontainer && !flags['run-on-host']) {
         environment = 'devcontainer'
-        mode = 'devcontainer'
 
         const { selectedDisplay } = await inquirer.prompt([
           {
@@ -297,15 +294,15 @@ export default class WorkRevise extends PMOCommand {
             message: 'How should the agent output be displayed?',
             choices: [
               { name: 'terminal     - New terminal window', value: 'terminal' },
-              { name: 'foreground   - Run in current terminal', value: 'foreground' },
+              { name: 'background   - Runs detached, reattach with: prlt session attach', value: 'background' },
             ],
             default: 'terminal',
           },
         ])
         displayMode = selectedDisplay as DisplayMode
       } else if (flags.mode) {
-        mode = flags.mode as RuntimeMode
-        displayMode = mode as DisplayMode
+        // Host environment: terminal/background are display modes
+        displayMode = flags.mode as DisplayMode
       }
 
       // Permission mode
@@ -359,7 +356,6 @@ export default class WorkRevise extends PMOCommand {
         ticketId: ticket.id,
         agentName,
         executor,
-        mode,
         environment,
         displayMode,
         sandboxed,
@@ -386,8 +382,8 @@ export default class WorkRevise extends PMOCommand {
       // Load execution config
       const executionConfig = loadExecutionConfig(db)
 
-      // Configure terminal if needed
-      if (mode === 'terminal' || (mode === 'devcontainer' && displayMode === 'terminal')) {
+      // Configure terminal if needed (for terminal display mode)
+      if (displayMode === 'terminal') {
         const needsTerminal = !hasTerminalPreference(db)
         const needsShell = !hasShellPreference(db)
 
@@ -412,9 +408,9 @@ export default class WorkRevise extends PMOCommand {
       // Run execution
       this.log(styles.muted('Starting agent to address feedback...'))
       const sessionManager = (flags.session || 'tmux') as SessionManager
-      const result = await runExecution(mode, context, executor, executionConfig, {
-        displayMode: mode === 'devcontainer' ? displayMode : undefined,
-        sessionManager: mode === 'devcontainer' ? sessionManager : undefined,
+      const result = await runExecution(environment, context, executor, executionConfig, {
+        displayMode,
+        sessionManager: environment === 'devcontainer' ? sessionManager : undefined,
       })
 
       if (result.success) {
@@ -429,12 +425,9 @@ export default class WorkRevise extends PMOCommand {
         this.log('')
         this.log(styles.success(`Revision started (${execution.id})`))
         this.log('')
-
-        if (mode !== 'foreground') {
-          this.log(styles.muted('Commands:'))
-          this.log(styles.muted(`  prlt work status              View work status`))
-          this.log(styles.muted(`  prlt work stop ${execution.id}    Stop work`))
-        }
+        this.log(styles.muted('Commands:'))
+        this.log(styles.muted(`  prlt work status              View work status`))
+        this.log(styles.muted(`  prlt work stop ${execution.id}    Stop work`))
       } else {
         executionStorage.updateStatus(execution.id, 'failed')
         this.error(`Failed to start revision: ${result.error}`)

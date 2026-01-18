@@ -17,7 +17,6 @@ import { StateCategory, WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
-  RuntimeMode,
   DisplayMode,
   SessionManager,
   OutputMode,
@@ -159,7 +158,7 @@ export default class WorkStart extends PMOCommand {
     display: Flags.string({
       char: 'd',
       description: 'Display mode for devcontainer (where to show output)',
-      options: ['terminal', 'foreground', 'background', 'tmux'],
+      options: ['terminal', 'background'],
     }),
     session: Flags.string({
       char: 's',
@@ -572,10 +571,9 @@ export default class WorkStart extends PMOCommand {
       // Use devcontainer by default if available, unless --run-on-host is set
       const useDevcontainer = hasDevcontainer && !flags['run-on-host']
 
-      // Determine runtime mode
-      let mode: RuntimeMode = 'terminal'
-      let displayMode: DisplayMode = 'terminal'
+      // Determine execution environment and display mode
       let environment: ExecutionEnvironment = 'host'
+      let displayMode: DisplayMode = 'terminal'
       let sandboxed = false  // Whether --dangerously-skip-permissions is NOT used
 
       if (hasDevcontainer && !flags.mode && !flags['run-on-host']) {
@@ -623,36 +621,31 @@ export default class WorkStart extends PMOCommand {
                 name: 'selectedDisplay',
                 message: 'How should the agent output be displayed?',
                 choices: [
-                  { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
-                  { name: 'foreground   - Run in current terminal', value: 'foreground' },
-                  { name: 'tmux         - New tmux pane/window', value: 'tmux' },
-                  { name: 'background   - Detached process, logs to file', value: 'background' },
+                  { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                  { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
                 ],
                 default: 'terminal',
               },
             ])
             displayMode = selectedDisplay as DisplayMode
-            mode = 'devcontainer'
+            environment = 'devcontainer'
             environmentSelected = true
           } else {
-            // User chose host - fall through to host mode selection
+            // User chose host
             environment = 'host'
-            const { selectedMode } = await inquirer.prompt([
+            const { selectedDisplay } = await inquirer.prompt([
               {
                 type: 'list',
-                name: 'selectedMode',
-                message: 'Select execution mode:',
+                name: 'selectedDisplay',
+                message: 'How should the agent output be displayed?',
                 choices: [
-                  { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
-                  { name: 'foreground   - Run in current terminal', value: 'foreground' },
-                  { name: 'tmux         - New tmux pane/window', value: 'tmux' },
-                  { name: 'background   - Detached process, logs to file', value: 'background' },
+                  { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                  { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
                 ],
-                default: DEFAULT_EXECUTION_CONFIG.defaultMode,
+                default: 'terminal',
               },
             ])
-            mode = selectedMode as RuntimeMode
-            displayMode = mode as DisplayMode
+            displayMode = selectedDisplay as DisplayMode
             environmentSelected = true
           }
         }
@@ -662,26 +655,28 @@ export default class WorkStart extends PMOCommand {
         // Use --display flag if provided, otherwise fall back to --mode or default to 'terminal'
         if (flags.display) {
           displayMode = flags.display as DisplayMode
-        } else if (flags.mode && ['terminal', 'foreground', 'background', 'tmux'].includes(flags.mode)) {
+        } else if (flags.mode && ['terminal', 'background'].includes(flags.mode)) {
           displayMode = flags.mode as DisplayMode
         } else {
           // Default to terminal for devcontainer (opens new tab instead of blocking current terminal)
           displayMode = 'terminal'
         }
-        mode = 'devcontainer'
       } else {
         // No devcontainer or --run-on-host - host mode selection
         if (flags.mode) {
-          mode = flags.mode as RuntimeMode
-          // Set environment based on mode
-          if (mode === 'docker') {
+          const flagMode = flags.mode
+          // Set environment based on mode flag
+          if (flagMode === 'docker') {
             environment = 'docker'
-          } else if (mode === 'vm') {
+            displayMode = 'terminal'
+          } else if (flagMode === 'vm') {
             environment = 'vm'
+            displayMode = 'terminal'
           } else {
+            // Host environment: terminal/background are display modes
             environment = 'host'
+            displayMode = flagMode as DisplayMode
           }
-          displayMode = mode as DisplayMode
         } else {
           const warningMsg = flags['run-on-host']
             ? 'Select execution mode (--run-on-host: bypassing devcontainer):'
@@ -693,57 +688,36 @@ export default class WorkStart extends PMOCommand {
               name: 'selectedMode',
               message: warningMsg,
               choices: [
-                { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
-                { name: 'foreground   - Run in current terminal', value: 'foreground' },
-                { name: 'tmux         - New tmux pane/window', value: 'tmux' },
-                { name: 'background   - Detached process, logs to file', value: 'background' },
+                { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
                 new inquirer.Separator('── Sandboxed (requires setup) ──'),
-                { name: 'docker       - Container with worktree mounted', value: 'docker' },
+                { name: '🐳 Docker      - Container with worktree mounted', value: 'docker' },
                 new inquirer.Separator('── Remote ──'),
-                { name: 'vm           - Remote VM via SSH', value: 'vm' },
+                { name: '☁️  VM          - Remote VM via SSH', value: 'vm' },
               ],
-              default: DEFAULT_EXECUTION_CONFIG.defaultMode,
+              default: 'terminal',
             },
           ])
-          mode = selectedMode as RuntimeMode
-          // Set environment based on mode
-          if (mode === 'docker') {
+          // Set environment based on selection
+          if (selectedMode === 'docker') {
             environment = 'docker'
-          } else if (mode === 'vm') {
+            displayMode = 'terminal'
+          } else if (selectedMode === 'vm') {
             environment = 'vm'
+            displayMode = 'terminal'
           } else {
+            // Host environment: terminal/background are display modes
             environment = 'host'
+            displayMode = selectedMode as DisplayMode
           }
-          displayMode = mode as DisplayMode
         }
       }
 
       const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
 
-      // Prompt for output mode (interactive vs print)
-      // Only show this for display modes where streaming makes sense (terminal, tmux, foreground)
-      let outputMode: OutputMode = DEFAULT_EXECUTION_CONFIG.outputMode
-      const streamingDisplayModes: DisplayMode[] = ['terminal', 'tmux', 'foreground']
-      const currentDisplayMode = mode === 'devcontainer' ? displayMode : mode as DisplayMode
-
-      if (flags.output) {
-        // Use flag value
-        outputMode = flags.output as OutputMode
-      } else if (streamingDisplayModes.includes(currentDisplayMode)) {
-        const { selectedOutputMode } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedOutputMode',
-            message: 'How should Claude display output?',
-            choices: [
-              { name: 'interactive  - Watch Claude work in real-time (streaming UI)', value: 'interactive' },
-              { name: 'print        - Show final result only (better for logs)', value: 'print' },
-            ],
-            default: 'interactive',
-          },
-        ])
-        outputMode = selectedOutputMode as OutputMode
-      }
+      // Default to interactive output mode (streaming UI)
+      // Can be overridden via --output flag if needed
+      let outputMode: OutputMode = flags.output as OutputMode || DEFAULT_EXECUTION_CONFIG.outputMode
 
       // Prompt for permissions mode (all environments)
       // Skip prompt if --skip-permissions flag is set
@@ -1002,7 +976,6 @@ export default class WorkStart extends PMOCommand {
         ticketId: ticket.id,
         agentName: assignedAgent,
         executor,
-        mode,
         environment,
         displayMode,
         sandboxed,
@@ -1019,7 +992,7 @@ export default class WorkStart extends PMOCommand {
 
       // If terminal display mode, ensure terminal and shell preferences are set (prompts on first use)
       // Also re-prompt if --reconfigure flag is set
-      const needsTerminalConfig = (mode === 'terminal') || (useDevcontainer && displayMode === 'terminal')
+      const needsTerminalConfig = displayMode === 'terminal'
       if (needsTerminalConfig) {
         const needsTerminal = !hasTerminalPreference(db)
         const needsShell = !hasShellPreference(db)
@@ -1058,10 +1031,10 @@ export default class WorkStart extends PMOCommand {
       // Run execution
       this.log(styles.muted('Starting agent...'))
       const sessionManager = (flags.session || 'tmux') as SessionManager
-      const result = await runExecution(mode, context, executor, executionConfig, {
+      const result = await runExecution(environment, context, executor, executionConfig, {
         host: flags['vm-host'],
-        displayMode: mode === 'devcontainer' ? displayMode : undefined,
-        sessionManager: mode === 'devcontainer' ? sessionManager : undefined,
+        displayMode,
+        sessionManager: environment === 'devcontainer' ? sessionManager : undefined,
       })
 
       if (result.success) {
@@ -1074,8 +1047,8 @@ export default class WorkStart extends PMOCommand {
           logPath: result.logPath,
         })
 
-        // Track container in containers table (for devcontainer mode)
-        if (mode === 'devcontainer' && result.containerId) {
+        // Track container in containers table (for devcontainer environment)
+        if (environment === 'devcontainer' && result.containerId) {
           const containerStorage = new ContainerStorage(db)
           containerStorage.upsertContainer({
             agentName: context.agentName,
@@ -1124,13 +1097,10 @@ export default class WorkStart extends PMOCommand {
         this.log('')
         this.log(styles.success(`✓ Work started (${execution.id})`))
         this.log('')
-
-        if (mode !== 'foreground') {
-          this.log(styles.muted('Commands:'))
-          this.log(styles.muted(`  prlt work status              View work status`))
-          this.log(styles.muted(`  prlt work ready ${ticketId}     Mark ready for review`))
-          this.log(styles.muted(`  prlt work stop ${execution.id}    Stop work`))
-        }
+        this.log(styles.muted('Commands:'))
+        this.log(styles.muted(`  prlt work status              View work status`))
+        this.log(styles.muted(`  prlt work ready ${ticketId}     Mark ready for review`))
+        this.log(styles.muted(`  prlt work stop ${execution.id}    Stop work`))
       } else {
         executionStorage.updateStatus(execution.id, 'failed')
         this.error(`Failed to start work: ${result.error}`)
@@ -1357,9 +1327,8 @@ export default class WorkStart extends PMOCommand {
     const useDevcontainer = hasDevcontainer && !flags['run-on-host']
 
     // Non-interactive defaults
-    const mode: RuntimeMode = useDevcontainer ? 'devcontainer' : 'terminal'
-    const displayMode: DisplayMode = 'terminal'
     const environment: ExecutionEnvironment = useDevcontainer ? 'devcontainer' : 'host'
+    const displayMode: DisplayMode = 'terminal'
     const sandboxed = !flags['skip-permissions']
     const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
     const outputMode: OutputMode = 'interactive'
@@ -1403,7 +1372,6 @@ export default class WorkStart extends PMOCommand {
       ticketId: ticket.id,
       agentName,
       executor,
-      mode,
       environment,
       displayMode,
       sandboxed,
@@ -1421,9 +1389,9 @@ export default class WorkStart extends PMOCommand {
     this.log(styles.muted(`   Starting ${ticket.id} → ${agentName}...`))
 
     const batchSessionManager = (flags.session || 'tmux') as SessionManager
-    const result = await runExecution(mode, context, executor, executionConfig, {
-      displayMode: mode === 'devcontainer' ? displayMode : undefined,
-      sessionManager: mode === 'devcontainer' ? batchSessionManager : undefined,
+    const result = await runExecution(environment, context, executor, executionConfig, {
+      displayMode,
+      sessionManager: environment === 'devcontainer' ? batchSessionManager : undefined,
     })
 
     if (result.success) {
