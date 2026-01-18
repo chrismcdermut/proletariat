@@ -152,6 +152,38 @@ export function divider(width = 50): string {
 }
 
 /**
+ * Get color for a priority group header
+ */
+export function getPriorityStyle(priority: string): chalk.Chalk {
+  switch (priority) {
+    case 'P0':
+      return styles.priorityUrgent;
+    case 'P1':
+      return styles.priorityHigh;
+    case 'P2':
+      return styles.priorityMedium;
+    case 'P3':
+      return styles.priorityLow;
+    default:
+      return styles.muted;
+  }
+}
+
+/**
+ * Get emoji for a priority group header
+ */
+export function getPriorityEmoji(priority: string): string {
+  const emojis: Record<string, string> = {
+    'P0': '🔥',
+    'P1': '🔴',
+    'P2': '🟡',
+    'P3': '🟢',
+    'None': '⚪',
+  };
+  return emojis[priority] || '⚪';
+}
+
+/**
  * Format a category badge
  */
 export function formatCategory(category?: string): string {
