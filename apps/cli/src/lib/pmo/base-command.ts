@@ -207,6 +207,169 @@ export abstract class PMOCommand extends Command {
   }
 
   /**
+   * Select from a list of items with JSON mode support for AI agents.
+   *
+   * In JSON mode: outputs choices as JSON with command field and exits
+   * In interactive mode: shows prompt and returns selected value
+   *
+   * @param options Configuration for the selection
+   * @returns The selected value (only in interactive mode)
+   *
+   * @example
+   * ```typescript
+   * const ticketId = await this.selectFromList({
+   *   message: 'Select ticket:',
+   *   items: tickets,
+   *   getName: (t) => `${t.id}: ${t.title}`,
+   *   getValue: (t) => t.id,
+   *   getCommand: (t) => `prlt ticket view ${t.id} --json`,
+   *   jsonMode: { flags, commandName: 'ticket view' },
+   * });
+   * ```
+   */
+  protected async selectFromList<T>(options: {
+    /** Prompt message shown to user */
+    message: string;
+    /** Items to select from */
+    items: T[];
+    /** Extract display name from item */
+    getName: (item: T) => string;
+    /** Extract value from item */
+    getValue: (item: T) => string;
+    /** Build command string for item (should include --json) */
+    getCommand: (item: T) => string;
+    /** JSON mode config - if provided and flags indicate JSON mode, outputs JSON */
+    jsonMode?: {
+      flags: JsonFlags & Record<string, unknown>;
+      commandName: string;
+    } | null;
+    /** Optional: include a Cancel option */
+    allowCancel?: boolean;
+    /** Optional: custom cancel value (default: null returned) */
+    cancelValue?: string;
+  }): Promise<string | null> {
+    const {
+      message,
+      items,
+      getName,
+      getValue,
+      getCommand,
+      jsonMode,
+      allowCancel = false,
+      cancelValue,
+    } = options;
+
+    // Build choices with command field
+    const choices = items.map(item => ({
+      name: getName(item),
+      value: getValue(item),
+      command: getCommand(item),
+    }));
+
+    // Check for JSON mode
+    if (jsonMode && shouldOutputJson(jsonMode.flags)) {
+      outputPromptAsJson(
+        {
+          type: 'list',
+          name: 'selection',
+          message,
+          choices,
+        },
+        createMetadata(jsonMode.commandName, jsonMode.flags)
+      );
+      // outputPromptAsJson exits, so this is unreachable
+      return null;
+    }
+
+    // Interactive mode
+    const interactiveChoices = choices.map(c => ({
+      name: c.name,
+      value: c.value,
+    }));
+
+    if (allowCancel) {
+      interactiveChoices.push(
+        { name: '─'.repeat(20), value: '__separator__' } as typeof interactiveChoices[0],
+        { name: 'Cancel', value: cancelValue ?? '__cancel__' }
+      );
+    }
+
+    const { selection } = await inquirer.prompt([{
+      type: 'list',
+      name: 'selection',
+      message,
+      choices: interactiveChoices,
+    }]);
+
+    if (selection === '__cancel__' || selection === '__separator__') {
+      return null;
+    }
+
+    return selection;
+  }
+
+  /**
+   * Prompt for input with JSON mode support for AI agents.
+   *
+   * In JSON mode: outputs field info as JSON and exits
+   * In interactive mode: shows prompt and returns input value
+   *
+   * @param options Configuration for the input
+   * @returns The input value (only in interactive mode)
+   */
+  protected async promptForInput(options: {
+    /** Prompt message shown to user */
+    message: string;
+    /** Field name for the prompt */
+    fieldName: string;
+    /** Default value */
+    defaultValue?: string;
+    /** Validation function */
+    validate?: (input: string) => boolean | string;
+    /** JSON mode config */
+    jsonMode?: {
+      flags: JsonFlags & Record<string, unknown>;
+      commandName: string;
+      /** Hint for how to provide this value */
+      commandHint: string;
+      /** Example command */
+      example?: string;
+    } | null;
+  }): Promise<string> {
+    const { message, fieldName, defaultValue, validate, jsonMode } = options;
+
+    // Check for JSON mode
+    if (jsonMode && shouldOutputJson(jsonMode.flags)) {
+      outputPromptAsJson(
+        {
+          type: 'input',
+          name: fieldName,
+          message,
+          default: defaultValue,
+          context: {
+            hint: jsonMode.commandHint,
+            example: jsonMode.example,
+          },
+        },
+        createMetadata(jsonMode.commandName, jsonMode.flags)
+      );
+      // outputPromptAsJson exits, so this is unreachable
+      return '';
+    }
+
+    // Interactive mode
+    const { value } = await inquirer.prompt([{
+      type: 'input',
+      name: 'value',
+      message,
+      default: defaultValue,
+      validate,
+    }]);
+
+    return value;
+  }
+
+  /**
    * Override run() to delegate to execute() and ensure cleanup
    * Subclasses should implement execute() instead of run()
    */
