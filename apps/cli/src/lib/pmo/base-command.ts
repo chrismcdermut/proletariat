@@ -2,6 +2,12 @@ import { Command, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { getPMOContext, type PMOContext } from './pmo-context.js';
 import { styles } from '../styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  type JsonFlags,
+} from '../prompt-json.js';
 
 /**
  * Base flags shared by all PMO commands
@@ -102,12 +108,20 @@ export abstract class PMOCommand extends Command {
    * Priority:
    * 1. If -P flag was provided, uses that
    * 2. If only one project exists, uses that
-   * 3. If multiple projects exist, prompts user to select one
+   * 3. If multiple projects exist, prompts user to select one (or outputs JSON if jsonMode)
    *
    * @param options.filterEmptyProjects - Only show projects with tickets
+   * @param options.jsonMode - JSON mode configuration for AI agents
    * @returns The selected project ID - pass this to storage operations
    */
-  protected async requireProject(options?: { filterEmptyProjects?: boolean }): Promise<string> {
+  protected async requireProject(options?: {
+    filterEmptyProjects?: boolean;
+    jsonMode?: {
+      flags: JsonFlags & Record<string, unknown>;
+      commandName: string;
+      baseCommand: string;
+    };
+  }): Promise<string> {
     // If -P flag was provided, use it
     if (this.projectFlag) {
       return this.projectFlag;
@@ -142,7 +156,7 @@ export abstract class PMOCommand extends Command {
       return filteredProjects[0].id;
     }
 
-    // Multiple projects - prompt for selection
+    // Multiple projects - check for JSON mode
     // Sort projects by leading number in name (e.g., "1. MVP" before "10. Infra")
     const sortedProjects = [...filteredProjects].sort((a, b) => {
       const numA = parseInt(a.name.match(/^(\d+)/)?.[1] || '999', 10);
@@ -150,6 +164,27 @@ export abstract class PMOCommand extends Command {
       return numA - numB;
     });
 
+    // If JSON mode is active, output project choices as JSON
+    if (options?.jsonMode && shouldOutputJson(options.jsonMode.flags)) {
+      const choices = sortedProjects.map(p => ({
+        name: `${p.name} (${p.id})`,
+        value: p.id,
+        command: `${options.jsonMode!.baseCommand} -P ${p.id} --json`,
+      }));
+      outputPromptAsJson(
+        {
+          type: 'list',
+          name: 'project',
+          message: 'Select project:',
+          choices,
+        },
+        createMetadata(options.jsonMode.commandName, options.jsonMode.flags)
+      );
+      // outputPromptAsJson calls process.exit, so this is unreachable
+      return '';
+    }
+
+    // Interactive mode - prompt for selection
     const { selectedProjectId } = await inquirer.prompt([{
       type: 'list',
       name: 'selectedProjectId',
