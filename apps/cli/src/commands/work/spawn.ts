@@ -415,26 +415,30 @@ export default class WorkSpawn extends PMOCommand {
           return
         }
 
-        // Group tickets by status for display
-        const ticketsByColumn = new Map<string, typeof unassignedTickets>()
+        // Group tickets by priority for display
+        const PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3', 'None']
+        const ticketsByPriority = new Map<string, typeof unassignedTickets>()
+        for (const priority of PRIORITY_ORDER) {
+          ticketsByPriority.set(priority, [])
+        }
         for (const ticket of ticketsForSelection) {
-          const col = ticket.statusName || 'No Status'
-          if (!ticketsByColumn.has(col)) {
-            ticketsByColumn.set(col, [])
+          const priority = ticket.priority || 'None'
+          if (!ticketsByPriority.has(priority)) {
+            ticketsByPriority.set(priority, [])
           }
-          ticketsByColumn.get(col)!.push(ticket)
+          ticketsByPriority.get(priority)!.push(ticket)
         }
 
-        // Build choices with column separators
+        // Build choices with priority separators
         const choices: Array<{ name: string; value: string } | inquirer.Separator> = []
-        for (const [column, tickets] of ticketsByColumn) {
-          if (manyColumn === '__ALL__') {
-            choices.push(new inquirer.Separator(`── ${column} ──`))
-          }
+        for (const priority of PRIORITY_ORDER) {
+          const tickets = ticketsByPriority.get(priority) || []
+          if (tickets.length === 0) continue
+          choices.push(new inquirer.Separator(`── ${priority} (${tickets.length}) ──`))
           for (const ticket of tickets) {
-            const priority = ticket.priority ? `[${ticket.priority}] ` : ''
+            const statusBadge = ticket.statusName ? ` [${ticket.statusName}]` : ''
             choices.push({
-              name: `${priority}${ticket.id} - ${ticket.title}`,
+              name: `[${priority}] ${ticket.id} - ${ticket.title}${statusBadge}`,
               value: ticket.id,
             })
           }
