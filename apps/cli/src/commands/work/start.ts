@@ -219,17 +219,45 @@ export default class WorkStart extends PMOCommand {
           return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".')
         }
 
-        // Build choices once, use for both JSON and interactive modes
-        const ticketChoices = allTickets.map((t) => ({
-          name: `${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
-          value: t.id,
-        }))
+        // Group tickets by priority for display
+        const PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3', 'None']
+        const ticketsByPriority = new Map<string, typeof allTickets>()
+        for (const priority of PRIORITY_ORDER) {
+          ticketsByPriority.set(priority, [])
+        }
+        for (const ticket of allTickets) {
+          const priority = ticket.priority || 'None'
+          if (!ticketsByPriority.has(priority)) {
+            ticketsByPriority.set(priority, [])
+          }
+          ticketsByPriority.get(priority)!.push(ticket)
+        }
+
+        // Build choices with priority separators
+        const ticketChoices: Array<{ name: string; value: string } | inquirer.Separator> = []
+        for (const priority of PRIORITY_ORDER) {
+          const tickets = ticketsByPriority.get(priority) || []
+          if (tickets.length === 0) continue
+          ticketChoices.push(new inquirer.Separator(`── ${priority} (${tickets.length}) ──`))
+          for (const t of tickets) {
+            const assigneeBadge = t.assignee ? ` (${t.assignee})` : ''
+            const statusBadge = t.statusName ? ` [${t.statusName}]` : ''
+            ticketChoices.push({
+              name: `[${priority}] ${t.id} - ${t.title}${statusBadge}${assigneeBadge}`,
+              value: t.id,
+            })
+          }
+        }
         const selectMessage = 'Select ticket to work on:'
 
-        // In JSON mode, output ticket selection prompt
+        // In JSON mode, output ticket selection prompt (flat list for agents)
         if (jsonMode) {
+          const flatChoices = allTickets.map((t) => ({
+            name: `[${t.priority || 'None'}] ${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
+            value: t.id,
+          }))
           outputPromptAsJson(
-            buildPromptConfig('list', 'ticketId', selectMessage, ticketChoices),
+            buildPromptConfig('list', 'ticketId', selectMessage, flatChoices),
             createMetadata('work start', flags)
           )
           db.close()
