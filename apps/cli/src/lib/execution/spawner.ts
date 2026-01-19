@@ -31,6 +31,76 @@ import {
 import { Ticket } from '../pmo/types.js'
 
 // =============================================================================
+// Git Utilities
+// =============================================================================
+
+/**
+ * Try to execute a git command, return true if successful
+ */
+function tryGitCommand(cmd: string, cwd: string): boolean {
+  try {
+    execSync(cmd, { cwd, stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Check if a directory is a git repository
+ */
+function isGitRepo(dir: string): boolean {
+  return tryGitCommand('git rev-parse --git-dir', dir)
+}
+
+/**
+ * Find the first existing branch from a list of candidates
+ */
+function findBaseBranch(repoPath: string, candidates: string[] = ['origin/main', 'origin/master']): string {
+  for (const branch of candidates) {
+    if (tryGitCommand(`git rev-parse --verify ${branch}`, repoPath)) {
+      return branch
+    }
+  }
+  return 'HEAD'
+}
+
+/**
+ * Try to execute a docker exec git command, return true if successful
+ */
+function tryDockerGitCommand(containerId: string, containerRepoPath: string, gitArgs: string): boolean {
+  try {
+    execSync(`docker exec ${containerId} git -C "${containerRepoPath}" ${gitArgs}`, { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Check if a path is a git repo inside a container
+ */
+function isGitRepoInContainer(containerId: string, containerRepoPath: string): boolean {
+  return tryDockerGitCommand(containerId, containerRepoPath, 'rev-parse --git-dir')
+}
+
+/**
+ * Find the base branch inside a container
+ */
+function findBaseBranchInContainer(
+  containerId: string,
+  containerRepoPath: string,
+  candidates: string[] = ['origin/main', 'origin/master']
+): string {
+  for (const branch of candidates) {
+    if (tryDockerGitCommand(containerId, containerRepoPath, `rev-parse --verify ${branch}`)) {
+      return branch
+    }
+  }
+  return 'HEAD'
+}
+
+// =============================================================================
 // Types
 // =============================================================================
 
@@ -313,6 +383,14 @@ export async function spawnAgentForTicket(
     ? repoWorktrees.map(r => path.join(agentDir, r))
     : [worktreePath]
 
+  // Always fetch latest from origin before branch operations
+  // This ensures all spawn actions work with the latest code
+  for (const repoPath of gitRepos) {
+    if (isGitRepo(repoPath)) {
+      tryGitCommand('git fetch origin', repoPath)
+    }
+  }
+
   if (environment === 'devcontainer') {
     // Get container ID for this agent
     let containerId: string | null = null
@@ -332,22 +410,26 @@ export async function spawnAgentForTicket(
         // Map host path to container path: /workspace/{repoName}
         const containerRepoPath = `/workspace/${repoName}`
 
-        try {
-          // Check if this is a git repo inside the container
-          try {
-            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" rev-parse --git-dir`, { stdio: 'pipe' })
-          } catch {
-            continue
-          }
+        // Skip if not a git repo
+        if (!isGitRepoInContainer(containerId, containerRepoPath)) {
+          continue
+        }
 
-          // Check if branch exists
-          try {
-            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" rev-parse --verify ${branch}`, { stdio: 'pipe' })
+        try {
+          // Fetch latest from origin inside container (may fail if offline)
+          tryDockerGitCommand(containerId, containerRepoPath, 'fetch origin')
+
+          // Find base branch (origin/main or origin/master)
+          const baseBranch = findBaseBranchInContainer(containerId, containerRepoPath)
+
+          // Check if branch exists and checkout, or create new branch
+          const branchExists = tryDockerGitCommand(containerId, containerRepoPath, `rev-parse --verify ${branch}`)
+          if (branchExists) {
             execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout ${branch}`, { stdio: 'pipe' })
-          } catch {
-            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout -b ${branch}`, { stdio: 'pipe' })
+          } else {
+            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout -b ${branch} ${baseBranch}`, { stdio: 'pipe' })
           }
-          log(`Created branch ${branch} in ${repoName} (inside container)`)
+          log(`Created branch ${branch} in ${repoName} from ${baseBranch} (inside container)`)
         } catch (error) {
           log(`Could not create branch in ${repoName}: ${error instanceof Error ? error.message : error}`)
         }
@@ -358,20 +440,21 @@ export async function spawnAgentForTicket(
   } else {
     // Host environment - run git commands directly
     for (const repoPath of gitRepos) {
-      try {
-        // Check if this is a git repo
-        try {
-          execSync('git rev-parse --git-dir', { cwd: repoPath, stdio: 'pipe' })
-        } catch {
-          continue
-        }
+      // Skip if not a git repo
+      if (!isGitRepo(repoPath)) {
+        continue
+      }
 
-        // Check if branch exists
-        try {
-          execSync(`git rev-parse --verify ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+      try {
+        // Find base branch (origin/main or origin/master)
+        const baseBranch = findBaseBranch(repoPath)
+
+        // Check if branch exists and checkout, or create new branch
+        const branchExists = tryGitCommand(`git rev-parse --verify ${branch}`, repoPath)
+        if (branchExists) {
           execSync(`git checkout ${branch}`, { cwd: repoPath, stdio: 'pipe' })
-        } catch {
-          execSync(`git checkout -b ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+        } else {
+          execSync(`git checkout -b ${branch} ${baseBranch}`, { cwd: repoPath, stdio: 'pipe' })
         }
       } catch (error) {
         log(`Could not create branch in ${path.basename(repoPath)}: ${error instanceof Error ? error.message : error}`)
