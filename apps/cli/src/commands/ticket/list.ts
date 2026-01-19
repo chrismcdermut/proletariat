@@ -9,7 +9,11 @@ import {
   getColumnStyle,
   getColumnEmoji,
   divider,
+  getPriorityStyle,
 } from '../../lib/styles.js';
+
+// Priority order for grouping: P0, P1, P2, P3, None
+const PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3', 'None'];
 
 export default class TicketList extends Command {
   static description = 'List tickets from the PMO board';
@@ -22,6 +26,8 @@ export default class TicketList extends Command {
     '<%= config.bin %> <%= command.id %> --search "login"',
     '<%= config.bin %> <%= command.id %> --project mobile-app',
     '<%= config.bin %> <%= command.id %> --all',
+    '<%= config.bin %> <%= command.id %> --all --group-by priority',
+    '<%= config.bin %> <%= command.id %> -g priority',
   ];
 
   static flags = {
@@ -52,6 +58,12 @@ export default class TicketList extends Command {
       char: 'a',
       description: 'Show tickets across all projects',
       default: false,
+    }),
+    'group-by': Flags.string({
+      char: 'g',
+      description: 'Group tickets by field',
+      options: ['status', 'priority'],
+      default: 'status',
     }),
   };
 
@@ -98,6 +110,8 @@ export default class TicketList extends Command {
         return;
       }
 
+      const groupBy = flags['group-by'] as 'status' | 'priority';
+
       // Output based on format
       if (flags.all) {
         // Cross-project view
@@ -106,10 +120,10 @@ export default class TicketList extends Command {
             this.log(JSON.stringify(tickets, null, 2));
             break;
           case 'compact':
-            this.outputCrossProjectCompact(tickets);
+            this.outputCrossProjectCompact(tickets, groupBy);
             break;
           default:
-            this.outputCrossProjectTable(tickets);
+            this.outputCrossProjectTable(tickets, groupBy);
         }
       } else {
         // Single project view - get projectId from first ticket or use flag
@@ -126,10 +140,10 @@ export default class TicketList extends Command {
             this.log(JSON.stringify(tickets, null, 2));
             break;
           case 'compact':
-            this.outputCompact(tickets, columns);
+            this.outputCompact(tickets, columns, groupBy);
             break;
           default:
-            this.outputTable(tickets, columns);
+            this.outputTable(tickets, columns, groupBy);
         }
       }
     } finally {
@@ -137,7 +151,12 @@ export default class TicketList extends Command {
     }
   }
 
-  private outputCrossProjectTable(tickets: Ticket[]): void {
+  private outputCrossProjectTable(tickets: Ticket[], groupBy: 'status' | 'priority'): void {
+    if (groupBy === 'priority') {
+      this.outputCrossProjectTableByPriority(tickets);
+      return;
+    }
+
     // Group tickets by project, then by column
     const byProject: Record<string, Ticket[]> = {};
     for (const ticket of tickets) {
@@ -195,7 +214,61 @@ export default class TicketList extends Command {
     this.log(styles.emphasis(`Total: ${tickets.length} ticket${tickets.length === 1 ? '' : 's'} across ${projectNames.length} project${projectNames.length === 1 ? '' : 's'}`));
   }
 
-  private outputCrossProjectCompact(tickets: Ticket[]): void {
+  private outputCrossProjectTableByPriority(tickets: Ticket[]): void {
+    // Group tickets by priority
+    const byPriority: Record<string, Ticket[]> = {};
+    for (const priority of PRIORITY_ORDER) {
+      byPriority[priority] = [];
+    }
+    for (const ticket of tickets) {
+      const priority = ticket.priority || 'None';
+      if (!byPriority[priority]) {
+        byPriority[priority] = [];
+      }
+      byPriority[priority].push(ticket);
+    }
+
+    for (const priority of PRIORITY_ORDER) {
+      const priorityTickets = byPriority[priority];
+
+      // Priority header
+      const headerColor = getPriorityStyle(priority);
+      this.log(headerColor(`\n${priority} (${priorityTickets.length})`));
+      this.log(divider(60));
+
+      if (priorityTickets.length === 0) {
+        this.log(styles.muted('  (empty)'));
+        continue;
+      }
+
+      // Sort by position within priority
+      priorityTickets.sort((a, b) => (a.position || 0) - (b.position || 0));
+
+      for (const ticket of priorityTickets) {
+        const statusBadge = ticket.statusName ? styles.muted(`[${ticket.statusName}]`) : '';
+        const categoryBadge = formatCategory(ticket.category);
+        const projectBadge = ticket.projectName ? styles.info(`[${ticket.projectName}]`) : '';
+
+        this.log(`  ${styles.code(ticket.id)} ${ticket.title} ${statusBadge} ${categoryBadge} ${projectBadge}`);
+
+        if (ticket.description) {
+          const shortDesc = ticket.description.split('\n')[0].substring(0, 55);
+          this.log(styles.muted(`     ${shortDesc}${ticket.description.length > 55 ? '...' : ''}`));
+        }
+      }
+    }
+
+    // Summary
+    this.log('\n' + divider(60));
+    this.log(styles.emphasis(`Total: ${tickets.length} ticket${tickets.length === 1 ? '' : 's'}`));
+  }
+
+  private outputCrossProjectCompact(tickets: Ticket[], groupBy: 'status' | 'priority'): void {
+    if (groupBy === 'priority') {
+      this.outputCrossProjectCompactByPriority(tickets);
+      return;
+    }
+
     // Group tickets by project
     const byProject: Record<string, Ticket[]> = {};
     for (const ticket of tickets) {
@@ -222,7 +295,43 @@ export default class TicketList extends Command {
     }
   }
 
-  private outputTable(tickets: Ticket[], columns: string[]): void {
+  private outputCrossProjectCompactByPriority(tickets: Ticket[]): void {
+    // Group tickets by priority
+    const byPriority: Record<string, Ticket[]> = {};
+    for (const priority of PRIORITY_ORDER) {
+      byPriority[priority] = [];
+    }
+    for (const ticket of tickets) {
+      const priority = ticket.priority || 'None';
+      if (!byPriority[priority]) {
+        byPriority[priority] = [];
+      }
+      byPriority[priority].push(ticket);
+    }
+
+    for (const priority of PRIORITY_ORDER) {
+      const priorityTickets = byPriority[priority];
+      if (priorityTickets.length === 0) continue;
+
+      const headerColor = getPriorityStyle(priority);
+      this.log(headerColor(`${priority} (${priorityTickets.length}):`));
+
+      priorityTickets.sort((a, b) => (a.position || 0) - (b.position || 0));
+
+      for (const ticket of priorityTickets) {
+        const status = ticket.statusName ? styles.muted(`[${ticket.statusName}]`) : '';
+        const project = ticket.projectName ? styles.info(`[${ticket.projectName}]`) : '';
+        this.log(`  ${styles.code(ticket.id)}: ${ticket.title} ${status} ${project}`);
+      }
+    }
+  }
+
+  private outputTable(tickets: Ticket[], columns: string[], groupBy: 'status' | 'priority'): void {
+    if (groupBy === 'priority') {
+      this.outputTableByPriority(tickets);
+      return;
+    }
+
     // Group tickets by column
     const byColumn: Record<string, Ticket[]> = {};
     for (const col of columns) {
@@ -276,7 +385,66 @@ export default class TicketList extends Command {
     this.log(styles.emphasis(`Total: ${tickets.length} ticket${tickets.length === 1 ? '' : 's'}`));
   }
 
-  private outputCompact(tickets: Ticket[], columns: string[]): void {
+  private outputTableByPriority(tickets: Ticket[]): void {
+    // Group tickets by priority
+    const byPriority: Record<string, Ticket[]> = {};
+    for (const priority of PRIORITY_ORDER) {
+      byPriority[priority] = [];
+    }
+    for (const ticket of tickets) {
+      const priority = ticket.priority || 'None';
+      if (!byPriority[priority]) {
+        byPriority[priority] = [];
+      }
+      byPriority[priority].push(ticket);
+    }
+
+    // Display ALL priority groups
+    for (const priority of PRIORITY_ORDER) {
+      const priorityTickets = byPriority[priority];
+
+      // Priority header with color
+      const headerColor = getPriorityStyle(priority);
+      this.log(headerColor(`\n${priority} (${priorityTickets.length})`));
+      this.log(divider(50));
+
+      if (priorityTickets.length === 0) {
+        this.log(styles.muted('  (empty)'));
+        continue;
+      }
+
+      // Sort by position
+      priorityTickets.sort((a, b) => (a.position || 0) - (b.position || 0));
+
+      for (const ticket of priorityTickets) {
+        const statusBadge = ticket.statusName ? styles.muted(`[${ticket.statusName}]`) : '';
+        const categoryBadge = formatCategory(ticket.category);
+
+        this.log(`  ${styles.code(ticket.id)} ${ticket.title} ${statusBadge} ${categoryBadge}`);
+
+        if (ticket.description) {
+          const shortDesc = ticket.description.split('\n')[0].substring(0, 60);
+          this.log(styles.muted(`     ${shortDesc}${ticket.description.length > 60 ? '...' : ''}`));
+        }
+
+        if (ticket.subtasks.length > 0) {
+          const done = ticket.subtasks.filter(s => s.done).length;
+          this.log(styles.muted(`     Subtasks: ${done}/${ticket.subtasks.length}`));
+        }
+      }
+    }
+
+    // Summary
+    this.log('\n' + divider(50));
+    this.log(styles.emphasis(`Total: ${tickets.length} ticket${tickets.length === 1 ? '' : 's'}`));
+  }
+
+  private outputCompact(tickets: Ticket[], columns: string[], groupBy: 'status' | 'priority'): void {
+    if (groupBy === 'priority') {
+      this.outputCompactByPriority(tickets);
+      return;
+    }
+
     // Group by column
     const byColumn: Record<string, Ticket[]> = {};
     for (const col of columns) {
@@ -307,6 +475,41 @@ export default class TicketList extends Command {
       for (const ticket of colTickets) {
         const priority = formatPriority(ticket.priority);
         this.log(`  ${styles.code(ticket.id)}: ${ticket.title} ${priority}`);
+      }
+    }
+  }
+
+  private outputCompactByPriority(tickets: Ticket[]): void {
+    // Group by priority
+    const byPriority: Record<string, Ticket[]> = {};
+    for (const priority of PRIORITY_ORDER) {
+      byPriority[priority] = [];
+    }
+    for (const ticket of tickets) {
+      const priority = ticket.priority || 'None';
+      if (!byPriority[priority]) {
+        byPriority[priority] = [];
+      }
+      byPriority[priority].push(ticket);
+    }
+
+    for (const priority of PRIORITY_ORDER) {
+      const priorityTickets = byPriority[priority];
+
+      // Show all priority groups
+      const headerColor = getPriorityStyle(priority);
+      this.log(headerColor(`${priority} (${priorityTickets.length}):`));
+
+      if (priorityTickets.length === 0) {
+        this.log(styles.muted('  (empty)'));
+        continue;
+      }
+
+      priorityTickets.sort((a, b) => (a.position || 0) - (b.position || 0));
+
+      for (const ticket of priorityTickets) {
+        const status = ticket.statusName ? styles.muted(`[${ticket.statusName}]`) : '';
+        this.log(`  ${styles.code(ticket.id)}: ${ticket.title} ${status}`);
       }
     }
   }
