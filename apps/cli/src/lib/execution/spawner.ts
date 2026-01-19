@@ -65,6 +65,41 @@ function findBaseBranch(repoPath: string, candidates: string[] = ['origin/main',
   return 'HEAD'
 }
 
+/**
+ * Try to execute a docker exec git command, return true if successful
+ */
+function tryDockerGitCommand(containerId: string, containerRepoPath: string, gitArgs: string): boolean {
+  try {
+    execSync(`docker exec ${containerId} git -C "${containerRepoPath}" ${gitArgs}`, { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Check if a path is a git repo inside a container
+ */
+function isGitRepoInContainer(containerId: string, containerRepoPath: string): boolean {
+  return tryDockerGitCommand(containerId, containerRepoPath, 'rev-parse --git-dir')
+}
+
+/**
+ * Find the base branch inside a container
+ */
+function findBaseBranchInContainer(
+  containerId: string,
+  containerRepoPath: string,
+  candidates: string[] = ['origin/main', 'origin/master']
+): string {
+  for (const branch of candidates) {
+    if (tryDockerGitCommand(containerId, containerRepoPath, `rev-parse --verify ${branch}`)) {
+      return branch
+    }
+  }
+  return 'HEAD'
+}
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -375,40 +410,23 @@ export async function spawnAgentForTicket(
         // Map host path to container path: /workspace/{repoName}
         const containerRepoPath = `/workspace/${repoName}`
 
-        try {
-          // Check if this is a git repo inside the container
-          try {
-            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" rev-parse --git-dir`, { stdio: 'pipe' })
-          } catch {
-            continue
-          }
+        // Skip if not a git repo
+        if (!isGitRepoInContainer(containerId, containerRepoPath)) {
+          continue
+        }
 
-          // Fetch latest from origin inside container
-          try {
-            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" fetch origin`, { stdio: 'pipe' })
-          } catch {
-            // Fetch may fail if offline, continue anyway
-          }
+        try {
+          // Fetch latest from origin inside container (may fail if offline)
+          tryDockerGitCommand(containerId, containerRepoPath, 'fetch origin')
 
           // Find base branch (origin/main or origin/master)
-          let baseBranch = 'origin/main'
-          try {
-            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" rev-parse --verify origin/main`, { stdio: 'pipe' })
-          } catch {
-            try {
-              execSync(`docker exec ${containerId} git -C "${containerRepoPath}" rev-parse --verify origin/master`, { stdio: 'pipe' })
-              baseBranch = 'origin/master'
-            } catch {
-              baseBranch = 'HEAD'
-            }
-          }
+          const baseBranch = findBaseBranchInContainer(containerId, containerRepoPath)
 
-          // Check if branch exists
-          try {
-            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" rev-parse --verify ${branch}`, { stdio: 'pipe' })
+          // Check if branch exists and checkout, or create new branch
+          const branchExists = tryDockerGitCommand(containerId, containerRepoPath, `rev-parse --verify ${branch}`)
+          if (branchExists) {
             execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout ${branch}`, { stdio: 'pipe' })
-          } catch {
-            // Create new branch from origin/main (or fallback)
+          } else {
             execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout -b ${branch} ${baseBranch}`, { stdio: 'pipe' })
           }
           log(`Created branch ${branch} in ${repoName} from ${baseBranch} (inside container)`)
@@ -422,21 +440,20 @@ export async function spawnAgentForTicket(
   } else {
     // Host environment - run git commands directly
     for (const repoPath of gitRepos) {
-      try {
-        // Check if this is a git repo
-        if (!isGitRepo(repoPath)) {
-          continue
-        }
+      // Skip if not a git repo
+      if (!isGitRepo(repoPath)) {
+        continue
+      }
 
+      try {
         // Find base branch (origin/main or origin/master)
         const baseBranch = findBaseBranch(repoPath)
 
-        // Check if branch exists
-        try {
-          execSync(`git rev-parse --verify ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+        // Check if branch exists and checkout, or create new branch
+        const branchExists = tryGitCommand(`git rev-parse --verify ${branch}`, repoPath)
+        if (branchExists) {
           execSync(`git checkout ${branch}`, { cwd: repoPath, stdio: 'pipe' })
-        } catch {
-          // Create new branch from origin/main (or fallback)
+        } else {
           execSync(`git checkout -b ${branch} ${baseBranch}`, { cwd: repoPath, stdio: 'pipe' })
         }
       } catch (error) {
