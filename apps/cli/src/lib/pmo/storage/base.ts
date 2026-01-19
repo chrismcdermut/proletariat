@@ -457,8 +457,6 @@ export function seedBuiltinActions(db: Database.Database): void {
 
 Do NOT implement the ticket - only improve its definition so it's ready to be worked on.
 
-**AI Agent Tip:** Use \`prlt ticket view {{TICKET_ID}} --json\` for structured ticket data.
-
 ## Ticket Schema Reference
 
 | Field | Type | Valid Values | CLI Flag |
@@ -529,9 +527,7 @@ After updating, output a brief summary of your grooming changes.`,
 - Update documentation if the changes affect it
 - Run tests to verify the implementation
 
-When complete, the ticket should be ready for code review.
-
-**AI Agent Tip:** Use \`prlt ticket view {{TICKET_ID}} --json\` for structured ticket data.`,
+When complete, the ticket should be ready for code review.`,
       endPrompt: `When complete:
 1. **Commit your work** in each repository directory you modified:
    \`\`\`bash
@@ -562,9 +558,7 @@ When complete, the ticket should be ready for code review.
 - Review existing commits and changes to understand current state
 - Check what subtasks remain incomplete
 - Complete the remaining work
-- Ensure all acceptance criteria are met
-
-**AI Agent Tip:** Use \`prlt ticket view {{TICKET_ID}} --json\` for structured ticket data.`,
+- Ensure all acceptance criteria are met`,
       endPrompt: `When complete:
 1. **Commit your work** in each repository directory you modified:
    \`\`\`bash
@@ -595,9 +589,7 @@ When complete, the ticket should be ready for code review.
 - Add integration tests where appropriate
 - Cover edge cases and error handling
 - Aim for good coverage of the changed code
-- Ensure all tests pass
-
-**AI Agent Tip:** Use \`prlt ticket view {{TICKET_ID}} --json\` for structured ticket data.`,
+- Ensure all tests pass`,
       endPrompt: `When complete:
 1. **Commit your tests**:
    \`\`\`bash
@@ -627,9 +619,7 @@ When complete, the ticket should be ready for code review.
 - Check code quality and maintainability
 - Suggest improvements if appropriate
 
-Output a review summary with your findings and any concerns.
-
-**AI Agent Tip:** Use \`prlt ticket view {{TICKET_ID}} --json\` for structured ticket data.`,
+Output a review summary with your findings and any concerns.`,
       endPrompt: `When you have finished reviewing, output a detailed review summary with:
 - ✅ What looks good
 - ⚠️ Concerns or potential issues
@@ -650,9 +640,7 @@ No commits are needed for code review.`,
 - Make the necessary code changes to address each point
 - Respond to questions with explanations
 - Push updates to the PR branch
-- Mark resolved conversations as resolved
-
-**AI Agent Tip:** Use \`prlt ticket view {{TICKET_ID}} --json\` for structured ticket data.`,
+- Mark resolved conversations as resolved`,
       endPrompt: `After addressing the feedback:
 1. Commit your changes using \`prlt commit "your message"\`
 2. Push your changes: \`git push\`
