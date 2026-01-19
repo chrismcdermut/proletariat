@@ -10,7 +10,6 @@ import {
   getColumnEmoji,
   divider,
   getPriorityStyle,
-  getPriorityEmoji,
 } from '../../lib/styles.js';
 
 // Priority order for grouping: P0, P1, P2, P3, None
@@ -234,7 +233,7 @@ export default class TicketList extends Command {
 
       // Priority header
       const headerColor = getPriorityStyle(priority);
-      this.log(headerColor(`\n${getPriorityEmoji(priority)} ${priority} (${priorityTickets.length})`));
+      this.log(headerColor(`\n${priority} (${priorityTickets.length})`));
       this.log(divider(60));
 
       if (priorityTickets.length === 0) {
@@ -315,7 +314,7 @@ export default class TicketList extends Command {
       if (priorityTickets.length === 0) continue;
 
       const headerColor = getPriorityStyle(priority);
-      this.log(headerColor(`${getPriorityEmoji(priority)} ${priority} (${priorityTickets.length}):`));
+      this.log(headerColor(`${priority} (${priorityTickets.length}):`));
 
       priorityTickets.sort((a, b) => (a.position || 0) - (b.position || 0));
 
@@ -406,7 +405,7 @@ export default class TicketList extends Command {
 
       // Priority header with color
       const headerColor = getPriorityStyle(priority);
-      this.log(headerColor(`\n${getPriorityEmoji(priority)} ${priority} (${priorityTickets.length})`));
+      this.log(headerColor(`\n${priority} (${priorityTickets.length})`));
       this.log(divider(50));
 
       if (priorityTickets.length === 0) {
@@ -499,7 +498,7 @@ export default class TicketList extends Command {
 
       // Show all priority groups
       const headerColor = getPriorityStyle(priority);
-      this.log(headerColor(`${getPriorityEmoji(priority)} ${priority} (${priorityTickets.length}):`));
+      this.log(headerColor(`${priority} (${priorityTickets.length}):`));
 
       if (priorityTickets.length === 0) {
         this.log(styles.muted('  (empty)'));

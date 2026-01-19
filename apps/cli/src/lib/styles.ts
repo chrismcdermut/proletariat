@@ -170,17 +170,10 @@ export function getPriorityStyle(priority: string): chalk.Chalk {
 }
 
 /**
- * Get emoji for a priority group header
+ * Get label for a priority group header
  */
-export function getPriorityEmoji(priority: string): string {
-  const emojis: Record<string, string> = {
-    'P0': '🔥',
-    'P1': '🔴',
-    'P2': '🟡',
-    'P3': '🟢',
-    'None': '⚪',
-  };
-  return emojis[priority] || '⚪';
+export function getPriorityLabel(priority: string): string {
+  return priority;
 }
 
 /**
