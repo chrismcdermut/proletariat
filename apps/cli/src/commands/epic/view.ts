@@ -77,25 +77,18 @@ export default class EpicView extends PMOCommand {
         return;
       }
 
-      // In JSON mode, output epic selection prompt
-      if (jsonMode) {
-        const epicChoices = epics.map(e => ({ name: `${e.id} ${e.title} (${e.status})`, value: e.id }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select epic to view:', epicChoices),
-          createMetadata('epic view', flags)
-        );
+      const selected = await this.selectFromList({
+        message: 'Select epic to view:',
+        items: epics,
+        getName: (e) => `${e.id} ${e.title} (${e.status})`,
+        getValue: (e) => e.id,
+        getCommand: (e) => `prlt epic view ${e.id}`,
+        jsonMode: jsonMode ? { flags, commandName: 'epic view' } : null,
+      });
+
+      if (!selected) {
         return;
       }
-
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
-        message: 'Select epic to view:',
-        choices: epics.map(e => ({
-          name: `${e.id} ${e.title} (${e.status})`,
-          value: e.id,
-        })),
-      }]);
       epicId = selected;
     }
 

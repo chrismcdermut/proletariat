@@ -8,10 +8,8 @@ import {
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class TicketComplete extends PMOCommand {
@@ -105,29 +103,19 @@ export default class TicketComplete extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = incompleteTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to complete:', ticketChoices),
-          createMetadata('ticket complete', flags)
-        );
+      const selected = await this.selectFromList({
+        message: 'Select ticket to mark complete:',
+        items: incompleteTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket complete ${t.id}`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket complete' } : null,
+      });
+
+      if (!selected) {
         return;
       }
-
-      const { selectedTicketId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedTicketId',
-        message: 'Select ticket to complete:',
-        choices: incompleteTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        })),
-      }]);
-      ticketId = selectedTicketId;
+      ticketId = selected;
     }
 
     // Get ticket

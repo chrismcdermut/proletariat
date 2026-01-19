@@ -122,28 +122,20 @@ export default class WorkReady extends PMOCommand {
           return;
         }
 
-        // In JSON mode, output ticket selection prompt and exit
-        if (jsonMode) {
-          const ticketChoices = inProgressTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.statusName})`,
-            value: t.id,
-          }));
-          outputPromptAsJson(
-            buildPromptConfig('list', 'ticketId', 'Select work to mark as ready for review:', ticketChoices),
-            createMetadata('work ready', flags)
-          );
-        }
-
-        const { selectedTicketId } = await inquirer.prompt([{
-          type: 'list',
-          name: 'selectedTicketId',
+        const selected = await this.selectFromList({
           message: 'Select work to mark as ready for review:',
-          choices: inProgressTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.statusName})`,
-            value: t.id,
-          })),
-        }]);
-        ticketId = selectedTicketId;
+          items: inProgressTickets,
+          getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+          getValue: (t) => t.id,
+          getCommand: (t) => `prlt work ready ${t.id} --json`,
+          jsonMode: jsonMode ? { flags, commandName: 'work ready' } : null,
+        });
+
+        if (!selected) {
+          db.close();
+          return;
+        }
+        ticketId = selected;
       }
 
       // Get ticket

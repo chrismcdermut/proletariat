@@ -219,32 +219,20 @@ export default class WorkStart extends PMOCommand {
           return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".')
         }
 
-        // Build choices once, use for both JSON and interactive modes
-        const ticketChoices = allTickets.map((t) => ({
-          name: `${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
-          value: t.id,
-        }))
-        const selectMessage = 'Select ticket to work on:'
+        const selected = await this.selectFromList({
+          message: 'Select ticket to work on:',
+          items: allTickets,
+          getName: (t) => `${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
+          getValue: (t) => t.id,
+          getCommand: (t) => `prlt work start ${t.id} --json`,
+          jsonMode: jsonMode ? { flags, commandName: 'work start' } : null,
+        })
 
-        // In JSON mode, output ticket selection prompt
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'ticketId', selectMessage, ticketChoices),
-            createMetadata('work start', flags)
-          )
+        if (!selected) {
           db.close()
           return
         }
-
-        const { selectedTicketId } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedTicketId',
-            message: selectMessage,
-            choices: ticketChoices,
-          },
-        ])
-        ticketId = selectedTicketId
+        ticketId = selected
       }
 
       // Get ticket

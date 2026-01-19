@@ -42,38 +42,25 @@ export default class Status extends PMOCommand {
     // Define choices once, use for both JSON and interactive modes
     // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'List all statuses', value: 'list', command: 'prlt status list' },
-      { name: 'Create new status', value: 'create', command: 'prlt status create --json' },
-      { name: 'Update status', value: 'update', command: 'prlt status update --json' },
-      { name: 'Move status (change order)', value: 'move', command: 'prlt status move --json' },
-      { name: 'Delete status', value: 'delete', command: 'prlt status delete --json' },
-      { name: 'Cancel', value: 'cancel' },
+      { id: 'list', name: 'List all statuses', command: 'prlt status list --format json' },
+      { id: 'create', name: 'Create new status', command: 'prlt status create --json' },
+      { id: 'update', name: 'Update status', command: 'prlt status update --json' },
+      { id: 'move', name: 'Move status (change order)', command: 'prlt status move --json' },
+      { id: 'delete', name: 'Delete status', command: 'prlt status delete --json' },
+      { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'Workflow Statuses - What would you like to do?';
 
-    // In JSON mode, output action menu prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('status', flags)
-      );
-      return;
-    }
-
-    // Show interactive menu
-    const { action } = await inquirer.prompt([{
-      type: 'list',
-      name: 'action',
+    const action = await this.selectFromList({
       message: '📊 ' + message,
-      choices: [
-        ...menuChoices.slice(0, 4),
-        new inquirer.Separator('──────────────'),
-        menuChoices[4],
-        menuChoices[5],
-      ],
-    }]);
+      items: menuChoices,
+      getName: (c) => c.name,
+      getValue: (c) => c.id,
+      getCommand: (c) => c.command,
+      jsonMode: jsonMode ? { flags, commandName: 'status' } : null,
+    });
 
-    if (action === 'cancel') {
+    if (action === 'cancel' || !action) {
       return;
     }
 

@@ -84,28 +84,18 @@ export default class TicketProject extends PMOCommand {
         return;
       }
 
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = tickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to move:', ticketChoices),
-          createMetadata('ticket project', flags)
-        );
+      const selected = await this.selectFromList({
+        message: 'Select ticket to move:',
+        items: tickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket project ${t.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket project' } : null,
+      });
+
+      if (!selected) {
         return;
       }
-
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
-        message: 'Select ticket to move:',
-        choices: tickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        })),
-      }]);
       ticketId = selected;
     }
 
@@ -121,15 +111,19 @@ export default class TicketProject extends PMOCommand {
 
     if (otherProjects.length === 0) {
       this.log(styles.muted('\nNo other projects to move to.'));
-      const { action } = await inquirer.prompt([{
-        type: 'list',
-        name: 'action',
+      const actionChoices = [
+        { id: 'create', name: 'Create a new project' },
+        { id: 'cancel', name: 'Cancel' },
+      ];
+
+      const action = await this.selectFromList({
         message: 'What would you like to do?',
-        choices: [
-          { name: 'Create a new project', value: 'create' },
-          { name: 'Cancel', value: 'cancel' },
-        ],
-      }]);
+        items: actionChoices,
+        getName: (a) => a.name,
+        getValue: (a) => a.id,
+        getCommand: (a) => a.id === 'create' ? 'prlt project create --json' : '',
+        jsonMode: jsonMode ? { flags, commandName: 'ticket project' } : null,
+      });
 
       if (action === 'create') {
         await this.config.runCommand('project:create', []);
@@ -140,15 +134,18 @@ export default class TicketProject extends PMOCommand {
     // Get target project
     let targetProjectId = args.targetProject;
     if (!targetProjectId) {
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
+      const selected = await this.selectFromList({
         message: 'Select target project:',
-        choices: otherProjects.map(p => ({
-          name: `${p.id} - ${p.name} (${p.status})`,
-          value: p.id,
-        })),
-      }]);
+        items: otherProjects,
+        getName: (p) => `${p.id} - ${p.name} (${p.status})`,
+        getValue: (p) => p.id,
+        getCommand: (p) => `prlt ticket project ${ticketId} ${p.id}`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket project' } : null,
+      });
+
+      if (!selected) {
+        return;
+      }
       targetProjectId = selected;
     }
 
@@ -169,17 +166,22 @@ export default class TicketProject extends PMOCommand {
       const epic = await this.storage.getEpic(ticket.epicId!);
       if (epic && epic.projectId !== targetProjectId) {
         this.log(styles.warning(`\nTicket is assigned to epic "${ticket.epicId}" in source project.`));
-        const { action } = await inquirer.prompt([{
-          type: 'list',
-          name: 'action',
-          message: 'How to handle epic assignment?',
-          choices: [
-            { name: 'Unlink from epic (move ticket only)', value: 'unlink' },
-            { name: 'Cancel', value: 'cancel' },
-          ],
-        }]);
 
-        if (action === 'cancel') {
+        const actionChoices = [
+          { id: 'unlink', name: 'Unlink from epic (move ticket only)' },
+          { id: 'cancel', name: 'Cancel' },
+        ];
+
+        const action = await this.selectFromList({
+          message: 'How to handle epic assignment?',
+          items: actionChoices,
+          getName: (a) => a.name,
+          getValue: (a) => a.id,
+          getCommand: (a) => a.id === 'unlink' ? `prlt ticket project ${ticketId} ${targetProjectId}` : '',
+          jsonMode: jsonMode ? { flags, commandName: 'ticket project' } : null,
+        });
+
+        if (action === 'cancel' || !action) {
           return;
         }
 

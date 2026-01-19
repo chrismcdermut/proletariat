@@ -77,28 +77,18 @@ export default class TicketLinkRelates extends PMOCommand {
         return
       }
 
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = otherTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName || t.status})`,
-          value: t.id,
-        }))
-        outputPromptAsJson(
-          buildPromptConfig('list', 'target', `Select ticket that ${args.id} relates to:`, ticketChoices),
-          createMetadata('ticket link relates', flags)
-        )
+      const selected = await this.selectFromList({
+        message: `Select ticket that ${args.id} relates to:`,
+        items: otherTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName || t.status})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket link relates ${args.id} ${t.id}`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket link relates' } : null,
+      })
+
+      if (!selected) {
         return
       }
-
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
-        message: `Select ticket that ${args.id} relates to:`,
-        choices: otherTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName || t.status})`,
-          value: t.id,
-        })),
-      }])
       targetId = selected
     }
 

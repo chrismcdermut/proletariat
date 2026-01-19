@@ -77,28 +77,18 @@ export default class TicketLinkDuplicates extends PMOCommand {
         return
       }
 
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = otherTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName || t.status})`,
-          value: t.id,
-        }))
-        outputPromptAsJson(
-          buildPromptConfig('list', 'original', `Select the original ticket (${args.id} is a duplicate of):`, ticketChoices),
-          createMetadata('ticket link duplicates', flags)
-        )
+      const selected = await this.selectFromList({
+        message: `Select the original ticket (${args.id} is a duplicate of):`,
+        items: otherTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName || t.status})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket link duplicates ${args.id} ${t.id}`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket link duplicates' } : null,
+      })
+
+      if (!selected) {
         return
       }
-
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
-        message: `Select the original ticket (${args.id} is a duplicate of):`,
-        choices: otherTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName || t.status})`,
-          value: t.id,
-        })),
-      }])
       originalId = selected
     }
 

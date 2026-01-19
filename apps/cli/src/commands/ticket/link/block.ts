@@ -78,28 +78,18 @@ export default class TicketLinkBlock extends PMOCommand {
         return
       }
 
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = otherTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName || t.status})`,
-          value: t.id,
-        }))
-        outputPromptAsJson(
-          buildPromptConfig('list', 'blocker', `Select ticket that blocks ${args.id}:`, ticketChoices),
-          createMetadata('ticket link block', flags)
-        )
+      const selected = await this.selectFromList({
+        message: `Select ticket that blocks ${args.id}:`,
+        items: otherTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName || t.status})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket link block ${args.id} ${t.id}`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket link block' } : null,
+      })
+
+      if (!selected) {
         return
       }
-
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
-        message: `Select ticket that blocks ${args.id}:`,
-        choices: otherTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName || t.status})`,
-          value: t.id,
-        })),
-      }])
       blockerId = selected
     }
 

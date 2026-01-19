@@ -92,31 +92,19 @@ export default class WorkClaim extends PMOCommand {
         return handleError('NO_AVAILABLE_TICKETS', 'No available tickets to claim.')
       }
 
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = availableTickets.map((t) => ({
-          name: `${t.id} - ${t.title} (${t.statusName || t.statusCategory || 'no status'}${t.assignee ? `, assignee: ${t.assignee}` : ''})`,
-          value: t.id,
-        }))
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to claim:', ticketChoices),
-          createMetadata('work claim', flags)
-        )
+      const selected = await this.selectFromList({
+        message: 'Select ticket to claim:',
+        items: availableTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName || t.statusCategory || 'no status'}${t.assignee ? `, assignee: ${t.assignee}` : ''})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt work claim ${t.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'work claim' } : null,
+      })
+
+      if (!selected) {
         return
       }
-
-      const { selectedTicketId } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'selectedTicketId',
-          message: 'Select ticket to claim:',
-          choices: availableTickets.map((t) => ({
-            name: `${t.id} - ${t.title} (${t.statusName || t.statusCategory || 'no status'}${t.assignee ? `, assignee: ${t.assignee}` : ''})`,
-            value: t.id,
-          })),
-        },
-      ])
-      ticketId = selectedTicketId
+      ticketId = selected
     }
 
     // Get ticket

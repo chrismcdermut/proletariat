@@ -87,29 +87,20 @@ export default class TicketDelete extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to delete:', ticketChoices),
-          createMetadata('ticket delete', flags)
-        );
-        return;
-      }
-
-      const { selectedTicketId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedTicketId',
+      // Use helper for ticket selection (handles JSON mode automatically)
+      const selected = await this.selectFromList({
         message: 'Select ticket to delete:',
-        choices: allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        })),
-      }]);
-      ticketId = selectedTicketId;
+        items: allTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket delete ${t.id} --force`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket delete' } : null,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      ticketId = selected;
     }
 
     // Get ticket to show details in confirmation

@@ -43,41 +43,25 @@ export default class Action extends PMOCommand {
     // Define choices once, use for both JSON and interactive modes
     // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'List all actions', value: 'list', command: 'prlt action list' },
-      { name: 'View action details', value: 'show', command: 'prlt action show --json' },
-      { name: 'Create custom action', value: 'create', command: 'prlt action create --json' },
-      { name: 'Update action', value: 'update', command: 'prlt action update --json' },
-      { name: 'Delete action', value: 'delete', command: 'prlt action delete --json' },
-      { name: 'Cancel', value: 'cancel' },
+      { id: 'list', name: 'List all actions', command: 'prlt action list --format json' },
+      { id: 'show', name: 'View action details', command: 'prlt action show --json' },
+      { id: 'create', name: 'Create custom action', command: 'prlt action create --json' },
+      { id: 'update', name: 'Update action', command: 'prlt action update --json' },
+      { id: 'delete', name: 'Delete action', command: 'prlt action delete --json' },
+      { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'Work Actions - What would you like to do?';
 
-    // In JSON mode, output menu prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('action', flags)
-      );
-      return;
-    }
-
-    // Show interactive menu (with separator after create)
-    const { action } = await inquirer.prompt([{
-      type: 'list',
-      name: 'action',
+    const action = await this.selectFromList({
       message: '🎬 ' + message,
-      choices: [
-        menuChoices[0],
-        menuChoices[1],
-        menuChoices[2],
-        new inquirer.Separator('──────────────'),
-        menuChoices[3],
-        menuChoices[4],
-        menuChoices[5],
-      ],
-    }]);
+      items: menuChoices,
+      getName: (c) => c.name,
+      getValue: (c) => c.id,
+      getCommand: (c) => c.command,
+      jsonMode: jsonMode ? { flags, commandName: 'action' } : null,
+    });
 
-    if (action === 'cancel') {
+    if (action === 'cancel' || !action) {
       return;
     }
 

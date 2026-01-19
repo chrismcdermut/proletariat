@@ -71,29 +71,19 @@ export default class SpecView extends PMOCommand {
         return handleError('NO_SPECS', 'No specs found. Create one first with: prlt spec create');
       }
 
-      // In JSON mode, output spec selection prompt
-      if (jsonMode) {
-        const specChoices = specs.map(s => ({
-          name: `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
-          value: s.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'spec', 'Select spec to view:', specChoices),
-          createMetadata('spec view', flags)
-        );
+      const selected = await this.selectFromList({
+        message: 'Select spec to view:',
+        items: specs,
+        getName: (s) => `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
+        getValue: (s) => s.id,
+        getCommand: (s) => `prlt spec view ${s.id}`,
+        jsonMode: jsonMode ? { flags, commandName: 'spec view' } : null,
+      });
+
+      if (!selected) {
         return;
       }
-
-      const { selectedSpec } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedSpec',
-        message: 'Select spec to view:',
-        choices: specs.map(s => ({
-          name: `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
-          value: s.id,
-        })),
-      }]);
-      specId = selectedSpec;
+      specId = selected;
     }
 
     // Get the spec
