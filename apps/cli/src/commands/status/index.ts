@@ -40,12 +40,13 @@ export default class Status extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices once, use for both JSON and interactive modes
+    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'List all statuses', value: 'list' },
-      { name: 'Create new status', value: 'create' },
-      { name: 'Update status', value: 'update' },
-      { name: 'Move status (change order)', value: 'move' },
-      { name: 'Delete status', value: 'delete' },
+      { name: 'List all statuses', value: 'list', command: 'prlt status list' },
+      { name: 'Create new status', value: 'create', command: 'prlt status create --json' },
+      { name: 'Update status', value: 'update', command: 'prlt status update --json' },
+      { name: 'Move status (change order)', value: 'move', command: 'prlt status move --json' },
+      { name: 'Delete status', value: 'delete', command: 'prlt status delete --json' },
       { name: 'Cancel', value: 'cancel' },
     ];
     const message = 'Workflow Statuses - What would you like to do?';

@@ -41,12 +41,13 @@ export default class Action extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices once, use for both JSON and interactive modes
+    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'List all actions', value: 'list' },
-      { name: 'View action details', value: 'show' },
-      { name: 'Create custom action', value: 'create' },
-      { name: 'Update action', value: 'update' },
-      { name: 'Delete action', value: 'delete' },
+      { name: 'List all actions', value: 'list', command: 'prlt action list' },
+      { name: 'View action details', value: 'show', command: 'prlt action show --json' },
+      { name: 'Create custom action', value: 'create', command: 'prlt action create --json' },
+      { name: 'Update action', value: 'update', command: 'prlt action update --json' },
+      { name: 'Delete action', value: 'delete', command: 'prlt action delete --json' },
       { name: 'Cancel', value: 'cancel' },
     ];
     const message = 'Work Actions - What would you like to do?';

@@ -38,12 +38,13 @@ export default class Project extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices once, use for both JSON and interactive modes
+    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'Create new project', value: 'create' },
-      { name: 'List all projects', value: 'list' },
-      { name: 'View project board', value: 'view' },
-      { name: 'Manage project specs', value: 'spec' },
-      { name: 'Delete project', value: 'delete' },
+      { name: 'Create new project', value: 'create', command: 'prlt project create --json' },
+      { name: 'List all projects', value: 'list', command: 'prlt project list' },
+      { name: 'View project board', value: 'view', command: 'prlt project view --json' },
+      { name: 'Manage project specs', value: 'spec', command: 'prlt project spec --json' },
+      { name: 'Delete project', value: 'delete', command: 'prlt project delete --json' },
       { name: 'Cancel', value: 'cancel' },
     ];
     const message = 'Project Operations - What would you like to do?';

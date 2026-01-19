@@ -43,6 +43,8 @@ export interface PromptChoice {
   value: string
   /** Optional: indicates if choice is disabled */
   disabled?: boolean
+  /** Optional: full CLI command to run for this choice (for AI agents) */
+  command?: string
 }
 
 /**
@@ -289,7 +291,7 @@ export function outputErrorAsJson(
  * @returns Array of PromptChoice objects
  */
 export function normalizeChoices(
-  choices: Array<string | { name: string; value: string; disabled?: boolean | string } | unknown>
+  choices: Array<string | { name: string; value: string; disabled?: boolean | string; command?: string } | unknown>
 ): PromptChoice[] {
   const normalized: PromptChoice[] = []
 
@@ -317,11 +319,12 @@ export function normalizeChoices(
       'name' in choice &&
       'value' in choice
     ) {
-      const obj = choice as { name: string; value: string; disabled?: boolean | string }
+      const obj = choice as { name: string; value: string; disabled?: boolean | string; command?: string }
       normalized.push({
         name: obj.name,
         value: String(obj.value),
         ...(obj.disabled !== undefined && { disabled: Boolean(obj.disabled) }),
+        ...(obj.command !== undefined && { command: obj.command }),
       })
     }
   }
@@ -343,7 +346,7 @@ export function buildPromptConfig(
   type: 'list' | 'checkbox' | 'confirm' | 'input' | 'editor',
   name: string,
   message: string,
-  choices?: Array<string | { name: string; value: string; disabled?: boolean | string } | unknown>,
+  choices?: Array<string | { name: string; value: string; disabled?: boolean | string; command?: string } | unknown>,
   defaultValue?: string | boolean | string[]
 ): PromptConfig {
   const config: PromptConfig = {

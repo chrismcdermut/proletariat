@@ -38,13 +38,14 @@ export default class Spec extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices once, use for both JSON and interactive modes
+    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'Create new spec', value: 'create' },
-      { name: 'List all specs', value: 'list' },
-      { name: 'View spec', value: 'view' },
-      { name: 'Generate tickets from spec', value: 'generate' },
-      { name: 'Assign ticket to spec', value: 'ticket' },
-      { name: 'Manage dependencies', value: 'link' },
+      { name: 'Create new spec', value: 'create', command: 'prlt spec create --json' },
+      { name: 'List all specs', value: 'list', command: 'prlt spec list' },
+      { name: 'View spec', value: 'view', command: 'prlt spec view --json' },
+      { name: 'Generate tickets from spec', value: 'generate', command: 'prlt spec plan --json' },
+      { name: 'Assign ticket to spec', value: 'ticket', command: 'prlt spec ticket --json' },
+      { name: 'Manage dependencies', value: 'link', command: 'prlt spec link --json' },
       { name: 'Cancel', value: 'cancel' },
     ];
     const message = 'Spec Operations - What would you like to do?';

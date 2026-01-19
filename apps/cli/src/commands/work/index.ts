@@ -42,15 +42,16 @@ export default class Work extends PMOCommand {
 
     // Define choices once, use for both JSON and interactive modes
     // Execution actions first (most common), then ownership
+    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'Start work (launch single agent)', value: 'start' },
-      { name: 'Spawn work (batch by column)', value: 'spawn' },
-      { name: 'Watch column (auto-spawn)', value: 'watch' },
-      { name: 'Mark work ready for review', value: 'ready' },
-      { name: 'Mark work complete', value: 'complete' },
-      { name: 'Claim work (own + assign)', value: 'claim' },
-      { name: 'Assign work to agent/person', value: 'assign' },
-      { name: 'Take ownership (accountable)', value: 'own' },
+      { name: 'Start work (launch single agent)', value: 'start', command: 'prlt work start --json' },
+      { name: 'Spawn work (batch by column)', value: 'spawn', command: 'prlt work spawn --json' },
+      { name: 'Watch column (auto-spawn)', value: 'watch', command: 'prlt work watch --json' },
+      { name: 'Mark work ready for review', value: 'ready', command: 'prlt work ready --json' },
+      { name: 'Mark work complete', value: 'complete', command: 'prlt work complete --json' },
+      { name: 'Claim work (own + assign)', value: 'claim', command: 'prlt work claim --json' },
+      { name: 'Assign work to agent/person', value: 'assign', command: 'prlt work assign --json' },
+      { name: 'Take ownership (accountable)', value: 'own', command: 'prlt work own --json' },
       { name: 'Cancel', value: 'cancel' },
     ];
     const message = 'Work Operations - What would you like to do?';

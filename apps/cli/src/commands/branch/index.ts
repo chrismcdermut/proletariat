@@ -36,10 +36,11 @@ export default class Branch extends PMOCommand {
     const jsonMode = shouldOutputJson(flags)
 
     // Define choices once, use for both JSON and interactive modes
+    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'Create new branch', value: 'create' },
-      { name: 'List branches', value: 'list' },
-      { name: 'Validate branch name', value: 'validate' },
+      { name: 'Create new branch', value: 'create', command: 'prlt branch create --json' },
+      { name: 'List branches', value: 'list', command: 'prlt branch list' },
+      { name: 'Validate branch name', value: 'validate', command: 'prlt branch validate' },
       { name: 'Cancel', value: 'cancel' },
     ]
     const message = 'What would you like to do?'

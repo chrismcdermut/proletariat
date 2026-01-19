@@ -47,16 +47,17 @@ export default class Agent extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices once, use for both JSON and interactive modes
+    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'List all agents', value: 'list' },
-      { name: 'Show status', value: 'status' },
-      { name: 'Visit directory', value: 'visit' },
-      { name: 'Add agent', value: 'add' },
-      { name: 'Remove agent', value: 'remove' },
-      { name: 'Manage themes', value: 'themes' },
-      { name: 'Open shell', value: 'shell' },
-      { name: 'Restart', value: 'restart' },
-      { name: 'Rebuild', value: 'rebuild' },
+      { name: 'List all agents', value: 'list', command: 'prlt agent list' },
+      { name: 'Show status', value: 'status', command: 'prlt agent status --json' },
+      { name: 'Visit directory', value: 'visit', command: 'prlt agent visit --json' },
+      { name: 'Add agent', value: 'add', command: 'prlt agent add --json' },
+      { name: 'Remove agent', value: 'remove', command: 'prlt agent remove --json' },
+      { name: 'Manage themes', value: 'themes', command: 'prlt agent themes --json' },
+      { name: 'Open shell', value: 'shell', command: 'prlt agent shell --json' },
+      { name: 'Restart', value: 'restart', command: 'prlt agent restart' },
+      { name: 'Rebuild', value: 'rebuild', command: 'prlt agent rebuild' },
       { name: 'Cancel', value: 'cancel' },
     ];
     const message = 'What would you like to do?';

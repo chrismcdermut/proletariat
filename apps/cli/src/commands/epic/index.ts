@@ -38,18 +38,19 @@ export default class Epic extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices once, use for both JSON and interactive modes
+    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'Create new epic', value: 'create' },
-      { name: 'List all epics', value: 'list' },
-      { name: 'View epic', value: 'view' },
-      { name: 'Show progress', value: 'progress' },
-      { name: 'Assign tickets to epic', value: 'ticket' },
-      { name: 'Assign spec to epic', value: 'spec' },
-      { name: 'Manage dependencies', value: 'link' },
-      { name: 'Archive epic (complete)', value: 'archive' },
-      { name: 'Activate epic', value: 'activate' },
-      { name: 'Reorder epic', value: 'move' },
-      { name: 'Move to different project', value: 'project' },
+      { name: 'Create new epic', value: 'create', command: 'prlt epic create --json' },
+      { name: 'List all epics', value: 'list', command: 'prlt epic list' },
+      { name: 'View epic', value: 'view', command: 'prlt epic view --json' },
+      { name: 'Show progress', value: 'progress', command: 'prlt epic progress --json' },
+      { name: 'Assign tickets to epic', value: 'ticket', command: 'prlt epic ticket --json' },
+      { name: 'Assign spec to epic', value: 'spec', command: 'prlt epic spec --json' },
+      { name: 'Manage dependencies', value: 'link', command: 'prlt epic link --json' },
+      { name: 'Archive epic (complete)', value: 'archive', command: 'prlt epic archive --json' },
+      { name: 'Activate epic', value: 'activate', command: 'prlt epic activate --json' },
+      { name: 'Reorder epic', value: 'move', command: 'prlt epic move --json' },
+      { name: 'Move to different project', value: 'project', command: 'prlt epic project --json' },
       { name: 'Cancel', value: 'cancel' },
     ];
     const message = 'Epic Operations - What would you like to do?';
