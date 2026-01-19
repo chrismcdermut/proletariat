@@ -144,8 +144,6 @@ export type JsonOutput = PromptJsonOutput | SuccessJsonOutput | ErrorJsonOutput
  */
 export interface JsonFlags {
   json?: boolean
-  'no-interactive'?: boolean
-  noInteractive?: boolean
 }
 
 /**
@@ -162,7 +160,6 @@ export function isNonTTY(): boolean {
  *
  * Returns true if:
  * - The --json flag is explicitly set
- * - The --no-interactive flag is explicitly set
  * - The environment is non-TTY (piped output)
  *
  * @param flags - Command flags object
@@ -171,11 +168,6 @@ export function isNonTTY(): boolean {
 export function shouldOutputJson(flags: JsonFlags): boolean {
   // Explicit flag takes precedence
   if (flags.json === true) {
-    return true
-  }
-
-  // --no-interactive alias for --json
-  if (flags['no-interactive'] === true || flags.noInteractive === true) {
     return true
   }
 

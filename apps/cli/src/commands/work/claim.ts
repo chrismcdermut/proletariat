@@ -36,10 +36,6 @@ export default class WorkClaim extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     self: Flags.boolean({
       description: 'Assign to yourself (skip prompt)',
       default: false,

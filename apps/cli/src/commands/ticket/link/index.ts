@@ -35,10 +35,6 @@ export default class TicketLink extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     blocks: Flags.string({
       char: 'b',
       description: 'Add blocking dependency: this ticket is blocked by TARGET',

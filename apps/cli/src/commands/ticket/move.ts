@@ -41,10 +41,6 @@ export default class TicketMove extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     position: Flags.integer({
       description: 'Position within the column (0 = top)',
     }),

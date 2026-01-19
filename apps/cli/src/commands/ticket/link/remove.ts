@@ -38,10 +38,6 @@ export default class TicketLinkRemove extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     type: Flags.string({
       char: 't',
       description: 'Dependency type to remove',

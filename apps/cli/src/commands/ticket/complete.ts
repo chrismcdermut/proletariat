@@ -34,10 +34,6 @@ export default class TicketComplete extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     bulk: Flags.boolean({
       char: 'b',
       description: 'Enable bulk mode to complete multiple tickets',

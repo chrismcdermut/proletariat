@@ -38,10 +38,6 @@ export default class WorkAssign extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     owner: Flags.string({
       description: 'Also set the owner',
     }),

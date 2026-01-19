@@ -37,10 +37,6 @@ export default class TicketProject extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     'keep-epic': Flags.boolean({
       description: 'Keep ticket assigned to its epic (if epic is in source project, will unlink)',
       default: false,

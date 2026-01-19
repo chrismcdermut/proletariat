@@ -31,10 +31,6 @@ export default class TicketTemplateDelete extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation',

@@ -54,10 +54,6 @@ export default class ExecutionStop extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   }
 
   protected getPMOOptions() {
@@ -151,7 +147,7 @@ export default class ExecutionStop extends PMOCommand {
   private async singleStop(
     executionStorage: ExecutionStorage,
     execId: string | undefined,
-    flags: { force?: boolean; json?: boolean; 'no-interactive'?: boolean }
+    flags: { force?: boolean; json?: boolean }
   ): Promise<void> {
     // Get execution ID - prompt if not provided
     let id = execId

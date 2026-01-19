@@ -38,10 +38,6 @@ export default class TicketSpec extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     unlink: Flags.boolean({
       char: 'u',
       description: 'Remove spec from ticket instead of adding',

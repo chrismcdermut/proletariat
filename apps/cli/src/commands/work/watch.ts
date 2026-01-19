@@ -40,10 +40,6 @@ export default class WorkWatch extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     column: Flags.string({
       char: 'c',
       description: 'Column to watch for new tickets (prompts if not provided)',

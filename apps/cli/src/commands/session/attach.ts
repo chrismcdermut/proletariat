@@ -45,10 +45,6 @@ export default class SessionAttach extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     'new-tab': Flags.boolean({
       char: 'n',
       description: 'Open in a new terminal tab (default: true)',

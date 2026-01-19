@@ -33,10 +33,6 @@ export default class TicketUpdate extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     priority: Flags.string({
       char: 'p',
       description: 'Set priority (P0, P1, P2, P3)',
