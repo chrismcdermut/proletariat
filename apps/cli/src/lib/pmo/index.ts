@@ -163,15 +163,28 @@ export async function promptForPMOLocation(hqRoot: string | null): Promise<PMOLo
 }
 
 /**
- * Prompt for board template
+ * Prompt for board template.
+ * If storage is provided, queries DB for templates (source of truth).
+ * Otherwise falls back to BUILTIN_TEMPLATES (used during init when DB doesn't exist).
  */
-export async function promptForBoardTemplate(): Promise<string> {
-  // Build choices from shared template definitions
-  const pickerTemplates = BUILTIN_TEMPLATES.filter(t => t.showInPicker);
-  const choices = pickerTemplates.map(t => ({
-    name: `${t.name} (${t.columns.slice(0, 4).join(', ')}${t.columns.length > 4 ? '...' : ''})`,
-    value: t.id,
-  }));
+export async function promptForBoardTemplate(storage?: SQLiteStorage): Promise<string> {
+  let choices: Array<{ name: string; value: string }>;
+
+  if (storage) {
+    // Query database for templates - this is the source of truth
+    const dbTemplates = await storage.listTemplates({ isBuiltin: true });
+    choices = dbTemplates.map(t => ({
+      name: `${t.name} (${t.statuses.slice(0, 4).map(s => s.name).join(', ')}${t.statuses.length > 4 ? '...' : ''})`,
+      value: t.id,
+    }));
+  } else {
+    // Fallback to builtin templates when DB doesn't exist (during init)
+    const pickerTemplates = BUILTIN_TEMPLATES.filter(t => t.showInPicker);
+    choices = pickerTemplates.map(t => ({
+      name: `${t.name} (${t.columns.slice(0, 4).join(', ')}${t.columns.length > 4 ? '...' : ''})`,
+      value: t.id,
+    }));
+  }
 
   // Add custom option
   choices.push({ name: 'Custom (define your own columns)', value: 'custom' });
