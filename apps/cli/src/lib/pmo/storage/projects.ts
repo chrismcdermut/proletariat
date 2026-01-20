@@ -137,7 +137,44 @@ export class ProjectStorage {
         insertColumn.run(slugify(status.name), id, status.name, position, now)
       })
     } else {
-      // Fallback to default columns if template doesn't exist
+      // Fallback to default columns and statuses if template doesn't exist
+      const defaultStatuses: Array<{
+        name: string
+        category: 'backlog' | 'unstarted' | 'started' | 'completed' | 'canceled'
+        position: number
+      }> = [
+        { name: 'Backlog', category: 'backlog', position: 0 },
+        { name: 'Planned', category: 'unstarted', position: 0 },
+        { name: 'In Progress', category: 'started', position: 0 },
+        { name: 'Done', category: 'completed', position: 0 },
+        { name: 'Canceled', category: 'canceled', position: 0 },
+      ]
+
+      // Create default statuses
+      const insertStatus = this.ctx.db.prepare(`
+        INSERT INTO ${T.statuses} (id, project_id, name, category, position, is_default, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+      const nowIso = new Date(now).toISOString()
+      let isFirstBacklog = true
+
+      for (const status of defaultStatuses) {
+        const statusId = `${id}-${slugify(status.name)}`
+        const isDefault = status.category === 'backlog' && isFirstBacklog
+        if (isDefault) isFirstBacklog = false
+
+        insertStatus.run(
+          statusId,
+          id,
+          status.name,
+          status.category,
+          status.position,
+          isDefault ? 1 : 0,
+          nowIso
+        )
+      }
+
+      // Create default columns
       const defaultColumns = ['Backlog', 'Planned', 'In Progress', 'Done']
       const insertColumn = this.ctx.db.prepare(`
         INSERT INTO ${T.columns} (id, project_id, name, position, created_at)

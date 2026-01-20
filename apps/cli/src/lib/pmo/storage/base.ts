@@ -269,7 +269,7 @@ export function seedBuiltinTemplates(db: Database.Database): void {
       ],
     },
     {
-      id: '5-tool-founder',
+      id: 'founder',
       name: '5-Tool Founder',
       description: 'Founder workflow: Ideas → Build → Ship → Measure → Iterate',
       statuses: [
