@@ -474,25 +474,25 @@ export default class WorkStart extends PMOCommand {
         )
       }
 
-      // Check for running execution on this ticket
+      // Check for running execution on this ticket (warning only, allows parallel work)
       const runningExecution = executionStorage.getRunningExecution(ticketId!)
-      if (runningExecution && !flags.force) {
-        db.close()
-        this.error(
-          `Ticket "${ticketId}" already has work in progress: ${runningExecution.id}\n` +
-            `Use --force to start another, or stop with "prlt work stop ${runningExecution.id}"`
-        )
+      if (runningExecution) {
+        this.log(styles.warning(`⚠️  Ticket "${ticketId}" already has work in progress: ${runningExecution.id}`))
+        this.log(styles.muted(`   Starting parallel execution. Note: status updates may conflict.`))
       }
 
       // Check if agent is already working on something else
-      const agentRunningExecutions = executionStorage.getAgentRunningExecutions(assignedAgent)
-      if (agentRunningExecutions.length > 0 && !flags.force) {
-        const execInfo = agentRunningExecutions.map(e => `  ${e.id}: ${e.ticketId}`).join('\n')
-        db.close()
-        this.error(
-          `Agent "${assignedAgent}" is already working on other tickets:\n${execInfo}\n\n` +
-            `Use --force to start anyway, or stop existing work first.`
-        )
+      // Skip for ephemeral agents - they're created fresh for each spawn
+      if (!isEphemeralAgent) {
+        const agentRunningExecutions = executionStorage.getAgentRunningExecutions(assignedAgent)
+        if (agentRunningExecutions.length > 0 && !flags.force) {
+          const execInfo = agentRunningExecutions.map(e => `  ${e.id}: ${e.ticketId}`).join('\n')
+          db.close()
+          this.error(
+            `Agent "${assignedAgent}" is already working on other tickets:\n${execInfo}\n\n` +
+              `Use --force to start anyway, or stop existing work first.`
+          )
+        }
       }
 
       // Determine worktree path
