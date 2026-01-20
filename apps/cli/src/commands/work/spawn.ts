@@ -188,7 +188,9 @@ export default class WorkSpawn extends PMOCommand {
         return
       }
 
-      // Get available agents
+      // Note: With ephemeral agents, we no longer need to check for pre-registered agents
+      // Each ticket spawn creates its own ephemeral agent on-demand via work:start
+      // We still track available persistent agents for display purposes only
       const busyAgentNames = new Set<string>()
       for (const agent of workspaceInfo.agents) {
         const runningExecutions = executionStorage.getAgentRunningExecutions(agent.name)
@@ -472,44 +474,13 @@ export default class WorkSpawn extends PMOCommand {
 
       this.log('')
 
-      // Check agent availability
-      if (availableAgents.length === 0) {
-        db.close()
-        this.error(
-          'No available agents. All agents are busy with other work.\n' +
-          'Use "prlt agent add" to add more agents, or wait for current work to complete.'
-        )
+      // With ephemeral agents, we can spawn any number of tickets
+      // Each ticket will get its own ephemeral agent created on-demand
+      if (availableAgents.length > 0) {
+        this.log(styles.muted(`Existing agents: ${availableAgents.map(a => a.name).join(', ')}`))
+      } else {
+        this.log(styles.muted('No pre-registered agents - ephemeral agents will be created on-demand'))
       }
-
-      // Warn if more tickets than agents
-      if (ticketsToSpawn.length > availableAgents.length) {
-        this.log(styles.warning(`⚠️  ${ticketsToSpawn.length} tickets selected but only ${availableAgents.length} agents available.`))
-        this.log(styles.muted(`   Only ${availableAgents.length} tickets will be spawned. Add more agents with "prlt agent add".`))
-        this.log('')
-
-        const { proceed } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'proceed',
-            message: `Spawn ${availableAgents.length} tickets now? (${ticketsToSpawn.length - availableAgents.length} will remain unassigned)`,
-            choices: [
-              { name: 'Yes', value: true },
-              { name: 'No', value: false },
-            ],
-          },
-        ])
-
-        if (!proceed) {
-          db.close()
-          this.log(styles.muted('Cancelled.'))
-          return
-        }
-
-        // Limit to available agents
-        ticketsToSpawn = ticketsToSpawn.slice(0, availableAgents.length)
-      }
-
-      this.log(styles.muted(`Available agents: ${availableAgents.map(a => a.name).join(', ')}`))
       this.log(styles.muted(`Tickets to spawn: ${ticketsToSpawn.map(t => t.id).join(', ')}`))
       this.log('')
 
@@ -519,7 +490,7 @@ export default class WorkSpawn extends PMOCommand {
           {
             type: 'list',
             name: 'confirm',
-            message: `Spawn ${ticketsToSpawn.length} tickets using ${availableAgents.length} available agents?`,
+            message: `Spawn ${ticketsToSpawn.length} tickets? (ephemeral agents will be created on-demand)`,
             choices: [
               { name: 'Yes', value: true },
               { name: 'No', value: false },
@@ -534,64 +505,15 @@ export default class WorkSpawn extends PMOCommand {
         }
       }
 
-      // Assign tickets to agents based on strategy
-      const assignments: Array<{ ticket: typeof ticketsToSpawn[0]; agent: typeof availableAgents[0] }> = []
-
-      // Track how many tickets each agent is assigned (for least-busy)
-      const agentLoad = new Map<string, number>()
-      for (const agent of availableAgents) {
-        const runningCount = executionStorage.getAgentRunningExecutions(agent.name).length
-        agentLoad.set(agent.name, runningCount)
-      }
-
-      for (let i = 0; i < ticketsToSpawn.length; i++) {
-        let agent: typeof availableAgents[0]
-
-        switch (flags.strategy) {
-          case 'least-busy': {
-            // Pick the agent with the fewest running executions
-            let minLoad = Infinity
-            let leastBusyAgent = availableAgents[0]
-            for (const a of availableAgents) {
-              const load = agentLoad.get(a.name) || 0
-              if (load < minLoad) {
-                minLoad = load
-                leastBusyAgent = a
-              }
-            }
-            agent = leastBusyAgent
-            // Increment load for next iteration
-            agentLoad.set(agent.name, (agentLoad.get(agent.name) || 0) + 1)
-            break
-          }
-          case 'random': {
-            // Pick a random agent
-            agent = availableAgents[Math.floor(Math.random() * availableAgents.length)]
-            break
-          }
-          case 'round-robin':
-          default: {
-            // Distribute evenly across agents
-            agent = availableAgents[i % availableAgents.length]
-            break
-          }
-        }
-
-        assignments.push({ ticket: ticketsToSpawn[i], agent })
-      }
-
-      // Show assignment plan
-      this.log(styles.muted(`Strategy: ${flags.strategy}`))
-      this.log(styles.muted('Assignment plan:'))
-      for (const { ticket, agent } of assignments) {
-        this.log(styles.muted(`  ${ticket.id} → ${agent.name}`))
-      }
+      // With ephemeral agents, each ticket gets its own agent created during work:start
+      // No pre-assignment needed - just track tickets to spawn
+      this.log(styles.muted('Spawning tickets with ephemeral agents...'))
       this.log('')
 
       // Dry run - just show what would happen
       if (flags['dry-run']) {
         db.close()
-        this.log(styles.success(`Dry run complete: would spawn ${assignments.length} tickets`))
+        this.log(styles.success(`Dry run complete: would spawn ${ticketsToSpawn.length} tickets with ephemeral agents`))
         return
       }
 
@@ -828,20 +750,18 @@ export default class WorkSpawn extends PMOCommand {
         }
       }
 
-      // Spawn each ticket
+      // Spawn each ticket - ephemeral agents created on-demand by work:start
       let successCount = 0
       let failCount = 0
 
-      for (const { ticket, agent } of assignments) {
+      for (const ticket of ticketsToSpawn) {
         try {
-          this.log(styles.muted(`Starting ${ticket.id} with ${agent.name}...`))
-
-          // Note: Ticket assignment now happens in work:start ONLY after successful spawn
+          this.log(styles.muted(`Starting ${ticket.id}...`))
 
           // Build args for work:start
           // IMPORTANT: Pass --project to avoid re-prompting for project selection
-          // Pass --agent to skip agent selection prompt (we already have the assignment)
-          const startArgs: string[] = [ticket.id, '--project', projectId, '--agent', agent.name]
+          // NO --agent flag - work:start will create ephemeral agent on-demand
+          const startArgs: string[] = [ticket.id, '--project', projectId]
 
           if (flags['per-ticket']) {
             // Per-ticket mode: only pass mode flag, let start prompt for the rest

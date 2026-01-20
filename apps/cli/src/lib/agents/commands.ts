@@ -436,3 +436,278 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
 
   return { removed, failed };
 }
+
+// =============================================================================
+// Ephemeral Agent Support
+// =============================================================================
+
+import {
+  generateEphemeralName,
+  parseEphemeralName,
+  EPHEMERAL_AGENTS_DIR,
+} from '../themes.js';
+import {
+  addEphemeralAgentToDatabase,
+  getAgent,
+} from '../database/index.js';
+
+/**
+ * Result from creating an ephemeral agent
+ */
+export interface EphemeralAgentResult {
+  name: string;
+  baseName: string;
+  worktreePath: string;
+  relativePath: string;
+}
+
+/**
+ * Create an ephemeral agent on-demand for spawning work
+ * This creates the worktree in agents/temp/ and registers it in the database
+ */
+export async function createEphemeralAgent(
+  workspaceInfo: WorkspaceInfo
+): Promise<EphemeralAgentResult> {
+  // Generate unique ephemeral name
+  const name = generateEphemeralName(workspaceInfo.path);
+  const parsed = parseEphemeralName(name);
+  const baseName = parsed?.baseName || name;
+
+  // Determine paths
+  // Ephemeral agents go in agents/temp/ instead of agents/staff/
+  const relativePath = workspaceInfo.type === 'hq'
+    ? `agents/${EPHEMERAL_AGENTS_DIR}/${name}`
+    : name;
+  const agentDir = path.join(workspaceInfo.path, relativePath);
+
+  // Create agent directory
+  fs.mkdirSync(agentDir, { recursive: true });
+
+  // Create worktrees for each repository
+  await createAgentWorktreesForEphemeral(workspaceInfo, name, agentDir);
+
+  // Register in database
+  addEphemeralAgentToDatabase(workspaceInfo.path, name, baseName, relativePath);
+
+  return {
+    name,
+    baseName,
+    worktreePath: agentDir,
+    relativePath,
+  };
+}
+
+/**
+ * Create git worktrees for an ephemeral agent
+ * Uses a unique branch name to avoid conflicts
+ */
+async function createAgentWorktreesForEphemeral(
+  workspaceInfo: WorkspaceInfo,
+  agentName: string,
+  agentDir: string
+): Promise<void> {
+  if (workspaceInfo.type === 'hq') {
+    // HQ mode - create worktrees for all repos
+    const reposDir = path.join(workspaceInfo.path, 'repos');
+
+    for (const repo of workspaceInfo.repositories) {
+      const sourceRepo = path.join(reposDir, repo.name);
+      const worktreeDirName = `${repo.name}-${agentName}`;
+      const worktreeDir = path.join(agentDir, worktreeDirName);
+
+      if (!fs.existsSync(sourceRepo)) {
+        continue;
+      }
+
+      try {
+        // Fetch latest from origin
+        try {
+          execSync('git fetch origin', { cwd: sourceRepo, stdio: 'pipe' });
+        } catch {
+          // Ignore fetch errors (offline)
+        }
+
+        // Create unique branch for ephemeral agent
+        const branchName = `ephemeral-${agentName}`;
+
+        // Find base branch (origin/main or origin/master)
+        let baseBranch = 'origin/main';
+        try {
+          execSync('git rev-parse --verify origin/main', { cwd: sourceRepo, stdio: 'pipe' });
+        } catch {
+          try {
+            execSync('git rev-parse --verify origin/master', { cwd: sourceRepo, stdio: 'pipe' });
+            baseBranch = 'origin/master';
+          } catch {
+            baseBranch = 'HEAD';
+          }
+        }
+
+        // Create worktree
+        execSync(`git worktree add ${worktreeDir} -b ${branchName} ${baseBranch}`, {
+          cwd: sourceRepo,
+          stdio: 'pipe',
+        });
+      } catch (error) {
+        // If branch exists, try using it
+        try {
+          const branchName = `ephemeral-${agentName}`;
+          execSync(`git worktree add ${worktreeDir} ${branchName}`, {
+            cwd: sourceRepo,
+            stdio: 'pipe',
+          });
+        } catch {
+          console.error(`Failed to create worktree for ${repo.name}: ${error}`);
+        }
+      }
+    }
+  } else {
+    // Workspace-only mode - use current repo
+    const sourceRepo = process.cwd();
+    const repoName = path.basename(sourceRepo);
+    const worktreeDirName = `${repoName}-${agentName}`;
+    const worktreeDir = path.join(agentDir, worktreeDirName);
+
+    try {
+      // Fetch latest
+      try {
+        execSync('git fetch origin', { cwd: sourceRepo, stdio: 'pipe' });
+      } catch {
+        // Ignore fetch errors
+      }
+
+      const branchName = `ephemeral-${agentName}`;
+      let baseBranch = 'origin/main';
+      try {
+        execSync('git rev-parse --verify origin/main', { cwd: sourceRepo, stdio: 'pipe' });
+      } catch {
+        try {
+          execSync('git rev-parse --verify origin/master', { cwd: sourceRepo, stdio: 'pipe' });
+          baseBranch = 'origin/master';
+        } catch {
+          baseBranch = 'HEAD';
+        }
+      }
+
+      execSync(`git worktree add ${worktreeDir} -b ${branchName} ${baseBranch}`, {
+        cwd: sourceRepo,
+        stdio: 'pipe',
+      });
+    } catch (error) {
+      try {
+        const branchName = `ephemeral-${agentName}`;
+        execSync(`git worktree add ${worktreeDir} ${branchName}`, {
+          cwd: sourceRepo,
+          stdio: 'pipe',
+        });
+      } catch {
+        console.error(`Failed to create worktree: ${error}`);
+      }
+    }
+  }
+}
+
+/**
+ * Clean up an ephemeral agent (worktree and database entry)
+ */
+export async function cleanupEphemeralAgent(
+  workspaceInfo: WorkspaceInfo,
+  agentName: string
+): Promise<void> {
+  // Get agent from database to find worktree path
+  const agent = getAgent(workspaceInfo.path, agentName);
+  if (!agent || agent.type !== 'ephemeral') {
+    return;
+  }
+
+  const agentDir = agent.worktree_path
+    ? path.join(workspaceInfo.path, agent.worktree_path)
+    : path.join(workspaceInfo.agentsPath.replace(DEFAULT_AGENTS_DIR, EPHEMERAL_AGENTS_DIR), agentName);
+
+  // Remove worktrees for each repository
+  if (workspaceInfo.type === 'hq') {
+    const reposDir = path.join(workspaceInfo.path, 'repos');
+    for (const repo of workspaceInfo.repositories) {
+      const sourceRepo = path.join(reposDir, repo.name);
+      const worktreeDirName = `${repo.name}-${agentName}`;
+      const worktreeDir = path.join(agentDir, worktreeDirName);
+
+      if (fs.existsSync(worktreeDir)) {
+        try {
+          execSync(`git worktree remove ${worktreeDir} --force`, {
+            cwd: sourceRepo,
+            stdio: 'pipe',
+          });
+        } catch {
+          // Force remove directory if git command fails
+          fs.rmSync(worktreeDir, { recursive: true, force: true });
+        }
+      }
+
+      // Prune worktree list
+      try {
+        execSync('git worktree prune', { cwd: sourceRepo, stdio: 'pipe' });
+      } catch {
+        // Ignore prune errors
+      }
+
+      // Clean up ephemeral branch
+      try {
+        const branchName = `ephemeral-${agentName}`;
+        execSync(`git branch -D ${branchName}`, { cwd: sourceRepo, stdio: 'pipe' });
+      } catch {
+        // Branch might not exist
+      }
+    }
+  }
+
+  // Remove agent directory
+  if (fs.existsSync(agentDir)) {
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+
+  // Remove from database
+  removeAgentsFromDatabase(workspaceInfo.path, [agentName]);
+}
+
+/**
+ * Get or create an agent for work
+ * If agentName is provided and exists, returns its info
+ * Otherwise creates a new ephemeral agent
+ */
+export async function getOrCreateAgent(
+  workspaceInfo: WorkspaceInfo,
+  agentName?: string
+): Promise<{ name: string; agentDir: string; worktreePath: string; isEphemeral: boolean }> {
+  if (agentName) {
+    // Check if agent exists
+    const existingAgent = workspaceInfo.agents.find(a => a.name === agentName);
+    if (existingAgent) {
+      // Determine paths based on agent type
+      const agentType = existingAgent.type || 'persistent';
+      const agentsSubdir = agentType === 'ephemeral' ? EPHEMERAL_AGENTS_DIR : DEFAULT_AGENTS_DIR;
+
+      const agentDir = existingAgent.worktree_path
+        ? path.join(workspaceInfo.path, existingAgent.worktree_path)
+        : (workspaceInfo.type === 'hq'
+            ? path.join(workspaceInfo.path, 'agents', agentsSubdir, agentName)
+            : path.join(workspaceInfo.path, agentName));
+
+      return {
+        name: agentName,
+        agentDir,
+        worktreePath: agentDir,
+        isEphemeral: agentType === 'ephemeral',
+      };
+    }
+  }
+
+  // Create new ephemeral agent
+  const ephemeral = await createEphemeralAgent(workspaceInfo);
+  return {
+    name: ephemeral.name,
+    agentDir: ephemeral.worktreePath,
+    worktreePath: ephemeral.worktreePath,
+    isEphemeral: true,
+  };
+}

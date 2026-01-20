@@ -25,6 +25,9 @@ export interface Repository {
 export interface Agent {
   name: string;
   theme_id: string | null;
+  type: 'ephemeral' | 'persistent';
+  base_name: string | null;
+  worktree_path: string | null;
   created_at: string;
 }
 
@@ -100,6 +103,9 @@ CREATE TABLE IF NOT EXISTS agent_theme_names (
 CREATE TABLE IF NOT EXISTS agents (
   name TEXT PRIMARY KEY,
   theme_id TEXT,
+  type TEXT NOT NULL DEFAULT 'persistent' CHECK (type IN ('ephemeral', 'persistent')),
+  base_name TEXT,
+  worktree_path TEXT,
   created_at TEXT NOT NULL,
   FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
 );
@@ -133,7 +139,7 @@ CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
 `;
 
 /**
- * Migrate existing database to add theme support
+ * Migrate existing database to add theme support and ephemeral agent columns
  */
 function migrateToThemeSupport(db: Database.Database): void {
   // Check if agents table exists
@@ -148,6 +154,9 @@ function migrateToThemeSupport(db: Database.Database): void {
   const hasOldTheme = agentColumns.some(c => c.name === 'theme');
   const hasThemeId = agentColumns.some(c => c.name === 'theme_id');
   const hasStatus = agentColumns.some(c => c.name === 'status');
+  const hasType = agentColumns.some(c => c.name === 'type');
+  const hasBaseName = agentColumns.some(c => c.name === 'base_name');
+  const hasWorktreePath = agentColumns.some(c => c.name === 'worktree_path');
 
   // Need to recreate table if we have old columns (theme, status, etc)
   if (hasOldTheme || hasStatus) {
@@ -166,13 +175,16 @@ function migrateToThemeSupport(db: Database.Database): void {
       CREATE TABLE IF NOT EXISTS agents_new (
         name TEXT PRIMARY KEY,
         theme_id TEXT,
+        type TEXT NOT NULL DEFAULT 'persistent' CHECK (type IN ('ephemeral', 'persistent')),
+        base_name TEXT,
+        worktree_path TEXT,
         created_at TEXT NOT NULL,
         FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
       );
 
       -- Copy data from old table (theme column becomes theme_id if it exists)
-      INSERT OR IGNORE INTO agents_new (name, theme_id, created_at)
-      SELECT name, ${hasThemeId ? 'theme_id' : 'NULL'}, created_at FROM agents;
+      INSERT OR IGNORE INTO agents_new (name, theme_id, type, created_at)
+      SELECT name, ${hasThemeId ? 'theme_id' : 'NULL'}, 'persistent', created_at FROM agents;
 
       -- Drop old table
       DROP TABLE agents;
@@ -188,9 +200,20 @@ function migrateToThemeSupport(db: Database.Database): void {
     db.exec('DROP TABLE IF EXISTS themes;');
 
     db.pragma('foreign_keys = ON');
-  } else if (!hasThemeId && agentColumns.length > 0) {
-    // Just add theme_id column to existing agents table
-    db.exec('ALTER TABLE agents ADD COLUMN theme_id TEXT REFERENCES agent_themes(id) ON DELETE SET NULL');
+  } else {
+    // Add missing columns to existing table
+    if (!hasThemeId && agentColumns.length > 0) {
+      db.exec('ALTER TABLE agents ADD COLUMN theme_id TEXT REFERENCES agent_themes(id) ON DELETE SET NULL');
+    }
+    if (!hasType && agentColumns.length > 0) {
+      db.exec("ALTER TABLE agents ADD COLUMN type TEXT NOT NULL DEFAULT 'persistent'");
+    }
+    if (!hasBaseName && agentColumns.length > 0) {
+      db.exec('ALTER TABLE agents ADD COLUMN base_name TEXT');
+    }
+    if (!hasWorktreePath && agentColumns.length > 0) {
+      db.exec('ALTER TABLE agents ADD COLUMN worktree_path TEXT');
+    }
   }
 
   // Check if active_theme_id column exists in workspace table
@@ -500,6 +523,54 @@ export function getAgentWorktrees(workspacePath: string, agentName: string): Age
   return worktrees;
 }
 
+
+/**
+ * Add an ephemeral agent to the database
+ * Used when creating agents on-demand during spawn
+ */
+export function addEphemeralAgentToDatabase(
+  workspacePath: string,
+  agentName: string,
+  baseName: string,
+  worktreePath: string
+): void {
+  const db = openWorkspaceDatabase(workspacePath);
+
+  db.prepare(`
+    INSERT INTO agents (name, theme_id, type, base_name, worktree_path, created_at)
+    VALUES (?, NULL, 'ephemeral', ?, ?, ?)
+  `).run(agentName, baseName, worktreePath, new Date().toISOString());
+
+  db.close();
+}
+
+/**
+ * Remove ephemeral agents from the database
+ * Useful for cleanup of temporary agents
+ */
+export function removeEphemeralAgents(workspacePath: string): string[] {
+  const db = openWorkspaceDatabase(workspacePath);
+
+  // Get ephemeral agent names before deleting
+  const ephemeralAgents = db.prepare("SELECT name FROM agents WHERE type = 'ephemeral'").all() as { name: string }[];
+  const names = ephemeralAgents.map(a => a.name);
+
+  // Delete ephemeral agents (CASCADE will remove their worktrees)
+  db.prepare("DELETE FROM agents WHERE type = 'ephemeral'").run();
+
+  db.close();
+  return names;
+}
+
+/**
+ * Get an agent by name
+ */
+export function getAgent(workspacePath: string, agentName: string): Agent | null {
+  const db = openWorkspaceDatabase(workspacePath);
+  const agent = db.prepare('SELECT * FROM agents WHERE name = ?').get(agentName) as Agent | undefined;
+  db.close();
+  return agent || null;
+}
 
 /**
  * Remove agents from database

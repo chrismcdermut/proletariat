@@ -103,12 +103,17 @@ export default class Status extends PMOCommand {
 
     const agentStatus = getAgentStatus(workspaceInfo, agentName);
 
-    this.log(format.title(`🤖 Agent: ${agentName}`));
+    // Check agent type
+    const agentType = agent.type || 'persistent';
+    const typeLabel = agentType === 'ephemeral' ? ' (ephemeral)' : '';
+
+    this.log(format.title(`🤖 Agent: ${agentName}${typeLabel}`));
 
     // Basic status
     const statusIcon = agentStatus.exists ? '🟢' : '🔴';
     const status = agentStatus.exists ? colors.active('Active') : colors.inactive('Missing');
     this.log(`${statusIcon} Status: ${status}`);
+    this.log(`📋 Type: ${agentType === 'ephemeral' ? colors.textSecondary('Ephemeral (auto-created)') : colors.text('Persistent (pre-registered)')}`);
 
     if (!agentStatus.exists) {
       this.log(colors.error('   Agent directory not found'));

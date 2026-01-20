@@ -5,6 +5,7 @@
  */
 
 import Database from 'better-sqlite3'
+import { execSync } from 'node:child_process'
 import { PMO_TABLES } from '../pmo/schema.js'
 import {
   AgentWork,
@@ -615,4 +616,144 @@ export class ContainerStorage {
 
     return { added, updated, removed }
   }
+}
+
+// =============================================================================
+// Tmux Session Management
+// =============================================================================
+
+/**
+ * Information about a tmux session for a ticket
+ */
+export interface TmuxSession {
+  sessionName: string
+  ticketId: string
+  agentName: string
+  action: string
+  attached: boolean
+}
+
+/**
+ * Check if tmux is available
+ */
+export function isTmuxAvailable(): boolean {
+  try {
+    execSync('which tmux', { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * List all tmux sessions
+ */
+export function listTmuxSessions(): string[] {
+  if (!isTmuxAvailable()) {
+    return []
+  }
+
+  try {
+    const output = execSync('tmux list-sessions -F "#{session_name}"', {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    })
+    return output.trim().split('\n').filter(Boolean)
+  } catch {
+    // No sessions or tmux not running
+    return []
+  }
+}
+
+/**
+ * Parse a tmux session name to extract ticket info
+ * Session name format: {ticketId}-{action}-{agentName}
+ * Example: TKT-123-implement-bold-bezos-1
+ */
+export function parseTmuxSessionName(sessionName: string): { ticketId: string; action: string; agentName: string } | null {
+  // Match pattern: TKT-XXX-action-agent-name
+  const match = sessionName.match(/^(TKT-\d+)-(\w+)-(.+)$/)
+  if (!match) {
+    return null
+  }
+
+  return {
+    ticketId: match[1],
+    action: match[2],
+    agentName: match[3],
+  }
+}
+
+/**
+ * Get all tmux sessions for a specific ticket
+ */
+export function getTmuxSessionsForTicket(ticketId: string): TmuxSession[] {
+  const sessions = listTmuxSessions()
+  const ticketSessions: TmuxSession[] = []
+
+  for (const sessionName of sessions) {
+    const parsed = parseTmuxSessionName(sessionName)
+    if (parsed && parsed.ticketId.toLowerCase() === ticketId.toLowerCase()) {
+      // Check if session is attached
+      let attached = false
+      try {
+        const info = execSync(`tmux list-sessions -F "#{session_name}:#{session_attached}"`, {
+          encoding: 'utf-8',
+          stdio: 'pipe',
+        })
+        const lines = info.trim().split('\n')
+        for (const line of lines) {
+          const [name, attachedStr] = line.split(':')
+          if (name === sessionName) {
+            attached = attachedStr === '1'
+            break
+          }
+        }
+      } catch {
+        // Ignore errors
+      }
+
+      ticketSessions.push({
+        sessionName,
+        ticketId: parsed.ticketId,
+        agentName: parsed.agentName,
+        action: parsed.action,
+        attached,
+      })
+    }
+  }
+
+  return ticketSessions
+}
+
+/**
+ * Kill a tmux session
+ */
+export function killTmuxSession(sessionName: string): boolean {
+  if (!isTmuxAvailable()) {
+    return false
+  }
+
+  try {
+    execSync(`tmux kill-session -t "${sessionName}"`, { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Attach to a tmux session (returns the command to run)
+ */
+export function getAttachCommand(sessionName: string): string {
+  return `tmux attach-session -t "${sessionName}"`
+}
+
+/**
+ * Check if there are any active tmux sessions for a ticket
+ * Returns session info if found, null otherwise
+ */
+export function checkExistingTmuxSession(ticketId: string): TmuxSession | null {
+  const sessions = getTmuxSessionsForTicket(ticketId)
+  return sessions.length > 0 ? sessions[0] : null
 }

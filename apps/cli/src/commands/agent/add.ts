@@ -23,7 +23,7 @@ import {
 } from '../../lib/prompt-json.js';
 
 export default class Add extends Command {
-  static description = 'Add new agents to the workspace';
+  static description = 'Add new agents to the workspace (deprecated - agents are now created automatically)';
 
   static examples = [
     '<%= config.bin %> <%= command.id %> zeus',
@@ -65,6 +65,14 @@ export default class Add extends Command {
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
+
+    // Show deprecation notice
+    if (!jsonMode) {
+      this.log(chalk.yellow('⚠️  Note: Agent pre-registration is optional.'));
+      this.log(chalk.blue('   Ephemeral agents are now created automatically when you run:'));
+      this.log(chalk.blue('   prlt work spawn TKT-XXX'));
+      this.log('');
+    }
 
     try {
       // Get workspace information

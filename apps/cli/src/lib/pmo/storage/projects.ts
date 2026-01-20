@@ -16,6 +16,10 @@ import { slugify, generateEntityId } from '../utils.js'
 import { generateBoardMarkdown } from '../markdown.js'
 import { StorageContext, ProjectRow, TicketRow } from './types.js'
 import { rowToTicket } from './helpers.js'
+import { getBuiltinTemplate } from '../templates-builtin.js'
+
+// Default template used when none specified
+const DEFAULT_TEMPLATE_ID = 'kanban'
 
 const T = PMO_TABLES
 
@@ -27,14 +31,15 @@ export class ProjectStorage {
    */
   async init(projectId: string, config: BoardConfig): Promise<Board> {
     const projectName = config.name || 'Project Board'
-    const columns = config.columns || ['Backlog', 'Planned', 'In Progress', 'Done']
+    const defaultTemplate = getBuiltinTemplate(DEFAULT_TEMPLATE_ID)
+    const columns = config.columns || defaultTemplate?.columns || ['Backlog', 'Planned', 'In Progress', 'Done']
     const now = Date.now()
 
     // Create or update project
     this.ctx.db.prepare(`
       INSERT OR REPLACE INTO ${T.projects} (id, name, template, updated_at)
       VALUES (?, ?, ?, ?)
-    `).run(projectId, projectName, 'kanban', now)
+    `).run(projectId, projectName, DEFAULT_TEMPLATE_ID, now)
 
     // Delete existing columns for this project
     this.ctx.db.prepare(`DELETE FROM ${T.columns} WHERE project_id = ?`).run(projectId)
@@ -137,17 +142,14 @@ export class ProjectStorage {
         insertColumn.run(slugify(status.name), id, status.name, position, now)
       })
     } else {
-      // Fallback to default columns and statuses if template doesn't exist
-      const defaultStatuses: Array<{
-        name: string
-        category: 'backlog' | 'unstarted' | 'started' | 'completed' | 'canceled'
-        position: number
-      }> = [
-        { name: 'Backlog', category: 'backlog', position: 0 },
-        { name: 'Planned', category: 'unstarted', position: 0 },
-        { name: 'In Progress', category: 'started', position: 0 },
-        { name: 'Done', category: 'completed', position: 0 },
-        { name: 'Canceled', category: 'canceled', position: 0 },
+      // Fallback to default template's columns and statuses if requested template doesn't exist
+      const defaultTemplate = getBuiltinTemplate(DEFAULT_TEMPLATE_ID)
+      const defaultStatuses = defaultTemplate?.statuses || [
+        { name: 'Backlog', category: 'backlog' as const, position: 0 },
+        { name: 'Planned', category: 'unstarted' as const, position: 0 },
+        { name: 'In Progress', category: 'started' as const, position: 0 },
+        { name: 'Done', category: 'completed' as const, position: 0 },
+        { name: 'Canceled', category: 'canceled' as const, position: 0 },
       ]
 
       // Create default statuses
@@ -175,7 +177,7 @@ export class ProjectStorage {
       }
 
       // Create default columns
-      const defaultColumns = ['Backlog', 'Planned', 'In Progress', 'Done']
+      const defaultColumns = defaultTemplate?.columns || ['Backlog', 'Planned', 'In Progress', 'Done']
       const insertColumn = this.ctx.db.prepare(`
         INSERT INTO ${T.columns} (id, project_id, name, position, created_at)
         VALUES (?, ?, ?, ?, ?)

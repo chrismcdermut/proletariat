@@ -32,8 +32,8 @@ export default class PMOInit extends Command {
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> --location repo:proletariat --template founder',
-    '<%= config.bin %> <%= command.id %> --location separate --template scrum',
+    '<%= config.bin %> <%= command.id %> --location repo:proletariat --template 5-tool',
+    '<%= config.bin %> <%= command.id %> --location separate --template linear',
   ];
 
   static flags = {
@@ -44,7 +44,7 @@ export default class PMOInit extends Command {
     template: Flags.string({
       char: 't',
       description: 'Board template',
-      options: ['kanban', 'scrum', 'founder', 'custom'],
+      options: ['kanban', 'linear', '5-tool', 'custom'],
     }),
     name: Flags.string({
       char: 'n',

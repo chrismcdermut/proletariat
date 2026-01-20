@@ -8,7 +8,7 @@ import {
 } from '../../lib/agents/commands.js';
 
 export default class List extends Command {
-  static description = 'List all agents and their current status';
+  static description = 'List all agents (persistent and ephemeral) and their status';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
@@ -22,21 +22,41 @@ export default class List extends Command {
       const workspaceInfo = getWorkspaceInfo();
 
       if (workspaceInfo.agents.length === 0) {
-        this.log(chalk.yellow('No agents found. Add agents with "prlt agent add"'));
+        this.log(chalk.yellow('No agents found.'));
+        this.log(chalk.blue('Ephemeral agents are created automatically when you spawn work.'));
+        this.log(chalk.blue('Persistent agents can be added with: prlt agent add'));
         return;
       }
+
+      // Categorize agents by type
+      const persistentAgents = workspaceInfo.agents.filter(a => !a.type || a.type === 'persistent');
+      const ephemeralAgents = workspaceInfo.agents.filter(a => a.type === 'ephemeral');
 
       // Get status for all agents
       const agentsStatus = getAllAgentsStatus(workspaceInfo);
 
-      this.log(chalk.bold.cyan('\n👥 Active Agents:\n'));
+      // Show ephemeral agents first
+      if (ephemeralAgents.length > 0) {
+        this.log(chalk.bold.cyan('\n🔄 Ephemeral Agents (auto-created):'));
+        this.log(chalk.dim('   These are temporary agents created during work spawn.\n'));
+      }
+
+      // Show persistent agents
+      if (persistentAgents.length > 0) {
+        this.log(chalk.bold.cyan('\n👥 Persistent Agents (pre-registered):\n'));
+      }
 
       for (const agentStatus of agentsStatus) {
+        // Determine agent type for display
+        const agentInfo = workspaceInfo.agents.find(a => a.name === agentStatus.name);
+        const isEphemeral = agentInfo?.type === 'ephemeral';
+        const typeLabel = isEphemeral ? chalk.dim(' (ephemeral)') : '';
+
         // Agent info line
         const statusIcon = agentStatus.exists ? '🟢' : '🔴';
         const status = agentStatus.exists ? chalk.green('Active') : chalk.red('Missing');
 
-        this.log(`${statusIcon} ${chalk.bold(agentStatus.name)} - ${status}`);
+        this.log(`${statusIcon} ${chalk.bold(agentStatus.name)}${typeLabel} - ${status}`);
 
         if (agentStatus.exists) {
           // Show branch info

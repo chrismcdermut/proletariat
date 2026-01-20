@@ -15,7 +15,7 @@ import {
 } from '../../lib/prompt-json.js';
 
 export default class Remove extends PMOCommand {
-  static description = 'Remove a specific agent from the workspace';
+  static description = 'Remove an agent from the workspace (ephemeral agents are auto-cleaned)';
 
   static examples = [
     '<%= config.bin %> <%= command.id %> camry',
