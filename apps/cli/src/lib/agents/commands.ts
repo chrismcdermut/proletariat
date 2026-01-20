@@ -28,6 +28,7 @@ import {
   isEphemeralAgentName,
   GenerateEphemeralNameOptions
 } from '../themes.js';
+import { createDevcontainerConfig } from '../execution/devcontainer.js';
 import { getPMOContext } from '../pmo/index.js';
 
 export interface AgentStatus {
@@ -562,32 +563,15 @@ export async function createEphemeralAgent(
     }
   }
 
-  // Create devcontainer config if not skipped
+  // Create devcontainer config if not skipped (uses shared devcontainer generator)
   if (!options?.skipDevcontainer) {
     const devcontainerDir = path.join(agentDir, '.devcontainer');
     if (!fs.existsSync(devcontainerDir)) {
-      fs.mkdirSync(devcontainerDir, { recursive: true });
-
-      // Create a basic devcontainer.json
-      const devcontainerJson = {
-        name: agentName,
-        image: 'mcr.microsoft.com/devcontainers/base:ubuntu',
-        features: {
-          'ghcr.io/devcontainers/features/node:1': {},
-          'ghcr.io/devcontainers/features/git:1': {}
-        },
-        customizations: {
-          vscode: {
-            extensions: []
-          }
-        },
-        postCreateCommand: 'npm install -g @anthropic-ai/claude-code'
-      };
-
-      fs.writeFileSync(
-        path.join(devcontainerDir, 'devcontainer.json'),
-        JSON.stringify(devcontainerJson, null, 2)
-      );
+      createDevcontainerConfig({
+        agentName,
+        agentDir,
+        repoWorktrees: workspaceInfo.repositories.map(r => r.name)
+      });
     }
   }
 
