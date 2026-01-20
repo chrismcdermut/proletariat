@@ -88,7 +88,7 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     showInPicker: true,
   },
   {
-    id: 'founder',
+    id: '5-tool',
     name: '5-Tool Founder',
     description: 'Founder workflow with 5-tool backlogs + execution stages',
     columns: [
