@@ -12,10 +12,19 @@ import {
   getAgentWorktrees,
   addAgentsToDatabase,
   removeAgentsFromDatabase,
+  addEphemeralAgentToDatabase,
+  getEphemeralAgentNames,
   Agent,
   Repository
 } from '../database/index.js';
-import { DEFAULT_AGENTS_DIR, isValidAgentName, getSuggestedAgentNames } from '../themes.js';
+import {
+  DEFAULT_AGENTS_DIR,
+  TEMP_AGENTS_DIR,
+  isValidAgentName,
+  getSuggestedAgentNames,
+  generateEphemeralAgentName,
+  isEphemeralAgentName
+} from '../themes.js';
 import { getPMOContext } from '../pmo/index.js';
 
 export interface AgentStatus {
@@ -435,4 +444,193 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
   }
 
   return { removed, failed };
+}
+
+export interface EphemeralAgentOptions {
+  themeId?: string;        // Theme to pick base name from
+  skipDevcontainer?: boolean;  // Skip devcontainer creation
+}
+
+export interface EphemeralAgentResult {
+  name: string;           // Generated name like "bold-bezos-1"
+  baseName: string;       // Theme name like "bezos"
+  worktreePath: string;   // Full path to agent worktree
+  agent: Agent;           // Database record
+}
+
+/**
+ * Create an ephemeral agent on-demand for a spawn operation.
+ * Creates worktree in agents/temp/{name}/
+ */
+export async function createEphemeralAgent(
+  workspaceInfo: WorkspaceInfo,
+  options?: EphemeralAgentOptions
+): Promise<EphemeralAgentResult> {
+  // Get existing agent names for uniqueness check
+  const existingNames = new Set([
+    ...workspaceInfo.agents.map(a => a.name.toLowerCase()),
+    ...Array.from(getEphemeralAgentNames(workspaceInfo.path))
+  ]);
+
+  // Generate unique ephemeral name
+  const agentName = generateEphemeralAgentName(existingNames, options?.themeId);
+
+  // Extract base name from the generated name (e.g., "bezos" from "bold-bezos-1")
+  const parts = agentName.split('-');
+  const baseName = parts.length >= 3 ? parts.slice(1, -1).join('-') : agentName;
+
+  // Determine temp agents directory
+  const tempAgentsPath = path.join(workspaceInfo.path, 'agents', TEMP_AGENTS_DIR);
+
+  // Create temp agents directory if it doesn't exist
+  if (!fs.existsSync(tempAgentsPath)) {
+    fs.mkdirSync(tempAgentsPath, { recursive: true });
+  }
+
+  const agentDir = path.join(tempAgentsPath, agentName);
+
+  // Create agent directory
+  if (!fs.existsSync(agentDir)) {
+    fs.mkdirSync(agentDir, { recursive: true });
+  }
+
+  // Create worktrees for each repository
+  const reposPath = path.join(workspaceInfo.path, 'repos');
+
+  if (fs.existsSync(reposPath) && workspaceInfo.repositories.length > 0) {
+    for (const repo of workspaceInfo.repositories) {
+      const sourceRepoPath = path.join(reposPath, repo.name);
+      const worktreePath = path.join(agentDir, repo.name);
+
+      if (fs.existsSync(sourceRepoPath) && !fs.existsSync(worktreePath)) {
+        try {
+          // Create git worktree for the repository
+          // Don't create a branch yet - that happens in work:start
+          // Use --detach to create without a branch reference
+          execSync(`git worktree add --detach "${worktreePath}"`, {
+            cwd: sourceRepoPath,
+            stdio: 'pipe'
+          });
+        } catch (error) {
+          // If worktree creation fails, try to just create the directory
+          // The agent can still work without a worktree (e.g., for non-git projects)
+          if (!fs.existsSync(worktreePath)) {
+            fs.mkdirSync(worktreePath, { recursive: true });
+          }
+        }
+      }
+    }
+  }
+
+  // Create devcontainer config if not skipped
+  if (!options?.skipDevcontainer) {
+    const devcontainerDir = path.join(agentDir, '.devcontainer');
+    if (!fs.existsSync(devcontainerDir)) {
+      fs.mkdirSync(devcontainerDir, { recursive: true });
+
+      // Create a basic devcontainer.json
+      const devcontainerJson = {
+        name: agentName,
+        image: 'mcr.microsoft.com/devcontainers/base:ubuntu',
+        features: {
+          'ghcr.io/devcontainers/features/node:1': {},
+          'ghcr.io/devcontainers/features/git:1': {}
+        },
+        customizations: {
+          vscode: {
+            extensions: []
+          }
+        },
+        postCreateCommand: 'npm install -g @anthropic-ai/claude-code'
+      };
+
+      fs.writeFileSync(
+        path.join(devcontainerDir, 'devcontainer.json'),
+        JSON.stringify(devcontainerJson, null, 2)
+      );
+    }
+  }
+
+  // Add to database
+  const agent = addEphemeralAgentToDatabase(
+    workspaceInfo.path,
+    agentName,
+    baseName,
+    options?.themeId
+  );
+
+  return {
+    name: agentName,
+    baseName,
+    worktreePath: agentDir,
+    agent
+  };
+}
+
+/**
+ * Check if a tmux session exists for a given name
+ */
+export function tmuxSessionExists(sessionName: string): boolean {
+  try {
+    execSync(`tmux has-session -t "${sessionName}" 2>/dev/null`, { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get list of active tmux sessions that match our pattern
+ * Pattern: {ticketId}-{action}-{agent}
+ */
+export function getActiveTmuxSessions(): Array<{ name: string; ticketId: string; agent: string }> {
+  try {
+    const output = execSync('tmux list-sessions -F "#{session_name}"', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    return output
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map(name => {
+        // Parse session name: {ticketId}-{action}-{agent}
+        const parts = name.split('-');
+        if (parts.length >= 3) {
+          // TKT-123-implement-bold-bezos-1 -> ticketId: TKT-123, agent: bold-bezos-1
+          const ticketId = parts.slice(0, 2).join('-');
+          const agent = parts.slice(3).join('-');
+          return { name, ticketId, agent };
+        }
+        return { name, ticketId: '', agent: '' };
+      })
+      .filter(s => s.ticketId.startsWith('TKT-'));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Check if there's an active tmux session for a specific ticket
+ */
+export function getTicketTmuxSession(ticketId: string): { sessionName: string; agent: string } | null {
+  const sessions = getActiveTmuxSessions();
+  const session = sessions.find(s => s.ticketId === ticketId);
+  if (session) {
+    return { sessionName: session.name, agent: session.agent };
+  }
+  return null;
+}
+
+/**
+ * Kill a tmux session by name
+ */
+export function killTmuxSession(sessionName: string): boolean {
+  try {
+    execSync(`tmux kill-session -t "${sessionName}"`, { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
 }

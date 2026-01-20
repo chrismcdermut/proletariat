@@ -15,7 +15,12 @@ import {
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { StateCategory, WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
-import { getWorkspaceInfo } from '../../lib/agents/commands.js'
+import {
+  getWorkspaceInfo,
+  createEphemeralAgent,
+  getTicketTmuxSession,
+  killTmuxSession
+} from '../../lib/agents/commands.js'
 import {
   DisplayMode,
   SessionManager,
@@ -169,6 +174,10 @@ export default class WorkStart extends PMOCommand {
     agent: Flags.string({
       description: 'Agent to assign (skips interactive selection)',
     }),
+    ephemeral: Flags.boolean({
+      description: 'Create an ephemeral agent on-demand (auto-generates name)',
+      default: false,
+    }),
   }
 
   async execute(): Promise<void> {
@@ -315,82 +324,150 @@ export default class WorkStart extends PMOCommand {
         }
       }
 
-      // Check assignee - use flag, then ticket assignee, then prompt
-      let agentName = flags.agent || ticket.assignee
-      // Debug: log agent selection
-      // this.log(styles.muted(`   DEBUG: flags.agent=${flags.agent}, ticket.assignee=${ticket.assignee}, agentName=${agentName}`))
-      if (!agentName) {
-        // Get list of busy agents (already running something)
-        const busyAgentNames = new Set<string>()
-        for (const agent of workspaceInfo.agents) {
-          const runningExecutions = executionStorage.getAgentRunningExecutions(agent.name)
-          if (runningExecutions.length > 0) {
-            busyAgentNames.add(agent.name)
-          }
-        }
+      // Check for existing tmux session for this ticket
+      const existingSession = getTicketTmuxSession(ticketId!)
+      if (existingSession && !flags.force) {
+        this.log('')
+        this.log(styles.warning(`Ticket ${ticketId} has an active tmux session (${existingSession.agent})`))
 
-        // Prompt to assign an agent
-        const agentChoices: Array<{ name: string; value: string; disabled?: string } | inquirer.Separator> = []
-
-        const availableAgents = workspaceInfo.agents.filter(a => !busyAgentNames.has(a.name))
-        const busyAgents = workspaceInfo.agents.filter(a => busyAgentNames.has(a.name))
-
-        if (availableAgents.length > 0) {
-          agentChoices.push(new inquirer.Separator('── Available Agents ──'))
-          for (const a of availableAgents) {
-            agentChoices.push({ name: a.name, value: a.name })
-          }
-        }
-
-        if (busyAgents.length > 0) {
-          agentChoices.push(new inquirer.Separator('── Busy (already working) ──'))
-          for (const a of busyAgents) {
-            const runningExecs = executionStorage.getAgentRunningExecutions(a.name)
-            const ticketIds = runningExecs.map(e => e.ticketId).join(', ')
-            agentChoices.push({ name: `${a.name} (working on ${ticketIds})`, value: a.name, disabled: 'busy' })
-          }
-        }
-
-        agentChoices.push(new inquirer.Separator('── Other ──'))
-        agentChoices.push({ name: 'Enter custom name...', value: '__custom__' })
-
-        const { selectedAgent } = await inquirer.prompt([
+        const { sessionAction } = await inquirer.prompt([
           {
             type: 'list',
-            name: 'selectedAgent',
-            message: `Ticket "${ticketId}" has no assignee. Select agent:`,
-            choices: agentChoices,
+            name: 'sessionAction',
+            message: 'What would you like to do?',
+            choices: [
+              { name: 'Attach to existing session', value: 'attach' },
+              { name: 'Spawn new agent (keeps existing session)', value: 'spawn' },
+              { name: 'Kill session and respawn', value: 'kill' },
+              { name: 'Cancel', value: 'cancel' },
+            ],
           },
         ])
 
-        if (selectedAgent === '__custom__') {
-          const { customAgent } = await inquirer.prompt([
-            {
-              type: 'input',
-              name: 'customAgent',
-              message: 'Enter agent name:',
-              validate: (input: string) => input.trim() ? true : 'Name cannot be empty',
-            },
-          ])
-          agentName = customAgent.trim()
-        } else {
-          agentName = selectedAgent
+        if (sessionAction === 'cancel') {
+          db.close()
+          this.log(styles.muted('Cancelled.'))
+          return
         }
 
-        // Note: Ticket assignee update moved to after successful spawn
-        this.log(styles.muted(`Will assign ${ticketId} to ${agentName}`))
+        if (sessionAction === 'attach') {
+          // Attach to existing session
+          execSync(`tmux attach -t "${existingSession.sessionName}"`, { stdio: 'inherit' })
+          db.close()
+          return
+        }
+
+        if (sessionAction === 'kill') {
+          killTmuxSession(existingSession.sessionName)
+          this.log(styles.success(`Killed session ${existingSession.sessionName}`))
+        }
+        // For 'spawn', we continue with creating a new agent
+      }
+
+      // Agent selection: ephemeral flag, agent flag, ticket assignee, or prompt
+      let agentName: string | undefined
+      let agentWorktreePath: string | undefined
+      let isEphemeralAgent = flags.ephemeral
+
+      if (flags.ephemeral) {
+        // Create ephemeral agent on-demand
+        this.log(styles.muted('Creating ephemeral agent...'))
+        const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
+          skipDevcontainer: flags['run-on-host'],
+        })
+        agentName = ephemeralResult.name
+        agentWorktreePath = ephemeralResult.worktreePath
+        this.log(styles.success(`Created ephemeral agent: ${agentName}`))
+      } else if (flags.agent) {
+        // Agent specified via flag
+        agentName = flags.agent
+      } else if (ticket.assignee) {
+        // Ticket already has an assignee
+        agentName = ticket.assignee
+      } else {
+        // No agent specified - default to creating ephemeral agent (new behavior)
+        // Or prompt for agent selection if pre-registered agents exist
+        if (workspaceInfo.agents.length > 0) {
+          // Get list of busy agents (already running something)
+          const busyAgentNames = new Set<string>()
+          for (const agent of workspaceInfo.agents) {
+            const runningExecutions = executionStorage.getAgentRunningExecutions(agent.name)
+            if (runningExecutions.length > 0) {
+              busyAgentNames.add(agent.name)
+            }
+          }
+
+          // Prompt to assign an agent
+          const agentChoices: Array<{ name: string; value: string; disabled?: string } | inquirer.Separator> = []
+
+          // Add ephemeral option first
+          agentChoices.push({ name: 'Create new ephemeral agent (recommended)', value: '__ephemeral__' })
+          agentChoices.push(new inquirer.Separator())
+
+          const availableAgents = workspaceInfo.agents.filter(a => !busyAgentNames.has(a.name))
+          const busyAgents = workspaceInfo.agents.filter(a => busyAgentNames.has(a.name))
+
+          if (availableAgents.length > 0) {
+            agentChoices.push(new inquirer.Separator('── Available Staff Agents ──'))
+            for (const a of availableAgents) {
+              agentChoices.push({ name: a.name, value: a.name })
+            }
+          }
+
+          if (busyAgents.length > 0) {
+            agentChoices.push(new inquirer.Separator('── Busy (already working) ──'))
+            for (const a of busyAgents) {
+              const runningExecs = executionStorage.getAgentRunningExecutions(a.name)
+              const ticketIds = runningExecs.map(e => e.ticketId).join(', ')
+              agentChoices.push({ name: `${a.name} (working on ${ticketIds})`, value: a.name, disabled: 'busy' })
+            }
+          }
+
+          const { selectedAgent } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'selectedAgent',
+              message: `Select agent for ${ticketId}:`,
+              choices: agentChoices,
+            },
+          ])
+
+          if (selectedAgent === '__ephemeral__') {
+            // Create ephemeral agent
+            this.log(styles.muted('Creating ephemeral agent...'))
+            const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
+              skipDevcontainer: flags['run-on-host'],
+            })
+            agentName = ephemeralResult.name
+            agentWorktreePath = ephemeralResult.worktreePath
+            isEphemeralAgent = true
+            this.log(styles.success(`Created ephemeral agent: ${agentName}`))
+          } else {
+            agentName = selectedAgent
+          }
+        } else {
+          // No pre-registered agents - create ephemeral agent by default
+          this.log(styles.muted('Creating ephemeral agent...'))
+          const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
+            skipDevcontainer: flags['run-on-host'],
+          })
+          agentName = ephemeralResult.name
+          agentWorktreePath = ephemeralResult.worktreePath
+          isEphemeralAgent = true
+          this.log(styles.success(`Created ephemeral agent: ${agentName}`))
+        }
       }
 
       // At this point agentName is guaranteed to be set
       const assignedAgent = agentName as string
 
-      // Check if agent exists in workspace
-      const agentInfo = workspaceInfo.agents.find((a) => a.name === assignedAgent)
-      if (!agentInfo) {
+      // Validate agent - for non-ephemeral agents, check if it exists in workspace
+      let agentInfo = workspaceInfo.agents.find((a) => a.name === assignedAgent)
+      if (!isEphemeralAgent && !agentInfo) {
         db.close()
         this.error(
           `Agent "${assignedAgent}" not found in workspace.\n` +
-            `Add agent first with "prlt agent add ${assignedAgent}"`
+            `Use --ephemeral to create an ephemeral agent, or add a staff agent with "prlt agent add ${assignedAgent}"`
         )
       }
 
@@ -417,15 +494,29 @@ export default class WorkStart extends PMOCommand {
 
       // Determine worktree path
       // Agent directory structure varies:
-      // - HQ with repos: {agentsPath}/{agent}/{repoName}/ (git worktree per repo)
+      // - Ephemeral: agents/temp/{agent}/ (created on-demand)
+      // - Staff HQ: agents/staff/{agent}/{repoName}/ (git worktree per repo)
       // - Workspace-only: {agentsPath}/{agent}/{repoName}/ (git worktree)
       // - HQ without repos: {agentsPath}/{agent}/ (placeholder, use cwd)
-      const agentDir = path.join(workspaceInfo.agentsPath, assignedAgent)
+
+      // For ephemeral agents, use the worktree path from creation
+      // For existing agents, derive from agentsPath
+      let agentDir: string
+      if (isEphemeralAgent && agentWorktreePath) {
+        agentDir = agentWorktreePath
+      } else if (agentInfo?.worktree_path) {
+        // Agent has a worktree_path in the database
+        agentDir = path.join(workspaceInfo.path, agentInfo.worktree_path)
+      } else {
+        // Fall back to default path calculation
+        agentDir = path.join(workspaceInfo.agentsPath, assignedAgent)
+      }
+
       if (!fs.existsSync(agentDir)) {
         db.close()
         this.error(
           `Agent directory not found at ${agentDir}.\n` +
-            `Create agent with "prlt agent add ${assignedAgent}"`
+            `Use --ephemeral to create an ephemeral agent, or create a staff agent with "prlt agent add ${assignedAgent}"`
         )
       }
 
