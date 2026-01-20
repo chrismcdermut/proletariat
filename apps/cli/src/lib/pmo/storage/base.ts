@@ -6,6 +6,7 @@
 import Database from 'better-sqlite3'
 import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from '../schema.js'
 import { StateCategory } from '../types.js'
+import { BUILTIN_TEMPLATES } from '../templates-builtin.js'
 
 const T = PMO_TABLES
 
@@ -214,96 +215,17 @@ export function runMigrations(db: Database.Database): void {
 }
 
 /**
- * Seed built-in workflow templates.
+ * Seed built-in workflow templates from the shared definitions.
+ * Uses BUILTIN_TEMPLATES as the single source of truth.
  */
 export function seedBuiltinTemplates(db: Database.Database): void {
-  type WorkflowTemplateStatus = {
-    name: string
-    category: StateCategory
-    position: number
-  }
-
-  const builtinTemplates: Array<{
-    id: string
-    name: string
-    description: string
-    statuses: WorkflowTemplateStatus[]
-  }> = [
-    {
-      id: 'kanban',
-      name: 'Kanban',
-      description: 'Simple kanban workflow: Backlog → To Do → In Progress → Done',
-      statuses: [
-        { name: 'Backlog', category: 'backlog', position: 0 },
-        { name: 'To Do', category: 'unstarted', position: 0 },
-        { name: 'In Progress', category: 'started', position: 0 },
-        { name: 'Done', category: 'completed', position: 0 },
-        { name: 'Canceled', category: 'canceled', position: 0 },
-      ],
-    },
-    {
-      id: 'linear',
-      name: 'Linear',
-      description: 'Linear-style workflow with backlog, triage, and review stages',
-      statuses: [
-        { name: 'Backlog', category: 'backlog', position: 0 },
-        { name: 'Triage', category: 'backlog', position: 1 },
-        { name: 'Todo', category: 'unstarted', position: 0 },
-        { name: 'In Progress', category: 'started', position: 0 },
-        { name: 'In Review', category: 'started', position: 1 },
-        { name: 'Done', category: 'completed', position: 0 },
-        { name: 'Canceled', category: 'canceled', position: 0 },
-      ],
-    },
-    {
-      id: 'bug-smash',
-      name: 'Bug Smash',
-      description: 'Bug tracking workflow with verification stages',
-      statuses: [
-        { name: 'Reported', category: 'backlog', position: 0 },
-        { name: 'Confirmed', category: 'unstarted', position: 0 },
-        { name: 'Fixing', category: 'started', position: 0 },
-        { name: 'Verifying', category: 'started', position: 1 },
-        { name: 'Fixed', category: 'completed', position: 0 },
-        { name: "Won't Fix", category: 'canceled', position: 0 },
-      ],
-    },
-    {
-      id: 'founder',
-      name: '5-Tool Founder',
-      description: 'Founder workflow: Ideas → Build → Ship → Measure → Iterate',
-      statuses: [
-        { name: 'Ideas', category: 'backlog', position: 0 },
-        { name: 'Next Up', category: 'unstarted', position: 0 },
-        { name: 'Building', category: 'started', position: 0 },
-        { name: 'Shipping', category: 'started', position: 1 },
-        { name: 'Measuring', category: 'started', position: 2 },
-        { name: 'Shipped', category: 'completed', position: 0 },
-        { name: 'Parked', category: 'canceled', position: 0 },
-      ],
-    },
-    {
-      id: 'gtm',
-      name: 'GTM',
-      description: 'Go-to-market workflow for launches and campaigns',
-      statuses: [
-        { name: 'Ideation', category: 'backlog', position: 0 },
-        { name: 'Planning', category: 'unstarted', position: 0 },
-        { name: 'In Development', category: 'started', position: 0 },
-        { name: 'Ready to Launch', category: 'started', position: 1 },
-        { name: 'Launched', category: 'completed', position: 0 },
-        { name: 'Retired', category: 'canceled', position: 0 },
-      ],
-    },
-  ]
-
   const insertTemplate = db.prepare(`
     INSERT OR IGNORE INTO ${T.templates} (id, name, description, is_builtin, statuses, created_at)
     VALUES (?, ?, ?, 1, ?, ?)
   `)
 
   const now = new Date().toISOString()
-  for (const template of builtinTemplates) {
+  for (const template of BUILTIN_TEMPLATES) {
     insertTemplate.run(
       template.id,
       template.name,
