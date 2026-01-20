@@ -5,22 +5,22 @@ import {
   getWorkspaceInfo,
   validateAgentNames,
   addAgentsToWorkspace
-} from '../../lib/agents/commands.js';
-import { ensureBuiltinThemes, BUILTIN_THEMES, isValidAgentName, normalizeAgentName } from '../../lib/themes.js';
+} from '../../../lib/agents/commands.js';
+import { ensureBuiltinThemes, BUILTIN_THEMES, isValidAgentName, normalizeAgentName } from '../../../lib/themes.js';
 import {
   getTheme,
   getThemes,
   getAvailableThemeNames,
   markThemeNameUsed,
   getActiveTheme
-} from '../../lib/database/index.js';
+} from '../../../lib/database/index.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
-} from '../../lib/prompt-json.js';
+} from '../../../lib/prompt-json.js';
 
 export default class Add extends Command {
   static description = 'Add new agents to the workspace';
