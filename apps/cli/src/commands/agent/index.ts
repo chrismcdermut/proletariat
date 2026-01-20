@@ -72,6 +72,9 @@ export default class Agent extends PMOCommand {
 
     this.log(colors.primary('🤖 Agent Management'));
     this.log('');
+    this.log(colors.textMuted('Note: Agent pre-registration is no longer required!'));
+    this.log(colors.textMuted('Use "prlt work spawn" to create ephemeral agents automatically.'));
+    this.log('');
 
     const { action } = await inquirer.prompt([{
       type: 'list',
@@ -82,7 +85,7 @@ export default class Agent extends PMOCommand {
         { name: '📋 ' + menuChoices[0].name, value: menuChoices[0].value },
         { name: '📊 ' + menuChoices[1].name, value: menuChoices[1].value },
         { name: '📁 ' + menuChoices[2].name, value: menuChoices[2].value },
-        new inquirer.Separator('── Manage ──'),
+        new inquirer.Separator('── Manage (Staff Agents) ──'),
         { name: '➕ ' + menuChoices[3].name, value: menuChoices[3].value },
         { name: '🗑️  ' + menuChoices[4].name, value: menuChoices[4].value },
         { name: '🎨 ' + menuChoices[5].name, value: menuChoices[5].value },

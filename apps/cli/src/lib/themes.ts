@@ -10,6 +10,21 @@ import {
 export const DEFAULT_AGENTS_DIR = 'staff';
 
 /**
+ * Directory for ephemeral/temp agents
+ */
+export const TEMP_AGENTS_DIR = 'temp';
+
+/**
+ * Adjectives for ephemeral agent name generation
+ */
+export const AGENT_ADJECTIVES = [
+  'bold', 'calm', 'cool', 'deep', 'fair', 'fast', 'firm', 'free', 'good',
+  'keen', 'kind', 'neat', 'pure', 'safe', 'sure', 'true', 'warm', 'wise',
+  'able', 'avid', 'blue', 'deft', 'fine', 'glad', 'gold', 'open', 'real',
+  'rich', 'soft', 'tall', 'vast', 'wild', 'zest'
+];
+
+/**
  * Validate an agent name
  * Agent names must be alphanumeric with optional hyphens/underscores (case-insensitive for uniqueness)
  */
@@ -136,4 +151,81 @@ export function getBuiltinTheme(themeId: string): BuiltinThemeDefinition | undef
  */
 export function isBuiltinTheme(themeId: string): boolean {
   return BUILTIN_THEMES.some(t => t.id === themeId);
+}
+
+/**
+ * Pick a random adjective from the list
+ */
+export function pickAdjective(): string {
+  return AGENT_ADJECTIVES[Math.floor(Math.random() * AGENT_ADJECTIVES.length)];
+}
+
+/**
+ * Pick a random theme name from a specific theme
+ */
+export function pickThemeName(themeId: string): string {
+  const theme = BUILTIN_THEMES.find(t => t.id === themeId);
+  if (!theme) {
+    // Fall back to billionaires if theme not found
+    const fallback = BUILTIN_THEMES[0];
+    return fallback.names[Math.floor(Math.random() * fallback.names.length)];
+  }
+  return theme.names[Math.floor(Math.random() * theme.names.length)];
+}
+
+/**
+ * Pick a random theme name from any available theme
+ */
+export function pickRandomThemeName(): { themeName: string; themeId: string } {
+  const theme = BUILTIN_THEMES[Math.floor(Math.random() * BUILTIN_THEMES.length)];
+  const name = theme.names[Math.floor(Math.random() * theme.names.length)];
+  return { themeName: name, themeId: theme.id };
+}
+
+/**
+ * Generate a unique ephemeral agent name.
+ * Format: {adjective}-{theme_name}-{number}
+ * Example: "bold-bezos-1", "keen-camry-2"
+ *
+ * @param existingNames - Set of existing agent names (for uniqueness checking)
+ * @param themeId - Optional theme ID to pick name from (defaults to random)
+ */
+export function generateEphemeralAgentName(
+  existingNames: Set<string>,
+  themeId?: string
+): string {
+  const maxAttempts = 100;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const adjective = pickAdjective();
+    const themeName = themeId ? pickThemeName(themeId) : pickRandomThemeName().themeName;
+
+    // Try finding a unique number suffix
+    for (let num = 1; num <= 999; num++) {
+      const candidateName = `${adjective}-${themeName}-${num}`;
+      if (!existingNames.has(candidateName.toLowerCase())) {
+        return candidateName;
+      }
+    }
+  }
+
+  // Fallback: use timestamp if all attempts fail
+  const timestamp = Date.now().toString(36);
+  return `agent-${timestamp}`;
+}
+
+/**
+ * Check if a name looks like an ephemeral agent name.
+ * Ephemeral names follow pattern: {adjective}-{name}-{number}
+ */
+export function isEphemeralAgentName(name: string): boolean {
+  const parts = name.split('-');
+  if (parts.length < 3) return false;
+
+  const lastPart = parts[parts.length - 1];
+  const num = parseInt(lastPart, 10);
+  if (isNaN(num) || num < 1) return false;
+
+  const adjective = parts[0].toLowerCase();
+  return AGENT_ADJECTIVES.includes(adjective);
 }
