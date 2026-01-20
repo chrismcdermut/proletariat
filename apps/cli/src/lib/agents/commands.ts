@@ -14,6 +14,8 @@ import {
   removeAgentsFromDatabase,
   addEphemeralAgentToDatabase,
   getEphemeralAgentNames,
+  getActiveTheme,
+  markAgentCleaned,
   Agent,
   Repository
 } from '../database/index.js';
@@ -23,7 +25,8 @@ import {
   isValidAgentName,
   getSuggestedAgentNames,
   generateEphemeralAgentName,
-  isEphemeralAgentName
+  isEphemeralAgentName,
+  GenerateEphemeralNameOptions
 } from '../themes.js';
 import { getPMOContext } from '../pmo/index.js';
 
@@ -449,6 +452,10 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
 export interface EphemeralAgentOptions {
   themeId?: string;        // Theme to pick base name from
   skipDevcontainer?: boolean;  // Skip devcontainer creation
+  /**
+   * Optional logger for conflict messages (e.g., when a tmux session or directory already exists)
+   */
+  log?: (message: string) => void;
 }
 
 export interface EphemeralAgentResult {
@@ -472,22 +479,55 @@ export async function createEphemeralAgent(
     ...Array.from(getEphemeralAgentNames(workspaceInfo.path))
   ]);
 
-  // Generate unique ephemeral name
-  const agentName = generateEphemeralAgentName(existingNames, options?.themeId);
+  const tempAgentsBasePath = path.join(workspaceInfo.path, 'agents', TEMP_AGENTS_DIR);
+  const log = options?.log;
+
+  // Get theme: use provided themeId, or fall back to workspace's active theme
+  let themeId = options?.themeId;
+  if (!themeId) {
+    const activeTheme = getActiveTheme(workspaceInfo.path);
+    themeId = activeTheme?.id;
+  }
+
+  // Create a conflict checker for external resources (tmux sessions, directories)
+  const checkExternalConflict = (candidateName: string): { conflict: boolean; reason?: string } => {
+    // Check if a tmux session with this name already exists (could be from manual creation)
+    if (tmuxSessionExists(candidateName)) {
+      return { conflict: true, reason: `tmux session "${candidateName}" already exists` };
+    }
+
+    // Check if the directory already exists in agents/temp/
+    const candidateDir = path.join(tempAgentsBasePath, candidateName);
+    if (fs.existsSync(candidateDir)) {
+      return { conflict: true, reason: `directory "${candidateDir}" already exists` };
+    }
+
+    return { conflict: false };
+  };
+
+  // Log when conflicts are skipped during name generation
+  const onConflictSkipped = (name: string, reason: string) => {
+    log?.(`⚠️  Skipping name "${name}": ${reason}`);
+  };
+
+  // Generate unique ephemeral name using workspace theme
+  const nameOptions: GenerateEphemeralNameOptions = {
+    themeId,
+    checkExternalConflict,
+    onConflictSkipped
+  };
+  const agentName = generateEphemeralAgentName(existingNames, nameOptions);
 
   // Extract base name from the generated name (e.g., "bezos" from "bold-bezos-1")
   const parts = agentName.split('-');
   const baseName = parts.length >= 3 ? parts.slice(1, -1).join('-') : agentName;
 
-  // Determine temp agents directory
-  const tempAgentsPath = path.join(workspaceInfo.path, 'agents', TEMP_AGENTS_DIR);
-
   // Create temp agents directory if it doesn't exist
-  if (!fs.existsSync(tempAgentsPath)) {
-    fs.mkdirSync(tempAgentsPath, { recursive: true });
+  if (!fs.existsSync(tempAgentsBasePath)) {
+    fs.mkdirSync(tempAgentsBasePath, { recursive: true });
   }
 
-  const agentDir = path.join(tempAgentsPath, agentName);
+  const agentDir = path.join(tempAgentsBasePath, agentName);
 
   // Create agent directory
   if (!fs.existsSync(agentDir)) {
@@ -633,4 +673,198 @@ export function killTmuxSession(sessionName: string): boolean {
   } catch {
     return false;
   }
+}
+
+// =============================================================================
+// Agent Cleanup Functions
+// =============================================================================
+
+export interface CleanupOptions {
+  /** Logger for status messages */
+  log?: (message: string) => void;
+  /** If true, only show what would be cleaned without doing it */
+  dryRun?: boolean;
+}
+
+export interface CleanupResult {
+  agent: string;
+  success: boolean;
+  tmuxSessionsKilled: string[];
+  containersRemoved: string[];
+  directoriesRemoved: string[];
+  errors: string[];
+}
+
+/**
+ * Get tmux sessions associated with an agent
+ */
+export function getAgentTmuxSessions(agentName: string): string[] {
+  const sessions = getActiveTmuxSessions();
+  return sessions
+    .filter(s => s.agent === agentName)
+    .map(s => s.name);
+}
+
+/**
+ * Get docker containers associated with an agent directory
+ */
+function getAgentContainers(agentDir: string): string[] {
+  try {
+    const output = execSync(
+      `docker ps -aq --filter "label=devcontainer.local_folder=${agentDir}"`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+    return output.trim().split('\n').filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Clean up a single agent - removes resources but keeps DB record (marked as cleaned)
+ */
+export async function cleanupAgent(
+  workspaceInfo: WorkspaceInfo,
+  agentName: string,
+  options?: CleanupOptions
+): Promise<CleanupResult> {
+  const log = options?.log ?? (() => {});
+  const dryRun = options?.dryRun ?? false;
+
+  const result: CleanupResult = {
+    agent: agentName,
+    success: true,
+    tmuxSessionsKilled: [],
+    containersRemoved: [],
+    directoriesRemoved: [],
+    errors: []
+  };
+
+  // Find the agent
+  const agent = workspaceInfo.agents.find(a => a.name === agentName);
+  if (!agent) {
+    result.success = false;
+    result.errors.push(`Agent "${agentName}" not found`);
+    return result;
+  }
+
+  // Determine agent directory
+  const agentDir = agent.type === 'ephemeral'
+    ? path.join(workspaceInfo.path, 'agents', TEMP_AGENTS_DIR, agentName)
+    : path.join(workspaceInfo.path, 'agents', DEFAULT_AGENTS_DIR, agentName);
+
+  // 1. Kill tmux sessions for this agent
+  const tmuxSessions = getAgentTmuxSessions(agentName);
+  for (const session of tmuxSessions) {
+    if (dryRun) {
+      log(`[dry-run] Would kill tmux session: ${session}`);
+    } else {
+      log(`Killing tmux session: ${session}`);
+      if (killTmuxSession(session)) {
+        result.tmuxSessionsKilled.push(session);
+      } else {
+        result.errors.push(`Failed to kill tmux session: ${session}`);
+      }
+    }
+  }
+
+  // 2. Stop and remove docker containers
+  const containers = getAgentContainers(agentDir);
+  for (const containerId of containers) {
+    if (dryRun) {
+      log(`[dry-run] Would remove container: ${containerId}`);
+    } else {
+      log(`Removing container: ${containerId}`);
+      try {
+        execSync(`docker rm -f ${containerId}`, { stdio: 'pipe' });
+        result.containersRemoved.push(containerId);
+      } catch (error) {
+        result.errors.push(`Failed to remove container ${containerId}: ${error}`);
+      }
+    }
+  }
+
+  // 3. Remove git worktrees for each repository
+  for (const repo of workspaceInfo.repositories) {
+    const worktreePath = path.join(agentDir, repo.name);
+    const sourceRepoPath = path.join(workspaceInfo.path, 'repos', repo.name);
+
+    if (fs.existsSync(worktreePath) && fs.existsSync(sourceRepoPath)) {
+      if (dryRun) {
+        log(`[dry-run] Would remove worktree: ${worktreePath}`);
+      } else {
+        log(`Removing worktree: ${worktreePath}`);
+        try {
+          execSync(`git worktree remove "${worktreePath}" --force`, {
+            cwd: sourceRepoPath,
+            stdio: 'pipe'
+          });
+        } catch {
+          // If git worktree remove fails, we'll still try to remove the directory
+        }
+      }
+    }
+  }
+
+  // 4. Remove agent directory
+  if (fs.existsSync(agentDir)) {
+    if (dryRun) {
+      log(`[dry-run] Would remove directory: ${agentDir}`);
+      result.directoriesRemoved.push(agentDir);
+    } else {
+      log(`Removing directory: ${agentDir}`);
+      try {
+        fs.rmSync(agentDir, { recursive: true, force: true });
+        result.directoriesRemoved.push(agentDir);
+      } catch (error) {
+        result.errors.push(`Failed to remove directory ${agentDir}: ${error}`);
+        result.success = false;
+      }
+    }
+  }
+
+  // 5. Prune worktrees
+  if (!dryRun) {
+    for (const repo of workspaceInfo.repositories) {
+      const sourceRepoPath = path.join(workspaceInfo.path, 'repos', repo.name);
+      if (fs.existsSync(sourceRepoPath)) {
+        try {
+          execSync('git worktree prune', { cwd: sourceRepoPath, stdio: 'pipe' });
+        } catch {
+          // Ignore prune errors
+        }
+      }
+    }
+  }
+
+  // 6. Mark agent as cleaned in database (not delete)
+  if (!dryRun && result.success) {
+    log(`Marking agent "${agentName}" as cleaned`);
+    markAgentCleaned(workspaceInfo.path, agentName);
+  }
+
+  return result;
+}
+
+/**
+ * Get agents that can be cleaned up (active ephemeral agents with no running work)
+ */
+export function getCleanableAgents(
+  workspaceInfo: WorkspaceInfo,
+  checkRunning: boolean = true
+): Agent[] {
+  // Get active ephemeral agents
+  const ephemeralAgents = workspaceInfo.agents.filter(
+    a => a.type === 'ephemeral' && a.status === 'active'
+  );
+
+  if (!checkRunning) {
+    return ephemeralAgents;
+  }
+
+  // Filter out agents with active tmux sessions
+  return ephemeralAgents.filter(agent => {
+    const sessions = getAgentTmuxSessions(agent.name);
+    return sessions.length === 0;
+  });
 }

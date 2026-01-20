@@ -18,6 +18,7 @@ export default class Agent extends PMOCommand {
     '<%= config.bin %> <%= command.id %> visit tacoma',
     '<%= config.bin %> <%= command.id %> add',
     '<%= config.bin %> <%= command.id %> remove camry',
+    '<%= config.bin %> <%= command.id %> cleanup --temp',
     '<%= config.bin %> <%= command.id %> restart altman',
     '<%= config.bin %> <%= command.id %> rebuild altman',
     '<%= config.bin %> <%= command.id %> shell altman',
@@ -53,6 +54,7 @@ export default class Agent extends PMOCommand {
       { name: 'Visit directory', value: 'visit' },
       { name: 'Add agent', value: 'add' },
       { name: 'Remove agent', value: 'remove' },
+      { name: 'Cleanup agents', value: 'cleanup' },
       { name: 'Manage themes', value: 'themes' },
       { name: 'Open shell', value: 'shell' },
       { name: 'Restart', value: 'restart' },
@@ -85,16 +87,17 @@ export default class Agent extends PMOCommand {
         { name: '📋 ' + menuChoices[0].name, value: menuChoices[0].value },
         { name: '📊 ' + menuChoices[1].name, value: menuChoices[1].value },
         { name: '📁 ' + menuChoices[2].name, value: menuChoices[2].value },
-        new inquirer.Separator('── Manage (Staff Agents) ──'),
+        new inquirer.Separator('── Manage ──'),
         { name: '➕ ' + menuChoices[3].name, value: menuChoices[3].value },
         { name: '🗑️  ' + menuChoices[4].name, value: menuChoices[4].value },
-        { name: '🎨 ' + menuChoices[5].name, value: menuChoices[5].value },
+        { name: '🧹 ' + menuChoices[5].name, value: menuChoices[5].value },
+        { name: '🎨 ' + menuChoices[6].name, value: menuChoices[6].value },
         new inquirer.Separator('── Container ──'),
-        { name: '🐚 ' + menuChoices[6].name, value: menuChoices[6].value },
-        { name: '🔄 ' + menuChoices[7].name, value: menuChoices[7].value },
-        { name: '🔨 ' + menuChoices[8].name, value: menuChoices[8].value },
+        { name: '🐚 ' + menuChoices[7].name, value: menuChoices[7].value },
+        { name: '🔄 ' + menuChoices[8].name, value: menuChoices[8].value },
+        { name: '🔨 ' + menuChoices[9].name, value: menuChoices[9].value },
         new inquirer.Separator(),
-        { name: '❌ ' + menuChoices[9].name, value: menuChoices[9].value },
+        { name: '❌ ' + menuChoices[10].name, value: menuChoices[10].value },
       ]
     }]);
 
@@ -135,6 +138,12 @@ export default class Agent extends PMOCommand {
         case 'remove': {
           const { default: RemoveCommand } = await import('./remove.js');
           const cmd = new RemoveCommand([], this.config);
+          await cmd.run();
+          break;
+        }
+        case 'cleanup': {
+          const { default: CleanupCommand } = await import('./cleanup.js');
+          const cmd = new CleanupCommand([], this.config);
           await cmd.run();
           break;
         }

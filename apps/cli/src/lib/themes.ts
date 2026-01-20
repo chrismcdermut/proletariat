@@ -15,13 +15,42 @@ export const DEFAULT_AGENTS_DIR = 'staff';
 export const TEMP_AGENTS_DIR = 'temp';
 
 /**
+ * Default theme for ephemeral agent name generation
+ */
+export const DEFAULT_EPHEMERAL_THEME = 'billionaires';
+
+/**
  * Adjectives for ephemeral agent name generation
+ * ~100 short, positive adjectives for readable agent names
  */
 export const AGENT_ADJECTIVES = [
+  // Original set
   'bold', 'calm', 'cool', 'deep', 'fair', 'fast', 'firm', 'free', 'good',
   'keen', 'kind', 'neat', 'pure', 'safe', 'sure', 'true', 'warm', 'wise',
   'able', 'avid', 'blue', 'deft', 'fine', 'glad', 'gold', 'open', 'real',
-  'rich', 'soft', 'tall', 'vast', 'wild', 'zest'
+  'rich', 'soft', 'tall', 'vast', 'wild', 'zest',
+  // Expanded set
+  'apt', 'big', 'brave', 'bright', 'brisk', 'busy', 'chief', 'civic',
+  'civil', 'clean', 'clear', 'close', 'crisp', 'dense', 'dry', 'dual',
+  'due', 'eager', 'early', 'easy', 'elite', 'epic', 'equal', 'even',
+  'exact', 'extra', 'faint', 'fancy', 'first', 'fit', 'flat', 'fleet',
+  'flush', 'focal', 'fond', 'frank', 'fresh', 'full', 'game', 'grand',
+  'grave', 'great', 'green', 'hale', 'happy', 'hardy', 'hasty', 'hazy',
+  'heavy', 'high', 'hot', 'huge', 'ideal', 'key', 'large', 'late', 'lean',
+  'legal', 'light', 'lithe', 'live', 'local', 'long', 'loose', 'loud',
+  'loyal', 'lucid', 'lucky', 'lunar', 'lusty', 'mad', 'main', 'major',
+  'meek', 'merry', 'mild', 'mini', 'minor', 'mint', 'modal', 'modern',
+  'moist', 'moral', 'naval', 'new', 'next', 'nice', 'noble', 'novel',
+  'odd', 'outer', 'pale', 'peak', 'perky', 'phat', 'plush', 'polar',
+  'polite', 'prime', 'proud', 'quick', 'quiet', 'rapid', 'rare', 'raw',
+  'ready', 'regal', 'royal', 'ruby', 'rural', 'rusty', 'salty', 'sandy',
+  'sassy', 'shiny', 'short', 'silky', 'slick', 'slim', 'slow', 'small',
+  'smart', 'smooth', 'snug', 'solar', 'solid', 'sonic', 'sound', 'spare',
+  'stark', 'steady', 'steel', 'steep', 'stoic', 'stout', 'strong', 'super',
+  'sweet', 'swift', 'tame', 'tart', 'tense', 'thick', 'thin', 'tidy',
+  'tight', 'tiny', 'top', 'total', 'tough', 'trim', 'ultra', 'upper',
+  'urban', 'valid', 'vivid', 'vocal', 'wary', 'whole', 'wide', 'witty',
+  'young', 'zappy', 'zen', 'zero', 'zippy', 'zonal'
 ];
 
 /**
@@ -79,11 +108,21 @@ export const BUILTIN_THEMES: BuiltinThemeDefinition[] = [
     displayName: 'Billionaires & Tech Elite',
     description: 'The ultra-wealthy work for you',
     names: [
+      // Tech founders & executives
       'altman', 'andreesen', 'bezos', 'branson', 'brin', 'buffett',
-      'cook', 'dalio', 'damodei', 'dorsey', 'ellison', 'gates', 'huang',
+      'cook', 'dalio', 'dario', 'dorsey', 'ellison', 'gates', 'huang',
       'iger', 'jobs', 'kalanick', 'karpathy', 'lecun', 'ma', 'musk',
       'nadella', 'page', 'pichai', 'sandberg', 'schultz', 'sutskever',
-      'thiel', 'wojcicki', 'zuck'
+      'thiel', 'wojcicki', 'zuck',
+      // More tech leaders
+      'ballmer', 'benioff', 'chesky', 'collison', 'dell', 'durov',
+      'fink', 'fridman', 'grove', 'hastings', 'hoffman', 'horowitz',
+      'hurd', 'ive', 'khosla', 'knight', 'kutcher', 'levie', 'levinson',
+      'lynch', 'marcus', 'mayer', 'mcnealy', 'morin', 'neumann',
+      'omidyar', 'packard', 'parker', 'powell', 'rabois', 'rometty',
+      'ross', 'schmidt', 'sequoia', 'siebel', 'silbermann', 'sinofsky',
+      'spiegel', 'spolsky', 'sweeney', 'systrom', 'torvalds', 'wales',
+      'wozniak', 'yang', 'yegge', 'zhang', 'zhong'
     ]
   },
   {
@@ -92,10 +131,20 @@ export const BUILTIN_THEMES: BuiltinThemeDefinition[] = [
     displayName: 'Toyota Garage',
     description: 'Reliable workhorses for your project',
     names: [
+      // Classic & current models
       '4runner', 'avalon', 'camry', 'celica', 'corolla', 'cressida',
       'fj40', 'fj60', 'fj80', 'highlander', 'hilux', 'landcruiser',
       'mr2', 'prius', 'rav4', 'sequoia', 'sienna', 'supra', 'tacoma',
-      'tercel', 'tundra', 'venza', 'yaris'
+      'tercel', 'tundra', 'venza', 'yaris',
+      // More models & variants
+      'auris', 'belta', 'brevis', 'caldina', 'carina', 'century',
+      'chaser', 'coaster', 'corona', 'cresta', 'crown', 'dyna',
+      'estima', 'etios', 'fortuner', 'granvia', 'harrier', 'innova',
+      'ipsum', 'kluger', 'levin', 'lite', 'lucida', 'mark2',
+      'matrix', 'mirai', 'noah', 'paseo', 'picnic', 'platz',
+      'previa', 'premio', 'probox', 'raize', 'rukus', 'sera',
+      'soarer', 'solara', 'starlet', 'surf', 'tarago', 'trueno',
+      'urban', 'verso', 'vios', 'vista', 'vitz', 'wish'
     ]
   },
   {
@@ -104,12 +153,23 @@ export const BUILTIN_THEMES: BuiltinThemeDefinition[] = [
     displayName: 'Company Portfolio',
     description: 'Your corporate portfolio',
     names: [
+      // Major tech companies
       'adobe', 'airbnb', 'amazon', 'apple', 'atlassian', 'cisco',
       'coinbase', 'databricks', 'discord', 'dropbox', 'figma', 'github',
       'google', 'intel', 'meta', 'microsoft', 'netflix', 'notion',
       'nvidia', 'openai', 'oracle', 'palantir', 'salesforce', 'shopify',
       'slack', 'snowflake', 'spotify', 'square', 'stripe', 'tesla',
-      'twilio', 'twitter', 'uber', 'vercel', 'zoom'
+      'twilio', 'twitter', 'uber', 'vercel', 'zoom',
+      // More companies
+      'airtable', 'algolia', 'asana', 'auth0', 'brex', 'canva',
+      'carta', 'checkout', 'clickup', 'cloudera', 'contentful', 'datadog',
+      'deel', 'docusign', 'doordash', 'elastic', 'fastly', 'fivetran',
+      'gitlab', 'gusto', 'hashicorp', 'hubspot', 'instacart', 'klarna',
+      'launchdark', 'linear', 'loom', 'lyft', 'mailchimp', 'miro',
+      'monday', 'mongo', 'netlify', 'okta', 'pagerduty', 'plaid',
+      'postman', 'reddit', 'retool', 'revolut', 'rippling', 'robinhood',
+      'segment', 'sentry', 'supabase', 'toast', 'twitch', 'webflow',
+      'wiz', 'workday', 'zendesk', 'zscaler'
     ]
   }
 ];
@@ -183,29 +243,67 @@ export function pickRandomThemeName(): { themeName: string; themeId: string } {
 }
 
 /**
+ * Options for ephemeral agent name generation
+ */
+export interface GenerateEphemeralNameOptions {
+  themeId?: string;
+  /**
+   * Optional callback to check if a candidate name conflicts with external resources.
+   * Returns { conflict: true, reason: string } if there's a conflict, or { conflict: false } if not.
+   * This allows checking for tmux sessions, directories, etc. that aren't in the database.
+   */
+  checkExternalConflict?: (name: string) => { conflict: boolean; reason?: string };
+  /**
+   * Optional callback for logging/messaging when conflicts are detected
+   */
+  onConflictSkipped?: (name: string, reason: string) => void;
+}
+
+/**
  * Generate a unique ephemeral agent name.
  * Format: {adjective}-{theme_name}-{number}
  * Example: "bold-bezos-1", "keen-camry-2"
  *
  * @param existingNames - Set of existing agent names (for uniqueness checking)
- * @param themeId - Optional theme ID to pick name from (defaults to random)
+ * @param options - Optional configuration for name generation
  */
 export function generateEphemeralAgentName(
   existingNames: Set<string>,
-  themeId?: string
+  options?: GenerateEphemeralNameOptions | string
 ): string {
+  // Handle backwards compatibility: string arg = themeId
+  const opts: GenerateEphemeralNameOptions = typeof options === 'string'
+    ? { themeId: options }
+    : (options ?? {});
+
   const maxAttempts = 100;
+
+  // Use specified theme or default (no mixing themes)
+  const themeId = opts.themeId ?? DEFAULT_EPHEMERAL_THEME;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const adjective = pickAdjective();
-    const themeName = themeId ? pickThemeName(themeId) : pickRandomThemeName().themeName;
+    const themeName = pickThemeName(themeId);
 
-    // Try finding a unique number suffix
-    for (let num = 1; num <= 999; num++) {
+    // Try finding a unique number suffix (4 digits max)
+    for (let num = 1; num <= 9999; num++) {
       const candidateName = `${adjective}-${themeName}-${num}`;
-      if (!existingNames.has(candidateName.toLowerCase())) {
-        return candidateName;
+
+      // Check database/in-memory conflicts first
+      if (existingNames.has(candidateName.toLowerCase())) {
+        continue;
       }
+
+      // Check external resource conflicts if callback provided
+      if (opts.checkExternalConflict) {
+        const result = opts.checkExternalConflict(candidateName);
+        if (result.conflict) {
+          opts.onConflictSkipped?.(candidateName, result.reason ?? 'external conflict');
+          continue;
+        }
+      }
+
+      return candidateName;
     }
   }
 

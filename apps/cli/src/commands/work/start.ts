@@ -374,6 +374,7 @@ export default class WorkStart extends PMOCommand {
         this.log(styles.muted('Creating ephemeral agent...'))
         const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
           skipDevcontainer: flags['run-on-host'],
+          log: (msg) => this.log(msg),
         })
         agentName = ephemeralResult.name
         agentWorktreePath = ephemeralResult.worktreePath
@@ -437,6 +438,7 @@ export default class WorkStart extends PMOCommand {
             this.log(styles.muted('Creating ephemeral agent...'))
             const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
               skipDevcontainer: flags['run-on-host'],
+              log: (msg) => this.log(msg),
             })
             agentName = ephemeralResult.name
             agentWorktreePath = ephemeralResult.worktreePath
@@ -450,6 +452,7 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.muted('Creating ephemeral agent...'))
           const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
             skipDevcontainer: flags['run-on-host'],
+            log: (msg) => this.log(msg),
           })
           agentName = ephemeralResult.name
           agentWorktreePath = ephemeralResult.worktreePath

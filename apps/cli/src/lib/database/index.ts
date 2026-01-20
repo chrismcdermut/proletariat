@@ -23,14 +23,17 @@ export interface Repository {
 }
 
 export type AgentType = 'persistent' | 'ephemeral';
+export type AgentStatus = 'active' | 'cleaned';
 
 export interface Agent {
   name: string;
   type: AgentType;
+  status: AgentStatus;
   base_name: string | null;  // Theme name (e.g., "bezos" from "bold-bezos-1")
   theme_id: string | null;
   worktree_path: string | null;  // e.g., "agents/temp/bold-bezos-1"
   created_at: string;
+  cleaned_at: string | null;  // When the agent was cleaned up
 }
 
 export interface AgentTheme {
@@ -105,10 +108,12 @@ CREATE TABLE IF NOT EXISTS agent_theme_names (
 CREATE TABLE IF NOT EXISTS agents (
   name TEXT PRIMARY KEY,
   type TEXT NOT NULL DEFAULT 'persistent' CHECK (type IN ('persistent', 'ephemeral')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cleaned')),
   base_name TEXT,
   theme_id TEXT,
   worktree_path TEXT,
   created_at TEXT NOT NULL,
+  cleaned_at TEXT,
   FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
 );
 
@@ -227,6 +232,19 @@ function migrateToThemeSupport(db: Database.Database): void {
   if (!hasActiveThemeId && workspaceColumns.length > 0) {
     // Add active_theme_id column to existing workspace table
     db.exec('ALTER TABLE workspace ADD COLUMN active_theme_id TEXT REFERENCES agent_themes(id) ON DELETE SET NULL');
+  }
+
+  // Add status and cleaned_at columns for cleanup tracking (new in this version)
+  // Re-check columns since they may have changed after migration above
+  const currentAgentColumns = db.pragma('table_info(agents)') as Array<{ name: string }>;
+  const hasStatusColumn = currentAgentColumns.some(c => c.name === 'status');
+  const hasCleanedAt = currentAgentColumns.some(c => c.name === 'cleaned_at');
+
+  if (!hasStatusColumn && currentAgentColumns.length > 0) {
+    db.exec("ALTER TABLE agents ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
+  }
+  if (!hasCleanedAt && currentAgentColumns.length > 0) {
+    db.exec('ALTER TABLE agents ADD COLUMN cleaned_at TEXT');
   }
 }
 
@@ -517,17 +535,19 @@ export function addEphemeralAgentToDatabase(
   const worktreePath = `agents/temp/${agentName}`;
 
   db.prepare(`
-    INSERT INTO agents (name, type, base_name, theme_id, worktree_path, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(agentName, 'ephemeral', baseName, themeId || null, worktreePath, now);
+    INSERT INTO agents (name, type, status, base_name, theme_id, worktree_path, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(agentName, 'ephemeral', 'active', baseName, themeId || null, worktreePath, now);
 
   const agent = db.prepare('SELECT * FROM agents WHERE name = ?').get(agentName) as {
     name: string;
     type: string;
+    status: string;
     base_name: string | null;
     theme_id: string | null;
     worktree_path: string | null;
     created_at: string;
+    cleaned_at: string | null;
   };
 
   db.close();
@@ -535,10 +555,12 @@ export function addEphemeralAgentToDatabase(
   return {
     name: agent.name,
     type: agent.type as AgentType,
+    status: agent.status as AgentStatus,
     base_name: agent.base_name,
     theme_id: agent.theme_id,
     worktree_path: agent.worktree_path,
     created_at: agent.created_at,
+    cleaned_at: agent.cleaned_at,
   };
 }
 
@@ -564,15 +586,20 @@ export function removeEphemeralAgent(workspacePath: string, agentName: string): 
 /**
  * Get all agents in workspace
  */
-export function getWorkspaceAgents(workspacePath: string): Agent[] {
+export function getWorkspaceAgents(workspacePath: string, includeCleanedUp: boolean = false): Agent[] {
   const db = openWorkspaceDatabase(workspacePath);
-  const rows = db.prepare('SELECT * FROM agents ORDER BY created_at').all() as Array<{
+  const query = includeCleanedUp
+    ? 'SELECT * FROM agents ORDER BY created_at'
+    : "SELECT * FROM agents WHERE status = 'active' OR status IS NULL ORDER BY created_at";
+  const rows = db.prepare(query).all() as Array<{
     name: string;
     type: string | null;
+    status: string | null;
     base_name: string | null;
     theme_id: string | null;
     worktree_path: string | null;
     created_at: string;
+    cleaned_at: string | null;
   }>;
   db.close();
 
@@ -580,11 +607,23 @@ export function getWorkspaceAgents(workspacePath: string): Agent[] {
   return rows.map(row => ({
     name: row.name,
     type: (row.type || 'persistent') as AgentType,
+    status: (row.status || 'active') as AgentStatus,
     base_name: row.base_name,
     theme_id: row.theme_id,
     worktree_path: row.worktree_path,
     created_at: row.created_at,
+    cleaned_at: row.cleaned_at,
   }));
+}
+
+/**
+ * Mark an agent as cleaned up (keeps the record for history)
+ */
+export function markAgentCleaned(workspacePath: string, agentName: string): void {
+  const db = openWorkspaceDatabase(workspacePath);
+  const now = new Date().toISOString();
+  db.prepare("UPDATE agents SET status = 'cleaned', cleaned_at = ? WHERE name = ?").run(now, agentName);
+  db.close();
 }
 
 /**
