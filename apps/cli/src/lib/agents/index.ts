@@ -336,11 +336,11 @@ export async function promptForAgentsWithTheme(): Promise<AgentPromptResult> {
     return { agents: [] };
   }
 
-  // Randomly select 5 agents from the theme
+  // Randomly select 10 agents from the theme
   const shuffled = [...theme.names].sort(() => Math.random() - 0.5);
-  const selected = shuffled.slice(0, 5);
+  const selected = shuffled.slice(0, 10);
 
-  console.log(chalk.blue(`\nCreating 5 staff agents: ${selected.join(', ')}`));
+  console.log(chalk.blue(`\nCreating 10 staff agents: ${selected.join(', ')}`));
 
   return { agents: selected, themeId: selectedTheme };
 }
