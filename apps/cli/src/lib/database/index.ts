@@ -216,6 +216,9 @@ function migrateToThemeSupport(db: Database.Database): void {
   if (agentColumns.length > 0) {
     if (!hasType) {
       db.exec("ALTER TABLE agents ADD COLUMN type TEXT NOT NULL DEFAULT 'persistent'");
+      // Fix existing ephemeral agents that were added before this migration
+      // Agents in agents/temp/ should be marked as ephemeral
+      db.exec("UPDATE agents SET type = 'ephemeral' WHERE worktree_path LIKE 'agents/temp/%'");
     }
     if (!hasBaseName) {
       db.exec('ALTER TABLE agents ADD COLUMN base_name TEXT');
@@ -224,6 +227,10 @@ function migrateToThemeSupport(db: Database.Database): void {
       db.exec('ALTER TABLE agents ADD COLUMN worktree_path TEXT');
     }
   }
+
+  // Ensure any agents in temp directory are correctly typed as ephemeral
+  // This handles cases where agents were incorrectly persisted as 'persistent'
+  db.exec("UPDATE agents SET type = 'ephemeral' WHERE worktree_path LIKE 'agents/temp/%' AND type != 'ephemeral'")
 
   // Check if active_theme_id column exists in workspace table
   const workspaceColumns = db.pragma('table_info(workspace)') as Array<{ name: string }>;

@@ -382,10 +382,9 @@ export default class WorkStart extends PMOCommand {
       } else if (flags.agent) {
         // Agent specified via flag
         agentName = flags.agent
-      } else if (ticket.assignee) {
-        // Ticket already has an assignee
-        agentName = ticket.assignee
       } else {
+        // Note: We no longer auto-reuse ticket.assignee to enable parallel work
+        // (e.g., groom + implement, or multiple implementations on same ticket)
         // No agent specified - default to creating ephemeral agent (new behavior)
         // Or prompt for agent selection if pre-registered agents exist
         if (workspaceInfo.agents.length > 0) {

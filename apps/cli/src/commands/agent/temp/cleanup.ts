@@ -146,20 +146,57 @@ export default class Cleanup extends PMOCommand {
         return;
       }
 
-      // Build choices with status info
-      const choices = allAgents.map(agent => {
-        const sessions = getAgentTmuxSessions(agent.name);
-        const hasRunningWork = sessions.length > 0;
-        const typeLabel = agent.type === 'ephemeral' ? '[temp]' : '[staff]';
-        const statusLabel = hasRunningWork ? ' (running)' : '';
-        return {
-          name: `${agent.name} ${typeLabel}${statusLabel}`,
-          value: agent.name,
-          disabled: hasRunningWork,
-        };
-      });
+      // Separate temp and staff agents
+      const tempAgents = allAgents.filter(a => a.type === 'ephemeral');
+      const staffAgents = allAgents.filter(a => a.type !== 'ephemeral');
 
-      choices.push({ name: 'Cancel', value: 'cancel', disabled: false });
+      // Build choices with separators
+      const choices: Array<{ name: string; value: string; disabled?: boolean | string } | inquirer.Separator> = [];
+
+      // Add "All temp agents" option if there are temp agents
+      if (tempAgents.length > 0) {
+        const cleanableTempAgents = tempAgents.filter(a => {
+          const sessions = getAgentTmuxSessions(a.name);
+          return sessions.length === 0;
+        });
+        if (cleanableTempAgents.length > 0) {
+          choices.push({ name: `🧹 All temp agents (${cleanableTempAgents.length} cleanable)`, value: '__all_temp__' });
+        }
+      }
+
+      choices.push(new inquirer.Separator('── Cancel ──'));
+      choices.push({ name: '✗ Cancel', value: '__cancel__' });
+
+      // Add temp agents
+      if (tempAgents.length > 0) {
+        choices.push(new inquirer.Separator(`── Temp Agents (${tempAgents.length}) ──`));
+        for (const agent of tempAgents) {
+          const sessions = getAgentTmuxSessions(agent.name);
+          const hasRunningWork = sessions.length > 0;
+          const statusLabel = hasRunningWork ? ' (running)' : '';
+          choices.push({
+            name: `${agent.name}${statusLabel}`,
+            value: agent.name,
+            disabled: hasRunningWork ? 'has running work' : false,
+          });
+        }
+      }
+
+      // Add staff agents
+      if (staffAgents.length > 0) {
+        choices.push(new inquirer.Separator(`── Staff Agents (${staffAgents.length}) ──`));
+        for (const agent of staffAgents) {
+          const sessions = getAgentTmuxSessions(agent.name);
+          const hasRunningWork = sessions.length > 0;
+          const statusLabel = hasRunningWork ? ' (running)' : '';
+          choices.push({
+            name: `${agent.name}${statusLabel}`,
+            value: agent.name,
+            disabled: hasRunningWork ? 'has running work' : false,
+          });
+        }
+      }
+
       const selectMessage = 'Select agents to clean up:';
 
       // In JSON mode, output agent selection prompt
@@ -176,19 +213,25 @@ export default class Cleanup extends PMOCommand {
           type: 'checkbox',
           name: 'selected',
           message: selectMessage,
-          choices: choices.map(c => ({
-            ...c,
-            disabled: c.disabled ? 'has running work' : false,
-          })),
+          choices,
         },
       ]);
 
-      if (selected.length === 0 || selected.includes('cancel')) {
+      if (selected.length === 0 || selected.includes('__cancel__')) {
         this.log(colors.textMuted('Operation cancelled.'));
         return;
       }
 
-      agentsToCleanup = selected.filter((s: string) => s !== 'cancel');
+      // Handle "All temp agents" selection
+      if (selected.includes('__all_temp__')) {
+        const cleanableTempAgents = tempAgents.filter(a => {
+          const sessions = getAgentTmuxSessions(a.name);
+          return sessions.length === 0;
+        });
+        agentsToCleanup = cleanableTempAgents.map(a => a.name);
+      } else {
+        agentsToCleanup = selected.filter((s: string) => !s.startsWith('__'));
+      }
     }
 
     if (agentsToCleanup.length === 0) {

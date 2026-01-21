@@ -120,6 +120,9 @@ export function generateDockerfile(options: DevcontainerOptions): string {
 
   return `FROM node:20
 
+# Ensure we run as root for apt-get and system setup
+USER root
+
 ARG TZ=${timezone}
 ENV TZ=\${TZ}
 ENV DEVCONTAINER=true

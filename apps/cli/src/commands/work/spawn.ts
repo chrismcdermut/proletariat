@@ -543,28 +543,8 @@ export default class WorkSpawn extends PMOCommand {
       this.log(styles.muted(`Each ticket will get a unique ephemeral agent`))
       this.log('')
 
-      // Confirm before batch spawning (unless --yes flag is set)
-      if (!flags.yes) {
-        const { confirm } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'confirm',
-            message: `Spawn ${ticketsToSpawn.length} tickets with ephemeral agents?`,
-            choices: [
-              { name: 'Yes', value: true },
-              { name: 'No', value: false },
-            ],
-          },
-        ])
-
-        if (!confirm) {
-          db.close()
-          this.log(styles.muted('Cancelled.'))
-          return
-        }
-      }
-
-      this.log('')
+      // Note: Removed redundant confirmation - user already selected tickets
+      // Use --dry-run to preview without executing
 
       // Dry run - just show what would happen
       if (flags['dry-run']) {
