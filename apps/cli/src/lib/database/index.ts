@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { DEFAULT_AGENTS_DIR } from '../themes.js';
+import { getThemePersistentDir } from '../themes.js';
 import { PMO_SCHEMA_SQL } from '../pmo/schema.js';
 
 export interface WorkspaceConfig {
@@ -22,10 +22,18 @@ export interface Repository {
   added_at: string;
 }
 
+export type AgentType = 'persistent' | 'ephemeral';
+export type AgentStatus = 'active' | 'cleaned';
+
 export interface Agent {
   name: string;
+  type: AgentType;
+  status: AgentStatus;
+  base_name: string | null;  // Theme name (e.g., "bezos" from "bold-bezos-1")
   theme_id: string | null;
+  worktree_path: string | null;  // e.g., "agents/temp/bold-bezos-1"
   created_at: string;
+  cleaned_at: string | null;  // When the agent was cleaned up
 }
 
 export interface AgentTheme {
@@ -99,8 +107,13 @@ CREATE TABLE IF NOT EXISTS agent_theme_names (
 -- Agent instances in workspace
 CREATE TABLE IF NOT EXISTS agents (
   name TEXT PRIMARY KEY,
+  type TEXT NOT NULL DEFAULT 'persistent' CHECK (type IN ('persistent', 'ephemeral')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cleaned')),
+  base_name TEXT,
   theme_id TEXT,
+  worktree_path TEXT,
   created_at TEXT NOT NULL,
+  cleaned_at TEXT,
   FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
 );
 
@@ -133,74 +146,25 @@ CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
 `;
 
 /**
- * Migrate existing database to add theme support
+ * Ensure ephemeral agents are correctly typed based on their worktree path or naming pattern
  */
-function migrateToThemeSupport(db: Database.Database): void {
+function ensureEphemeralAgentTypes(db: Database.Database): void {
   // Check if agents table exists
   const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'").get();
   if (!tableExists) {
-    return; // No agents table yet, nothing to migrate
+    return;
   }
 
-  const agentColumns = db.pragma('table_info(agents)') as Array<{ name: string; notnull: number }>;
+  // Agents in temp directory should be ephemeral
+  db.exec("UPDATE agents SET type = 'ephemeral' WHERE worktree_path LIKE 'agents/temp/%' AND type != 'ephemeral'");
 
-  // Check for old 'theme' column (was NOT NULL in old schema)
-  const hasOldTheme = agentColumns.some(c => c.name === 'theme');
-  const hasThemeId = agentColumns.some(c => c.name === 'theme_id');
-  const hasStatus = agentColumns.some(c => c.name === 'status');
-
-  // Need to recreate table if we have old columns (theme, status, etc)
-  if (hasOldTheme || hasStatus) {
-    // Migrate from old schema to new clean schema
-    // Need to disable foreign keys temporarily for table recreation
-    db.pragma('foreign_keys = OFF');
-
-    // Drop old indexes first
-    db.exec(`
-      DROP INDEX IF EXISTS idx_agents_status;
-      DROP INDEX IF EXISTS idx_agents_theme;
-    `);
-
-    db.exec(`
-      -- Create new agents table with correct schema
-      CREATE TABLE IF NOT EXISTS agents_new (
-        name TEXT PRIMARY KEY,
-        theme_id TEXT,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
-      );
-
-      -- Copy data from old table (theme column becomes theme_id if it exists)
-      INSERT OR IGNORE INTO agents_new (name, theme_id, created_at)
-      SELECT name, ${hasThemeId ? 'theme_id' : 'NULL'}, created_at FROM agents;
-
-      -- Drop old table
-      DROP TABLE agents;
-
-      -- Rename new table
-      ALTER TABLE agents_new RENAME TO agents;
-
-      -- Recreate index
-      CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
-    `);
-
-    // Clean up old themes table if it exists (replaced by agent_themes)
-    db.exec('DROP TABLE IF EXISTS themes;');
-
-    db.pragma('foreign_keys = ON');
-  } else if (!hasThemeId && agentColumns.length > 0) {
-    // Just add theme_id column to existing agents table
-    db.exec('ALTER TABLE agents ADD COLUMN theme_id TEXT REFERENCES agent_themes(id) ON DELETE SET NULL');
-  }
-
-  // Check if active_theme_id column exists in workspace table
-  const workspaceColumns = db.pragma('table_info(workspace)') as Array<{ name: string }>;
-  const hasActiveThemeId = workspaceColumns.some(c => c.name === 'active_theme_id');
-
-  if (!hasActiveThemeId && workspaceColumns.length > 0) {
-    // Add active_theme_id column to existing workspace table
-    db.exec('ALTER TABLE workspace ADD COLUMN active_theme_id TEXT REFERENCES agent_themes(id) ON DELETE SET NULL');
-  }
+  // Detect ephemeral agents by naming pattern: adjective-name-number (e.g., blue-khosla-1)
+  // Staff agents are single names like 'lecun', 'musk', 'gates'
+  db.exec(`
+    UPDATE agents SET type = 'ephemeral'
+    WHERE type != 'ephemeral'
+    AND name GLOB '*-*-[0-9]*'
+  `);
 }
 
 /**
@@ -230,10 +194,10 @@ export function openWorkspaceDatabase(workspacePath: string): Database.Database 
   const db = new Database(dbPath);
   db.pragma('foreign_keys = ON');
 
-  // Run migrations for theme support
-  migrateToThemeSupport(db);
+  // Ensure ephemeral agents are correctly typed
+  ensureEphemeralAgentTypes(db);
 
-  // Ensure theme tables exist (for older databases)
+  // Ensure theme tables exist
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_themes (
       id TEXT PRIMARY KEY,
@@ -421,8 +385,8 @@ export function addAgentsToDatabase(workspacePath: string, agentNames: string[],
   const checkExisting = db.prepare('SELECT name FROM agents WHERE LOWER(name) = LOWER(?)');
 
   const insertAgent = db.prepare(`
-    INSERT OR REPLACE INTO agents (name, theme_id, created_at)
-    VALUES (?, ?, ?)
+    INSERT OR REPLACE INTO agents (name, type, base_name, theme_id, worktree_path, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
 
   const insertWorktree = db.prepare(`
@@ -436,6 +400,10 @@ export function addAgentsToDatabase(workspacePath: string, agentNames: string[],
   // Get all repos for this workspace
   const repos = db.prepare('SELECT name FROM repositories').all() as { name: string }[];
 
+  // Determine the effective theme ID (provided or active theme)
+  const effectiveThemeId = themeId || workspace.active_theme_id || undefined;
+  const persistentDir = getThemePersistentDir(effectiveThemeId);
+
   const transaction = db.transaction(() => {
     for (const agentName of agentNames) {
       // Skip if agent already exists (case-insensitive check)
@@ -446,13 +414,18 @@ export function addAgentsToDatabase(workspacePath: string, agentNames: string[],
 
       const now = new Date().toISOString();
 
-      // Add agent
-      insertAgent.run(agentName, themeId || null, now);
+      // Determine worktree path for the agent
+      const agentWorktreePath = workspace.type === 'hq'
+        ? `agents/${persistentDir}/${agentName}`
+        : agentName;
+
+      // Add agent (persistent type for manually added agents)
+      insertAgent.run(agentName, 'persistent', null, effectiveThemeId || null, agentWorktreePath, now);
 
       // Add worktrees for all repos
       for (const repo of repos) {
         const worktreePath = workspace.type === 'hq'
-          ? `agents/${DEFAULT_AGENTS_DIR}/${agentName}/${repo.name}`
+          ? `agents/${persistentDir}/${agentName}/${repo.name}`
           : `${agentName}/${repo.name}`;
 
         insertWorktree.run(
@@ -471,13 +444,139 @@ export function addAgentsToDatabase(workspacePath: string, agentNames: string[],
 }
 
 /**
+ * Add an ephemeral agent to the database
+ */
+export function addEphemeralAgentToDatabase(
+  workspacePath: string,
+  agentName: string,
+  baseName: string,
+  themeId?: string
+): Agent {
+  const db = openWorkspaceDatabase(workspacePath);
+
+  const now = new Date().toISOString();
+  const worktreePath = `agents/temp/${agentName}`;
+
+  db.prepare(`
+    INSERT INTO agents (name, type, status, base_name, theme_id, worktree_path, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(agentName, 'ephemeral', 'active', baseName, themeId || null, worktreePath, now);
+
+  const agent = db.prepare('SELECT * FROM agents WHERE name = ?').get(agentName) as {
+    name: string;
+    type: string;
+    status: string;
+    base_name: string | null;
+    theme_id: string | null;
+    worktree_path: string | null;
+    created_at: string;
+    cleaned_at: string | null;
+  };
+
+  db.close();
+
+  return {
+    name: agent.name,
+    type: agent.type as AgentType,
+    status: agent.status as AgentStatus,
+    base_name: agent.base_name,
+    theme_id: agent.theme_id,
+    worktree_path: agent.worktree_path,
+    created_at: agent.created_at,
+    cleaned_at: agent.cleaned_at,
+  };
+}
+
+/**
+ * Get all ephemeral agent names from the database
+ */
+export function getEphemeralAgentNames(workspacePath: string): Set<string> {
+  const db = openWorkspaceDatabase(workspacePath);
+  const agents = db.prepare("SELECT name FROM agents WHERE type = 'ephemeral'").all() as { name: string }[];
+  db.close();
+  return new Set(agents.map(a => a.name.toLowerCase()));
+}
+
+/**
+ * Remove an ephemeral agent from the database
+ */
+export function removeEphemeralAgent(workspacePath: string, agentName: string): void {
+  const db = openWorkspaceDatabase(workspacePath);
+  db.prepare("DELETE FROM agents WHERE name = ? AND type = 'ephemeral'").run(agentName);
+  db.close();
+}
+
+/**
  * Get all agents in workspace
  */
-export function getWorkspaceAgents(workspacePath: string): Agent[] {
+export function getWorkspaceAgents(workspacePath: string, includeCleanedUp: boolean = false): Agent[] {
   const db = openWorkspaceDatabase(workspacePath);
-  const agents = db.prepare('SELECT * FROM agents ORDER BY created_at').all() as Agent[];
+  const query = includeCleanedUp
+    ? 'SELECT * FROM agents ORDER BY created_at'
+    : "SELECT * FROM agents WHERE status = 'active' OR status IS NULL ORDER BY created_at";
+  const rows = db.prepare(query).all() as Array<{
+    name: string;
+    type: string | null;
+    status: string | null;
+    base_name: string | null;
+    theme_id: string | null;
+    worktree_path: string | null;
+    created_at: string;
+    cleaned_at: string | null;
+  }>;
   db.close();
-  return agents;
+
+  // Map rows to Agent type, handling missing columns in old databases
+  return rows.map(row => ({
+    name: row.name,
+    type: (row.type || 'persistent') as AgentType,
+    status: (row.status || 'active') as AgentStatus,
+    base_name: row.base_name,
+    theme_id: row.theme_id,
+    worktree_path: row.worktree_path,
+    created_at: row.created_at,
+    cleaned_at: row.cleaned_at,
+  }));
+}
+
+/**
+ * Mark an agent as cleaned up (keeps the record for history)
+ */
+export function markAgentCleaned(workspacePath: string, agentName: string): void {
+  const db = openWorkspaceDatabase(workspacePath);
+  const now = new Date().toISOString();
+  db.prepare("UPDATE agents SET status = 'cleaned', cleaned_at = ? WHERE name = ?").run(now, agentName);
+  db.close();
+}
+
+/**
+ * Sync agents in database with what exists on disk.
+ * Marks agents as 'cleaned' if their directory no longer exists.
+ * Returns list of agents that were cleaned up.
+ */
+export function syncAgentsWithDisk(workspacePath: string): string[] {
+  const agents = getWorkspaceAgents(workspacePath, false); // Only active agents
+  const cleanedAgents: string[] = [];
+
+  for (const agent of agents) {
+    // Determine expected directory path
+    let agentDir: string;
+    if (agent.worktree_path) {
+      agentDir = path.join(workspacePath, agent.worktree_path);
+    } else if (agent.type === 'ephemeral') {
+      agentDir = path.join(workspacePath, 'agents', 'temp', agent.name);
+    } else {
+      agentDir = path.join(workspacePath, 'agents', 'staff', agent.name);
+    }
+
+    // If directory doesn't exist, mark agent as cleaned
+    if (!fs.existsSync(agentDir)) {
+      markAgentCleaned(workspacePath, agent.name);
+      cleanedAgents.push(agent.name);
+    }
+  }
+
+  return cleanedAgents;
 }
 
 /**

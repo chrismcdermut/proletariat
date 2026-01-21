@@ -422,15 +422,25 @@ exec $SHELL
 /**
  * Check if Docker daemon is running.
  * Returns true if Docker is available and responsive.
+ * Uses retry logic to handle slow Docker Desktop startup.
  */
 export function isDockerRunning(): boolean {
-  try {
-    execSync('docker info', { stdio: 'pipe', timeout: 5000 })
-    return true
-  } catch (err) {
-    console.debug('[runners:docker] Docker not running:', err)
-    return false
+  const maxRetries = 3
+  const timeout = 10000 // 10 seconds
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      execSync('docker info', { stdio: 'pipe', timeout })
+      return true
+    } catch (err) {
+      console.debug(`[runners:docker] Docker check attempt ${attempt}/${maxRetries} failed:`, err)
+      if (attempt === maxRetries) {
+        return false
+      }
+      // Brief pause before retry
+    }
   }
+  return false
 }
 
 // =============================================================================

@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { DEFAULT_AGENTS_DIR, ensureBuiltinThemes } from '../themes.js';
+import { DEFAULT_AGENTS_DIR, TEMP_AGENTS_DIR, ensureBuiltinThemes, getThemePersistentDir, getThemeEphemeralDir } from '../themes.js';
 import { createAgentWorktrees } from '../agents/index.js';
 import { addRepositoriesToHQ, isInGitRepo } from '../repos/index.js';
 import {
@@ -199,15 +199,20 @@ export async function promptForHQLocation(hqName: string, addSuffix: boolean): P
 /**
  * Create the basic HQ directory structure
  */
-export function createHQStructure(hqPath: string): void {
+export function createHQStructure(hqPath: string, themeId?: string): void {
   console.log(chalk.blue(`\n🏗️  Creating HQ at ${hqPath}...`));
+
+  // Get theme-specific directory names
+  const persistentDir = getThemePersistentDir(themeId);
+  const ephemeralDir = getThemeEphemeralDir(themeId);
 
   // Create directories
   fs.mkdirSync(hqPath, { recursive: true });
   fs.mkdirSync(path.join(hqPath, '.proletariat'), { recursive: true });
   fs.mkdirSync(path.join(hqPath, 'repos'), { recursive: true });
   fs.mkdirSync(path.join(hqPath, 'agents'), { recursive: true });
-  fs.mkdirSync(path.join(hqPath, 'agents', DEFAULT_AGENTS_DIR), { recursive: true });
+  fs.mkdirSync(path.join(hqPath, 'agents', persistentDir), { recursive: true });
+  fs.mkdirSync(path.join(hqPath, 'agents', ephemeralDir), { recursive: true });
 }
 
 /**
@@ -265,8 +270,8 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
     throw new Error('Missing required fields for HQ initialization');
   }
 
-  // Create basic structure
-  createHQStructure(hqPath);
+  // Create basic structure (pass themeId for correct directory names)
+  createHQStructure(hqPath, themeId);
 
   // Create database and workspace configuration
   initializeWorkspaceDatabase(hqPath, options);
@@ -322,7 +327,8 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
 
   // Add agents if selected - create worktrees AND add to database
   if (selectedAgents.length > 0) {
-    const workspacePath = path.join(hqPath, 'agents', DEFAULT_AGENTS_DIR);
+    const persistentDir = getThemePersistentDir(themeId);
+    const workspacePath = path.join(hqPath, 'agents', persistentDir);
 
     // Create physical worktrees
     await createAgentWorktrees(workspacePath, selectedAgents, hqPath);

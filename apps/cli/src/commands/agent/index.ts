@@ -16,8 +16,9 @@ export default class Agent extends PMOCommand {
     '<%= config.bin %> <%= command.id %> list',
     '<%= config.bin %> <%= command.id %> status camry',
     '<%= config.bin %> <%= command.id %> visit tacoma',
-    '<%= config.bin %> <%= command.id %> add',
-    '<%= config.bin %> <%= command.id %> remove camry',
+    '<%= config.bin %> <%= command.id %> staff add',
+    '<%= config.bin %> <%= command.id %> staff remove camry',
+    '<%= config.bin %> <%= command.id %> temp cleanup --temp',
     '<%= config.bin %> <%= command.id %> restart altman',
     '<%= config.bin %> <%= command.id %> rebuild altman',
     '<%= config.bin %> <%= command.id %> shell altman',
@@ -48,8 +49,8 @@ export default class Agent extends PMOCommand {
       { id: 'list', name: 'List all agents', command: 'prlt agent list --format json' },
       { id: 'status', name: 'Show status', command: 'prlt agent status --json' },
       { id: 'visit', name: 'Visit directory', command: 'prlt agent visit --json' },
-      { id: 'add', name: 'Add agent', command: 'prlt agent add --json' },
-      { id: 'remove', name: 'Remove agent', command: 'prlt agent remove --json' },
+      { id: 'staff', name: 'Manage staff agents', command: 'prlt agent staff --json' },
+      { id: 'temp', name: 'Manage temp agents', command: 'prlt agent temp --json' },
       { id: 'themes', name: 'Manage themes', command: 'prlt agent themes --json' },
       { id: 'shell', name: 'Open shell', command: 'prlt agent shell --json' },
       { id: 'restart', name: 'Restart', command: 'prlt agent restart' },
@@ -59,6 +60,9 @@ export default class Agent extends PMOCommand {
     const message = 'What would you like to do?';
 
     this.log(colors.primary('🤖 Agent Management'));
+    this.log('');
+    this.log(colors.textMuted('Note: Agent pre-registration is no longer required!'));
+    this.log(colors.textMuted('Use "prlt work spawn" to create ephemeral agents automatically.'));
     this.log('');
 
     const action = await this.selectFromList({
@@ -98,15 +102,15 @@ export default class Agent extends PMOCommand {
           await cmd.run();
           break;
         }
-        case 'add': {
-          const { default: AddCommand } = await import('./add.js');
-          const cmd = new AddCommand([], this.config);
+        case 'staff': {
+          const { default: StaffCommand } = await import('./staff/index.js');
+          const cmd = new StaffCommand([], this.config);
           await cmd.run();
           break;
         }
-        case 'remove': {
-          const { default: RemoveCommand } = await import('./remove.js');
-          const cmd = new RemoveCommand([], this.config);
+        case 'temp': {
+          const { default: TempCommand } = await import('./temp/index.js');
+          const cmd = new TempCommand([], this.config);
           await cmd.run();
           break;
         }
