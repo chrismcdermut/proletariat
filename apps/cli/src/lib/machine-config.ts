@@ -36,6 +36,7 @@ export interface RegisteredHeadquarters {
 export type RegisteredWorkspace = RegisteredHeadquarters;
 
 export interface MachineConfig {
+  type: 'machine';
   version: string;
   organizations: Organization[];
   headquarters: RegisteredHeadquarters[];
@@ -111,6 +112,7 @@ export function normalizePath(inputPath: string): string {
  */
 function getDefaultConfig(): MachineConfig {
   return {
+    type: 'machine',
     version: CONFIG_VERSION,
     organizations: [],
     headquarters: [],
@@ -151,6 +153,7 @@ export function readMachineConfig(): MachineConfig {
     const activeHeadquarters = config.activeHeadquarters ?? config.activeWorkspace ?? null;
 
     return {
+      type: 'machine',
       version: config.version,
       organizations: config.organizations || [],
       headquarters,
