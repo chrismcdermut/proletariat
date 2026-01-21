@@ -525,6 +525,51 @@ export default class WorkStart extends PMOCommand {
         )
       }
 
+      // For staff agents, check for uncommitted/unpushed work before starting
+      if (!isEphemeralAgent) {
+        const { getAgentGitStatus, pushAgentWork } = await import('../../lib/agents/commands.js')
+        const gitStatus = getAgentGitStatus(workspaceInfo, assignedAgent)
+
+        if (gitStatus.hasUnsavedWork) {
+          this.log(styles.warning(`\n⚠️  Agent "${assignedAgent}" has unsaved work:`))
+          for (const wt of gitStatus.worktrees) {
+            if (wt.hasUncommittedChanges) {
+              this.log(styles.muted(`  ${wt.repoName}: ${wt.uncommittedFiles.length} uncommitted file(s)`))
+            }
+            if (wt.hasUnpushedCommits) {
+              this.log(styles.muted(`  ${wt.repoName}: ${wt.unpushedCount} unpushed commit(s) on ${wt.branch}`))
+            }
+          }
+          this.log('')
+
+          const { action } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'action',
+              message: 'How would you like to proceed?',
+              choices: [
+                { name: 'Push existing work and continue', value: 'push' },
+                { name: 'Continue anyway (existing work may conflict)', value: 'continue' },
+                { name: 'Cancel', value: 'cancel' },
+              ],
+            },
+          ])
+
+          if (action === 'cancel') {
+            db.close()
+            this.log(styles.muted('Cancelled.'))
+            return
+          }
+
+          if (action === 'push') {
+            const pushed = pushAgentWork(workspaceInfo, assignedAgent, (msg) => this.log(styles.muted(`  ${msg}`)))
+            if (!pushed) {
+              this.log(styles.warning('Some work could not be pushed. Please resolve manually.'))
+            }
+          }
+        }
+      }
+
       // Find worktree path for agent
       // Agent directory may contain multiple repo worktrees - use the agent dir itself
       // so Claude can work across all repos (frontend, backend, etc.)
