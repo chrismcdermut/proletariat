@@ -38,10 +38,6 @@ export default class WorkAssign extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     owner: Flags.string({
       description: 'Also set the owner',
     }),
@@ -87,31 +83,19 @@ export default class WorkAssign extends PMOCommand {
         return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".')
       }
 
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = allTickets.map((t) => ({
-          name: `${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
-          value: t.id,
-        }))
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to assign:', ticketChoices),
-          createMetadata('work assign', flags)
-        )
+      const selected = await this.selectFromList({
+        message: 'Select ticket to assign:',
+        items: allTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt work assign ${t.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'work assign' } : null,
+      })
+
+      if (!selected) {
         return
       }
-
-      const { selectedTicketId } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'selectedTicketId',
-          message: 'Select ticket to assign:',
-          choices: allTickets.map((t) => ({
-            name: `${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
-            value: t.id,
-          })),
-        },
-      ])
-      ticketId = selectedTicketId
+      ticketId = selected
     }
 
     // Get ticket

@@ -31,10 +31,6 @@ export default class WorkOwn extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   }
 
   async execute(): Promise<void> {
@@ -66,31 +62,19 @@ export default class WorkOwn extends PMOCommand {
         return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".')
       }
 
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = allTickets.map((t) => ({
-          name: `${t.id} - ${t.title} (${t.owner ? `owner: ${t.owner}` : 'unowned'})`,
-          value: t.id,
-        }))
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select work to own:', ticketChoices),
-          createMetadata('work own', flags)
-        )
+      const selected = await this.selectFromList({
+        message: 'Select work to own:',
+        items: allTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.owner ? `owner: ${t.owner}` : 'unowned'})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt work own ${t.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'work own' } : null,
+      })
+
+      if (!selected) {
         return
       }
-
-      const { selectedTicketId } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'selectedTicketId',
-          message: 'Select work to own:',
-          choices: allTickets.map((t) => ({
-            name: `${t.id} - ${t.title} (${t.owner ? `owner: ${t.owner}` : 'unowned'})`,
-            value: t.id,
-          })),
-        },
-      ])
-      ticketId = selectedTicketId
+      ticketId = selected
     }
 
     // Get ticket

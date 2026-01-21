@@ -36,10 +36,6 @@ export default class WorkComplete extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
@@ -92,28 +88,20 @@ export default class WorkComplete extends PMOCommand {
           return;
         }
 
-        // In JSON mode, output ticket selection prompt and exit
-        if (jsonMode) {
-          const ticketChoices = completableTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.statusName})`,
-            value: t.id,
-          }));
-          outputPromptAsJson(
-            buildPromptConfig('list', 'ticketId', 'Select work to mark as complete:', ticketChoices),
-            createMetadata('work complete', flags)
-          );
-        }
-
-        const { selectedTicketId } = await inquirer.prompt([{
-          type: 'list',
-          name: 'selectedTicketId',
+        const selected = await this.selectFromList({
           message: 'Select work to mark as complete:',
-          choices: completableTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.statusName})`,
-            value: t.id,
-          })),
-        }]);
-        ticketId = selectedTicketId;
+          items: completableTickets,
+          getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+          getValue: (t) => t.id,
+          getCommand: (t) => `prlt work complete ${t.id} --json`,
+          jsonMode: jsonMode ? { flags, commandName: 'work complete' } : null,
+        });
+
+        if (!selected) {
+          db.close();
+          return;
+        }
+        ticketId = selected;
       }
 
       // Get ticket

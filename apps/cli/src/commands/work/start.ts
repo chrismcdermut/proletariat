@@ -95,10 +95,6 @@ export default class WorkStart extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     all: Flags.boolean({
       char: 'a',
       description: 'Start work on all unassigned backlog tickets (batch mode)',
@@ -228,60 +224,20 @@ export default class WorkStart extends PMOCommand {
           return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".')
         }
 
-        // Group tickets by priority for display
-        const PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3', 'None']
-        const ticketsByPriority = new Map<string, typeof allTickets>()
-        for (const priority of PRIORITY_ORDER) {
-          ticketsByPriority.set(priority, [])
-        }
-        for (const ticket of allTickets) {
-          const priority = ticket.priority || 'None'
-          if (!ticketsByPriority.has(priority)) {
-            ticketsByPriority.set(priority, [])
-          }
-          ticketsByPriority.get(priority)!.push(ticket)
-        }
+        const selected = await this.selectFromList({
+          message: 'Select ticket to work on:',
+          items: allTickets,
+          getName: (t) => `[${t.priority || 'None'}] ${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
+          getValue: (t) => t.id,
+          getCommand: (t) => `prlt work start ${t.id} --json`,
+          jsonMode: jsonMode ? { flags, commandName: 'work start' } : null,
+        })
 
-        // Build choices with priority separators
-        const ticketChoices: Array<{ name: string; value: string } | inquirer.Separator> = []
-        for (const priority of PRIORITY_ORDER) {
-          const tickets = ticketsByPriority.get(priority) || []
-          if (tickets.length === 0) continue
-          ticketChoices.push(new inquirer.Separator(`── ${priority} (${tickets.length}) ──`))
-          for (const t of tickets) {
-            const assigneeBadge = t.assignee ? ` (${t.assignee})` : ''
-            const statusBadge = t.statusName ? ` [${t.statusName}]` : ''
-            ticketChoices.push({
-              name: `[${priority}] ${t.id} - ${t.title}${statusBadge}${assigneeBadge}`,
-              value: t.id,
-            })
-          }
-        }
-        const selectMessage = 'Select ticket to work on:'
-
-        // In JSON mode, output ticket selection prompt (flat list for agents)
-        if (jsonMode) {
-          const flatChoices = allTickets.map((t) => ({
-            name: `[${t.priority || 'None'}] ${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
-            value: t.id,
-          }))
-          outputPromptAsJson(
-            buildPromptConfig('list', 'ticketId', selectMessage, flatChoices),
-            createMetadata('work start', flags)
-          )
+        if (!selected) {
           db.close()
           return
         }
-
-        const { selectedTicketId } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedTicketId',
-            message: selectMessage,
-            choices: ticketChoices,
-          },
-        ])
-        ticketId = selectedTicketId
+        ticketId = selected
       }
 
       // Get ticket

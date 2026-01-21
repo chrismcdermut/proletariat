@@ -5,10 +5,8 @@ import { PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class TicketUpdate extends PMOCommand {
@@ -33,10 +31,6 @@ export default class TicketUpdate extends PMOCommand {
     ...pmoBaseFlags,
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
       default: false,
     }),
     priority: Flags.string({
@@ -89,29 +83,19 @@ export default class TicketUpdate extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = allTickets.map(t => ({
-          name: `${t.id} - ${t.title}  [P:${t.priority || 'none'} C:${t.category || 'none'}]`,
-          value: t.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to update:', ticketChoices),
-          createMetadata('ticket update', flags)
-        );
+      const selected = await this.selectFromList({
+        message: 'Select ticket to update:',
+        items: allTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket update ${t.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket update' } : null,
+      });
+
+      if (!selected) {
         return;
       }
-
-      const { selectedTicketId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedTicketId',
-        message: 'Select ticket to update:',
-        choices: allTickets.map(t => ({
-          name: `${t.id} - ${t.title}  [P:${t.priority || 'none'} C:${t.category || 'none'}]`,
-          value: t.id,
-        })),
-      }]);
-      ticketId = selectedTicketId;
+      ticketId = selected;
     }
 
     // Get ticket

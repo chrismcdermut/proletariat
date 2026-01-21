@@ -31,10 +31,6 @@ export default class TicketTemplateDelete extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation',
@@ -71,30 +67,21 @@ export default class TicketTemplateDelete extends PMOCommand {
     }
 
     if (!flags.force) {
-      // In JSON mode, output confirmation prompt
-      if (jsonMode) {
-        const confirmChoices = [
-          { name: 'No', value: 'false' },
-          { name: 'Yes', value: 'true' },
-        ];
-        outputPromptAsJson(
-          buildPromptConfig('list', 'confirm', `Delete template "${template.name}"?`, confirmChoices),
-          createMetadata('ticket template delete', flags)
-        );
-        return;
-      }
+      const confirmChoices = [
+        { id: 'no', name: 'No, cancel' },
+        { id: 'yes', name: `Yes, delete "${template.name}"` },
+      ];
 
-      const { confirm } = await inquirer.prompt<{ confirm: boolean }>([{
-        type: 'list',
-        name: 'confirm',
+      const confirm = await this.selectFromList({
         message: `Delete template "${template.name}"?`,
-        choices: [
-          { name: 'No', value: false },
-          { name: 'Yes', value: true },
-        ],
-      }]);
+        items: confirmChoices,
+        getName: (c) => c.name,
+        getValue: (c) => c.id,
+        getCommand: (c) => c.id === 'yes' ? `prlt ticket template delete ${args.id} --force` : '',
+        jsonMode: jsonMode ? { flags, commandName: 'ticket template delete' } : null,
+      });
 
-      if (!confirm) {
+      if (confirm !== 'yes') {
         this.log(styles.muted('Cancelled.'));
         return;
       }

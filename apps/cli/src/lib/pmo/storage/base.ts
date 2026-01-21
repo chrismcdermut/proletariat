@@ -457,6 +457,8 @@ export function seedBuiltinActions(db: Database.Database): void {
 
 Do NOT implement the ticket - only improve its definition so it's ready to be worked on.
 
+**AI Agent Tip:** When running \`prlt\` commands without all required arguments, use \`--json\` to receive interactive prompts as structured JSON.
+
 ## Ticket Schema Reference
 
 | Field | Type | Valid Values | CLI Flag |

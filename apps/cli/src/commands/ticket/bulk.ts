@@ -22,10 +22,6 @@ export default class TicketBulk extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -41,24 +37,24 @@ export default class TicketBulk extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices with emojis for interactive mode, plain names for JSON
-    const menuChoices: Array<{ name: string; value: string; emoji: string }> = [
-      { name: 'List all tickets', value: 'list', emoji: '📋' },
-      { name: 'Move multiple tickets', value: 'move', emoji: '📦' },
-      { name: 'Complete multiple tickets', value: 'complete', emoji: '✅' },
-      { name: 'Reassign tickets (change assignee)', value: 'reassign', emoji: '👤' },
-      { name: 'Link tickets to epic', value: 'epic', emoji: '🔗' },
-      { name: 'Link tickets to spec', value: 'spec', emoji: '📄' },
-      { name: 'Move tickets to project', value: 'project', emoji: '📁' },
-      { name: 'Update tickets (priority/category)', value: 'update', emoji: '✏️ ' },
-      { name: 'Delete multiple tickets', value: 'delete', emoji: '🗑️ ' },
-      { name: 'Cancel', value: 'cancel', emoji: '' },
+    const menuChoices: Array<{ name: string; value: string; emoji: string; command: string }> = [
+      { name: 'List all tickets', value: 'list', emoji: '📋', command: `prlt ticket list -P ${projectId} --format json` },
+      { name: 'Move multiple tickets', value: 'move', emoji: '📦', command: `prlt ticket move -P ${projectId} --bulk --json` },
+      { name: 'Complete multiple tickets', value: 'complete', emoji: '✅', command: `prlt ticket complete -P ${projectId} --bulk --json` },
+      { name: 'Reassign tickets (change assignee)', value: 'reassign', emoji: '👤', command: `prlt ticket reassign -P ${projectId} --bulk --json` },
+      { name: 'Link tickets to epic', value: 'epic', emoji: '🔗', command: `prlt ticket epic -P ${projectId} --bulk --json` },
+      { name: 'Link tickets to spec', value: 'spec', emoji: '📄', command: `prlt ticket spec -P ${projectId} --bulk --json` },
+      { name: 'Move tickets to project', value: 'project', emoji: '📁', command: `prlt ticket project -P ${projectId} --bulk --json` },
+      { name: 'Update tickets (priority/category)', value: 'update', emoji: '✏️ ', command: `prlt ticket update -P ${projectId} --bulk --json` },
+      { name: 'Delete multiple tickets', value: 'delete', emoji: '🗑️ ', command: `prlt ticket delete -P ${projectId} --bulk --json` },
+      { name: 'Cancel', value: 'cancel', emoji: '', command: '' },
     ];
     const message = 'Ticket Management (Bulk Operations) - What would you like to do?';
 
     // In JSON mode, output action selection prompt (without emojis)
     if (jsonMode) {
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices.map(c => ({ name: c.name, value: c.value }))),
+        buildPromptConfig('list', 'action', message, menuChoices.map(c => ({ name: c.name, value: c.value, command: c.command }))),
         createMetadata('ticket bulk', flags)
       );
       return;

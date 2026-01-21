@@ -38,10 +38,6 @@ export default class TicketEpic extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     unlink: Flags.boolean({
       char: 'u',
       description: 'Remove epic link instead of adding',
@@ -112,21 +108,29 @@ export default class TicketEpic extends PMOCommand {
 
     // If no ticket ID provided, prompt for selection
     if (!ticketId) {
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
+      const ticketChoices = allTickets.map((t: Ticket) => {
+        const currentEpicId = getTicketEpicId(t.id);
+        const epicLabel = currentEpicId
+          ? epics.find(e => e.id === currentEpicId)?.title || currentEpicId
+          : 'No epic';
+        return {
+          id: t.id,
+          name: `${t.id} - ${t.title} (${t.statusName || t.status}) [${epicLabel}]`,
+        };
+      });
+
+      const selected = await this.selectFromList({
         message: 'Select ticket to link:',
-        choices: allTickets.map((t: Ticket) => {
-          const currentEpicId = getTicketEpicId(t.id);
-          const epicLabel = currentEpicId
-            ? epics.find(e => e.id === currentEpicId)?.title || currentEpicId
-            : 'No epic';
-          return {
-            name: `${t.id} - ${t.title} (${t.statusName || t.status}) [${epicLabel}]`,
-            value: t.id,
-          };
-        }),
-      }]);
+        items: ticketChoices,
+        getName: (t) => t.name,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket epic ${t.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket epic' } : null,
+      });
+
+      if (!selected) {
+        return;
+      }
       ticketId = selected;
     }
 
@@ -163,29 +167,33 @@ export default class TicketEpic extends PMOCommand {
 
     // If no epic ID provided, prompt for selection
     if (!epicId) {
-      const choices = [
-        ...epics.map(e => ({
-          name: `${e.id} ${e.title} (${e.status})${e.id === currentEpicId ? ' ← current' : ''}`,
-          value: e.id,
-        })),
-      ];
+      const epicChoices = epics.map(e => ({
+        id: e.id,
+        name: `${e.id} ${e.title} (${e.status})${e.id === currentEpicId ? ' ← current' : ''}`,
+      }));
 
-      if (currentEpicId) {
-        choices.push(new inquirer.Separator() as unknown as { name: string; value: string });
-        choices.push({ name: 'None (remove epic link)', value: '__none__' });
-      }
-
-      if (choices.length === 0 || (choices.length === 2 && currentEpicId)) {
+      if (epicChoices.length === 0) {
         this.log(styles.muted('\nNo epics found. Create one with: prlt epic create'));
         return;
       }
 
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
+      // Add "None" option if ticket has an epic
+      if (currentEpicId) {
+        epicChoices.push({ id: '__none__', name: 'None (remove epic link)' });
+      }
+
+      const selected = await this.selectFromList({
         message: 'Link to which epic?',
-        choices,
-      }]);
+        items: epicChoices,
+        getName: (e) => e.name,
+        getValue: (e) => e.id,
+        getCommand: (e) => e.id === '__none__' ? `prlt ticket epic ${ticketId} --unlink --json` : `prlt ticket epic ${ticketId} ${e.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket epic' } : null,
+      });
+
+      if (!selected) {
+        return;
+      }
 
       if (selected === '__none__') {
         // Unlink

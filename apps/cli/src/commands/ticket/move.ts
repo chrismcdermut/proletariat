@@ -41,10 +41,6 @@ export default class TicketMove extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     position: Flags.integer({
       description: 'Position within the column (0 = top)',
     }),
@@ -75,8 +71,14 @@ export default class TicketMove extends PMOCommand {
       this.error(message);
     };
 
-    // This command requires project context - get projectId
-    const projectId = await this.requireProject();
+    // This command requires project context - get projectId (with JSON mode support)
+    const projectId = await this.requireProject({
+      jsonMode: {
+        flags,
+        commandName: 'ticket move',
+        baseCommand: 'prlt ticket move',
+      },
+    });
 
     // Get all tickets
     const allTickets = await this.storage.listTickets(projectId);
@@ -95,29 +97,20 @@ export default class TicketMove extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to move:', ticketChoices),
-          createMetadata('ticket move', flags)
-        );
-        return;
-      }
-
-      const { selectedTicketId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedTicketId',
+      // Use helper for ticket selection (handles JSON mode automatically)
+      const selected = await this.selectFromList({
         message: 'Select ticket to move:',
-        choices: allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        })),
-      }]);
-      ticketId = selectedTicketId;
+        items: allTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket move ${t.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket move' } : null,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      ticketId = selected;
     }
 
     // Get ticket
@@ -136,17 +129,20 @@ export default class TicketMove extends PMOCommand {
         this.error('Project not found.');
       }
 
-      const { column } = await inquirer.prompt([{
-        type: 'list',
-        name: 'column',
-        message: `Move to column:`,
-        choices: project.columns.map((col: { name: string }) => ({
-          name: col.name === ticket.statusName ? `${col.name} (current)` : col.name,
-          value: col.name,
-        })),
-        default: ticket.statusName,
-      }]);
-      targetColumn = column;
+      // Use helper for column selection (handles JSON mode automatically)
+      const selected = await this.selectFromList({
+        message: 'Move to column:',
+        items: project.columns as { name: string }[],
+        getName: (col) => col.name === ticket.statusName ? `${col.name} (current)` : col.name,
+        getValue: (col) => col.name,
+        getCommand: (col) => `prlt ticket move ${ticketId} "${col.name}" --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket move' } : null,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      targetColumn = selected;
     }
 
     // Column validation happens in storage.moveTicket()

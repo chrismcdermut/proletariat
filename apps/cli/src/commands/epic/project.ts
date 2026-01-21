@@ -37,10 +37,6 @@ export default class EpicProject extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     'with-tickets': Flags.boolean({
       char: 't',
       description: 'Also move all tickets assigned to this epic',

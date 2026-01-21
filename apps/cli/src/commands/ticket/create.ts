@@ -31,10 +31,6 @@ export default class TicketCreate extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     title: Flags.string({
       char: 't',
       description: 'Ticket title',
@@ -80,8 +76,14 @@ export default class TicketCreate extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(TicketCreate);
 
-    // Get project and board info
-    const projectId = await this.requireProject();
+    // Get project and board info (pass JSON mode config for AI agents)
+    const projectId = await this.requireProject({
+      jsonMode: {
+        flags,
+        commandName: 'ticket create',
+        baseCommand: 'prlt ticket create',
+      },
+    });
     const board = await this.storage.getBoard(projectId);
     const columns = board.columns.map(c => c.name);
     const projectName = await this.getProjectName(projectId);
@@ -100,7 +102,15 @@ export default class TicketCreate extends PMOCommand {
 
     // In JSON mode without required data, output column selection prompt
     if (jsonMode && !flags.title && !flags.column) {
-      const columnChoices = columns.map(c => ({ name: c, value: c }));
+      // Build base command with project if specified
+      const baseCmd = flags.project
+        ? `prlt ticket create -P ${flags.project}`
+        : 'prlt ticket create';
+      const columnChoices = columns.map(c => ({
+        name: c,
+        value: c,
+        command: `${baseCmd} --column "${c}" --json`,
+      }));
       outputPromptAsJson(
         buildPromptConfig('list', 'column', 'Select column to place the ticket in:', columnChoices),
         createMetadata('ticket create', flags)
@@ -141,6 +151,28 @@ export default class TicketCreate extends PMOCommand {
       epicId?: string;
       labels?: string[];
     };
+
+    // In JSON mode with column but no title, output required fields info
+    if (jsonMode && flags.column && !flags.title) {
+      const baseCmd = flags.project
+        ? `prlt ticket create -P ${flags.project} --column "${flags.column}"`
+        : `prlt ticket create --column "${flags.column}"`;
+      outputPromptAsJson(
+        {
+          type: 'input',
+          name: 'title',
+          message: 'Enter ticket title:',
+          context: {
+            hint: `Provide title with: ${baseCmd} --title "Your title here"`,
+            requiredFields: ['--title'],
+            optionalFields: ['--priority', '--category', '--description', '--epic', '--labels'],
+            example: `${baseCmd} --title "Fix login bug" --priority P1 --category bug`,
+          },
+        },
+        createMetadata('ticket create', flags)
+      );
+      return;
+    }
 
     if (flags.interactive || !flags.title) {
       ticketData = await this.promptTicketData(flags, this.storage, template, columns);

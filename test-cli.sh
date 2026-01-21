@@ -10,6 +10,10 @@ GREEN='\033[0;32m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLI_PATH="$SCRIPT_DIR/apps/cli/bin/run.js"
+
 # Build the CLI
 echo "📦 Building CLI..."
 npm run build
@@ -26,7 +30,7 @@ git init && git config user.email "test@test.com" && git config user.name "Test"
 echo "# Test" > README.md && git add . && git commit -m "Initial"
 
 # Should create repo.json (not config.json)
-echo "billionaires" | node /Users/chrismcdermut/Projects/proletariat-workspace/proletariat/apps/cli/dist/bin/prlt.js init
+echo "billionaires" | node "$CLI_PATH" init
 
 if [ -f ".proletariat/repo.json" ]; then
     echo -e "${GREEN}✓ repo.json created${NC}"
@@ -56,11 +60,11 @@ cat > .proletariat/config.json << EOF
 EOF
 
 # Test that commands still work
-node $OLDPWD/apps/cli/dist/bin/prlt.js staff
+node "$CLI_PATH" staff
 echo -e "${GREEN}✓ Old config still works${NC}"
 
 # Test upgrade command
-node $OLDPWD/apps/cli/dist/bin/prlt.js upgrade
+node "$CLI_PATH" upgrade
 if [ -f ".proletariat/repo.json" ] && [ -f ".proletariat/config.json.backup" ]; then
     echo -e "${GREEN}✓ Config migrated successfully${NC}"
 else
@@ -75,7 +79,7 @@ mkdir test-repo-3 && cd test-repo-3
 git init && git config user.email "test@test.com" && git config user.name "Test"
 echo "# Test" > README.md && git add . && git commit -m "Initial"
 
-echo -e "billionaires\nworkspace\ntest-workspace" | node $OLDPWD/apps/cli/dist/bin/prlt.js init
+echo -e "billionaires\nworkspace\ntest-workspace" | node "$CLI_PATH" init
 
 if [ -f "../test-workspace-workspace/.proletariat/workspace.json" ]; then
     echo -e "${GREEN}✓ Workspace config created${NC}"
@@ -87,14 +91,14 @@ fi
 # Test 4: Health and repair commands
 echo -e "\n${GREEN}Test 4: Health and repair commands${NC}"
 cd $TEST_DIR/test-repo-1
-node $OLDPWD/apps/cli/dist/bin/prlt.js health
+node "$CLI_PATH" health
 echo -e "${GREEN}✓ Health command works${NC}"
 
 # Test 5: Create and remove agents
 echo -e "\n${GREEN}Test 5: Agent management${NC}"
 cd $TEST_DIR/test-repo-1
-node $OLDPWD/apps/cli/dist/bin/prlt.js hire bezos musk
-node $OLDPWD/apps/cli/dist/bin/prlt.js staff
+node "$CLI_PATH" hire bezos musk
+node "$CLI_PATH" staff
 
 if [ -d "../test-repo-1-staff/bezos" ] && [ -d "../test-repo-1-staff/musk" ]; then
     echo -e "${GREEN}✓ Agents created${NC}"
@@ -103,7 +107,7 @@ else
     exit 1
 fi
 
-node $OLDPWD/apps/cli/dist/bin/prlt.js fire bezos
+node "$CLI_PATH" fire bezos
 if [ ! -d "../test-repo-1-staff/bezos" ] && [ -d "../test-repo-1-staff/musk" ]; then
     echo -e "${GREEN}✓ Agent removed${NC}"
 else

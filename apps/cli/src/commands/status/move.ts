@@ -32,10 +32,6 @@ export default class StatusMove extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     position: Flags.integer({
       char: 'p',
       description: 'New position (0-indexed) within the category',

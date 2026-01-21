@@ -25,10 +25,6 @@ export default class TicketTemplateIndex extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -43,36 +39,24 @@ export default class TicketTemplateIndex extends PMOCommand {
 
     // Define choices once, use for both JSON and interactive modes
     const menuChoices = [
-      { name: 'List available templates', value: 'list' },
-      { name: 'Create ticket from template', value: 'apply' },
-      { name: 'Save ticket as template', value: 'save' },
-      { name: 'Delete template', value: 'delete' },
-      { name: 'Cancel', value: 'cancel' },
+      { id: 'list', name: 'List available templates', command: 'prlt ticket template list --format json' },
+      { id: 'apply', name: 'Create ticket from template', command: 'prlt ticket template apply --json' },
+      { id: 'save', name: 'Save ticket as template', command: 'prlt ticket template save --json' },
+      { id: 'delete', name: 'Delete template', command: 'prlt ticket template delete --json' },
+      { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'Ticket Templates - What would you like to do?';
 
-    // In JSON mode, output action menu prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('ticket template', flags)
-      );
-      return;
-    }
-
-    // Show interactive menu
-    const { action } = await inquirer.prompt([{
-      type: 'list',
-      name: 'action',
+    const action = await this.selectFromList({
       message: '📋 ' + message,
-      choices: [
-        ...menuChoices.slice(0, 3),
-        new inquirer.Separator('──────────────'),
-        ...menuChoices.slice(3),
-      ],
-    }]);
+      items: menuChoices,
+      getName: (c) => c.name,
+      getValue: (c) => c.id,
+      getCommand: (c) => c.command,
+      jsonMode: jsonMode ? { flags, commandName: 'ticket template' } : null,
+    });
 
-    if (action === 'cancel') {
+    if (action === 'cancel' || !action) {
       return;
     }
 
@@ -136,19 +120,19 @@ export default class TicketTemplateIndex extends PMOCommand {
       return null;
     }
 
-    const { selected } = await inquirer.prompt([{
-      type: 'list',
-      name: 'selected',
+    const templateChoices = templates.map(t => ({
+      id: t.id,
+      name: `${t.name} (${t.id})${t.isBuiltin ? '' : ' [custom]'}`,
+    }));
+
+    const selected = await this.selectFromList({
       message,
-      choices: [
-        ...templates.map(t => ({
-          name: `${t.name} (${t.id})${t.isBuiltin ? '' : ' [custom]'}`,
-          value: t.id,
-        })),
-        new inquirer.Separator(),
-        { name: 'Cancel', value: null },
-      ],
-    }]);
+      items: templateChoices,
+      getName: (t) => t.name,
+      getValue: (t) => t.id,
+      getCommand: (t) => `prlt ticket template apply ${t.id} --json`,
+      allowCancel: true,
+    });
 
     return selected;
   }

@@ -35,10 +35,6 @@ export default class TicketLink extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     blocks: Flags.string({
       char: 'b',
       description: 'Add blocking dependency: this ticket is blocked by TARGET',
@@ -77,22 +73,18 @@ export default class TicketLink extends PMOCommand {
         return
       }
 
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = tickets.map(t => ({ name: `${t.id} - ${t.title}`, value: t.id }))
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select ticket to manage dependencies:', ticketChoices),
-          createMetadata('ticket link', flags)
-        )
+      const selected = await this.selectFromList({
+        message: 'Select ticket to manage dependencies:',
+        items: tickets,
+        getName: (t) => `${t.id} - ${t.title}`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket link ${t.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket link' } : null,
+      })
+
+      if (!selected) {
         return
       }
-
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
-        message: 'Select ticket to manage dependencies:',
-        choices: tickets.map(t => ({ name: `${t.id} - ${t.title}`, value: t.id })),
-      }])
       ticketId = selected
     }
 
@@ -116,22 +108,34 @@ export default class TicketLink extends PMOCommand {
       const allTickets = await this.storage.listTickets(projectId)
       const otherTickets = allTickets.filter(t => t.id !== ticketId)
 
-      const { action } = await inquirer.prompt([{
-        type: 'list',
-        name: 'action',
-        message: `Dependencies for ${ticket.id}:`,
-        choices: [
-          { name: 'View dependencies', value: 'view' },
-          { name: 'Add blocking dependency (blocked by...)', value: 'blocks' },
-          { name: 'Add relates_to dependency', value: 'relates_to' },
-          { name: 'Add duplicates dependency', value: 'duplicates' },
-          new inquirer.Separator(),
-          { name: 'Remove dependency', value: 'remove' },
-          { name: 'Done', value: 'done' },
-        ],
-      }])
+      const menuChoices = [
+        { id: 'view', name: 'View dependencies' },
+        { id: 'blocks', name: 'Add blocking dependency (blocked by...)' },
+        { id: 'relates_to', name: 'Add relates_to dependency' },
+        { id: 'duplicates', name: 'Add duplicates dependency' },
+        { id: 'remove', name: 'Remove dependency' },
+        { id: 'done', name: 'Done' },
+      ]
 
-      if (action === 'done') {
+      const action = await this.selectFromList({
+        message: `Dependencies for ${ticket.id}:`,
+        items: menuChoices,
+        getName: (c) => c.name,
+        getValue: (c) => c.id,
+        getCommand: (c) => {
+          switch (c.id) {
+            case 'view': return `prlt ticket link ${ticketId} --all`
+            case 'blocks': return `prlt ticket link block ${ticketId} --json`
+            case 'relates_to': return `prlt ticket link relates ${ticketId} --json`
+            case 'duplicates': return `prlt ticket link duplicates ${ticketId} --json`
+            case 'remove': return `prlt ticket link remove ${ticketId} --json`
+            default: return ''
+          }
+        },
+        jsonMode: jsonMode ? { flags, commandName: 'ticket link' } : null,
+      })
+
+      if (action === 'done' || !action) {
         continueLoop = false
         continue
       }
@@ -147,22 +151,34 @@ export default class TicketLink extends PMOCommand {
           this.log(styles.muted('\nNo dependencies to remove.'))
           continue
         }
-        const choices = await Promise.all(dependencies.map(async dep => {
+        const depChoices = await Promise.all(dependencies.map(async dep => {
           const depTicket = await this.storage.getTicket(dep.dependsOnTicketId)
           return {
+            id: dep.dependsOnTicketId,
             name: `${dep.dependsOnTicketId} - ${depTicket?.title || 'Unknown'} (${dep.dependencyType})`,
-            value: { targetId: dep.dependsOnTicketId, type: dep.dependencyType }
+            type: dep.dependencyType
           }
         }))
-        const { selected } = await inquirer.prompt([{
-          type: 'list',
-          name: 'selected',
+
+        const selected = await this.selectFromList({
           message: 'Select dependency to remove:',
-          choices,
-        }])
-        await this.storage.deleteTicketDependency(ticketId!, selected.targetId, selected.type)
-        await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
-        this.log(styles.success(`\n✅ Removed dependency: ${ticketId} → ${selected.targetId}`))
+          items: depChoices,
+          getName: (d) => d.name,
+          getValue: (d) => d.id,
+          getCommand: (d) => `prlt ticket link remove ${ticketId} ${d.id} --type ${d.type} --json`,
+          jsonMode: jsonMode ? { flags, commandName: 'ticket link' } : null,
+        })
+
+        if (!selected) {
+          continue
+        }
+
+        const selectedDep = depChoices.find(d => d.id === selected)
+        if (selectedDep) {
+          await this.storage.deleteTicketDependency(ticketId!, selected, selectedDep.type as TicketDependencyType)
+          await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
+          this.log(styles.success(`\n✅ Removed dependency: ${ticketId} → ${selected}`))
+        }
         continue
       }
 
@@ -171,13 +187,19 @@ export default class TicketLink extends PMOCommand {
         this.log(styles.muted('\nNo other tickets to link to.'))
         continue
       }
-      const { targetId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'targetId',
+
+      const targetId = await this.selectFromList({
         message: `Select ticket that ${ticketId} ${action === 'blocks' ? 'is blocked by' : action === 'relates_to' ? 'relates to' : 'duplicates'}:`,
-        choices: otherTickets.map(t => ({ name: `${t.id} - ${t.title}`, value: t.id })),
-      }])
-      await this.addDependency(this.storage, this.pmoPath, ticketId!, targetId, action as TicketDependencyType, ticket.title)
+        items: otherTickets,
+        getName: (t) => `${t.id} - ${t.title}`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket link ${action === 'blocks' ? 'block' : action} ${ticketId} ${t.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket link' } : null,
+      })
+
+      if (targetId) {
+        await this.addDependency(this.storage, this.pmoPath, ticketId!, targetId, action as TicketDependencyType, ticket.title)
+      }
     }
   }
 

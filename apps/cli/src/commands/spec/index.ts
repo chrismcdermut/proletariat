@@ -21,10 +21,6 @@ export default class Spec extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -38,39 +34,28 @@ export default class Spec extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices once, use for both JSON and interactive modes
+    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'Create new spec', value: 'create' },
-      { name: 'List all specs', value: 'list' },
-      { name: 'View spec', value: 'view' },
-      { name: 'Generate tickets from spec', value: 'generate' },
-      { name: 'Assign ticket to spec', value: 'ticket' },
-      { name: 'Manage dependencies', value: 'link' },
-      { name: 'Cancel', value: 'cancel' },
+      { id: 'create', name: 'Create new spec', command: 'prlt spec create --json' },
+      { id: 'list', name: 'List all specs', command: 'prlt spec list --format json' },
+      { id: 'view', name: 'View spec', command: 'prlt spec view --json' },
+      { id: 'generate', name: 'Generate tickets from spec', command: 'prlt spec plan --json' },
+      { id: 'ticket', name: 'Assign ticket to spec', command: 'prlt spec ticket --json' },
+      { id: 'link', name: 'Manage dependencies', command: 'prlt spec link --json' },
+      { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'Spec Operations - What would you like to do?';
 
-    // In JSON mode, output action menu prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('spec', flags)
-      );
-      return;
-    }
-
-    // Show interactive menu
-    const { action } = await inquirer.prompt([{
-      type: 'list',
-      name: 'action',
+    const action = await this.selectFromList({
       message: '📄 ' + message,
-      choices: [
-        ...menuChoices.slice(0, -1),
-        new inquirer.Separator(),
-        menuChoices[menuChoices.length - 1],
-      ],
-    }]);
+      items: menuChoices,
+      getName: (c) => c.name,
+      getValue: (c) => c.id,
+      getCommand: (c) => c.command,
+      jsonMode: jsonMode ? { flags, commandName: 'spec' } : null,
+    });
 
-    if (action === 'cancel') {
+    if (action === 'cancel' || !action) {
       return;
     }
 
