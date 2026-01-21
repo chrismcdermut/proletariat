@@ -83,12 +83,20 @@ export function validateHQLocation(location: string): { valid: boolean; reason?:
     // Not in a git repo - this is fine
   }
 
-  // Check if inside an existing HQ (look for .proletariat/config.json up the tree)
+  // Check if inside an existing HQ (look for .proletariat/config.json with type: 'hq')
+  // Note: ~/.proletariat is the machine config, not an HQ, so we check the config type
   let checkDir = parentDir;
   while (checkDir !== '/' && checkDir !== path.dirname(checkDir)) {
     const configPath = path.join(checkDir, '.proletariat', 'config.json');
     if (fs.existsSync(configPath)) {
-      return { valid: false, reason: 'inside-hq' };
+      try {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        if (config.type === 'hq') {
+          return { valid: false, reason: 'inside-hq' };
+        }
+      } catch {
+        // Invalid JSON, skip
+      }
     }
     checkDir = path.dirname(checkDir);
   }
@@ -130,7 +138,14 @@ function findContainingHQ(): string | null {
   while (checkDir !== '/' && checkDir !== path.dirname(checkDir)) {
     const configPath = path.join(checkDir, '.proletariat', 'config.json');
     if (fs.existsSync(configPath)) {
-      return checkDir;
+      try {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        if (config.type === 'hq') {
+          return checkDir;
+        }
+      } catch {
+        // Invalid JSON, skip
+      }
     }
     checkDir = path.dirname(checkDir);
   }
