@@ -539,8 +539,8 @@ export default class WorkSpawn extends PMOCommand {
         return
       }
 
-      this.log(styles.muted(`Tickets to spawn: ${ticketsToSpawn.map(t => t.id).join(', ')}`))
-      this.log(styles.muted(`Each ticket will get a unique ephemeral agent`))
+      this.log(styles.muted(`Tickets: ${ticketsToSpawn.map(t => t.id).join(', ')}`))
+      this.log(styles.muted(`Agents:  Ephemeral (unique per ticket)`))
       this.log('')
 
       // Note: Removed redundant confirmation - user already selected tickets
