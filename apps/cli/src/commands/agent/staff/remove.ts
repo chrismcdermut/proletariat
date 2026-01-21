@@ -1,18 +1,18 @@
 import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { colors, format } from '../../lib/colors.js';
+import { colors, format } from '../../../lib/colors.js';
 import {
   getWorkspaceInfo,
   removeAgentsFromWorkspace
-} from '../../lib/agents/commands.js';
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+} from '../../../lib/agents/commands.js';
+import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
-} from '../../lib/prompt-json.js';
+} from '../../../lib/prompt-json.js';
 
 export default class Remove extends PMOCommand {
   static description = 'Remove a specific agent from the workspace';

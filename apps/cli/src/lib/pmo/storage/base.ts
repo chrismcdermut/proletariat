@@ -523,9 +523,22 @@ After updating, output a brief summary of your grooming changes.`,
       prompt: `Implement this ticket according to its requirements and acceptance criteria:
 - Follow the acceptance criteria exactly
 - Write clean, well-tested code
-- Create atomic commits with clear messages
 - Update documentation if the changes affect it
 - Run tests to verify the implementation
+
+**IMPORTANT: Commit and push frequently!**
+- Commit after each logical change or completed subtask
+- Push after every 1-2 commits to save your work
+- Use atomic commits with clear messages describing the change
+- Don't wait until the end to commit - your work could be lost!
+
+Example workflow:
+\`\`\`bash
+# After completing a piece of work
+git add -A
+prlt commit "implement user validation"
+git push
+\`\`\`
 
 When complete, the ticket should be ready for code review.`,
       endPrompt: `When complete:
@@ -558,7 +571,16 @@ When complete, the ticket should be ready for code review.`,
 - Review existing commits and changes to understand current state
 - Check what subtasks remain incomplete
 - Complete the remaining work
-- Ensure all acceptance criteria are met`,
+- Ensure all acceptance criteria are met
+
+**IMPORTANT: Commit and push frequently!**
+- Commit after each logical change or completed subtask
+- Push after every 1-2 commits to save your work
+- Don't wait until the end to commit - your work could be lost!
+
+\`\`\`bash
+git add -A && prlt commit "your change" && git push
+\`\`\``,
       endPrompt: `When complete:
 1. **Commit your work** in each repository directory you modified:
    \`\`\`bash
@@ -589,7 +611,15 @@ When complete, the ticket should be ready for code review.`,
 - Add integration tests where appropriate
 - Cover edge cases and error handling
 - Aim for good coverage of the changed code
-- Ensure all tests pass`,
+- Ensure all tests pass
+
+**IMPORTANT: Commit and push frequently!**
+- Commit after each test file or logical group of tests
+- Push after every 1-2 commits to save your work
+
+\`\`\`bash
+git add -A && prlt commit "add tests for X" && git push
+\`\`\``,
       endPrompt: `When complete:
 1. **Commit your tests**:
    \`\`\`bash

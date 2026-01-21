@@ -103,6 +103,7 @@
     "directory": "apps/cli"
   },
   "scripts": {
+    "postinstall": "npm rebuild better-sqlite3 2>/dev/null || true",
     "build": "shx rm -rf dist && tsc -b",
     "clean": "shx rm -rf dist",
     "dev": "tsc --watch",
