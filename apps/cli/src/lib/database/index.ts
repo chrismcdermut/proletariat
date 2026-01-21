@@ -232,6 +232,15 @@ function migrateToThemeSupport(db: Database.Database): void {
   // This handles cases where agents were incorrectly persisted as 'persistent'
   db.exec("UPDATE agents SET type = 'ephemeral' WHERE worktree_path LIKE 'agents/temp/%' AND type != 'ephemeral'")
 
+  // Also detect ephemeral agents by their naming pattern: adjective-name-number (e.g., blue-khosla-1)
+  // Staff agents are single names like 'lecun', 'musk', 'gates'
+  // Pattern: word-word-digit (at least one digit at the end)
+  db.exec(`
+    UPDATE agents SET type = 'ephemeral'
+    WHERE type != 'ephemeral'
+    AND name GLOB '*-*-[0-9]*'
+  `)
+
   // Check if active_theme_id column exists in workspace table
   const workspaceColumns = db.pragma('table_info(workspace)') as Array<{ name: string }>;
   const hasActiveThemeId = workspaceColumns.some(c => c.name === 'active_theme_id');
