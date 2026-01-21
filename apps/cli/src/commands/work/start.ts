@@ -387,11 +387,21 @@ export default class WorkStart extends PMOCommand {
         // (e.g., groom + implement, or multiple implementations on same ticket)
         // No agent specified - default to creating ephemeral agent (new behavior)
         // Or prompt for agent selection if staff agents exist
-        const activeStaffAgents = workspaceInfo.agents.filter(a => a.type === 'persistent' && a.status === 'active')
+
+        // Filter to staff agents that actually have directories on disk
+        const activeStaffAgents = workspaceInfo.agents.filter(a => {
+          if (a.type !== 'persistent' || a.status !== 'active') return false
+          // Check if agent directory exists
+          const agentDir = a.worktree_path
+            ? path.join(workspaceInfo.path, a.worktree_path)
+            : path.join(workspaceInfo.path, 'agents', 'staff', a.name)
+          return fs.existsSync(agentDir)
+        })
+
         if (activeStaffAgents.length > 0) {
           // Get list of busy agents (already running something)
           const busyAgentNames = new Set<string>()
-          for (const agent of workspaceInfo.agents) {
+          for (const agent of activeStaffAgents) {
             const runningExecutions = executionStorage.getAgentRunningExecutions(agent.name)
             if (runningExecutions.length > 0) {
               busyAgentNames.add(agent.name)
@@ -405,10 +415,9 @@ export default class WorkStart extends PMOCommand {
           agentChoices.push({ name: 'Create new ephemeral agent (recommended)', value: '__ephemeral__' })
           agentChoices.push(new inquirer.Separator())
 
-          // Only show staff agents (persistent) - ephemeral agents are single-use
-          const staffAgents = workspaceInfo.agents.filter(a => a.type === 'persistent' && a.status === 'active')
-          const availableAgents = staffAgents.filter(a => !busyAgentNames.has(a.name))
-          const busyAgents = staffAgents.filter(a => busyAgentNames.has(a.name))
+          // Only show staff agents that exist on disk
+          const availableAgents = activeStaffAgents.filter(a => !busyAgentNames.has(a.name))
+          const busyAgents = activeStaffAgents.filter(a => busyAgentNames.has(a.name))
 
           if (availableAgents.length > 0) {
             agentChoices.push(new inquirer.Separator('── Available Staff Agents ──'))
