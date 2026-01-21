@@ -326,16 +326,38 @@ export default class Cleanup extends PMOCommand {
       // Handle blocked by git status - offer interactive options
       if (result.blockedByGit && !jsonMode && !forceCleanup && !pushFirst) {
         this.log(colors.warning(`\n⚠️  Agent "${agentName}" has unsaved work:`));
+
+        // Determine what kind of unsaved work exists
+        let hasUncommitted = false;
+        let hasUnpushed = false;
+
         if (result.gitStatus) {
           for (const wt of result.gitStatus.worktrees) {
             if (wt.hasUncommittedChanges) {
+              hasUncommitted = true;
               this.log(colors.textMuted(`  ${wt.repoName}: ${wt.uncommittedFiles.length} uncommitted file(s)`));
             }
             if (wt.hasUnpushedCommits) {
+              hasUnpushed = true;
               this.log(colors.textMuted(`  ${wt.repoName}: ${wt.unpushedCount} unpushed commit(s) on ${wt.branch}`));
             }
           }
         }
+
+        // Build choices based on what's unsaved
+        const choices: Array<{ name: string; value: string }> = [];
+
+        if (hasUnpushed && !hasUncommitted) {
+          // Only unpushed commits - push will save everything
+          choices.push({ name: '⬆️  Push commits and cleanup', value: 'push' });
+        } else if (hasUnpushed && hasUncommitted) {
+          // Both - push will save commits but lose uncommitted changes
+          choices.push({ name: '⬆️  Push commits and cleanup (uncommitted changes will be lost)', value: 'push' });
+        }
+        // If only uncommitted changes, don't offer push - it won't help
+
+        choices.push({ name: '🗑️  Force cleanup (discard all changes)', value: 'force' });
+        choices.push({ name: '⏭️  Skip this agent', value: 'skip' });
 
         // In interactive mode, prompt for action
         const { action } = await inquirer.prompt([
@@ -343,11 +365,7 @@ export default class Cleanup extends PMOCommand {
             type: 'list',
             name: 'action',
             message: `What would you like to do with ${agentName}?`,
-            choices: [
-              { name: '⬆️  Push commits and cleanup', value: 'push' },
-              { name: '🗑️  Force cleanup (discard changes)', value: 'force' },
-              { name: '⏭️  Skip this agent', value: 'skip' },
-            ],
+            choices,
           },
         ]);
 
