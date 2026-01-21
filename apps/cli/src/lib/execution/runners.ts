@@ -28,8 +28,9 @@ import {
  * Format: "{ticketId}-{action}-{agentName}"
  * Example: "TKT-347-implement-altman"
  */
-function buildSessionName(context: ExecutionContext): string {
-  const action = context.actionName || 'work'
+export function buildSessionName(context: ExecutionContext): string {
+  // Sanitize action name: replace spaces and special chars with hyphens for shell safety
+  const action = (context.actionName || 'work').replace(/\s+/g, '-')
   const agent = context.agentName || 'agent'
   return `${context.ticketId}-${action}-${agent}`
 }
