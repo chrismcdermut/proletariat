@@ -104,7 +104,7 @@ export default class TicketComplete extends PMOCommand {
         items: incompleteTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket complete ${t.id}`,
+        getCommand: (t) => `prlt ticket complete ${t.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket complete' } : null,
       });
 

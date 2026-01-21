@@ -66,7 +66,7 @@ export default class TicketView extends PMOCommand {
         items: allTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket view ${t.id}`,
+        getCommand: (t) => `prlt ticket view ${t.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket view' } : null,
       });
 

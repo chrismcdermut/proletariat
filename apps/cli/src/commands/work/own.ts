@@ -67,7 +67,7 @@ export default class WorkOwn extends PMOCommand {
         items: allTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.owner ? `owner: ${t.owner}` : 'unowned'})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt work own ${t.id}`,
+        getCommand: (t) => `prlt work own ${t.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'work own' } : null,
       })
 

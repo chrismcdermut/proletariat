@@ -78,7 +78,7 @@ export default class TicketLinkDuplicates extends PMOCommand {
         items: otherTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName || t.status})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket link duplicates ${args.id} ${t.id}`,
+        getCommand: (t) => `prlt ticket link duplicates ${args.id} ${t.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket link duplicates' } : null,
       })
 

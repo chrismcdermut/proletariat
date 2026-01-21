@@ -93,7 +93,7 @@ export default class TicketLinkRemove extends PMOCommand {
         items: confirmChoices,
         getName: (c) => c.name,
         getValue: (c) => c.id,
-        getCommand: (c) => c.id === 'yes' ? `prlt ticket link remove ${args.id} --all --force` : '',
+        getCommand: (c) => c.id === 'yes' ? `prlt ticket link remove ${args.id} --all --force --json` : '',
         jsonMode: jsonMode ? { flags, commandName: 'ticket link remove' } : null,
       })
 
@@ -130,7 +130,7 @@ export default class TicketLinkRemove extends PMOCommand {
         items: depChoices,
         getName: (d) => d.name,
         getValue: (d) => d.id,
-        getCommand: (d) => `prlt ticket link remove ${args.id} ${d.id} --type ${d.type}`,
+        getCommand: (d) => `prlt ticket link remove ${args.id} ${d.id} --type ${d.type} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket link remove' } : null,
       })
 

@@ -78,7 +78,7 @@ export default class TicketLinkRelates extends PMOCommand {
         items: otherTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName || t.status})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket link relates ${args.id} ${t.id}`,
+        getCommand: (t) => `prlt ticket link relates ${args.id} ${t.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket link relates' } : null,
       })
 

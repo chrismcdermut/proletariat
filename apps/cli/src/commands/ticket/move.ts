@@ -135,7 +135,7 @@ export default class TicketMove extends PMOCommand {
         items: project.columns as { name: string }[],
         getName: (col) => col.name === ticket.statusName ? `${col.name} (current)` : col.name,
         getValue: (col) => col.name,
-        getCommand: (col) => `prlt ticket move ${ticketId} "${col.name}"`,
+        getCommand: (col) => `prlt ticket move ${ticketId} "${col.name}" --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket move' } : null,
       });
 

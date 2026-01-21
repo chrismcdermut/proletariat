@@ -165,7 +165,7 @@ export default class TicketLink extends PMOCommand {
           items: depChoices,
           getName: (d) => d.name,
           getValue: (d) => d.id,
-          getCommand: (d) => `prlt ticket link remove ${ticketId} ${d.id} --type ${d.type}`,
+          getCommand: (d) => `prlt ticket link remove ${ticketId} ${d.id} --type ${d.type} --json`,
           jsonMode: jsonMode ? { flags, commandName: 'ticket link' } : null,
         })
 
@@ -193,7 +193,7 @@ export default class TicketLink extends PMOCommand {
         items: otherTickets,
         getName: (t) => `${t.id} - ${t.title}`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket link ${action === 'blocks' ? 'block' : action} ${ticketId} ${t.id}`,
+        getCommand: (t) => `prlt ticket link ${action === 'blocks' ? 'block' : action} ${ticketId} ${t.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket link' } : null,
       })
 

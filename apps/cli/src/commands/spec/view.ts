@@ -72,7 +72,7 @@ export default class SpecView extends PMOCommand {
         items: specs,
         getName: (s) => `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
         getValue: (s) => s.id,
-        getCommand: (s) => `prlt spec view ${s.id}`,
+        getCommand: (s) => `prlt spec view ${s.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'spec view' } : null,
       });
 

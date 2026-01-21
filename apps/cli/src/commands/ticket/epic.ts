@@ -187,7 +187,7 @@ export default class TicketEpic extends PMOCommand {
         items: epicChoices,
         getName: (e) => e.name,
         getValue: (e) => e.id,
-        getCommand: (e) => e.id === '__none__' ? `prlt ticket epic ${ticketId} --unlink` : `prlt ticket epic ${ticketId} ${e.id}`,
+        getCommand: (e) => e.id === '__none__' ? `prlt ticket epic ${ticketId} --unlink --json` : `prlt ticket epic ${ticketId} ${e.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket epic' } : null,
       });
 

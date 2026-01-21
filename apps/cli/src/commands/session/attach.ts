@@ -114,7 +114,7 @@ export default class SessionAttach extends PMOCommand {
         items: sessions,
         getName: (s) => `${s.sessionId} (${s.ticketId}) - ${s.agentName} [${s.type}]`,
         getValue: (s) => s.sessionId,
-        getCommand: (s) => `prlt session attach "${s.sessionId}"`,
+        getCommand: (s) => `prlt session attach "${s.sessionId}" --json`,
         jsonMode: jsonMode ? { flags, commandName: 'session attach' } : null,
       })
 

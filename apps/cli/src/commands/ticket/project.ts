@@ -135,7 +135,7 @@ export default class TicketProject extends PMOCommand {
         items: otherProjects,
         getName: (p) => `${p.id} - ${p.name} (${p.status})`,
         getValue: (p) => p.id,
-        getCommand: (p) => `prlt ticket project ${ticketId} ${p.id}`,
+        getCommand: (p) => `prlt ticket project ${ticketId} ${p.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket project' } : null,
       });
 
@@ -173,7 +173,7 @@ export default class TicketProject extends PMOCommand {
           items: actionChoices,
           getName: (a) => a.name,
           getValue: (a) => a.id,
-          getCommand: (a) => a.id === 'unlink' ? `prlt ticket project ${ticketId} ${targetProjectId}` : '',
+          getCommand: (a) => a.id === 'unlink' ? `prlt ticket project ${ticketId} ${targetProjectId} --json` : '',
           jsonMode: jsonMode ? { flags, commandName: 'ticket project' } : null,
         });
 

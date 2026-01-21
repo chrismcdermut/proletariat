@@ -72,7 +72,7 @@ export default class EpicActivate extends PMOCommand {
         items: activatable,
         getName: (e) => `${e.id} ${e.title} (${e.status})`,
         getValue: (e) => e.id,
-        getCommand: (e) => `prlt epic activate ${e.id}`,
+        getCommand: (e) => `prlt epic activate ${e.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'epic activate' } : null,
       });
 

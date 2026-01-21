@@ -93,7 +93,7 @@ export default class WorkComplete extends PMOCommand {
           items: completableTickets,
           getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
           getValue: (t) => t.id,
-          getCommand: (t) => `prlt work complete ${t.id}`,
+          getCommand: (t) => `prlt work complete ${t.id} --json`,
           jsonMode: jsonMode ? { flags, commandName: 'work complete' } : null,
         });
 

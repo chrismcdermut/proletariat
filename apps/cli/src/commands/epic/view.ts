@@ -78,7 +78,7 @@ export default class EpicView extends PMOCommand {
         items: epics,
         getName: (e) => `${e.id} ${e.title} (${e.status})`,
         getValue: (e) => e.id,
-        getCommand: (e) => `prlt epic view ${e.id}`,
+        getCommand: (e) => `prlt epic view ${e.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'epic view' } : null,
       });
 

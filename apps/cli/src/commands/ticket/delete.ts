@@ -89,7 +89,7 @@ export default class TicketDelete extends PMOCommand {
         items: allTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket delete ${t.id} --force`,
+        getCommand: (t) => `prlt ticket delete ${t.id} --force --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket delete' } : null,
       });
 
