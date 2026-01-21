@@ -32,6 +32,7 @@ export interface Project {
   description?: string
   status: ProjectStatus       // @deprecated - use phaseId instead
   phaseId?: string            // Reference to ProjectPhase
+  workflowId?: string         // Reference to Workflow (shared workflow for board columns/statuses)
   isArchived: boolean         // Soft-delete flag (hidden from default views)
   targetDate?: Date           // Optional end date for time-bounded projects
   initiativeId?: string
@@ -178,19 +179,50 @@ export const STATE_CATEGORY_ORDER: readonly StateCategory[] = [
 ] as const
 
 /**
- * Customizable status within a project.
+ * Shared workflow definition.
+ * Projects reference workflows via workflowId.
+ * Updating a workflow affects all projects using it.
+ */
+export interface Workflow {
+  id: string
+  name: string              // Display name, unique
+  description?: string      // Description of this workflow
+  isBuiltin: boolean        // System-provided vs user-created
+  createdAt: Date
+  updatedAt: Date
+}
+
+/**
+ * Status within a shared workflow.
  * Each status belongs to exactly one StateCategory.
- * Status names must be unique within a project.
+ * Status names must be unique within a workflow.
+ * These are the board columns - workflows define the columns for all projects using them.
  */
 export interface WorkflowStatus {
   id: string
-  projectId: string
-  name: string              // Display name, unique within project
+  workflowId: string        // Reference to parent Workflow
+  name: string              // Display name, unique within workflow
   category: StateCategory   // Which category this belongs to
-  position: number          // Order within category (0-indexed)
+  position: number          // Order within workflow (0-indexed, defines column order)
   color?: string            // Hex color for UI
   description?: string      // Tooltip/help text
   isDefault?: boolean       // Default status for new tickets
+  createdAt: Date
+}
+
+/**
+ * @deprecated Legacy per-project status - use WorkflowStatus instead.
+ * Kept for backward compatibility during migration.
+ */
+export interface LegacyWorkflowStatus {
+  id: string
+  projectId: string
+  name: string
+  category: StateCategory
+  position: number
+  color?: string
+  description?: string
+  isDefault?: boolean
   createdAt: Date
 }
 
@@ -659,8 +691,14 @@ export interface EpicFilter {
 }
 
 export interface StatusFilter {
-  projectId?: string
+  workflowId?: string         // Filter by workflow (new)
+  projectId?: string          // @deprecated - use workflowId instead
   category?: StateCategory
+  search?: string
+}
+
+export interface WorkflowFilter {
+  isBuiltin?: boolean
   search?: string
 }
 
@@ -801,14 +839,22 @@ export interface PMOStorage {
   linkTicketToEpic(ticketId: string, epicId: string): Promise<void>
   unlinkTicketFromEpic(ticketId: string): Promise<void>
 
-  // Workflow Status Operations
-  listStatuses(projectId: string): Promise<WorkflowStatus[]>
+  // Workflow Operations (shared workflow definitions)
+  listWorkflows(filter?: WorkflowFilter): Promise<Workflow[]>
+  getWorkflow(id: string): Promise<Workflow | null>
+  createWorkflow(workflow: Partial<Workflow>): Promise<Workflow>
+  updateWorkflow(id: string, changes: Partial<Workflow>): Promise<Workflow>
+  deleteWorkflow(id: string): Promise<void>
+  getProjectWorkflow(projectId: string): Promise<Workflow | null>
+
+  // Workflow Status Operations (statuses within workflows = board columns)
+  listStatuses(workflowId: string): Promise<WorkflowStatus[]>
   getStatus(id: string): Promise<WorkflowStatus | null>
-  createStatus(projectId: string, status: Partial<WorkflowStatus>): Promise<WorkflowStatus>
+  createStatus(workflowId: string, status: Partial<WorkflowStatus>): Promise<WorkflowStatus>
   updateStatus(id: string, changes: Partial<WorkflowStatus>): Promise<WorkflowStatus>
   deleteStatus(id: string): Promise<void>
   reorderStatus(id: string, newPosition: number): Promise<WorkflowStatus>
-  getDefaultStatus(projectId: string): Promise<WorkflowStatus | null>
+  getDefaultStatus(workflowId: string): Promise<WorkflowStatus | null>
 
   // Workflow Template Operations
   listTemplates(filter?: TemplateFilter): Promise<WorkflowTemplate[]>

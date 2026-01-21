@@ -16,6 +16,7 @@ const T = PMO_TABLES
 export function initializePMOTables(db: Database.Database): void {
   runMigrations(db)
   db.exec(PMO_SCHEMA_SQL)
+  seedBuiltinWorkflows(db)  // Seed workflows before templates (workflows are the source of truth)
   seedBuiltinTemplates(db)
   seedBuiltinPhases(db)
   seedBuiltinPhaseTemplates(db)
@@ -211,6 +212,252 @@ export function runMigrations(db: Database.Database): void {
       // Ignore errors if migration already ran
     }
   }
+
+  // Migration: Add workflow_id column to projects table
+  if (!projectsColumnNames.has('workflow_id')) {
+    try {
+      db.exec(`ALTER TABLE ${T.projects} ADD COLUMN workflow_id TEXT`)
+    } catch {
+      // Column may already exist
+    }
+  }
+
+  // Migration: Migrate from per-project statuses to shared workflows
+  // This is idempotent - only runs if workflows table exists but has no workflows yet
+  if (tableExists(T.workflows) && tableExists(T.statuses)) {
+    const workflowCount = db.prepare(`SELECT COUNT(*) as count FROM ${T.workflows}`).get() as { count: number }
+    const hasLegacyStatuses = db.prepare(`SELECT COUNT(*) as count FROM ${T.statuses}`).get() as { count: number }
+
+    if (workflowCount.count === 0 && hasLegacyStatuses.count > 0) {
+      // Migrate existing statuses to workflows
+      migrateStatusesToWorkflows(db)
+    }
+  }
+}
+
+/**
+ * Migrate legacy per-project statuses to shared workflows.
+ * Creates a workflow for each unique set of statuses and updates projects.
+ */
+function migrateStatusesToWorkflows(db: Database.Database): void {
+  const now = new Date().toISOString()
+
+  // Get all projects with their statuses
+  const projects = db.prepare(`SELECT id, name, template FROM ${T.projects}`).all() as Array<{
+    id: string
+    name: string
+    template: string | null
+  }>
+
+  // Create a map of status signature -> workflow ID for deduplication
+  const statusSignatureToWorkflowId = new Map<string, string>()
+
+  for (const project of projects) {
+    // Get all statuses for this project (ordered)
+    const statuses = db.prepare(`
+      SELECT id, name, category, position, color, description, is_default
+      FROM ${T.statuses}
+      WHERE project_id = ?
+      ORDER BY position
+    `).all(project.id) as Array<{
+      id: string
+      name: string
+      category: string
+      position: number
+      color: string | null
+      description: string | null
+      is_default: number
+    }>
+
+    if (statuses.length === 0) {
+      // No statuses - assign to default workflow (will be created by seeding)
+      continue
+    }
+
+    // Create a signature for this set of statuses (to detect duplicates)
+    const signature = statuses.map(s => `${s.name}:${s.category}`).join('|')
+
+    let workflowId = statusSignatureToWorkflowId.get(signature)
+
+    if (!workflowId) {
+      // Create a new workflow from these statuses
+      workflowId = `workflow-${project.id}`
+      const workflowName = project.template
+        ? `${project.template} (migrated)`
+        : `${project.name} Workflow`
+
+      db.prepare(`
+        INSERT INTO ${T.workflows} (id, name, description, is_builtin, created_at, updated_at)
+        VALUES (?, ?, ?, 0, ?, ?)
+      `).run(workflowId, workflowName, `Migrated from project: ${project.name}`, now, now)
+
+      // Create workflow statuses from the legacy statuses
+      for (const status of statuses) {
+        const newStatusId = `wfs-${workflowId}-${status.id}`
+        db.prepare(`
+          INSERT INTO ${T.workflow_statuses} (id, workflow_id, name, category, position, color, description, is_default, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          newStatusId,
+          workflowId,
+          status.name,
+          status.category,
+          status.position,
+          status.color,
+          status.description,
+          status.is_default,
+          now
+        )
+
+        // Update any tickets that reference the old status to reference the new one
+        db.prepare(`
+          UPDATE ${T.tickets}
+          SET status_id = ?
+          WHERE status_id = ? AND project_id = ?
+        `).run(newStatusId, status.id, project.id)
+      }
+
+      statusSignatureToWorkflowId.set(signature, workflowId)
+    } else {
+      // Reuse existing workflow - need to remap ticket status_ids
+      const workflowStatuses = db.prepare(`
+        SELECT id, name FROM ${T.workflow_statuses}
+        WHERE workflow_id = ?
+      `).all(workflowId) as Array<{ id: string; name: string }>
+
+      const statusNameToNewId = new Map(workflowStatuses.map(s => [s.name, s.id]))
+
+      for (const status of statuses) {
+        const newStatusId = statusNameToNewId.get(status.name)
+        if (newStatusId) {
+          db.prepare(`
+            UPDATE ${T.tickets}
+            SET status_id = ?
+            WHERE status_id = ? AND project_id = ?
+          `).run(newStatusId, status.id, project.id)
+        }
+      }
+    }
+
+    // Update project to reference the workflow
+    db.prepare(`
+      UPDATE ${T.projects}
+      SET workflow_id = ?
+      WHERE id = ?
+    `).run(workflowId, project.id)
+  }
+}
+
+/**
+ * Seed built-in workflows (shared workflow definitions).
+ * Creates workflows from existing templates for reuse across projects.
+ */
+export function seedBuiltinWorkflows(db: Database.Database): void {
+  type WorkflowStatusDef = {
+    name: string
+    category: StateCategory
+    position: number
+    color?: string
+    isDefault?: boolean
+  }
+
+  // Define built-in workflows based on the template definitions
+  const builtinWorkflows: Array<{
+    id: string
+    name: string
+    description: string
+    statuses: WorkflowStatusDef[]
+  }> = [
+    {
+      id: 'default',
+      name: 'Default',
+      description: 'Default workflow: Backlog → Ready → In Progress → Review → Done',
+      statuses: [
+        { name: 'Backlog', category: 'backlog', position: 0, isDefault: true },
+        { name: 'Ready', category: 'unstarted', position: 1 },
+        { name: 'In Progress', category: 'started', position: 2 },
+        { name: 'Review', category: 'started', position: 3 },
+        { name: 'Done', category: 'completed', position: 4 },
+      ],
+    },
+    {
+      id: 'kanban',
+      name: 'Kanban',
+      description: 'Simple kanban workflow: Backlog → To Do → In Progress → Done',
+      statuses: [
+        { name: 'Backlog', category: 'backlog', position: 0, isDefault: true },
+        { name: 'To Do', category: 'unstarted', position: 1 },
+        { name: 'In Progress', category: 'started', position: 2 },
+        { name: 'Done', category: 'completed', position: 3 },
+        { name: 'Canceled', category: 'canceled', position: 4 },
+      ],
+    },
+    {
+      id: 'linear',
+      name: 'Linear',
+      description: 'Linear-style workflow with backlog, triage, and review stages',
+      statuses: [
+        { name: 'Backlog', category: 'backlog', position: 0, isDefault: true },
+        { name: 'Triage', category: 'backlog', position: 1 },
+        { name: 'Todo', category: 'unstarted', position: 2 },
+        { name: 'In Progress', category: 'started', position: 3 },
+        { name: 'In Review', category: 'started', position: 4 },
+        { name: 'Done', category: 'completed', position: 5 },
+        { name: 'Canceled', category: 'canceled', position: 6 },
+      ],
+    },
+    {
+      id: 'bug-smash',
+      name: 'Bug Smash',
+      description: 'Bug tracking workflow with verification stages',
+      statuses: [
+        { name: 'Reported', category: 'backlog', position: 0, isDefault: true },
+        { name: 'Confirmed', category: 'unstarted', position: 1 },
+        { name: 'Fixing', category: 'started', position: 2 },
+        { name: 'Verifying', category: 'started', position: 3 },
+        { name: 'Fixed', category: 'completed', position: 4 },
+        { name: "Won't Fix", category: 'canceled', position: 5 },
+      ],
+    },
+  ]
+
+  const now = new Date().toISOString()
+
+  const insertWorkflow = db.prepare(`
+    INSERT OR IGNORE INTO ${T.workflows} (id, name, description, is_builtin, created_at, updated_at)
+    VALUES (?, ?, ?, 1, ?, ?)
+  `)
+
+  const insertStatus = db.prepare(`
+    INSERT OR IGNORE INTO ${T.workflow_statuses} (id, workflow_id, name, category, position, color, description, is_default, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  for (const workflow of builtinWorkflows) {
+    insertWorkflow.run(workflow.id, workflow.name, workflow.description, now, now)
+
+    for (const status of workflow.statuses) {
+      const statusId = `${workflow.id}-${status.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`
+      insertStatus.run(
+        statusId,
+        workflow.id,
+        status.name,
+        status.category,
+        status.position,
+        status.color || null,
+        null,
+        status.isDefault ? 1 : 0,
+        now
+      )
+    }
+  }
+
+  // Assign default workflow to any projects without a workflow
+  db.prepare(`
+    UPDATE ${T.projects}
+    SET workflow_id = 'default'
+    WHERE workflow_id IS NULL
+  `).run()
 }
 
 /**
