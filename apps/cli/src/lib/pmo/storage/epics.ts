@@ -17,7 +17,7 @@ export class EpicStorage {
    * Create a new epic.
    */
   async createEpic(projectId: string, epic: Partial<Epic>): Promise<Epic> {
-    const id = epic.id || generateEntityId(this.ctx.db, 'epic', this.ctx.workstreamPrefix)
+    const id = epic.id || generateEntityId(this.ctx.db, 'epic')
     const title = epic.title || 'Untitled Epic'
     const status = epic.status || 'active'
     const now = Date.now()

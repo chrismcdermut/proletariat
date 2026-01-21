@@ -24,11 +24,6 @@ import {
   getOrganizations,
   createOrganization,
 } from '../machine-config.js';
-import {
-  suggestPrefixes,
-  validatePrefix,
-  isPrefixUnique,
-} from './workstream-prefix.js';
 
 export interface HQConfig {
   type: 'hq';
@@ -59,8 +54,6 @@ export interface InitOptions {
   };
   // Organization name for this HQ
   orgName?: string;
-  // Workstream prefix for entity IDs (e.g., 'PLT' for PLT-TKT-001)
-  workstreamPrefix?: string;
 }
 
 /**
@@ -205,68 +198,6 @@ export async function promptForOrganization(): Promise<string> {
   return choice;
 }
 
-/**
- * Prompt user for workstream prefix
- */
-export async function promptForWorkstreamPrefix(
-  workstreamName: string,
-  orgName: string | null
-): Promise<string> {
-  const suggestions = suggestPrefixes(workstreamName);
-
-  // Build choices from suggestions
-  const choices = [
-    ...suggestions.map((prefix, index) => ({
-      name: index === 0 ? `${prefix} (recommended)` : prefix,
-      value: prefix,
-    })),
-  ];
-
-  // Show example IDs
-  const examplePrefix = suggestions[0] || workstreamName.substring(0, 3).toUpperCase();
-  console.log(chalk.gray(`\n  Example IDs: ${examplePrefix}-TKT-001, ${examplePrefix}-EPIC-001\n`));
-
-  const { prefixChoice } = await inquirer.prompt([{
-    type: 'list',
-    name: 'prefixChoice',
-    message: 'Workstream prefix for entity IDs:',
-    choices: [
-      ...choices,
-      new inquirer.Separator(),
-      { name: 'Custom (enter your own)', value: '__custom__' },
-    ],
-    default: suggestions[0],
-  }]);
-
-  let prefix = prefixChoice;
-
-  if (prefixChoice === '__custom__') {
-    const { customPrefix } = await inquirer.prompt([{
-      type: 'input',
-      name: 'customPrefix',
-      message: 'Enter custom prefix (2-4 uppercase letters):',
-      transformer: (input: string) => input.toUpperCase(),
-      validate: (input: string) => {
-        const upper = input.toUpperCase();
-        const validation = validatePrefix(upper);
-        if (!validation.valid) return validation.error!;
-        if (!isPrefixUnique(upper, orgName)) {
-          return `Prefix "${upper}" is already used in this organization`;
-        }
-        return true;
-      },
-    }]);
-    prefix = customPrefix.toUpperCase();
-  }
-
-  // Validate uniqueness for suggested prefixes too
-  if (prefixChoice !== '__custom__' && !isPrefixUnique(prefix, orgName)) {
-    console.log(chalk.yellow(`Prefix "${prefix}" is already in use. Please choose a different one.`));
-    return promptForWorkstreamPrefix(workstreamName, orgName);
-  }
-
-  return prefix;
-}
 
 /**
  * Create the basic HQ directory structure
@@ -310,8 +241,7 @@ export function initializeHQDatabase(hqPath: string, options: InitOptions): void
     hqPath,
     'hq',
     options.hqName,
-    hasPMO,
-    options.workstreamPrefix
+    hasPMO
   );
 
   db.close();

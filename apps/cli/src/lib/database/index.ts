@@ -8,7 +8,6 @@ export interface WorkspaceConfig {
   id: number;
   type: 'hq' | 'workspace';
   workspace_name: string;
-  workstream_prefix: string | null;
   has_pmo: boolean;
   active_theme_id: string | null;
   created_at: string;
@@ -70,7 +69,6 @@ CREATE TABLE IF NOT EXISTS workspace (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   type TEXT NOT NULL CHECK (type IN ('hq', 'workspace')),
   workspace_name TEXT NOT NULL,
-  workstream_prefix TEXT,
   has_pmo BOOLEAN DEFAULT FALSE,
   active_theme_id TEXT,
   created_at TEXT NOT NULL,
@@ -230,8 +228,7 @@ export function createWorkspaceDatabase(
   workspacePath: string,
   type: 'hq' | 'workspace',
   workspaceName: string,
-  hasPMO: boolean = false,
-  workstreamPrefix?: string
+  hasPMO: boolean = false
 ): Database.Database {
   const dbPath = getDatabasePath(workspacePath);
   const configPath = getConfigPath(workspacePath);
@@ -263,9 +260,9 @@ export function createWorkspaceDatabase(
 
   // Insert workspace data (convert boolean to number for SQLite)
   db.prepare(`
-    INSERT INTO workspace (id, type, workspace_name, workstream_prefix, has_pmo, created_at)
-    VALUES (1, ?, ?, ?, ?, ?)
-  `).run(type, workspaceName, workstreamPrefix || null, hasPMO ? 1 : 0, new Date().toISOString());
+    INSERT INTO workspace (id, type, workspace_name, has_pmo, created_at)
+    VALUES (1, ?, ?, ?, ?)
+  `).run(type, workspaceName, hasPMO ? 1 : 0, new Date().toISOString());
 
   return db;
 }
