@@ -306,7 +306,7 @@ export async function promptForAgents(): Promise<string[]> {
  */
 export async function promptForAgentsWithTheme(): Promise<AgentPromptResult> {
   // Explain what staff agents are
-  console.log(chalk.gray('\n  Staff agents are isolated workspaces where AI agents work on tasks.'));
+  console.log(chalk.gray('\n  Staff agents are isolated and persistent workspaces where AI agents work on tasks.'));
   console.log(chalk.gray('  You can add/remove agents anytime with: prlt agent add/remove\n'));
 
   // Build theme choices with preview of names
