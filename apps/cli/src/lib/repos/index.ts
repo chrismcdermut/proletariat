@@ -378,8 +378,10 @@ async function searchForRepositories(): Promise<RepoToAdd[]> {
     return [];
   }
 
-  // Remove duplicates and get repo names
-  const uniqueRepos = [...new Set(foundRepos)];
+  // Remove duplicates and sort alphabetically by repo name
+  const uniqueRepos = [...new Set(foundRepos)].sort((a, b) =>
+    path.basename(a).toLowerCase().localeCompare(path.basename(b).toLowerCase())
+  );
   const repoChoices = uniqueRepos.map(repoPath => ({
     name: `${path.basename(repoPath)} (${repoPath})`,
     value: repoPath
