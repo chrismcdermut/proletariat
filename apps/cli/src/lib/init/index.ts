@@ -95,7 +95,7 @@ export async function promptForHQName(): Promise<string> {
   const { name } = await inquirer.prompt([{
     type: 'input',
     name: 'name',
-    message: 'Workspace name (company, project, or team name recommended):',
+    message: 'HQ name (company, project, or team name):',
     default: defaultName,
     validate: (input) => {
       if (!input.trim()) return 'Name is required';

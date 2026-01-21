@@ -302,111 +302,29 @@ export async function promptForAgents(): Promise<string[]> {
 
 /**
  * Prompt user for agent selection with theme options (returns full result)
+ * Simplified flow: pick theme -> pick count -> randomly select agents
  */
 export async function promptForAgentsWithTheme(): Promise<AgentPromptResult> {
-  const { addAgents } = await inquirer.prompt([{
-    type: 'list',
-    name: 'addAgents',
-    message: 'Add agents now?',
-    choices: [
-      { name: 'Yes, pick from a theme', value: 'theme' },
-      { name: 'Yes, enter custom names', value: 'custom' },
-      { name: 'Yes, create a custom theme', value: 'create-theme' },
-      { name: 'No, I\'ll add agents later', value: 'no' }
-    ],
-    default: 'theme',
-  }]);
-
-  if (addAgents === 'no') {
-    return { agents: [] };
-  }
-
-  if (addAgents === 'custom') {
-    const agents = await promptAgentNames([]);
-    return { agents };
-  }
-
-  if (addAgents === 'create-theme') {
-    // Create a custom theme
-    const { themeName } = await inquirer.prompt([{
-      type: 'input',
-      name: 'themeName',
-      message: 'Theme name (e.g., "Greek Gods", "Star Wars"):',
-      validate: (input: string) => input.trim() ? true : 'Theme name is required'
-    }]);
-
-    // Normalize theme ID
-    const themeId = themeName.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    const displayName = themeName.trim();
-
-    if (themeName.trim() !== themeId) {
-      console.log(chalk.blue(`Theme ID: ${themeId}`));
-    }
-
-    // Prompt for names to add to the theme
-    const { themeNames } = await inquirer.prompt([{
-      type: 'input',
-      name: 'themeNames',
-      message: 'Enter names for this theme (space-separated):',
-      validate: (input: string) => {
-        if (!input.trim()) return 'Please enter at least one name';
-        return true;
-      }
-    }]);
-
-    // Normalize names
-    const rawNames = themeNames.trim().split(/\s+/);
-    const normalizedNames = rawNames.map((n: string) => normalizeAgentName(n)).filter((n: string) => n && isValidAgentName(n));
-
-    if (normalizedNames.length === 0) {
-      console.log(chalk.yellow('No valid names after normalization.'));
-      return { agents: [] };
-    }
-
-    // Show normalized names
-    const changed = rawNames.filter((n: string, i: number) => n !== normalizedNames[i]);
-    if (changed.length > 0) {
-      console.log(chalk.blue('Normalized names:'));
-      rawNames.forEach((n: string, i: number) => {
-        if (n !== normalizedNames[i] && normalizedNames[i]) {
-          console.log(chalk.dim(`   ${n} → ${normalizedNames[i]}`));
-        }
-      });
-    }
-
-    // Now select which agents to create from the theme
-    const { selected } = await inquirer.prompt([{
-      type: 'checkbox',
-      name: 'selected',
-      message: 'Select agents to create now:',
-      choices: normalizedNames.map((name: string) => ({ name, value: name, checked: true })),
-      validate: (input) => input.length > 0 || 'Please select at least one agent'
-    }]);
-
-    return {
-      agents: selected,
-      themeId: themeId,  // Custom theme ID
-      customTheme: {
-        name: themeId,
-        displayName,
-        names: normalizedNames
-      }
-    };
-  }
-
-  // Theme selection mode
-  // Build theme choices
+  // Build theme choices with preview of names
   const themeChoices = BUILTIN_THEMES.map(t => ({
-    name: `${t.displayName} (${t.names.length} names)`,
+    name: `${t.displayName} (${t.names.slice(0, 4).join(', ')}...)`,
     value: t.id
   }));
 
   const { selectedTheme } = await inquirer.prompt([{
     type: 'list',
     name: 'selectedTheme',
-    message: 'Select a theme:',
-    choices: themeChoices
+    message: 'Agent theme:',
+    choices: [
+      ...themeChoices,
+      new inquirer.Separator(),
+      { name: 'Skip (add agents later)', value: 'skip' }
+    ]
   }]);
+
+  if (selectedTheme === 'skip') {
+    return { agents: [] };
+  }
 
   // Get the theme
   const theme = BUILTIN_THEMES.find(t => t.id === selectedTheme);
@@ -414,15 +332,25 @@ export async function promptForAgentsWithTheme(): Promise<AgentPromptResult> {
     return { agents: [] };
   }
 
-  // Select names from the theme
-  const { selected } = await inquirer.prompt([{
-    type: 'checkbox',
-    name: 'selected',
-    message: `Select agents from ${theme.displayName}:`,
-    choices: theme.names.map(name => ({ name, value: name })),
-    pageSize: 15,
-    validate: (input) => input.length > 0 || 'Please select at least one agent'
+  // Ask how many agents
+  const { agentCount } = await inquirer.prompt([{
+    type: 'list',
+    name: 'agentCount',
+    message: 'How many staff agents?',
+    choices: [
+      { name: '3 agents', value: 3 },
+      { name: '5 agents (recommended)', value: 5 },
+      { name: '10 agents', value: 10 },
+      { name: 'All available', value: theme.names.length }
+    ],
+    default: 5
   }]);
+
+  // Randomly select agents from the theme
+  const shuffled = [...theme.names].sort(() => Math.random() - 0.5);
+  const selected = shuffled.slice(0, Math.min(agentCount, theme.names.length));
+
+  console.log(chalk.blue(`Selected agents: ${selected.join(', ')}`));
 
   return { agents: selected, themeId: selectedTheme };
 }
