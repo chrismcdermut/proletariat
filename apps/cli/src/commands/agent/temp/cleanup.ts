@@ -50,9 +50,18 @@ export default class Cleanup extends PMOCommand {
       description: 'Show what would be cleaned without actually doing it',
       default: false,
     }),
+    yes: Flags.boolean({
+      char: 'y',
+      description: 'Skip confirmation prompt',
+      default: false,
+    }),
     force: Flags.boolean({
       char: 'f',
-      description: 'Skip confirmation prompt',
+      description: 'Force cleanup even if there is uncommitted/unpushed work',
+      default: false,
+    }),
+    push: Flags.boolean({
+      description: 'Push unpushed commits before cleanup',
       default: false,
     }),
     json: Flags.boolean({
@@ -88,7 +97,9 @@ export default class Cleanup extends PMOCommand {
     const workspaceInfo = getWorkspaceInfo();
 
     const dryRun = flags['dry-run'];
-    const force = flags.force;
+    const skipConfirm = flags.yes;
+    const forceCleanup = flags.force;
+    const pushFirst = flags.push;
 
     // Determine which agents to clean up
     let agentsToCleanup: string[] = [];
@@ -250,8 +261,8 @@ export default class Cleanup extends PMOCommand {
     ];
     const confirmMessage = `Clean up ${agentsToCleanup.length} agent(s)? This will remove directories, containers, and tmux sessions.`;
 
-    // Confirm unless forced or dry-run
-    if (!force && !dryRun) {
+    // Confirm unless --yes or dry-run
+    if (!skipConfirm && !dryRun) {
       // In JSON mode, output confirmation prompt with context
       if (jsonMode) {
         const promptConfig = buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices);
@@ -308,7 +319,25 @@ export default class Cleanup extends PMOCommand {
       const result = await cleanupAgent(workspaceInfo, agentName, {
         log: jsonMode ? undefined : (msg) => this.log(colors.textMuted(`  ${msg}`)),
         dryRun,
+        force: forceCleanup,
+        pushFirst,
       });
+
+      // Handle blocked by git status
+      if (result.blockedByGit && !jsonMode) {
+        this.log(colors.warning(`\n⚠️  Agent "${agentName}" has unsaved work:`));
+        if (result.gitStatus) {
+          for (const wt of result.gitStatus.worktrees) {
+            if (wt.hasUncommittedChanges) {
+              this.log(colors.textMuted(`  ${wt.repoName}: ${wt.uncommittedFiles.length} uncommitted file(s)`));
+            }
+            if (wt.hasUnpushedCommits) {
+              this.log(colors.textMuted(`  ${wt.repoName}: ${wt.unpushedCount} unpushed commit(s) on ${wt.branch}`));
+            }
+          }
+        }
+        this.log(colors.textMuted(`  Use --push to push first, or --force to cleanup anyway`));
+      }
 
       results.push(result);
     }

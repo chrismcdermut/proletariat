@@ -668,6 +668,26 @@ export interface CleanupOptions {
   log?: (message: string) => void;
   /** If true, only show what would be cleaned without doing it */
   dryRun?: boolean;
+  /** If true, skip git safety checks and force cleanup */
+  force?: boolean;
+  /** If true, push unpushed commits before cleanup */
+  pushFirst?: boolean;
+}
+
+export interface WorktreeGitStatus {
+  worktreePath: string;
+  repoName: string;
+  branch: string;
+  hasUncommittedChanges: boolean;
+  uncommittedFiles: string[];
+  hasUnpushedCommits: boolean;
+  unpushedCount: number;
+}
+
+export interface AgentGitStatus {
+  agentName: string;
+  worktrees: WorktreeGitStatus[];
+  hasUnsavedWork: boolean;
 }
 
 export interface CleanupResult {
@@ -677,6 +697,10 @@ export interface CleanupResult {
   containersRemoved: string[];
   directoriesRemoved: string[];
   errors: string[];
+  /** Git status if cleanup was blocked due to unsaved work */
+  gitStatus?: AgentGitStatus;
+  /** Whether cleanup was blocked due to unsaved work */
+  blockedByGit?: boolean;
 }
 
 /**
@@ -705,6 +729,136 @@ function getAgentContainers(agentDir: string): string[] {
 }
 
 /**
+ * Check git status for all worktrees in an agent directory.
+ * Returns info about uncommitted changes and unpushed commits.
+ */
+export function getAgentGitStatus(
+  workspaceInfo: WorkspaceInfo,
+  agentName: string
+): AgentGitStatus {
+  const agent = workspaceInfo.agents.find(a => a.name === agentName);
+  const agentDir = agent?.type === 'ephemeral'
+    ? path.join(workspaceInfo.path, 'agents', TEMP_AGENTS_DIR, agentName)
+    : path.join(workspaceInfo.path, 'agents', DEFAULT_AGENTS_DIR, agentName);
+
+  const result: AgentGitStatus = {
+    agentName,
+    worktrees: [],
+    hasUnsavedWork: false
+  };
+
+  // Check each repository worktree
+  for (const repo of workspaceInfo.repositories) {
+    const worktreePath = path.join(agentDir, repo.name);
+
+    if (!fs.existsSync(worktreePath)) {
+      continue;
+    }
+
+    const status: WorktreeGitStatus = {
+      worktreePath,
+      repoName: repo.name,
+      branch: '',
+      hasUncommittedChanges: false,
+      uncommittedFiles: [],
+      hasUnpushedCommits: false,
+      unpushedCount: 0
+    };
+
+    try {
+      // Get current branch
+      status.branch = execSync('git rev-parse --abbrev-ref HEAD', {
+        cwd: worktreePath,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe']
+      }).trim();
+
+      // Check for uncommitted changes (staged + unstaged + untracked)
+      const gitStatus = execSync('git status --porcelain', {
+        cwd: worktreePath,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe']
+      }).trim();
+
+      if (gitStatus) {
+        status.hasUncommittedChanges = true;
+        status.uncommittedFiles = gitStatus.split('\n').filter(line => line.trim());
+        result.hasUnsavedWork = true;
+      }
+
+      // Check for unpushed commits
+      try {
+        const unpushed = execSync(`git log @{u}..HEAD --oneline 2>/dev/null || echo ""`, {
+          cwd: worktreePath,
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe']
+        }).trim();
+
+        if (unpushed) {
+          status.hasUnpushedCommits = true;
+          status.unpushedCount = unpushed.split('\n').filter(line => line.trim()).length;
+          result.hasUnsavedWork = true;
+        }
+      } catch {
+        // No upstream tracking branch - check if there are any commits at all
+        try {
+          const hasCommits = execSync('git log --oneline -1', {
+            cwd: worktreePath,
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe']
+          }).trim();
+          if (hasCommits) {
+            // Has commits but no upstream - consider as unpushed
+            status.hasUnpushedCommits = true;
+            status.unpushedCount = 1; // At least one
+            result.hasUnsavedWork = true;
+          }
+        } catch {
+          // No commits at all
+        }
+      }
+    } catch {
+      // Git commands failed - worktree might be corrupted
+    }
+
+    result.worktrees.push(status);
+  }
+
+  return result;
+}
+
+/**
+ * Push all unpushed commits in an agent's worktrees.
+ * Returns true if all pushes succeeded.
+ */
+export function pushAgentWork(
+  workspaceInfo: WorkspaceInfo,
+  agentName: string,
+  log?: (message: string) => void
+): boolean {
+  const gitStatus = getAgentGitStatus(workspaceInfo, agentName);
+  let allSuccess = true;
+
+  for (const worktree of gitStatus.worktrees) {
+    if (worktree.hasUnpushedCommits) {
+      try {
+        log?.(`Pushing ${worktree.unpushedCount} commit(s) from ${worktree.repoName}...`);
+        execSync('git push', {
+          cwd: worktree.worktreePath,
+          stdio: 'pipe'
+        });
+        log?.(`✓ Pushed ${worktree.repoName}`);
+      } catch (error) {
+        log?.(`✗ Failed to push ${worktree.repoName}: ${error}`);
+        allSuccess = false;
+      }
+    }
+  }
+
+  return allSuccess;
+}
+
+/**
  * Clean up a single agent - removes resources but keeps DB record (marked as cleaned)
  */
 export async function cleanupAgent(
@@ -714,6 +868,8 @@ export async function cleanupAgent(
 ): Promise<CleanupResult> {
   const log = options?.log ?? (() => {});
   const dryRun = options?.dryRun ?? false;
+  const force = options?.force ?? false;
+  const pushFirst = options?.pushFirst ?? false;
 
   const result: CleanupResult = {
     agent: agentName,
@@ -730,6 +886,52 @@ export async function cleanupAgent(
     result.success = false;
     result.errors.push(`Agent "${agentName}" not found`);
     return result;
+  }
+
+  // Check for unsaved work (uncommitted changes or unpushed commits)
+  if (!force) {
+    const gitStatus = getAgentGitStatus(workspaceInfo, agentName);
+
+    if (gitStatus.hasUnsavedWork) {
+      // If pushFirst is set, try to push before cleanup
+      if (pushFirst) {
+        log('Pushing unpushed work before cleanup...');
+        const pushed = pushAgentWork(workspaceInfo, agentName, log);
+        if (!pushed) {
+          result.success = false;
+          result.blockedByGit = true;
+          result.gitStatus = gitStatus;
+          result.errors.push('Failed to push some work. Use --force to cleanup anyway.');
+          return result;
+        }
+        // Re-check git status after push
+        const newStatus = getAgentGitStatus(workspaceInfo, agentName);
+        if (newStatus.hasUnsavedWork) {
+          result.success = false;
+          result.blockedByGit = true;
+          result.gitStatus = newStatus;
+          result.errors.push('Agent still has uncommitted changes after push. Commit changes or use --force.');
+          return result;
+        }
+      } else {
+        // Block cleanup - has unsaved work
+        result.success = false;
+        result.blockedByGit = true;
+        result.gitStatus = gitStatus;
+
+        const issues: string[] = [];
+        for (const wt of gitStatus.worktrees) {
+          if (wt.hasUncommittedChanges) {
+            issues.push(`${wt.repoName}: ${wt.uncommittedFiles.length} uncommitted files`);
+          }
+          if (wt.hasUnpushedCommits) {
+            issues.push(`${wt.repoName}: ${wt.unpushedCount} unpushed commits on ${wt.branch}`);
+          }
+        }
+        result.errors.push(`Agent has unsaved work: ${issues.join(', ')}. Use --push to push first or --force to cleanup anyway.`);
+        return result;
+      }
+    }
   }
 
   // Determine agent directory
