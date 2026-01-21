@@ -1001,6 +1001,18 @@ async function runDevcontainerInTmux(
       }
     }
 
+    // Check if tmux is available inside the container
+    try {
+      execSync(`docker exec ${actualContainerId} which tmux`, { stdio: 'pipe' })
+    } catch {
+      return {
+        success: false,
+        error: `tmux is not installed in the devcontainer. ` +
+          `Add 'tmux' to your devcontainer's Dockerfile (e.g., apt-get install -y tmux) ` +
+          `or use the default prlt devcontainer template which includes tmux.`,
+      }
+    }
+
     // Step 1: Start tmux session INSIDE the container (detached)
     // Extract the claude command from the devcontainer command
     const cmdMatch = devcontainerCmd.match(/bash -c '(.+)'$/)
