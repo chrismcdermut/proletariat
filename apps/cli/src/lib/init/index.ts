@@ -123,16 +123,40 @@ export async function promptForHQName(): Promise<string> {
 }
 
 /**
+ * Check if current directory is inside an HQ and return the HQ root path
+ */
+function findContainingHQ(): string | null {
+  let checkDir = process.cwd();
+  while (checkDir !== '/' && checkDir !== path.dirname(checkDir)) {
+    const configPath = path.join(checkDir, '.proletariat', 'config.json');
+    if (fs.existsSync(configPath)) {
+      return checkDir;
+    }
+    checkDir = path.dirname(checkDir);
+  }
+  return null;
+}
+
+/**
  * Prompt user for HQ location
  */
 export async function promptForHQLocation(hqName: string): Promise<string> {
   const inGitRepo = isInGitRepo();
+  const containingHQ = findContainingHQ();
   const folderName = `${hqName}-hq`;
-  
-  // Always suggest creating HQ as sibling if in repo, or subdirectory if not
-  const defaultPath = inGitRepo
-    ? path.join('..', folderName)  // Sibling to repo
-    : `./${folderName}`;            // Subdirectory
+
+  // Determine default path based on context
+  let defaultPath: string;
+  if (containingHQ) {
+    // Inside an HQ - suggest sibling to the HQ
+    defaultPath = path.join(path.dirname(containingHQ), folderName);
+  } else if (inGitRepo) {
+    // Inside a git repo - suggest sibling to repo
+    defaultPath = path.join('..', folderName);
+  } else {
+    // Nowhere special - suggest subdirectory
+    defaultPath = `./${folderName}`;
+  }
 
   while (true) {
     const { location } = await inquirer.prompt([{
