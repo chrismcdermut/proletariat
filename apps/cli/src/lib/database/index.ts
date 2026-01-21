@@ -146,123 +146,25 @@ CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
 `;
 
 /**
- * Migrate existing database to add theme support and ephemeral agent support
+ * Ensure ephemeral agents are correctly typed based on their worktree path or naming pattern
  */
-function migrateToThemeSupport(db: Database.Database): void {
+function ensureEphemeralAgentTypes(db: Database.Database): void {
   // Check if agents table exists
   const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'").get();
   if (!tableExists) {
-    return; // No agents table yet, nothing to migrate
+    return;
   }
 
-  const agentColumns = db.pragma('table_info(agents)') as Array<{ name: string; notnull: number }>;
+  // Agents in temp directory should be ephemeral
+  db.exec("UPDATE agents SET type = 'ephemeral' WHERE worktree_path LIKE 'agents/temp/%' AND type != 'ephemeral'");
 
-  // Check for old 'theme' column (was NOT NULL in old schema)
-  const hasOldTheme = agentColumns.some(c => c.name === 'theme');
-  const hasThemeId = agentColumns.some(c => c.name === 'theme_id');
-  const hasStatus = agentColumns.some(c => c.name === 'status');
-  const hasType = agentColumns.some(c => c.name === 'type');
-  const hasBaseName = agentColumns.some(c => c.name === 'base_name');
-  const hasWorktreePath = agentColumns.some(c => c.name === 'worktree_path');
-
-  // Need to recreate table if we have old 'theme' column (from original schema)
-  // Note: hasStatus should NOT trigger recreation - status is part of the new schema
-  if (hasOldTheme) {
-    // Migrate from old schema to new clean schema
-    // Need to disable foreign keys temporarily for table recreation
-    db.pragma('foreign_keys = OFF');
-
-    // Drop old indexes first
-    db.exec(`
-      DROP INDEX IF EXISTS idx_agents_status;
-      DROP INDEX IF EXISTS idx_agents_theme;
-    `);
-
-    db.exec(`
-      -- Create new agents table with correct schema
-      CREATE TABLE IF NOT EXISTS agents_new (
-        name TEXT PRIMARY KEY,
-        type TEXT NOT NULL DEFAULT 'persistent' CHECK (type IN ('persistent', 'ephemeral')),
-        base_name TEXT,
-        theme_id TEXT,
-        worktree_path TEXT,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
-      );
-
-      -- Copy data from old table (theme column becomes theme_id if it exists)
-      INSERT OR IGNORE INTO agents_new (name, type, theme_id, created_at)
-      SELECT name, 'persistent', ${hasThemeId ? 'theme_id' : 'NULL'}, created_at FROM agents;
-
-      -- Drop old table
-      DROP TABLE agents;
-
-      -- Rename new table
-      ALTER TABLE agents_new RENAME TO agents;
-
-      -- Recreate index
-      CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
-    `);
-
-    // Clean up old themes table if it exists (replaced by agent_themes)
-    db.exec('DROP TABLE IF EXISTS themes;');
-
-    db.pragma('foreign_keys = ON');
-  } else if (!hasThemeId && agentColumns.length > 0) {
-    // Just add theme_id column to existing agents table
-    db.exec('ALTER TABLE agents ADD COLUMN theme_id TEXT REFERENCES agent_themes(id) ON DELETE SET NULL');
-  }
-
-  // Add new columns for ephemeral agent support if they don't exist
-  if (agentColumns.length > 0) {
-    if (!hasType) {
-      db.exec("ALTER TABLE agents ADD COLUMN type TEXT NOT NULL DEFAULT 'persistent'");
-      // Fix existing ephemeral agents that were added before this migration
-      // Agents in agents/temp/ should be marked as ephemeral
-      db.exec("UPDATE agents SET type = 'ephemeral' WHERE worktree_path LIKE 'agents/temp/%'");
-    }
-    if (!hasBaseName) {
-      db.exec('ALTER TABLE agents ADD COLUMN base_name TEXT');
-    }
-    if (!hasWorktreePath) {
-      db.exec('ALTER TABLE agents ADD COLUMN worktree_path TEXT');
-    }
-  }
-
-  // Ensure any agents in temp directory are correctly typed as ephemeral
-  // This handles cases where agents were incorrectly persisted as 'persistent'
-  db.exec("UPDATE agents SET type = 'ephemeral' WHERE worktree_path LIKE 'agents/temp/%' AND type != 'ephemeral'")
-
-  // Also detect ephemeral agents by their naming pattern: adjective-name-number (e.g., blue-khosla-1)
+  // Detect ephemeral agents by naming pattern: adjective-name-number (e.g., blue-khosla-1)
   // Staff agents are single names like 'lecun', 'musk', 'gates'
-  // Pattern: word-word-digit (at least one digit at the end)
   db.exec(`
     UPDATE agents SET type = 'ephemeral'
     WHERE type != 'ephemeral'
     AND name GLOB '*-*-[0-9]*'
-  `)
-
-  // Check if active_theme_id column exists in workspace table
-  const workspaceColumns = db.pragma('table_info(workspace)') as Array<{ name: string }>;
-  const hasActiveThemeId = workspaceColumns.some(c => c.name === 'active_theme_id');
-
-  if (!hasActiveThemeId && workspaceColumns.length > 0) {
-    // Add active_theme_id column to existing workspace table
-    db.exec('ALTER TABLE workspace ADD COLUMN active_theme_id TEXT REFERENCES agent_themes(id) ON DELETE SET NULL');
-  }
-
-  // Add status and cleaned_at columns for cleanup tracking (new in this version)
-  // Re-check columns since they may have changed after migration above
-  const currentAgentColumns = db.pragma('table_info(agents)') as Array<{ name: string }>;
-  const hasStatusColumn = currentAgentColumns.some(c => c.name === 'status');
-  const hasCleanedAt = currentAgentColumns.some(c => c.name === 'cleaned_at');
-
-  if (!hasStatusColumn && currentAgentColumns.length > 0) {
-    db.exec("ALTER TABLE agents ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
-  }
-  if (!hasCleanedAt && currentAgentColumns.length > 0) {
-    db.exec('ALTER TABLE agents ADD COLUMN cleaned_at TEXT');
-  }
+  `);
 }
 
 /**
@@ -292,10 +194,10 @@ export function openWorkspaceDatabase(workspacePath: string): Database.Database 
   const db = new Database(dbPath);
   db.pragma('foreign_keys = ON');
 
-  // Run migrations for theme support
-  migrateToThemeSupport(db);
+  // Ensure ephemeral agents are correctly typed
+  ensureEphemeralAgentTypes(db);
 
-  // Ensure theme tables exist (for older databases)
+  // Ensure theme tables exist
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_themes (
       id TEXT PRIMARY KEY,
