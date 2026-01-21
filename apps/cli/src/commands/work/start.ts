@@ -386,8 +386,9 @@ export default class WorkStart extends PMOCommand {
         // Note: We no longer auto-reuse ticket.assignee to enable parallel work
         // (e.g., groom + implement, or multiple implementations on same ticket)
         // No agent specified - default to creating ephemeral agent (new behavior)
-        // Or prompt for agent selection if pre-registered agents exist
-        if (workspaceInfo.agents.length > 0) {
+        // Or prompt for agent selection if staff agents exist
+        const activeStaffAgents = workspaceInfo.agents.filter(a => a.type === 'persistent' && a.status === 'active')
+        if (activeStaffAgents.length > 0) {
           // Get list of busy agents (already running something)
           const busyAgentNames = new Set<string>()
           for (const agent of workspaceInfo.agents) {
@@ -404,8 +405,10 @@ export default class WorkStart extends PMOCommand {
           agentChoices.push({ name: 'Create new ephemeral agent (recommended)', value: '__ephemeral__' })
           agentChoices.push(new inquirer.Separator())
 
-          const availableAgents = workspaceInfo.agents.filter(a => !busyAgentNames.has(a.name))
-          const busyAgents = workspaceInfo.agents.filter(a => busyAgentNames.has(a.name))
+          // Only show staff agents (persistent) - ephemeral agents are single-use
+          const staffAgents = workspaceInfo.agents.filter(a => a.type === 'persistent' && a.status === 'active')
+          const availableAgents = staffAgents.filter(a => !busyAgentNames.has(a.name))
+          const busyAgents = staffAgents.filter(a => busyAgentNames.has(a.name))
 
           if (availableAgents.length > 0) {
             agentChoices.push(new inquirer.Separator('── Available Staff Agents ──'))
