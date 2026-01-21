@@ -53,8 +53,8 @@ export default class Agent extends PMOCommand {
       { id: 'temp', name: 'Manage temp agents', command: 'prlt agent temp --json' },
       { id: 'themes', name: 'Manage themes', command: 'prlt agent themes --json' },
       { id: 'shell', name: 'Open shell', command: 'prlt agent shell --json' },
-      { id: 'restart', name: 'Restart', command: 'prlt agent restart' },
-      { id: 'rebuild', name: 'Rebuild', command: 'prlt agent rebuild' },
+      { id: 'restart', name: 'Restart', command: 'prlt agent restart --json' },
+      { id: 'rebuild', name: 'Rebuild', command: 'prlt agent rebuild --json' },
       { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'What would you like to do?';
