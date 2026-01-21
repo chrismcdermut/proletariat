@@ -911,10 +911,10 @@ export default class WorkStart extends PMOCommand {
             name: 'permissionMode',
             message: `Permission mode for Claude Code${containerNote}:`,
             choices: [
-              { name: '🔒 safe   - Requires approval for dangerous operations (recommended)', value: 'safe' },
-              { name: '⚠️  danger - Skip permission checks (--dangerously-skip-permissions)', value: 'danger' },
+              { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
+              { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
             ],
-            default: 'safe',
+            default: 'danger',
           },
         ])
         sandboxed = permissionMode === 'safe'

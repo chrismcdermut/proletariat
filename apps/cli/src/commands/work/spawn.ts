@@ -741,10 +741,10 @@ export default class WorkSpawn extends PMOCommand {
               name: 'permissionMode',
               message: 'Permission mode for Claude Code:',
               choices: [
+                { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
                 { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
-                { name: '⚠️  danger - Skip permission checks', value: 'danger' },
               ],
-              default: 'safe',
+              default: 'danger',
             },
           ])
           batchSkipPermissions = permissionMode === 'danger'
