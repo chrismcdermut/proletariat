@@ -5,12 +5,12 @@ import {
 } from './database/index.js';
 
 /**
- * Default workspace directory for agents
+ * Default workspace directory for persistent agents (fallback if no theme)
  */
 export const DEFAULT_AGENTS_DIR = 'staff';
 
 /**
- * Directory for ephemeral/temp agents
+ * Default directory for ephemeral agents (fallback if no theme)
  */
 export const TEMP_AGENTS_DIR = 'temp';
 
@@ -99,6 +99,10 @@ export interface BuiltinThemeDefinition {
   displayName: string;
   description: string;
   names: string[];
+  /** Directory for persistent/staff agents (default: 'staff') */
+  persistentDir: string;
+  /** Directory for ephemeral/temp agents (default: 'temp') */
+  ephemeralDir: string;
 }
 
 export const BUILTIN_THEMES: BuiltinThemeDefinition[] = [
@@ -107,6 +111,8 @@ export const BUILTIN_THEMES: BuiltinThemeDefinition[] = [
     name: 'billionaires',
     displayName: 'Billionaires & Tech Elite',
     description: 'The ultra-wealthy work for you',
+    persistentDir: 'staff',
+    ephemeralDir: 'temp',
     names: [
       // Tech founders & executives
       'altman', 'andreesen', 'bezos', 'branson', 'brin', 'buffett',
@@ -130,6 +136,8 @@ export const BUILTIN_THEMES: BuiltinThemeDefinition[] = [
     name: 'toyotas',
     displayName: 'Toyota Garage',
     description: 'Reliable workhorses for your project',
+    persistentDir: 'garage',
+    ephemeralDir: 'pit',
     names: [
       // Classic & current models
       '4runner', 'avalon', 'camry', 'celica', 'corolla', 'cressida',
@@ -152,6 +160,8 @@ export const BUILTIN_THEMES: BuiltinThemeDefinition[] = [
     name: 'companies',
     displayName: 'Company Portfolio',
     description: 'Your corporate portfolio',
+    persistentDir: 'portfolio',
+    ephemeralDir: 'incubator',
     names: [
       // Major tech companies
       'adobe', 'airbnb', 'amazon', 'apple', 'atlassian', 'cisco',
@@ -211,6 +221,36 @@ export function getBuiltinTheme(themeId: string): BuiltinThemeDefinition | undef
  */
 export function isBuiltinTheme(themeId: string): boolean {
   return BUILTIN_THEMES.some(t => t.id === themeId);
+}
+
+/**
+ * Get the persistent agents directory name for a theme
+ * Falls back to DEFAULT_AGENTS_DIR if theme not found
+ */
+export function getThemePersistentDir(themeId?: string): string {
+  if (!themeId) return DEFAULT_AGENTS_DIR;
+  const theme = BUILTIN_THEMES.find(t => t.id === themeId);
+  return theme?.persistentDir ?? DEFAULT_AGENTS_DIR;
+}
+
+/**
+ * Get the ephemeral agents directory name for a theme
+ * Falls back to TEMP_AGENTS_DIR if theme not found
+ */
+export function getThemeEphemeralDir(themeId?: string): string {
+  if (!themeId) return TEMP_AGENTS_DIR;
+  const theme = BUILTIN_THEMES.find(t => t.id === themeId);
+  return theme?.ephemeralDir ?? TEMP_AGENTS_DIR;
+}
+
+/**
+ * Get both directory names for a theme
+ */
+export function getThemeDirectories(themeId?: string): { persistentDir: string; ephemeralDir: string } {
+  return {
+    persistentDir: getThemePersistentDir(themeId),
+    ephemeralDir: getThemeEphemeralDir(themeId),
+  };
 }
 
 /**

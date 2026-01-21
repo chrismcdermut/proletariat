@@ -21,7 +21,6 @@ import {
   createMetadata,
   buildPromptConfig,
 } from '../../lib/prompt-json.js'
-import { TEMP_AGENTS_DIR } from '../../lib/themes.js'
 
 export default class WorkSpawn extends PMOCommand {
   static description = 'Spawn work for multiple tickets by column (batch mode)'

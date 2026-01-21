@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { DEFAULT_AGENTS_DIR } from '../themes.js';
+import { getThemePersistentDir } from '../themes.js';
 import { PMO_SCHEMA_SQL } from '../pmo/schema.js';
 
 export interface WorkspaceConfig {
@@ -400,6 +400,10 @@ export function addAgentsToDatabase(workspacePath: string, agentNames: string[],
   // Get all repos for this workspace
   const repos = db.prepare('SELECT name FROM repositories').all() as { name: string }[];
 
+  // Determine the effective theme ID (provided or active theme)
+  const effectiveThemeId = themeId || workspace.active_theme_id || undefined;
+  const persistentDir = getThemePersistentDir(effectiveThemeId);
+
   const transaction = db.transaction(() => {
     for (const agentName of agentNames) {
       // Skip if agent already exists (case-insensitive check)
@@ -412,16 +416,16 @@ export function addAgentsToDatabase(workspacePath: string, agentNames: string[],
 
       // Determine worktree path for the agent
       const agentWorktreePath = workspace.type === 'hq'
-        ? `agents/${DEFAULT_AGENTS_DIR}/${agentName}`
+        ? `agents/${persistentDir}/${agentName}`
         : agentName;
 
       // Add agent (persistent type for manually added agents)
-      insertAgent.run(agentName, 'persistent', null, themeId || null, agentWorktreePath, now);
+      insertAgent.run(agentName, 'persistent', null, effectiveThemeId || null, agentWorktreePath, now);
 
       // Add worktrees for all repos
       for (const repo of repos) {
         const worktreePath = workspace.type === 'hq'
-          ? `agents/${DEFAULT_AGENTS_DIR}/${agentName}/${repo.name}`
+          ? `agents/${persistentDir}/${agentName}/${repo.name}`
           : `${agentName}/${repo.name}`;
 
         insertWorktree.run(

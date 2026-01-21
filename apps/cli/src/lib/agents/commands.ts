@@ -21,13 +21,13 @@ import {
   Repository
 } from '../database/index.js';
 import {
-  DEFAULT_AGENTS_DIR,
-  TEMP_AGENTS_DIR,
   isValidAgentName,
   getSuggestedAgentNames,
   generateEphemeralAgentName,
   isEphemeralAgentName,
-  GenerateEphemeralNameOptions
+  GenerateEphemeralNameOptions,
+  getThemePersistentDir,
+  getThemeEphemeralDir,
 } from '../themes.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
 import { getPMOContext } from '../pmo/index.js';
@@ -49,6 +49,12 @@ export interface WorkspaceInfo {
   agents: Agent[];
   repositories: Repository[];
   agentsPath: string;
+  /** Active theme ID (if any) */
+  activeThemeId: string | null;
+  /** Directory name for persistent agents (e.g., 'staff', 'garage', 'portfolio') */
+  persistentAgentsDir: string;
+  /** Directory name for ephemeral agents (e.g., 'temp', 'pit', 'incubator') */
+  ephemeralAgentsDir: string;
 }
 
 /**
@@ -71,9 +77,12 @@ export function getWorkspaceInfo(): WorkspaceInfo {
           syncAgentsWithDisk(hqPath);
           const agents = getWorkspaceAgents(hqPath);
           const repositories = getWorkspaceRepositories(hqPath);
+          const activeTheme = getActiveTheme(hqPath);
+          const persistentAgentsDir = getThemePersistentDir(activeTheme?.id);
+          const ephemeralAgentsDir = getThemeEphemeralDir(activeTheme?.id);
 
           const agentsPath = config.type === 'hq'
-            ? path.join(hqPath, 'agents', DEFAULT_AGENTS_DIR)
+            ? path.join(hqPath, 'agents', persistentAgentsDir)
             : hqPath;
 
           return {
@@ -83,7 +92,10 @@ export function getWorkspaceInfo(): WorkspaceInfo {
             hasPMO: config.has_pmo,
             agents,
             repositories,
-            agentsPath
+            agentsPath,
+            activeThemeId: activeTheme?.id ?? null,
+            persistentAgentsDir,
+            ephemeralAgentsDir,
           };
         }
       } catch {
@@ -105,9 +117,12 @@ export function getWorkspaceInfo(): WorkspaceInfo {
           syncAgentsWithDisk(currentDir);
           const agents = getWorkspaceAgents(currentDir);
           const repositories = getWorkspaceRepositories(currentDir);
+          const activeTheme = getActiveTheme(currentDir);
+          const persistentAgentsDir = getThemePersistentDir(activeTheme?.id);
+          const ephemeralAgentsDir = getThemeEphemeralDir(activeTheme?.id);
 
           const agentsPath = config.type === 'hq'
-            ? path.join(currentDir, 'agents', DEFAULT_AGENTS_DIR)
+            ? path.join(currentDir, 'agents', persistentAgentsDir)
             : currentDir;
 
           return {
@@ -117,7 +132,10 @@ export function getWorkspaceInfo(): WorkspaceInfo {
             hasPMO: config.has_pmo,
             agents,
             repositories,
-            agentsPath
+            agentsPath,
+            activeThemeId: activeTheme?.id ?? null,
+            persistentAgentsDir,
+            ephemeralAgentsDir,
           };
         }
       } catch {
@@ -485,15 +503,17 @@ export async function createEphemeralAgent(
     ...Array.from(getEphemeralAgentNames(workspaceInfo.path))
   ]);
 
-  const tempAgentsBasePath = path.join(workspaceInfo.path, 'agents', TEMP_AGENTS_DIR);
   const log = options?.log;
 
   // Get theme: use provided themeId, or fall back to workspace's active theme
   let themeId = options?.themeId;
   if (!themeId) {
-    const activeTheme = getActiveTheme(workspaceInfo.path);
-    themeId = activeTheme?.id;
+    themeId = workspaceInfo.activeThemeId ?? undefined;
   }
+
+  // Use theme-specific ephemeral directory
+  const ephemeralDir = themeId ? getThemeEphemeralDir(themeId) : workspaceInfo.ephemeralAgentsDir;
+  const tempAgentsBasePath = path.join(workspaceInfo.path, 'agents', ephemeralDir);
 
   // Create a conflict checker for external resources (tmux sessions, directories)
   const checkExternalConflict = (candidateName: string): { conflict: boolean; reason?: string } => {
@@ -743,8 +763,8 @@ export function getAgentGitStatus(
 ): AgentGitStatus {
   const agent = workspaceInfo.agents.find(a => a.name === agentName);
   const agentDir = agent?.type === 'ephemeral'
-    ? path.join(workspaceInfo.path, 'agents', TEMP_AGENTS_DIR, agentName)
-    : path.join(workspaceInfo.path, 'agents', DEFAULT_AGENTS_DIR, agentName);
+    ? path.join(workspaceInfo.path, 'agents', workspaceInfo.ephemeralAgentsDir, agentName)
+    : path.join(workspaceInfo.path, 'agents', workspaceInfo.persistentAgentsDir, agentName);
 
   const result: AgentGitStatus = {
     agentName,
@@ -941,8 +961,8 @@ export async function cleanupAgent(
 
   // Determine agent directory
   const agentDir = agent.type === 'ephemeral'
-    ? path.join(workspaceInfo.path, 'agents', TEMP_AGENTS_DIR, agentName)
-    : path.join(workspaceInfo.path, 'agents', DEFAULT_AGENTS_DIR, agentName);
+    ? path.join(workspaceInfo.path, 'agents', workspaceInfo.ephemeralAgentsDir, agentName)
+    : path.join(workspaceInfo.path, 'agents', workspaceInfo.persistentAgentsDir, agentName);
 
   // 1. Kill tmux sessions for this agent
   const tmuxSessions = getAgentTmuxSessions(agentName);

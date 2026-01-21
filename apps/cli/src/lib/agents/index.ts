@@ -3,8 +3,8 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { DEFAULT_AGENTS_DIR, isValidAgentName, getSuggestedAgentNames, normalizeAgentName, BUILTIN_THEMES } from '../themes.js';
-import { getWorkspaceRepositories } from '../database/index.js';
+import { isValidAgentName, getSuggestedAgentNames, normalizeAgentName, BUILTIN_THEMES, getThemePersistentDir } from '../themes.js';
+import { getWorkspaceRepositories, getActiveTheme } from '../database/index.js';
 import { styles } from '../styles.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
 
@@ -455,8 +455,10 @@ export async function addAgentsToHQ(
     return;
   }
 
-  // Create worktrees
-  const workspacePath = path.join(hqPath, 'agents', DEFAULT_AGENTS_DIR);
+  // Create worktrees (use theme-specific directory)
+  const activeTheme = getActiveTheme(hqPath);
+  const persistentDir = getThemePersistentDir(activeTheme?.id);
+  const workspacePath = path.join(hqPath, 'agents', persistentDir);
   await createAgentWorktrees(workspacePath, newAgents, hqPath);
 
   // Add agents to database
