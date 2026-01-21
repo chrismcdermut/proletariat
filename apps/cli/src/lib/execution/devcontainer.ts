@@ -120,13 +120,16 @@ export function generateDockerfile(options: DevcontainerOptions): string {
 
   return `FROM node:20
 
+# Ensure we run as root for apt-get and system setup
+USER root
+
 ARG TZ=${timezone}
 ENV TZ=\${TZ}
 ENV DEVCONTAINER=true
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \\
-    less git git-lfs procps sudo fzf zsh man-db unzip gnupg2 gh \\
+    less git git-lfs procps sudo fzf zsh man-db unzip gnupg2 gh tmux \\
     iptables ipset iproute2 dnsutils jq nano vim \\
     && rm -rf /var/lib/apt/lists/* \\
     && git lfs install

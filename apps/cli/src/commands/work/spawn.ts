@@ -4,7 +4,12 @@ import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
-import { getWorkspaceInfo } from '../../lib/agents/commands.js'
+import {
+  getWorkspaceInfo,
+  createEphemeralAgent,
+  getTicketTmuxSession,
+  killTmuxSession
+} from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
@@ -24,8 +29,8 @@ export default class WorkSpawn extends PMOCommand {
 
   static examples = [
     '<%= config.bin %> <%= command.id %>                    # Interactive: All or Many',
-    '<%= config.bin %> <%= command.id %> --all              # All unassigned in selected column',
-    '<%= config.bin %> <%= command.id %> --column Backlog   # All unassigned in Backlog',
+    '<%= config.bin %> <%= command.id %> --all              # All tickets in selected column',
+    '<%= config.bin %> <%= command.id %> --column Backlog   # All tickets in Backlog',
     '<%= config.bin %> <%= command.id %> --many             # Multi-select specific tickets',
     '<%= config.bin %> <%= command.id %> TKT-001 TKT-002    # Spawn specific tickets by ID',
     '<%= config.bin %> <%= command.id %> --dry-run          # Preview without executing',
@@ -44,7 +49,7 @@ export default class WorkSpawn extends PMOCommand {
     }),
     all: Flags.boolean({
       char: 'a',
-      description: 'Spawn all unassigned tickets in a column',
+      description: 'Spawn all tickets tickets in a column',
       default: false,
     }),
     many: Flags.boolean({
@@ -170,33 +175,25 @@ export default class WorkSpawn extends PMOCommand {
         return handleError('NO_COLUMNS', 'No columns found on the board.')
       }
 
-      // Get all tickets
+      // Get all tickets (no assignee filter - show ALL tickets per ticket requirements)
       const allTickets = await this.storage.listTickets(projectId)
-      const unassignedTickets = allTickets.filter(t => !t.assignee)
 
-      if (unassignedTickets.length === 0) {
+      if (allTickets.length === 0) {
         db.close()
         if (jsonMode) {
           outputErrorAsJson(
-            'NO_UNASSIGNED_TICKETS',
-            'No unassigned tickets to spawn.',
+            'NO_TICKETS',
+            'No tickets found to spawn.',
             createMetadata('work spawn', flags)
           )
           return
         }
-        this.log(styles.muted('No unassigned tickets to spawn.'))
+        this.log(styles.muted('No tickets found to spawn.'))
         return
       }
 
-      // Get available agents
-      const busyAgentNames = new Set<string>()
-      for (const agent of workspaceInfo.agents) {
-        const runningExecutions = executionStorage.getAgentRunningExecutions(agent.name)
-        if (runningExecutions.length > 0) {
-          busyAgentNames.add(agent.name)
-        }
-      }
-      const availableAgents = workspaceInfo.agents.filter(a => !busyAgentNames.has(a.name))
+      // Note: With ephemeral agents, we no longer need to check for available pre-registered agents
+      // Agents are created on-demand when spawning
 
       // Determine spawn mode: All, Many, or Args (positional ticket IDs)
       let spawnMode: 'all' | 'many' | 'args' = 'all'
@@ -217,7 +214,7 @@ export default class WorkSpawn extends PMOCommand {
               'mode',
               'How would you like to spawn work?',
               [
-                { name: 'All - Spawn all unassigned tickets in a column', value: 'all' },
+                { name: 'All - Spawn all tickets tickets in a column', value: 'all' },
                 { name: 'Many - Select specific tickets to spawn', value: 'many' },
               ]
             ),
@@ -233,7 +230,7 @@ export default class WorkSpawn extends PMOCommand {
             name: 'mode',
             message: 'How would you like to spawn work?',
             choices: [
-              { name: '📦 All    - Spawn all unassigned tickets in a column', value: 'all' },
+              { name: '📦 All    - Spawn all tickets tickets in a column', value: 'all' },
               { name: '✅ Many   - Select specific tickets to spawn', value: 'many' },
             ],
           },
@@ -241,7 +238,7 @@ export default class WorkSpawn extends PMOCommand {
         spawnMode = mode
       }
 
-      let ticketsToSpawn: typeof unassignedTickets = []
+      let ticketsToSpawn: typeof allTickets = []
 
       if (spawnMode === 'args') {
         // ARGS MODE: Spawn specific tickets by ID
@@ -284,15 +281,15 @@ export default class WorkSpawn extends PMOCommand {
         this.log(styles.muted(`Tickets: ${ticketsToSpawn.map(t => t.id).join(', ')}`))
 
       } else if (spawnMode === 'all') {
-        // ALL MODE: Column picker, then spawn all unassigned in that column
+        // ALL MODE: Column picker, then spawn all tickets in that column
         let targetColumn = flags.column
 
         if (!targetColumn) {
           // Show columns with ticket counts
           const columnChoices = columnNames.map(name => {
-            const count = unassignedTickets.filter(t => t.statusName === name).length
+            const count = allTickets.filter(t => t.statusName === name).length
             return {
-              name: `${name} (${count} unassigned)`,
+              name: `${name} (${count} tickets)`,
               value: name,
             }
           })
@@ -303,7 +300,7 @@ export default class WorkSpawn extends PMOCommand {
               buildPromptConfig(
                 'list',
                 'selectedColumn',
-                'Select column to spawn all unassigned tickets from:',
+                'Select column to spawn all tickets tickets from:',
                 columnChoices
               ),
               createMetadata('work spawn', flags)
@@ -316,7 +313,7 @@ export default class WorkSpawn extends PMOCommand {
             {
               type: 'list',
               name: 'selectedColumn',
-              message: 'Select column to spawn all unassigned tickets from:',
+              message: 'Select column to spawn all tickets tickets from:',
               choices: columnChoices,
             },
           ])
@@ -336,19 +333,19 @@ export default class WorkSpawn extends PMOCommand {
           )
         }
 
-        ticketsToSpawn = unassignedTickets.filter(t => t.statusName === matchedColumn)
+        ticketsToSpawn = allTickets.filter(t => t.statusName === matchedColumn)
 
         if (ticketsToSpawn.length === 0) {
           db.close()
           if (jsonMode) {
             outputErrorAsJson(
               'NO_TICKETS_IN_COLUMN',
-              `No unassigned tickets in column "${matchedColumn}".`,
+              `No tickets tickets in column "${matchedColumn}".`,
               createMetadata('work spawn', flags)
             )
             return
           }
-          this.log(styles.muted(`No unassigned tickets in column "${matchedColumn}".`))
+          this.log(styles.muted(`No tickets tickets in column "${matchedColumn}".`))
           return
         }
 
@@ -361,8 +358,8 @@ export default class WorkSpawn extends PMOCommand {
         // In JSON mode with --many, output the ticket selection prompt directly
         // (skip column selection for simplicity - show all tickets)
         if (jsonMode) {
-          // Build choices from all unassigned tickets
-          const ticketChoices = unassignedTickets.map(ticket => {
+          // Build choices from all tickets tickets
+          const ticketChoices = allTickets.map(ticket => {
             const priority = ticket.priority ? `[${ticket.priority}] ` : ''
             return {
               name: `${priority}${ticket.id} - ${ticket.title} (${ticket.statusName || 'No Status'})`,
@@ -388,9 +385,9 @@ export default class WorkSpawn extends PMOCommand {
           { name: '🌐 All columns (select from anywhere)', value: '__ALL__' },
         ]
         for (const name of columnNames) {
-          const count = unassignedTickets.filter(t => t.statusName === name).length
+          const count = allTickets.filter(t => t.statusName === name).length
           columnChoices.push({
-            name: count > 0 ? `${name} (${count} unassigned)` : `${name} (0)`,
+            name: count > 0 ? `${name} (${count} tickets)` : `${name} (0)`,
             value: name,
           })
         }
@@ -406,18 +403,18 @@ export default class WorkSpawn extends PMOCommand {
 
         // Filter tickets based on column selection
         const ticketsForSelection = manyColumn === '__ALL__'
-          ? unassignedTickets
-          : unassignedTickets.filter(t => t.statusName === manyColumn)
+          ? allTickets
+          : allTickets.filter(t => t.statusName === manyColumn)
 
         if (ticketsForSelection.length === 0) {
           db.close()
-          this.log(styles.muted('No unassigned tickets in that column.'))
+          this.log(styles.muted('No tickets tickets in that column.'))
           return
         }
 
         // Group tickets by priority for display
         const PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3', 'None']
-        const ticketsByPriority = new Map<string, typeof unassignedTickets>()
+        const ticketsByPriority = new Map<string, typeof allTickets>()
         for (const priority of PRIORITY_ORDER) {
           ticketsByPriority.set(priority, [])
         }
@@ -459,7 +456,7 @@ export default class WorkSpawn extends PMOCommand {
           },
         ])
 
-        ticketsToSpawn = unassignedTickets.filter(t => selectedTicketIds.includes(t.id))
+        ticketsToSpawn = allTickets.filter(t => selectedTicketIds.includes(t.id))
 
         this.log('')
         this.log(styles.header(`🚀 Spawn Many: ${ticketsToSpawn.length} tickets`))
@@ -472,126 +469,86 @@ export default class WorkSpawn extends PMOCommand {
 
       this.log('')
 
-      // Check agent availability
-      if (availableAgents.length === 0) {
-        db.close()
-        this.error(
-          'No available agents. All agents are busy with other work.\n' +
-          'Use "prlt agent add" to add more agents, or wait for current work to complete.'
-        )
+      // Note: With ephemeral agents, we don't need to check availability
+      // Each ticket will get its own ephemeral agent created on-demand
+
+      // Check for tickets with existing tmux sessions (active work)
+      const ticketsWithActiveSessions: Array<{ ticketId: string; sessionName: string; agent: string }> = []
+      const ticketsToProcess: typeof ticketsToSpawn = []
+
+      for (const ticket of ticketsToSpawn) {
+        const session = getTicketTmuxSession(ticket.id)
+        if (session) {
+          ticketsWithActiveSessions.push({
+            ticketId: ticket.id,
+            sessionName: session.sessionName,
+            agent: session.agent
+          })
+        } else {
+          ticketsToProcess.push(ticket)
+        }
       }
 
-      // Warn if more tickets than agents
-      if (ticketsToSpawn.length > availableAgents.length) {
-        this.log(styles.warning(`⚠️  ${ticketsToSpawn.length} tickets selected but only ${availableAgents.length} agents available.`))
-        this.log(styles.muted(`   Only ${availableAgents.length} tickets will be spawned. Add more agents with "prlt agent add".`))
+      // Handle tickets with active sessions
+      if (ticketsWithActiveSessions.length > 0 && !jsonMode) {
+        this.log(styles.warning(`Found ${ticketsWithActiveSessions.length} ticket(s) with active tmux sessions:`))
+        for (const { ticketId, agent } of ticketsWithActiveSessions) {
+          this.log(styles.muted(`  ${ticketId} → ${agent}`))
+        }
         this.log('')
 
-        const { proceed } = await inquirer.prompt([
+        const { sessionAction } = await inquirer.prompt([
           {
             type: 'list',
-            name: 'proceed',
-            message: `Spawn ${availableAgents.length} tickets now? (${ticketsToSpawn.length - availableAgents.length} will remain unassigned)`,
+            name: 'sessionAction',
+            message: 'What would you like to do with these tickets?',
             choices: [
-              { name: 'Yes', value: true },
-              { name: 'No', value: false },
+              { name: 'Skip them (only spawn tickets without active sessions)', value: 'skip' },
+              { name: 'Kill sessions and respawn with new agents', value: 'kill' },
+              { name: 'Cancel', value: 'cancel' },
             ],
           },
         ])
 
-        if (!proceed) {
+        if (sessionAction === 'cancel') {
           db.close()
           this.log(styles.muted('Cancelled.'))
           return
         }
 
-        // Limit to available agents
-        ticketsToSpawn = ticketsToSpawn.slice(0, availableAgents.length)
-      }
-
-      this.log(styles.muted(`Available agents: ${availableAgents.map(a => a.name).join(', ')}`))
-      this.log(styles.muted(`Tickets to spawn: ${ticketsToSpawn.map(t => t.id).join(', ')}`))
-      this.log('')
-
-      // Confirm before batch spawning (unless --yes flag is set)
-      if (!flags.yes) {
-        const { confirm } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'confirm',
-            message: `Spawn ${ticketsToSpawn.length} tickets using ${availableAgents.length} available agents?`,
-            choices: [
-              { name: 'Yes', value: true },
-              { name: 'No', value: false },
-            ],
-          },
-        ])
-
-        if (!confirm) {
-          db.close()
-          this.log(styles.muted('Cancelled.'))
-          return
-        }
-      }
-
-      // Assign tickets to agents based on strategy
-      const assignments: Array<{ ticket: typeof ticketsToSpawn[0]; agent: typeof availableAgents[0] }> = []
-
-      // Track how many tickets each agent is assigned (for least-busy)
-      const agentLoad = new Map<string, number>()
-      for (const agent of availableAgents) {
-        const runningCount = executionStorage.getAgentRunningExecutions(agent.name).length
-        agentLoad.set(agent.name, runningCount)
-      }
-
-      for (let i = 0; i < ticketsToSpawn.length; i++) {
-        let agent: typeof availableAgents[0]
-
-        switch (flags.strategy) {
-          case 'least-busy': {
-            // Pick the agent with the fewest running executions
-            let minLoad = Infinity
-            let leastBusyAgent = availableAgents[0]
-            for (const a of availableAgents) {
-              const load = agentLoad.get(a.name) || 0
-              if (load < minLoad) {
-                minLoad = load
-                leastBusyAgent = a
-              }
+        if (sessionAction === 'kill') {
+          // Kill existing sessions and add those tickets back to process list
+          for (const { ticketId, sessionName } of ticketsWithActiveSessions) {
+            killTmuxSession(sessionName)
+            const ticket = ticketsToSpawn.find(t => t.id === ticketId)
+            if (ticket) {
+              ticketsToProcess.push(ticket)
             }
-            agent = leastBusyAgent
-            // Increment load for next iteration
-            agentLoad.set(agent.name, (agentLoad.get(agent.name) || 0) + 1)
-            break
           }
-          case 'random': {
-            // Pick a random agent
-            agent = availableAgents[Math.floor(Math.random() * availableAgents.length)]
-            break
-          }
-          case 'round-robin':
-          default: {
-            // Distribute evenly across agents
-            agent = availableAgents[i % availableAgents.length]
-            break
-          }
+          this.log(styles.success(`Killed ${ticketsWithActiveSessions.length} session(s)`))
         }
-
-        assignments.push({ ticket: ticketsToSpawn[i], agent })
       }
 
-      // Show assignment plan
-      this.log(styles.muted(`Strategy: ${flags.strategy}`))
-      this.log(styles.muted('Assignment plan:'))
-      for (const { ticket, agent } of assignments) {
-        this.log(styles.muted(`  ${ticket.id} → ${agent.name}`))
+      // Update ticketsToSpawn to only include tickets we'll process
+      ticketsToSpawn = ticketsToProcess
+
+      if (ticketsToSpawn.length === 0) {
+        db.close()
+        this.log(styles.muted('No tickets to spawn (all have active sessions).'))
+        return
       }
+
+      this.log(styles.muted(`Tickets: ${ticketsToSpawn.map(t => t.id).join(', ')}`))
+      this.log(styles.muted(`Agents:  Ephemeral (unique per ticket)`))
       this.log('')
+
+      // Note: Removed redundant confirmation - user already selected tickets
+      // Use --dry-run to preview without executing
 
       // Dry run - just show what would happen
       if (flags['dry-run']) {
         db.close()
-        this.log(styles.success(`Dry run complete: would spawn ${assignments.length} tickets`))
+        this.log(styles.success(`Dry run complete: would spawn ${ticketsToSpawn.length} tickets with ephemeral agents`))
         return
       }
 
@@ -606,11 +563,9 @@ export default class WorkSpawn extends PMOCommand {
       // Track display mode separately for devcontainer (needs to be outside the if block)
       let batchDisplayMode: string | undefined
 
-      // Check if any agent has devcontainer config
-      const hasDevcontainer = availableAgents.some(agent => {
-        const agentDir = path.join(workspaceInfo.agentsPath, agent.name)
-        return hasDevcontainerConfig(agentDir)
-      })
+      // For ephemeral agents, we'll create devcontainers on-demand
+      // Default to devcontainer support (can be overridden by --run-on-host)
+      const hasDevcontainer = true // Ephemeral agents always get devcontainer config
 
       // Will be populated after action is selected/confirmed
       let selectedActionDetails: Awaited<ReturnType<typeof this.storage.getAction>> | null = null
@@ -785,10 +740,10 @@ export default class WorkSpawn extends PMOCommand {
               name: 'permissionMode',
               message: 'Permission mode for Claude Code:',
               choices: [
+                { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
                 { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
-                { name: '⚠️  danger - Skip permission checks', value: 'danger' },
               ],
-              default: 'safe',
+              default: 'danger',
             },
           ])
           batchSkipPermissions = permissionMode === 'danger'
@@ -828,20 +783,18 @@ export default class WorkSpawn extends PMOCommand {
         }
       }
 
-      // Spawn each ticket
+      // Spawn each ticket - work:start will create ephemeral agents on-demand
       let successCount = 0
       let failCount = 0
 
-      for (const { ticket, agent } of assignments) {
+      for (const ticket of ticketsToSpawn) {
         try {
-          this.log(styles.muted(`Starting ${ticket.id} with ${agent.name}...`))
-
-          // Note: Ticket assignment now happens in work:start ONLY after successful spawn
+          this.log(styles.muted(`Starting ${ticket.id} with ephemeral agent...`))
 
           // Build args for work:start
           // IMPORTANT: Pass --project to avoid re-prompting for project selection
-          // Pass --agent to skip agent selection prompt (we already have the assignment)
-          const startArgs: string[] = [ticket.id, '--project', projectId, '--agent', agent.name]
+          // Pass --ephemeral to signal work:start should create an ephemeral agent
+          const startArgs: string[] = [ticket.id, '--project', projectId, '--ephemeral']
 
           if (flags['per-ticket']) {
             // Per-ticket mode: only pass mode flag, let start prompt for the rest
