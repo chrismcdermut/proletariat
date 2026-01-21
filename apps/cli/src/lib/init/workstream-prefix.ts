@@ -104,7 +104,7 @@ export function validatePrefix(prefix: string): { valid: boolean; error?: string
 
 /**
  * Check if a prefix is unique within an organization.
- * Reads all workspaces in the org and checks their workstream_prefix.
+ * Reads all headquarters in the org and checks their workstream_prefix.
  *
  * @param prefix The prefix to check
  * @param orgName The organization name (null for global check)
@@ -113,14 +113,14 @@ export function validatePrefix(prefix: string): { valid: boolean; error?: string
 export function isPrefixUnique(prefix: string, orgName: string | null): boolean {
   const config = readMachineConfig();
 
-  // Get workspaces to check
-  const workspacesToCheck = orgName
+  // Get headquarters to check
+  const headquartersToCheck = orgName
     ? getOrganizationWorkspaces(orgName)
-    : config.workspaces;
+    : config.headquarters;
 
-  for (const ws of workspacesToCheck) {
-    // Read workspace database to check prefix
-    const dbPath = path.join(ws.path, '.proletariat', 'workspace.db');
+  for (const hq of headquartersToCheck) {
+    // Read HQ database to check prefix
+    const dbPath = path.join(hq.path, '.proletariat', 'workspace.db');
     if (fs.existsSync(dbPath)) {
       try {
         const db = new Database(dbPath, { readonly: true });
@@ -143,7 +143,7 @@ export function isPrefixUnique(prefix: string, orgName: string | null): boolean 
           db.close();
         }
       } catch {
-        // Ignore errors reading individual workspace databases
+        // Ignore errors reading individual HQ databases
       }
     }
   }
@@ -157,14 +157,14 @@ export function isPrefixUnique(prefix: string, orgName: string | null): boolean 
 export function getUsedPrefixes(orgName: string | null): string[] {
   const config = readMachineConfig();
 
-  const workspacesToCheck = orgName
+  const headquartersToCheck = orgName
     ? getOrganizationWorkspaces(orgName)
-    : config.workspaces;
+    : config.headquarters;
 
   const prefixes: string[] = [];
 
-  for (const ws of workspacesToCheck) {
-    const dbPath = path.join(ws.path, '.proletariat', 'workspace.db');
+  for (const hq of headquartersToCheck) {
+    const dbPath = path.join(hq.path, '.proletariat', 'workspace.db');
     if (fs.existsSync(dbPath)) {
       try {
         const db = new Database(dbPath, { readonly: true });
