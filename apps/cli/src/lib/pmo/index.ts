@@ -64,9 +64,10 @@ export function getBoardTemplates(): { [key: string]: string[] } {
     linear: ['Backlog', 'Triage', 'Todo', 'In Progress', 'In Review', 'Done'],
     // Bug tracking workflow
     'bug-smash': ['Reported', 'Confirmed', 'Fixing', 'Verifying', 'Fixed'],
-    // Founder template: 5-tool backlogs + workflow stages
+    // Founder template: 5-tool backlogs (by work type) + workflow stages
     '5-tool-founder': [
-      'Ideas', 'Next Up', 'Building', 'Shipping', 'Shipped'
+      'Ship', 'Grow', 'Support', 'Strategy', 'BizOps',
+      'In Progress', 'Review', 'Done'
     ],
     // Go-to-market workflow
     'gtm': ['Ideation', 'Planning', 'In Development', 'Ready to Launch', 'Launched'],
@@ -110,9 +111,9 @@ export function getColumnSettingsForTemplate(
       column_done: 'Fixed',
     },
     '5-tool-founder': {
-      column_planned: 'Next Up',
-      column_in_progress: 'Building',
-      column_done: 'Shipped',
+      column_planned: 'Ship',
+      column_in_progress: 'In Progress',
+      column_done: 'Done',
     },
     'gtm': {
       column_planned: 'Planning',
@@ -242,7 +243,7 @@ export async function promptForBoardTemplate(): Promise<string> {
       { name: 'Kanban - Backlog → Planned → In Progress → Done', value: 'kanban' },
       { name: 'Linear - Backlog, Triage, Todo, In Progress, In Review, Done', value: 'linear' },
       { name: 'Bug Smash - Reported → Confirmed → Fixing → Verifying → Fixed', value: 'bug-smash' },
-      { name: '5-Tool Founder - Ideas → Next Up → Building → Shipping → Shipped', value: '5-tool-founder' },
+      { name: '5-Tool Founder - Ship, Grow, Support, Strategy, BizOps → In Progress → Review → Done', value: '5-tool-founder' },
       { name: 'GTM - Ideation → Planning → In Development → Ready to Launch → Launched', value: 'gtm' },
       { name: 'Custom (define your own columns)', value: 'custom' },
     ],
