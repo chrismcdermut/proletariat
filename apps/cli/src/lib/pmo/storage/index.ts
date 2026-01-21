@@ -103,11 +103,28 @@ export class SQLiteStorage implements PMOStorage {
     this.db = new Database(dbPath)
     this.db.pragma('foreign_keys = ON')
 
+    // Load workstream prefix from workspace table (if it exists)
+    let workstreamPrefix: string | undefined
+    try {
+      // Check if workspace table exists and has the workstream_prefix column
+      const columns = this.db.pragma('table_info(workspace)') as Array<{ name: string }>
+      const hasPrefix = columns.some((c) => c.name === 'workstream_prefix')
+      if (hasPrefix) {
+        const row = this.db
+          .prepare('SELECT workstream_prefix FROM workspace WHERE id = 1')
+          .get() as { workstream_prefix: string | null } | undefined
+        workstreamPrefix = row?.workstream_prefix || undefined
+      }
+    } catch {
+      // Ignore errors - workspace table may not exist yet during init
+    }
+
     // Create the storage context shared by all modules
     // Note: projectId is passed explicitly to operations, not stored in context
     const ctx: StorageContext = {
       db: this.db,
       updateBoardTimestamp: (projectId: string) => updateBoardTimestamp(this.db, projectId),
+      workstreamPrefix,
     }
 
     // Initialize domain-specific storage modules

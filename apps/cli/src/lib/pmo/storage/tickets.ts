@@ -18,7 +18,7 @@ export class TicketStorage {
    * Create a new ticket.
    */
   async createTicket(projectId: string, ticket: CreateTicketInput): Promise<Ticket> {
-    const id = ticket.id || generateEntityId(this.ctx.db, 'ticket')
+    const id = ticket.id || generateEntityId(this.ctx.db, 'ticket', this.ctx.workstreamPrefix)
     const title = ticket.title || 'Untitled'
 
     // Get first column as default

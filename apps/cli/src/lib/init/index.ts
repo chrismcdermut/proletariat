@@ -21,7 +21,14 @@ import {
 import {
   ensureMachineConfigDir,
   registerWorkspace,
+  getOrganizations,
+  createOrganization,
 } from '../machine-config.js';
+import {
+  suggestPrefixes,
+  validatePrefix,
+  isPrefixUnique,
+} from './workstream-prefix.js';
 
 export interface HQConfig {
   type: 'hq';
@@ -52,6 +59,10 @@ export interface InitOptions {
     displayName: string;
     names: string[];
   };
+  // Organization name for this workstream
+  orgName?: string;
+  // Workstream prefix for entity IDs (e.g., 'PLT' for PLT-TKT-001)
+  workstreamPrefix?: string;
 }
 
 /**
@@ -194,7 +205,120 @@ export async function promptForHQLocation(hqName: string, addSuffix: boolean): P
   }
 }
 
+/**
+ * Prompt user for organization selection or creation
+ */
+export async function promptForOrganization(): Promise<string> {
+  const existingOrgs = getOrganizations();
 
+  if (existingOrgs.length === 0) {
+    // First organization - prompt for name
+    const { orgName } = await inquirer.prompt([{
+      type: 'input',
+      name: 'orgName',
+      message: 'Organization name (company or team):',
+      validate: (input) => {
+        if (!input.trim()) return 'Organization name is required';
+        return true;
+      },
+    }]);
+
+    createOrganization(orgName.trim());
+    return orgName.trim();
+  }
+
+  // Show existing organizations with option to create new
+  const { choice } = await inquirer.prompt([{
+    type: 'list',
+    name: 'choice',
+    message: 'Select organization:',
+    choices: [
+      ...existingOrgs.map(o => ({ name: o.name, value: o.name })),
+      new inquirer.Separator(),
+      { name: '+ Create new organization', value: '__new__' },
+    ],
+  }]);
+
+  if (choice === '__new__') {
+    const { orgName } = await inquirer.prompt([{
+      type: 'input',
+      name: 'orgName',
+      message: 'New organization name:',
+      validate: (input) => {
+        if (!input.trim()) return 'Organization name is required';
+        return true;
+      },
+    }]);
+
+    createOrganization(orgName.trim());
+    return orgName.trim();
+  }
+
+  return choice;
+}
+
+/**
+ * Prompt user for workstream prefix
+ */
+export async function promptForWorkstreamPrefix(
+  workstreamName: string,
+  orgName: string | null
+): Promise<string> {
+  const suggestions = suggestPrefixes(workstreamName);
+
+  // Build choices from suggestions
+  const choices = [
+    ...suggestions.map((prefix, index) => ({
+      name: index === 0 ? `${prefix} (recommended)` : prefix,
+      value: prefix,
+    })),
+  ];
+
+  // Show example IDs
+  const examplePrefix = suggestions[0] || workstreamName.substring(0, 3).toUpperCase();
+  console.log(chalk.gray(`\n  Example IDs: ${examplePrefix}-TKT-001, ${examplePrefix}-EPIC-001\n`));
+
+  const { prefixChoice } = await inquirer.prompt([{
+    type: 'list',
+    name: 'prefixChoice',
+    message: 'Workstream prefix for entity IDs:',
+    choices: [
+      ...choices,
+      new inquirer.Separator(),
+      { name: 'Custom (enter your own)', value: '__custom__' },
+    ],
+    default: suggestions[0],
+  }]);
+
+  let prefix = prefixChoice;
+
+  if (prefixChoice === '__custom__') {
+    const { customPrefix } = await inquirer.prompt([{
+      type: 'input',
+      name: 'customPrefix',
+      message: 'Enter custom prefix (2-4 uppercase letters):',
+      transformer: (input: string) => input.toUpperCase(),
+      validate: (input: string) => {
+        const upper = input.toUpperCase();
+        const validation = validatePrefix(upper);
+        if (!validation.valid) return validation.error!;
+        if (!isPrefixUnique(upper, orgName)) {
+          return `Prefix "${upper}" is already used in this organization`;
+        }
+        return true;
+      },
+    }]);
+    prefix = customPrefix.toUpperCase();
+  }
+
+  // Validate uniqueness for suggested prefixes too
+  if (prefixChoice !== '__custom__' && !isPrefixUnique(prefix, orgName)) {
+    console.log(chalk.yellow(`Prefix "${prefix}" is already in use. Please choose a different one.`));
+    return promptForWorkstreamPrefix(workstreamName, orgName);
+  }
+
+  return prefix;
+}
 
 /**
  * Create the basic HQ directory structure
@@ -225,18 +349,19 @@ export function initializeWorkspaceDatabase(workspacePath: string, options: Init
 
   const hasPMO = options.pmoSetup.includePMO;
 
-  // Create the database with workspace configuration
+  // Create the database with workspace configuration including workstream prefix
   const db = createWorkspaceDatabase(
     workspacePath,
     options.workspaceType,
     options.hqName,
-    hasPMO
+    hasPMO,
+    options.workstreamPrefix
   );
 
   db.close();
 
   // Update config.json with workspace metadata (required for findPMO)
-  // Note: hasPMO is stored in database only, not in config
+  // Note: hasPMO and workstreamPrefix are stored in database only, not in config
   const configPath = path.join(workspacePath, '.proletariat', 'config.json');
   const config = {
     version: "1.0.0",
@@ -263,6 +388,7 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
     pmoSetup,
     themeId,
     customTheme,
+    orgName,
   } = options;
 
   // All these fields are required for HQ type
@@ -339,8 +465,8 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
 
   // Register workspace in machine config
   ensureMachineConfigDir();
-  registerWorkspace(hqPath, hqName, true);
-  console.log(chalk.gray(`Registered workspace in ~/.proletariat/config.json`));
+  registerWorkspace(hqPath, hqName, true, orgName);
+  console.log(chalk.gray(`Registered workstream in ~/.proletariat/config.json`));
 
   console.log(chalk.green(`\n✅ HQ created successfully at ${hqPath}`));
 }

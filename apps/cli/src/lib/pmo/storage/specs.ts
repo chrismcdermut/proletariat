@@ -17,7 +17,7 @@ export class SpecStorage {
    * Create a new spec.
    */
   async createSpec(spec: Partial<Spec>): Promise<Spec> {
-    const id = spec.id || generateEntityId(this.ctx.db, 'spec')
+    const id = spec.id || generateEntityId(this.ctx.db, 'spec', this.ctx.workstreamPrefix)
     const now = Date.now()
 
     this.ctx.db.prepare(`

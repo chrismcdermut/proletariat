@@ -111,7 +111,7 @@ export class ProjectStorage {
     listStatuses: (projectId: string) => Promise<WorkflowStatus[]>,
     getTemplate: (id: string) => Promise<{ id: string } | null>
   ): Promise<Board> {
-    const id = project.id || generateEntityId(this.ctx.db, 'project')
+    const id = project.id || generateEntityId(this.ctx.db, 'project', this.ctx.workstreamPrefix)
     const templateId = project.template || 'kanban'
     const now = Date.now()
 

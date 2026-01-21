@@ -60,20 +60,25 @@ interface DatabaseLike {
 }
 
 /**
- * Generate a sequential ID for an entity (e.g., TKT-001, EPIC-001)
+ * Generate a sequential ID for an entity.
+ *
+ * With workstream prefix: PLT-TKT-001, PLT-EPIC-001
+ * Without prefix (legacy): TKT-001, EPIC-001
  *
  * Uses pmo_settings table to track the next ID for each entity type.
  * IDs are zero-padded to 3 digits (001-999), then expand (1000+).
  *
  * @param db - Database instance with prepare method
  * @param entityType - Type of entity (ticket, epic, spec, project)
- * @returns Generated ID like "TKT-001" or "EPIC-042"
+ * @param workstreamPrefix - Optional workstream prefix (e.g., 'PLT')
+ * @returns Generated ID like "PLT-TKT-001" or "TKT-001" (legacy)
  */
 export function generateEntityId(
   db: DatabaseLike,
-  entityType: EntityType
+  entityType: EntityType,
+  workstreamPrefix?: string
 ): string {
-  const prefix = ENTITY_PREFIXES[entityType];
+  const typePrefix = ENTITY_PREFIXES[entityType];
   const settingKey = `next_${entityType}_id`;
 
   // Get current counter
@@ -91,7 +96,97 @@ export function generateEntityId(
 
   // Format ID with zero-padding (3 digits minimum)
   const numStr = nextNum.toString().padStart(3, '0');
-  return `${prefix}-${numStr}`;
+
+  // Include workstream prefix if provided
+  if (workstreamPrefix) {
+    return `${workstreamPrefix}-${typePrefix}-${numStr}`;
+  }
+  return `${typePrefix}-${numStr}`;
+}
+
+/**
+ * Parsed entity ID components
+ */
+export interface ParsedEntityId {
+  workstreamPrefix?: string;
+  entityType: string;
+  number: number;
+  raw: string;
+}
+
+/**
+ * Parse an entity ID into its components.
+ *
+ * Handles both formats:
+ * - With workstream prefix: PLT-TKT-001 → { workstreamPrefix: 'PLT', entityType: 'TKT', number: 1 }
+ * - Legacy format: TKT-001 → { entityType: 'TKT', number: 1 }
+ *
+ * @param id - Entity ID to parse
+ * @returns Parsed components, or null if invalid format
+ */
+export function parseEntityId(id: string): ParsedEntityId | null {
+  if (!id) return null;
+
+  // Try PLT-TKT-001 format first (with workstream prefix)
+  const fullMatch = id.match(/^([A-Z]{2,4})-([A-Z]+)-(\d+)$/);
+  if (fullMatch) {
+    return {
+      workstreamPrefix: fullMatch[1],
+      entityType: fullMatch[2],
+      number: parseInt(fullMatch[3], 10),
+      raw: id,
+    };
+  }
+
+  // Fall back to TKT-001 format (legacy, no prefix)
+  const shortMatch = id.match(/^([A-Z]+)-(\d+)$/);
+  if (shortMatch) {
+    return {
+      entityType: shortMatch[1],
+      number: parseInt(shortMatch[2], 10),
+      raw: id,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Format entity ID for display.
+ *
+ * In single-workstream context, strips the workstream prefix for cleaner display.
+ * In cross-workstream context (or when showFull is true), shows the full ID.
+ *
+ * @param id - Full entity ID (e.g., PLT-TKT-001)
+ * @param currentWorkstreamPrefix - Current workstream prefix (to determine if we can strip it)
+ * @param showFull - Force showing full ID even in single-workstream context
+ * @returns Display-friendly ID (e.g., TKT-001 or PLT-TKT-001)
+ */
+export function formatEntityIdForDisplay(
+  id: string,
+  currentWorkstreamPrefix?: string,
+  showFull: boolean = false
+): string {
+  if (showFull || !currentWorkstreamPrefix) return id;
+
+  const parsed = parseEntityId(id);
+  if (!parsed) return id;
+
+  // Strip prefix if it matches the current workstream
+  if (parsed.workstreamPrefix?.toUpperCase() === currentWorkstreamPrefix.toUpperCase()) {
+    const numStr = parsed.number.toString().padStart(3, '0');
+    return `${parsed.entityType}-${numStr}`;
+  }
+
+  return id;
+}
+
+/**
+ * Check if an ID has a workstream prefix.
+ */
+export function hasWorkstreamPrefix(id: string): boolean {
+  const parsed = parseEntityId(id);
+  return parsed?.workstreamPrefix !== undefined;
 }
 
 /**

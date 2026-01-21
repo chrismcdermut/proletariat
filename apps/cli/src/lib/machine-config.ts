@@ -20,16 +20,24 @@ import { isValidHQ } from './workspace.js';
  * }
  */
 
+export interface Organization {
+  name: string;
+  createdAt: string;
+}
+
 export interface RegisteredWorkspace {
   name: string;
   path: string;
   registeredAt: string;
+  orgName?: string;
 }
 
 export interface MachineConfig {
   version: string;
+  organizations: Organization[];
   workspaces: RegisteredWorkspace[];
   activeWorkspace: string | null;
+  activeOrganization: string | null;
 }
 
 const CONFIG_VERSION = '1.0.0';
@@ -97,8 +105,10 @@ export function normalizePath(inputPath: string): string {
 function getDefaultConfig(): MachineConfig {
   return {
     version: CONFIG_VERSION,
+    organizations: [],
     workspaces: [],
     activeWorkspace: null,
+    activeOrganization: null,
   };
 }
 
@@ -115,14 +125,21 @@ export function readMachineConfig(): MachineConfig {
 
   try {
     const content = fs.readFileSync(configPath, 'utf-8');
-    const config = JSON.parse(content) as MachineConfig;
+    const config = JSON.parse(content) as Partial<MachineConfig>;
 
     // Validate basic structure
     if (!config.version || !Array.isArray(config.workspaces)) {
       return getDefaultConfig();
     }
 
-    return config;
+    // Ensure backward compatibility with old configs
+    return {
+      version: config.version,
+      organizations: config.organizations || [],
+      workspaces: config.workspaces,
+      activeWorkspace: config.activeWorkspace ?? null,
+      activeOrganization: config.activeOrganization ?? null,
+    };
   } catch {
     return getDefaultConfig();
   }
@@ -163,12 +180,14 @@ export function writeMachineConfig(config: MachineConfig): void {
  * @param workspacePath Absolute path to the workspace (will be normalized)
  * @param name Optional workspace name (defaults to directory basename)
  * @param setActive If true, set as active workspace when no active workspace exists
+ * @param orgName Optional organization name to associate this workspace with
  * @returns The registered workspace entry
  */
 export function registerWorkspace(
   workspacePath: string,
   name?: string,
-  setActive: boolean = true
+  setActive: boolean = true,
+  orgName?: string
 ): RegisteredWorkspace {
   const normalizedPath = normalizePath(workspacePath);
   const workspaceName = name || path.basename(normalizedPath);
@@ -184,6 +203,7 @@ export function registerWorkspace(
     name: workspaceName,
     path: normalizedPath,
     registeredAt: new Date().toISOString(),
+    orgName,
   };
 
   if (existingIndex >= 0) {
@@ -378,4 +398,83 @@ export function hasDuplicateNames(): { name: string; paths: string[] }[] {
   }
 
   return duplicates;
+}
+
+// =============================================================================
+// Organization Management
+// =============================================================================
+
+/**
+ * Get all organizations.
+ */
+export function getOrganizations(): Organization[] {
+  const config = readMachineConfig();
+  return config.organizations;
+}
+
+/**
+ * Get the active organization name.
+ */
+export function getActiveOrganization(): string | null {
+  const config = readMachineConfig();
+  return config.activeOrganization;
+}
+
+/**
+ * Create a new organization.
+ */
+export function createOrganization(name: string): Organization {
+  const config = readMachineConfig();
+
+  // Check if organization already exists
+  const existing = config.organizations.find(
+    (o) => o.name.toLowerCase() === name.toLowerCase()
+  );
+  if (existing) {
+    return existing;
+  }
+
+  const org: Organization = {
+    name,
+    createdAt: new Date().toISOString(),
+  };
+
+  config.organizations.push(org);
+
+  // Set as active if it's the first organization
+  if (!config.activeOrganization) {
+    config.activeOrganization = name;
+  }
+
+  writeMachineConfig(config);
+  return org;
+}
+
+/**
+ * Set the active organization.
+ */
+export function setActiveOrganization(name: string): void {
+  const config = readMachineConfig();
+
+  // Find organization (case-insensitive)
+  const org = config.organizations.find(
+    (o) => o.name.toLowerCase() === name.toLowerCase()
+  );
+
+  if (!org) {
+    throw new Error(`Organization not found: ${name}`);
+  }
+
+  config.activeOrganization = org.name;
+  writeMachineConfig(config);
+}
+
+/**
+ * Get workspaces belonging to a specific organization.
+ */
+export function getOrganizationWorkspaces(orgName: string): RegisteredWorkspace[] {
+  const config = readMachineConfig();
+  return config.workspaces.filter(
+    (w) => w.orgName?.toLowerCase() === orgName.toLowerCase()
+  );
 }

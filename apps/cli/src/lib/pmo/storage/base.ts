@@ -211,6 +211,34 @@ export function runMigrations(db: Database.Database): void {
       // Ignore errors if migration already ran
     }
   }
+
+  // Migration: Add workstream_prefix column to workspace table (TKT-469)
+  if (tableExists('workspace')) {
+    const workspaceColumns = db.pragma('table_info(workspace)') as Array<{ name: string }>
+    const workspaceColumnNames = new Set(workspaceColumns.map(c => c.name))
+
+    if (!workspaceColumnNames.has('workstream_prefix')) {
+      try {
+        db.exec('ALTER TABLE workspace ADD COLUMN workstream_prefix TEXT')
+
+        // For existing workspaces, auto-generate prefix from workspace_name
+        const workspace = db.prepare('SELECT workspace_name FROM workspace WHERE id = 1').get() as
+          { workspace_name: string } | undefined
+        if (workspace?.workspace_name) {
+          // Generate a default prefix from the first 3 uppercase letters
+          const autoPrefix = workspace.workspace_name
+            .replace(/[^a-zA-Z]/g, '')
+            .substring(0, 3)
+            .toUpperCase()
+          if (autoPrefix.length >= 2) {
+            db.prepare('UPDATE workspace SET workstream_prefix = ? WHERE id = 1').run(autoPrefix)
+          }
+        }
+      } catch {
+        // Column may already exist
+      }
+    }
+  }
 }
 
 /**

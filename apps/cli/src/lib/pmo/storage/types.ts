@@ -14,6 +14,8 @@ export interface StorageContext {
   db: Database.Database
   /** Update the board timestamp for a project */
   updateBoardTimestamp: (projectId: string) => void
+  /** Workstream prefix for entity ID generation (e.g., 'PLT' for PLT-TKT-001) */
+  workstreamPrefix?: string
 }
 
 /**
