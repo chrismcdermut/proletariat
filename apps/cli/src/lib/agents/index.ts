@@ -302,9 +302,13 @@ export async function promptForAgents(): Promise<string[]> {
 
 /**
  * Prompt user for agent selection with theme options (returns full result)
- * Simplified flow: pick theme -> pick count -> randomly select agents
+ * Simplified flow: pick theme -> auto-create 5 random agents
  */
 export async function promptForAgentsWithTheme(): Promise<AgentPromptResult> {
+  // Explain what staff agents are
+  console.log(chalk.gray('\n  Staff agents are isolated workspaces where AI agents work on tasks.'));
+  console.log(chalk.gray('  You can add/remove agents anytime with: prlt agent add/remove\n'));
+
   // Build theme choices with preview of names
   const themeChoices = BUILTIN_THEMES.map(t => ({
     name: `${t.displayName} (${t.names.slice(0, 4).join(', ')}...)`,
@@ -314,7 +318,7 @@ export async function promptForAgentsWithTheme(): Promise<AgentPromptResult> {
   const { selectedTheme } = await inquirer.prompt([{
     type: 'list',
     name: 'selectedTheme',
-    message: 'Agent theme:',
+    message: 'Agent naming theme:',
     choices: [
       ...themeChoices,
       new inquirer.Separator(),
@@ -332,25 +336,11 @@ export async function promptForAgentsWithTheme(): Promise<AgentPromptResult> {
     return { agents: [] };
   }
 
-  // Ask how many agents
-  const { agentCount } = await inquirer.prompt([{
-    type: 'list',
-    name: 'agentCount',
-    message: 'How many staff agents?',
-    choices: [
-      { name: '3 agents', value: 3 },
-      { name: '5 agents (recommended)', value: 5 },
-      { name: '10 agents', value: 10 },
-      { name: 'All available', value: theme.names.length }
-    ],
-    default: 5
-  }]);
-
-  // Randomly select agents from the theme
+  // Randomly select 5 agents from the theme
   const shuffled = [...theme.names].sort(() => Math.random() - 0.5);
-  const selected = shuffled.slice(0, Math.min(agentCount, theme.names.length));
+  const selected = shuffled.slice(0, 5);
 
-  console.log(chalk.blue(`Selected agents: ${selected.join(', ')}`));
+  console.log(chalk.blue(`\nCreating 5 staff agents: ${selected.join(', ')}`));
 
   return { agents: selected, themeId: selectedTheme };
 }
