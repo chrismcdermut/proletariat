@@ -57,6 +57,23 @@ export default class Init extends Command {
 
     if (flags.json) {
       await this.runAgentMode(flags);
+    } else if (!process.stdin.isTTY) {
+      // Non-interactive environment (likely an AI agent)
+      // Output guidance as JSON
+      this.outputJson({
+        success: false,
+        error: 'Interactive mode requires a TTY. Use --json flag for agent mode.',
+        hint: 'Run: prlt init --json --name <hq-name> [--path <path>] [--agents a1,a2] [--no-pmo]',
+        flags: {
+          '--json': 'Enable agent mode with JSON output',
+          '--name, -n': 'HQ name (required)',
+          '--path, -p': 'HQ path (defaults to ./{name}-hq)',
+          '--agents, -a': 'Comma-separated agent names',
+          '--repos, -r': 'Comma-separated repo paths',
+          '--pmo/--no-pmo': 'Include PMO (default: true)',
+        },
+      });
+      this.exit(1);
     } else {
       await this.runHumanMode();
     }
