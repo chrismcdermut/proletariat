@@ -853,8 +853,11 @@ export function getAgentGitStatus(
 }
 
 /**
- * Push all unpushed commits in an agent's worktrees.
- * Returns true if all pushes succeeded.
+ * Commit and push all work in an agent's worktrees.
+ * - Stages all uncommitted changes (git add -A)
+ * - Commits with a WIP message if there are staged changes
+ * - Pushes all commits to remote
+ * Returns true if all operations succeeded.
  */
 export function pushAgentWork(
   workspaceInfo: WorkspaceInfo,
@@ -865,16 +868,49 @@ export function pushAgentWork(
   let allSuccess = true;
 
   for (const worktree of gitStatus.worktrees) {
-    if (worktree.hasUnpushedCommits) {
+    const { worktreePath, repoName, hasUncommittedChanges, uncommittedFiles, hasUnpushedCommits, unpushedCount, branch } = worktree;
+
+    // First, commit any uncommitted changes
+    if (hasUncommittedChanges) {
       try {
-        log?.(`Pushing ${worktree.unpushedCount} commit(s) from ${worktree.repoName}...`);
-        execSync('git push', {
-          cwd: worktree.worktreePath,
+        log?.(`Committing ${uncommittedFiles.length} file(s) in ${repoName}...`);
+
+        // Stage all changes
+        execSync('git add -A', {
+          cwd: worktreePath,
           stdio: 'pipe'
         });
-        log?.(`✓ Pushed ${worktree.repoName}`);
+
+        // Commit with WIP message
+        const commitMessage = `WIP: Auto-commit before cleanup\n\nAgent: ${agentName}\nFiles: ${uncommittedFiles.length}`;
+        execSync(`git commit -m "${commitMessage.replace(/"/g, '\\"')}"`, {
+          cwd: worktreePath,
+          stdio: 'pipe'
+        });
+
+        log?.(`✓ Committed changes in ${repoName}`);
       } catch (error) {
-        log?.(`✗ Failed to push ${worktree.repoName}: ${error}`);
+        log?.(`✗ Failed to commit ${repoName}: ${error}`);
+        allSuccess = false;
+        continue; // Skip push if commit failed
+      }
+    }
+
+    // Then push (either existing unpushed commits or the one we just made)
+    if (hasUnpushedCommits || hasUncommittedChanges) {
+      try {
+        const commitCount = hasUncommittedChanges ? (unpushedCount + 1) : unpushedCount;
+        log?.(`Pushing ${commitCount} commit(s) from ${repoName} on ${branch}...`);
+
+        // Set upstream if needed and push
+        execSync(`git push -u origin ${branch}`, {
+          cwd: worktreePath,
+          stdio: 'pipe'
+        });
+
+        log?.(`✓ Pushed ${repoName}`);
+      } catch (error) {
+        log?.(`✗ Failed to push ${repoName}: ${error}`);
         allSuccess = false;
       }
     }

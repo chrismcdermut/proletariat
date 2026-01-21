@@ -347,14 +347,16 @@ export default class Cleanup extends PMOCommand {
         // Build choices based on what's unsaved
         const choices: Array<{ name: string; value: string }> = [];
 
-        if (hasUnpushed && !hasUncommitted) {
-          // Only unpushed commits - push will save everything
+        if (hasUncommitted && hasUnpushed) {
+          // Both uncommitted and unpushed - will commit all and push
+          choices.push({ name: '💾 Commit all changes, push, and cleanup', value: 'push' });
+        } else if (hasUncommitted) {
+          // Only uncommitted - will commit and push
+          choices.push({ name: '💾 Commit changes, push, and cleanup', value: 'push' });
+        } else if (hasUnpushed) {
+          // Only unpushed commits - just push
           choices.push({ name: '⬆️  Push commits and cleanup', value: 'push' });
-        } else if (hasUnpushed && hasUncommitted) {
-          // Both - push will save commits but lose uncommitted changes
-          choices.push({ name: '⬆️  Push commits and cleanup (uncommitted changes will be lost)', value: 'push' });
         }
-        // If only uncommitted changes, don't offer push - it won't help
 
         choices.push({ name: '🗑️  Force cleanup (discard all changes)', value: 'force' });
         choices.push({ name: '⏭️  Skip this agent', value: 'skip' });
