@@ -440,6 +440,35 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
     columns,
   });
 
+  // For custom templates, create statuses from columns
+  // (built-in templates have statuses created via applyTemplate in createProject)
+  if (boardTemplate === 'custom' && columns) {
+    for (let i = 0; i < columns.length; i++) {
+      const name = columns[i];
+      const nameLower = name.toLowerCase();
+
+      // Infer category from column name
+      let category: 'backlog' | 'unstarted' | 'started' | 'completed' | 'canceled' = 'backlog';
+      if (nameLower.includes('done') || nameLower.includes('complete') || nameLower.includes('shipped')) {
+        category = 'completed';
+      } else if (nameLower.includes('progress') || nameLower.includes('review') || nameLower.includes('active')) {
+        category = 'started';
+      } else if (nameLower.includes('todo') || nameLower.includes('to do') || nameLower.includes('planned') || nameLower.includes('next')) {
+        category = 'unstarted';
+      } else if (nameLower.includes('cancel') || nameLower.includes('archived')) {
+        category = 'canceled';
+      }
+      // Default: backlog (for first columns, custom backlogs, etc.)
+
+      await storage.createStatus(projectId, {
+        name,
+        category,
+        position: i,
+        isDefault: i === 0,
+      });
+    }
+  }
+
   // Save PMO path and column settings (relative to HQ root for container compatibility)
   try {
     const db = new (await import('better-sqlite3')).default(dbPath);
