@@ -165,8 +165,9 @@ function migrateToThemeSupport(db: Database.Database): void {
   const hasBaseName = agentColumns.some(c => c.name === 'base_name');
   const hasWorktreePath = agentColumns.some(c => c.name === 'worktree_path');
 
-  // Need to recreate table if we have old columns (theme, status, etc)
-  if (hasOldTheme || hasStatus) {
+  // Need to recreate table if we have old 'theme' column (from original schema)
+  // Note: hasStatus should NOT trigger recreation - status is part of the new schema
+  if (hasOldTheme) {
     // Migrate from old schema to new clean schema
     // Need to disable foreign keys temporarily for table recreation
     db.pragma('foreign_keys = OFF');
@@ -640,6 +641,36 @@ export function markAgentCleaned(workspacePath: string, agentName: string): void
   const now = new Date().toISOString();
   db.prepare("UPDATE agents SET status = 'cleaned', cleaned_at = ? WHERE name = ?").run(now, agentName);
   db.close();
+}
+
+/**
+ * Sync agents in database with what exists on disk.
+ * Marks agents as 'cleaned' if their directory no longer exists.
+ * Returns list of agents that were cleaned up.
+ */
+export function syncAgentsWithDisk(workspacePath: string): string[] {
+  const agents = getWorkspaceAgents(workspacePath, false); // Only active agents
+  const cleanedAgents: string[] = [];
+
+  for (const agent of agents) {
+    // Determine expected directory path
+    let agentDir: string;
+    if (agent.worktree_path) {
+      agentDir = path.join(workspacePath, agent.worktree_path);
+    } else if (agent.type === 'ephemeral') {
+      agentDir = path.join(workspacePath, 'agents', 'temp', agent.name);
+    } else {
+      agentDir = path.join(workspacePath, 'agents', 'staff', agent.name);
+    }
+
+    // If directory doesn't exist, mark agent as cleaned
+    if (!fs.existsSync(agentDir)) {
+      markAgentCleaned(workspacePath, agent.name);
+      cleanedAgents.push(agent.name);
+    }
+  }
+
+  return cleanedAgents;
 }
 
 /**

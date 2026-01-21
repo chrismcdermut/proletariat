@@ -16,6 +16,7 @@ import {
   getEphemeralAgentNames,
   getActiveTheme,
   markAgentCleaned,
+  syncAgentsWithDisk,
   Agent,
   Repository
 } from '../database/index.js';
@@ -66,6 +67,8 @@ export function getWorkspaceInfo(): WorkspaceInfo {
       try {
         const config = getWorkspaceConfig(hqPath);
         if (config) {
+          // Sync agents with disk - mark missing ones as cleaned
+          syncAgentsWithDisk(hqPath);
           const agents = getWorkspaceAgents(hqPath);
           const repositories = getWorkspaceRepositories(hqPath);
 
@@ -98,6 +101,8 @@ export function getWorkspaceInfo(): WorkspaceInfo {
       try {
         const config = getWorkspaceConfig(currentDir);
         if (config) {
+          // Sync agents with disk - mark missing ones as cleaned
+          syncAgentsWithDisk(currentDir);
           const agents = getWorkspaceAgents(currentDir);
           const repositories = getWorkspaceRepositories(currentDir);
 
