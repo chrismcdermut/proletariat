@@ -57,30 +57,43 @@ export interface InitOptions {
 }
 
 /**
- * Validate that HQ path is not inside a git repository
+ * Validate that HQ path is not inside a git repository or another HQ
+ * Returns: { valid: true } or { valid: false, reason: string }
  */
-export function validateHQLocation(location: string): boolean {
+export function validateHQLocation(location: string): { valid: boolean; reason?: string } {
   const resolvedPath = path.resolve(location);
-  
+  const parentDir = path.dirname(resolvedPath);
+
+  // Check if inside a git repo
   try {
-    const gitRoot = execSync('git rev-parse --show-toplevel', { 
-      cwd: path.dirname(resolvedPath),
+    const gitRoot = execSync('git rev-parse --show-toplevel', {
+      cwd: parentDir,
       stdio: 'pipe',
       encoding: 'utf-8'
     }).trim();
-    
+
     // Use realpath to resolve symlinks and /private prefix on macOS
-    const normalizedPath = fs.realpathSync(path.dirname(resolvedPath));
+    const normalizedPath = fs.realpathSync(parentDir);
     const normalizedGitRoot = fs.realpathSync(gitRoot);
-    
+
     if (normalizedPath.startsWith(normalizedGitRoot)) {
-      return false; // Inside a git repo
+      return { valid: false, reason: 'inside-git' };
     }
   } catch {
     // Not in a git repo - this is fine
   }
 
-  return true;
+  // Check if inside an existing HQ (look for .proletariat/config.json up the tree)
+  let checkDir = parentDir;
+  while (checkDir !== '/' && checkDir !== path.dirname(checkDir)) {
+    const configPath = path.join(checkDir, '.proletariat', 'config.json');
+    if (fs.existsSync(configPath)) {
+      return { valid: false, reason: 'inside-hq' };
+    }
+    checkDir = path.dirname(checkDir);
+  }
+
+  return { valid: true };
 }
 
 /**
@@ -130,8 +143,13 @@ export async function promptForHQLocation(hqName: string): Promise<string> {
     }]);
 
     // Validate location
-    if (!validateHQLocation(location)) {
-      console.log(chalk.red('That\'s jail! Cannot create HQ inside a git repository.'));
+    const validation = validateHQLocation(location);
+    if (!validation.valid) {
+      if (validation.reason === 'inside-git') {
+        console.log(chalk.red('Cannot create HQ inside a git repository.'));
+      } else if (validation.reason === 'inside-hq') {
+        console.log(chalk.red('Cannot create HQ inside another HQ. No HQ-ception allowed!'));
+      }
       continue;
     }
 
