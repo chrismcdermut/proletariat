@@ -43,8 +43,9 @@ export interface InitOptions {
   workspaceType: 'hq';
   hqName: string;
   hqPath: string;
-  addSuffix?: boolean;
   selectedAgents: string[];
+  /** Suppress console output (for JSON/agent mode) */
+  quiet?: boolean;
   repos?: Array<{ path: string; action: 'move' | 'clone' }>;
   // PMO options (from shared promptForPMOSetup)
   pmoSetup?: PMOSetupResult;
@@ -116,29 +117,11 @@ export async function promptForHQName(): Promise<string> {
 }
 
 /**
- * Prompt user for HQ suffix preference
- */
-export async function promptForHQSuffix(): Promise<boolean> {
-  const { addSuffix } = await inquirer.prompt([{
-    type: 'list',
-    name: 'addSuffix',
-    message: 'Add "-hq" suffix to folder name?',
-    choices: [
-      { name: 'Yes', value: true },
-      { name: 'No', value: false }
-    ],
-    default: true,
-  }]);
-
-  return addSuffix;
-}
-
-/**
  * Prompt user for HQ location
  */
-export async function promptForHQLocation(hqName: string, addSuffix: boolean): Promise<string> {
+export async function promptForHQLocation(hqName: string): Promise<string> {
   const inGitRepo = isInGitRepo();
-  const folderName = addSuffix ? `${hqName}-hq` : hqName;
+  const folderName = `${hqName}-hq`;
   
   // Always suggest creating HQ as sibling if in repo, or subdirectory if not
   const defaultPath = inGitRepo
@@ -296,8 +279,8 @@ export async function promptForWorkstreamPrefix(
  *     staff/                # Persistent agents
  *     temp/                 # Ephemeral agents
  */
-export function createHQStructure(hqPath: string, hqName: string, themeId?: string): void {
-  console.log(chalk.blue(`\n🏗️  Creating HQ at ${hqPath}...`));
+export function createHQStructure(hqPath: string, hqName: string, themeId?: string, quiet?: boolean): void {
+  if (!quiet) console.log(chalk.blue(`\n🏗️  Creating HQ at ${hqPath}...`));
 
   // Get theme-specific directory names
   const persistentDir = getThemePersistentDir(themeId);
@@ -360,7 +343,13 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
     themeId,
     customTheme,
     orgName,
+    quiet,
   } = options;
+
+  // Helper to log only in non-quiet mode
+  const log = (message: string) => {
+    if (!quiet) console.log(message);
+  };
 
   // All these fields are required for HQ type
   if (!hqPath || !hqName || repos === undefined || !pmoSetup) {
@@ -368,7 +357,7 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
   }
 
   // Create basic structure (pass hqName and themeId for correct directory names)
-  createHQStructure(hqPath, hqName, themeId);
+  createHQStructure(hqPath, hqName, themeId, quiet);
 
   // Create database and HQ configuration
   initializeHQDatabase(hqPath, options);
@@ -385,7 +374,7 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
       builtin: false,
     });
     addThemeNames(hqPath, customTheme.name, customTheme.names);
-    console.log(chalk.blue(`Created custom theme: ${customTheme.displayName}`));
+    log(chalk.blue(`Created custom theme: ${customTheme.displayName}`));
   }
 
   // Set active theme if one was selected
@@ -436,9 +425,9 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
   // Register headquarters in machine config
   ensureMachineConfigDir();
   registerHeadquarters(hqPath, hqName, true, orgName);
-  console.log(chalk.gray(`Registered headquarters in ~/.proletariat/config.json`));
+  log(chalk.gray(`Registered headquarters in ~/.proletariat/config.json`));
 
-  console.log(chalk.green(`\n✅ Headquarters created successfully at ${hqPath}`));
+  log(chalk.green(`\n✅ Headquarters created successfully at ${hqPath}`));
 }
 
 /**
