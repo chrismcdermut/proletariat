@@ -323,8 +323,8 @@ export default class Cleanup extends PMOCommand {
         pushFirst,
       });
 
-      // Handle blocked by git status
-      if (result.blockedByGit && !jsonMode) {
+      // Handle blocked by git status - offer interactive options
+      if (result.blockedByGit && !jsonMode && !forceCleanup && !pushFirst) {
         this.log(colors.warning(`\n⚠️  Agent "${agentName}" has unsaved work:`));
         if (result.gitStatus) {
           for (const wt of result.gitStatus.worktrees) {
@@ -336,7 +336,36 @@ export default class Cleanup extends PMOCommand {
             }
           }
         }
-        this.log(colors.textMuted(`  Use --push to push first, or --force to cleanup anyway`));
+
+        // In interactive mode, prompt for action
+        const { action } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'action',
+            message: `What would you like to do with ${agentName}?`,
+            choices: [
+              { name: '⬆️  Push commits and cleanup', value: 'push' },
+              { name: '🗑️  Force cleanup (discard changes)', value: 'force' },
+              { name: '⏭️  Skip this agent', value: 'skip' },
+            ],
+          },
+        ]);
+
+        if (action === 'skip') {
+          this.log(colors.textMuted(`  Skipping ${agentName}`));
+          results.push(result);
+          continue;
+        }
+
+        // Re-run cleanup with the selected option
+        const retryResult = await cleanupAgent(workspaceInfo, agentName, {
+          log: (msg) => this.log(colors.textMuted(`  ${msg}`)),
+          dryRun,
+          force: action === 'force',
+          pushFirst: action === 'push',
+        });
+        results.push(retryResult);
+        continue;
       }
 
       results.push(result);
