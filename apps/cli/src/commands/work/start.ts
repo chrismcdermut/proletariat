@@ -1256,16 +1256,16 @@ export default class WorkStart extends PMOCommand {
     executionStorage: ExecutionStorage,
     flags: { mode?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean }
   ): Promise<void> {
-    // Get all tickets and filter to unassigned backlog/unstarted (not in progress)
+    // Get all tickets and filter to backlog/unstarted (not in progress)
     // Note: In batch mode, we use undefined to get all tickets across all projects
     const allTickets = await this.storage.listTickets(undefined)
     const backlogTickets = allTickets.filter(t =>
-      !t.assignee && (t.statusCategory === 'backlog' || t.statusCategory === 'unstarted' || !t.statusCategory)
+      t.statusCategory === 'backlog' || t.statusCategory === 'unstarted' || !t.statusCategory
     )
 
     if (backlogTickets.length === 0) {
       db.close()
-      this.log(styles.muted('No unassigned backlog tickets to start.'))
+      this.log(styles.muted('No backlog tickets to start.'))
       return
     }
 
