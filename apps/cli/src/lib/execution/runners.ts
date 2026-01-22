@@ -754,8 +754,9 @@ export async function runDevcontainer(
     }
 
     // Set sessionId when using tmux inside the container
+    // Use buildSessionName to match the actual tmux session name format: {ticketId}-{action}-{agentName}
     if (result.success && sessionManager === 'tmux') {
-      const sessionId = context.ticketId.replace(/[^a-zA-Z0-9-]/g, '-')
+      const sessionId = buildSessionName(context)
       result.sessionId = sessionId
 
       // For terminal display mode, verify the tmux session was actually created
@@ -767,7 +768,7 @@ export async function runDevcontainer(
         // Check if tmux session exists inside the container
         try {
           const checkResult = execSync(
-            `docker exec ${containerId} tmux has-session -t ${sessionId} 2>&1`,
+            `docker exec ${containerId} tmux has-session -t "${sessionId}" 2>&1`,
             { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
           )
           // Session exists - success
