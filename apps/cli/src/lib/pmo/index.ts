@@ -306,9 +306,8 @@ export async function promptForPMOSetup(hqRoot: string | null, hqName?: string):
     columns = await promptForCustomColumns();
   }
 
-  // Board name - default to {hqname}-kanban if hqName provided
-  const defaultBoardName = hqName ? `${hqName}-kanban` : undefined;
-  const boardName = await promptForBoardName(defaultBoardName);
+  // Board name - default to {hqname}-kanban (can be changed later via `prlt project rename`)
+  const boardName = hqName ? `${hqName}-kanban` : 'Project Board';
 
   return {
     includePMO: true,
