@@ -19,8 +19,10 @@ import {
   getWorkspaceInfo,
   createEphemeralAgent,
   getTicketTmuxSession,
-  killTmuxSession
+  killTmuxSession,
+  WorkspaceInfo,
 } from '../../lib/agents/commands.js'
+import { Agent } from '../../lib/database/index.js'
 import {
   DisplayMode,
   SessionManager,
@@ -68,6 +70,33 @@ function findBaseBranch(repoPath: string, candidates: string[] = ['origin/main',
     }
   }
   return 'HEAD'
+}
+
+/**
+ * Get active staff agents that exist on disk.
+ * Warns about any agents in DB that are missing their directory.
+ */
+function getActiveStaffAgents(
+  workspaceInfo: WorkspaceInfo,
+  log: (msg: string) => void
+): Agent[] {
+  const result: Agent[] = []
+
+  for (const agent of workspaceInfo.agents) {
+    if (agent.type !== 'persistent' || agent.status !== 'active') continue
+
+    const agentDir = agent.worktree_path
+      ? path.join(workspaceInfo.path, agent.worktree_path)
+      : path.join(workspaceInfo.path, 'agents', 'staff', agent.name)
+
+    if (fs.existsSync(agentDir)) {
+      result.push(agent)
+    } else {
+      log(styles.warning(`⚠ Agent '${agent.name}' in database but directory missing - skipping`))
+    }
+  }
+
+  return result
 }
 
 export default class WorkStart extends PMOCommand {
@@ -344,15 +373,8 @@ export default class WorkStart extends PMOCommand {
         // No agent specified - default to creating ephemeral agent (new behavior)
         // Or prompt for agent selection if staff agents exist
 
-        // Filter to staff agents that actually have directories on disk
-        const activeStaffAgents = workspaceInfo.agents.filter(a => {
-          if (a.type !== 'persistent' || a.status !== 'active') return false
-          // Check if agent directory exists
-          const agentDir = a.worktree_path
-            ? path.join(workspaceInfo.path, a.worktree_path)
-            : path.join(workspaceInfo.path, 'agents', 'staff', a.name)
-          return fs.existsSync(agentDir)
-        })
+        // Get staff agents that exist on disk (warns about missing directories)
+        const activeStaffAgents = getActiveStaffAgents(workspaceInfo, (msg) => this.log(msg))
 
         if (activeStaffAgents.length > 0) {
           // Get list of busy agents (already running something)
@@ -1273,16 +1295,18 @@ export default class WorkStart extends PMOCommand {
     this.log(styles.header(`🚀 Batch Start: ${backlogTickets.length} backlog tickets`))
     this.log('')
 
-    // Get available agents
+    // Get staff agents that exist on disk (warns about missing directories)
+    const activeStaffAgents = getActiveStaffAgents(workspaceInfo, (msg) => this.log(msg))
+
     const busyAgentNames = new Set<string>()
-    for (const agent of workspaceInfo.agents) {
+    for (const agent of activeStaffAgents) {
       const runningExecutions = executionStorage.getAgentRunningExecutions(agent.name)
       if (runningExecutions.length > 0) {
         busyAgentNames.add(agent.name)
       }
     }
 
-    const availableAgents = workspaceInfo.agents.filter(a => !busyAgentNames.has(a.name))
+    const availableAgents = activeStaffAgents.filter(a => !busyAgentNames.has(a.name))
 
     if (availableAgents.length === 0) {
       db.close()
