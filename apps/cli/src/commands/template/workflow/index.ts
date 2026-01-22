@@ -8,16 +8,16 @@ import {
   buildPromptConfig,
 } from '../../../lib/prompt-json.js';
 
-export default class TemplatePhase extends Command {
-  static description = 'Manage phase templates (project lifecycle phases)';
+export default class TemplateWorkflow extends Command {
+  static description = 'Manage workflow templates (status configurations)';
 
-  static aliases = ['template:phases'];
+  static aliases = ['template:workflows'];
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> list',
-    '<%= config.bin %> <%= command.id %> apply agile',
-    '<%= config.bin %> <%= command.id %> create "My Phases"',
+    '<%= config.bin %> <%= command.id %> apply kanban',
+    '<%= config.bin %> <%= command.id %> save "My Workflow"',
   ];
 
   static flags = {
@@ -28,29 +28,28 @@ export default class TemplatePhase extends Command {
   };
 
   async run(): Promise<void> {
-    const { flags } = await this.parse(TemplatePhase);
+    const { flags } = await this.parse(TemplateWorkflow);
 
     const jsonMode = shouldOutputJson(flags);
 
     const menuChoices = [
-      { name: 'List phase templates', value: 'list' },
-      { name: 'Apply a phase template to project', value: 'apply' },
-      { name: 'Create a new phase template', value: 'create' },
-      { name: 'Update a phase template', value: 'update' },
-      { name: 'Delete a phase template', value: 'delete' },
+      { name: 'List workflow templates', value: 'list' },
+      { name: 'Apply a workflow template to project', value: 'apply' },
+      { name: 'Save current workflow as template', value: 'save' },
+      { name: 'Delete workflow templates', value: 'delete' },
     ];
     const message = 'What would you like to do?';
 
     if (jsonMode) {
       outputPromptAsJson(
         buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('template phase', flags)
+        createMetadata('template workflow', flags)
       );
       return;
     }
 
     this.log('');
-    this.log(styles.header('Phase Templates'));
+    this.log(styles.header('Workflow Templates'));
     this.log('');
 
     const { action } = await inquirer.prompt([{
@@ -62,19 +61,16 @@ export default class TemplatePhase extends Command {
 
     switch (action) {
       case 'list':
-        await this.config.runCommand('template:phase:list', []);
+        await this.config.runCommand('template:workflow:list', []);
         break;
       case 'apply':
-        await this.config.runCommand('phase:template:apply', []);
+        await this.config.runCommand('status:template:apply', []);
         break;
-      case 'create':
-        await this.config.runCommand('phase:template:create', []);
-        break;
-      case 'update':
-        await this.config.runCommand('phase:template:update', []);
+      case 'save':
+        await this.config.runCommand('status:template:save', []);
         break;
       case 'delete':
-        await this.config.runCommand('phase:template:delete', []);
+        await this.config.runCommand('status:template:delete', []);
         break;
     }
   }
