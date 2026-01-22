@@ -138,8 +138,24 @@ Run `prlt --help` for full command reference.
 
 ## Documentation
 
-- [CLI README](apps/cli/README.md) - Detailed command documentation
-- [CONTRIBUTING.md](CONTRIBUTING.md) - Development guidelines
+### Getting Started
+- [Getting Started Guide](docs/getting-started.md) - Install to first agent walkthrough
+- [CLI Reference](docs/cli-reference.md) - Complete command documentation
+
+### Core Concepts
+- [HQ (Headquarters)](docs/concepts/hq.md) - Workspace structure and setup
+- [PMO (Project Management)](docs/concepts/pmo.md) - Tickets, specs, and board
+- [Agents](docs/concepts/agents.md) - AI assistants, worktrees, and themes
+- [Work](docs/concepts/work.md) - Spawning and executing agent work
+
+### Workflow Guides
+- [Ticket Lifecycle](docs/workflows/ticket-lifecycle.md) - End-to-end ticket flow
+- [Multi-Agent Workflows](docs/workflows/multi-agent.md) - Running agents in parallel
+- [Docker Setup](docs/workflows/docker-setup.md) - Container isolation guide
+
+### Reference
+- [Troubleshooting](docs/troubleshooting.md) - Common issues and solutions
+- [CLI README](apps/cli/README.md) - Additional CLI details
 - [ROADMAP.md](ROADMAP.md) - Feature roadmap
 
 ## Project Structure

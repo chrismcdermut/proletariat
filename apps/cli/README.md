@@ -180,11 +180,26 @@ Data is stored in SQLite (`workspace.db`) with markdown sync to `board.md` for O
 - **Git-native** - Uses worktrees, branches, and PRs you already know
 - **Open ecosystem** - Integrates with Linear, GitHub Issues (coming soon)
 
-## Related Documentation
+## Documentation
 
-- [CONTRIBUTING.md](../../CONTRIBUTING.md) - Development guidelines
+### User Guides
+- [Getting Started](../../docs/getting-started.md) - Complete walkthrough from install to first agent
+- [CLI Reference](../../docs/cli-reference.md) - Full command documentation
+- [Troubleshooting](../../docs/troubleshooting.md) - Common issues and solutions
+
+### Concepts
+- [HQ (Headquarters)](../../docs/concepts/hq.md) - Workspace structure
+- [PMO](../../docs/concepts/pmo.md) - Tickets, specs, and workflows
+- [Agents](../../docs/concepts/agents.md) - AI assistants and themes
+- [Work](../../docs/concepts/work.md) - Spawning and execution
+
+### Workflows
+- [Ticket Lifecycle](../../docs/workflows/ticket-lifecycle.md) - End-to-end flow
+- [Multi-Agent](../../docs/workflows/multi-agent.md) - Parallel development
+- [Docker Setup](../../docs/workflows/docker-setup.md) - Container isolation
+
+### Development
 - [ROADMAP.md](../../ROADMAP.md) - Feature roadmap
-- [SYSTEM.md](./SYSTEM.md) - Technical architecture (if exists)
 
 ## License
 
