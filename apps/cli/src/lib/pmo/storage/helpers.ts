@@ -62,6 +62,7 @@ export async function rowToTicket(
 
   // Map category to deprecated status enum for backward compat
   const categoryToStatus: Record<StateCategory, string> = {
+    triage: 'triage',
     backlog: 'backlog',
     unstarted: 'planned',
     started: 'in_progress',

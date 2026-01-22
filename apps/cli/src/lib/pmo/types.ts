@@ -113,6 +113,26 @@ export const LEGACY_PRIORITY_MAP: Record<LegacyPriority, Priority> = {
 }
 
 /**
+ * Ticket categories for classification.
+ */
+export const TICKET_CATEGORIES = [
+  'feature',
+  'bug',
+  'refactor',
+  'docs',
+  'test',
+  'chore',
+  'performance',
+  'ci',
+  'build',
+  'security',
+  'database',
+  'release',
+] as const
+
+export type TicketCategory = typeof TICKET_CATEGORIES[number]
+
+/**
  * Check if a string is a valid Priority value.
  */
 export function isValidPriority(value: string | undefined | null): value is Priority {
@@ -158,9 +178,10 @@ export function normalizePriority(value: string | undefined | null): Priority | 
  * Fixed state categories - the semantic buckets that statuses belong to.
  * These cannot be added, removed, or reordered.
  *
- * Order: backlog < unstarted < started < completed < canceled
+ * Order: triage < backlog < unstarted < started < completed < canceled
  */
 export type StateCategory =
+  | 'triage'      // Inbox - needs review before entering workflow
   | 'backlog'     // Not yet scheduled for work
   | 'unstarted'   // Scheduled but work hasn't begun
   | 'started'     // Work is actively in progress
@@ -171,6 +192,7 @@ export type StateCategory =
  * State category order for sorting columns/statuses
  */
 export const STATE_CATEGORY_ORDER: readonly StateCategory[] = [
+  'triage',
   'backlog',
   'unstarted',
   'started',
@@ -856,12 +878,8 @@ export interface PMOStorage {
   reorderStatus(id: string, newPosition: number): Promise<WorkflowStatus>
   getDefaultStatus(workflowId: string): Promise<WorkflowStatus | null>
 
-  // Workflow Template Operations
-  listTemplates(filter?: TemplateFilter): Promise<WorkflowTemplate[]>
-  getTemplate(id: string): Promise<WorkflowTemplate | null>
-  applyTemplate(projectId: string, templateId: string): Promise<WorkflowStatus[]>
-  saveTemplate(name: string, projectId: string, description?: string): Promise<WorkflowTemplate>
-  deleteTemplate(id: string): Promise<void>
+  // Note: Workflow templates have been removed. Use workflow commands directly
+  // (prlt workflow list, prlt workflow create, prlt workflow switch)
 
   // Ticket Template Operations
   listTicketTemplates(filter?: TicketTemplateFilter): Promise<TicketTemplate[]>

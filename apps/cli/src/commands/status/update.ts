@@ -80,11 +80,17 @@ export default class StatusUpdate extends PMOCommand {
       this.error(message);
     };
 
+    // Get the project's workflow ID
+    const project = await this.storage.getProject(projectId);
+    if (!project?.workflowId) {
+      return handleError('NO_WORKFLOW', `Project "${projectId}" has no workflow assigned.`);
+    }
+
     // Get status ID - prompt if not provided
     let statusId = args.id;
 
     if (!statusId) {
-      const statuses = await this.storage.listStatuses(projectId);
+      const statuses = await this.storage.listStatuses(project.workflowId);
       if (statuses.length === 0) {
         return handleError('NO_STATUSES', 'No statuses found. Create a status first with "prlt status create".');
       }

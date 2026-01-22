@@ -35,7 +35,6 @@ import {
   Subtask,
   SyncResult,
   SyncStatus,
-  TemplateFilter,
   Ticket,
   TicketDependency,
   TicketDependencyType,
@@ -47,7 +46,6 @@ import {
   Workflow,
   WorkflowFilter,
   WorkflowStatus,
-  WorkflowTemplate,
 } from '../types.js'
 import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from '../schema.js'
 import { StorageContext } from './types.js'
@@ -55,7 +53,6 @@ import {
   initializePMOTables,
   runMigrations,
   seedBuiltinWorkflows,
-  seedBuiltinTemplates,
   seedBuiltinPhases,
   seedBuiltinPhaseTemplates,
   seedBuiltinActions,
@@ -144,9 +141,8 @@ export class SQLiteStorage implements PMOStorage {
     // Create tables and indexes using shared schema
     this.db.exec(PMO_SCHEMA_SQL)
 
-    // Seed built-in data (workflows first, as templates use them)
+    // Seed built-in data (workflows are the source of truth for status configurations)
     seedBuiltinWorkflows(this.db)
-    seedBuiltinTemplates(this.db)
     seedBuiltinPhases(this.db)
     seedBuiltinPhaseTemplates(this.db)
     seedBuiltinActions(this.db)
@@ -560,36 +556,10 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   // ===========================================================================
-  // Template Operations
-  // ===========================================================================
-
-  async listTemplates(filter?: TemplateFilter): Promise<WorkflowTemplate[]> {
-    return this.templateStorage.listTemplates(filter)
-  }
-
-  async getTemplate(id: string): Promise<WorkflowTemplate | null> {
-    return this.templateStorage.getTemplate(id)
-  }
-
-  async applyTemplate(projectId: string, templateId: string): Promise<WorkflowStatus[]> {
-    return this.templateStorage.applyTemplate(projectId, templateId)
-  }
-
-  async saveTemplate(
-    name: string,
-    projectId: string,
-    description?: string
-  ): Promise<WorkflowTemplate> {
-    return this.templateStorage.saveTemplate(name, projectId, description)
-  }
-
-  async deleteTemplate(id: string): Promise<void> {
-    return this.templateStorage.deleteTemplate(id)
-  }
-
-  // ===========================================================================
   // Ticket Template Operations
   // ===========================================================================
+  // Note: Workflow templates have been removed. Use workflow commands directly
+  // (prlt workflow list, prlt workflow create, prlt workflow switch)
 
   async listTicketTemplates(filter?: TicketTemplateFilter): Promise<TicketTemplate[]> {
     return this.templateStorage.listTicketTemplates(filter)
@@ -722,12 +692,7 @@ export class SQLiteStorage implements PMOStorage {
   async createProject(
     project: { id?: string; name: string; template?: string; description?: string }
   ): Promise<Board> {
-    return this.projectStorage.createProject(
-      project,
-      (projectId, templateId) => this.applyTemplate(projectId, templateId),
-      (projectId) => this.listStatuses(projectId),
-      (id) => this.getTemplate(id)
-    )
+    return this.projectStorage.createProject(project)
   }
 
   async getProjectBoard(projectId: string): Promise<Board | null> {

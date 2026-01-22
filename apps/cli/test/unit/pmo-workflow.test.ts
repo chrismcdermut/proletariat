@@ -6,11 +6,11 @@ import Database from 'better-sqlite3';
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../src/lib/pmo/types.js';
 
-describe('PMO Workflow Status and Templates', () => {
+describe('PMO Workflow Status', () => {
   let testDir: string;
   let storage: SQLiteStorage;
   const projectId = 'default';
-  // When a project uses template 'kanban', it uses workflow 'kanban'
+  // When a project uses workflow 'kanban', it references that shared workflow
   const workflowId = 'kanban';
 
   beforeEach(async () => {
@@ -23,7 +23,7 @@ describe('PMO Workflow Status and Templates', () => {
 
     storage = new SQLiteStorage(dbPath);
 
-    // Create a project with kanban template
+    // Create a project with kanban workflow
     await storage.createProject({
       id: projectId,
       name: 'Test Project',
@@ -38,51 +38,50 @@ describe('PMO Workflow Status and Templates', () => {
     }
   });
 
-  describe('Built-in Templates', () => {
-    it('seeds built-in templates on database creation', async () => {
-      const templates = await storage.listTemplates();
+  describe('Built-in Workflows', () => {
+    it('seeds built-in workflows on database creation', async () => {
+      const workflows = await storage.listWorkflows();
 
-      expect(templates.length).to.be.greaterThanOrEqual(5);
+      expect(workflows.length).to.be.greaterThanOrEqual(5);
 
-      const kanban = templates.find(t => t.id === 'kanban');
+      const kanban = workflows.find(w => w.id === 'kanban');
       expect(kanban).to.not.be.undefined;
       expect(kanban!.isBuiltin).to.be.true;
-      expect(kanban!.statuses.length).to.be.greaterThan(0);
 
-      const linear = templates.find(t => t.id === 'linear');
+      const linear = workflows.find(w => w.id === 'linear');
       expect(linear).to.not.be.undefined;
       expect(linear!.isBuiltin).to.be.true;
     });
 
-    it('prevents deletion of built-in templates', async () => {
+    it('prevents deletion of built-in workflows', async () => {
       try {
-        await storage.deleteTemplate('kanban');
+        await storage.deleteWorkflow('kanban');
         expect.fail('Should have thrown an error');
       } catch (error) {
         expect((error as Error).message).to.include('Cannot delete built-in');
       }
     });
 
-    it('lists templates with filter', async () => {
-      const builtinTemplates = await storage.listTemplates({ isBuiltin: true });
-      expect(builtinTemplates.length).to.be.greaterThanOrEqual(5);
-      expect(builtinTemplates.every(t => t.isBuiltin)).to.be.true;
+    it('lists workflows with filter', async () => {
+      const builtinWorkflows = await storage.listWorkflows({ isBuiltin: true });
+      expect(builtinWorkflows.length).to.be.greaterThanOrEqual(5);
+      expect(builtinWorkflows.every(w => w.isBuiltin)).to.be.true;
 
-      const customTemplates = await storage.listTemplates({ isBuiltin: false });
-      expect(customTemplates.every(t => !t.isBuiltin)).to.be.true;
+      const customWorkflows = await storage.listWorkflows({ isBuiltin: false });
+      expect(customWorkflows.every(w => !w.isBuiltin)).to.be.true;
     });
   });
 
-  describe('Template Application', () => {
-    it('applies template to create statuses for a project', async () => {
-      // Create a new project and apply linear template
+  describe('Workflow Assignment', () => {
+    it('assigns workflow when creating project', async () => {
+      // Create a new project with linear workflow
       await storage.createProject({
-        id: 'template-test',
-        name: 'Template Test',
+        id: 'workflow-test',
+        name: 'Workflow Test',
         template: 'linear',
       });
 
-      // Verify statuses were created (linear workflow)
+      // Verify statuses come from the linear workflow
       const projectStatuses = await storage.listStatuses('linear');
       expect(projectStatuses.length).to.be.greaterThan(0);
 
@@ -178,7 +177,7 @@ describe('PMO Workflow Status and Templates', () => {
     it('lists statuses ordered by category then position', async () => {
       const statuses = await storage.listStatuses(workflowId);
 
-      // Verify ordering: backlog < unstarted < started < completed < canceled
+      // Verify ordering: triage < backlog < unstarted < started < completed < canceled
       let lastCategoryIndex = -1;
       let lastPosition = -1;
 
@@ -212,70 +211,33 @@ describe('PMO Workflow Status and Templates', () => {
     });
   });
 
-  describe('Saving Custom Templates', () => {
-    it('saves project statuses as a new template', async () => {
-      // Add a custom status
-      await storage.createStatus(workflowId, {
-        name: 'Custom Status',
-        category: 'started',
-      });
-
-      // Save as template
-      const template = await storage.saveTemplate('My Template', projectId, 'A custom workflow');
-
-      expect(template.name).to.equal('My Template');
-      expect(template.isBuiltin).to.be.false;
-      expect(template.statuses.length).to.be.greaterThan(0);
-    });
-
-    it('prevents duplicate template names', async () => {
-      await storage.saveTemplate('Custom', projectId);
-
-      try {
-        await storage.saveTemplate('Custom', projectId);
-        expect.fail('Should have thrown an error');
-      } catch (error) {
-        expect((error as Error).message).to.include('already exists');
-      }
-    });
-
-    it('allows deletion of custom templates', async () => {
-      const template = await storage.saveTemplate('Deletable', projectId);
-
-      await storage.deleteTemplate(template.id);
-
-      const deleted = await storage.getTemplate(template.id);
-      expect(deleted).to.be.null;
-    });
-  });
-
-  describe('Project Creation with Templates', () => {
-    it('applies workflow template when creating project', async () => {
+  describe('Project Creation with Workflows', () => {
+    it('assigns workflow when creating project', async () => {
       await storage.createProject({
         id: 'new-project',
         name: 'New Project',
         template: 'linear',
       });
 
-      // Check that statuses were created (uses linear workflow)
+      // Check that project uses linear workflow statuses
       const statuses = await storage.listStatuses('linear');
       expect(statuses.length).to.be.greaterThan(0);
 
-      // Linear template has specific statuses
+      // Linear workflow has specific statuses
       const statusNames = statuses.map(s => s.name);
       expect(statusNames).to.include('Backlog');
       expect(statusNames).to.include('Todo');
       expect(statusNames).to.include('In Progress');
     });
 
-    it('falls back to default columns when template not found', async () => {
+    it('falls back to default workflow when workflow not found', async () => {
       const project = await storage.createProject({
         id: 'fallback-project',
         name: 'Fallback Project',
-        template: 'nonexistent-template',
+        template: 'nonexistent-workflow',
       });
 
-      // Should have default columns (uses default workflow)
+      // Should use default workflow columns
       expect(project.columns.length).to.be.greaterThan(0);
       expect(project.columns[0].name).to.equal('Backlog');
     });
@@ -299,6 +261,103 @@ describe('PMO Workflow Status and Templates', () => {
       const status = await storage.getStatus(moved.statusId!);
       expect(status).to.not.be.null;
       expect(status!.name).to.equal('Done');
+    });
+  });
+
+  describe('Workflow Switching', () => {
+    it('updates project workflow_id when switching workflows', async () => {
+      // Get initial project
+      const projectBefore = await storage.getProject(projectId);
+      expect(projectBefore!.workflowId).to.equal('kanban');
+
+      // Switch to linear workflow
+      await storage.updateProject(projectId, { workflowId: 'linear' });
+
+      // Verify project now uses linear workflow
+      const projectAfter = await storage.getProject(projectId);
+      expect(projectAfter!.workflowId).to.equal('linear');
+    });
+
+    it('preserves ticket status category when switching workflows', async () => {
+      // Create a ticket in 'started' category
+      const ticket = await storage.createTicket(projectId, {
+        title: 'In Progress Ticket',
+        statusName: 'In Progress',
+      });
+
+      // Verify ticket is in started category
+      const ticketBefore = await storage.getTicket(projectId, ticket.id);
+      expect(ticketBefore!.statusCategory).to.equal('started');
+
+      // Switch to bug-smash workflow
+      await storage.updateProject(projectId, { workflowId: 'bug-smash' });
+
+      // Get bug-smash statuses to find a 'started' category status
+      const bugSmashStatuses = await storage.listStatuses('bug-smash');
+      const startedStatus = bugSmashStatuses.find(s => s.category === 'started');
+      expect(startedStatus).to.not.be.undefined;
+
+      // Move ticket to matching category status in new workflow
+      const moved = await storage.moveTicket(projectId, ticket.id, startedStatus!.name);
+
+      // Verify ticket is still in started category
+      expect(moved.statusCategory).to.equal('started');
+    });
+
+    it('allows switching to any available workflow', async () => {
+      const workflows = await storage.listWorkflows();
+      expect(workflows.length).to.be.greaterThan(1);
+
+      // Switch through all available workflows
+      for (const workflow of workflows) {
+        await storage.updateProject(projectId, { workflowId: workflow.id });
+        const project = await storage.getProject(projectId);
+        expect(project!.workflowId).to.equal(workflow.id);
+      }
+    });
+
+    it('migrates multiple tickets when switching workflows', async () => {
+      // Create tickets in different categories
+      const backlogTicket = await storage.createTicket(projectId, {
+        title: 'Backlog Ticket',
+        statusName: 'Backlog',
+      });
+      const inProgressTicket = await storage.createTicket(projectId, {
+        title: 'In Progress Ticket',
+        statusName: 'In Progress',
+      });
+      const doneTicket = await storage.createTicket(projectId, {
+        title: 'Done Ticket',
+        statusName: 'Done',
+      });
+
+      // Switch to linear workflow
+      await storage.updateProject(projectId, { workflowId: 'linear' });
+
+      // Get linear statuses for migration
+      const linearStatuses = await storage.listStatuses('linear');
+
+      // Build category -> status mapping
+      const categoryToStatus: Record<string, { id: string; name: string }> = {};
+      for (const status of linearStatuses) {
+        if (!categoryToStatus[status.category]) {
+          categoryToStatus[status.category] = { id: status.id, name: status.name };
+        }
+      }
+
+      // Migrate tickets to new statuses based on their categories
+      const tickets = [
+        { ticket: backlogTicket, oldCategory: 'backlog' },
+        { ticket: inProgressTicket, oldCategory: 'started' },
+        { ticket: doneTicket, oldCategory: 'completed' },
+      ];
+
+      for (const { ticket, oldCategory } of tickets) {
+        const newStatus = categoryToStatus[oldCategory];
+        expect(newStatus).to.not.be.undefined;
+        const moved = await storage.moveTicket(projectId, ticket.id, newStatus.name);
+        expect(moved.statusCategory).to.equal(oldCategory);
+      }
     });
   });
 });

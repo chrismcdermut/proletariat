@@ -1,4 +1,5 @@
 import { Flags, Args } from '@oclif/core';
+import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import { styles } from '../../../lib/styles.js';
 
@@ -13,7 +14,7 @@ export default class PhaseTemplateUpdate extends PMOCommand {
   static args = {
     id: Args.string({
       description: 'Template ID to update',
-      required: true,
+      required: false,
     }),
   };
 
@@ -36,15 +37,57 @@ export default class PhaseTemplateUpdate extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(PhaseTemplateUpdate);
 
-    if (!flags.name && !flags.description) {
-      this.error('Must provide --name or --description to update');
+    // Get template ID - prompt for selection if not provided
+    let templateId = args.id;
+    if (!templateId) {
+      const templates = await this.storage.listPhaseTemplates();
+      const editableTemplates = templates.filter(t => !t.isBuiltin);
+      if (editableTemplates.length === 0) {
+        this.error('No editable phase templates found (built-in templates cannot be updated).');
+      }
+
+      const { selectedTemplate } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selectedTemplate',
+        message: 'Select a template to update:',
+        choices: editableTemplates.map(t => ({
+          name: `${t.name}${t.description ? ` - ${t.description}` : ''}`,
+          value: t.id,
+        })),
+      }]);
+      templateId = selectedTemplate;
+    }
+
+    // If no flags provided, prompt for what to update
+    let newName = flags.name;
+    let newDescription = flags.description;
+
+    if (!newName && newDescription === undefined) {
+      const { updateName } = await inquirer.prompt([{
+        type: 'input',
+        name: 'updateName',
+        message: 'New name (leave empty to keep current):',
+      }]);
+      if (updateName) newName = updateName;
+
+      const { updateDesc } = await inquirer.prompt([{
+        type: 'input',
+        name: 'updateDesc',
+        message: 'New description (leave empty to keep current):',
+      }]);
+      if (updateDesc) newDescription = updateDesc;
+
+      if (!newName && !newDescription) {
+        this.log(styles.muted('No changes made.'));
+        return;
+      }
     }
 
     const changes: { name?: string; description?: string } = {};
-    if (flags.name) changes.name = flags.name;
-    if (flags.description !== undefined) changes.description = flags.description;
+    if (newName) changes.name = newName;
+    if (newDescription !== undefined) changes.description = newDescription;
 
-    const template = await this.storage.updatePhaseTemplate(args.id, changes);
+    const template = await this.storage.updatePhaseTemplate(templateId!, changes);
 
     this.log(styles.success(`\nUpdated phase template "${styles.emphasis(template.name)}"`));
     if (flags.name) {

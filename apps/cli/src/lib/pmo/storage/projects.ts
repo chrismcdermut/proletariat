@@ -99,54 +99,28 @@ export class ProjectStorage {
 
   /**
    * Create a new project.
-   * Assigns a workflow based on the template.
+   * Assigns a workflow based on the workflow ID (defaults to 'default' workflow).
    */
   async createProject(
-    project: { id?: string; name: string; template?: string; description?: string },
-    applyTemplate: (projectId: string, templateId: string) => Promise<WorkflowStatus[]>,
-    listStatuses: (workflowId: string) => Promise<WorkflowStatus[]>,
-    getTemplate: (id: string) => Promise<{ id: string } | null>
+    project: { id?: string; name: string; template?: string; description?: string }
   ): Promise<Board> {
     const id = project.id || generateEntityId(this.ctx.db, 'project')
-    const templateId = project.template || 'kanban'
+    const workflowId = project.template || 'default'
     const now = Date.now()
 
-    // Try to use a built-in workflow that matches the template
-    const builtinWorkflow = this.ctx.db.prepare(`
-      SELECT id FROM ${T.workflows} WHERE id = ? AND is_builtin = 1
-    `).get(templateId) as { id: string } | undefined
+    // Try to find a workflow with matching ID
+    const workflow = this.ctx.db.prepare(`
+      SELECT id FROM ${T.workflows} WHERE id = ?
+    `).get(workflowId) as { id: string } | undefined
 
-    let workflowId: string
+    // Use the requested workflow if it exists, otherwise fall back to default
+    const finalWorkflowId = workflow ? workflowId : 'default'
 
-    if (builtinWorkflow) {
-      // Use the built-in workflow directly
-      workflowId = builtinWorkflow.id
-    } else {
-      // Check if template exists
-      const template = await getTemplate(templateId)
-      if (template) {
-        // Create project first, then apply template (which creates a project-specific workflow)
-        this.ctx.db.prepare(`
-          INSERT INTO ${T.projects} (id, name, template, description, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `).run(id, project.name, templateId, project.description || null, now, now)
-
-        await applyTemplate(id, templateId)
-
-        // Get the assigned workflow
-        const updated = this.ctx.db.prepare(`SELECT workflow_id FROM ${T.projects} WHERE id = ?`).get(id) as { workflow_id: string }
-        workflowId = updated.workflow_id
-      } else {
-        // Fallback to default workflow
-        workflowId = 'default'
-      }
-    }
-
-    // Insert or update project with workflow
+    // Insert project with workflow
     this.ctx.db.prepare(`
       INSERT OR REPLACE INTO ${T.projects} (id, name, template, description, workflow_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(id, project.name, templateId, project.description || null, workflowId, now, now)
+    `).run(id, project.name, workflowId, project.description || null, finalWorkflowId, now, now)
 
     return this.getBoard(id)
   }
