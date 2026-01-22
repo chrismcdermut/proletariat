@@ -205,7 +205,10 @@ export default class TicketTemplateApply extends PMOCommand {
     if (statusId) {
       const status = await this.storage.getStatus(statusId);
       if (!status) {
-        const statuses = await this.storage.listStatuses(projectId);
+        // Get project's workflow to list available statuses
+        const projectInfo = await this.storage.getProject(projectId);
+        const workflowId = projectInfo?.workflowId;
+        const statuses = workflowId ? await this.storage.listStatuses(workflowId) : [];
         const statusNames = statuses.map(s => `${s.id} (${s.name})`).join(', ');
         this.error(`Invalid status "${statusId}". Available statuses: ${statusNames}`);
       }

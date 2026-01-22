@@ -62,8 +62,12 @@ export default class StatusTemplateApply extends PMOCommand {
       return handleError('TEMPLATE_NOT_FOUND', `Template not found: ${args.template}\nRun 'prlt status template list' to see available templates.`);
     }
 
-    // Check if project has existing statuses
-    const existingStatuses = await this.storage.listStatuses(projectId);
+    // Get the project's workflow ID (may be null if no workflow assigned yet)
+    const project = await this.storage.getProject(projectId);
+    const workflowId = project?.workflowId;
+
+    // Check if project has existing statuses (only if it has a workflow)
+    const existingStatuses = workflowId ? await this.storage.listStatuses(workflowId) : [];
     if (existingStatuses.length > 0 && !flags.force) {
       // In JSON mode, output confirmation prompt
       if (jsonMode) {

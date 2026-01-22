@@ -31,8 +31,14 @@ export default class StatusTemplateSave extends PMOCommand {
     // This command requires project context
     const projectId = await this.requireProject();
 
+    // Get the project's workflow ID
+    const project = await this.storage.getProject(projectId);
+    if (!project?.workflowId) {
+      this.error(`Project "${projectId}" has no workflow assigned.`);
+    }
+
     // Check if project has statuses
-    const statuses = await this.storage.listStatuses(projectId);
+    const statuses = await this.storage.listStatuses(project.workflowId);
     if (statuses.length === 0) {
       const projectName = await this.getProjectName(projectId);
       this.error(`Project "${projectName}" has no statuses to save.\nApply a template first: prlt status template apply kanban`);
