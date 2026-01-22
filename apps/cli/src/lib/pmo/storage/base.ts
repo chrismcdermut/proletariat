@@ -303,6 +303,34 @@ export function seedBuiltinWorkflows(db: Database.Database): void {
         { name: "Won't Fix", category: 'canceled', position: 5 },
       ],
     },
+    {
+      id: '5-tool-founder',
+      name: '5-Tool Founder',
+      description: 'Founder workflow: Ship, Grow, Support, Strategy, BizOps backlogs → In Progress → Review → Done',
+      statuses: [
+        { name: 'Ship', category: 'backlog', position: 0, isDefault: true },
+        { name: 'Grow', category: 'backlog', position: 1 },
+        { name: 'Support', category: 'backlog', position: 2 },
+        { name: 'Strategy', category: 'backlog', position: 3 },
+        { name: 'BizOps', category: 'backlog', position: 4 },
+        { name: 'In Progress', category: 'started', position: 5 },
+        { name: 'Review', category: 'started', position: 6 },
+        { name: 'Done', category: 'completed', position: 7 },
+      ],
+    },
+    {
+      id: 'gtm',
+      name: 'GTM',
+      description: 'Go-to-market workflow for launches and campaigns',
+      statuses: [
+        { name: 'Ideation', category: 'backlog', position: 0, isDefault: true },
+        { name: 'Planning', category: 'unstarted', position: 1 },
+        { name: 'In Development', category: 'started', position: 2 },
+        { name: 'Ready to Launch', category: 'started', position: 3 },
+        { name: 'Launched', category: 'completed', position: 4 },
+        { name: 'Retired', category: 'canceled', position: 5 },
+      ],
+    },
   ]
 
   const now = new Date().toISOString()

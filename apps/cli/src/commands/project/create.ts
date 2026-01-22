@@ -83,7 +83,7 @@ export default class ProjectCreate extends PMOCommand {
         { name: 'Kanban - Backlog → To Do → In Progress → Done', value: 'kanban' },
         { name: 'Linear - Backlog, Triage, Todo, In Progress, In Review, Done', value: 'linear' },
         { name: 'Bug Smash - Reported → Confirmed → Fixing → Verifying → Fixed', value: 'bug-smash' },
-        { name: '5-Tool Founder - Ideas → Next Up → Building → Shipping → Shipped', value: '5-tool-founder' },
+        { name: '5-Tool Founder - Ship, Grow, Support, Strategy, BizOps → In Progress → Review → Done', value: '5-tool-founder' },
         { name: 'GTM - Ideation → Planning → In Development → Ready to Launch → Launched', value: 'gtm' },
       ];
 

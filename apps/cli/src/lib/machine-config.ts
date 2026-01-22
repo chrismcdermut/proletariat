@@ -4,32 +4,48 @@ import * as os from 'node:os';
 import { isValidHQ } from './workspace.js';
 
 /**
- * Machine-level configuration for Proletariat workspaces.
+ * Machine-level configuration for Proletariat headquarters.
  *
  * This module manages the ~/.proletariat/config.json registry that tracks
- * all known workspaces on the machine, solving the workspace discovery
+ * all known headquarters on the machine, solving the HQ discovery
  * chicken-and-egg problem.
  *
  * Registry schema:
  * {
  *   "version": "1.0.0",
- *   "workspaces": [
- *     { "name": "workspace-name", "path": "/absolute/path", "registeredAt": "ISO8601" }
+ *   "headquarters": [
+ *     { "name": "hq-name", "path": "/absolute/path", "registeredAt": "ISO8601" }
  *   ],
- *   "activeWorkspace": "/absolute/path" | null
+ *   "activeHeadquarters": "/absolute/path" | null
  * }
  */
 
-export interface RegisteredWorkspace {
+export interface Organization {
+  name: string;
+  createdAt: string;
+}
+
+export interface RegisteredHeadquarters {
   name: string;
   path: string;
   registeredAt: string;
+  orgName?: string;
 }
 
+/** @deprecated Use RegisteredHeadquarters instead */
+export type RegisteredWorkspace = RegisteredHeadquarters;
+
 export interface MachineConfig {
+  type: 'machine';
   version: string;
-  workspaces: RegisteredWorkspace[];
-  activeWorkspace: string | null;
+  organizations: Organization[];
+  headquarters: RegisteredHeadquarters[];
+  activeHeadquarters: string | null;
+  activeOrganization: string | null;
+  /** @deprecated Use headquarters instead */
+  workspaces?: RegisteredHeadquarters[];
+  /** @deprecated Use activeHeadquarters instead */
+  activeWorkspace?: string | null;
 }
 
 const CONFIG_VERSION = '1.0.0';
@@ -96,15 +112,19 @@ export function normalizePath(inputPath: string): string {
  */
 function getDefaultConfig(): MachineConfig {
   return {
+    type: 'machine',
     version: CONFIG_VERSION,
-    workspaces: [],
-    activeWorkspace: null,
+    organizations: [],
+    headquarters: [],
+    activeHeadquarters: null,
+    activeOrganization: null,
   };
 }
 
 /**
  * Read the machine config file.
  * Returns a default empty config if file doesn't exist or is invalid.
+ * Handles migration from old 'workspaces' format to new 'headquarters' format.
  */
 export function readMachineConfig(): MachineConfig {
   const configPath = getMachineConfigPath();
@@ -115,14 +135,31 @@ export function readMachineConfig(): MachineConfig {
 
   try {
     const content = fs.readFileSync(configPath, 'utf-8');
-    const config = JSON.parse(content) as MachineConfig;
+    const config = JSON.parse(content) as Partial<MachineConfig>;
 
-    // Validate basic structure
-    if (!config.version || !Array.isArray(config.workspaces)) {
+    // Validate basic structure - check for either old or new format
+    const hasOldFormat = Array.isArray(config.workspaces);
+    const hasNewFormat = Array.isArray(config.headquarters);
+
+    if (!config.version || (!hasOldFormat && !hasNewFormat)) {
       return getDefaultConfig();
     }
 
-    return config;
+    // Migrate from old format if needed
+    const headquarters = hasNewFormat
+      ? config.headquarters!
+      : (config.workspaces || []);
+
+    const activeHeadquarters = config.activeHeadquarters ?? config.activeWorkspace ?? null;
+
+    return {
+      type: 'machine',
+      version: config.version,
+      organizations: config.organizations || [],
+      headquarters,
+      activeHeadquarters,
+      activeOrganization: config.activeOrganization ?? null,
+    };
   } catch {
     return getDefaultConfig();
   }
@@ -158,45 +195,48 @@ export function writeMachineConfig(config: MachineConfig): void {
 }
 
 /**
- * Register a workspace in the machine config.
+ * Register a headquarters in the machine config.
  *
- * @param workspacePath Absolute path to the workspace (will be normalized)
- * @param name Optional workspace name (defaults to directory basename)
- * @param setActive If true, set as active workspace when no active workspace exists
- * @returns The registered workspace entry
+ * @param hqPath Absolute path to the headquarters (will be normalized)
+ * @param name Optional HQ name (defaults to directory basename)
+ * @param setActive If true, set as active HQ when no active HQ exists
+ * @param orgName Optional organization name to associate this HQ with
+ * @returns The registered headquarters entry
  */
-export function registerWorkspace(
-  workspacePath: string,
+export function registerHeadquarters(
+  hqPath: string,
   name?: string,
-  setActive: boolean = true
-): RegisteredWorkspace {
-  const normalizedPath = normalizePath(workspacePath);
-  const workspaceName = name || path.basename(normalizedPath);
+  setActive: boolean = true,
+  orgName?: string
+): RegisteredHeadquarters {
+  const normalizedPath = normalizePath(hqPath);
+  const hqName = name || path.basename(normalizedPath);
 
   const config = readMachineConfig();
 
   // Check if already registered
-  const existingIndex = config.workspaces.findIndex(
-    (w) => normalizePath(w.path) === normalizedPath
+  const existingIndex = config.headquarters.findIndex(
+    (hq) => normalizePath(hq.path) === normalizedPath
   );
 
-  const entry: RegisteredWorkspace = {
-    name: workspaceName,
+  const entry: RegisteredHeadquarters = {
+    name: hqName,
     path: normalizedPath,
     registeredAt: new Date().toISOString(),
+    orgName,
   };
 
   if (existingIndex >= 0) {
     // Update existing entry
-    config.workspaces[existingIndex] = entry;
+    config.headquarters[existingIndex] = entry;
   } else {
     // Add new entry
-    config.workspaces.push(entry);
+    config.headquarters.push(entry);
   }
 
-  // Set as active if requested and no active workspace exists
-  if (setActive && !config.activeWorkspace) {
-    config.activeWorkspace = normalizedPath;
+  // Set as active if requested and no active HQ exists
+  if (setActive && !config.activeHeadquarters) {
+    config.activeHeadquarters = normalizedPath;
   }
 
   writeMachineConfig(config);
@@ -204,35 +244,38 @@ export function registerWorkspace(
   return entry;
 }
 
+/** @deprecated Use registerHeadquarters instead */
+export const registerWorkspace = registerHeadquarters;
+
 /**
- * Unregister a workspace from the machine config.
+ * Unregister a headquarters from the machine config.
  *
- * @param pathOrName Workspace path or name to unregister
- * @returns true if workspace was found and removed, false otherwise
+ * @param pathOrName HQ path or name to unregister
+ * @returns true if HQ was found and removed, false otherwise
  */
-export function unregisterWorkspace(pathOrName: string): boolean {
+export function unregisterHeadquarters(pathOrName: string): boolean {
   const config = readMachineConfig();
   const normalizedInput = normalizePath(pathOrName);
 
-  const initialLength = config.workspaces.length;
+  const initialLength = config.headquarters.length;
 
   // Try to match by path first, then by name
-  config.workspaces = config.workspaces.filter((w) => {
-    const normalizedWorkspacePath = normalizePath(w.path);
-    return normalizedWorkspacePath !== normalizedInput && w.name !== pathOrName;
+  config.headquarters = config.headquarters.filter((hq) => {
+    const normalizedHqPath = normalizePath(hq.path);
+    return normalizedHqPath !== normalizedInput && hq.name !== pathOrName;
   });
 
-  const removed = config.workspaces.length < initialLength;
+  const removed = config.headquarters.length < initialLength;
 
   if (removed) {
-    // Clear active workspace if it was the removed one
-    if (config.activeWorkspace) {
-      const normalizedActive = normalizePath(config.activeWorkspace);
-      const stillExists = config.workspaces.some(
-        (w) => normalizePath(w.path) === normalizedActive
+    // Clear active HQ if it was the removed one
+    if (config.activeHeadquarters) {
+      const normalizedActive = normalizePath(config.activeHeadquarters);
+      const stillExists = config.headquarters.some(
+        (hq) => normalizePath(hq.path) === normalizedActive
       );
       if (!stillExists) {
-        config.activeWorkspace = null;
+        config.activeHeadquarters = null;
       }
     }
 
@@ -242,106 +285,127 @@ export function unregisterWorkspace(pathOrName: string): boolean {
   return removed;
 }
 
-/**
- * Get all registered workspaces.
- */
-export function getRegisteredWorkspaces(): RegisteredWorkspace[] {
-  const config = readMachineConfig();
-  return config.workspaces;
-}
+/** @deprecated Use unregisterHeadquarters instead */
+export const unregisterWorkspace = unregisterHeadquarters;
 
 /**
- * Get the active workspace path.
- * Returns null if no active workspace is set.
+ * Get all registered headquarters.
  */
-export function getActiveWorkspace(): string | null {
+export function getRegisteredHeadquarters(): RegisteredHeadquarters[] {
   const config = readMachineConfig();
-  return config.activeWorkspace;
+  return config.headquarters;
 }
 
+/** @deprecated Use getRegisteredHeadquarters instead */
+export const getRegisteredWorkspaces = getRegisteredHeadquarters;
+
 /**
- * Set the active workspace.
+ * Get the active headquarters path.
+ * Returns null if no active HQ is set.
+ */
+export function getActiveHeadquarters(): string | null {
+  const config = readMachineConfig();
+  return config.activeHeadquarters;
+}
+
+/** @deprecated Use getActiveHeadquarters instead */
+export const getActiveWorkspace = getActiveHeadquarters;
+
+/**
+ * Set the active headquarters.
  *
- * @param pathOrName Workspace path or name
- * @returns The path of the workspace that was set as active
- * @throws Error if workspace not found or not valid
+ * @param pathOrName HQ path or name
+ * @returns The path of the HQ that was set as active
+ * @throws Error if HQ not found or not valid
  */
-export function setActiveWorkspace(pathOrName: string): string {
+export function setActiveHeadquarters(pathOrName: string): string {
   const config = readMachineConfig();
   const normalizedInput = normalizePath(pathOrName);
 
-  // Find workspace by path or name
-  let workspace = config.workspaces.find(
-    (w) => normalizePath(w.path) === normalizedInput
+  // Find HQ by path or name
+  let hq = config.headquarters.find(
+    (h) => normalizePath(h.path) === normalizedInput
   );
 
-  if (!workspace) {
+  if (!hq) {
     // Try matching by name
-    const matches = config.workspaces.filter((w) => w.name === pathOrName);
+    const matches = config.headquarters.filter((h) => h.name === pathOrName);
     if (matches.length === 0) {
-      throw new Error(`Workspace not found: ${pathOrName}`);
+      throw new Error(`Headquarters not found: ${pathOrName}`);
     }
     if (matches.length > 1) {
       throw new Error(
-        `Multiple workspaces found with name "${pathOrName}". Please use the full path instead.`
+        `Multiple headquarters found with name "${pathOrName}". Please use the full path instead.`
       );
     }
-    workspace = matches[0];
+    hq = matches[0];
   }
 
-  // Validate workspace still exists on filesystem
-  if (!fs.existsSync(workspace.path)) {
-    throw new Error(`Workspace path no longer exists: ${workspace.path}`);
+  // Validate HQ still exists on filesystem
+  if (!fs.existsSync(hq.path)) {
+    throw new Error(`Headquarters path no longer exists: ${hq.path}`);
   }
 
   // Validate it's still a valid HQ
-  if (!isValidHQ(workspace.path)) {
-    throw new Error(`Path is no longer a valid workspace: ${workspace.path}`);
+  if (!isValidHQ(hq.path)) {
+    throw new Error(`Path is no longer a valid headquarters: ${hq.path}`);
   }
 
-  config.activeWorkspace = workspace.path;
+  config.activeHeadquarters = hq.path;
   writeMachineConfig(config);
 
-  return workspace.path;
+  return hq.path;
 }
 
+/** @deprecated Use setActiveHeadquarters instead */
+export const setActiveWorkspace = setActiveHeadquarters;
+
 /**
- * Find a workspace by name.
+ * Find headquarters by name.
  * Returns array of matches (may be multiple if names are not unique).
  */
-export function findWorkspacesByName(name: string): RegisteredWorkspace[] {
+export function findHeadquartersByName(name: string): RegisteredHeadquarters[] {
   const config = readMachineConfig();
-  return config.workspaces.filter(
-    (w) => w.name.toLowerCase() === name.toLowerCase()
+  return config.headquarters.filter(
+    (hq) => hq.name.toLowerCase() === name.toLowerCase()
   );
 }
 
+/** @deprecated Use findHeadquartersByName instead */
+export const findWorkspacesByName = findHeadquartersByName;
+
 /**
- * Find a workspace by path.
+ * Find headquarters by path.
  */
-export function findWorkspaceByPath(
-  workspacePath: string
-): RegisteredWorkspace | null {
+export function findHeadquartersByPath(
+  hqPath: string
+): RegisteredHeadquarters | null {
   const config = readMachineConfig();
-  const normalized = normalizePath(workspacePath);
+  const normalized = normalizePath(hqPath);
   return (
-    config.workspaces.find((w) => normalizePath(w.path) === normalized) || null
+    config.headquarters.find((hq) => normalizePath(hq.path) === normalized) || null
   );
 }
 
-/**
- * Check if a workspace path is registered.
- */
-export function isWorkspaceRegistered(workspacePath: string): boolean {
-  return findWorkspaceByPath(workspacePath) !== null;
-}
+/** @deprecated Use findHeadquartersByPath instead */
+export const findWorkspaceByPath = findHeadquartersByPath;
 
 /**
- * Get workspace name from path (for existing HQ).
- * Reads the workspace config to get the name, or falls back to directory basename.
+ * Check if a headquarters path is registered.
  */
-export function getWorkspaceNameFromPath(workspacePath: string): string {
-  const configPath = path.join(workspacePath, '.proletariat', 'config.json');
+export function isHeadquartersRegistered(hqPath: string): boolean {
+  return findHeadquartersByPath(hqPath) !== null;
+}
+
+/** @deprecated Use isHeadquartersRegistered instead */
+export const isWorkspaceRegistered = isHeadquartersRegistered;
+
+/**
+ * Get headquarters name from path (for existing HQ).
+ * Reads the HQ config to get the name, or falls back to directory basename.
+ */
+export function getHeadquartersNameFromPath(hqPath: string): string {
+  const configPath = path.join(hqPath, '.proletariat', 'config.json');
 
   if (fs.existsSync(configPath)) {
     try {
@@ -354,20 +418,23 @@ export function getWorkspaceNameFromPath(workspacePath: string): string {
     }
   }
 
-  return path.basename(workspacePath);
+  return path.basename(hqPath);
 }
 
+/** @deprecated Use getHeadquartersNameFromPath instead */
+export const getWorkspaceNameFromPath = getHeadquartersNameFromPath;
+
 /**
- * Check if a path has duplicate workspace names in the registry.
+ * Check if there are duplicate headquarters names in the registry.
  */
 export function hasDuplicateNames(): { name: string; paths: string[] }[] {
   const config = readMachineConfig();
   const nameMap = new Map<string, string[]>();
 
-  for (const workspace of config.workspaces) {
-    const existing = nameMap.get(workspace.name) || [];
-    existing.push(workspace.path);
-    nameMap.set(workspace.name, existing);
+  for (const hq of config.headquarters) {
+    const existing = nameMap.get(hq.name) || [];
+    existing.push(hq.path);
+    nameMap.set(hq.name, existing);
   }
 
   const duplicates: { name: string; paths: string[] }[] = [];
@@ -379,3 +446,85 @@ export function hasDuplicateNames(): { name: string; paths: string[] }[] {
 
   return duplicates;
 }
+
+// =============================================================================
+// Organization Management
+// =============================================================================
+
+/**
+ * Get all organizations.
+ */
+export function getOrganizations(): Organization[] {
+  const config = readMachineConfig();
+  return config.organizations;
+}
+
+/**
+ * Get the active organization name.
+ */
+export function getActiveOrganization(): string | null {
+  const config = readMachineConfig();
+  return config.activeOrganization;
+}
+
+/**
+ * Create a new organization.
+ */
+export function createOrganization(name: string): Organization {
+  const config = readMachineConfig();
+
+  // Check if organization already exists
+  const existing = config.organizations.find(
+    (o) => o.name.toLowerCase() === name.toLowerCase()
+  );
+  if (existing) {
+    return existing;
+  }
+
+  const org: Organization = {
+    name,
+    createdAt: new Date().toISOString(),
+  };
+
+  config.organizations.push(org);
+
+  // Set as active if it's the first organization
+  if (!config.activeOrganization) {
+    config.activeOrganization = name;
+  }
+
+  writeMachineConfig(config);
+  return org;
+}
+
+/**
+ * Set the active organization.
+ */
+export function setActiveOrganization(name: string): void {
+  const config = readMachineConfig();
+
+  // Find organization (case-insensitive)
+  const org = config.organizations.find(
+    (o) => o.name.toLowerCase() === name.toLowerCase()
+  );
+
+  if (!org) {
+    throw new Error(`Organization not found: ${name}`);
+  }
+
+  config.activeOrganization = org.name;
+  writeMachineConfig(config);
+}
+
+/**
+ * Get headquarters belonging to a specific organization.
+ */
+export function getOrganizationHeadquarters(orgName: string): RegisteredHeadquarters[] {
+  const config = readMachineConfig();
+  return config.headquarters.filter(
+    (hq) => hq.orgName?.toLowerCase() === orgName.toLowerCase()
+  );
+}
+
+/** @deprecated Use getOrganizationHeadquarters instead */
+export const getOrganizationWorkspaces = getOrganizationHeadquarters;

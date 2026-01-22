@@ -61,13 +61,18 @@ export interface WorkspaceInfo {
  * Find workspace root and return workspace information.
  *
  * Search priority:
- * 1. PRLT_HQ_PATH environment variable (used in devcontainers where HQ is mounted at /hq)
+ * 1. PRLT_HQ_PATH environment variable (ONLY when DEVCONTAINER=true - for devcontainer mounts)
  * 2. Current directory tree for HQ with workspace.db
+ *
+ * NOTE: PRLT_HQ_PATH is ignored on host machines to support multiple agents
+ * working in different workspaces simultaneously.
  */
 export function getWorkspaceInfo(): WorkspaceInfo {
-  // Check PRLT_HQ_PATH environment variable first (used in devcontainers)
+  // Check PRLT_HQ_PATH environment variable (only in devcontainers)
   const hqPath = process.env.PRLT_HQ_PATH;
-  if (hqPath) {
+  const isDevcontainer = process.env.DEVCONTAINER === 'true';
+
+  if (hqPath && isDevcontainer) {
     const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
     if (fs.existsSync(dbPath)) {
       try {
