@@ -32,6 +32,42 @@ That's it. The agent reads your ticket, writes code, and creates a PR.
 
 ---
 
+## Three Ways to Use Commands
+
+Every command supports three interaction styles:
+
+### 1. Interactive Prompts (Human)
+
+Run without arguments - get guided prompts:
+
+```bash
+prlt ticket create
+# Prompts for title, description, priority, category...
+```
+
+### 2. JSON Mode (AI Agents)
+
+Add `--json` to get machine-readable menus for AI agents:
+
+```bash
+prlt ticket create --json
+# Returns structured JSON with available options
+```
+
+### 3. Flags (Scripting)
+
+Pass all arguments directly:
+
+```bash
+prlt ticket create \
+  --title "Add login" \
+  --description "OAuth implementation" \
+  --priority P1 \
+  --category feature
+```
+
+---
+
 ## How It Works
 
 ### 1. You create tickets
