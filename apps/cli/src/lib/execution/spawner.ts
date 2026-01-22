@@ -170,14 +170,24 @@ export function getAgentsWithCounts(
 }
 
 /**
- * Get agents that are not currently running any executions.
+ * Get staff agents that are not currently running any executions.
+ * Only considers persistent (staff) agents with status='active'.
+ * Cleans up stale executions before checking availability (TKT-604).
  */
 export function getAvailableAgents(
   workspaceInfo: WorkspaceInfo,
   executionStorage: ExecutionStorage
 ): string[] {
+  // Clean up stale executions first (TKT-604)
+  executionStorage.cleanupStaleExecutions()
+
+  // Filter for active staff agents only (not ephemeral agents)
   return workspaceInfo.agents
-    .filter(agent => executionStorage.isAgentAvailable(agent.name))
+    .filter(agent =>
+      agent.type === 'persistent' &&
+      agent.status === 'active' &&
+      executionStorage.isAgentAvailable(agent.name)
+    )
     .map(agent => agent.name)
 }
 
