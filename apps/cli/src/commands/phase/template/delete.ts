@@ -21,7 +21,7 @@ export default class PhaseTemplateDelete extends PMOCommand {
   static args = {
     id: Args.string({
       description: 'Template ID to delete',
-      required: true,
+      required: false,
     }),
   };
 
@@ -57,10 +57,31 @@ export default class PhaseTemplateDelete extends PMOCommand {
       this.error(message);
     };
 
+    // Get template - prompt for selection if not provided
+    let templateId = args.id;
+    if (!templateId) {
+      const templates = await this.storage.listPhaseTemplates();
+      const deletableTemplates = templates.filter(t => !t.isBuiltin);
+      if (deletableTemplates.length === 0) {
+        return handleError('NO_TEMPLATES', `No deletable phase templates found (built-in templates cannot be deleted).`);
+      }
+
+      const { selectedTemplate } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selectedTemplate',
+        message: 'Select a template to delete:',
+        choices: deletableTemplates.map(t => ({
+          name: `${t.name}${t.description ? ` - ${t.description}` : ''}`,
+          value: t.id,
+        })),
+      }]);
+      templateId = selectedTemplate;
+    }
+
     // Verify template exists
-    const template = await this.storage.getPhaseTemplate(args.id);
+    const template = await this.storage.getPhaseTemplate(templateId!);
     if (!template) {
-      return handleError('TEMPLATE_NOT_FOUND', `Phase template not found: ${args.id}`);
+      return handleError('TEMPLATE_NOT_FOUND', `Phase template not found: ${templateId}`);
     }
 
     if (template.isBuiltin) {
@@ -96,7 +117,7 @@ export default class PhaseTemplateDelete extends PMOCommand {
       }
     }
 
-    await this.storage.deletePhaseTemplate(args.id);
+    await this.storage.deletePhaseTemplate(templateId!);
 
     this.log(styles.success(`\nDeleted phase template "${template.name}"`));
   }

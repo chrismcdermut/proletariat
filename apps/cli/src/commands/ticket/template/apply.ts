@@ -26,7 +26,7 @@ export default class TicketTemplateApply extends PMOCommand {
   static args = {
     template: Args.string({
       description: 'Template ID to use',
-      required: true,
+      required: false,
     }),
   };
 
@@ -107,10 +107,29 @@ export default class TicketTemplateApply extends PMOCommand {
       this.error(message);
     };
 
-    // Get the template
-    const template = await this.storage.getTicketTemplate(args.template);
+    // Get the template - prompt for selection if not provided
+    let templateId = args.template;
+    if (!templateId) {
+      const templates = await this.storage.listTicketTemplates();
+      if (templates.length === 0) {
+        return handleError('NO_TEMPLATES', `No ticket templates found.\nCreate one with: prlt ticket template save <ticket-id> "Template Name"`);
+      }
+
+      const { selectedTemplate } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selectedTemplate',
+        message: 'Select a template:',
+        choices: templates.map(t => ({
+          name: `${t.name}${t.description ? ` - ${t.description}` : ''}`,
+          value: t.id,
+        })),
+      }]);
+      templateId = selectedTemplate;
+    }
+
+    const template = await this.storage.getTicketTemplate(templateId!);
     if (!template) {
-      return handleError('TEMPLATE_NOT_FOUND', `Template not found: ${args.template}\nRun 'prlt ticket template list' to see available templates.`);
+      return handleError('TEMPLATE_NOT_FOUND', `Template not found: ${templateId}\nRun 'prlt ticket template list' to see available templates.`);
     }
 
     // Validate epic if provided
@@ -205,7 +224,10 @@ export default class TicketTemplateApply extends PMOCommand {
     if (statusId) {
       const status = await this.storage.getStatus(statusId);
       if (!status) {
-        const statuses = await this.storage.listStatuses(projectId);
+        // Get project's workflow to list available statuses
+        const projectInfo = await this.storage.getProject(projectId);
+        const workflowId = projectInfo?.workflowId;
+        const statuses = workflowId ? await this.storage.listStatuses(workflowId) : [];
         const statusNames = statuses.map(s => `${s.id} (${s.name})`).join(', ');
         this.error(`Invalid status "${statusId}". Available statuses: ${statusNames}`);
       }

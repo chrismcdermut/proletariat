@@ -45,9 +45,6 @@ export default class Work extends PMOCommand {
       { id: 'watch', name: 'Watch column (auto-spawn)', command: `prlt work watch -P ${projectId} --json` },
       { id: 'ready', name: 'Mark work ready for review', command: `prlt work ready -P ${projectId} --json` },
       { id: 'complete', name: 'Mark work complete', command: `prlt work complete -P ${projectId} --json` },
-      { id: 'claim', name: 'Claim work (own + assign)', command: `prlt work claim -P ${projectId} --json` },
-      { id: 'assign', name: 'Assign work to agent/person', command: `prlt work assign -P ${projectId} --json` },
-      { id: 'own', name: 'Take ownership (accountable)', command: `prlt work own -P ${projectId} --json` },
       { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'Work Operations - What would you like to do?';
@@ -69,15 +66,6 @@ export default class Work extends PMOCommand {
     // Pass --project to avoid re-prompting for project selection
     const projectArgs = ['--project', projectId];
     switch (action) {
-      case 'claim':
-        await this.config.runCommand('work:claim', projectArgs);
-        break;
-      case 'assign':
-        await this.config.runCommand('work:assign', projectArgs);
-        break;
-      case 'own':
-        await this.config.runCommand('work:own', projectArgs);
-        break;
       case 'start':
         await this.config.runCommand('work:start', projectArgs);
         break;

@@ -21,38 +21,33 @@ describe('PMO Board Views Storage Tests', () => {
 
     storage = new SQLiteStorage(dbPath);
 
-    // Create a project and initialize
+    // Create a project (workflow is automatically assigned)
     await storage.createProject({
       id: 'test-project',
       name: 'Test Project',
       template: 'kanban',
     });
-    storage.setCurrentProject('test-project');
-    await storage.init({
-      name: 'Test Project',
-      columns: ['Backlog', 'In Progress', 'Done'],
-    });
 
     // Create test tickets with different properties
-    await storage.createTicket({
+    await storage.createTicket('test-project', {
       id: 'TEST-001',
       title: 'High priority task',
       priority: 'HIGH',
       assignee: 'alice',
     });
-    await storage.createTicket({
+    await storage.createTicket('test-project', {
       id: 'TEST-002',
       title: 'Medium priority task',
       priority: 'MEDIUM',
       assignee: 'bob',
     });
-    await storage.createTicket({
+    await storage.createTicket('test-project', {
       id: 'TEST-003',
       title: 'Low priority task',
       priority: 'LOW',
       assignee: 'alice',
     });
-    await storage.createTicket({
+    await storage.createTicket('test-project', {
       id: 'TEST-004',
       title: 'Unassigned task',
       priority: 'HIGH',
@@ -184,7 +179,7 @@ describe('PMO Board Views Storage Tests', () => {
 
   describe('Filtered Board Retrieval', () => {
     it('should get board without filters', async () => {
-      const board = await storage.getBoardWithView();
+      const board = await storage.getBoardWithView('test-project');
 
       let totalTickets = 0;
       for (const column of board.columns) {
@@ -194,7 +189,7 @@ describe('PMO Board Views Storage Tests', () => {
     });
 
     it('should filter board by assignee', async () => {
-      const board = await storage.getBoardWithView(undefined, { assignee: 'alice' });
+      const board = await storage.getBoardWithView('test-project', undefined, { assignee: 'alice' });
 
       let matchingTickets = 0;
       for (const column of board.columns) {
@@ -207,7 +202,7 @@ describe('PMO Board Views Storage Tests', () => {
     });
 
     it('should filter board by unassigned', async () => {
-      const board = await storage.getBoardWithView(undefined, { assignee: 'unassigned' });
+      const board = await storage.getBoardWithView('test-project', undefined, { assignee: 'unassigned' });
 
       let matchingTickets = 0;
       for (const column of board.columns) {
@@ -220,7 +215,7 @@ describe('PMO Board Views Storage Tests', () => {
     });
 
     it('should filter board by priority', async () => {
-      const board = await storage.getBoardWithView(undefined, { priority: 'HIGH' });
+      const board = await storage.getBoardWithView('test-project', undefined, { priority: 'HIGH' });
 
       let matchingTickets = 0;
       for (const column of board.columns) {
@@ -239,7 +234,7 @@ describe('PMO Board Views Storage Tests', () => {
         filters: { assignee: 'alice' },
       });
 
-      const board = await storage.getBoardWithView(view.id);
+      const board = await storage.getBoardWithView('test-project', view.id);
 
       let matchingTickets = 0;
       for (const column of board.columns) {
@@ -259,7 +254,7 @@ describe('PMO Board Views Storage Tests', () => {
       });
 
       // Override with bob
-      const board = await storage.getBoardWithView(view.id, { assignee: 'bob' });
+      const board = await storage.getBoardWithView('test-project', view.id, { assignee: 'bob' });
 
       let matchingTickets = 0;
       for (const column of board.columns) {
@@ -272,7 +267,7 @@ describe('PMO Board Views Storage Tests', () => {
     });
 
     it('should filter by search text', async () => {
-      const board = await storage.getBoardWithView(undefined, { search: 'High priority' });
+      const board = await storage.getBoardWithView('test-project', undefined, { search: 'High priority' });
 
       let matchingTickets = 0;
       for (const column of board.columns) {
@@ -285,7 +280,7 @@ describe('PMO Board Views Storage Tests', () => {
     });
 
     it('should combine multiple filters', async () => {
-      const board = await storage.getBoardWithView(undefined, {
+      const board = await storage.getBoardWithView('test-project', undefined, {
         assignee: 'alice',
         priority: 'HIGH',
       });
@@ -366,7 +361,6 @@ describe('PMO Board Views Storage Tests', () => {
       // Close and reopen storage to test persistence
       await storage.close();
       storage = new SQLiteStorage(dbPath);
-      storage.setCurrentProject('test-project');
 
       const loaded = await storage.getBoardView(created.id);
       expect(loaded).to.not.be.null;

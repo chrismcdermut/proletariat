@@ -98,11 +98,33 @@ export interface ProjectRow {
   description: string | null
   status: string
   phase_id: string | null
+  workflow_id: string | null
   is_archived: number
   target_date: string | null
   initiative_id: string | null
   created_at: string
   updated_at: string
+}
+
+export interface WorkflowRow {
+  id: string
+  name: string
+  description: string | null
+  is_builtin: number
+  created_at: string
+  updated_at: string
+}
+
+export interface WorkflowStatusRow {
+  id: string
+  workflow_id: string
+  name: string
+  category: string
+  position: number
+  color: string | null
+  description: string | null
+  is_default: number
+  created_at: string
 }
 
 export interface ColumnRow {
@@ -132,14 +154,7 @@ export interface AcceptanceCriterionRow {
   position: number
 }
 
-export interface WorkflowTemplateRow {
-  id: string
-  name: string
-  description: string | null
-  is_builtin: number
-  statuses: string
-  created_at: string
-}
+// REMOVED: WorkflowTemplateRow - workflows are now used directly (no separate template concept)
 
 export interface PhaseRow {
   id: string

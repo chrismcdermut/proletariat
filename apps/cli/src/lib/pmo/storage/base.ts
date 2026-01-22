@@ -16,7 +16,7 @@ const T = PMO_TABLES
 export function initializePMOTables(db: Database.Database): void {
   runMigrations(db)
   db.exec(PMO_SCHEMA_SQL)
-  seedBuiltinTemplates(db)
+  seedBuiltinWorkflows(db)  // Workflows are the source of truth for status configurations
   seedBuiltinPhases(db)
   seedBuiltinPhaseTemplates(db)
   seedBuiltinActions(db)
@@ -212,34 +212,68 @@ export function runMigrations(db: Database.Database): void {
     }
   }
 
+  // Migration: Add workflow_id column to projects table
+  if (!projectsColumnNames.has('workflow_id')) {
+    try {
+      db.exec(`ALTER TABLE ${T.projects} ADD COLUMN workflow_id TEXT`)
+    } catch {
+      // Column may already exist
+    }
+  }
+
+  // Migration: Drop pmo_templates table (workflows are now used directly)
+  if (tableExists('pmo_templates')) {
+    try {
+      db.exec('DROP TABLE pmo_templates')
+    } catch {
+      // Table may already be dropped
+    }
+  }
+
 }
 
 /**
- * Seed built-in workflow templates.
+ * Seed built-in workflows (shared workflow definitions).
+ * Creates workflows from existing templates for reuse across projects.
  */
-export function seedBuiltinTemplates(db: Database.Database): void {
-  type WorkflowTemplateStatus = {
+export function seedBuiltinWorkflows(db: Database.Database): void {
+  type WorkflowStatusDef = {
     name: string
     category: StateCategory
     position: number
+    color?: string
+    isDefault?: boolean
   }
 
-  const builtinTemplates: Array<{
+  // Define built-in workflows based on the template definitions
+  const builtinWorkflows: Array<{
     id: string
     name: string
     description: string
-    statuses: WorkflowTemplateStatus[]
+    statuses: WorkflowStatusDef[]
   }> = [
+    {
+      id: 'default',
+      name: 'Default',
+      description: 'Default workflow: Backlog → Ready → In Progress → Review → Done',
+      statuses: [
+        { name: 'Backlog', category: 'backlog', position: 0, isDefault: true },
+        { name: 'Ready', category: 'unstarted', position: 1 },
+        { name: 'In Progress', category: 'started', position: 2 },
+        { name: 'Review', category: 'started', position: 3 },
+        { name: 'Done', category: 'completed', position: 4 },
+      ],
+    },
     {
       id: 'kanban',
       name: 'Kanban',
       description: 'Simple kanban workflow: Backlog → To Do → In Progress → Done',
       statuses: [
-        { name: 'Backlog', category: 'backlog', position: 0 },
-        { name: 'To Do', category: 'unstarted', position: 0 },
-        { name: 'In Progress', category: 'started', position: 0 },
-        { name: 'Done', category: 'completed', position: 0 },
-        { name: 'Canceled', category: 'canceled', position: 0 },
+        { name: 'Backlog', category: 'backlog', position: 0, isDefault: true },
+        { name: 'To Do', category: 'unstarted', position: 1 },
+        { name: 'In Progress', category: 'started', position: 2 },
+        { name: 'Done', category: 'completed', position: 3 },
+        { name: 'Canceled', category: 'canceled', position: 4 },
       ],
     },
     {
@@ -247,13 +281,13 @@ export function seedBuiltinTemplates(db: Database.Database): void {
       name: 'Linear',
       description: 'Linear-style workflow with backlog, triage, and review stages',
       statuses: [
-        { name: 'Backlog', category: 'backlog', position: 0 },
+        { name: 'Backlog', category: 'backlog', position: 0, isDefault: true },
         { name: 'Triage', category: 'backlog', position: 1 },
-        { name: 'Todo', category: 'unstarted', position: 0 },
-        { name: 'In Progress', category: 'started', position: 0 },
-        { name: 'In Review', category: 'started', position: 1 },
-        { name: 'Done', category: 'completed', position: 0 },
-        { name: 'Canceled', category: 'canceled', position: 0 },
+        { name: 'Todo', category: 'unstarted', position: 2 },
+        { name: 'In Progress', category: 'started', position: 3 },
+        { name: 'In Review', category: 'started', position: 4 },
+        { name: 'Done', category: 'completed', position: 5 },
+        { name: 'Canceled', category: 'canceled', position: 6 },
       ],
     },
     {
@@ -261,12 +295,12 @@ export function seedBuiltinTemplates(db: Database.Database): void {
       name: 'Bug Smash',
       description: 'Bug tracking workflow with verification stages',
       statuses: [
-        { name: 'Reported', category: 'backlog', position: 0 },
-        { name: 'Confirmed', category: 'unstarted', position: 0 },
-        { name: 'Fixing', category: 'started', position: 0 },
-        { name: 'Verifying', category: 'started', position: 1 },
-        { name: 'Fixed', category: 'completed', position: 0 },
-        { name: "Won't Fix", category: 'canceled', position: 0 },
+        { name: 'Reported', category: 'backlog', position: 0, isDefault: true },
+        { name: 'Confirmed', category: 'unstarted', position: 1 },
+        { name: 'Fixing', category: 'started', position: 2 },
+        { name: 'Verifying', category: 'started', position: 3 },
+        { name: 'Fixed', category: 'completed', position: 4 },
+        { name: "Won't Fix", category: 'canceled', position: 5 },
       ],
     },
     {
@@ -274,14 +308,14 @@ export function seedBuiltinTemplates(db: Database.Database): void {
       name: '5-Tool Founder',
       description: 'Founder workflow: Ship, Grow, Support, Strategy, BizOps backlogs → In Progress → Review → Done',
       statuses: [
-        { name: 'Ship', category: 'backlog', position: 0 },
+        { name: 'Ship', category: 'backlog', position: 0, isDefault: true },
         { name: 'Grow', category: 'backlog', position: 1 },
         { name: 'Support', category: 'backlog', position: 2 },
         { name: 'Strategy', category: 'backlog', position: 3 },
         { name: 'BizOps', category: 'backlog', position: 4 },
-        { name: 'In Progress', category: 'started', position: 0 },
-        { name: 'Review', category: 'started', position: 1 },
-        { name: 'Done', category: 'completed', position: 0 },
+        { name: 'In Progress', category: 'started', position: 5 },
+        { name: 'Review', category: 'started', position: 6 },
+        { name: 'Done', category: 'completed', position: 7 },
       ],
     },
     {
@@ -289,32 +323,57 @@ export function seedBuiltinTemplates(db: Database.Database): void {
       name: 'GTM',
       description: 'Go-to-market workflow for launches and campaigns',
       statuses: [
-        { name: 'Ideation', category: 'backlog', position: 0 },
-        { name: 'Planning', category: 'unstarted', position: 0 },
-        { name: 'In Development', category: 'started', position: 0 },
-        { name: 'Ready to Launch', category: 'started', position: 1 },
-        { name: 'Launched', category: 'completed', position: 0 },
-        { name: 'Retired', category: 'canceled', position: 0 },
+        { name: 'Ideation', category: 'backlog', position: 0, isDefault: true },
+        { name: 'Planning', category: 'unstarted', position: 1 },
+        { name: 'In Development', category: 'started', position: 2 },
+        { name: 'Ready to Launch', category: 'started', position: 3 },
+        { name: 'Launched', category: 'completed', position: 4 },
+        { name: 'Retired', category: 'canceled', position: 5 },
       ],
     },
   ]
 
-  const insertTemplate = db.prepare(`
-    INSERT OR IGNORE INTO ${T.templates} (id, name, description, is_builtin, statuses, created_at)
+  const now = new Date().toISOString()
+
+  const insertWorkflow = db.prepare(`
+    INSERT OR IGNORE INTO ${T.workflows} (id, name, description, is_builtin, created_at, updated_at)
     VALUES (?, ?, ?, 1, ?, ?)
   `)
 
-  const now = new Date().toISOString()
-  for (const template of builtinTemplates) {
-    insertTemplate.run(
-      template.id,
-      template.name,
-      template.description,
-      JSON.stringify(template.statuses),
-      now
-    )
+  const insertStatus = db.prepare(`
+    INSERT OR IGNORE INTO ${T.workflow_statuses} (id, workflow_id, name, category, position, color, description, is_default, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  for (const workflow of builtinWorkflows) {
+    insertWorkflow.run(workflow.id, workflow.name, workflow.description, now, now)
+
+    for (const status of workflow.statuses) {
+      const statusId = `${workflow.id}-${status.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`
+      insertStatus.run(
+        statusId,
+        workflow.id,
+        status.name,
+        status.category,
+        status.position,
+        status.color || null,
+        null,
+        status.isDefault ? 1 : 0,
+        now
+      )
+    }
   }
+
+  // Assign default workflow to any projects without a workflow
+  db.prepare(`
+    UPDATE ${T.projects}
+    SET workflow_id = 'default'
+    WHERE workflow_id IS NULL
+  `).run()
 }
+
+// REMOVED: seedBuiltinTemplates - workflows are now used directly (no separate template concept)
+// Built-in workflows are seeded in seedBuiltinWorkflows() above
 
 /**
  * Seed default project phases.

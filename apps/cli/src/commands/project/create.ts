@@ -141,8 +141,8 @@ export default class ProjectCreate extends PMOCommand {
     // Create spec folders in project directory
     const specsPath = createSpecFolders(this.pmoPath, projectId);
 
-    // Get the statuses that were created
-    const statuses = await this.storage.listStatuses(projectId);
+    // Get the statuses from the workflow (template name = workflow ID for built-in templates)
+    const statuses = await this.storage.listStatuses(projectData.template);
 
     this.log(styles.success(`\nCreated project "${styles.emphasis(project.name)}"`));
     this.log(styles.muted(`  ID: ${project.id}`));

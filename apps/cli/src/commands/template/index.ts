@@ -9,17 +9,16 @@ import {
 } from '../../lib/prompt-json.js';
 
 export default class Template extends Command {
-  static description = 'Manage workflow templates (list, delete) or access status/phase template management';
+  static description = 'Manage templates (ticket and phase)';
 
   static aliases = ['templates'];
 
   static examples = [
-    '<%= config.bin %> template',
-    '<%= config.bin %> template list',
-    '<%= config.bin %> template list --builtin',
-    '<%= config.bin %> template delete',
-    '<%= config.bin %> template status',
-    '<%= config.bin %> template phase',
+    '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> list',
+    '<%= config.bin %> <%= command.id %> list --type ticket',
+    '<%= config.bin %> <%= command.id %> ticket',
+    '<%= config.bin %> <%= command.id %> phase',
   ];
 
   static flags = {
@@ -37,51 +36,47 @@ export default class Template extends Command {
 
     // Define choices once, use for both JSON and interactive modes
     const menuChoices = [
-      { name: 'List all workflow templates', value: 'list' },
-      { name: 'Delete workflow templates', value: 'delete' },
-      { name: 'Manage Status Templates (ticket workflow states)', value: 'status' },
-      { name: 'Manage Phase Templates (project lifecycle phases)', value: 'phase' },
+      { name: 'List all templates', value: 'list' },
+      new inquirer.Separator(),
+      { name: 'Ticket templates (ticket presets)', value: 'ticket' },
+      { name: 'Phase templates (project phases)', value: 'phase' },
     ];
     const message = 'What would you like to do?';
 
-    // In JSON mode, output menu prompt
+    // In JSON mode, output menu prompt (without separators)
     if (jsonMode) {
+      const jsonChoices = [
+        { name: 'List all templates', value: 'list' },
+        { name: 'Ticket templates (ticket presets)', value: 'ticket' },
+        { name: 'Phase templates (project phases)', value: 'phase' },
+      ];
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
+        buildPromptConfig('list', 'action', message, jsonChoices),
         createMetadata('template', flags)
       );
       return;
     }
 
     this.log('');
-    this.log(styles.header('📋 Templates'));
+    this.log(styles.header('Templates'));
     this.log('');
 
     const { action } = await inquirer.prompt([{
       type: 'list',
       name: 'action',
       message,
-      choices: [
-        { name: '📋 ' + menuChoices[0].name, value: menuChoices[0].value },
-        { name: '🗑️  ' + menuChoices[1].name, value: menuChoices[1].value },
-        new inquirer.Separator(),
-        { name: '📊 ' + menuChoices[2].name, value: menuChoices[2].value },
-        { name: '🔄 ' + menuChoices[3].name, value: menuChoices[3].value },
-      ],
+      choices: menuChoices,
     }]);
 
     switch (action) {
       case 'list':
         await this.config.runCommand('template:list', []);
         break;
-      case 'delete':
-        await this.config.runCommand('template:delete', []);
-        break;
-      case 'status':
-        await this.config.runCommand('status:template', []);
+      case 'ticket':
+        await this.config.runCommand('template:ticket', []);
         break;
       case 'phase':
-        await this.config.runCommand('phase:template', []);
+        await this.config.runCommand('template:phase', []);
         break;
     }
   }

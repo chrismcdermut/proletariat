@@ -30,7 +30,13 @@ export default class StatusList extends PMOCommand {
     // This command requires project context
     const projectId = await this.requireProject();
 
-    const statuses = await this.storage.listStatuses(projectId);
+    // Get the project's workflow ID
+    const project = await this.storage.getProject(projectId);
+    if (!project?.workflowId) {
+      this.error(`Project "${projectId}" has no workflow assigned.`);
+    }
+
+    const statuses = await this.storage.listStatuses(project.workflowId);
 
     if (flags.json) {
       this.log(JSON.stringify(statuses, null, 2));
@@ -51,6 +57,7 @@ export default class StatusList extends PMOCommand {
     this.log('═'.repeat(60));
 
     const categoryEmoji: Record<StateCategory, string> = {
+      triage: '📬',
       backlog: '📥',
       unstarted: '📋',
       started: '🚀',
@@ -59,7 +66,8 @@ export default class StatusList extends PMOCommand {
     };
 
     const categoryColors: Record<StateCategory, string> = {
-      backlog: '#9CA3AF',  // gray
+      triage: '#A78BFA',    // purple
+      backlog: '#9CA3AF',   // gray
       unstarted: '#60A5FA', // blue
       started: '#FBBF24',   // yellow
       completed: '#34D399', // green
