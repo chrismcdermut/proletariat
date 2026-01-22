@@ -27,18 +27,31 @@ export class TicketStorage {
 
     // Get status_id from project's workflow
     let statusId = ticket.statusId
-    if (!statusId) {
-      // Get the project's workflow
-      const project = this.ctx.db.prepare(`
-        SELECT workflow_id FROM ${T.projects} WHERE id = ?
-      `).get(projectId) as { workflow_id: string | null } | undefined
 
-      if (!project) {
-        throw new PMOError('NOT_FOUND', `Project not found: ${projectId}`)
+    // Get the project's workflow
+    const project = this.ctx.db.prepare(`
+      SELECT workflow_id FROM ${T.projects} WHERE id = ?
+    `).get(projectId) as { workflow_id: string | null } | undefined
+
+    if (!project) {
+      throw new PMOError('NOT_FOUND', `Project not found: ${projectId}`)
+    }
+
+    const workflowId = project.workflow_id || 'default'
+
+    // If statusName is provided, look up status by name
+    if (!statusId && ticket.statusName) {
+      const namedStatus = this.ctx.db.prepare(`
+        SELECT id FROM ${T.workflow_statuses}
+        WHERE workflow_id = ? AND LOWER(name) = LOWER(?)
+      `).get(workflowId, ticket.statusName) as { id: string } | undefined
+
+      if (namedStatus) {
+        statusId = namedStatus.id
       }
+    }
 
-      const workflowId = project.workflow_id || 'default'
-
+    if (!statusId) {
       // Get default status from workflow
       const defaultStatus = this.ctx.db.prepare(`
         SELECT id FROM ${T.workflow_statuses}
