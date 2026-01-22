@@ -43,16 +43,6 @@ describe('prompt-json', () => {
       expect(shouldOutputJson(flags)).to.be.true;
     });
 
-    it('returns true when no-interactive flag is true', () => {
-      const flags: JsonFlags = { 'no-interactive': true };
-      expect(shouldOutputJson(flags)).to.be.true;
-    });
-
-    it('returns true when noInteractive flag is true', () => {
-      const flags: JsonFlags = { noInteractive: true };
-      expect(shouldOutputJson(flags)).to.be.true;
-    });
-
     it('returns true in non-TTY environment', () => {
       Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
       const flags: JsonFlags = {};

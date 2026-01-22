@@ -76,6 +76,7 @@ export class TemplateStorage {
 
   /**
    * Apply a workflow template to a project.
+   * Creates statuses in the project's workflow from the template.
    */
   async applyTemplate(projectId: string, templateId: string): Promise<WorkflowStatus[]> {
     const template = await this.getTemplate(templateId)
@@ -83,21 +84,38 @@ export class TemplateStorage {
       throw new PMOError('NOT_FOUND', `Template not found: ${templateId}`)
     }
 
-    // Verify project exists
-    const project = this.ctx.db.prepare(`SELECT id FROM ${T.projects} WHERE id = ?`).get(
-      projectId
-    )
+    // Verify project exists and get workflow_id
+    const project = this.ctx.db.prepare(`
+      SELECT id, name, workflow_id FROM ${T.projects} WHERE id = ?
+    `).get(projectId) as { id: string; name: string; workflow_id: string | null } | undefined
     if (!project) {
       throw new PMOError('NOT_FOUND', `Project not found: ${projectId}`)
     }
 
-    // Delete existing statuses for this project
-    this.ctx.db.prepare(`DELETE FROM ${T.statuses} WHERE project_id = ?`).run(projectId)
+    let workflowId = project.workflow_id
+    const now = new Date().toISOString()
+
+    // Create a new workflow for this project if needed
+    if (!workflowId) {
+      workflowId = `workflow-${projectId}`
+      this.ctx.db.prepare(`
+        INSERT INTO ${T.workflows} (id, name, description, is_builtin, created_at, updated_at)
+        VALUES (?, ?, ?, 0, ?, ?)
+      `).run(workflowId, `${project.name} Workflow`, `Workflow for ${project.name}`, now, now)
+
+      // Update project to reference the workflow
+      this.ctx.db.prepare(`UPDATE ${T.projects} SET workflow_id = ? WHERE id = ?`).run(
+        workflowId,
+        projectId
+      )
+    }
+
+    // Delete existing statuses for this workflow
+    this.ctx.db.prepare(`DELETE FROM ${T.workflow_statuses} WHERE workflow_id = ?`).run(workflowId)
 
     // Create new statuses from template
-    const now = new Date().toISOString()
     const insertStatus = this.ctx.db.prepare(`
-      INSERT INTO ${T.statuses} (id, project_id, name, category, position, color, is_default, created_at)
+      INSERT INTO ${T.workflow_statuses} (id, workflow_id, name, category, position, color, is_default, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
@@ -105,13 +123,13 @@ export class TemplateStorage {
     let isFirstBacklog = true
 
     for (const templateStatus of template.statuses) {
-      const id = `${projectId}-${slugify(templateStatus.name)}`
+      const id = `${workflowId}-${slugify(templateStatus.name)}`
       const isDefault = templateStatus.category === 'backlog' && isFirstBacklog
       if (isDefault) isFirstBacklog = false
 
       insertStatus.run(
         id,
-        projectId,
+        workflowId,
         templateStatus.name,
         templateStatus.category,
         templateStatus.position,
@@ -122,7 +140,7 @@ export class TemplateStorage {
 
       createdStatuses.push({
         id,
-        projectId,
+        workflowId,
         name: templateStatus.name,
         category: templateStatus.category,
         position: templateStatus.position,
@@ -132,31 +150,38 @@ export class TemplateStorage {
       })
     }
 
+    // Update workflow timestamp
+    this.ctx.db.prepare(`UPDATE ${T.workflows} SET updated_at = ? WHERE id = ?`).run(now, workflowId)
+
     return createdStatuses
   }
 
   /**
-   * Save current project statuses as a template.
+   * Save current project's workflow statuses as a template.
    */
   async saveTemplate(
     name: string,
     projectId: string,
     description?: string
   ): Promise<WorkflowTemplate> {
-    // Get statuses from the project
+    // Get the project's workflow
+    const project = this.ctx.db.prepare(`
+      SELECT workflow_id FROM ${T.projects} WHERE id = ?
+    `).get(projectId) as { workflow_id: string | null } | undefined
+
+    if (!project?.workflow_id) {
+      throw new PMOError(
+        'INVALID',
+        `Project ${projectId} has no workflow assigned`
+      )
+    }
+
+    // Get statuses from the workflow
     const statuses = this.ctx.db.prepare(`
-      SELECT * FROM ${T.statuses}
-      WHERE project_id = ?
-      ORDER BY
-        CASE category
-          WHEN 'backlog' THEN 0
-          WHEN 'unstarted' THEN 1
-          WHEN 'started' THEN 2
-          WHEN 'completed' THEN 3
-          WHEN 'canceled' THEN 4
-        END,
-        position
-    `).all(projectId) as Array<{
+      SELECT * FROM ${T.workflow_statuses}
+      WHERE workflow_id = ?
+      ORDER BY position
+    `).all(project.workflow_id) as Array<{
       name: string
       category: string
       position: number
@@ -166,7 +191,7 @@ export class TemplateStorage {
     if (statuses.length === 0) {
       throw new PMOError(
         'INVALID',
-        `Project ${projectId} has no statuses to save as template`
+        `Project ${projectId}'s workflow has no statuses to save as template`
       )
     }
 

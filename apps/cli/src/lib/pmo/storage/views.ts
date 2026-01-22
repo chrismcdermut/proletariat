@@ -214,14 +214,22 @@ export class ViewStorage {
       throw new PMOError('NOT_FOUND', `Project not found: ${projectId}. Run init() first.`)
     }
 
-    // Get columns for current project
+    // Get the project's workflow
+    const projectMeta = this.ctx.db.prepare(`
+      SELECT workflow_id FROM ${T.projects} WHERE id = ?
+    `).get(projectId) as { workflow_id: string | null } | undefined
+
+    const workflowId = projectMeta?.workflow_id || 'default'
+
+    // Get workflow statuses as columns
     const columnRows = this.ctx.db.prepare(`
-      SELECT * FROM ${T.columns}
-      WHERE project_id = ?
+      SELECT id, workflow_id, name, position
+      FROM ${T.workflow_statuses}
+      WHERE workflow_id = ?
       ORDER BY position
-    `).all(projectId) as Array<{
+    `).all(workflowId) as Array<{
       id: string
-      project_id: string
+      workflow_id: string
       name: string
       position: number
     }>
@@ -261,21 +269,23 @@ export class ViewStorage {
   }
 
   /**
-   * Get tickets for a column with filters applied.
+   * Get tickets for a column (workflow status) with filters applied.
    */
   private async getTicketsForColumnWithFilters(
     columnId: string,
     projectId: string,
     filters: BoardViewFilters
   ): Promise<Ticket[]> {
+    // columnId is now a workflow_status id
     let sql = `
-      SELECT t.*, bt.position as board_position, c.name as column_name,
-             s.name as status_name, s.category as status_category
+      SELECT t.*,
+             ws.position as board_position,
+             ws.name as column_name,
+             ws.name as status_name,
+             ws.category as status_category
       FROM ${T.tickets} t
-      JOIN ${T.board_tickets} bt ON t.id = bt.ticket_id AND t.project_id = bt.project_id
-      JOIN ${T.columns} c ON bt.column_id = c.id AND bt.project_id = c.project_id
-      LEFT JOIN ${T.statuses} s ON t.status_id = s.id
-      WHERE bt.column_id = ? AND bt.project_id = ?
+      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
+      WHERE t.status_id = ? AND t.project_id = ?
     `
     const params: unknown[] = [columnId, projectId]
 
@@ -300,7 +310,7 @@ export class ViewStorage {
     }
 
     if (filters.statusCategory !== undefined) {
-      sql += ' AND s.category = ?'
+      sql += ' AND ws.category = ?'
       params.push(filters.statusCategory)
     }
 
@@ -320,7 +330,16 @@ export class ViewStorage {
       params.push(searchTerm, searchTerm)
     }
 
-    sql += ' ORDER BY bt.position'
+    // Order by priority then created_at
+    sql += ` ORDER BY
+      CASE t.priority
+        WHEN 'P0' THEN 0
+        WHEN 'P1' THEN 1
+        WHEN 'P2' THEN 2
+        WHEN 'P3' THEN 3
+        ELSE 4
+      END,
+      t.created_at ASC`
 
     const rows = this.ctx.db.prepare(sql).all(...params) as Array<{
       id: string
