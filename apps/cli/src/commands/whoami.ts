@@ -53,6 +53,12 @@ export default class Whoami extends Command {
       this.log(`  PMO path:    ${colors.textMuted(pmoPath)}`);
     }
 
+    // Show host path if available (set in devcontainer for agent identity)
+    const hostPath = process.env.PRLT_HOST_PATH;
+    if (hostPath) {
+      this.log(`  Host path:   ${colors.textMuted(hostPath)}`);
+    }
+
     this.log('');
   }
 
