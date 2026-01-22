@@ -429,11 +429,9 @@ export default class TicketCreate extends PMOCommand {
         validate: (input: string) => input.length > 0 || 'Outcome is required - what does success look like?',
       },
       {
-        type: 'editor',
+        type: 'input',
         name: 'doneWhen',
-        message: 'Done when (acceptance criteria, opens editor):',
-        default: '- [ ] \n- [ ] ',
-        waitForUseInput: false,
+        message: 'Done when (acceptance criteria):',
       },
       {
         type: 'input',

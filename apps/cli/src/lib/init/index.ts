@@ -20,31 +20,31 @@ import {
 } from '../database/index.js';
 import {
   ensureMachineConfigDir,
-  registerWorkspace,
+  registerHeadquarters,
+  getOrganizations,
+  createOrganization,
 } from '../machine-config.js';
 
 export interface HQConfig {
   type: 'hq';
   created: string;
-  workspaceName: string;
+  hqName: string;
   hasPMO: boolean;
   agents: string[];
   repos: string[];
 }
 
-export type WorkspaceType = 'hq' | 'workspace-only';
-
 export interface InitOptions {
-  workspaceType: WorkspaceType;
-  hqName?: string;
-  hqPath?: string;
-  workspacePath?: string;
-  addSuffix?: boolean;
+  workspaceType: 'hq';
+  hqName: string;
+  hqPath: string;
   selectedAgents: string[];
+  /** Suppress console output (for JSON/agent mode) */
+  quiet?: boolean;
   repos?: Array<{ path: string; action: 'move' | 'clone' }>;
   // PMO options (from shared promptForPMOSetup)
   pmoSetup?: PMOSetupResult;
-  // Selected theme ID (becomes workspace's active theme)
+  // Selected theme ID (becomes HQ's active theme)
   themeId?: string;
   // Custom theme created during init
   customTheme?: {
@@ -52,65 +52,56 @@ export interface InitOptions {
     displayName: string;
     names: string[];
   };
+  // Organization name for this HQ
+  orgName?: string;
 }
 
 /**
- * Prompt user for workspace type selection
+ * Validate that HQ path is not inside a git repository or another HQ
+ * Returns: { valid: true } or { valid: false, reason: string }
  */
-export async function promptForWorkspaceType(): Promise<WorkspaceType> {
-  // Only show workspace-only option if we're in a git repo
-  const inGitRepo = isInGitRepo();
-  
-  if (!inGitRepo) {
-    // Outside git repo, only HQ makes sense
-    return 'hq';
-  }
-
-  const { workspaceType } = await inquirer.prompt([{
-    type: 'list',
-    name: 'workspaceType',
-    message: 'What type of workspace do you want to create?',
-    choices: [
-      {
-        name: '🏢 Full HQ (headquarters) - Complete setup with repos/, agents, and PMO (recomended)',
-        value: 'hq'
-      },
-      {
-        name: '🔧 Agent workspace only - Just create agent workspace next to current repo',
-        value: 'workspace-only'
-      }
-    ],
-    default: 'hq'
-  }]);
-
-  return workspaceType;
-}
-
-/**
- * Validate that HQ path is not inside a git repository
- */
-export function validateHQLocation(location: string): boolean {
+export function validateHQLocation(location: string): { valid: boolean; reason?: string } {
   const resolvedPath = path.resolve(location);
-  
+  const parentDir = path.dirname(resolvedPath);
+
+  // Check if inside a git repo
   try {
-    const gitRoot = execSync('git rev-parse --show-toplevel', { 
-      cwd: path.dirname(resolvedPath),
+    const gitRoot = execSync('git rev-parse --show-toplevel', {
+      cwd: parentDir,
       stdio: 'pipe',
       encoding: 'utf-8'
     }).trim();
-    
+
     // Use realpath to resolve symlinks and /private prefix on macOS
-    const normalizedPath = fs.realpathSync(path.dirname(resolvedPath));
+    const normalizedPath = fs.realpathSync(parentDir);
     const normalizedGitRoot = fs.realpathSync(gitRoot);
-    
+
     if (normalizedPath.startsWith(normalizedGitRoot)) {
-      return false; // Inside a git repo
+      return { valid: false, reason: 'inside-git' };
     }
   } catch {
     // Not in a git repo - this is fine
   }
 
-  return true;
+  // Check if inside an existing HQ (look for .proletariat/config.json with type: 'hq')
+  // Note: ~/.proletariat is the machine config, not an HQ, so we check the config type
+  let checkDir = parentDir;
+  while (checkDir !== '/' && checkDir !== path.dirname(checkDir)) {
+    const configPath = path.join(checkDir, '.proletariat', 'config.json');
+    if (fs.existsSync(configPath)) {
+      try {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        if (config.type === 'hq') {
+          return { valid: false, reason: 'inside-hq' };
+        }
+      } catch {
+        // Invalid JSON, skip
+      }
+    }
+    checkDir = path.dirname(checkDir);
+  }
+
+  return { valid: true };
 }
 
 /**
@@ -125,7 +116,7 @@ export async function promptForHQName(): Promise<string> {
   const { name } = await inquirer.prompt([{
     type: 'input',
     name: 'name',
-    message: 'Workspace name (company, project, or team name recommended):',
+    message: 'HQ name (company, project, or team name):',
     default: defaultName,
     validate: (input) => {
       if (!input.trim()) return 'Name is required';
@@ -140,34 +131,47 @@ export async function promptForHQName(): Promise<string> {
 }
 
 /**
- * Prompt user for HQ suffix preference
+ * Check if current directory is inside an HQ and return the HQ root path
  */
-export async function promptForHQSuffix(): Promise<boolean> {
-  const { addSuffix } = await inquirer.prompt([{
-    type: 'list',
-    name: 'addSuffix',
-    message: 'Add "-hq" suffix to folder name?',
-    choices: [
-      { name: 'Yes', value: true },
-      { name: 'No', value: false }
-    ],
-    default: true,
-  }]);
-
-  return addSuffix;
+function findContainingHQ(): string | null {
+  let checkDir = process.cwd();
+  while (checkDir !== '/' && checkDir !== path.dirname(checkDir)) {
+    const configPath = path.join(checkDir, '.proletariat', 'config.json');
+    if (fs.existsSync(configPath)) {
+      try {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        if (config.type === 'hq') {
+          return checkDir;
+        }
+      } catch {
+        // Invalid JSON, skip
+      }
+    }
+    checkDir = path.dirname(checkDir);
+  }
+  return null;
 }
 
 /**
  * Prompt user for HQ location
  */
-export async function promptForHQLocation(hqName: string, addSuffix: boolean): Promise<string> {
+export async function promptForHQLocation(hqName: string): Promise<string> {
   const inGitRepo = isInGitRepo();
-  const folderName = addSuffix ? `${hqName}-hq` : hqName;
-  
-  // Always suggest creating HQ as sibling if in repo, or subdirectory if not
-  const defaultPath = inGitRepo
-    ? path.join('..', folderName)  // Sibling to repo
-    : `./${folderName}`;            // Subdirectory
+  const containingHQ = findContainingHQ();
+  const folderName = `${hqName}-hq`;
+
+  // Determine default path based on context
+  let defaultPath: string;
+  if (containingHQ) {
+    // Inside an HQ - suggest sibling to the HQ
+    defaultPath = path.join(path.dirname(containingHQ), folderName);
+  } else if (inGitRepo) {
+    // Inside a git repo - suggest sibling to repo
+    defaultPath = path.join('..', folderName);
+  } else {
+    // Nowhere special - suggest subdirectory
+    defaultPath = `./${folderName}`;
+  }
 
   while (true) {
     const { location } = await inquirer.prompt([{
@@ -178,8 +182,13 @@ export async function promptForHQLocation(hqName: string, addSuffix: boolean): P
     }]);
 
     // Validate location
-    if (!validateHQLocation(location)) {
-      console.log(chalk.red('That\'s jail! Cannot create HQ inside a git repository.'));
+    const validation = validateHQLocation(location);
+    if (!validation.valid) {
+      if (validation.reason === 'inside-git') {
+        console.log(chalk.red('Cannot create HQ inside a git repository.'));
+      } else if (validation.reason === 'inside-hq') {
+        console.log(chalk.red('Cannot create HQ inside another HQ. No HQ-ception allowed!'));
+      }
       continue;
     }
 
@@ -194,13 +203,72 @@ export async function promptForHQLocation(hqName: string, addSuffix: boolean): P
   }
 }
 
+/**
+ * Prompt user for organization selection or creation
+ */
+export async function promptForOrganization(): Promise<string> {
+  const existingOrgs = getOrganizations();
+
+  if (existingOrgs.length === 0) {
+    // First organization - prompt for name
+    const { orgName } = await inquirer.prompt([{
+      type: 'input',
+      name: 'orgName',
+      message: 'Organization name (company or team):',
+      validate: (input) => {
+        if (!input.trim()) return 'Organization name is required';
+        return true;
+      },
+    }]);
+
+    createOrganization(orgName.trim());
+    return orgName.trim();
+  }
+
+  // Show existing organizations with option to create new
+  const { choice } = await inquirer.prompt([{
+    type: 'list',
+    name: 'choice',
+    message: 'Select organization:',
+    choices: [
+      ...existingOrgs.map(o => ({ name: o.name, value: o.name })),
+      new inquirer.Separator(),
+      { name: '+ Create new organization', value: '__new__' },
+    ],
+  }]);
+
+  if (choice === '__new__') {
+    const { orgName } = await inquirer.prompt([{
+      type: 'input',
+      name: 'orgName',
+      message: 'New organization name:',
+      validate: (input) => {
+        if (!input.trim()) return 'Organization name is required';
+        return true;
+      },
+    }]);
+
+    createOrganization(orgName.trim());
+    return orgName.trim();
+  }
+
+  return choice;
+}
 
 
 /**
  * Create the basic HQ directory structure
+ *
+ * Structure:
+ * my-hq/
+ *   .proletariat/           # HQ config and database
+ *   repos/                  # Repositories
+ *   agents/
+ *     staff/                # Persistent agents
+ *     temp/                 # Ephemeral agents
  */
-export function createHQStructure(hqPath: string, themeId?: string): void {
-  console.log(chalk.blue(`\n🏗️  Creating HQ at ${hqPath}...`));
+export function createHQStructure(hqPath: string, hqName: string, themeId?: string, quiet?: boolean): void {
+  if (!quiet) console.log(chalk.blue(`\n🏗️  Creating HQ at ${hqPath}...`));
 
   // Get theme-specific directory names
   const persistentDir = getThemePersistentDir(themeId);
@@ -216,45 +284,43 @@ export function createHQStructure(hqPath: string, themeId?: string): void {
 }
 
 /**
- * Create workspace database (replaces createHQConfig)
+ * Create HQ database and config
  */
-export function initializeWorkspaceDatabase(workspacePath: string, options: InitOptions): void {
-  if (options.workspaceType !== 'hq' || !options.pmoSetup || !options.hqName) {
-    throw new Error('initializeWorkspaceDatabase should only be called for HQ workspace type with defined PMO setting');
+export function initializeHQDatabase(hqPath: string, options: InitOptions): void {
+  if (!options.pmoSetup || !options.hqName) {
+    throw new Error('initializeHQDatabase requires hqName and pmoSetup to be defined');
   }
 
   const hasPMO = options.pmoSetup.includePMO;
 
-  // Create the database with workspace configuration
+  // Create the database with HQ configuration
   const db = createWorkspaceDatabase(
-    workspacePath,
-    options.workspaceType,
+    hqPath,
+    'hq',
     options.hqName,
     hasPMO
   );
 
   db.close();
 
-  // Update config.json with workspace metadata (required for findPMO)
-  // Note: hasPMO is stored in database only, not in config
-  const configPath = path.join(workspacePath, '.proletariat', 'config.json');
+  // Create HQ config.json (required for HQ detection)
+  const configPath = path.join(hqPath, '.proletariat', 'config.json');
   const config = {
     version: "1.0.0",
     schemaVersion: 1,
-    type: options.workspaceType,
+    type: 'hq',
     name: options.hqName
   };
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 }
 
+/** @deprecated Use initializeHQDatabase instead */
+export const initializeWorkspaceDatabase = initializeHQDatabase;
+
 /**
  * Complete HQ initialization workflow
  */
 export async function initializeHQ(options: InitOptions): Promise<void> {
-  if (options.workspaceType !== 'hq') {
-    throw new Error('initializeHQ should only be called for HQ workspace type');
-  }
-
   const {
     hqPath,
     hqName,
@@ -263,18 +329,25 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
     pmoSetup,
     themeId,
     customTheme,
+    orgName,
+    quiet,
   } = options;
+
+  // Helper to log only in non-quiet mode
+  const log = (message: string) => {
+    if (!quiet) console.log(message);
+  };
 
   // All these fields are required for HQ type
   if (!hqPath || !hqName || repos === undefined || !pmoSetup) {
     throw new Error('Missing required fields for HQ initialization');
   }
 
-  // Create basic structure (pass themeId for correct directory names)
-  createHQStructure(hqPath, themeId);
+  // Create basic structure (pass hqName and themeId for correct directory names)
+  createHQStructure(hqPath, hqName, themeId, quiet);
 
-  // Create database and workspace configuration
-  initializeWorkspaceDatabase(hqPath, options);
+  // Create database and HQ configuration
+  initializeHQDatabase(hqPath, options);
 
   // Ensure builtin themes exist
   ensureBuiltinThemes(hqPath);
@@ -288,7 +361,7 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
       builtin: false,
     });
     addThemeNames(hqPath, customTheme.name, customTheme.names);
-    console.log(chalk.blue(`Created custom theme: ${customTheme.displayName}`));
+    log(chalk.blue(`Created custom theme: ${customTheme.displayName}`));
   }
 
   // Set active theme if one was selected
@@ -296,8 +369,7 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
     setActiveTheme(hqPath, themeId);
   }
 
-  // Handle repositories first - add to file system AND database
-  // (PMO location might depend on repos existing)
+  // Handle repositories - add to file system AND database
   const addedRepos = await addRepositoriesToHQ(hqPath, repos);
 
   // Convert to database format
@@ -313,7 +385,7 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
 
   addRepositoriesToDatabase(hqPath, dbRepos);
 
-  // Create PMO if requested (using shared createPMO function)
+  // Create PMO if requested
   if (pmoSetup.includePMO) {
     await createPMO({
       hqPath,
@@ -328,110 +400,32 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
   // Add agents if selected - create worktrees AND add to database
   if (selectedAgents.length > 0) {
     const persistentDir = getThemePersistentDir(themeId);
-    const workspacePath = path.join(hqPath, 'agents', persistentDir);
+    const agentsPath = path.join(hqPath, 'agents', persistentDir);
 
     // Create physical worktrees
-    await createAgentWorktrees(workspacePath, selectedAgents, hqPath);
+    await createAgentWorktrees(agentsPath, selectedAgents, hqPath);
 
     // Add to database
     addAgentsToDatabase(hqPath, selectedAgents);
   }
 
-  // Register workspace in machine config
+  // Register headquarters in machine config
   ensureMachineConfigDir();
-  registerWorkspace(hqPath, hqName, true);
-  console.log(chalk.gray(`Registered workspace in ~/.proletariat/config.json`));
+  registerHeadquarters(hqPath, hqName, true, orgName);
+  log(chalk.gray(`Registered headquarters in ~/.proletariat/config.json`));
 
-  console.log(chalk.green(`\n✅ HQ created successfully at ${hqPath}`));
+  log(chalk.green(`\n✅ Headquarters created successfully at ${hqPath}`));
 }
 
 /**
- * Prompt for workspace location
+ * Show next steps to user
  */
-export async function promptForWorkspaceLocation(): Promise<string> {
-  const repoName = path.basename(process.cwd());
-  const defaultPath = path.join('..', `${repoName}-${DEFAULT_AGENTS_DIR}`);
-
-  while (true) {
-    const { location } = await inquirer.prompt([{
-      type: 'input',
-      name: 'location',
-      message: `Where to create workspace [press Enter for ${defaultPath}]:`,
-      default: defaultPath,
-    }]);
-
-    const resolvedPath = path.resolve(location);
-
-    // Check if location would be inside a git repo
-    if (isInGitRepo(resolvedPath)) {
-      console.log(chalk.red('Cannot create workspace inside a git repository.'));
-      continue;
-    }
-
-    // Check if directory already exists
-    if (fs.existsSync(resolvedPath)) {
-      console.log(chalk.red(`Directory ${resolvedPath} already exists.`));
-      continue;
-    }
-
-    return resolvedPath;
-  }
-}
-
-/**
- * Create workspace-only structure
- */
-export async function createWorkspaceOnly(selectedAgents: string[], workspacePath: string): Promise<string> {
-  console.log(chalk.blue(`\n🔧 Creating ${path.basename(workspacePath)} workspace at ${workspacePath}...`));
-
-  // Create workspace directory
-  fs.mkdirSync(workspacePath, { recursive: true });
-
-  // Create database with workspace configuration
-  const db = createWorkspaceDatabase(
-    workspacePath,
-    'workspace',
-    path.basename(workspacePath),
-    false // workspace-only never has PMO
-  );
-
-  // Add main repository to database (the current repo we're in)
-  const mainRepoName = path.basename(process.cwd());
-  const mainRepoData = {
-    name: mainRepoName,
-    path: mainRepoName, // For workspace-only, this is just the repo name
-    source_url: process.cwd(),
-    action: 'link' as const // Special action for workspace-only
-  };
-
-  addRepositoriesToDatabase(workspacePath, [mainRepoData]);
-
-  // Add agents if selected - create worktrees AND add to database
-  if (selectedAgents.length > 0) {
-    // Create physical worktrees
-    await createAgentWorktrees(workspacePath, selectedAgents);
-
-    // Add to database
-    addAgentsToDatabase(workspacePath, selectedAgents);
-  }
-
-  db.close();
-
-  console.log(chalk.green(`\n✅ Workspace created at ${workspacePath}`));
-  return path.resolve(workspacePath);
-}
-
-/**
- * Show next steps to user and offer to change directory
- */
-export async function showNextSteps(options: InitOptions, workspacePath?: string): Promise<void> {
-  const targetPath = options.workspaceType === 'workspace-only' ? workspacePath! : options.hqPath!;
-  const relativePath = path.relative(process.cwd(), targetPath);
-  const dirName = options.workspaceType === 'workspace-only' ? 'workspace' : 'HQ';
+export async function showNextSteps(options: InitOptions): Promise<void> {
+  const relativePath = path.relative(process.cwd(), options.hqPath);
   const hasPMO = options.pmoSetup?.includePMO ?? false;
 
   // Show navigation instructions
-  console.log(chalk.blue(`\n📂 Your ${dirName} is ready! Navigate to it:`));
+  console.log(chalk.blue(`\n📂 Your headquarters is ready! Navigate to it:`));
   console.log(chalk.yellow(`  cd ${relativePath}`));
 
   // Ask if they want to see the next steps
@@ -443,24 +437,24 @@ export async function showNextSteps(options: InitOptions, workspacePath?: string
       { name: 'Yes', value: true },
       { name: 'No', value: false }
     ],
-    default: false,
+    default: true,
   }]);
 
   // Show additional next steps if requested
   if (showNextSteps) {
-    const hasCommands = (options.selectedAgents.length === 0) || (options.workspaceType === 'hq' && hasPMO);
+    const hasCommands = (options.selectedAgents.length === 0) || hasPMO;
 
     if (hasCommands) {
-      console.log(chalk.cyan(`\nOnce you're in the ${dirName}, you can run:`));
+      console.log(chalk.cyan(`\nOnce you're in the headquarters, you can run:`));
       if (options.selectedAgents.length === 0) {
         console.log(chalk.white(`  prlt agent add <name>`));
       }
 
-      if (options.workspaceType === 'hq' && hasPMO) {
+      if (hasPMO) {
         console.log(chalk.white(`  prlt ticket create`));
       }
     } else {
-      console.log(chalk.green(`\nYour ${dirName} is fully set up and ready to use!`));
+      console.log(chalk.green(`\nYour headquarters is fully set up and ready to use!`));
     }
   }
 }

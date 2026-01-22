@@ -40,6 +40,7 @@ export default class TicketTemplateIndex extends PMOCommand {
     // Define choices once, use for both JSON and interactive modes
     const menuChoices = [
       { id: 'list', name: 'List available templates', command: 'prlt ticket template list --format json' },
+      { id: 'create', name: 'Create new template', command: 'prlt ticket template create --json' },
       { id: 'apply', name: 'Create ticket from template', command: 'prlt ticket template apply --json' },
       { id: 'save', name: 'Save ticket as template', command: 'prlt ticket template save --json' },
       { id: 'delete', name: 'Delete template', command: 'prlt ticket template delete --json' },
@@ -64,6 +65,9 @@ export default class TicketTemplateIndex extends PMOCommand {
     switch (action) {
       case 'list':
         await this.config.runCommand('ticket:template:list', []);
+        break;
+      case 'create':
+        await this.config.runCommand('ticket:template:create', []);
         break;
       case 'apply': {
         const templateId = await this.selectTemplate('Select template to use:');

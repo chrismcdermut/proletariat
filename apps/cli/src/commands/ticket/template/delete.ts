@@ -21,7 +21,7 @@ export default class TicketTemplateDelete extends PMOCommand {
   static args = {
     id: Args.string({
       description: 'Template ID to delete',
-      required: true,
+      required: false,
     }),
   };
 
@@ -57,9 +57,30 @@ export default class TicketTemplateDelete extends PMOCommand {
       this.error(message);
     };
 
-    const template = await this.storage.getTicketTemplate(args.id);
+    // Get template - prompt for selection if not provided
+    let templateId = args.id;
+    if (!templateId) {
+      const templates = await this.storage.listTicketTemplates();
+      const deletableTemplates = templates.filter(t => !t.isBuiltin);
+      if (deletableTemplates.length === 0) {
+        return handleError('NO_TEMPLATES', `No deletable ticket templates found (built-in templates cannot be deleted).`);
+      }
+
+      const { selectedTemplate } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selectedTemplate',
+        message: 'Select a template to delete:',
+        choices: deletableTemplates.map(t => ({
+          name: `${t.name}${t.description ? ` - ${t.description}` : ''}`,
+          value: t.id,
+        })),
+      }]);
+      templateId = selectedTemplate;
+    }
+
+    const template = await this.storage.getTicketTemplate(templateId!);
     if (!template) {
-      return handleError('TEMPLATE_NOT_FOUND', `Template "${args.id}" not found.\nRun 'prlt ticket template list' to see available templates.`);
+      return handleError('TEMPLATE_NOT_FOUND', `Template "${templateId}" not found.\nRun 'prlt ticket template list' to see available templates.`);
     }
 
     if (template.isBuiltin) {
@@ -77,7 +98,7 @@ export default class TicketTemplateDelete extends PMOCommand {
         items: confirmChoices,
         getName: (c) => c.name,
         getValue: (c) => c.id,
-        getCommand: (c) => c.id === 'yes' ? `prlt ticket template delete ${args.id} --force` : '',
+        getCommand: (c) => c.id === 'yes' ? `prlt ticket template delete ${templateId} --force` : '',
         jsonMode: jsonMode ? { flags, commandName: 'ticket template delete' } : null,
       });
 
@@ -87,7 +108,7 @@ export default class TicketTemplateDelete extends PMOCommand {
       }
     }
 
-    await this.storage.deleteTicketTemplate(args.id);
+    await this.storage.deleteTicketTemplate(templateId!);
 
     this.log(styles.success(`\nDeleted template "${template.name}"`));
   }

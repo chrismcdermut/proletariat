@@ -189,6 +189,44 @@ export function hasShellPreference(db: Database.Database): boolean {
 }
 
 /**
+ * Auto-detect terminal app from environment.
+ * Uses TERM_PROGRAM env var set by most terminal emulators.
+ */
+export function detectTerminalApp(): TerminalApp | null {
+  const termProgram = process.env.TERM_PROGRAM?.toLowerCase() || ''
+
+  // Map TERM_PROGRAM values to our TerminalApp type
+  if (termProgram === 'iterm.app') return 'iTerm'
+  if (termProgram === 'apple_terminal') return 'Terminal'
+  if (termProgram === 'alacritty') return 'Alacritty'
+  if (termProgram === 'wezterm') return 'WezTerm'
+  if (termProgram === 'ghostty') return 'Ghostty'
+  if (termProgram === 'kitty') return 'Kitty'
+  if (termProgram === 'warp') return 'Warp'
+
+  // Also check TERMINAL_EMULATOR for some apps
+  const termEmulator = process.env.TERMINAL_EMULATOR?.toLowerCase() || ''
+  if (termEmulator.includes('jetbrains')) return 'tmux' // IDE terminal, fall back to tmux
+
+  return null
+}
+
+/**
+ * Auto-detect shell from environment.
+ * Uses SHELL env var.
+ */
+export function detectShell(): Shell | null {
+  const shellPath = process.env.SHELL || ''
+  const shellName = shellPath.split('/').pop()?.toLowerCase() || ''
+
+  if (shellName === 'zsh') return 'zsh'
+  if (shellName === 'bash') return 'bash'
+  if (shellName === 'fish') return 'fish'
+
+  return null
+}
+
+/**
  * Prompt user for terminal app preference (first-time setup)
  */
 export async function promptTerminalPreference(db: Database.Database): Promise<TerminalApp> {
@@ -253,7 +291,7 @@ export async function promptTmuxControlModePreference(db: Database.Database): Pr
 }
 
 /**
- * Get terminal app, prompting if not set
+ * Get terminal app, auto-detecting or prompting if not set
  */
 export async function getTerminalApp(db: Database.Database): Promise<TerminalApp> {
   const config = loadExecutionConfig(db)
@@ -263,7 +301,18 @@ export async function getTerminalApp(db: Database.Database): Promise<TerminalApp
     return config.terminal.app
   }
 
-  // First time - prompt user
+  // Try auto-detection first
+  const detected = detectTerminalApp()
+  if (detected) {
+    saveTerminalApp(db, detected)
+    // If iTerm detected, also enable control mode by default (best experience)
+    if (detected === 'iTerm') {
+      saveTmuxControlMode(db, true)
+    }
+    return detected
+  }
+
+  // Fall back to prompting user
   return promptTerminalPreference(db)
 }
 
@@ -292,7 +341,7 @@ export async function promptShellPreference(db: Database.Database): Promise<Shel
 }
 
 /**
- * Get shell, prompting if not set
+ * Get shell, auto-detecting or prompting if not set
  */
 export async function getShell(db: Database.Database): Promise<Shell> {
   const config = loadExecutionConfig(db)
@@ -302,7 +351,14 @@ export async function getShell(db: Database.Database): Promise<Shell> {
     return config.shell
   }
 
-  // First time - prompt user
+  // Try auto-detection first
+  const detected = detectShell()
+  if (detected) {
+    saveShell(db, detected)
+    return detected
+  }
+
+  // Fall back to prompting user
   return promptShellPreference(db)
 }
 

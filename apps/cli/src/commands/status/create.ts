@@ -171,6 +171,7 @@ export default class StatusCreate extends PMOCommand {
 
   private getCategoryDescription(category: StateCategory): string {
     const descriptions: Record<StateCategory, string> = {
+      triage: 'Inbox - needs review before entering workflow',
       backlog: 'Not yet scheduled for work',
       unstarted: 'Scheduled but work hasn\'t begun',
       started: 'Work is actively in progress',

@@ -224,35 +224,18 @@ export default class EpicProject extends PMOCommand {
     // Handle tickets
     const movedTicketIds: string[] = [];
     if (epicTickets.length > 0) {
-      // Get target project's first column
+      // Get target project's default status
       const targetBoard = await this.storage.getProjectBoard(targetProjectId!);
-      const targetColumn = targetBoard?.columns[0]?.name || 'Backlog';
+      const targetStatusId = targetBoard?.columns[0]?.id;
 
       for (const ticket of epicTickets) {
         if (moveTickets) {
-          // Move ticket to target project
+          // Move ticket to target project with its default status
           db.prepare(`
             UPDATE pmo_tickets
-            SET project_id = ?, updated_at = ?
+            SET project_id = ?, status_id = ?, updated_at = ?
             WHERE id = ?
-          `).run(targetProjectId, Date.now(), ticket.id);
-
-          // Update board position
-          db.prepare(`
-            DELETE FROM pmo_board_tickets
-            WHERE ticket_id = ?
-          `).run(ticket.id);
-
-          const posResult = db.prepare(`
-            SELECT COALESCE(MAX(position), -1) + 1 as next_pos
-            FROM pmo_board_tickets
-            WHERE project_id = ? AND column_id = ?
-          `).get(targetProjectId, targetColumn) as { next_pos: number };
-
-          db.prepare(`
-            INSERT INTO pmo_board_tickets (project_id, ticket_id, column_id, position)
-            VALUES (?, ?, ?, ?)
-          `).run(targetProjectId, ticket.id, targetColumn, posResult.next_pos);
+          `).run(targetProjectId, targetStatusId, Date.now(), ticket.id);
 
           movedTicketIds.push(ticket.id);
         } else {
