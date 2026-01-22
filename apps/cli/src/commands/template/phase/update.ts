@@ -11,7 +11,7 @@ export default class TemplatePhaseUpdate extends Command {
   static args = {
     id: Args.string({
       description: 'Template ID to update',
-      required: true,
+      required: false,
     }),
   };
 
@@ -29,7 +29,8 @@ export default class TemplatePhaseUpdate extends Command {
   async run(): Promise<void> {
     const { args, flags } = await this.parse(TemplatePhaseUpdate);
 
-    const cmdArgs: string[] = [args.id];
+    const cmdArgs: string[] = [];
+    if (args.id) cmdArgs.push(args.id);
     if (flags.name) cmdArgs.push('--name', flags.name);
     if (flags.description) cmdArgs.push('--description', flags.description);
 

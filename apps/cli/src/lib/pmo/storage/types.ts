@@ -154,14 +154,7 @@ export interface AcceptanceCriterionRow {
   position: number
 }
 
-export interface WorkflowTemplateRow {
-  id: string
-  name: string
-  description: string | null
-  is_builtin: number
-  statuses: string
-  created_at: string
-}
+// REMOVED: WorkflowTemplateRow - workflows are now used directly (no separate template concept)
 
 export interface PhaseRow {
   id: string

@@ -10,15 +10,15 @@ import {
   buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
-type TemplateType = 'workflow' | 'ticket' | 'phase';
+type TemplateType = 'ticket' | 'phase';
 
 export default class TemplateDelete extends PMOCommand {
-  static description = 'Delete templates (workflow, ticket, or phase)';
+  static description = 'Delete templates (ticket or phase)';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> --type workflow',
     '<%= config.bin %> <%= command.id %> --type ticket',
+    '<%= config.bin %> <%= command.id %> --type phase',
     '<%= config.bin %> <%= command.id %> --force',
   ];
 
@@ -27,7 +27,7 @@ export default class TemplateDelete extends PMOCommand {
     type: Flags.string({
       char: 't',
       description: 'Template type to delete',
-      options: ['workflow', 'ticket', 'phase'],
+      options: ['ticket', 'phase'],
     }),
     force: Flags.boolean({
       char: 'f',
@@ -55,7 +55,6 @@ export default class TemplateDelete extends PMOCommand {
 
     if (!templateType) {
       const typeChoices = [
-        { name: 'Workflow templates', value: 'workflow' },
         { name: 'Ticket templates', value: 'ticket' },
         { name: 'Phase templates', value: 'phase' },
       ];
@@ -83,12 +82,6 @@ export default class TemplateDelete extends PMOCommand {
     let typeName = '';
 
     switch (templateType) {
-      case 'workflow': {
-        typeName = 'workflow';
-        const workflowTemplates = await this.storage.listTemplates({ isBuiltin: false });
-        templates = workflowTemplates.map(t => ({ id: t.id, name: t.name }));
-        break;
-      }
       case 'ticket': {
         typeName = 'ticket';
         const ticketTemplates = await this.storage.listTicketTemplates({ isBuiltin: false });
@@ -165,9 +158,6 @@ export default class TemplateDelete extends PMOCommand {
     for (const id of selected) {
       try {
         switch (templateType) {
-          case 'workflow':
-            await this.storage.deleteTemplate(id);
-            break;
           case 'ticket':
             await this.storage.deleteTicketTemplate(id);
             break;

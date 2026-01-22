@@ -87,6 +87,7 @@ export default class PhaseTemplateList extends PMOCommand {
 
     // Group phases by category for display
     const categoryEmoji: Record<StateCategory, string> = {
+      triage: '📬',
       backlog: '📥',
       unstarted: '📋',
       started: '🚀',

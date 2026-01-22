@@ -11,7 +11,7 @@ export default class TemplatePhaseCreate extends Command {
   static args = {
     name: Args.string({
       description: 'Name for the new template',
-      required: true,
+      required: false,
     }),
   };
 
@@ -25,7 +25,8 @@ export default class TemplatePhaseCreate extends Command {
   async run(): Promise<void> {
     const { args, flags } = await this.parse(TemplatePhaseCreate);
 
-    const cmdArgs: string[] = [args.name];
+    const cmdArgs: string[] = [];
+    if (args.name) cmdArgs.push(args.name);
     if (flags.description) cmdArgs.push('--description', flags.description);
 
     await this.config.runCommand('phase:template:create', cmdArgs);

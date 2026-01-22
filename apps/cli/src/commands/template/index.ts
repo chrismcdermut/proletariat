@@ -9,15 +9,14 @@ import {
 } from '../../lib/prompt-json.js';
 
 export default class Template extends Command {
-  static description = 'Manage templates (workflow, ticket, and phase)';
+  static description = 'Manage templates (ticket and phase)';
 
   static aliases = ['templates'];
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> list',
-    '<%= config.bin %> <%= command.id %> list --type workflow',
-    '<%= config.bin %> <%= command.id %> workflow',
+    '<%= config.bin %> <%= command.id %> list --type ticket',
     '<%= config.bin %> <%= command.id %> ticket',
     '<%= config.bin %> <%= command.id %> phase',
   ];
@@ -39,7 +38,6 @@ export default class Template extends Command {
     const menuChoices = [
       { name: 'List all templates', value: 'list' },
       new inquirer.Separator(),
-      { name: 'Workflow templates (status configurations)', value: 'workflow' },
       { name: 'Ticket templates (ticket presets)', value: 'ticket' },
       { name: 'Phase templates (project phases)', value: 'phase' },
     ];
@@ -49,7 +47,6 @@ export default class Template extends Command {
     if (jsonMode) {
       const jsonChoices = [
         { name: 'List all templates', value: 'list' },
-        { name: 'Workflow templates (status configurations)', value: 'workflow' },
         { name: 'Ticket templates (ticket presets)', value: 'ticket' },
         { name: 'Phase templates (project phases)', value: 'phase' },
       ];
@@ -74,9 +71,6 @@ export default class Template extends Command {
     switch (action) {
       case 'list':
         await this.config.runCommand('template:list', []);
-        break;
-      case 'workflow':
-        await this.config.runCommand('template:workflow', []);
         break;
       case 'ticket':
         await this.config.runCommand('template:ticket', []);

@@ -22,7 +22,7 @@ export default class PhaseTemplateApply extends PMOCommand {
   static args = {
     template: Args.string({
       description: 'Phase template ID to apply',
-      required: true,
+      required: false,
     }),
   };
 
@@ -58,10 +58,30 @@ export default class PhaseTemplateApply extends PMOCommand {
       this.error(message);
     };
 
+    // Get template - prompt for selection if not provided
+    let templateId = args.template;
+    if (!templateId) {
+      const templates = await this.storage.listPhaseTemplates();
+      if (templates.length === 0) {
+        return handleError('NO_TEMPLATES', `No phase templates found.\nCreate one with: prlt phase template create "Template Name"`);
+      }
+
+      const { selectedTemplate } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selectedTemplate',
+        message: 'Select a phase template:',
+        choices: templates.map(t => ({
+          name: `${t.name}${t.description ? ` - ${t.description}` : ''}`,
+          value: t.id,
+        })),
+      }]);
+      templateId = selectedTemplate;
+    }
+
     // Verify template exists
-    const template = await this.storage.getPhaseTemplate(args.template);
+    const template = await this.storage.getPhaseTemplate(templateId!);
     if (!template) {
-      return handleError('TEMPLATE_NOT_FOUND', `Phase template not found: ${args.template}. Run 'prlt phase template list' to see available templates.`);
+      return handleError('TEMPLATE_NOT_FOUND', `Phase template not found: ${templateId}. Run 'prlt phase template list' to see available templates.`);
     }
 
     // Check if workspace has existing phases
@@ -100,7 +120,7 @@ export default class PhaseTemplateApply extends PMOCommand {
     }
 
     // Apply template
-    const phases = await this.storage.applyPhaseTemplate(args.template);
+    const phases = await this.storage.applyPhaseTemplate(templateId!);
 
     this.log(styles.success(`\nApplied phase template "${styles.emphasis(template.name)}"`));
     this.log(styles.muted(`Created ${phases.length} phases:`));

@@ -57,6 +57,7 @@ export default class StatusList extends PMOCommand {
     this.log('═'.repeat(60));
 
     const categoryEmoji: Record<StateCategory, string> = {
+      triage: '📬',
       backlog: '📥',
       unstarted: '📋',
       started: '🚀',
@@ -65,7 +66,8 @@ export default class StatusList extends PMOCommand {
     };
 
     const categoryColors: Record<StateCategory, string> = {
-      backlog: '#9CA3AF',  // gray
+      triage: '#A78BFA',    // purple
+      backlog: '#9CA3AF',   // gray
       unstarted: '#60A5FA', // blue
       started: '#FBBF24',   // yellow
       completed: '#34D399', // green

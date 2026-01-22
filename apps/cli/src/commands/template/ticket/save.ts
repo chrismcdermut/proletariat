@@ -11,11 +11,11 @@ export default class TemplateTicketSave extends Command {
   static args = {
     ticket: Args.string({
       description: 'Ticket ID to create template from',
-      required: true,
+      required: false,
     }),
     name: Args.string({
       description: 'Template name',
-      required: true,
+      required: false,
     }),
   };
 
@@ -29,7 +29,9 @@ export default class TemplateTicketSave extends Command {
   async run(): Promise<void> {
     const { args, flags } = await this.parse(TemplateTicketSave);
 
-    const cmdArgs: string[] = [args.ticket, args.name];
+    const cmdArgs: string[] = [];
+    if (args.ticket) cmdArgs.push(args.ticket);
+    if (args.name) cmdArgs.push(args.name);
     if (flags.description) cmdArgs.push('--description', flags.description);
 
     await this.config.runCommand('ticket:template:save', cmdArgs);

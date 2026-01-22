@@ -33,7 +33,7 @@ export const PMO_TABLES = {
   // Workflow tables (consolidated - workflows are the single source of truth for board columns)
   workflows: 'pmo_workflows',  // Shared workflow definitions
   workflow_statuses: 'pmo_workflow_statuses',  // Statuses belonging to workflows (= board columns)
-  templates: 'pmo_templates',  // Workflow templates (preset status configurations)
+  // templates: 'pmo_templates',  // REMOVED: workflows are now used directly
   phases: 'pmo_phases',  // Project lifecycle phases (workspace-scoped)
   phase_templates: 'pmo_phase_templates',  // Phase configuration templates
   actions: 'pmo_actions',  // Work actions (reusable agent prompts)
@@ -376,16 +376,7 @@ export const PMO_TABLE_SCHEMAS = {
       UNIQUE(project_id, name)
     )`,
 
-  // Workflow templates (preset status configurations)
-  templates: `
-    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.templates} (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      description TEXT,
-      is_builtin INTEGER NOT NULL DEFAULT 0,
-      statuses TEXT NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`,
+  // REMOVED: pmo_templates - workflows are now used directly (no separate template concept)
 
   // Project lifecycle phases (workspace-scoped, not per-project)
   phases: `
@@ -512,7 +503,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.workflow_statuses,  // Workflow statuses (= board columns)
   PMO_TABLE_SCHEMAS.projects,
   PMO_TABLE_SCHEMAS.initiatives,
-  PMO_TABLE_SCHEMAS.templates,  // Workflow templates (preset status configurations)
+  // PMO_TABLE_SCHEMAS.templates,  // REMOVED: workflows are now used directly
   PMO_TABLE_SCHEMAS.specs,  // Must be before tickets (FK reference)
   PMO_TABLE_SCHEMAS.spec_dependencies,  // Spec-to-spec dependencies
   PMO_TABLE_SCHEMAS.epics,  // Must be before tickets (FK reference)

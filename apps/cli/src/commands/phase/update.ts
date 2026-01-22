@@ -139,6 +139,7 @@ export default class PhaseUpdate extends PMOCommand {
     if (flags.interactive || !hasChangeFlags) {
       // Define labels and choices once - single source of truth
       const categoryLabels: Record<StateCategory, string> = {
+        triage: 'Triage - Inbox, needs review',
         backlog: 'Backlog - Not yet scheduled for work',
         unstarted: 'Unstarted - Scheduled but work hasn\'t begun',
         started: 'Started - Work is actively in progress',

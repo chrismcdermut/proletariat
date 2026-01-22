@@ -34,6 +34,7 @@ export default class TemplateTicket extends Command {
 
     const menuChoices = [
       { name: 'List ticket templates', value: 'list' },
+      { name: 'Create new template', value: 'create' },
       { name: 'Create ticket from template', value: 'apply' },
       { name: 'Save ticket as template', value: 'save' },
       { name: 'Delete ticket template', value: 'delete' },
@@ -62,6 +63,9 @@ export default class TemplateTicket extends Command {
     switch (action) {
       case 'list':
         await this.config.runCommand('template:ticket:list', []);
+        break;
+      case 'create':
+        await this.config.runCommand('ticket:template:create', []);
         break;
       case 'apply':
         await this.config.runCommand('ticket:template:apply', []);
