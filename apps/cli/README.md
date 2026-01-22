@@ -1,113 +1,98 @@
-# prlt
+# ⚒️ prlt
 
-> Turn tickets into pull requests with AI agents
-
-```
-prlt work start TKT-042
-```
-
-An AI agent reads your ticket, writes the code, and creates a PR. You review and merge.
-
-## The Problem
-
-AI coding assistants are powerful, but managing them is chaos:
-- Multiple agents overwrite each other's work
-- No clear tracking of who's doing what
-- Context scattered across chat windows
-- "Did the agent finish? What branch is it on?"
-
-## The Solution
-
-**prlt** gives each AI agent its own git branch and tracks work through tickets:
-
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Ticket    │ ──▶ │   Agent     │ ──▶ │   PR Ready  │
-│   TKT-042   │     │  Working... │     │   Review ✓  │
-└─────────────┘     └─────────────┘     └─────────────┘
-```
+> **Turn tickets into pull requests with AI agents**
+> *Spawn agents on tickets, they write code, you review PRs*
 
 ---
 
-## Install
+## What Is This?
+
+**prlt** orchestrates AI coding agents working on your codebase in parallel. You create tickets describing what to build, spawn agents to work on them, and they deliver pull requests.
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                                                                  │
+│   You                    prlt                     Agents         │
+│                                                                  │
+│   Create ticket    →    Spawn session    →    Write code         │
+│   "Add OAuth"           Branch created        Commits made       │
+│                         Agent working         PR opened          │
+│                                                                  │
+│   Review PR        ←    PR ready          ←   Work complete      │
+│   Merge                                                          │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Each agent gets:
+- 🔀 **Its own git branch** - No conflicts between agents
+- 📦 **Isolated session** - Docker, tmux, or terminal
+- 📋 **Ticket context** - Knows exactly what to build
+
+---
+
+## 🚀 Quick Start
 
 ```bash
+# Install
 npm install -g @proletariat/cli
-```
 
----
-
-## Quick Start
-
-```bash
-# 1. Initialize
+# Initialize workspace
 prlt init
 
-# 2. Create a ticket
-prlt ticket create --title "Add user auth" --priority P1 --category feature
+# Create a ticket
+prlt ticket create --title "Add user authentication" --priority P1 --category feature
 
-# 3. Spawn an agent
+# Spawn an agent to work on it
 prlt work start TKT-001
 
-# 4. Agent works → PR appears
+# Watch it work
+prlt board
 ```
+
+The agent reads your ticket, writes the code, and opens a PR. You review and merge.
 
 ---
 
-## What You See
+## 💡 The Design Pattern
 
-### Ticket View
+**Problem:** AI coding assistants are powerful but chaotic at scale:
+- Multiple agents overwrite each other's changes
+- "Which branch has the auth code?"
+- "Did that agent finish?"
+- Context scattered across chat windows
+
+**Solution:** prlt gives each agent an isolated workspace:
 
 ```
-📄 Ticket TKT-042
-
-Title:       Add user authentication
-Status:      In Progress
-Priority:    P1
-Category:    feature
-
-Description:
-  Implement JWT-based authentication with refresh tokens.
-
-Acceptance Criteria:
-  • Users can log in with email/password
-  • JWT tokens expire after 1 hour
-  • Refresh tokens handled automatically
+my-project/
+├── .proletariat/
+│   └── workspace.db          # Tickets, executions, state
+├── agents/
+│   └── temp/
+│       ├── agent-abc123/     # Agent 1: Working on TKT-042 (OAuth)
+│       │   └── repo/         # Its own branch: feat/TKT-042-oauth
+│       └── agent-def456/     # Agent 2: Working on TKT-043 (API)
+│           └── repo/         # Its own branch: feat/TKT-043-api
+└── repos/
+    └── my-repo/              # Your original repo
 ```
 
-### Spawning Work
-
-```bash
-$ prlt work start TKT-042
-
-? Select execution mode:
-❯ docker      - Isolated container (safe)
-  tmux        - Attachable session
-  terminal    - New window
-  foreground  - Current terminal
-
-? Select action:
-❯ implement   - Write code for this ticket
-  groom       - Refine ticket requirements
-  review      - Review existing code
-
-✓ Agent spawned on branch feat/TKT-042-user-auth
-✓ Session started in docker container
-```
+**Result:** Parallel agents, zero conflicts. Each works independently, creates its own PR.
 
 ---
 
-## Three Ways to Use Commands
+## 🎯 Three Ways to Use Commands
 
 ### 1. Interactive (Humans)
 
-Run without arguments—guided prompts:
+Run without flags—get guided prompts:
 
 ```bash
 $ prlt ticket create
 
 ? Title: Add password reset
-? Description: Allow users to reset forgotten passwords
+? Description: Email-based password reset flow
 ? Priority: P1
 ? Category: feature
 
@@ -126,25 +111,19 @@ $ prlt work start --json
 {
   "prompt": {
     "type": "list",
-    "name": "selection",
     "message": "Select ticket to work on:",
     "choices": [
       {
         "name": "[P1] TKT-042 - Add user authentication",
         "value": "TKT-042",
         "command": "prlt work start TKT-042 --json"
-      },
-      {
-        "name": "[P0] TKT-043 - Fix login crash",
-        "value": "TKT-043",
-        "command": "prlt work start TKT-043 --json"
       }
     ]
   }
 }
 ```
 
-AI agents parse this JSON, make selections, and call the next command.
+AI agents parse this, make selections, call the next command.
 
 ### 3. Flags (Scripts/CI)
 
@@ -152,144 +131,162 @@ Pass everything directly:
 
 ```bash
 prlt ticket create \
-  --title "Add password reset" \
-  --description "Email-based password reset flow" \
+  --title "Add OAuth" \
+  --description "Google and GitHub OAuth" \
   --priority P1 \
   --category feature
 ```
 
 ---
 
-## Execution Modes
+## ⚡ Execution Modes
 
 Where does the agent run?
 
-| Mode | Command | Best For |
-|------|---------|----------|
-| Docker | `--mode docker` | Safety—isolated container |
-| Tmux | `--mode tmux` | Multiple agents, attach/detach |
-| Terminal | `--mode terminal` | Single agent, new window |
-| Foreground | `--mode foreground` | Debugging, watch output |
-| Host | `--run-on-host` | Speed—no container overhead |
+| Mode | Flag | Best For |
+|------|------|----------|
+| 🐳 Docker | `--mode docker` | Safety—fully isolated container |
+| 🖥️ Tmux | `--mode tmux` | Multiple agents, attach/detach |
+| 📺 Terminal | `--mode terminal` | New window per agent |
+| 👀 Foreground | `--mode foreground` | Watch output directly |
+| 🏃 Host | `--run-on-host` | Speed—no container overhead |
 
 ```bash
 # Safe and isolated
 prlt work start TKT-042 --mode docker
 
-# Multiple agents in tmux sessions
+# Attachable sessions (can detach and reattach)
 prlt work start TKT-042 --mode tmux
-prlt work start TKT-043 --mode tmux
 
-# Direct execution (fastest)
+# Fast, direct execution
 prlt work start TKT-042 --run-on-host
 ```
 
-Sessions are like threads—attach, detach, close the window, agent keeps working.
+Sessions are like threads—close the window, agent keeps working.
 
 ---
 
-## Parallel Agents
+## 🔥 Parallel Agents
 
-Work on multiple tickets at once:
+Work on multiple tickets simultaneously:
 
 ```bash
-# Spawn all planned tickets
+# Spawn all planned tickets at once
 prlt work spawn --all --column Planned
 
 # Spawn specific tickets
 prlt work spawn TKT-042 TKT-043 TKT-044
 
-# Preview first
+# Preview first (dry run)
 prlt work spawn --all --dry-run
 ```
 
+Each agent works in its own branch. No conflicts.
+
 ---
 
-## Core Commands
+## 📚 Command Reference
 
 ### Tickets
 
-```bash
-prlt ticket create              # Create new ticket
-prlt ticket list                # List all tickets
-prlt ticket view TKT-042        # View ticket details
-prlt ticket edit TKT-042        # Edit ticket
-prlt ticket move TKT-042 Done   # Change status
-```
+| Command | Description |
+|---------|-------------|
+| `prlt ticket create` | Create new ticket (interactive) |
+| `prlt ticket list` | List all tickets |
+| `prlt ticket view TKT-042` | View ticket details |
+| `prlt ticket edit TKT-042` | Edit ticket |
+| `prlt ticket move TKT-042 Done` | Change status |
 
 ### Work
 
-```bash
-prlt work start TKT-042         # Spawn agent on ticket
-prlt work spawn --all           # Batch spawn
-prlt execution list             # List running agents
-prlt execution logs             # View agent output
-prlt execution stop <id>        # Stop an agent
-```
+| Command | Description |
+|---------|-------------|
+| `prlt work start TKT-042` | Spawn agent on single ticket |
+| `prlt work spawn --all` | Batch spawn multiple tickets |
+| `prlt execution list` | List running agents |
+| `prlt execution logs` | View agent output |
+| `prlt execution stop <id>` | Stop an agent |
 
 ### Board
 
-```bash
-prlt board                      # View kanban board
-prlt board watch                # Real-time updates
-```
+| Command | Description |
+|---------|-------------|
+| `prlt board` | View kanban board |
+| `prlt board watch` | Real-time board updates |
 
 ### Setup
 
+| Command | Description |
+|---------|-------------|
+| `prlt init` | Initialize workspace |
+| `prlt repo add <url>` | Add repository |
+| `prlt repo list` | List repositories |
+
+---
+
+## 💡 Use Cases
+
+### Parallel Feature Development
+
 ```bash
-prlt init                       # Initialize workspace
-prlt repo add <url>             # Add repository
+# Create tickets for each feature
+prlt ticket create --title "Add OAuth" --category feature
+prlt ticket create --title "Add API rate limiting" --category feature
+prlt ticket create --title "Add email notifications" --category feature
+
+# Spawn all three in parallel
+prlt work spawn TKT-001 TKT-002 TKT-003 --mode tmux
+
+# Watch the board as they work
+prlt board watch
 ```
+
+Three agents, three branches, three PRs. You review and merge.
+
+### Bug Bash
+
+```bash
+# Spawn all bugs at once
+prlt work spawn --all --column Backlog --category bug
+
+# Or pick specific ones
+prlt work spawn TKT-010 TKT-011 TKT-012
+```
+
+### Grooming Session
+
+Have an agent refine ticket requirements:
+
+```bash
+prlt work start TKT-042 --action groom
+```
+
+Agent adds acceptance criteria, subtasks, estimates.
 
 ---
 
-## How It Works
-
-```
-You                          prlt                         Agent
- │                            │                            │
- │  prlt work start TKT-042   │                            │
- │ ─────────────────────────▶ │                            │
- │                            │  Create branch             │
- │                            │  feat/TKT-042-user-auth    │
- │                            │ ──────────────────────────▶│
- │                            │                            │
- │                            │  Start session             │
- │                            │  (docker/tmux/terminal)    │
- │                            │ ──────────────────────────▶│
- │                            │                            │
- │                            │        Read ticket         │
- │                            │◀──────────────────────────│
- │                            │                            │
- │                            │        Write code          │
- │                            │        Commit              │
- │                            │        Create PR           │
- │                            │◀──────────────────────────│
- │                            │                            │
- │  PR ready for review       │                            │
- │◀───────────────────────────│                            │
-```
-
----
-
-## Requirements
-
-- Node.js 18+
-- Git
-- Docker (optional—for isolated execution)
-
----
-
-## Environment Variables
+## ⚙️ Environment Variables
 
 | Variable | Purpose |
 |----------|---------|
 | `ANTHROPIC_API_KEY` | Claude API access |
-| `GITHUB_TOKEN` | GitHub operations |
+| `GITHUB_TOKEN` | GitHub operations (PRs, etc.) |
 | `PRLT_HQ_PATH` | Custom workspace location |
 
 ---
 
-## License
+## 🔧 Requirements
+
+- **Node.js 18+**
+- **Git**
+- **Docker** (optional—for isolated execution)
+
+---
+
+## 📄 License
 
 Apache 2.0
+
+---
+
+Made with ⚒️ for the AI-assisted developer.
