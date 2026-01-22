@@ -34,6 +34,7 @@ export default class TemplateWorkflow extends Command {
 
     const menuChoices = [
       { name: 'List workflow templates', value: 'list' },
+      { name: 'Create a new workflow template', value: 'create' },
       { name: 'Apply a workflow template to project', value: 'apply' },
       { name: 'Save current workflow as template', value: 'save' },
       { name: 'Delete workflow templates', value: 'delete' },
@@ -62,6 +63,9 @@ export default class TemplateWorkflow extends Command {
     switch (action) {
       case 'list':
         await this.config.runCommand('template:workflow:list', []);
+        break;
+      case 'create':
+        await this.config.runCommand('status:template:create', []);
         break;
       case 'apply':
         await this.config.runCommand('status:template:apply', []);

@@ -48,6 +48,7 @@ import {
   WorkflowFilter,
   WorkflowStatus,
   WorkflowTemplate,
+  WorkflowTemplateStatus,
 } from '../types.js'
 import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from '../schema.js'
 import { StorageContext } from './types.js'
@@ -581,6 +582,14 @@ export class SQLiteStorage implements PMOStorage {
     description?: string
   ): Promise<WorkflowTemplate> {
     return this.templateStorage.saveTemplate(name, projectId, description)
+  }
+
+  async createTemplate(
+    name: string,
+    statuses: WorkflowTemplateStatus[],
+    description?: string
+  ): Promise<WorkflowTemplate> {
+    return this.templateStorage.createTemplate(name, statuses, description)
   }
 
   async deleteTemplate(id: string): Promise<void> {

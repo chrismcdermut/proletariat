@@ -75,6 +75,41 @@ export class TemplateStorage {
   }
 
   /**
+   * Create a new workflow template from scratch.
+   */
+  async createTemplate(
+    name: string,
+    statuses: WorkflowTemplateStatus[],
+    description?: string
+  ): Promise<WorkflowTemplate> {
+    // Check for duplicate template name
+    const existing = this.ctx.db.prepare(`
+      SELECT id FROM ${T.templates}
+      WHERE LOWER(name) = LOWER(?)
+    `).get(name) as { id: string } | undefined
+    if (existing) {
+      throw new PMOError('CONFLICT', `Template with name "${name}" already exists`)
+    }
+
+    const id = slugify(name)
+    const now = new Date().toISOString()
+
+    this.ctx.db.prepare(`
+      INSERT INTO ${T.templates} (id, name, description, is_builtin, statuses, created_at)
+      VALUES (?, ?, ?, 0, ?, ?)
+    `).run(id, name, description || null, JSON.stringify(statuses), now)
+
+    return {
+      id,
+      name,
+      description,
+      isBuiltin: false,
+      statuses,
+      createdAt: new Date(now),
+    }
+  }
+
+  /**
    * Apply a workflow template to a project.
    * Creates statuses in the project's workflow from the template.
    */
