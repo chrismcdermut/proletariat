@@ -437,7 +437,7 @@ export async function showNextSteps(options: InitOptions): Promise<void> {
       { name: 'Yes', value: true },
       { name: 'No', value: false }
     ],
-    default: false,
+    default: true,
   }]);
 
   // Show additional next steps if requested
