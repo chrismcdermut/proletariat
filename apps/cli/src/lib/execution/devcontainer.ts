@@ -87,11 +87,12 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       // PMO path can be anywhere (e.g., /hq/pmo or /hq/repos/myrepo/pmo)
       // Use PRLT_PMO_PATH env var to mount the actual location to /hq/pmo
       'source=${localEnv:PRLT_PMO_PATH},target=/hq/pmo,type=bind',
-      // NOTE: PRLT_REPO_PATH mount removed - prlt is now installed via npm in the container
-      // Mount the main repo's .git directory so git worktrees can resolve their parent
-      // Worktree .git files reference paths like /Users/.../repos/proletariat/.git/worktrees/name
-      // This mount makes those paths accessible inside the container at /hq/repos/proletariat
-      'source=${localEnv:PRLT_HQ_PATH}/repos/proletariat,target=/hq/repos/proletariat,type=bind',
+      // Mount each repo's directory so git worktrees can resolve their parent
+      // Worktree .git files reference paths like /Users/.../repos/{repoName}/.git/worktrees/name
+      // These mounts make those paths accessible inside the container at /hq/repos/{repoName}
+      ...(options.repoWorktrees || []).map(
+        repoName => `source=\${localEnv:PRLT_HQ_PATH}/repos/${repoName},target=/hq/repos/${repoName},type=bind`
+      ),
     ],
     containerEnv: {
       DEVCONTAINER: 'true',
@@ -340,8 +341,8 @@ export function generatePrltSetupScript(): string {
 # Setup prlt CLI - rebuild native modules if using mounted version
 
 # Configure git wrapper to handle worktree path translation
-# Worktree .git files contain host paths like: gitdir: /Users/.../repos/proletariat/.git/worktrees/name
-# Inside container, the parent repo is mounted at /hq/repos/proletariat
+# Worktree .git files contain host paths like: gitdir: /Users/.../repos/{repoName}/.git/worktrees/name
+# Inside container, the parent repos are mounted at /hq/repos/{repoName}
 #
 # We create a git wrapper that translates paths on-the-fly using GIT_DIR
 # This avoids modifying the .git file which is bind-mounted from the host
@@ -374,14 +375,18 @@ find_git_file() {
 GIT_FILE="$(find_git_file)"
 if [ -n "$GIT_FILE" ]; then
     # Read the gitdir path from the .git file
-    # Format is: gitdir: /path/to/parent/.git/worktrees/name
+    # Format is: gitdir: /path/to/repos/{repoName}/.git/worktrees/name
     HOST_PATH="$(sed -n 's/^gitdir: *//p' "$GIT_FILE")"
 
     # Check if it's a host path that needs translation
     case "$HOST_PATH" in
         /Users/*|/home/*)
             WORKTREE_NAME="$(basename "$HOST_PATH")"
-            CONTAINER_PATH="/hq/repos/proletariat/.git/worktrees/$WORKTREE_NAME"
+            # Extract repo name from host path: .../repos/{repoName}/.git/worktrees/...
+            # Remove .git/worktrees/name suffix, then get basename
+            REPO_PATH="$(echo "$HOST_PATH" | sed 's|/.git/worktrees/.*||')"
+            REPO_NAME="$(basename "$REPO_PATH")"
+            CONTAINER_PATH="/hq/repos/$REPO_NAME/.git/worktrees/$WORKTREE_NAME"
             if [ -d "$CONTAINER_PATH" ]; then
                 export GIT_DIR="$CONTAINER_PATH"
                 export GIT_WORK_TREE="$(dirname "$GIT_FILE")"
