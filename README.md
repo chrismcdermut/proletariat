@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@proletariat/cli.svg)](https://www.npmjs.com/package/@proletariat/cli)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-Proletariat (`prlt`) is a CLI tool for managing multiple AI coding agents working on your codebase simultaneously. Each agent works in isolated Docker containers with their own git branches, guided by tickets from your PMO (Project Management Office).
+Proletariat (`prlt`) orchestrates multiple AI coding agents working on your codebase in parallel. Create tickets, spawn agent sessions, and watch them write code and create PRs - each agent isolated in its own git branch.
 
 ## Why Proletariat?
 
@@ -13,15 +13,14 @@ AI coding assistants are powerful, but managing multiple agents on the same code
 - Agents conflict with each other's changes
 - No clear assignment of who's working on what
 - Progress is scattered across chat windows
-- Security risk of agents running on your host
 
 Proletariat solves this with:
 
-- **Isolation** - Each agent works in their own Docker container and git branch
+- **Isolation** - Each agent works in its own git branch and session
 - **Ticket-driven** - Clear work assignments with progress tracking
-- **Provider-agnostic** - Works with Claude Code, Cursor, Codex (coming soon)
+- **Flexible execution** - Run in Docker, tmux, terminal, or on host
+- **Provider-agnostic** - Works with Claude Code, Codex, Aider
 - **Git-native** - Uses worktrees, branches, and PRs you already know
-- **Open ecosystem** - Integrates with Linear, GitHub Issues, Jira (coming soon)
 
 ## Quick Start
 
@@ -29,103 +28,117 @@ Proletariat solves this with:
 # Install
 npm install -g @proletariat/cli
 
-# Initialize a new HQ (headquarters)
+# Initialize workspace
 prlt init
 
-# Create your first ticket
-prlt ticket create
+# Create a ticket
+prlt ticket create --title "Add user authentication" --category feature
 
-# Add agents to work on tickets
-prlt agent add alice bob
+# Spawn an agent to work on it
+prlt work start TKT-001
 
-# Spawn work for an agent
-prlt work spawn TKT-001 alice
-
-# Check progress
+# Watch the board
 prlt board
-prlt ticket list
 ```
+
+The agent reads your ticket, writes code, and creates a PR.
 
 ## How It Works
 
-### 1. Create an HQ
+### 1. Create Tickets
 
-Your HQ (headquarters) is the central command center:
-
-```
-my-project-hq/
-├── .proletariat/        # Config and workspace database
-├── repos/               # Your repositories
-├── agents/              # Agent worktrees
-└── pmo/                 # Tickets, specs, and board
-```
-
-### 2. Define Work as Tickets
+Define what needs to be built:
 
 ```bash
 prlt ticket create
-# Enter title: Add user authentication
-# Enter description: Implement JWT-based auth with refresh tokens...
 ```
 
-### 3. Assign to Agents
+Add requirements, acceptance criteria, subtasks - the more context, the better agents perform.
+
+### 2. Spawn Agent Sessions
+
+When ready, spawn an ephemeral agent:
 
 ```bash
-prlt agent add alice
-prlt ticket assign TKT-001 alice
+prlt work start TKT-001
 ```
 
-### 4. Spawn Work
+Each spawn creates:
+- A new git branch for the work
+- An isolated session (Docker, tmux, terminal, or host)
+- An AI agent that reads the ticket and starts coding
+
+### 3. Agents Work Autonomously
+
+The agent reads your ticket, writes code, commits changes, and creates a PR. Sessions are like threads - you can attach, detach, close windows, and the agent keeps working.
+
+### 4. Review and Merge
 
 ```bash
-prlt work spawn TKT-001 alice
-# Starts Docker container with Claude Code
-# Agent reads ticket, writes code, creates PR
+prlt pr status TKT-001    # Check PR status
+gh pr view                # Review in GitHub
+gh pr merge               # Merge when ready
 ```
 
-### 5. Review and Merge
+## Spawning Multiple Agents
+
+Work on multiple tickets in parallel:
 
 ```bash
-prlt work logs TKT-001      # Watch agent progress
-prlt pr status TKT-001      # Check PR status
-# Review PR in GitHub, merge when ready
+# Spawn all planned tickets
+prlt work spawn --all --column Planned
+
+# Spawn specific tickets
+prlt work spawn TKT-001 TKT-002 TKT-003
+```
+
+## Execution Modes
+
+| Mode | Description |
+|------|-------------|
+| `docker` | Isolated Docker container |
+| `devcontainer` | VS Code devcontainer |
+| `tmux` | Tmux session (attach/detach) |
+| `terminal` | New terminal window |
+| `foreground` | Current terminal |
+| `host` | Direct execution |
+
+```bash
+prlt work start TKT-001 --mode docker    # Isolated
+prlt work start TKT-001 --mode tmux      # Attachable session
+prlt work start TKT-001 --run-on-host    # Direct execution
 ```
 
 ## Key Concepts
 
 | Concept | Description |
 |---------|-------------|
-| **HQ** | Your workspace root with repos, agents, and PMO |
-| **Agent** | An AI assistant with its own git branch and container |
-| **PMO** | Project Management Office - tickets, specs, board |
-| **Ticket** | A work item flowing through backlog → in-progress → done |
-| **Spec** | Detailed requirements that can be linked to tickets |
+| **Ticket** | Work item with requirements and acceptance criteria |
+| **Session** | Running agent instance working on a ticket |
+| **Worktree** | Isolated git working directory per agent |
+| **PMO** | Project management - tickets, specs, board |
 
 ## Commands
 
 ```bash
 # Workspace
-prlt init                    # Create new HQ
-prlt workspace list          # List discovered workspaces
-
-# Agents
-prlt agent add <names...>    # Add agents
-prlt agent list              # List agents
-prlt agent shell <name>      # Shell into agent workspace
+prlt init                    # Initialize workspace
+prlt repo add <url>          # Add repository
 
 # Tickets
 prlt ticket create           # Create ticket
 prlt ticket list             # List tickets
-prlt ticket assign <id> <agent>
-prlt ticket move <id> <status>
+prlt ticket view TKT-001     # View details
+prlt ticket move TKT-001 "In Progress"
 
 # Work
-prlt work spawn <ticket> <agent>
-prlt work list
-prlt work logs <ticket>
+prlt work start TKT-001      # Start single ticket
+prlt work spawn --all        # Batch spawn
+prlt execution list          # List active sessions
 
 # Board
 prlt board                   # Show kanban board
+prlt board watch             # Watch real-time
 ```
 
 Run `prlt --help` for full command reference.
@@ -133,76 +146,42 @@ Run `prlt --help` for full command reference.
 ## Requirements
 
 - Node.js 18+
-- Docker (optional, for containerized agents)
 - Git
+- Docker (optional, for containerized execution)
 
 ## Documentation
 
 ### Getting Started
-- [Getting Started Guide](docs/getting-started.md) - Install to first agent walkthrough
-- [CLI Reference](docs/cli-reference.md) - Complete command documentation
+- [Getting Started Guide](docs/getting-started.md) - Full walkthrough
+- [CLI Reference](docs/cli-reference.md) - All commands
 
 ### Core Concepts
-- [HQ (Headquarters)](docs/concepts/hq.md) - Workspace structure and setup
-- [PMO (Project Management)](docs/concepts/pmo.md) - Tickets, specs, and board
-- [Agents](docs/concepts/agents.md) - AI assistants, worktrees, and themes
-- [Work](docs/concepts/work.md) - Spawning and executing agent work
+- [HQ & Workspace](docs/concepts/hq.md) - Workspace structure
+- [Tickets & PMO](docs/concepts/pmo.md) - Project management
+- [Agents & Sessions](docs/concepts/agents.md) - How agents work
+- [Work Execution](docs/concepts/work.md) - Spawning and modes
 
 ### Workflow Guides
-- [Ticket Lifecycle](docs/workflows/ticket-lifecycle.md) - End-to-end ticket flow
-- [Multi-Agent Workflows](docs/workflows/multi-agent.md) - Running agents in parallel
-- [Docker Setup](docs/workflows/docker-setup.md) - Container isolation guide
+- [Ticket Lifecycle](docs/workflows/ticket-lifecycle.md) - End-to-end flow
+- [Multi-Agent Work](docs/workflows/multi-agent.md) - Parallel development
+- [Docker Setup](docs/workflows/docker-setup.md) - Container isolation
 
 ### Reference
-- [Troubleshooting](docs/troubleshooting.md) - Common issues and solutions
-- [CLI README](apps/cli/README.md) - Additional CLI details
+- [Troubleshooting](docs/troubleshooting.md) - Common issues
 - [ROADMAP.md](ROADMAP.md) - Feature roadmap
-
-## Project Structure
-
-```
-proletariat/
-├── apps/
-│   └── cli/           # Main CLI application (oclif)
-├── packages/          # Shared packages (coming soon)
-├── ROADMAP.md         # Feature roadmap
-└── CONTRIBUTING.md    # Development guidelines
-```
 
 ## Development
 
 ```bash
-# Install dependencies
-pnpm install
-
-# Build
-pnpm build:cli
-
-# Run locally
-pnpm prlt <command>
-
-# Run with isolated test database
-pnpm prlt:isolated <command>
+pnpm install       # Install dependencies
+pnpm build:cli     # Build
+pnpm prlt <cmd>    # Run locally
 ```
-
-## Roadmap
-
-See [ROADMAP.md](ROADMAP.md) for the full roadmap. Key upcoming features:
-
-- GitHub Issues integration
-- Linear integration
-- Multi-provider support (Codex, Gemini CLI)
-- MCP server for meta-orchestration
-- Plugin system for custom integrations
 
 ## License
 
 Apache 2.0 - See [LICENSE](LICENSE) for details.
 
-## Contributing
-
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
 ---
 
-Built with the vision of making AI coding assistants more productive and manageable.
+Built for making AI coding assistants more productive and manageable.

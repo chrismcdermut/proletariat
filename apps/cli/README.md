@@ -2,204 +2,218 @@
 
 > Multi-agent development orchestration for AI coding assistants
 
-Proletariat helps you manage multiple AI coding agents working on your codebase simultaneously. Each agent works in isolated Docker containers with their own git branches, guided by tickets from your PMO (Project Management Office).
+Proletariat orchestrates multiple AI coding agents working on your codebase in parallel. Create tickets, spawn agent sessions, and watch them write code and create PRs - all while keeping each agent isolated in its own git branch.
 
 ## Installation
 
 ```bash
-# npm
 npm install -g @proletariat/cli
-
-# pnpm
-pnpm add -g @proletariat/cli
-
-# yarn
-yarn global add @proletariat/cli
 ```
 
-## Quick Start
+---
+
+## TL;DR - Quick Start
 
 ```bash
-# 1. Initialize a new HQ (headquarters)
+# Initialize workspace
 prlt init
 
-# 2. Create your first ticket
+# Create a ticket
+prlt ticket create --title "Add user authentication" --category feature
+
+# Spawn an agent session to work on it
+prlt work start TKT-001
+
+# Watch the board
+prlt board
+```
+
+That's it. The agent reads your ticket, writes code, and creates a PR.
+
+---
+
+## How It Works
+
+### 1. You create tickets
+
+Tickets define what needs to be built:
+
+```bash
 prlt ticket create
-
-# 3. Add agents to work on tickets
-prlt agent add alice bob
-
-# 4. Spawn work for an agent
-prlt work spawn TKT-001 alice
-
-# 5. Check status
-prlt ticket list
-prlt agent list
 ```
 
-## Core Concepts
+Add details, acceptance criteria, and subtasks - the more context, the better the agent performs.
 
-### HQ (Headquarters)
+### 2. You spawn agent sessions
 
-Your central command center with this structure:
+When ready, spawn an ephemeral agent to work on a ticket:
 
-```
-my-project-hq/
-├── .proletariat/        # Config and workspace database
-│   ├── config.json
-│   └── workspace.db
-├── repos/               # Your repositories
-│   └── my-repo/
-├── agents/              # Agent configurations
-│   └── staff/           # Agent worktrees
-│       ├── alice/
-│       └── bob/
-└── pmo/                 # Project Management Office
-    ├── board.md         # Kanban board
-    └── specs/           # Specifications
+```bash
+prlt work start TKT-001
 ```
 
-### Agents
+Each spawn creates:
+- A new git branch for the work
+- An isolated session (Docker, terminal, tmux, or host)
+- An AI agent that reads the ticket and starts coding
 
-AI coding assistants that work in isolated environments. Each agent:
-- Has their own git worktree/branch
-- Runs in a Docker container (optional)
-- Works on tickets assigned to them
-- Creates PRs when work is complete
+### 3. Agents work autonomously
 
-### PMO (Project Management Office)
+The agent:
+- Reads your ticket and any linked specs
+- Writes code to implement the requirements
+- Commits changes and creates a PR
+- Session ends when work completes
 
-Your ticket-driven workflow system:
-- **Tickets** - Work items that flow through status columns
-- **Specs** - Detailed requirements linked to tickets
-- **Board** - Kanban-style visualization of work progress
+### 4. You review and merge
+
+```bash
+prlt pr status TKT-001    # Check PR
+gh pr view                # Review in GitHub
+gh pr merge               # Merge when ready
+```
+
+---
+
+## Execution Modes
+
+Agents can run in different environments:
+
+| Mode | Description |
+|------|-------------|
+| `docker` | Isolated Docker container (recommended for safety) |
+| `devcontainer` | VS Code devcontainer integration |
+| `tmux` | Tmux session (great for multiple agents) |
+| `terminal` | New terminal window |
+| `foreground` | Current terminal |
+| `host` | Direct execution on your machine |
+
+```bash
+# Run in Docker (isolated)
+prlt work start TKT-001 --mode docker
+
+# Run in tmux (can attach/detach)
+prlt work start TKT-001 --mode tmux
+
+# Run on host (fastest, no isolation)
+prlt work start TKT-001 --run-on-host
+```
+
+Sessions are like threads - you can attach to them, detach, close windows, and the agent keeps working.
+
+---
+
+## Spawning Multiple Agents
+
+Work on multiple tickets in parallel:
+
+```bash
+# Spawn all planned tickets
+prlt work spawn --all --column Planned
+
+# Spawn specific tickets
+prlt work spawn TKT-001 TKT-002 TKT-003
+
+# Preview without executing
+prlt work spawn --all --dry-run
+```
+
+---
+
+## Core Commands
 
 ### Tickets
 
-Work items with Linear-style statuses:
-- `backlog` - Not yet planned
-- `planned` - Ready to be worked on
-- `in-progress` - Currently being worked
-- `in-review` - PR created, awaiting review
-- `done` - Completed
-- `canceled` - No longer needed
-
-## Key Commands
-
-### Workspace Management
-
 ```bash
-prlt init                    # Initialize new HQ
-prlt workspace list          # List discovered workspaces
+prlt ticket create           # Create ticket (interactive)
+prlt ticket list             # List tickets
+prlt ticket view TKT-001     # View details
+prlt ticket edit TKT-001     # Edit ticket
+prlt ticket move TKT-001 "In Progress"
 ```
 
-### Agent Management
+### Work
 
 ```bash
-prlt agent add <names...>    # Add new agents
-prlt agent list              # List all agents
-prlt agent remove <name>     # Remove an agent
-prlt agent shell <name>      # Open shell in agent workspace
-```
-
-### Ticket Management
-
-```bash
-prlt ticket create           # Create new ticket
-prlt ticket list             # List all tickets
-prlt ticket show <id>        # Show ticket details
-prlt ticket assign <id> <agent>  # Assign to agent
-prlt ticket move <id> <status>   # Move to status
-```
-
-### Work Spawning
-
-```bash
-prlt work spawn <ticket> <agent>  # Start agent work in Docker
-prlt work list                    # List active work
-prlt work logs <ticket>           # View agent output
-```
-
-### Specs
-
-```bash
-prlt spec create             # Create new spec
-prlt spec list               # List all specs
-prlt spec show <id>          # Show spec details
-prlt ticket link <ticket> <spec>  # Link spec to ticket
+prlt work start TKT-001      # Start single ticket
+prlt work spawn --all        # Batch spawn
+prlt execution list          # List active sessions
+prlt execution logs          # View output
 ```
 
 ### Board
 
 ```bash
-prlt board                   # Show kanban board
-prlt board show              # Same as above
+prlt board                   # View kanban board
+prlt board watch             # Watch in real-time
 ```
+
+### Workspace
+
+```bash
+prlt init                    # Initialize workspace
+prlt repo add <url>          # Add repository
+prlt repo list               # List repos
+```
+
+---
+
+## Workspace Structure
+
+```
+my-project/
+├── .proletariat/
+│   ├── config.json          # Configuration
+│   └── workspace.db         # SQLite database
+├── repos/                   # Your repositories
+├── agents/                  # Agent worktrees
+│   └── temp/                # Ephemeral agent workspaces
+└── pmo/
+    └── specs/               # Specifications
+```
+
+---
+
+## Key Concepts
+
+| Concept | Description |
+|---------|-------------|
+| **Ticket** | Work item with requirements, acceptance criteria, subtasks |
+| **Session** | Running agent instance working on a ticket |
+| **Worktree** | Isolated git working directory per agent |
+| **PMO** | Project management - tickets, specs, board |
+
+---
 
 ## Environment Variables
 
-- `PRLT_HQ_PATH` - Override workspace location (useful for dev/testing)
-- `DEVCONTAINER` - Set to "true" when running inside devcontainer
+| Variable | Description |
+|----------|-------------|
+| `PRLT_HQ_PATH` | Override workspace location |
+| `GITHUB_TOKEN` | GitHub authentication |
+| `ANTHROPIC_API_KEY` | Claude API access |
 
-## Local Development
-
-```bash
-# Clone the repo
-git clone https://github.com/proletariat-ai/proletariat.git
-cd proletariat
-
-# Install dependencies
-pnpm install
-
-# Build
-pnpm build:cli
-
-# Run locally (from anywhere in workspace)
-pnpm prlt <command>
-
-# Run with isolated test database
-pnpm prlt:isolated <command>
-```
-
-## Architecture
-
-Proletariat uses a layered architecture:
-
-1. **CLI Layer** - oclif-based command interface
-2. **PMO Layer** - Ticket and spec management (SQLite)
-3. **Agent Layer** - Git worktree management
-4. **Execution Layer** - Docker container orchestration
-
-Data is stored in SQLite (`workspace.db`) with markdown sync to `board.md` for Obsidian compatibility.
-
-## Why Proletariat?
-
-- **Isolation** - Each agent works in their own container, can't mess up your host
-- **Ticket-driven** - Clear work assignments and progress tracking
-- **Provider-agnostic** - Works with Claude Code, Cursor, Codex (coming soon)
-- **Git-native** - Uses worktrees, branches, and PRs you already know
-- **Open ecosystem** - Integrates with Linear, GitHub Issues (coming soon)
+---
 
 ## Documentation
 
-### User Guides
-- [Getting Started](../../docs/getting-started.md) - Complete walkthrough from install to first agent
-- [CLI Reference](../../docs/cli-reference.md) - Full command documentation
-- [Troubleshooting](../../docs/troubleshooting.md) - Common issues and solutions
+### Guides
+- [Getting Started](../../docs/getting-started.md) - Full walkthrough
+- [CLI Reference](../../docs/cli-reference.md) - All commands
+- [Troubleshooting](../../docs/troubleshooting.md) - Common issues
 
 ### Concepts
-- [HQ (Headquarters)](../../docs/concepts/hq.md) - Workspace structure
-- [PMO](../../docs/concepts/pmo.md) - Tickets, specs, and workflows
-- [Agents](../../docs/concepts/agents.md) - AI assistants and themes
-- [Work](../../docs/concepts/work.md) - Spawning and execution
+- [HQ & Workspace](../../docs/concepts/hq.md)
+- [Tickets & PMO](../../docs/concepts/pmo.md)
+- [Agents & Sessions](../../docs/concepts/agents.md)
+- [Work Execution](../../docs/concepts/work.md)
 
 ### Workflows
-- [Ticket Lifecycle](../../docs/workflows/ticket-lifecycle.md) - End-to-end flow
-- [Multi-Agent](../../docs/workflows/multi-agent.md) - Parallel development
-- [Docker Setup](../../docs/workflows/docker-setup.md) - Container isolation
+- [Ticket Lifecycle](../../docs/workflows/ticket-lifecycle.md)
+- [Multi-Agent Parallel Work](../../docs/workflows/multi-agent.md)
+- [Docker Isolation](../../docs/workflows/docker-setup.md)
 
-### Development
-- [ROADMAP.md](../../ROADMAP.md) - Feature roadmap
+---
 
 ## License
 

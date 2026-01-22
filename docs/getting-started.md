@@ -4,101 +4,79 @@ This guide walks you through installing Proletariat and spawning your first AI c
 
 ## Prerequisites
 
-Before installing Proletariat, ensure you have:
-
 - **Node.js 18+** - Required for running the CLI
 - **Git** - Required for repository and branch management
-- **Docker** (optional) - Recommended for isolated agent execution
+- **Docker** (optional) - For containerized agent execution
 
 Verify your setup:
 
 ```bash
 node --version    # Should be v18.0.0 or higher
 git --version     # Any recent version
-docker --version  # Optional, for containerized agents
+docker --version  # Optional
 ```
 
 ## Installation
 
-Install Proletariat globally using your preferred package manager:
-
 ```bash
-# npm
 npm install -g @proletariat/cli
-
-# pnpm
-pnpm add -g @proletariat/cli
-
-# yarn
-yarn global add @proletariat/cli
 ```
 
-Verify the installation:
+Verify:
 
 ```bash
 prlt --version
 ```
 
-## Step 1: Initialize Your Workspace (HQ)
+## Step 1: Initialize Your Workspace
 
-Create a new HQ (headquarters) - your central command center for managing agents and work:
+Create and initialize a workspace:
 
 ```bash
-# Create a new directory for your HQ
-mkdir my-project-hq
-cd my-project-hq
-
-# Initialize prlt
+mkdir my-project
+cd my-project
 prlt init
 ```
 
-This creates the following structure:
+This creates:
 
 ```
-my-project-hq/
-├── .proletariat/        # Config and workspace database
+my-project/
+├── .proletariat/
 │   ├── config.json      # Workspace configuration
-│   └── workspace.db     # SQLite database for tickets, agents, etc.
-├── repos/               # Your repositories (added later)
+│   └── workspace.db     # SQLite database
+├── repos/               # Your repositories
 ├── agents/              # Agent worktrees
-│   └── staff/           # Named agent workspaces
-└── pmo/                 # Project Management Office
-    └── specs/           # Specification files
+│   └── temp/            # Ephemeral agent workspaces
+└── pmo/
+    └── specs/           # Specifications
 ```
 
-## Step 2: Add a Repository
+## Step 2: Add a Repository (Optional)
 
-Link an existing repository to your HQ:
+If you're working with an existing repo:
 
 ```bash
-# Clone and add a repo
 prlt repo add https://github.com/your-org/your-repo.git
-
-# Or add an existing local repo
-prlt repo add /path/to/existing/repo
 ```
 
-List your repositories:
-
-```bash
-prlt repo list
-```
+Or initialize in an existing repo directory - prlt will detect it.
 
 ## Step 3: Create Your First Ticket
 
-Tickets are work items that agents will implement. Create one interactively:
+Create a ticket describing what you want built:
 
 ```bash
 prlt ticket create
 ```
 
 You'll be prompted for:
-- **Title**: Brief description of the work (e.g., "Add user authentication")
-- **Description**: Detailed requirements and context
+- **Title**: Brief description (e.g., "Add user authentication")
+- **Description**: Detailed requirements
 - **Priority**: P0 (critical), P1 (high), P2 (medium), P3 (low)
-- **Category**: feature, bug, refactor, docs, test, chore, etc.
+- **Category**: feature, bug, refactor, docs, etc.
 
-Or create a ticket with flags:
+Or use flags:
 
 ```bash
 prlt ticket create \
@@ -108,83 +86,66 @@ prlt ticket create \
   --category feature
 ```
 
-View your tickets:
+View your ticket:
 
 ```bash
 prlt ticket list
+prlt ticket view TKT-001
 ```
 
-## Step 4: Add an Agent
+## Step 4: Spawn an Agent Session
 
-Agents are AI coding assistants that work on your tickets. Add one:
-
-```bash
-# Add a single agent
-prlt agent staff add alice
-
-# Or add multiple agents
-prlt agent staff add alice bob charlie
-```
-
-Proletariat supports themed agent names for fun. Try:
+Start an agent to work on your ticket:
 
 ```bash
-prlt agent themes list           # See available themes
-prlt agent themes set billionaires  # Set a theme
-prlt agent staff add             # Names auto-generated from theme
-```
-
-## Step 5: Spawn Work
-
-Now spawn an agent to work on your ticket:
-
-```bash
-# Start work on a specific ticket
 prlt work start TKT-001
-
-# Or spawn interactively
-prlt work start
 ```
 
 You'll be prompted to select:
-- **Ticket**: Which ticket to work on
-- **Agent**: Which agent to assign
-- **Mode**: How to run the agent (Docker, terminal, tmux, etc.)
-- **Action**: What to do (implement, groom, review, etc.)
+- **Execution mode**: How to run the agent
+- **Action**: What to do (implement, groom, review)
+
+The agent:
+1. Creates a new git branch
+2. Reads your ticket
+3. Writes code to implement it
+4. Commits and creates a PR
 
 ### Execution Modes
 
-| Mode | Description |
-|------|-------------|
-| `docker` | Run in isolated Docker container (recommended) |
-| `devcontainer` | Use VS Code devcontainer |
-| `terminal` | Open in new terminal window |
-| `tmux` | Run in tmux session |
-| `foreground` | Run in current terminal |
-| `background` | Run in background |
+| Mode | Best For |
+|------|----------|
+| `docker` | Safety - isolated container |
+| `tmux` | Multiple agents - attach/detach sessions |
+| `terminal` | Single agent - new window |
+| `foreground` | Debugging - watch in current terminal |
+| `host` | Speed - direct execution |
 
-Example with explicit mode:
+Example with specific mode:
 
 ```bash
-prlt work start TKT-001 --mode docker
+prlt work start TKT-001 --mode tmux
 ```
 
-## Step 6: Monitor Progress
+## Step 5: Monitor Progress
 
 Watch your agent work:
 
 ```bash
-# View the kanban board
+# View the board
 prlt board
 
-# Check ticket status
-prlt ticket list
+# Watch board in real-time
+prlt board watch
 
-# View agent logs (if running in background/docker)
+# List active sessions
+prlt execution list
+
+# View logs
 prlt execution logs
 ```
 
-## Step 7: Review and Merge
+## Step 6: Review and Merge
 
 When the agent creates a PR:
 
@@ -192,41 +153,60 @@ When the agent creates a PR:
 # Check PR status
 prlt pr status TKT-001
 
-# View in GitHub
+# Review in GitHub
 gh pr view
-```
 
-Review the PR in GitHub, request changes if needed, and merge when ready.
+# Merge when ready
+gh pr merge
+```
 
 ## Quick Reference
 
 | Task | Command |
 |------|---------|
-| Initialize workspace | `prlt init` |
-| Add repository | `prlt repo add <url>` |
+| Initialize | `prlt init` |
 | Create ticket | `prlt ticket create` |
 | List tickets | `prlt ticket list` |
-| Add agent | `prlt agent staff add <name>` |
-| Start work | `prlt work start <ticket>` |
+| Start work | `prlt work start TKT-001` |
 | View board | `prlt board` |
-| Check status | `prlt ticket list` |
+| Check PR | `prlt pr status TKT-001` |
+
+## Spawning Multiple Agents
+
+Work on several tickets in parallel:
+
+```bash
+# Spawn all planned tickets
+prlt work spawn --all --column Planned
+
+# Spawn specific tickets
+prlt work spawn TKT-001 TKT-002 TKT-003
+
+# Preview without executing
+prlt work spawn --all --dry-run
+```
+
+## Sessions as Threads
+
+Agent sessions are like threads:
+- **Attach**: Connect to a running session
+- **Detach**: Disconnect without stopping
+- **Close window**: Session keeps running
+- **Kill**: Stop the agent
+
+With tmux mode, use standard tmux commands to manage sessions.
 
 ## Next Steps
 
-- [Core Concepts](./concepts/hq.md) - Understand HQ, PMO, and agents in depth
-- [Workflow Guides](./workflows/ticket-lifecycle.md) - Common workflow patterns
-- [CLI Reference](./cli-reference.md) - Full command documentation
-- [Troubleshooting](./troubleshooting.md) - Common issues and solutions
+- [CLI Reference](./cli-reference.md) - All commands
+- [Ticket Lifecycle](./workflows/ticket-lifecycle.md) - Full workflow
+- [Multi-Agent Work](./workflows/multi-agent.md) - Parallel development
+- [Troubleshooting](./troubleshooting.md) - Common issues
 
 ## Getting Help
 
 ```bash
-# General help
 prlt --help
-
-# Command-specific help
 prlt ticket --help
 prlt work start --help
 ```
-
-For issues and feature requests, visit the [GitHub repository](https://github.com/proletariat-ai/proletariat).

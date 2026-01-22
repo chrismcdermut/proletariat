@@ -1,177 +1,108 @@
-# Agents
+# Agents and Sessions
 
-Agents are AI coding assistants that work on your tickets. Each agent operates in an isolated environment with its own git branch, preventing conflicts when multiple agents work simultaneously.
+Agents are AI coding assistants that work on your tickets. Each agent session operates in isolation with its own git branch, preventing conflicts when multiple agents work simultaneously.
 
-## Agent Types
+## How Agents Work
 
-### Staff Agents
+When you spawn work on a ticket:
 
-Staff agents are named, persistent agents that you add to your team:
-
-```bash
-# Add staff agents
-prlt agent staff add alice bob charlie
-
-# List staff agents
-prlt agent staff list
-
-# Remove a staff agent
-prlt agent staff remove alice
-```
-
-Staff agents:
-- Have permanent names
-- Can be assigned to multiple tickets over time
-- Have dedicated worktree directories
-- Persist between sessions
-
-### Ephemeral Agents
-
-Ephemeral agents are created on-demand for specific work:
+1. An **ephemeral agent** is created on-demand
+2. A new **git branch** is created for the work
+3. An isolated **session** starts (Docker, tmux, terminal, or host)
+4. The agent reads the ticket and begins coding
+5. When complete, the agent commits and creates a PR
+6. The session ends
 
 ```bash
-# Spawn with ephemeral agent (auto-generated name)
-prlt work start TKT-001 --ephemeral
+prlt work start TKT-001
 ```
 
-Ephemeral agents:
-- Auto-generated names (from theme or random)
-- Created for a single work session
-- Cleaned up after work completes
-- Useful for parallel batch operations
+## Sessions
+
+Sessions are running agent instances. They're like threads - you can:
+
+- **Attach**: Connect to watch or interact
+- **Detach**: Disconnect without stopping the agent
+- **Close window**: Session keeps running in background
+- **Kill**: Stop the agent
+
+### Session Modes
+
+| Mode | Description | Best For |
+|------|-------------|----------|
+| `docker` | Isolated container | Safety, consistency |
+| `devcontainer` | VS Code integration | IDE workflow |
+| `tmux` | Tmux session | Multiple agents, attach/detach |
+| `terminal` | New terminal window | Single agent |
+| `foreground` | Current terminal | Debugging |
+| `host` | Direct on machine | Speed |
+
+```bash
+# Run in Docker (isolated)
+prlt work start TKT-001 --mode docker
+
+# Run in tmux (can attach/detach)
+prlt work start TKT-001 --mode tmux
+
+# Run directly on host
+prlt work start TKT-001 --run-on-host
+```
+
+### Managing Sessions
+
+```bash
+# List active sessions
+prlt execution list
+
+# View session logs
+prlt execution logs
+
+# Stop a session
+prlt execution stop <execution-id>
+```
+
+### Tmux Sessions
+
+With tmux mode, use standard tmux commands:
+
+```bash
+# List sessions
+tmux list-sessions
+
+# Attach to session
+tmux attach -t <session-name>
+
+# Detach (inside tmux)
+Ctrl+b d
+```
 
 ## Git Worktrees
 
-Each agent works in a separate git worktree - a linked working directory that shares the repository's git history but has its own branch and working tree.
+Each agent works in a separate git worktree - a linked working directory with its own branch:
 
 ```
 agents/
-├── staff/
-│   ├── alice/          # Alice's worktree
-│   │   └── my-repo/    # Working copy on alice's branch
-│   └── bob/            # Bob's worktree
-│       └── my-repo/    # Working copy on bob's branch
 └── temp/
-    └── agent-xyz/      # Ephemeral agent worktree
+    └── agent-abc123/      # Ephemeral agent worktree
+        └── my-repo/       # Working copy on agent's branch
 ```
-
-### Benefits of Worktrees
-
-- **Isolation**: Each agent's changes don't affect others
-- **Parallelism**: Multiple agents can work on different features simultaneously
-- **Safety**: Experimental changes are contained
-- **Easy cleanup**: Remove worktree to discard all changes
 
 ### Branch Naming
 
 Agent branches follow a convention:
 
 ```
-{type}/{agent-name}/{ticket-id}-{slug}
+{type}/{ticket-id}-{slug}
 ```
 
 Examples:
-- `feat/alice/TKT-001-add-user-auth`
-- `fix/bob/TKT-042-login-bug`
-- `docs/charlie/TKT-100-api-docs`
+- `feat/TKT-001-add-user-auth`
+- `fix/TKT-042-login-bug`
+- `docs/TKT-100-api-docs`
 
-## Agent Themes
+## Execution Providers
 
-Themes provide fun, memorable agent names instead of generic identifiers:
-
-```bash
-# List available themes
-prlt agent themes list
-
-# Set a theme
-prlt agent themes set billionaires
-
-# Add agents (names from theme)
-prlt agent staff add
-# → Adds agents with names like "musk", "bezos", "gates"
-```
-
-### Built-in Themes
-
-| Theme | Description |
-|-------|-------------|
-| `billionaires` | Tech billionaire names |
-| `philosophers` | Famous philosophers |
-| `scientists` | Notable scientists |
-| `default` | Simple alphabetic names |
-
-### Custom Themes
-
-Create your own theme:
-
-```bash
-# Create a theme
-prlt agent themes create mythical
-
-# Add names to theme
-prlt agent themes add-names mythical zeus apollo athena hermes
-```
-
-## Agent Management
-
-### Listing Agents
-
-```bash
-# List all active agents
-prlt agent list
-
-# List staff agents
-prlt agent staff list
-
-# List ephemeral agents
-prlt agent temp list
-```
-
-### Agent Status
-
-```bash
-# Check agent status
-prlt agent status alice
-```
-
-Status shows:
-- Current assignment (ticket)
-- Worktree location
-- Branch name
-- Container status (if using Docker)
-
-### Accessing Agent Workspace
-
-```bash
-# Open shell in agent's workspace
-prlt agent shell alice
-
-# Visit agent's workspace in terminal
-prlt agent visit alice
-```
-
-### Rebuilding Agents
-
-If an agent's worktree becomes corrupted:
-
-```bash
-# Rebuild agent's workspace
-prlt agent rebuild alice
-```
-
-### Cleaning Up
-
-```bash
-# Remove ephemeral agents
-prlt agent temp cleanup
-
-# Remove specific staff agent
-prlt agent staff remove alice
-```
-
-## Agent Execution Providers
-
-Agents can use different AI providers for code generation:
+Agents can use different AI providers:
 
 | Provider | Description |
 |----------|-------------|
@@ -180,64 +111,99 @@ Agents can use different AI providers for code generation:
 | `aider` | Aider coding assistant |
 | `custom` | Custom execution script |
 
-Specify provider when starting work:
-
 ```bash
 prlt work start TKT-001 --executor claude-code
 ```
 
-## Container-Based Agents
+## Spawning Multiple Agents
 
-When using Docker mode, each agent runs in an isolated container:
+Work on multiple tickets in parallel:
+
+```bash
+# Spawn all planned tickets
+prlt work spawn --all --column Planned
+
+# Spawn specific tickets
+prlt work spawn TKT-001 TKT-002 TKT-003
+
+# Preview without executing
+prlt work spawn --all --dry-run
+
+# Limit concurrent spawns
+prlt work spawn --all --limit 3
+```
+
+### Agent Selection Strategies
+
+For batch operations:
+
+```bash
+# Round-robin (default)
+prlt work spawn --all --strategy round-robin
+
+# Least busy
+prlt work spawn --all --strategy least-busy
+
+# Random
+prlt work spawn --all --strategy random
+```
+
+## Container-Based Execution
+
+Docker mode provides complete isolation:
 
 ```bash
 prlt work start TKT-001 --mode docker
 ```
 
-Container benefits:
-- Complete environment isolation
-- Consistent dependencies
-- Safe execution (can't affect host)
-- Easy to reset/rebuild
+Benefits:
+- Can't affect your host system
+- Consistent environment
+- Easy cleanup
+- Safe for untrusted code
 
-See [Docker Setup](../workflows/docker-setup.md) for details.
+See [Docker Setup](../workflows/docker-setup.md) for configuration details.
+
+## Monitoring Agents
+
+```bash
+# Board view
+prlt board
+prlt board watch
+
+# Active executions
+prlt execution list
+
+# Logs
+prlt execution logs
+```
 
 ## Best Practices
 
-### Use Meaningful Names
+### Use Appropriate Isolation
 
-Choose names that help identify agents in logs and branches:
+- **docker** or **devcontainer** for safety
+- **tmux** for managing multiple agents
+- **host** only when you trust the code
+
+### Monitor Active Sessions
 
 ```bash
-prlt agent staff add frontend-dev backend-dev infra-bot
+prlt execution list
 ```
 
-### Match Agents to Work Types
+Don't spawn too many agents at once - monitor resource usage.
 
-Assign agents consistently to similar work:
-- `frontend-agent` → UI tickets
-- `api-agent` → Backend tickets
-- `test-agent` → Test coverage tickets
+### Clean Up
 
-### Clean Up Regularly
-
-Remove ephemeral agents after batch operations:
+Ephemeral agents are cleaned up automatically, but you can force cleanup:
 
 ```bash
 prlt agent temp cleanup
 ```
 
-### Monitor Active Agents
-
-Check what agents are working on:
-
-```bash
-prlt work list
-prlt execution list
-```
-
 ## Related Concepts
 
-- [HQ](./hq.md) - Workspace structure
-- [Work](./work.md) - Spawning and executing work
-- [Multi-Agent Workflows](../workflows/multi-agent.md) - Running multiple agents
+- [Work Execution](./work.md) - Spawning details
+- [Docker Setup](../workflows/docker-setup.md) - Container configuration
+- [Multi-Agent Workflows](../workflows/multi-agent.md) - Parallel development
