@@ -114,9 +114,9 @@ prlt workspace list
 
 ## Best Practices
 
-### One HQ per Project/Team
+### One HQ per Workstream
 
-Keep related repositories in the same HQ. This allows:
+An HQ represents a workstream—keep related repositories together. This allows:
 - Shared ticket tracking across repos
 - Agents that can work across multiple repos
 - Unified project management view
