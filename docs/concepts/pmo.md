@@ -155,7 +155,6 @@ prlt board watch
 The board shows tickets organized by status columns with:
 - Ticket ID and title
 - Priority indicator
-- Assignee
 - Labels
 
 ### Board File
