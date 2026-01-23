@@ -103,7 +103,7 @@ prlt ticket move TKT-001 "QA Testing"
 
 ### Specs (Specifications)
 
-Specs are detailed requirements documents that can be linked to tickets. They provide more context than a ticket description.
+Specs are long-lived documents describing the ideal end state of a product feature or system. They encompass many tickets, which are the units of implementation to achieve that vision.
 
 ```bash
 # Create a spec
