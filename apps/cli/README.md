@@ -52,6 +52,35 @@ prlt work spawn                    # Interactive: select tickets, environment, a
 # Agent creates PR → You review → Merge → Done
 ```
 
+```
+┌─────┐          ┌──────┐          ┌───────┐          ┌────────┐
+│ You │          │ prlt │          │ Agent │          │ GitHub │
+└──┬──┘          └──┬───┘          └───┬───┘          └───┬────┘
+   │  ticket create │                  │                  │
+   │───────────────>│                  │                  │
+   │  work spawn    │                  │                  │
+   │───────────────>│                  │                  │
+   │                │  create branch   │                  │
+   │                │  create workspace│                  │
+   │                │  spawn agent     │                  │
+   │                │─────────────────>│                  │
+   │                │                  │  read ticket     │
+   │                │                  │  write code      │
+   │                │                  │  commit          │
+   │                │                  │─────────────────>│
+   │                │                  │  open PR         │
+   │                │                  │─────────────────>│
+   │                │   update status  │                  │
+   │                │<─────────────────│                  │
+   │   PR ready     │                  │                  │
+   │<───────────────│                  │                  │
+   │                      review & approve                │
+   │─────────────────────────────────────────────────────>│
+```
+
+<details>
+<summary>View interactive diagram (GitHub only)</summary>
+
 ```mermaid
 sequenceDiagram
     participant You
@@ -73,6 +102,8 @@ sequenceDiagram
     You->>GitHub: Review & approve
 ```
 
+</details>
+
 Spawn agents to implement, groom, or review—not just write code.
 
 ### Interactive Menus
@@ -80,19 +111,19 @@ Spawn agents to implement, groom, or review—not just write code.
 `prlt work` guides you through project and ticket selection:
 
 <p align="center">
-  <img src="../../docs/images/work/work-project-select.png" alt="Project Selection" width="600">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat/main/docs/images/work/work-project-select.png" alt="Project Selection" width="600">
 </p>
 
 Choose your operation—start a single agent, batch spawn, or watch a column:
 
 <p align="center">
-  <img src="../../docs/images/work/work-operations-menu.png" alt="Work Operations Menu" width="600">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat/main/docs/images/work/work-operations-menu.png" alt="Work Operations Menu" width="600">
 </p>
 
 Select tickets to spawn, grouped by priority:
 
 <p align="center">
-  <img src="../../docs/images/work/work-ticket-select.png" alt="Ticket Selection" width="800">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat/main/docs/images/work/work-ticket-select.png" alt="Ticket Selection" width="800">
 </p>
 
 ---
@@ -221,7 +252,7 @@ $ prlt ticket create
 View ticket details with `prlt ticket`:
 
 <p align="center">
-  <img src="../../docs/images/ticket/ticket-view.png" alt="Ticket View" width="600">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat/main/docs/images/ticket/ticket-view.png" alt="Ticket View" width="600">
 </p>
 
 #### 2. JSON Mode (AI Agents)
@@ -349,8 +380,26 @@ Each agent works in its own branch. No conflicts.
 Monitor running agents with `prlt execution`:
 
 <p align="center">
-  <img src="../../docs/images/execution/execution-list.png" alt="Execution List" width="800">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat/main/docs/images/execution/execution-list.png" alt="Execution List" width="800">
 </p>
+
+```
+┌─────────────────────┐      ┌─────────────────────┐      ┌──────────────────────────────┐
+│         You         │      │       Agents        │      │           GitHub             │
+├─────────────────────┤      ├─────────────────────┤      ├──────────────────────────────┤
+│                     │      │  Agent 1            │      │  PR #101                     │
+│  prlt work spawn ───┼─────>│  TKT-042 OAuth    ──┼─────>│  feat/TKT-042-oauth          │
+│                     │      │                     │      │                              │
+│                     │      │  Agent 2            │      │  PR #102                     │
+│                  ───┼─────>│  TKT-043 Rate Limit─┼─────>│  feat/TKT-043-rate-limit     │
+│                     │      │                     │      │                              │
+│                     │      │  Agent 3            │      │  PR #103                     │
+│                  ───┼─────>│  TKT-044 Notifs   ──┼─────>│  feat/TKT-044-notifications  │
+└─────────────────────┘      └─────────────────────┘      └──────────────────────────────┘
+```
+
+<details>
+<summary>View interactive diagram (GitHub only)</summary>
 
 ```mermaid
 flowchart LR
@@ -379,10 +428,12 @@ flowchart LR
     A3 --> PR3
 ```
 
+</details>
+
 Agent-created PRs ready for review:
 
 <p align="center">
-  <img src="../../docs/images/execution/github-prs.png" alt="GitHub Pull Requests" width="800">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat/main/docs/images/execution/github-prs.png" alt="GitHub Pull Requests" width="800">
 </p>
 
 ### Command Reference
