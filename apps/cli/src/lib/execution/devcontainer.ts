@@ -160,25 +160,13 @@ RUN mkdir -p /home/node/.npm-global/bin /home/node/.npm-global/lib \\
 ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
 ENV PATH=/home/node/.npm-global/bin:\$PATH
 
-# Install pnpm
-RUN npm install -g pnpm
-
-# Install Claude Code as node user so files are owned correctly
+# Install pnpm and Claude Code as node user so files are owned correctly
 USER node
-RUN npm install -g @anthropic-ai/claude-code
+RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code
 USER root
 
-# Install prlt CLI from GitHub Packages
-# Requires GITHUB_TOKEN build arg with read:packages scope
-ARG GITHUB_TOKEN
-RUN if [ -n "\${GITHUB_TOKEN}" ]; then \\
-      echo "//npm.pkg.github.com/:_authToken=\${GITHUB_TOKEN}" >> /home/node/.npmrc && \\
-      echo "@chrismcdermut:registry=https://npm.pkg.github.com" >> /home/node/.npmrc && \\
-      npm install -g @chrismcdermut/prlt && \\
-      rm /home/node/.npmrc; \\
-    else \\
-      echo "GITHUB_TOKEN not provided, prlt will be mounted from host"; \\
-    fi
+# Install prlt CLI from npm
+RUN npm install -g @proletariat/cli
 
 # Copy and set up scripts
 COPY init-firewall.sh /usr/local/bin/init-firewall.sh
