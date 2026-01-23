@@ -1,7 +1,9 @@
 import { Command } from '@oclif/core';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';
 import { colors } from '../lib/colors.js';
+import { getAgentByPath } from '../lib/database/index.js';
 
 export default class Whoami extends Command {
   static description = 'Show current agent/environment context';
@@ -68,10 +70,22 @@ export default class Whoami extends Command {
       return process.env.PRLT_AGENT_NAME;
     }
 
-    // Try to detect from directory structure
-    // Pattern: /workspace/proletariat-{agentName} or agents/staff/{agentName}
     const cwd = process.cwd();
 
+    // Try database lookup (most reliable on host)
+    const workspacePath = this.findWorkspaceRoot(cwd);
+    if (workspacePath) {
+      try {
+        const agent = getAgentByPath(workspacePath, cwd);
+        if (agent) {
+          return agent.name;
+        }
+      } catch {
+        // DB lookup failed, fall back to other methods
+      }
+    }
+
+    // Fallback: detect from directory structure
     // Devcontainer pattern: /workspace/proletariat-{agent}
     const workspaceMatch = cwd.match(/\/workspace\/[^/]+-(\w+)/);
     if (workspaceMatch) {
@@ -93,6 +107,20 @@ export default class Whoami extends Command {
       }
     } catch {
       // Ignore git errors
+    }
+
+    return null;
+  }
+
+  private findWorkspaceRoot(startDir: string): string | null {
+    let currentDir = startDir;
+
+    while (currentDir !== '/') {
+      const dbPath = path.join(currentDir, '.proletariat', 'workspace.db');
+      if (fs.existsSync(dbPath)) {
+        return currentDir;
+      }
+      currentDir = path.dirname(currentDir);
     }
 
     return null;
