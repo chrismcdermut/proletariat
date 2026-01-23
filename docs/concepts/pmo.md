@@ -145,6 +145,9 @@ prlt epic progress EPIC-001
 The board provides a Kanban-style visualization of tickets:
 
 ```bash
+# Spawn agents on tickets (interactive menu)
+prlt work spawn
+
 # View the board
 prlt board
 
