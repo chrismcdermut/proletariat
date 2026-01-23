@@ -9,7 +9,7 @@
 
 ### Seize the means of production - Ship 100x.
 
-> **Turn tickets into output with coordinated AI agents**
+> **Turn tickets into output with AI labor**
 
 > 💡 *Paying for Claude Max but not maxing it out? You're leaving money on the table.*
 
