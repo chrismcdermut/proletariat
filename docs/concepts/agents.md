@@ -26,26 +26,43 @@ Sessions are running agent instances. They're like threads - you can:
 - **Close window**: Session keeps running in background
 - **Kill**: Stop the agent
 
-### Session Modes
+### Execution Options
 
-| Mode | Description | Best For |
-|------|-------------|----------|
-| `docker` | Isolated container | Safety, consistency |
-| `devcontainer` | VS Code integration | IDE workflow |
-| `tmux` | Tmux session | Multiple agents, attach/detach |
-| `terminal` | New terminal window | Single agent |
-| `foreground` | Current terminal | Debugging |
-| `host` | Direct on machine | Speed |
+**Environment** - where the agent runs:
+
+| Environment | Flag | Best For |
+|-------------|------|----------|
+| Docker | (default if devcontainer exists) | Safety—fully isolated container |
+| Host | `--run-on-host` | Speed—no container overhead |
+
+**Display** - how you see it:
+
+| Display | Flag | Best For |
+|---------|------|----------|
+| Terminal | `--display terminal` | Watch in new terminal tab |
+| Background | `--display background` | Detached, reattach later |
+
+**Permissions** - agent access level:
+
+| Mode | Flag | Description |
+|------|------|-------------|
+| Safe | (default) | Agent prompts for permissions |
+| YOLO | `--skip-permissions` | No prompts, full access. Use with Docker for safe autonomy. |
+
+All sessions run in tmux under the hood—close the window, agent keeps working.
 
 ```bash
-# Run in Docker (isolated)
-prlt work start TKT-001 --mode docker
+# Default: Docker + terminal (if devcontainer exists)
+prlt work start TKT-001
 
-# Run in tmux (can attach/detach)
-prlt work start TKT-001 --mode tmux
+# Docker + background
+prlt work start TKT-001 --display background
 
-# Run directly on host
-prlt work start TKT-001 --run-on-host
+# Host + background (fast, no container)
+prlt work start TKT-001 --run-on-host --display background
+
+# Docker + YOLO (full autonomy, safely sandboxed)
+prlt work start TKT-001 --skip-permissions
 ```
 
 ### Managing Sessions
@@ -92,28 +109,19 @@ agents/
 Agent branches follow a convention:
 
 ```
-{type}/{ticket-id}-{slug}
+{ticket-id}/{type}/{human}/{agent}/{slug}
 ```
 
 Examples:
-- `feat/TKT-001-add-user-auth`
-- `fix/TKT-042-login-bug`
-- `docs/TKT-100-api-docs`
+- `TKT-001/feat/chrismcdermut/swift-lynch-1/add-user-auth`
+- `TKT-042/fix/chrismcdermut/steady-knight-1/login-bug`
+- `TKT-100/docs/chrismcdermut/rapid-omidyar-1/api-docs`
 
-## Execution Providers
+## Execution Provider
 
-Agents can use different AI providers:
+Currently supports **Claude Code** (Anthropic's coding agent). Additional providers coming soon.
 
-| Provider | Description |
-|----------|-------------|
-| `claude-code` | Anthropic's Claude Code (default) |
-| `codex` | OpenAI Codex |
-| `aider` | Aider coding assistant |
-| `custom` | Custom execution script |
-
-```bash
-prlt work start TKT-001 --executor claude-code
-```
+Agents authenticate via `claude login`—no API keys needed.
 
 ## Spawning Multiple Agents
 
@@ -196,7 +204,7 @@ Don't spawn too many agents at once - monitor resource usage.
 
 ### Clean Up
 
-Ephemeral agents are cleaned up automatically, but you can force cleanup:
+Ephemeral agents persist after completion for debugging and review. Clean them up manually:
 
 ```bash
 prlt agent temp cleanup
