@@ -1,5 +1,7 @@
 /**
  * Ticket operations for PMO.
+ * Tickets reference workflow statuses directly via status_id.
+ * Board position is derived from priority and created_at (no separate board_tickets table).
  */
 
 import { PMO_TABLES } from '../schema.js'
@@ -7,7 +9,6 @@ import { CreateTicketInput, PMOError, Ticket, TicketFilter } from '../types.js'
 import { slugify, generateEntityId } from '../utils.js'
 import { StorageContext, TicketRow } from './types.js'
 import { rowToTicket } from './helpers.js'
-import { getMaxTicketPosition } from './base.js'
 
 const T = PMO_TABLES
 
@@ -16,41 +17,54 @@ export class TicketStorage {
 
   /**
    * Create a new ticket.
+   * Gets default status from the project's workflow.
    */
   async createTicket(projectId: string, ticket: CreateTicketInput): Promise<Ticket> {
     const id = ticket.id || generateEntityId(this.ctx.db, 'ticket')
     const title = ticket.title || 'Untitled'
-
-    // Get first column as default
-    const firstColumn = this.ctx.db.prepare(`
-      SELECT id FROM ${T.columns}
-      WHERE project_id = ?
-      ORDER BY position LIMIT 1
-    `).get(projectId) as { id: string } | undefined
-
-    if (!firstColumn) {
-      throw new PMOError('NOT_FOUND', 'No columns exist. Initialize board first.')
-    }
-
-    const columnId = firstColumn.id
-    const position = getMaxTicketPosition(this.ctx.db, projectId, columnId) + 1
     const now = Date.now()
     const specId = ticket.specId || null
 
-    // Get status_id
+    // Get status_id from project's workflow
     let statusId = ticket.statusId
+
+    // Get the project's workflow
+    const project = this.ctx.db.prepare(`
+      SELECT workflow_id FROM ${T.projects} WHERE id = ?
+    `).get(projectId) as { workflow_id: string | null } | undefined
+
+    if (!project) {
+      throw new PMOError('NOT_FOUND', `Project not found: ${projectId}`)
+    }
+
+    const workflowId = project.workflow_id || 'default'
+
+    // If statusName is provided, look up status by name
+    if (!statusId && ticket.statusName) {
+      const namedStatus = this.ctx.db.prepare(`
+        SELECT id FROM ${T.workflow_statuses}
+        WHERE workflow_id = ? AND LOWER(name) = LOWER(?)
+      `).get(workflowId, ticket.statusName) as { id: string } | undefined
+
+      if (namedStatus) {
+        statusId = namedStatus.id
+      }
+    }
+
     if (!statusId) {
+      // Get default status from workflow
       const defaultStatus = this.ctx.db.prepare(`
-        SELECT id FROM ${T.statuses}
-        WHERE project_id = ? AND is_default = 1
-      `).get(projectId) as { id: string } | undefined
+        SELECT id FROM ${T.workflow_statuses}
+        WHERE workflow_id = ? AND is_default = 1
+      `).get(workflowId) as { id: string } | undefined
 
       if (defaultStatus) {
         statusId = defaultStatus.id
       } else {
+        // Fall back to first status in workflow (by category then position)
         const firstStatus = this.ctx.db.prepare(`
-          SELECT id FROM ${T.statuses}
-          WHERE project_id = ?
+          SELECT id FROM ${T.workflow_statuses}
+          WHERE workflow_id = ?
           ORDER BY
             CASE category
               WHEN 'backlog' THEN 1
@@ -61,14 +75,14 @@ export class TicketStorage {
             END,
             position ASC
           LIMIT 1
-        `).get(projectId) as { id: string } | undefined
+        `).get(workflowId) as { id: string } | undefined
 
         if (firstStatus) {
           statusId = firstStatus.id
         } else {
           throw new PMOError(
             'NOT_FOUND',
-            'No statuses found. Apply a workflow template first.'
+            'No statuses found in workflow. Apply a workflow template first.'
           )
         }
       }
@@ -101,12 +115,6 @@ export class TicketStorage {
       ticket.lastSyncedFromSpec || null,
       ticket.lastSyncedFromBoard || null
     )
-
-    // Insert into board_tickets
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.board_tickets} (project_id, ticket_id, column_id, position)
-      VALUES (?, ?, ?, ?)
-    `).run(projectId, id, columnId, position)
 
     // Insert subtasks
     if (ticket.subtasks && ticket.subtasks.length > 0) {
@@ -145,13 +153,16 @@ export class TicketStorage {
   /**
    * Get a ticket by ID (internal).
    * Looks up by ticket ID only - no project scoping required since ticket IDs are globally unique.
+   * Joins workflow_statuses to get column name (status name is the column).
    */
   async getTicketById(id: string): Promise<Ticket | null> {
     const row = this.ctx.db.prepare(`
-      SELECT t.*, bt.column_id, bt.position, c.name as column_name
+      SELECT t.*,
+             ws.id as column_id,
+             ws.position as position,
+             ws.name as column_name
       FROM ${T.tickets} t
-      LEFT JOIN ${T.board_tickets} bt ON t.id = bt.ticket_id AND t.project_id = bt.project_id
-      LEFT JOIN ${T.columns} c ON bt.project_id = c.project_id AND bt.column_id = c.id
+      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
       WHERE LOWER(t.id) = LOWER(?)
     `).get(id) as TicketRow | undefined
 
@@ -276,93 +287,43 @@ export class TicketStorage {
   }
 
   /**
-   * Move a ticket to a different column/position.
+   * Move a ticket to a different status (column).
+   * In the workflow-based system, columns ARE statuses.
+   * The position parameter is ignored - tickets are sorted by priority then created_at.
    */
-  async moveTicket(projectId: string, id: string, column: string, position?: number): Promise<Ticket> {
+  async moveTicket(projectId: string, id: string, column: string, _position?: number): Promise<Ticket> {
     const existing = await this.getTicketById(id)
     if (!existing) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
     }
 
-    // Find target column
-    const targetColumn = this.ctx.db.prepare(`
-      SELECT id FROM ${T.columns}
-      WHERE project_id = ? AND (id = ? OR name = ?)
-    `).get(projectId, column, column) as { id: string } | undefined
+    // Get project's workflow
+    const project = this.ctx.db.prepare(`
+      SELECT workflow_id FROM ${T.projects} WHERE id = ?
+    `).get(projectId) as { workflow_id: string | null } | undefined
 
-    if (!targetColumn) {
-      throw new PMOError('NOT_FOUND', `Column not found: ${column}`)
+    if (!project) {
+      throw new PMOError('NOT_FOUND', `Project not found: ${projectId}`)
     }
 
-    const targetColumnId = targetColumn.id
-    const pos = position ?? getMaxTicketPosition(this.ctx.db, projectId, targetColumnId) + 1
+    const workflowId = project.workflow_id || 'default'
 
-    // Get current position
-    const currentBoardPos = this.ctx.db.prepare(`
-      SELECT column_id, position FROM ${T.board_tickets}
-      WHERE project_id = ? AND ticket_id = ?
-    `).get(projectId, id) as { column_id: string; position: number } | undefined
+    // Find target status by ID or name
+    const targetStatus = this.ctx.db.prepare(`
+      SELECT id FROM ${T.workflow_statuses}
+      WHERE workflow_id = ? AND (id = ? OR LOWER(name) = LOWER(?))
+    `).get(workflowId, column, column) as { id: string } | undefined
 
-    if (!currentBoardPos) {
-      throw new PMOError('NOT_FOUND', `Board position not found for ticket: ${id}`)
+    if (!targetStatus) {
+      throw new PMOError('NOT_FOUND', `Status not found: ${column}`)
     }
 
-    // Adjust positions
-    if (currentBoardPos.column_id === targetColumnId) {
-      if (pos < currentBoardPos.position) {
-        this.ctx.db.prepare(`
-          UPDATE ${T.board_tickets}
-          SET position = position + 1
-          WHERE project_id = ? AND column_id = ? AND position >= ? AND position < ?
-        `).run(projectId, targetColumnId, pos, currentBoardPos.position)
-      } else if (pos > currentBoardPos.position) {
-        this.ctx.db.prepare(`
-          UPDATE ${T.board_tickets}
-          SET position = position - 1
-          WHERE project_id = ? AND column_id = ? AND position > ? AND position <= ?
-        `).run(projectId, targetColumnId, currentBoardPos.position, pos)
-      }
-    } else {
-      // Moving to different column
-      this.ctx.db.prepare(`
-        UPDATE ${T.board_tickets}
-        SET position = position - 1
-        WHERE project_id = ? AND column_id = ? AND position > ?
-      `).run(projectId, currentBoardPos.column_id, currentBoardPos.position)
-
-      this.ctx.db.prepare(`
-        UPDATE ${T.board_tickets}
-        SET position = position + 1
-        WHERE project_id = ? AND column_id = ? AND position >= ?
-      `).run(projectId, targetColumnId, pos)
-    }
-
-    // Update board position
+    // Update ticket's status_id
     this.ctx.db.prepare(`
-      UPDATE ${T.board_tickets}
-      SET column_id = ?, position = ?
-      WHERE project_id = ? AND ticket_id = ?
-    `).run(targetColumnId, pos, projectId, id)
-
-    // Update status if matching
-    const matchingStatus = this.ctx.db.prepare(`
-      SELECT id FROM ${T.statuses}
-      WHERE project_id = ? AND LOWER(name) = LOWER(?)
-    `).get(projectId, column) as { id: string } | undefined
-
-    if (matchingStatus) {
-      this.ctx.db.prepare(`
-        UPDATE ${T.tickets}
-        SET updated_at = ?, status_id = ?
-        WHERE id = ?
-      `).run(Date.now(), matchingStatus.id, id)
-    } else {
-      this.ctx.db.prepare(`
-        UPDATE ${T.tickets}
-        SET updated_at = ?
-        WHERE id = ?
-      `).run(Date.now(), id)
-    }
+      UPDATE ${T.tickets}
+      SET status_id = ?, updated_at = ?
+      WHERE id = ?
+    `).run(targetStatus.id, Date.now(), id)
 
     this.ctx.updateBoardTimestamp(projectId)
 
@@ -379,19 +340,13 @@ export class TicketStorage {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
     }
 
-    // Use the ticket's actual project ID (required for board position management)
     const ticketProjectId = existing.projectId
     if (!ticketProjectId) {
       throw new PMOError('INVALID', `Ticket ${id} has no associated project`, id)
     }
 
-    // Get board position before deleting
-    const boardPos = this.ctx.db.prepare(`
-      SELECT column_id, position FROM ${T.board_tickets}
-      WHERE project_id = ? AND ticket_id = ?
-    `).get(ticketProjectId, id) as { column_id: string; position: number } | undefined
-
     // Delete ticket (by ID only, since IDs are globally unique)
+    // Related data (subtasks, metadata) are deleted via CASCADE
     const result = this.ctx.db.prepare(`
       DELETE FROM ${T.tickets}
       WHERE id = ?
@@ -401,16 +356,7 @@ export class TicketStorage {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
     }
 
-    // Shift positions in the ticket's actual project
-    if (boardPos) {
-      this.ctx.db.prepare(`
-        UPDATE ${T.board_tickets}
-        SET position = position - 1
-        WHERE project_id = ? AND column_id = ? AND position > ?
-      `).run(ticketProjectId, boardPos.column_id, boardPos.position)
-    }
-
-    // Update board timestamp for the ticket's actual project
+    // Update board timestamp for the ticket's project
     this.updateProjectTimestamp(ticketProjectId)
   }
 
@@ -422,13 +368,15 @@ export class TicketStorage {
   async listTickets(projectId: string | undefined, filter?: TicketFilter): Promise<Ticket[]> {
     const params: unknown[] = []
 
-    // Build the base query - determine project scope
+    // Build the base query using workflow_statuses
     let query = `
-      SELECT t.*, bt.column_id, bt.position, c.name as column_name, p.name as project_name
+      SELECT t.*,
+             ws.id as column_id,
+             ws.position as position,
+             ws.name as column_name,
+             p.name as project_name
       FROM ${T.tickets} t
-      LEFT JOIN ${T.board_tickets} bt ON t.id = bt.ticket_id AND t.project_id = bt.project_id
-      LEFT JOIN ${T.columns} c ON bt.project_id = c.project_id AND bt.column_id = c.id
-      LEFT JOIN ${T.statuses} s ON t.status_id = s.id
+      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
       LEFT JOIN ${T.projects} p ON t.project_id = p.id
       WHERE 1=1
     `
@@ -445,7 +393,7 @@ export class TicketStorage {
       params.push(filter.statusId)
     }
     if (filter?.statusCategory) {
-      query += ' AND s.category = ?'
+      query += ' AND ws.category = ?'
       params.push(filter.statusCategory)
     }
     if (filter?.priority) {
@@ -477,15 +425,32 @@ export class TicketStorage {
       params.push(filter.epic)
     }
     if (filter?.column) {
-      query += ' AND c.name = ?'
+      // Column filter now uses status name
+      query += ' AND ws.name = ?'
       params.push(filter.column)
     }
 
-    // Order by project first when listing all projects, then by column and position
+    // Order by project, then status position, then priority, then created_at
     if (projectId === undefined) {
-      query += ' ORDER BY p.name, c.position, bt.position'
+      query += ` ORDER BY p.name, ws.position,
+        CASE t.priority
+          WHEN 'P0' THEN 0
+          WHEN 'P1' THEN 1
+          WHEN 'P2' THEN 2
+          WHEN 'P3' THEN 3
+          ELSE 4
+        END,
+        t.created_at ASC`
     } else {
-      query += ' ORDER BY c.position, bt.position'
+      query += ` ORDER BY ws.position,
+        CASE t.priority
+          WHEN 'P0' THEN 0
+          WHEN 'P1' THEN 1
+          WHEN 'P2' THEN 2
+          WHEN 'P3' THEN 3
+          ELSE 4
+        END,
+        t.created_at ASC`
     }
 
     const rows = this.ctx.db.prepare(query).all(...params) as TicketRow[]
@@ -495,7 +460,7 @@ export class TicketStorage {
 
   /**
    * Move a ticket to a different project.
-   * The ticket will be placed in the first column of the target project's board.
+   * The ticket will get the default status from the target project's workflow.
    */
   async moveTicketToProject(ticketId: string, newProjectId: string): Promise<Ticket> {
     const existing = await this.getTicketById(ticketId)
@@ -508,53 +473,31 @@ export class TicketStorage {
       throw new PMOError('INVALID', `Ticket ${ticketId} has no associated project`, ticketId)
     }
 
-    // Check if target project exists
+    // Check if target project exists and get its workflow
     const targetProject = this.ctx.db.prepare(`
-      SELECT id FROM ${T.projects} WHERE id = ?
-    `).get(newProjectId) as { id: string } | undefined
+      SELECT id, workflow_id FROM ${T.projects} WHERE id = ?
+    `).get(newProjectId) as { id: string; workflow_id: string | null } | undefined
 
     if (!targetProject) {
       throw new PMOError('NOT_FOUND', `Project not found: ${newProjectId}`, newProjectId)
     }
 
-    // Get first column of target project
-    const firstColumn = this.ctx.db.prepare(`
-      SELECT id FROM ${T.columns}
-      WHERE project_id = ?
-      ORDER BY position LIMIT 1
-    `).get(newProjectId) as { id: string } | undefined
+    const workflowId = targetProject.workflow_id || 'default'
 
-    if (!firstColumn) {
-      throw new PMOError('NOT_FOUND', `No columns exist in project: ${newProjectId}`)
-    }
-
-    // Get old board position before updating
-    const oldBoardPos = this.ctx.db.prepare(`
-      SELECT column_id, position FROM ${T.board_tickets}
-      WHERE project_id = ? AND ticket_id = ?
-    `).get(oldProjectId, ticketId) as { column_id: string; position: number } | undefined
-
-    // Get max position in target column
-    const maxPos = this.ctx.db.prepare(`
-      SELECT MAX(position) as max FROM ${T.board_tickets}
-      WHERE project_id = ? AND column_id = ?
-    `).get(newProjectId, firstColumn.id) as { max: number | null }
-    const newPosition = (maxPos.max ?? -1) + 1
-
-    // Get default status for target project
+    // Get default status for target project's workflow
     let newStatusId: string | undefined
     const defaultStatus = this.ctx.db.prepare(`
-      SELECT id FROM ${T.statuses}
-      WHERE project_id = ? AND is_default = 1
-    `).get(newProjectId) as { id: string } | undefined
+      SELECT id FROM ${T.workflow_statuses}
+      WHERE workflow_id = ? AND is_default = 1
+    `).get(workflowId) as { id: string } | undefined
 
     if (defaultStatus) {
       newStatusId = defaultStatus.id
     } else {
-      // Get first status in target project
+      // Get first status in workflow
       const firstStatus = this.ctx.db.prepare(`
-        SELECT id FROM ${T.statuses}
-        WHERE project_id = ?
+        SELECT id FROM ${T.workflow_statuses}
+        WHERE workflow_id = ?
         ORDER BY
           CASE category
             WHEN 'backlog' THEN 1
@@ -565,7 +508,7 @@ export class TicketStorage {
           END,
           position ASC
         LIMIT 1
-      `).get(newProjectId) as { id: string } | undefined
+      `).get(workflowId) as { id: string } | undefined
 
       if (firstStatus) {
         newStatusId = firstStatus.id
@@ -579,26 +522,6 @@ export class TicketStorage {
       SET project_id = ?, status_id = ?, updated_at = ?
       WHERE id = ?
     `).run(newProjectId, newStatusId || existing.statusId, now, ticketId)
-
-    // Update board_tickets: delete old entry and insert new one
-    this.ctx.db.prepare(`
-      DELETE FROM ${T.board_tickets}
-      WHERE project_id = ? AND ticket_id = ?
-    `).run(oldProjectId, ticketId)
-
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.board_tickets} (project_id, ticket_id, column_id, position)
-      VALUES (?, ?, ?, ?)
-    `).run(newProjectId, ticketId, firstColumn.id, newPosition)
-
-    // Shift positions in old project's column
-    if (oldBoardPos) {
-      this.ctx.db.prepare(`
-        UPDATE ${T.board_tickets}
-        SET position = position - 1
-        WHERE project_id = ? AND column_id = ? AND position > ?
-      `).run(oldProjectId, oldBoardPos.column_id, oldBoardPos.position)
-    }
 
     // Update timestamps for both projects
     this.updateProjectTimestamp(oldProjectId)

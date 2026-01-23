@@ -58,10 +58,6 @@ export default class StatusCreate extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
@@ -175,6 +171,7 @@ export default class StatusCreate extends PMOCommand {
 
   private getCategoryDescription(category: StateCategory): string {
     const descriptions: Record<StateCategory, string> = {
+      triage: 'Inbox - needs review before entering workflow',
       backlog: 'Not yet scheduled for work',
       unstarted: 'Scheduled but work hasn\'t begun',
       started: 'Work is actively in progress',

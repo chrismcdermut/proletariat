@@ -112,20 +112,34 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
       for (const agent of agents) {
         const agentDir = path.join(workspacePath, agent);
         console.log(chalk.blue(`Creating agent: ${agent}...`));
-        
+
         try {
           // Create agent directory
           fs.mkdirSync(agentDir, { recursive: true });
 
+          // Track which repos successfully had worktrees created
+          const createdWorktrees: string[] = [];
+
           // Create worktrees for all repositories
           for (const repo of repos) {
             const sourceRepo = path.join(reposDir, repo.name);
-            // Name worktree directory as {repoName}-{agentName} so git creates unique worktree entries
-            // e.g., proletariat-altman instead of just proletariat (which causes proletariat1, proletariat2, etc.)
-            const worktreeDirName = `${repo.name}-${agent}`;
-            const worktreeDir = path.join(agentDir, worktreeDirName);
-            
+            // Worktree directory is just the repo name (the agent name is already in the parent path)
+            const worktreeDir = path.join(agentDir, repo.name);
+
             if (fs.existsSync(sourceRepo)) {
+              // Check if repo is empty (no commits)
+              let isEmptyRepo = false;
+              try {
+                execSync('git rev-parse HEAD', { cwd: sourceRepo, stdio: 'pipe' });
+              } catch {
+                isEmptyRepo = true;
+              }
+
+              if (isEmptyRepo) {
+                console.log(chalk.yellow(`  Skipping ${repo.name} (empty repository with no commits)`));
+                continue;
+              }
+
               console.log(styles.muted(`  Creating worktree for ${repo.name}...`));
 
               // Fetch latest from origin to ensure we have up-to-date main
@@ -139,22 +153,39 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
                 console.log(chalk.yellow(`  Warning: Could not fetch origin/main, using local state`));
               }
 
-              // Create git worktree for the agent from origin/main
+              // Determine the base ref to use (origin/main, main, or HEAD)
+              let baseRef = 'origin/main';
+              try {
+                execSync(`git rev-parse ${baseRef}`, { cwd: sourceRepo, stdio: 'pipe' });
+              } catch {
+                // origin/main doesn't exist, try local main
+                try {
+                  execSync('git rev-parse main', { cwd: sourceRepo, stdio: 'pipe' });
+                  baseRef = 'main';
+                } catch {
+                  // No main branch, use HEAD
+                  baseRef = 'HEAD';
+                }
+              }
+
+              // Create git worktree for the agent
               const branchName = `agent-${agent}`;
               try {
-                execSync(`git worktree add ${worktreeDir} -b ${branchName} origin/main`, {
+                execSync(`git worktree add "${worktreeDir}" -b ${branchName} ${baseRef}`, {
                   cwd: sourceRepo,
                   stdio: 'inherit'
                 });
+                createdWorktrees.push(repo.name);
               } catch {
                 // Branch might already exist, try to use it or clean up
                 console.log(chalk.yellow(`  Branch ${branchName} already exists, attempting to reuse or clean up...`));
                 try {
                   // Try without creating a new branch (use existing)
-                  execSync(`git worktree add ${worktreeDir} ${branchName}`, {
+                  execSync(`git worktree add "${worktreeDir}" ${branchName}`, {
                     cwd: sourceRepo,
                     stdio: 'inherit'
                   });
+                  createdWorktrees.push(repo.name);
                 } catch {
                   // If that fails too, clean up the orphaned branch and try again
                   try {
@@ -162,10 +193,11 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
                       cwd: sourceRepo,
                       stdio: 'pipe'
                     });
-                    execSync(`git worktree add ${worktreeDir} -b ${branchName} origin/main`, {
+                    execSync(`git worktree add "${worktreeDir}" -b ${branchName} ${baseRef}`, {
                       cwd: sourceRepo,
                       stdio: 'inherit'
                     });
+                    createdWorktrees.push(repo.name);
                   } catch (finalError) {
                     throw new Error(`Failed to create worktree after cleanup: ${finalError}`);
                   }
@@ -174,18 +206,18 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
             }
           }
 
-          // Create devcontainer config for sandboxed execution
+          // Create devcontainer config for sandboxed execution (only for repos with worktrees)
           // Note: Agent metadata is stored in SQLite (agents table), not in config files
-          if (!options?.skipDevcontainer) {
+          if (!options?.skipDevcontainer && createdWorktrees.length > 0) {
             console.log(styles.muted(`  Creating devcontainer config...`));
             createDevcontainerConfig({
               agentName: agent,
               agentDir,
-              repoWorktrees: repos.map(r => r.name),
+              repoWorktrees: createdWorktrees,
             });
           }
 
-          console.log(chalk.green(`✅ Agent ${agent} created with ${repos.length} worktree(s)`));
+          console.log(chalk.green(`✅ Agent ${agent} created with ${createdWorktrees.length} worktree(s)`));
         } catch (error) {
           console.log(chalk.red(`Failed to create agent ${agent}: ${error}`));
         }
@@ -206,13 +238,25 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
 
     for (const agent of agents) {
       const agentDir = path.join(workspacePath, agent);
-      // Name worktree directory as {repoName}-{agentName} for unique git worktree entries
-      const worktreeDirName = `${repoName}-${agent}`;
-      const worktreeDir = path.join(agentDir, worktreeDirName);
+      // Worktree directory is just the repo name (the agent name is already in the parent path)
+      const worktreeDir = path.join(agentDir, repoName);
       
       console.log(chalk.blue(`Creating agent: ${agent}...`));
 
       try {
+        // Check if repo is empty (no commits)
+        let isEmptyRepo = false;
+        try {
+          execSync('git rev-parse HEAD', { cwd: sourceRepo, stdio: 'pipe' });
+        } catch {
+          isEmptyRepo = true;
+        }
+
+        if (isEmptyRepo) {
+          console.log(chalk.yellow(`  Skipping (empty repository with no commits)`));
+          continue;
+        }
+
         // Create agent directory
         fs.mkdirSync(agentDir, { recursive: true });
 
@@ -227,10 +271,25 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
           console.log(chalk.yellow(`  Warning: Could not fetch origin/main, using local state`));
         }
 
-        // Create git worktree for the agent from origin/main
+        // Determine the base ref to use (origin/main, main, or HEAD)
+        let baseRef = 'origin/main';
+        try {
+          execSync(`git rev-parse ${baseRef}`, { cwd: sourceRepo, stdio: 'pipe' });
+        } catch {
+          // origin/main doesn't exist, try local main
+          try {
+            execSync('git rev-parse main', { cwd: sourceRepo, stdio: 'pipe' });
+            baseRef = 'main';
+          } catch {
+            // No main branch, use HEAD
+            baseRef = 'HEAD';
+          }
+        }
+
+        // Create git worktree for the agent
         const branchName = `agent-${agent}`;
         try {
-          execSync(`git worktree add ${worktreeDir} -b ${branchName} origin/main`, {
+          execSync(`git worktree add "${worktreeDir}" -b ${branchName} ${baseRef}`, {
             cwd: sourceRepo,
             stdio: 'inherit'
           });
@@ -239,7 +298,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
           console.log(chalk.yellow(`  Branch ${branchName} already exists, attempting to reuse or clean up...`));
           try {
             // Try without creating a new branch (use existing)
-            execSync(`git worktree add ${worktreeDir} ${branchName}`, {
+            execSync(`git worktree add "${worktreeDir}" ${branchName}`, {
               cwd: sourceRepo,
               stdio: 'inherit'
             });
@@ -250,7 +309,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
                 cwd: sourceRepo,
                 stdio: 'pipe'
               });
-              execSync(`git worktree add ${worktreeDir} -b ${branchName} origin/main`, {
+              execSync(`git worktree add "${worktreeDir}" -b ${branchName} ${baseRef}`, {
                 cwd: sourceRepo,
                 stdio: 'inherit'
               });
@@ -302,111 +361,29 @@ export async function promptForAgents(): Promise<string[]> {
 
 /**
  * Prompt user for agent selection with theme options (returns full result)
+ * Simplified flow: pick theme -> auto-create 5 random agents
  */
 export async function promptForAgentsWithTheme(): Promise<AgentPromptResult> {
-  const { addAgents } = await inquirer.prompt([{
-    type: 'list',
-    name: 'addAgents',
-    message: 'Add agents now?',
-    choices: [
-      { name: 'Yes, pick from a theme', value: 'theme' },
-      { name: 'Yes, enter custom names', value: 'custom' },
-      { name: 'Yes, create a custom theme', value: 'create-theme' },
-      { name: 'No, I\'ll add agents later', value: 'no' }
-    ],
-    default: 'theme',
-  }]);
-
-  if (addAgents === 'no') {
-    return { agents: [] };
-  }
-
-  if (addAgents === 'custom') {
-    const agents = await promptAgentNames([]);
-    return { agents };
-  }
-
-  if (addAgents === 'create-theme') {
-    // Create a custom theme
-    const { themeName } = await inquirer.prompt([{
-      type: 'input',
-      name: 'themeName',
-      message: 'Theme name (e.g., "Greek Gods", "Star Wars"):',
-      validate: (input: string) => input.trim() ? true : 'Theme name is required'
-    }]);
-
-    // Normalize theme ID
-    const themeId = themeName.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    const displayName = themeName.trim();
-
-    if (themeName.trim() !== themeId) {
-      console.log(chalk.blue(`Theme ID: ${themeId}`));
-    }
-
-    // Prompt for names to add to the theme
-    const { themeNames } = await inquirer.prompt([{
-      type: 'input',
-      name: 'themeNames',
-      message: 'Enter names for this theme (space-separated):',
-      validate: (input: string) => {
-        if (!input.trim()) return 'Please enter at least one name';
-        return true;
-      }
-    }]);
-
-    // Normalize names
-    const rawNames = themeNames.trim().split(/\s+/);
-    const normalizedNames = rawNames.map((n: string) => normalizeAgentName(n)).filter((n: string) => n && isValidAgentName(n));
-
-    if (normalizedNames.length === 0) {
-      console.log(chalk.yellow('No valid names after normalization.'));
-      return { agents: [] };
-    }
-
-    // Show normalized names
-    const changed = rawNames.filter((n: string, i: number) => n !== normalizedNames[i]);
-    if (changed.length > 0) {
-      console.log(chalk.blue('Normalized names:'));
-      rawNames.forEach((n: string, i: number) => {
-        if (n !== normalizedNames[i] && normalizedNames[i]) {
-          console.log(chalk.dim(`   ${n} → ${normalizedNames[i]}`));
-        }
-      });
-    }
-
-    // Now select which agents to create from the theme
-    const { selected } = await inquirer.prompt([{
-      type: 'checkbox',
-      name: 'selected',
-      message: 'Select agents to create now:',
-      choices: normalizedNames.map((name: string) => ({ name, value: name, checked: true })),
-      validate: (input) => input.length > 0 || 'Please select at least one agent'
-    }]);
-
-    return {
-      agents: selected,
-      themeId: themeId,  // Custom theme ID
-      customTheme: {
-        name: themeId,
-        displayName,
-        names: normalizedNames
-      }
-    };
-  }
-
-  // Theme selection mode
-  // Build theme choices
+  // Build theme choices with preview of names
   const themeChoices = BUILTIN_THEMES.map(t => ({
-    name: `${t.displayName} (${t.names.length} names)`,
+    name: `${t.displayName} (${t.names.slice(0, 4).join(', ')}...)`,
     value: t.id
   }));
 
   const { selectedTheme } = await inquirer.prompt([{
     type: 'list',
     name: 'selectedTheme',
-    message: 'Select a theme:',
-    choices: themeChoices
+    message: 'Agent naming theme:',
+    choices: [
+      ...themeChoices,
+      new inquirer.Separator(),
+      { name: 'Skip (add agents later)', value: 'skip' }
+    ]
   }]);
+
+  if (selectedTheme === 'skip') {
+    return { agents: [] };
+  }
 
   // Get the theme
   const theme = BUILTIN_THEMES.find(t => t.id === selectedTheme);
@@ -414,15 +391,11 @@ export async function promptForAgentsWithTheme(): Promise<AgentPromptResult> {
     return { agents: [] };
   }
 
-  // Select names from the theme
-  const { selected } = await inquirer.prompt([{
-    type: 'checkbox',
-    name: 'selected',
-    message: `Select agents from ${theme.displayName}:`,
-    choices: theme.names.map(name => ({ name, value: name })),
-    pageSize: 15,
-    validate: (input) => input.length > 0 || 'Please select at least one agent'
-  }]);
+  // Randomly select 10 agents from the theme
+  const shuffled = [...theme.names].sort(() => Math.random() - 0.5);
+  const selected = shuffled.slice(0, 10);
+
+  console.log(chalk.blue(`\nCreating 10 staff agents: ${selected.join(', ')}`));
 
   return { agents: selected, themeId: selectedTheme };
 }

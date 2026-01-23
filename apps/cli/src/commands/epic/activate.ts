@@ -33,10 +33,6 @@ export default class EpicActivate extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
@@ -71,25 +67,18 @@ export default class EpicActivate extends PMOCommand {
         return;
       }
 
-      // In JSON mode, output epic selection prompt
-      if (jsonMode) {
-        const epicChoices = activatable.map(e => ({ name: `${e.id} ${e.title} (${e.status})`, value: e.id }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select epic to activate:', epicChoices),
-          createMetadata('epic activate', flags)
-        );
+      const selected = await this.selectFromList({
+        message: 'Select epic to activate:',
+        items: activatable,
+        getName: (e) => `${e.id} ${e.title} (${e.status})`,
+        getValue: (e) => e.id,
+        getCommand: (e) => `prlt epic activate ${e.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'epic activate' } : null,
+      });
+
+      if (!selected) {
         return;
       }
-
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
-        message: 'Select epic to activate:',
-        choices: activatable.map(e => ({
-          name: `${e.id} ${e.title} (${e.status})`,
-          value: e.id,
-        })),
-      }]);
       epicId = selected;
     }
 

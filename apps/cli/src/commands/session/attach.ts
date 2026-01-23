@@ -4,11 +4,15 @@ import * as path from 'node:path'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import Database from 'better-sqlite3'
-import inquirer from 'inquirer'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/index.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import {
+  shouldOutputJson,
+  outputErrorAsJson,
+  createMetadata,
+} from '../../lib/prompt-json.js'
 
 interface SessionChoice {
   name: string           // Session name (for display)
@@ -37,6 +41,10 @@ export default class SessionAttach extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
     'new-tab': Flags.boolean({
       char: 'n',
       description: 'Open in a new terminal tab (default: true)',
@@ -61,10 +69,17 @@ export default class SessionAttach extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SessionAttach)
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags)
+
     // Get all available sessions (DB-driven)
     const sessions = this.getVerifiedSessions()
 
     if (sessions.length === 0) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_SESSIONS', 'No active sessions found.', createMetadata('session attach', flags))
+        return
+      }
       this.log('')
       this.log(styles.muted('No active sessions found.'))
       this.log('')
@@ -86,23 +101,28 @@ export default class SessionAttach extends PMOCommand {
       )
 
       if (!selectedSession) {
+        if (jsonMode) {
+          outputErrorAsJson('SESSION_NOT_FOUND', `Session "${args.session}" not found.`, createMetadata('session attach', flags))
+          return
+        }
         this.error(`Session "${args.session}" not found. Run "prlt session list" to see available sessions.`)
       }
     } else {
-      // Prompt user to select
-      const { session } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'session',
-          message: 'Select a session to attach to:',
-          choices: sessions.map(s => ({
-            name: `${s.sessionId} (${s.ticketId}) - ${s.agentName} [${s.type}]`,
-            value: s.sessionId,
-          })),
-        },
-      ])
+      // Use selectFromList helper for session selection
+      const selected = await this.selectFromList({
+        message: 'Select a session to attach to:',
+        items: sessions,
+        getName: (s) => `${s.sessionId} (${s.ticketId}) - ${s.agentName} [${s.type}]`,
+        getValue: (s) => s.sessionId,
+        getCommand: (s) => `prlt session attach "${s.sessionId}" --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'session attach' } : null,
+      })
 
-      selectedSession = sessions.find(s => s.sessionId === session)
+      if (!selected) {
+        return
+      }
+
+      selectedSession = sessions.find(s => s.sessionId === selected)
     }
 
     if (!selectedSession) {

@@ -28,8 +28,9 @@ import {
  * Format: "{ticketId}-{action}-{agentName}"
  * Example: "TKT-347-implement-altman"
  */
-function buildSessionName(context: ExecutionContext): string {
-  const action = context.actionName || 'work'
+export function buildSessionName(context: ExecutionContext): string {
+  // Sanitize action name: replace spaces and special chars with hyphens for shell safety
+  const action = (context.actionName || 'work').replace(/\s+/g, '-')
   const agent = context.agentName || 'agent'
   return `${context.ticketId}-${action}-${agent}`
 }
@@ -998,6 +999,18 @@ async function runDevcontainerInTmux(
       return {
         success: false,
         error: 'Could not determine container ID for tmux session',
+      }
+    }
+
+    // Check if tmux is available inside the container
+    try {
+      execSync(`docker exec ${actualContainerId} which tmux`, { stdio: 'pipe' })
+    } catch {
+      return {
+        success: false,
+        error: `tmux is not installed in the devcontainer. ` +
+          `Add 'tmux' to your devcontainer's Dockerfile (e.g., apt-get install -y tmux) ` +
+          `or use the default prlt devcontainer template which includes tmux.`,
       }
     }
 

@@ -89,10 +89,6 @@ export default class TicketEdit extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
@@ -122,29 +118,20 @@ export default class TicketEdit extends PMOCommand {
         return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".');
       }
 
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to edit:', ticketChoices),
-          createMetadata('ticket edit', flags)
-        );
-        return;
-      }
-
-      const { selectedTicketId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedTicketId',
+      // Use helper for ticket selection (handles JSON mode automatically)
+      const selected = await this.selectFromList({
         message: 'Select ticket to edit:',
-        choices: allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        })),
-      }]);
-      ticketId = selectedTicketId;
+        items: allTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket edit ${t.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket edit' } : null,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      ticketId = selected;
     }
 
     // Get current ticket

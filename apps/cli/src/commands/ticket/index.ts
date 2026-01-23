@@ -21,10 +21,6 @@ export default class Ticket extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -38,19 +34,20 @@ export default class Ticket extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices once, use for both JSON and interactive modes
+    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'Create new ticket', value: 'create' },
-      { name: 'Create from template', value: 'template' },
-      { name: 'List all tickets', value: 'list' },
-      { name: 'View ticket details', value: 'view' },
-      { name: 'Edit ticket', value: 'edit' },
-      { name: 'Move ticket (column)', value: 'move' },
-      { name: 'Move to different project', value: 'project' },
-      { name: 'Assign to epic', value: 'epic' },
-      { name: 'Assign to spec', value: 'spec' },
-      { name: 'Manage dependencies', value: 'link' },
-      { name: 'Manage templates', value: 'templates' },
-      { name: 'Delete ticket', value: 'delete' },
+      { name: 'Create new ticket', value: 'create', command: 'prlt ticket create --json' },
+      { name: 'Create from template', value: 'template', command: 'prlt ticket template apply --json' },
+      { name: 'List all tickets', value: 'list', command: 'prlt ticket list --format json' },
+      { name: 'View ticket details', value: 'view', command: 'prlt ticket view --json' },
+      { name: 'Edit ticket', value: 'edit', command: 'prlt ticket edit --json' },
+      { name: 'Move ticket (column)', value: 'move', command: 'prlt ticket move --json' },
+      { name: 'Move to different project', value: 'project', command: 'prlt ticket project --json' },
+      { name: 'Assign to epic', value: 'epic', command: 'prlt ticket epic --json' },
+      { name: 'Assign to spec', value: 'spec', command: 'prlt ticket spec --json' },
+      { name: 'Manage dependencies', value: 'link', command: 'prlt ticket link --json' },
+      { name: 'Manage templates', value: 'templates', command: 'prlt ticket template --json' },
+      { name: 'Delete ticket', value: 'delete', command: 'prlt ticket delete --json' },
       { name: 'Cancel', value: 'cancel' },
     ];
     const message = 'Ticket Operations - What would you like to do?';

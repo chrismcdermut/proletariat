@@ -38,10 +38,6 @@ export default class TicketLinkRemove extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     type: Flags.string({
       char: 't',
       description: 'Dependency type to remove',
@@ -87,23 +83,21 @@ export default class TicketLinkRemove extends PMOCommand {
 
     // If --all flag, remove all dependencies
     if (flags.all) {
-      // In JSON mode, output confirmation prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('confirm', 'confirmed', `Remove all ${dependencies.length} dependencies from ${args.id}?`),
-          createMetadata('ticket link remove', flags)
-        )
-        return
-      }
+      const confirmChoices = [
+        { id: 'no', name: 'No, cancel' },
+        { id: 'yes', name: `Yes, remove all ${dependencies.length} dependencies` },
+      ]
 
-      const { confirmed } = await inquirer.prompt([{
-        type: 'confirm',
-        name: 'confirmed',
+      const confirmed = await this.selectFromList({
         message: `Remove all ${dependencies.length} dependencies from ${args.id}?`,
-        default: false,
-      }])
+        items: confirmChoices,
+        getName: (c) => c.name,
+        getValue: (c) => c.id,
+        getCommand: (c) => c.id === 'yes' ? `prlt ticket link remove ${args.id} --all --force --json` : '',
+        jsonMode: jsonMode ? { flags, commandName: 'ticket link remove' } : null,
+      })
 
-      if (!confirmed) {
+      if (confirmed !== 'yes') {
         this.log(styles.muted('\nCancelled.'))
         return
       }
@@ -122,29 +116,27 @@ export default class TicketLinkRemove extends PMOCommand {
 
     // If no target provided, prompt for selection
     if (!targetId) {
-      const choices = await Promise.all(dependencies.map(async (dep) => {
+      const depChoices = await Promise.all(dependencies.map(async (dep) => {
         const depTicket = await this.storage.getTicket(dep.dependsOnTicketId)
         return {
+          id: dep.dependsOnTicketId,
           name: `${dep.dependsOnTicketId} - ${depTicket?.title || 'Unknown'} (${dep.dependencyType})`,
-          value: dep.dependsOnTicketId,
+          type: dep.dependencyType,
         }
       }))
 
-      // In JSON mode, output dependency selection prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'target', 'Select dependency to remove:', choices),
-          createMetadata('ticket link remove', flags)
-        )
+      const selected = await this.selectFromList({
+        message: 'Select dependency to remove:',
+        items: depChoices,
+        getName: (d) => d.name,
+        getValue: (d) => d.id,
+        getCommand: (d) => `prlt ticket link remove ${args.id} ${d.id} --type ${d.type} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket link remove' } : null,
+      })
+
+      if (!selected) {
         return
       }
-
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
-        message: 'Select dependency to remove:',
-        choices,
-      }])
       targetId = selected
     }
 

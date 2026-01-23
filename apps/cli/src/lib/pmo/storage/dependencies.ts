@@ -118,11 +118,13 @@ export class DependencyStorage {
    */
   async getTicketBlockers(ticketId: string): Promise<Ticket[]> {
     const rows = this.ctx.db.prepare(`
-      SELECT t.*, bt.column_id, c.name as column_name, bt.position
+      SELECT t.*,
+             ws.id as column_id,
+             ws.name as column_name,
+             ws.position as position
       FROM ${T.tickets} t
       JOIN ${T.ticket_dependencies} d ON t.id = d.depends_on_ticket_id
-      LEFT JOIN ${T.board_tickets} bt ON t.id = bt.ticket_id
-      LEFT JOIN ${T.columns} c ON bt.column_id = c.id AND bt.project_id = c.project_id
+      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
       WHERE d.ticket_id = ? AND d.dependency_type = 'blocks'
     `).all(ticketId) as TicketRow[]
 
@@ -134,11 +136,13 @@ export class DependencyStorage {
    */
   async getTicketsBlockedBy(ticketId: string): Promise<Ticket[]> {
     const rows = this.ctx.db.prepare(`
-      SELECT t.*, bt.column_id, c.name as column_name, bt.position
+      SELECT t.*,
+             ws.id as column_id,
+             ws.name as column_name,
+             ws.position as position
       FROM ${T.tickets} t
       JOIN ${T.ticket_dependencies} d ON t.id = d.ticket_id
-      LEFT JOIN ${T.board_tickets} bt ON t.id = bt.ticket_id
-      LEFT JOIN ${T.columns} c ON bt.column_id = c.id AND bt.project_id = c.project_id
+      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
       WHERE d.depends_on_ticket_id = ? AND d.dependency_type = 'blocks'
     `).all(ticketId) as TicketRow[]
 

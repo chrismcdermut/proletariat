@@ -208,12 +208,22 @@ export class EpicStorage {
    */
   async getTicketsForEpic(projectId: string, epicId: string): Promise<Ticket[]> {
     const rows = this.ctx.db.prepare(`
-      SELECT t.*, bt.column_id, bt.position, c.name as column_name
+      SELECT t.*,
+             ws.id as column_id,
+             ws.position as position,
+             ws.name as column_name
       FROM ${T.tickets} t
-      LEFT JOIN ${T.board_tickets} bt ON t.id = bt.ticket_id AND t.project_id = bt.project_id
-      LEFT JOIN ${T.columns} c ON bt.project_id = c.project_id AND bt.column_id = c.id
+      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
       WHERE t.project_id = ? AND t.epic_id = ?
-      ORDER BY c.position, bt.position
+      ORDER BY ws.position,
+        CASE t.priority
+          WHEN 'P0' THEN 0
+          WHEN 'P1' THEN 1
+          WHEN 'P2' THEN 2
+          WHEN 'P3' THEN 3
+          ELSE 4
+        END,
+        t.created_at ASC
     `).all(projectId, epicId) as TicketRow[]
 
     return Promise.all(rows.map((row) => rowToTicket(this.ctx.db, row)))

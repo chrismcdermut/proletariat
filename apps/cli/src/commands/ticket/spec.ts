@@ -38,10 +38,6 @@ export default class TicketSpec extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     unlink: Flags.boolean({
       char: 'u',
       description: 'Remove spec from ticket instead of adding',
@@ -86,18 +82,26 @@ export default class TicketSpec extends PMOCommand {
 
     // If no ticket ID provided, prompt for selection
     if (!ticketId) {
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
+      const ticketChoices = tickets.map(t => {
+        const specLabel = t.specId ? ` [spec: ${t.specId}]` : '';
+        return {
+          id: t.id,
+          name: `${t.id} - ${t.title}${specLabel}`,
+        };
+      });
+
+      const selected = await this.selectFromList({
         message: 'Select ticket:',
-        choices: tickets.map(t => {
-          const specLabel = t.specId ? ` [spec: ${t.specId}]` : '';
-          return {
-            name: `${t.id} - ${t.title}${specLabel}`,
-            value: t.id,
-          };
-        }),
-      }]);
+        items: ticketChoices,
+        getName: (t) => t.name,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket spec ${t.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket spec' } : null,
+      });
+
+      if (!selected) {
+        return;
+      }
       ticketId = selected;
     }
 
@@ -124,15 +128,19 @@ export default class TicketSpec extends PMOCommand {
     const specs = await this.storage.listSpecs();
     if (specs.length === 0) {
       this.log(styles.muted('\nNo specs found.'));
-      const { action } = await inquirer.prompt([{
-        type: 'list',
-        name: 'action',
+      const actionChoices = [
+        { id: 'create', name: 'Create a new spec' },
+        { id: 'cancel', name: 'Cancel' },
+      ];
+
+      const action = await this.selectFromList({
         message: 'What would you like to do?',
-        choices: [
-          { name: 'Create a new spec', value: 'create' },
-          { name: 'Cancel', value: 'cancel' },
-        ],
-      }]);
+        items: actionChoices,
+        getName: (a) => a.name,
+        getValue: (a) => a.id,
+        getCommand: (a) => a.id === 'create' ? 'prlt spec create --json' : '',
+        jsonMode: jsonMode ? { flags, commandName: 'ticket spec' } : null,
+      });
 
       if (action === 'create') {
         await this.config.runCommand('spec:create', []);
@@ -144,15 +152,18 @@ export default class TicketSpec extends PMOCommand {
 
     // If no spec ID provided, prompt for selection
     if (!specId) {
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
+      const selected = await this.selectFromList({
         message: `Select spec to link to ${ticketId}:`,
-        choices: specs.map(s => ({
-          name: `${s.id} - ${s.title} (${s.status})`,
-          value: s.id,
-        })),
-      }]);
+        items: specs,
+        getName: (s) => `${s.id} - ${s.title} (${s.status})`,
+        getValue: (s) => s.id,
+        getCommand: (s) => `prlt ticket spec ${ticketId} ${s.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket spec' } : null,
+      });
+
+      if (!selected) {
+        return;
+      }
       specId = selected;
     }
 
@@ -179,18 +190,23 @@ export default class TicketSpec extends PMOCommand {
       const epic = await this.storage.getEpic(ticket.epicId);
       if (epic?.specId && epic.specId !== specId) {
         this.log(styles.warning(`\n⚠️  Epic "${ticket.epicId}" uses spec "${epic.specId}", but you're assigning "${specId}" to this ticket.`));
-        const { action } = await inquirer.prompt([{
-          type: 'list',
-          name: 'action',
-          message: 'How to handle spec mismatch?',
-          choices: [
-            { name: `Proceed anyway (ticket will have different spec than epic)`, value: 'proceed' },
-            { name: `Use epic's spec instead (${epic.specId})`, value: 'use_epic' },
-            { name: 'Cancel', value: 'cancel' },
-          ],
-        }]);
 
-        if (action === 'cancel') {
+        const actionChoices = [
+          { id: 'proceed', name: `Proceed anyway (ticket will have different spec than epic)` },
+          { id: 'use_epic', name: `Use epic's spec instead (${epic.specId})` },
+          { id: 'cancel', name: 'Cancel' },
+        ];
+
+        const action = await this.selectFromList({
+          message: 'How to handle spec mismatch?',
+          items: actionChoices,
+          getName: (a) => a.name,
+          getValue: (a) => a.id,
+          getCommand: (a) => a.id === 'use_epic' ? `prlt ticket spec ${ticketId} ${epic.specId} --json` : `prlt ticket spec ${ticketId} ${specId} --json`,
+          jsonMode: jsonMode ? { flags, commandName: 'ticket spec' } : null,
+        });
+
+        if (action === 'cancel' || !action) {
           return;
         }
 

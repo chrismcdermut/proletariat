@@ -19,8 +19,10 @@ import {
   getWorkspaceInfo,
   createEphemeralAgent,
   getTicketTmuxSession,
-  killTmuxSession
+  killTmuxSession,
+  WorkspaceInfo,
 } from '../../lib/agents/commands.js'
+import { Agent } from '../../lib/database/index.js'
 import {
   DisplayMode,
   SessionManager,
@@ -70,6 +72,33 @@ function findBaseBranch(repoPath: string, candidates: string[] = ['origin/main',
   return 'HEAD'
 }
 
+/**
+ * Get active staff agents that exist on disk.
+ * Warns about any agents in DB that are missing their directory.
+ */
+function getActiveStaffAgents(
+  workspaceInfo: WorkspaceInfo,
+  log: (msg: string) => void
+): Agent[] {
+  const result: Agent[] = []
+
+  for (const agent of workspaceInfo.agents) {
+    if (agent.type !== 'persistent' || agent.status !== 'active') continue
+
+    const agentDir = agent.worktree_path
+      ? path.join(workspaceInfo.path, agent.worktree_path)
+      : path.join(workspaceInfo.path, 'agents', 'staff', agent.name)
+
+    if (fs.existsSync(agentDir)) {
+      result.push(agent)
+    } else {
+      log(styles.warning(`⚠ Agent '${agent.name}' in database but directory missing - skipping`))
+    }
+  }
+
+  return result
+}
+
 export default class WorkStart extends PMOCommand {
   static description = 'Start work on a ticket (launches an agent to implement it)'
 
@@ -93,10 +122,6 @@ export default class WorkStart extends PMOCommand {
     ...pmoBaseFlags,
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
       default: false,
     }),
     all: Flags.boolean({
@@ -228,60 +253,20 @@ export default class WorkStart extends PMOCommand {
           return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".')
         }
 
-        // Group tickets by priority for display
-        const PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3', 'None']
-        const ticketsByPriority = new Map<string, typeof allTickets>()
-        for (const priority of PRIORITY_ORDER) {
-          ticketsByPriority.set(priority, [])
-        }
-        for (const ticket of allTickets) {
-          const priority = ticket.priority || 'None'
-          if (!ticketsByPriority.has(priority)) {
-            ticketsByPriority.set(priority, [])
-          }
-          ticketsByPriority.get(priority)!.push(ticket)
-        }
+        const selected = await this.selectFromList({
+          message: 'Select ticket to work on:',
+          items: allTickets,
+          getName: (t) => `[${t.priority || 'None'}] ${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
+          getValue: (t) => t.id,
+          getCommand: (t) => `prlt work start ${t.id} --json`,
+          jsonMode: jsonMode ? { flags, commandName: 'work start' } : null,
+        })
 
-        // Build choices with priority separators
-        const ticketChoices: Array<{ name: string; value: string } | inquirer.Separator> = []
-        for (const priority of PRIORITY_ORDER) {
-          const tickets = ticketsByPriority.get(priority) || []
-          if (tickets.length === 0) continue
-          ticketChoices.push(new inquirer.Separator(`── ${priority} (${tickets.length}) ──`))
-          for (const t of tickets) {
-            const assigneeBadge = t.assignee ? ` (${t.assignee})` : ''
-            const statusBadge = t.statusName ? ` [${t.statusName}]` : ''
-            ticketChoices.push({
-              name: `[${priority}] ${t.id} - ${t.title}${statusBadge}${assigneeBadge}`,
-              value: t.id,
-            })
-          }
-        }
-        const selectMessage = 'Select ticket to work on:'
-
-        // In JSON mode, output ticket selection prompt (flat list for agents)
-        if (jsonMode) {
-          const flatChoices = allTickets.map((t) => ({
-            name: `[${t.priority || 'None'}] ${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
-            value: t.id,
-          }))
-          outputPromptAsJson(
-            buildPromptConfig('list', 'ticketId', selectMessage, flatChoices),
-            createMetadata('work start', flags)
-          )
+        if (!selected) {
           db.close()
           return
         }
-
-        const { selectedTicketId } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedTicketId',
-            message: selectMessage,
-            choices: ticketChoices,
-          },
-        ])
-        ticketId = selectedTicketId
+        ticketId = selected
       }
 
       // Get ticket
@@ -388,15 +373,8 @@ export default class WorkStart extends PMOCommand {
         // No agent specified - default to creating ephemeral agent (new behavior)
         // Or prompt for agent selection if staff agents exist
 
-        // Filter to staff agents that actually have directories on disk
-        const activeStaffAgents = workspaceInfo.agents.filter(a => {
-          if (a.type !== 'persistent' || a.status !== 'active') return false
-          // Check if agent directory exists
-          const agentDir = a.worktree_path
-            ? path.join(workspaceInfo.path, a.worktree_path)
-            : path.join(workspaceInfo.path, 'agents', 'staff', a.name)
-          return fs.existsSync(agentDir)
-        })
+        // Get staff agents that exist on disk (warns about missing directories)
+        const activeStaffAgents = getActiveStaffAgents(workspaceInfo, (msg) => this.log(msg))
 
         if (activeStaffAgents.length > 0) {
           // Get list of busy agents (already running something)
@@ -1300,16 +1278,16 @@ export default class WorkStart extends PMOCommand {
     executionStorage: ExecutionStorage,
     flags: { mode?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean }
   ): Promise<void> {
-    // Get all tickets and filter to unassigned backlog/unstarted (not in progress)
+    // Get all tickets and filter to backlog/unstarted (not in progress)
     // Note: In batch mode, we use undefined to get all tickets across all projects
     const allTickets = await this.storage.listTickets(undefined)
     const backlogTickets = allTickets.filter(t =>
-      !t.assignee && (t.statusCategory === 'backlog' || t.statusCategory === 'unstarted' || !t.statusCategory)
+      t.statusCategory === 'backlog' || t.statusCategory === 'unstarted' || !t.statusCategory
     )
 
     if (backlogTickets.length === 0) {
       db.close()
-      this.log(styles.muted('No unassigned backlog tickets to start.'))
+      this.log(styles.muted('No backlog tickets to start.'))
       return
     }
 
@@ -1317,16 +1295,18 @@ export default class WorkStart extends PMOCommand {
     this.log(styles.header(`🚀 Batch Start: ${backlogTickets.length} backlog tickets`))
     this.log('')
 
-    // Get available agents
+    // Get staff agents that exist on disk (warns about missing directories)
+    const activeStaffAgents = getActiveStaffAgents(workspaceInfo, (msg) => this.log(msg))
+
     const busyAgentNames = new Set<string>()
-    for (const agent of workspaceInfo.agents) {
+    for (const agent of activeStaffAgents) {
       const runningExecutions = executionStorage.getAgentRunningExecutions(agent.name)
       if (runningExecutions.length > 0) {
         busyAgentNames.add(agent.name)
       }
     }
 
-    const availableAgents = workspaceInfo.agents.filter(a => !busyAgentNames.has(a.name))
+    const availableAgents = activeStaffAgents.filter(a => !busyAgentNames.has(a.name))
 
     if (availableAgents.length === 0) {
       db.close()

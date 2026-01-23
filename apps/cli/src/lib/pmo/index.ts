@@ -164,27 +164,15 @@ export async function promptForPMOLocation(hqRoot: string | null): Promise<PMOLo
 
 /**
  * Prompt for board template.
- * If storage is provided, queries DB for templates (source of truth).
- * Otherwise falls back to BUILTIN_TEMPLATES (used during init when DB doesn't exist).
+ * Uses BUILTIN_TEMPLATES as the single source of truth.
  */
-export async function promptForBoardTemplate(storage?: SQLiteStorage): Promise<string> {
-  let choices: Array<{ name: string; value: string }>;
-
-  if (storage) {
-    // Query database for templates - this is the source of truth
-    const dbTemplates = await storage.listTemplates({ isBuiltin: true });
-    choices = dbTemplates.map(t => ({
-      name: `${t.name} (${t.statuses.slice(0, 4).map(s => s.name).join(', ')}${t.statuses.length > 4 ? '...' : ''})`,
-      value: t.id,
-    }));
-  } else {
-    // Fallback to builtin templates when DB doesn't exist (during init)
-    const pickerTemplates = BUILTIN_TEMPLATES.filter(t => t.showInPicker);
-    choices = pickerTemplates.map(t => ({
-      name: `${t.name} (${t.columns.slice(0, 4).join(', ')}${t.columns.length > 4 ? '...' : ''})`,
-      value: t.id,
-    }));
-  }
+export async function promptForBoardTemplate(_storage?: SQLiteStorage): Promise<string> {
+  // Use builtin templates directly - single source of truth
+  const pickerTemplates = BUILTIN_TEMPLATES.filter(t => t.showInPicker);
+  const choices: Array<{ name: string; value: string }> = pickerTemplates.map(t => ({
+    name: `${t.name} (${t.columns.slice(0, 4).join(', ')}${t.columns.length > 4 ? '...' : ''})`,
+    value: t.id,
+  }));
 
   // Add custom option
   choices.push({ name: 'Custom (define your own columns)', value: 'custom' });
@@ -234,30 +222,12 @@ export async function promptForBoardName(defaultName?: string): Promise<string> 
 
 /**
  * Full PMO setup prompt - used by both `prlt init` and `prlt pmo init`
+ *
+ * PMO is included by default (no prompt) per TKT-469 requirements.
  */
 export async function promptForPMOSetup(hqRoot: string | null, hqName?: string): Promise<PMOSetupResult> {
-  // Ask if they want PMO
-  const { includePMO } = await inquirer.prompt([{
-    type: 'list',
-    name: 'includePMO',
-    message: 'Include project management office (PMO)?',
-    choices: [
-      { name: 'Yes', value: true },
-      { name: 'No', value: false }
-    ],
-    default: true,
-  }]);
-
-  if (!includePMO) {
-    return {
-      includePMO: false,
-      boardTemplate: 'kanban',
-      storageType: 'sqlite',
-      location: 'separate',
-      boardName: '',
-      columns: [],
-    };
-  }
+  // PMO is always included by default (R5 - no prompt)
+  console.log(chalk.blue('\n📋 Setting up PMO (project management)...\n'));
 
   // PMO location (in-repo vs separate)
   const location = await promptForPMOLocation(hqRoot);
@@ -271,9 +241,8 @@ export async function promptForPMOSetup(hqRoot: string | null, hqName?: string):
     columns = await promptForCustomColumns();
   }
 
-  // Board name - default to {hqname}-kanban if hqName provided
-  const defaultBoardName = hqName ? `${hqName}-kanban` : undefined;
-  const boardName = await promptForBoardName(defaultBoardName);
+  // Board name - default to {hqname}-kanban (can be changed later via `prlt project rename`)
+  const boardName = hqName ? `${hqName}-kanban` : 'Project Board';
 
   return {
     includePMO: true,
@@ -397,6 +366,35 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
     columns,
   });
 
+  // For custom templates, create statuses from columns
+  // (built-in templates have statuses created via applyTemplate in createProject)
+  if (boardTemplate === 'custom' && columns) {
+    for (let i = 0; i < columns.length; i++) {
+      const name = columns[i];
+      const nameLower = name.toLowerCase();
+
+      // Infer category from column name
+      let category: 'backlog' | 'unstarted' | 'started' | 'completed' | 'canceled' = 'backlog';
+      if (nameLower.includes('done') || nameLower.includes('complete') || nameLower.includes('shipped')) {
+        category = 'completed';
+      } else if (nameLower.includes('progress') || nameLower.includes('review') || nameLower.includes('active')) {
+        category = 'started';
+      } else if (nameLower.includes('todo') || nameLower.includes('to do') || nameLower.includes('planned') || nameLower.includes('next')) {
+        category = 'unstarted';
+      } else if (nameLower.includes('cancel') || nameLower.includes('archived')) {
+        category = 'canceled';
+      }
+      // Default: backlog (for first columns, custom backlogs, etc.)
+
+      await storage.createStatus(projectId, {
+        name,
+        category,
+        position: i,
+        isDefault: i === 0,
+      });
+    }
+  }
+
   // Save PMO path and column settings (relative to HQ root for container compatibility)
   try {
     const db = new (await import('better-sqlite3')).default(dbPath);
@@ -436,7 +434,7 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
   console.log(chalk.green(`  ✓ ${boardFileName} created`));
 
   // Create README for PMO
-  const readmeContent = `# PMO (Project Management Office)
+  const readmeContent = `# PMO (Project Management Org)
 
 ## Template: ${boardTemplate}
 

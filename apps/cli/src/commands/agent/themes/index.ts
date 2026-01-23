@@ -25,10 +25,6 @@ export default class Themes extends Command {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   async run(): Promise<void> {
@@ -38,18 +34,23 @@ export default class Themes extends Command {
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices once, use for both JSON and interactive modes
+    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'List themes', value: 'list' },
-      { name: 'Create a new theme', value: 'create' },
-      { name: 'Add names to a theme', value: 'add-names' },
-      { name: 'Cancel', value: 'cancel' },
+      { id: 'list', name: 'List themes', command: 'prlt agent themes list --format json' },
+      { id: 'create', name: 'Create a new theme', command: 'prlt agent themes create --json' },
+      { id: 'add-names', name: 'Add names to a theme', command: 'prlt agent themes add-names --json' },
+      { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'What would you like to do?';
 
-    // In JSON mode, output menu prompt
+    // In JSON mode, output menu prompt with commands for AI agents
     if (jsonMode) {
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
+        buildPromptConfig('list', 'action', message, menuChoices.map(c => ({
+          name: c.name,
+          value: c.id,
+          command: c.command,
+        }))),
         createMetadata('agent themes', flags)
       );
       return;
@@ -63,9 +64,9 @@ export default class Themes extends Command {
       name: 'action',
       message,
       choices: [
-        ...menuChoices.slice(0, 3),
+        ...menuChoices.slice(0, 3).map(c => ({ name: c.name, value: c.id })),
         new inquirer.Separator(),
-        menuChoices[3]
+        { name: menuChoices[3].name, value: menuChoices[3].id }
       ]
     }]);
 

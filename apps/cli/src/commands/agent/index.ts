@@ -31,10 +31,6 @@ export default class Agent extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -48,28 +44,20 @@ export default class Agent extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices once, use for both JSON and interactive modes
+    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'List all agents', value: 'list' },
-      { name: 'Show status', value: 'status' },
-      { name: 'Visit directory', value: 'visit' },
-      { name: 'Manage staff agents', value: 'staff' },
-      { name: 'Manage temp agents', value: 'temp' },
-      { name: 'Manage themes', value: 'themes' },
-      { name: 'Open shell', value: 'shell' },
-      { name: 'Restart', value: 'restart' },
-      { name: 'Rebuild', value: 'rebuild' },
-      { name: 'Cancel', value: 'cancel' },
+      { id: 'list', name: 'List all agents', command: 'prlt agent list --format json' },
+      { id: 'status', name: 'Show status', command: 'prlt agent status --json' },
+      { id: 'visit', name: 'Visit directory', command: 'prlt agent visit --json' },
+      { id: 'staff', name: 'Manage staff agents', command: 'prlt agent staff --json' },
+      { id: 'temp', name: 'Manage temp agents', command: 'prlt agent temp --json' },
+      { id: 'themes', name: 'Manage themes', command: 'prlt agent themes --json' },
+      { id: 'shell', name: 'Open shell', command: 'prlt agent shell --json' },
+      { id: 'restart', name: 'Restart', command: 'prlt agent restart --json' },
+      { id: 'rebuild', name: 'Rebuild', command: 'prlt agent rebuild --json' },
+      { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'What would you like to do?';
-
-    // In JSON mode, output menu prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('agent', flags)
-      );
-      return;
-    }
 
     this.log(colors.primary('🤖 Agent Management'));
     this.log('');
@@ -77,29 +65,16 @@ export default class Agent extends PMOCommand {
     this.log(colors.textMuted('Use "prlt work spawn" to create ephemeral agents automatically.'));
     this.log('');
 
-    const { action } = await inquirer.prompt([{
-      type: 'list',
-      name: 'action',
+    const action = await this.selectFromList({
       message,
-      choices: [
-        new inquirer.Separator('── View ──'),
-        { name: '📋 ' + menuChoices[0].name, value: menuChoices[0].value },
-        { name: '📊 ' + menuChoices[1].name, value: menuChoices[1].value },
-        { name: '📁 ' + menuChoices[2].name, value: menuChoices[2].value },
-        new inquirer.Separator('── Manage ──'),
-        { name: '👷 ' + menuChoices[3].name, value: menuChoices[3].value },
-        { name: '⏱️  ' + menuChoices[4].name, value: menuChoices[4].value },
-        { name: '🎨 ' + menuChoices[5].name, value: menuChoices[5].value },
-        new inquirer.Separator('── Container ──'),
-        { name: '🐚 ' + menuChoices[6].name, value: menuChoices[6].value },
-        { name: '🔄 ' + menuChoices[7].name, value: menuChoices[7].value },
-        { name: '🔨 ' + menuChoices[8].name, value: menuChoices[8].value },
-        new inquirer.Separator(),
-        { name: '❌ ' + menuChoices[9].name, value: menuChoices[9].value },
-      ]
-    }]);
+      items: menuChoices,
+      getName: (c) => c.name,
+      getValue: (c) => c.id,
+      getCommand: (c) => c.command,
+      jsonMode: jsonMode ? { flags, commandName: 'agent' } : null,
+    });
 
-    if (action === 'cancel') {
+    if (action === 'cancel' || !action) {
       this.log(colors.textMuted('Operation cancelled.'));
       return;
     }

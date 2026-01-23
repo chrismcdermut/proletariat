@@ -43,10 +43,6 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     all: Flags.boolean({
       char: 'a',
       description: 'Spawn all tickets tickets in a column',

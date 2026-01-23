@@ -119,12 +119,12 @@ export async function promptForRepositories(
         ? 'How would you like to add repositories to the HQ?'
         : 'Add another repository?',
       choices: [
-        { name: '📁 Manually enter repository path or Git URL', value: 'manual' },
         { name: '🔍 Search for repositories on this machine', value: 'search' },
+        { name: '📁 Manually enter repository path or Git URL', value: 'manual' },
         { name: '✨ Create new repository', value: 'create' },
         { name: repos.length === 0 ? '⏭️  Skip adding repositories' : '✅ Done adding repositories', value: 'skip' }
       ],
-      default: repos.length === 0 ? 'manual' : 'skip'
+      default: repos.length === 0 ? 'search' : 'skip'
     }]);
 
     if (repoAction === 'skip') {
@@ -378,8 +378,10 @@ async function searchForRepositories(): Promise<RepoToAdd[]> {
     return [];
   }
 
-  // Remove duplicates and get repo names
-  const uniqueRepos = [...new Set(foundRepos)];
+  // Remove duplicates and sort alphabetically by repo name
+  const uniqueRepos = [...new Set(foundRepos)].sort((a, b) =>
+    path.basename(a).toLowerCase().localeCompare(path.basename(b).toLowerCase())
+  );
   const repoChoices = uniqueRepos.map(repoPath => ({
     name: `${path.basename(repoPath)} (${repoPath})`,
     value: repoPath
@@ -709,8 +711,8 @@ export async function promptAddSingleRepo(): Promise<RepoToAdd | null> {
     name: 'method',
     message: 'How would you like to add a repository?',
     choices: [
-      { name: '📁 Enter path or Git URL', value: 'manual' },
       { name: '🔍 Search for repositories on this machine', value: 'search' },
+      { name: '📁 Enter path or Git URL', value: 'manual' },
       { name: '✨ Create new repository', value: 'create' },
       new inquirer.Separator(),
       { name: '❌ Cancel', value: 'cancel' }

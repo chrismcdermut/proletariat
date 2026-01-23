@@ -32,7 +32,7 @@ import {
 const PICKER_TEMPLATE_IDS = [...getPickerTemplates().map(t => t.id), 'custom'];
 
 export default class PMOInit extends Command {
-  static description = 'Initialize PMO (Project Management Office) in current directory or HQ';
+  static description = 'Initialize PMO (Project Management Org) in current directory or HQ';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
@@ -56,10 +56,6 @@ export default class PMOInit extends Command {
     }),
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
       default: false,
     }),
   };
