@@ -42,6 +42,8 @@ prlt work spawn --all --dry-run
 
 ## Execution Options
 
+All sessions run in tmux—close the window, agent keeps working.
+
 ### Environment
 
 Where the agent runs:
@@ -50,15 +52,6 @@ Where the agent runs:
 |-------------|------|----------|
 | Docker | (default if devcontainer exists) | Safety—fully isolated container |
 | Host | `--run-on-host` | Speed—no container overhead |
-
-### Display
-
-How you see it:
-
-| Display | Flag | Best For |
-|---------|------|----------|
-| Terminal | `--display terminal` | Watch in new terminal tab |
-| Background | `--display background` | Detached, reattach later |
 
 ### Permissions
 
@@ -69,7 +62,14 @@ Agent access level:
 | Safe | (default) | Agent prompts for permissions |
 | YOLO | `--skip-permissions` | No prompts, full access. Use with Docker for safe autonomy. |
 
-All sessions run in tmux under the hood—close the window, agent keeps working.
+### Display
+
+How you see it:
+
+| Display | Flag | Best For |
+|---------|------|----------|
+| Terminal | `--display terminal` | Watch in new terminal tab |
+| Background | `--display background` | Detached, reattach later |
 
 ### Examples
 
