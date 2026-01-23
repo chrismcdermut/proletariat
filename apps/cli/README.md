@@ -9,11 +9,9 @@
 
 ### Seize the means of production - Ship 100x.
 
-> **Turn tickets into output with AI labor**
-
 > 💡 *Paying for Claude Max but not maxing it out? You're leaving money on the table.*
 
-> ⚠️ **Beta Software** — Commands, flags, and APIs may change between versions. Not yet recommended for production automation scripts.
+> ⚠️ **Beta Software** — Use freely—things may change.
 
 ---
 
