@@ -125,12 +125,13 @@ Keep related repositories in the same HQ. This allows:
 
 The `.proletariat/` directory contains local state (database, config) and should typically be in `.gitignore`.
 
-### Use Meaningful Agent Names
+### Agent Names
 
-When adding staff agents, use names that help identify them in logs and branches:
+Agent names are auto-generated from your selected theme (e.g., `swift-lynch-1`, `steady-knight-1`). Choose a theme that fits your style:
 
 ```bash
-prlt agent staff add frontend-agent backend-agent infra-agent
+prlt agent themes list
+prlt agent themes set <theme-name>
 ```
 
 ## Related Concepts
