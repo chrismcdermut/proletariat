@@ -160,12 +160,9 @@ RUN mkdir -p /home/node/.npm-global/bin /home/node/.npm-global/lib \\
 ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
 ENV PATH=/home/node/.npm-global/bin:\$PATH
 
-# Install pnpm
-RUN npm install -g pnpm
-
-# Install Claude Code as node user so files are owned correctly
+# Install pnpm and Claude Code as node user so files are owned correctly
 USER node
-RUN npm install -g @anthropic-ai/claude-code
+RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code
 USER root
 
 # Install prlt CLI from GitHub Packages
