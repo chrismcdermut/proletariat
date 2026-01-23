@@ -127,7 +127,7 @@ prlt ticket link TKT-001 SPEC-001
 
 ### Epics
 
-Epics group related tickets into larger initiatives:
+Epics are groups of related tickets:
 
 ```bash
 # Create an epic
