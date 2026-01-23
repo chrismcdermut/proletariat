@@ -6,7 +6,7 @@ The PMO is Proletariat's built-in project management system. It provides ticket 
 
 ### Projects
 
-Projects are organizational containers that group related tickets. Each project has its own workflow statuses and board view.
+Projects are organizational containers that group related tickets. Projects reference shared workflow templates and have their own board view.
 
 ```bash
 # Create a project
