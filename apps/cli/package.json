@@ -54,6 +54,7 @@
   "files": [
     "./bin",
     "./dist",
+    "./images",
     "./oclif.manifest.json"
   ],
   "homepage": "https://github.com/chrismcdermut/proletariat-cli",
