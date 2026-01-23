@@ -163,22 +163,13 @@ RUN mkdir -p /home/node/.npm-global/bin /home/node/.npm-global/lib \\
 ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
 ENV PATH=/home/node/.npm-global/bin:\$PATH
 
-# Install Claude Code as node user so files are owned correctly
+# Install pnpm and Claude Code as node user so files are owned correctly
 USER node
-RUN npm install -g @anthropic-ai/claude-code
+RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code
 USER root
 
-# Install prlt CLI from GitHub Packages
-# Requires GITHUB_TOKEN build arg with read:packages scope
-ARG GITHUB_TOKEN
-RUN if [ -n "\${GITHUB_TOKEN}" ]; then \\
-      echo "//npm.pkg.github.com/:_authToken=\${GITHUB_TOKEN}" >> /home/node/.npmrc && \\
-      echo "@chrismcdermut:registry=https://npm.pkg.github.com" >> /home/node/.npmrc && \\
-      npm install -g @chrismcdermut/prlt && \\
-      rm /home/node/.npmrc; \\
-    else \\
-      echo "GITHUB_TOKEN not provided, prlt will be mounted from host"; \\
-    fi
+# Install prlt CLI from npm
+RUN npm install -g @proletariat/cli
 
 # Copy and set up scripts
 COPY init-firewall.sh /usr/local/bin/init-firewall.sh
@@ -510,6 +501,35 @@ WRAPPER_EOF
 else
     echo "No mounted prlt found, skipping setup"
 fi
+
+# Install workspace dependencies if package.json exists
+install_workspace_deps() {
+    local workspace_dir="$1"
+    if [ -f "$workspace_dir/package.json" ]; then
+        echo "Installing dependencies in $workspace_dir..."
+        cd "$workspace_dir"
+        if [ -f "pnpm-lock.yaml" ]; then
+            pnpm install 2>&1 || npm install 2>&1
+        elif [ -f "package-lock.json" ]; then
+            npm ci 2>&1 || npm install 2>&1
+        else
+            npm install 2>&1
+        fi
+    fi
+}
+
+# Check workspace repos for package.json and install deps
+for repo_dir in /workspace/*/; do
+    if [ -d "$repo_dir" ] && [ -f "$repo_dir/package.json" ]; then
+        install_workspace_deps "$repo_dir"
+        # Also check for monorepo structure (apps/cli for prlt)
+        if [ -f "$repo_dir/apps/cli/package.json" ]; then
+            install_workspace_deps "$repo_dir/apps/cli"
+        fi
+    fi
+done
+
+echo "Workspace setup complete"
 `
 }
 
