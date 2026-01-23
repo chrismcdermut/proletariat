@@ -377,6 +377,13 @@ export default class WorkStart extends PMOCommand {
         const activeStaffAgents = getActiveStaffAgents(workspaceInfo, (msg) => this.log(msg))
 
         if (activeStaffAgents.length > 0) {
+          // Clean up stale executions before checking availability (TKT-604)
+          // This fixes agents appearing as "busy" when their sessions have terminated
+          const cleanedUp = executionStorage.cleanupStaleExecutions()
+          if (cleanedUp > 0) {
+            this.log(styles.muted(`   Cleaned up ${cleanedUp} stale execution(s)`))
+          }
+
           // Get list of busy agents (already running something)
           const busyAgentNames = new Set<string>()
           for (const agent of activeStaffAgents) {
@@ -1297,6 +1304,12 @@ export default class WorkStart extends PMOCommand {
 
     // Get staff agents that exist on disk (warns about missing directories)
     const activeStaffAgents = getActiveStaffAgents(workspaceInfo, (msg) => this.log(msg))
+
+    // Clean up stale executions before checking availability (TKT-604)
+    const cleanedUp = executionStorage.cleanupStaleExecutions()
+    if (cleanedUp > 0) {
+      this.log(styles.muted(`   Cleaned up ${cleanedUp} stale execution(s)`))
+    }
 
     const busyAgentNames = new Set<string>()
     for (const agent of activeStaffAgents) {

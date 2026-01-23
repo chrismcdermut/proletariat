@@ -5,6 +5,7 @@
  */
 
 import Database from 'better-sqlite3'
+import { execSync } from 'node:child_process'
 import { PMO_TABLES } from '../pmo/schema.js'
 import {
   AgentWork,
@@ -289,6 +290,114 @@ export class ExecutionStorage {
       .get(agentName) as { count: number }
 
     return count.count === 0
+  }
+
+  /**
+   * Clean up stale executions where the tmux session no longer exists.
+   * This fixes the bug where agents appear "busy" after sessions terminate unexpectedly.
+   * Returns the number of stale executions cleaned up.
+   */
+  cleanupStaleExecutions(): number {
+    // Get all "running" or "starting" executions
+    const activeExecutions = this.listExecutions({ status: 'running' })
+      .concat(this.listExecutions({ status: 'starting' }))
+
+    if (activeExecutions.length === 0) {
+      return 0
+    }
+
+    // Get list of actual tmux sessions on host
+    const hostTmuxSessions = this.getHostTmuxSessionNames()
+
+    // Get map of container -> tmux sessions
+    const containerTmuxSessions = this.getContainerTmuxSessionMap()
+
+    let cleanedCount = 0
+
+    for (const exec of activeExecutions) {
+      if (!exec.sessionId) {
+        // Executions without sessionId might be stale from early termination
+        // Check if they're older than 5 minutes and mark as stopped
+        const ageMs = Date.now() - exec.startedAt.getTime()
+        if (ageMs > 5 * 60 * 1000) {
+          this.updateStatus(exec.id, 'stopped')
+          cleanedCount++
+        }
+        continue
+      }
+
+      let sessionExists = false
+
+      if (exec.environment === 'devcontainer' && exec.containerId) {
+        // Check if session exists in container
+        const containerSessions = containerTmuxSessions.get(exec.containerId)
+        sessionExists = containerSessions?.includes(exec.sessionId) ?? false
+      } else {
+        // Check if session exists on host
+        sessionExists = hostTmuxSessions.includes(exec.sessionId)
+      }
+
+      if (!sessionExists) {
+        // Session doesn't exist, mark execution as stopped
+        this.updateStatus(exec.id, 'stopped')
+        cleanedCount++
+      }
+    }
+
+    return cleanedCount
+  }
+
+  /**
+   * Get list of host tmux session names
+   */
+  private getHostTmuxSessionNames(): string[] {
+    try {
+      execSync('which tmux', { stdio: 'pipe' })
+      const output = execSync(
+        'tmux list-sessions -F "#{session_name}"',
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+      ).trim()
+
+      if (!output) return []
+      return output.split('\n')
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Get map of containerId -> tmux session names
+   */
+  private getContainerTmuxSessionMap(): Map<string, string[]> {
+    const sessionMap = new Map<string, string[]>()
+
+    try {
+      const containersOutput = execSync(
+        'docker ps --filter "label=devcontainer.local_folder" --format "{{.ID}}"',
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+      ).trim()
+
+      if (!containersOutput) return sessionMap
+
+      for (const containerId of containersOutput.split('\n')) {
+        try {
+          const tmuxOutput = execSync(
+            `docker exec ${containerId} tmux list-sessions -F "#{session_name}" 2>/dev/null`,
+            { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+          ).trim()
+
+          if (tmuxOutput) {
+            sessionMap.set(containerId, tmuxOutput.split('\n'))
+          }
+        } catch {
+          // Container has no tmux sessions
+        }
+      }
+    } catch {
+      // Docker not available
+    }
+
+    return sessionMap
   }
 
   /**
