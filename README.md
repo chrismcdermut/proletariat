@@ -7,12 +7,6 @@
 ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═╝   ╚═╝
 ```
 
-[![npm version](https://img.shields.io/npm/v/@proletariat/cli.svg)](https://www.npmjs.com/package/@proletariat/cli)
-[![Downloads](https://img.shields.io/npm/dm/@proletariat/cli.svg)](https://www.npmjs.com/package/@proletariat/cli)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-
-[Star on GitHub](https://github.com/chrismcdermut/proletariat) | [Install from NPM](https://www.npmjs.com/package/@proletariat/cli) | [Report Issues](https://github.com/chrismcdermut/proletariat/issues)
-
 ### Seize the means of production - Ship 100x.
 
 > **Turn tickets into output with coordinated AI agents**
@@ -617,5 +611,11 @@ Claude Code handles its own authentication via `claude login`.
 Apache 2.0
 
 ---
+
+[![npm version](https://img.shields.io/npm/v/@proletariat/cli.svg)](https://www.npmjs.com/package/@proletariat/cli)
+[![Downloads](https://img.shields.io/npm/dm/@proletariat/cli.svg)](https://www.npmjs.com/package/@proletariat/cli)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
+[Star on GitHub](https://github.com/chrismcdermut/proletariat) | [Install from NPM](https://www.npmjs.com/package/@proletariat/cli) | [Report Issues](https://github.com/chrismcdermut/proletariat/issues)
 
 Made with ⚒️ by the proletariat.
