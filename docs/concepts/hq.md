@@ -34,8 +34,6 @@ my-project-hq/
 Initialize a new HQ with:
 
 ```bash
-mkdir my-project-hq
-cd my-project-hq
 prlt init
 ```
 
