@@ -11,7 +11,7 @@
 
 > 💡 *Paying for Claude Max but not maxing it out? You're leaving money on the table.*
 
-> ⚠️ **Beta Software** — Commands, flags, and APIs may change between versions. Use freely, but expect breaking changes.
+> ⚠️ **Beta Software** — Use freely—things may change.
 
 ---
 
