@@ -163,7 +163,7 @@ prlt work start TKT-001
           │
           ▼
 ┌───────────────────┐
-│  Work Complete    │  Agent session ends
+│  Work Complete    │  Agent session ends (cleanup is manual)
 └───────────────────┘
 ```
 
