@@ -46,7 +46,7 @@ export default class Init extends Command {
       char: 'r',
     }),
     pmo: Flags.boolean({
-      description: 'Include PMO (Project Management Office)',
+      description: 'Include PMO (Project Management Org)',
       default: true,
       allowNo: true,
     }),

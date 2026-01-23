@@ -10,7 +10,7 @@ An HQ is a directory structure that contains:
 - **Database** - SQLite database tracking tickets, agents, and work
 - **Repositories** - Your code repositories (cloned or linked)
 - **Agents** - Workspaces for AI coding assistants
-- **PMO** - Project Management Office with tickets and specs
+- **PMO** - Project Management Org with tickets and specs
 
 ## Directory Structure
 
@@ -22,14 +22,11 @@ my-project-hq/
 ├── repos/
 │   ├── frontend/        # Cloned repositories
 │   └── backend/
-├── agents/
-│   ├── staff/           # Named (permanent) agents
-│   │   ├── alice/       # Agent worktree
-│   │   └── bob/
-│   └── temp/            # Ephemeral agents
-└── pmo/
-    ├── board.md         # Kanban board (Obsidian-compatible)
-    └── specs/           # Specification files
+└── agents/
+    ├── staff/           # Named (permanent) agents
+    │   ├── alice/       # Agent worktree
+    │   └── bob/
+    └── temp/            # Ephemeral agents
 ```
 
 ## Creating an HQ
@@ -45,8 +42,7 @@ prlt init
 The `init` command:
 1. Creates the `.proletariat/` directory
 2. Initializes the SQLite database
-3. Creates the `pmo/` directory structure
-4. Sets up default project and workflow statuses
+3. Sets up default project and workflow statuses
 
 ## Configuration
 
@@ -132,10 +128,6 @@ Keep related repositories in the same HQ. This allows:
 - Agents that can work across multiple repos
 - Unified project management view
 
-### Commit the PMO
-
-The `pmo/` directory contains human-readable files (board.md, specs/) that can be committed to version control for collaboration.
-
 ### Don't Commit .proletariat
 
 The `.proletariat/` directory contains local state (database, config) and should typically be in `.gitignore`.
@@ -150,6 +142,6 @@ prlt agent staff add frontend-agent backend-agent infra-agent
 
 ## Related Concepts
 
-- [PMO (Project Management Office)](./pmo.md) - Managing tickets and specs
+- [PMO (Project Management Org)](./pmo.md) - Managing tickets and specs
 - [Agents](./agents.md) - AI coding assistants
 - [Work](./work.md) - Spawning and executing agent work

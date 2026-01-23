@@ -384,7 +384,7 @@ Update installed plugins.
 
 ### `prlt pmo init`
 
-Initialize PMO (Project Management Office) in current directory or HQ
+Initialize PMO (Project Management Org) in current directory or HQ
 
 **Flags:**
 - -s, `--storage` - Storage backend

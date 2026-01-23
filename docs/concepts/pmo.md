@@ -1,4 +1,4 @@
-# PMO (Project Management Office)
+# PMO (Project Management Org)
 
 The PMO is Proletariat's built-in project management system. It provides ticket tracking, specifications, and workflow management designed specifically for AI agent orchestration.
 

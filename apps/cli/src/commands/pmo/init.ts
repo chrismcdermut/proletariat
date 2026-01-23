@@ -28,7 +28,7 @@ import {
 } from '../../lib/prompt-json.js';
 
 export default class PMOInit extends Command {
-  static description = 'Initialize PMO (Project Management Office) in current directory or HQ';
+  static description = 'Initialize PMO (Project Management Org) in current directory or HQ';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
