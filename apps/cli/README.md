@@ -7,7 +7,7 @@
 ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═╝   ╚═╝
 ```
 
-### Seize the means of production - Ship 100x.
+### Seize the means of production through AI labor - Ship 100x.
 
 > 💡 *Paying for Claude Max but not maxing it out? You're leaving money on the table.*
 
