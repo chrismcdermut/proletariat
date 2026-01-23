@@ -6,6 +6,7 @@
 import Database from 'better-sqlite3'
 import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from '../schema.js'
 import { StateCategory } from '../types.js'
+import { BUILTIN_TEMPLATES } from '../templates-builtin.js'
 
 const T = PMO_TABLES
 
@@ -233,106 +234,10 @@ export function runMigrations(db: Database.Database): void {
 }
 
 /**
- * Seed built-in workflows (shared workflow definitions).
- * Creates workflows from existing templates for reuse across projects.
+ * Seed built-in workflows from BUILTIN_TEMPLATES (single source of truth).
+ * Creates workflows from template definitions for reuse across projects.
  */
 export function seedBuiltinWorkflows(db: Database.Database): void {
-  type WorkflowStatusDef = {
-    name: string
-    category: StateCategory
-    position: number
-    color?: string
-    isDefault?: boolean
-  }
-
-  // Define built-in workflows based on the template definitions
-  const builtinWorkflows: Array<{
-    id: string
-    name: string
-    description: string
-    statuses: WorkflowStatusDef[]
-  }> = [
-    {
-      id: 'default',
-      name: 'Default',
-      description: 'Default workflow: Backlog → Ready → In Progress → Review → Done',
-      statuses: [
-        { name: 'Backlog', category: 'backlog', position: 0, isDefault: true },
-        { name: 'Ready', category: 'unstarted', position: 1 },
-        { name: 'In Progress', category: 'started', position: 2 },
-        { name: 'Review', category: 'started', position: 3 },
-        { name: 'Done', category: 'completed', position: 4 },
-      ],
-    },
-    {
-      id: 'kanban',
-      name: 'Kanban',
-      description: 'Simple kanban workflow: Backlog → To Do → In Progress → Done',
-      statuses: [
-        { name: 'Backlog', category: 'backlog', position: 0, isDefault: true },
-        { name: 'To Do', category: 'unstarted', position: 1 },
-        { name: 'In Progress', category: 'started', position: 2 },
-        { name: 'Done', category: 'completed', position: 3 },
-        { name: 'Canceled', category: 'canceled', position: 4 },
-      ],
-    },
-    {
-      id: 'linear',
-      name: 'Linear',
-      description: 'Linear-style workflow with backlog, triage, and review stages',
-      statuses: [
-        { name: 'Backlog', category: 'backlog', position: 0, isDefault: true },
-        { name: 'Triage', category: 'backlog', position: 1 },
-        { name: 'Todo', category: 'unstarted', position: 2 },
-        { name: 'In Progress', category: 'started', position: 3 },
-        { name: 'In Review', category: 'started', position: 4 },
-        { name: 'Done', category: 'completed', position: 5 },
-        { name: 'Canceled', category: 'canceled', position: 6 },
-      ],
-    },
-    {
-      id: 'bug-smash',
-      name: 'Bug Smash',
-      description: 'Bug tracking workflow with verification stages',
-      statuses: [
-        { name: 'Reported', category: 'backlog', position: 0, isDefault: true },
-        { name: 'Confirmed', category: 'unstarted', position: 1 },
-        { name: 'Fixing', category: 'started', position: 2 },
-        { name: 'Verifying', category: 'started', position: 3 },
-        { name: 'Fixed', category: 'completed', position: 4 },
-        { name: "Won't Fix", category: 'canceled', position: 5 },
-      ],
-    },
-    {
-      id: '5-tool-founder',
-      name: '5-Tool Founder',
-      description: 'Founder workflow: Ship, Grow, Support, Strategy, BizOps backlogs → In Progress → Review → Done',
-      statuses: [
-        { name: 'Ship', category: 'backlog', position: 0, isDefault: true },
-        { name: 'Grow', category: 'backlog', position: 1 },
-        { name: 'Support', category: 'backlog', position: 2 },
-        { name: 'Strategy', category: 'backlog', position: 3 },
-        { name: 'BizOps', category: 'backlog', position: 4 },
-        { name: 'In Progress', category: 'started', position: 5 },
-        { name: 'Review', category: 'started', position: 6 },
-        { name: 'Done', category: 'completed', position: 7 },
-      ],
-    },
-    {
-      id: 'gtm',
-      name: 'GTM',
-      description: 'Go-to-market workflow for launches and campaigns',
-      statuses: [
-        { name: 'Ideation', category: 'backlog', position: 0, isDefault: true },
-        { name: 'Planning', category: 'unstarted', position: 1 },
-        { name: 'In Development', category: 'started', position: 2 },
-        { name: 'Ready to Launch', category: 'started', position: 3 },
-        { name: 'Launched', category: 'completed', position: 4 },
-        { name: 'Retired', category: 'canceled', position: 5 },
-      ],
-    },
-  ]
-
   const now = new Date().toISOString()
 
   const insertWorkflow = db.prepare(`
@@ -345,20 +250,24 @@ export function seedBuiltinWorkflows(db: Database.Database): void {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
-  for (const workflow of builtinWorkflows) {
-    insertWorkflow.run(workflow.id, workflow.name, workflow.description, now, now)
+  // Read from BUILTIN_TEMPLATES - the single source of truth
+  for (const template of BUILTIN_TEMPLATES) {
+    insertWorkflow.run(template.id, template.name, template.description, now, now)
 
-    for (const status of workflow.statuses) {
-      const statusId = `${workflow.id}-${status.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`
+    for (let i = 0; i < template.statuses.length; i++) {
+      const status = template.statuses[i]
+      const statusId = `${template.id}-${status.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`
+      // First status is the default
+      const isDefault = i === 0
       insertStatus.run(
         statusId,
-        workflow.id,
+        template.id,
         status.name,
         status.category,
         status.position,
-        status.color || null,
-        null,
-        status.isDefault ? 1 : 0,
+        null, // color
+        null, // description
+        isDefault ? 1 : 0,
         now
       )
     }
