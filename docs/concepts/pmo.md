@@ -33,7 +33,6 @@ Tickets are individual work items that agents implement. They follow a structure
 | `status` | Current workflow state |
 | `priority` | P0 (critical), P1 (high), P2 (medium), P3 (low) |
 | `category` | feature, bug, refactor, docs, test, chore, etc. |
-| `assignee` | Agent or person assigned |
 | `owner` | Human responsible for the ticket |
 | `subtasks` | Checklist of smaller tasks |
 | `acceptanceCriteria` | Testable completion criteria |
