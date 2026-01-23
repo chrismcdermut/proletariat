@@ -7,7 +7,9 @@
 ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═╝   ╚═╝
 ```
 
-### Seize the means of production through AI labor - Ship 100x.
+### Seize the means of production - Ship 100x.
+
+> **Multi-agent orchestration for AI coding assistants.** Spawn parallel agents to work through your backlog.
 
 > ⚠️ **Beta Software** — Under active development. Commands and APIs may change between versions.
 
