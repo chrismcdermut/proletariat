@@ -22,8 +22,8 @@
 ```bash
 npm install -g @proletariat/cli
 prlt init
-prlt ticket create --title "Add OAuth" --category feature
-prlt work spawn   # Interactive: select tickets, environment, action
+prlt ticket create   # Interactive: title, description, priority
+prlt work spawn      # Interactive: select tickets, environment, action
 ```
 
 Agent spawns in its own branch, writes code, opens PR. You review and merge.
@@ -45,7 +45,7 @@ Agent spawns in its own branch, writes code, opens PR. You review and merge.
 ```bash
 npm install -g @proletariat/cli    # Install
 prlt init                          # Create HQ, add repos, choose theme
-prlt ticket create --title "Add OAuth" --category feature
+prlt ticket create                 # Interactive: title, description, priority
 prlt work spawn                    # Interactive: select tickets, environment, action
 # Agent creates PR → You review → Merge → Done
 ```
