@@ -237,21 +237,6 @@ Start even if work is already in progress:
 prlt work start TKT-001 --force
 ```
 
-### Agent Selection Strategy
-
-For batch operations, choose how agents are assigned:
-
-```bash
-# Round-robin (default)
-prlt work spawn --all --strategy round-robin
-
-# Least busy
-prlt work spawn --all --strategy least-busy
-
-# Random
-prlt work spawn --all --strategy random
-```
-
 ### Limit Batch Size
 
 ```bash
