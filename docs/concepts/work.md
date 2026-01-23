@@ -40,71 +40,52 @@ prlt work spawn --many
 prlt work spawn --all --dry-run
 ```
 
-## Execution Modes
+## Execution Options
 
-Choose how the agent runs:
+### Environment
 
-| Mode | Description | Best For |
-|------|-------------|----------|
-| `docker` | Isolated Docker container | Production work, safety |
-| `devcontainer` | VS Code devcontainer | IDE integration |
-| `terminal` | New terminal window | macOS development |
-| `tmux` | tmux session | Linux, multiple agents |
-| `foreground` | Current terminal | Debugging, watching |
-| `background` | Background process | Batch operations |
-| `vm` | Virtual machine | Maximum isolation |
+Where the agent runs:
 
-### Docker Mode (Recommended)
+| Environment | Flag | Best For |
+|-------------|------|----------|
+| Docker | (default if devcontainer exists) | Safety—fully isolated container |
+| Host | `--run-on-host` | Speed—no container overhead |
 
-```bash
-prlt work start TKT-001 --mode docker
-```
+### Display
 
-Docker mode:
-- Creates isolated container
-- Mounts repository as volume
-- Provides consistent environment
-- Prevents host system changes
+How you see it:
 
-### Terminal Mode
+| Display | Flag | Best For |
+|---------|------|----------|
+| Terminal | `--display terminal` | Watch in new terminal tab |
+| Background | `--display background` | Detached, reattach later |
 
-```bash
-prlt work start TKT-001 --mode terminal
-```
+### Permissions
 
-Opens a new terminal window (macOS) with the agent session.
+Agent access level:
 
-### Tmux Mode
+| Mode | Flag | Description |
+|------|------|-------------|
+| Safe | (default) | Agent prompts for permissions |
+| YOLO | `--skip-permissions` | No prompts, full access. Use with Docker for safe autonomy. |
+
+All sessions run in tmux under the hood—close the window, agent keeps working.
+
+### Examples
 
 ```bash
-prlt work start TKT-001 --mode tmux
+# Default: Docker + terminal (if devcontainer exists)
+prlt work start TKT-001
+
+# Docker + background
+prlt work start TKT-001 --display background
+
+# Host + background (fast, no container)
+prlt work start TKT-001 --run-on-host --display background
+
+# Docker + YOLO (full autonomy, safely sandboxed)
+prlt work start TKT-001 --skip-permissions
 ```
-
-Runs in a tmux session. Useful for:
-- Linux environments
-- SSH sessions
-- Managing multiple agents in one terminal
-
-### Foreground Mode
-
-```bash
-prlt work start TKT-001 --mode foreground
-```
-
-Runs in the current terminal. Useful for:
-- Watching agent output in real-time
-- Debugging issues
-- Single-agent workflows
-
-### Host Execution
-
-By default, agents run in containers. To run directly on host:
-
-```bash
-prlt work start TKT-001 --run-on-host
-```
-
-Warning: Host execution has no isolation - agent can modify your system.
 
 ## Actions
 
