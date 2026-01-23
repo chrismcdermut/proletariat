@@ -59,8 +59,7 @@ The configuration file (`.proletariat/config.json`) contains:
 
 | Variable | Description |
 |----------|-------------|
-| `PRLT_HQ_PATH` | Override workspace location |
-| `DEVCONTAINER` | Set to "true" when running inside devcontainer |
+| `DEVCONTAINER` | Automatically "true" when running inside a devcontainer |
 
 ## Working with Repositories
 
@@ -105,11 +104,7 @@ sqlite3 .proletariat/workspace.db ".tables"
 
 ## Multiple Workspaces
 
-You can have multiple HQs for different projects or teams. Proletariat discovers workspaces by:
-
-1. Checking `PRLT_HQ_PATH` environment variable
-2. Walking up directory tree looking for `.proletariat/`
-3. Checking default locations
+You can have multiple HQs for different projects or teams. Proletariat discovers workspaces by walking up the directory tree looking for `.proletariat/`.
 
 List discovered workspaces:
 
