@@ -136,8 +136,8 @@ export const BUILTIN_THEMES: BuiltinThemeDefinition[] = [
     name: 'toyotas',
     displayName: 'Toyota Garage',
     description: 'Reliable workhorses for your project',
-    persistentDir: 'garage',
-    ephemeralDir: 'pit',
+    persistentDir: 'staff',
+    ephemeralDir: 'temp',
     names: [
       // Classic & current models
       '4runner', 'avalon', 'camry', 'celica', 'corolla', 'cressida',
@@ -160,8 +160,8 @@ export const BUILTIN_THEMES: BuiltinThemeDefinition[] = [
     name: 'companies',
     displayName: 'Company Portfolio',
     description: 'Your corporate portfolio',
-    persistentDir: 'portfolio',
-    ephemeralDir: 'incubator',
+    persistentDir: 'staff',
+    ephemeralDir: 'temp',
     names: [
       // Major tech companies
       'adobe', 'airbnb', 'amazon', 'apple', 'atlassian', 'cisco',
