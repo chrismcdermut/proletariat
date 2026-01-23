@@ -101,6 +101,9 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       GH_TOKEN: '${localEnv:GH_TOKEN}',
       GITHUB_TOKEN: '${localEnv:GITHUB_TOKEN}',
       PRLT_HQ_PATH: '/hq',
+      // Agent identity - allows agent to know its name and host path
+      PRLT_AGENT_NAME: options.agentName,
+      PRLT_HOST_PATH: options.agentDir,
       // /hq/.proletariat/bin contains prlt wrapper with ESM loader for native modules
       PATH: '/hq/.proletariat/bin:/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin',
     },

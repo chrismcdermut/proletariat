@@ -540,6 +540,61 @@ export function getWorkspaceAgents(workspacePath: string, includeCleanedUp: bool
 }
 
 /**
+ * Get an agent by directory path.
+ * Looks up agent where the given absolute path is inside the agent's worktree.
+ * Returns null if no matching agent found.
+ */
+export function getAgentByPath(workspacePath: string, absolutePath: string): Agent | null {
+  // Normalize paths
+  const normalizedWorkspace = path.resolve(workspacePath);
+  const normalizedPath = path.resolve(absolutePath);
+
+  // Path must be inside workspace
+  if (!normalizedPath.startsWith(normalizedWorkspace)) {
+    return null;
+  }
+
+  // Get relative path from workspace root
+  const relativePath = path.relative(normalizedWorkspace, normalizedPath);
+
+  const db = openWorkspaceDatabase(workspacePath);
+  const agents = db.prepare(
+    "SELECT * FROM agents WHERE status = 'active' OR status IS NULL"
+  ).all() as Array<{
+    name: string;
+    type: string | null;
+    status: string | null;
+    base_name: string | null;
+    theme_id: string | null;
+    worktree_path: string | null;
+    created_at: string;
+    cleaned_at: string | null;
+  }>;
+  db.close();
+
+  // Find agent whose worktree_path matches or contains the relative path
+  for (const row of agents) {
+    if (row.worktree_path) {
+      // Check if relativePath starts with or equals the agent's worktree_path
+      if (relativePath === row.worktree_path || relativePath.startsWith(row.worktree_path + '/')) {
+        return {
+          name: row.name,
+          type: (row.type || 'persistent') as AgentType,
+          status: (row.status || 'active') as AgentStatus,
+          base_name: row.base_name,
+          theme_id: row.theme_id,
+          worktree_path: row.worktree_path,
+          created_at: row.created_at,
+          cleaned_at: row.cleaned_at,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Mark an agent as cleaned up (keeps the record for history)
  */
 export function markAgentCleaned(workspacePath: string, agentName: string): void {
