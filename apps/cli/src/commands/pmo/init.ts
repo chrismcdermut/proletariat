@@ -15,6 +15,7 @@ import {
   promptForCustomColumns,
   determinePMOPath,
   PMOLocation,
+  getPickerTemplates,
 } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { isGHInstalled, isGHAuthenticated, getGHUsername, isGHTokenInEnv } from '../../lib/pr/index.js';
@@ -27,13 +28,16 @@ import {
   FormField,
 } from '../../lib/prompt-json.js';
 
+// Build template options dynamically from shared definitions (picker templates + custom)
+const PICKER_TEMPLATE_IDS = [...getPickerTemplates().map(t => t.id), 'custom'];
+
 export default class PMOInit extends Command {
   static description = 'Initialize PMO (Project Management Org) in current directory or HQ';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> --location repo:proletariat --template founder',
-    '<%= config.bin %> <%= command.id %> --location separate --template scrum',
+    '<%= config.bin %> <%= command.id %> --location repo:proletariat --template 5-tool',
+    '<%= config.bin %> <%= command.id %> --location separate --template linear',
   ];
 
   static flags = {
@@ -44,7 +48,7 @@ export default class PMOInit extends Command {
     template: Flags.string({
       char: 't',
       description: 'Board template',
-      options: ['kanban', 'scrum', 'founder', 'custom'],
+      options: PICKER_TEMPLATE_IDS,
     }),
     name: Flags.string({
       char: 'n',
@@ -123,11 +127,26 @@ export default class PMOInit extends Command {
     }
 
     // Get board template using shared prompt (or from flag)
+    // If DB exists, query it for templates (source of truth)
     let template: string;
     if (flags.template) {
       template = flags.template;
     } else {
-      template = await promptForBoardTemplate();
+      let storage: SQLiteStorage | undefined;
+      if (hqRoot) {
+        const dbPath = path.join(hqRoot, '.proletariat', 'workspace.db');
+        if (fs.existsSync(dbPath)) {
+          try {
+            storage = new SQLiteStorage(dbPath);
+          } catch {
+            // Ignore - will fall back to builtin templates
+          }
+        }
+      }
+      template = await promptForBoardTemplate(storage);
+      if (storage) {
+        await storage.close();
+      }
     }
 
     // Get columns for template
