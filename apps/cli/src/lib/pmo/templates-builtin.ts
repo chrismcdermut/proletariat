@@ -42,25 +42,50 @@ export interface BuiltinTemplate {
 /**
  * All builtin workflow templates.
  *
+ * This is the SINGLE SOURCE OF TRUTH for:
+ * - Database seeding (seedBuiltinWorkflows reads from this)
+ * - UI template picker
+ * - Board column creation
+ * - Work command column mappings
+ *
  * To add a new template:
  * 1. Add it to this array
  * 2. That's it - UI and DB will pick it up automatically
  */
 export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
   {
-    id: 'kanban',
-    name: 'Kanban',
-    description: 'Simple kanban workflow: Backlog → Planned → In Progress → Done',
-    columns: ['Backlog', 'Planned', 'In Progress', 'Done'],
+    id: 'default',
+    name: 'Default',
+    description: 'Default workflow: Backlog → Ready → In Progress → Review → Done',
+    columns: ['Backlog', 'Ready', 'In Progress', 'Review', 'Done'],
     statuses: [
       { name: 'Backlog', category: 'backlog', position: 0 },
-      { name: 'Planned', category: 'unstarted', position: 0 },
-      { name: 'In Progress', category: 'started', position: 0 },
-      { name: 'Done', category: 'completed', position: 0 },
-      { name: 'Canceled', category: 'canceled', position: 0 },
+      { name: 'Ready', category: 'unstarted', position: 1 },
+      { name: 'In Progress', category: 'started', position: 2 },
+      { name: 'Review', category: 'started', position: 3 },
+      { name: 'Done', category: 'completed', position: 4 },
     ],
     columnSettings: {
-      column_planned: 'Planned',
+      column_planned: 'Ready',
+      column_in_progress: 'In Progress',
+      column_done: 'Done',
+    },
+    showInPicker: false, // Internal default, not shown in picker
+  },
+  {
+    id: 'kanban',
+    name: 'Kanban',
+    description: 'Simple kanban workflow: Backlog → To Do → In Progress → Done',
+    columns: ['Backlog', 'To Do', 'In Progress', 'Done', 'Canceled'],
+    statuses: [
+      { name: 'Backlog', category: 'backlog', position: 0 },
+      { name: 'To Do', category: 'unstarted', position: 1 },
+      { name: 'In Progress', category: 'started', position: 2 },
+      { name: 'Done', category: 'completed', position: 3 },
+      { name: 'Canceled', category: 'canceled', position: 4 },
+    ],
+    columnSettings: {
+      column_planned: 'To Do',
       column_in_progress: 'In Progress',
       column_done: 'Done',
     },
@@ -70,15 +95,15 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     id: 'linear',
     name: 'Linear',
     description: 'Linear-style workflow with triage and review stages',
-    columns: ['Backlog', 'Triage', 'Todo', 'In Progress', 'In Review', 'Done'],
+    columns: ['Backlog', 'Triage', 'Todo', 'In Progress', 'In Review', 'Done', 'Canceled'],
     statuses: [
       { name: 'Backlog', category: 'backlog', position: 0 },
       { name: 'Triage', category: 'backlog', position: 1 },
-      { name: 'Todo', category: 'unstarted', position: 0 },
-      { name: 'In Progress', category: 'started', position: 0 },
-      { name: 'In Review', category: 'started', position: 1 },
-      { name: 'Done', category: 'completed', position: 0 },
-      { name: 'Canceled', category: 'canceled', position: 0 },
+      { name: 'Todo', category: 'unstarted', position: 2 },
+      { name: 'In Progress', category: 'started', position: 3 },
+      { name: 'In Review', category: 'started', position: 4 },
+      { name: 'Done', category: 'completed', position: 5 },
+      { name: 'Canceled', category: 'canceled', position: 6 },
     ],
     columnSettings: {
       column_planned: 'Todo',
@@ -88,24 +113,22 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     showInPicker: true,
   },
   {
-    id: '5-tool',
+    id: '5-tool-founder',
     name: '5-Tool Founder',
-    description: 'Founder workflow with 5-tool backlogs + execution stages',
-    columns: [
-      'SHIP BL', 'GROW BL', 'SUPPORT BL', 'BIZOPS BL', 'STRATEGY BL',
-      'Planned', 'In Progress', 'Done', 'Dropped'
-    ],
+    description: 'Founder workflow: Ship, Grow, Support, Strategy, BizOps backlogs → In Progress → Review → Done',
+    columns: ['Ship', 'Grow', 'Support', 'Strategy', 'BizOps', 'In Progress', 'Review', 'Done'],
     statuses: [
-      { name: 'Ideas', category: 'backlog', position: 0 },
-      { name: 'Next Up', category: 'unstarted', position: 0 },
-      { name: 'Building', category: 'started', position: 0 },
-      { name: 'Shipping', category: 'started', position: 1 },
-      { name: 'Measuring', category: 'started', position: 2 },
-      { name: 'Shipped', category: 'completed', position: 0 },
-      { name: 'Parked', category: 'canceled', position: 0 },
+      { name: 'Ship', category: 'backlog', position: 0 },
+      { name: 'Grow', category: 'backlog', position: 1 },
+      { name: 'Support', category: 'backlog', position: 2 },
+      { name: 'Strategy', category: 'backlog', position: 3 },
+      { name: 'BizOps', category: 'backlog', position: 4 },
+      { name: 'In Progress', category: 'started', position: 5 },
+      { name: 'Review', category: 'started', position: 6 },
+      { name: 'Done', category: 'completed', position: 7 },
     ],
     columnSettings: {
-      column_planned: 'Planned',
+      column_planned: 'Ship',
       column_in_progress: 'In Progress',
       column_done: 'Done',
     },
@@ -115,41 +138,41 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     id: 'bug-smash',
     name: 'Bug Smash',
     description: 'Bug tracking workflow with verification stages',
-    columns: ['Reported', 'Confirmed', 'Fixing', 'Verifying', 'Fixed'],
+    columns: ['Reported', 'Confirmed', 'Fixing', 'Verifying', 'Fixed', "Won't Fix"],
     statuses: [
       { name: 'Reported', category: 'backlog', position: 0 },
-      { name: 'Confirmed', category: 'unstarted', position: 0 },
-      { name: 'Fixing', category: 'started', position: 0 },
-      { name: 'Verifying', category: 'started', position: 1 },
-      { name: 'Fixed', category: 'completed', position: 0 },
-      { name: "Won't Fix", category: 'canceled', position: 0 },
+      { name: 'Confirmed', category: 'unstarted', position: 1 },
+      { name: 'Fixing', category: 'started', position: 2 },
+      { name: 'Verifying', category: 'started', position: 3 },
+      { name: 'Fixed', category: 'completed', position: 4 },
+      { name: "Won't Fix", category: 'canceled', position: 5 },
     ],
     columnSettings: {
       column_planned: 'Confirmed',
       column_in_progress: 'Fixing',
       column_done: 'Fixed',
     },
-    showInPicker: false, // Specialized template, not shown in init picker
+    showInPicker: false, // Specialized template
   },
   {
     id: 'gtm',
     name: 'GTM',
     description: 'Go-to-market workflow for launches and campaigns',
-    columns: ['Ideation', 'Planning', 'In Development', 'Ready to Launch', 'Launched'],
+    columns: ['Ideation', 'Planning', 'In Development', 'Ready to Launch', 'Launched', 'Retired'],
     statuses: [
       { name: 'Ideation', category: 'backlog', position: 0 },
-      { name: 'Planning', category: 'unstarted', position: 0 },
-      { name: 'In Development', category: 'started', position: 0 },
-      { name: 'Ready to Launch', category: 'started', position: 1 },
-      { name: 'Launched', category: 'completed', position: 0 },
-      { name: 'Retired', category: 'canceled', position: 0 },
+      { name: 'Planning', category: 'unstarted', position: 1 },
+      { name: 'In Development', category: 'started', position: 2 },
+      { name: 'Ready to Launch', category: 'started', position: 3 },
+      { name: 'Launched', category: 'completed', position: 4 },
+      { name: 'Retired', category: 'canceled', position: 5 },
     ],
     columnSettings: {
       column_planned: 'Planning',
       column_in_progress: 'In Development',
       column_done: 'Launched',
     },
-    showInPicker: false, // Specialized template, not shown in init picker
+    showInPicker: false, // Specialized template
   },
 ];
 
