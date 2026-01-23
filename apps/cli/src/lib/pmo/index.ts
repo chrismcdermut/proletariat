@@ -507,7 +507,7 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
   console.log(chalk.green(`  ✓ ${boardFileName} created`));
 
   // Create README for PMO
-  const readmeContent = `# PMO (Project Management Office)
+  const readmeContent = `# PMO (Project Management Org)
 
 ## Template: ${boardTemplate}
 
