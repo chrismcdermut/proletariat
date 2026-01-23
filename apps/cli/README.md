@@ -111,19 +111,19 @@ Spawn agents to implement, groom, or review—not just write code.
 `prlt work` guides you through project and ticket selection:
 
 <p align="center">
-  <img src="./images/work/work-project-select.png" alt="Project Selection" width="600">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat-cli/main/apps/cli/images/work/work-project-select.png" alt="Project Selection" width="600">
 </p>
 
 Choose your operation—start a single agent, batch spawn, or watch a column:
 
 <p align="center">
-  <img src="./images/work/work-operations-menu.png" alt="Work Operations Menu" width="600">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat-cli/main/apps/cli/images/work/work-operations-menu.png" alt="Work Operations Menu" width="600">
 </p>
 
 Select tickets to spawn, grouped by priority:
 
 <p align="center">
-  <img src="./images/work/work-ticket-select.png" alt="Ticket Selection" width="800">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat-cli/main/apps/cli/images/work/work-ticket-select.png" alt="Ticket Selection" width="800">
 </p>
 
 ---
@@ -252,7 +252,7 @@ $ prlt ticket create
 View ticket details with `prlt ticket`:
 
 <p align="center">
-  <img src="./images/ticket/ticket-view.png" alt="Ticket View" width="600">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat-cli/main/apps/cli/images/ticket/ticket-view.png" alt="Ticket View" width="600">
 </p>
 
 #### 2. JSON Mode (AI Agents)
@@ -380,7 +380,7 @@ Each agent works in its own branch. No conflicts.
 Monitor running agents with `prlt execution`:
 
 <p align="center">
-  <img src="./images/execution/execution-list.png" alt="Execution List" width="800">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat-cli/main/apps/cli/images/execution/execution-list.png" alt="Execution List" width="800">
 </p>
 
 ```
@@ -433,7 +433,7 @@ flowchart LR
 Agent-created PRs ready for review:
 
 <p align="center">
-  <img src="./images/execution/github-prs.png" alt="GitHub Pull Requests" width="800">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat-cli/main/apps/cli/images/execution/github-prs.png" alt="GitHub Pull Requests" width="800">
 </p>
 
 ### Command Reference
