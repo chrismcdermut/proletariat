@@ -78,10 +78,10 @@ export default class Whoami extends Command {
       return workspaceMatch[1];
     }
 
-    // Host pattern: agents/staff/{agent}
-    const staffMatch = cwd.match(/agents\/staff\/(\w+)/);
-    if (staffMatch) {
-      return staffMatch[1];
+    // Host pattern: agents/staff/{agent} or agents/temp/{agent}
+    const agentDirMatch = cwd.match(/agents\/(?:staff|temp)\/([\w-]+)/);
+    if (agentDirMatch) {
+      return agentDirMatch[1];
     }
 
     // Try git branch pattern: agent-{name}
