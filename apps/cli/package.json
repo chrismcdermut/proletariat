@@ -1,7 +1,7 @@
 {
   "name": "@proletariat/cli",
   "description": "Proletariat CLI v2 - Multi-agent development orchestration",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "author": "Chris McDermut",
   "publishConfig": {
     "access": "public"
@@ -94,8 +94,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/chrismcdermut/proletariat.git",
-    "directory": "apps/cli"
+    "url": "https://github.com/chrismcdermut/proletariat-cli.git"
   },
   "scripts": {
     "postinstall": "npm rebuild better-sqlite3 2>/dev/null || true",
