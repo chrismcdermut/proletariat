@@ -9,7 +9,7 @@
 
 ### Seize the means of production - Ship 100x.
 
-> **Multi-agent orchestration of AI labor.** Spin up workers for whatever comes in.
+> **Multi-agent orchestration of AI labor.** Spin up workers for all work, on demand.
 
 > ⚠️ **Beta Software** — Under active development. Commands and APIs may change between versions.
 
