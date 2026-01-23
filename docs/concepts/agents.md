@@ -190,9 +190,10 @@ prlt execution logs
 
 ### Use Appropriate Isolation
 
-- **docker** or **devcontainer** for safety
-- **tmux** for managing multiple agents
-- **host** only when you trust the code
+- **Docker** for safety—fully sandboxed from your host
+- **Host** only when you trust the code and need speed
+
+All sessions run in tmux regardless of environment, so you can always attach/detach.
 
 ### Monitor Active Sessions
 
