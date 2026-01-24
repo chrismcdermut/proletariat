@@ -581,6 +581,12 @@ export default class WorkSpawn extends PMOCommand {
               value: a.id,
             }))
 
+          // Add adhoc option at the end
+          actionChoices.push({
+            name: 'adhoc        - Unstructured exploration/debugging',
+            value: '__adhoc__',
+          })
+
           const { selectedAction } = await inquirer.prompt([
             {
               type: 'list',
@@ -590,11 +596,25 @@ export default class WorkSpawn extends PMOCommand {
               default: 'implement',
             },
           ])
-          batchAction = selectedAction
+          batchAction = selectedAction === '__adhoc__' ? 'adhoc' : selectedAction
         }
 
         // Now fetch action details after selection is made
-        selectedActionDetails = await this.storage.getAction(batchAction || 'implement')
+        if (batchAction === 'adhoc') {
+          // Adhoc is a synthetic action, not stored in database
+          selectedActionDetails = {
+            id: 'adhoc',
+            name: 'Ad-hoc',
+            description: 'Unstructured exploration and debugging',
+            prompt: 'You are working on an ad-hoc session for exploration and debugging. Help the user with whatever they need.',
+            modifiesCode: false,
+            defaultMoveToCategory: 'started',
+            isBuiltin: false,
+            createdAt: new Date(),
+          }
+        } else {
+          selectedActionDetails = await this.storage.getAction(batchAction || 'implement')
+        }
 
         // Check if any explicit settings were provided via flags
         const hasExplicitSettings = flags.display || flags.output || flags['skip-permissions'] ||
