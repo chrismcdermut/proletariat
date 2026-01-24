@@ -1318,6 +1318,24 @@ export default class WorkStart extends PMOCommand {
       return
     }
 
+    // Prompt for permissions mode once for all tickets (TKT-513)
+    let batchSkipPermissions = flags['skip-permissions']
+    if (!batchSkipPermissions) {
+      const { permissionMode } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'permissionMode',
+          message: 'Permission mode for Claude Code:',
+          choices: [
+            { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
+            { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+          ],
+          default: 'danger',
+        },
+      ])
+      batchSkipPermissions = permissionMode === 'danger'
+    }
+
     // Assign tickets to agents (round-robin)
     const assignments: Array<{ ticket: typeof backlogTickets[0]; agent: typeof availableAgents[0] }> = []
     for (let i = 0; i < backlogTickets.length; i++) {
@@ -1335,6 +1353,7 @@ export default class WorkStart extends PMOCommand {
 
         // Use the work:start command for each ticket
         // Pass --project from ticket to avoid re-prompting for project selection
+        // Pass --skip-permissions if danger mode was selected (TKT-513)
         await this.config.runCommand('work:start', [
           ticket.id,
           ...(ticket.projectId ? ['--project', ticket.projectId] : []),
@@ -1342,6 +1361,7 @@ export default class WorkStart extends PMOCommand {
           ...(flags.executor ? ['--executor', flags.executor] : []),
           ...(flags['run-on-host'] ? ['--run-on-host'] : []),
           ...(flags.force ? ['--force'] : []),
+          ...(batchSkipPermissions ? ['--skip-permissions'] : []),
         ])
 
         successCount++
