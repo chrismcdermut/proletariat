@@ -84,6 +84,8 @@ export default class SpecLinkRemove extends PMOCommand {
         ],
       }])
       if (!confirmed) { this.log(styles.muted('\nCancelled.')); return }
+      // Delete sequentially for data integrity
+      // eslint-disable-next-line no-await-in-loop
       for (const dep of dependencies) await this.storage.deleteSpecDependency(args.id, dep.dependsOnSpecId, dep.dependencyType)
       this.log(styles.success(`\n✅ Removed ${dependencies.length} dependencies from ${args.id}`))
       return

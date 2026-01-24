@@ -4,10 +4,8 @@ import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class TicketProject extends PMOCommand {
@@ -283,17 +281,19 @@ export default class TicketProject extends PMOCommand {
       }
     }
 
-    // Move each ticket using the storage method
+    // Move each ticket using the storage method - sequential for clear logging
     let lastMovedTicket;
     for (const ticketId of selectedTickets) {
       const ticket = tickets.find(t => t.id === ticketId);
 
       // Unlink from epic if needed
       if (ticket?.epicId) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.updateTicket(ticketId, { epicId: undefined });
       }
 
       // Move ticket to new project
+      // eslint-disable-next-line no-await-in-loop
       lastMovedTicket = await this.storage.moveTicketToProject(ticketId, targetProjectId!);
 
       this.log(styles.success(`  Moved ${ticketId} to ${targetProjectId}`));

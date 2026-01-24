@@ -1,6 +1,6 @@
 import { Args, Flags } from '@oclif/core'
-import * as fs from 'fs'
-import * as path from 'path'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
@@ -11,8 +11,6 @@ import {
   outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
-  buildFormPromptConfig,
-  FormField,
 } from '../../lib/prompt-json.js'
 import {
   BRANCH_TYPES,
@@ -48,6 +46,12 @@ interface WizardResult {
 }
 
 export default class BranchCreate extends PMOCommand {
+  // Internal state for passing data between methods
+  private _selectedTicket?: { id: string; title: string };
+  private _autoCommit?: boolean;
+  private _fromOrigin?: boolean;
+  private _customStartPoint?: string;
+
   static description = 'Create a new branch with conventional naming'
 
   static examples = [
@@ -180,7 +184,7 @@ export default class BranchCreate extends PMOCommand {
         return handleError('TICKET_NOT_FOUND', `Could not find ticket: ${flags.ticket}`)
       }
       branchName = ticketResult.branchName
-      ;(this as any)._selectedTicket = ticketResult.ticket
+      this._selectedTicket = ticketResult.ticket
     } else if (flags.type && flags.description) {
       // Flags provided - build name
       const type = flags.type as BranchType
@@ -211,14 +215,14 @@ export default class BranchCreate extends PMOCommand {
       if (!wizardResult) return
       branchName = wizardResult.branchName
       // Store ticket info, autoCommit, fromOrigin, and customStartPoint flags for later
-      ;(this as any)._selectedTicket = wizardResult.ticket
-      ;(this as any)._autoCommit = wizardResult.autoCommit
-      ;(this as any)._fromOrigin = wizardResult.fromOrigin
-      ;(this as any)._customStartPoint = wizardResult.customStartPoint
+      this._selectedTicket = wizardResult.ticket
+      this._autoCommit = wizardResult.autoCommit
+      this._fromOrigin = wizardResult.fromOrigin
+      this._customStartPoint = wizardResult.customStartPoint
     }
 
     // Fetch from origin if requested (via flag or wizard)
-    const fromOrigin = flags['from-origin'] || (this as any)._fromOrigin
+    const fromOrigin = flags['from-origin'] || this._fromOrigin
     if (fromOrigin) {
       this.log(styles.muted('Fetching from origin/main...'))
       if (!fetchOrigin('main')) {
@@ -249,7 +253,7 @@ export default class BranchCreate extends PMOCommand {
     this.log(styles.success(`✅ Creating branch: ${branchName}`))
 
     try {
-      const customStartPoint = (this as any)._customStartPoint as string | undefined
+      const customStartPoint = this._customStartPoint
       const startPoint = customStartPoint || (fromOrigin ? 'origin/main' : undefined)
       createBranch(branchName, undefined, !flags['no-switch'], startPoint)
 
@@ -260,7 +264,7 @@ export default class BranchCreate extends PMOCommand {
       }
 
       // Initial commit to seed PR title
-      const autoCommit = (this as any)._autoCommit as boolean | undefined
+      const autoCommit = this._autoCommit
       let createCommit = flags['empty-commit'] || autoCommit
 
       if (!createCommit && !args.name) {
@@ -282,7 +286,7 @@ export default class BranchCreate extends PMOCommand {
 
       if (createCommit) {
         // Build default commit message: use ticket info if available, otherwise branch name
-        const selectedTicket = (this as any)._selectedTicket as { id: string; title: string } | undefined
+        const selectedTicket = this._selectedTicket
         const defaultCommitMessage = selectedTicket
           ? `${selectedTicket.id}: ${selectedTicket.title}`
           : branchName
@@ -354,14 +358,15 @@ export default class BranchCreate extends PMOCommand {
   /**
    * Create branch from ticket ID with defaults (non-interactive).
    */
-  private async createFromTicketId(ticketId: string, ownerOverride?: string, projectId?: string): Promise<WizardResult | null> {
+  private async createFromTicketId(ticketId: string, ownerOverride?: string, _projectId?: string): Promise<WizardResult | null> {
     try {
       // Search for ticket across all projects
       const projects = await this.storage.listProjects()
       let foundTicket: { id: string; title: string; category?: string } | null = null
 
-      for (const project of projects) {
-        const tickets = await this.storage.listTickets(projectId)
+      for (const proj of projects) {
+        // eslint-disable-next-line no-await-in-loop -- Search with early exit
+        const tickets = await this.storage.listTickets(proj.id)
         const match = tickets.find(t => t.id === ticketId)
         if (match) {
           foundTicket = match
@@ -398,12 +403,13 @@ export default class BranchCreate extends PMOCommand {
     const defaultOwnerName = this.getDefaultOwnerName()
 
     // Load tickets from PMO (across all projects)
-    let tickets: Array<{ id: string; title: string; category?: string; status?: string; projectName?: string }> = []
+    const tickets: Array<{ id: string; title: string; category?: string; status?: string; projectName?: string }> = []
     try {
       // Get all projects and their tickets
       const projects = await this.storage.listProjects()
       const projectId = (flags as { project?: string }).project
       for (const project of projects) {
+        // eslint-disable-next-line no-await-in-loop -- Collecting tickets from projects
         const projectTickets = await this.storage.listTickets(projectId)
         // Filter to actionable tickets (todo, in-progress, backlog)
         const actionable = projectTickets.filter(t =>
@@ -591,7 +597,7 @@ export default class BranchCreate extends PMOCommand {
       },
     ])
 
-    let fromOrigin = branchFrom === 'origin-main'
+    const fromOrigin = branchFrom === 'origin-main'
     let customStartPoint: string | undefined
 
     if (branchFrom === 'other') {
@@ -703,7 +709,7 @@ export default class BranchCreate extends PMOCommand {
       },
     ])
 
-    let fromOrigin = branchFrom === 'origin-main'
+    const fromOrigin = branchFrom === 'origin-main'
     let customStartPoint: string | undefined
 
     if (branchFrom === 'other') {

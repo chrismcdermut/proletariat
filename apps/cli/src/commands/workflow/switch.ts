@@ -2,7 +2,6 @@ import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
-import { STATE_CATEGORY_ORDER, StateCategory } from '../../lib/pmo/types.js';
 
 export default class WorkflowSwitch extends PMOCommand {
   static description = 'Switch a project to use a different workflow';
@@ -113,7 +112,7 @@ export default class WorkflowSwitch extends PMOCommand {
     // Update project workflow_id
     await this.storage.updateProject(projectId, { workflowId: workflowId! });
 
-    // Migrate tickets to new statuses
+    // Migrate tickets to new statuses - sequential for data integrity
     let migratedCount = 0;
     for (const ticket of tickets) {
       // Get old status category
@@ -124,6 +123,7 @@ export default class WorkflowSwitch extends PMOCommand {
         (defaultStatus ? { id: defaultStatus.id, name: defaultStatus.name } : null);
 
       if (newStatus) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.moveTicket(projectId, ticket.id, newStatus.name);
         migratedCount++;
       }

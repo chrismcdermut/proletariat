@@ -149,6 +149,7 @@ export default class TicketTemplateCreate extends PMOCommand {
     if (wantSubtasks) {
       let addMore = true;
       while (addMore) {
+        // eslint-disable-next-line no-await-in-loop -- Interactive loop for subtask creation
         const { subtaskTitle } = await inquirer.prompt([{
           type: 'input',
           name: 'subtaskTitle',
@@ -157,6 +158,7 @@ export default class TicketTemplateCreate extends PMOCommand {
         }]);
         subtasks.push(subtaskTitle);
 
+        // eslint-disable-next-line no-await-in-loop -- Interactive loop continuation
         const { another } = await inquirer.prompt([{
           type: 'list',
           name: 'another',

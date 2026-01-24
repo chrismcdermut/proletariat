@@ -1,5 +1,5 @@
 import { Command, Flags } from '@oclif/core'
-import { execSync } from 'child_process'
+import { execSync } from 'node:child_process'
 import inquirer from 'inquirer'
 import { styles } from '../../lib/styles.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'

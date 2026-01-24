@@ -234,6 +234,7 @@ export default class EpicTicket extends PMOCommand {
     let successCount = 0;
     const linkedTickets: string[] = [];
 
+    // Process tickets - may prompt user for spec reconciliation
     for (const ticketId of ticketIds) {
       const ticket = allTickets.find((t: Ticket) => t.id === ticketId)!;
       const currentEpicId = getTicketEpicId(ticketId);
@@ -270,6 +271,7 @@ export default class EpicTicket extends PMOCommand {
         if (ticketSpecId && epicSpecId && ticketSpecId !== epicSpecId) {
           // Both have specs but they differ - warn user
           this.log(styles.warning(`  ⚠️  Spec mismatch: ticket has "${ticketSpecId}", epic has "${epicSpecId}"`));
+          // eslint-disable-next-line no-await-in-loop
           const { action } = await inquirer.prompt([{
             type: 'list',
             name: 'action',
@@ -297,6 +299,7 @@ export default class EpicTicket extends PMOCommand {
           }
         } else if (!ticketSpecId && epicSpecId) {
           // Ticket has no spec but epic does - offer to inherit
+          // eslint-disable-next-line no-await-in-loop
           const { inherit } = await inquirer.prompt([{
             type: 'confirm',
             name: 'inherit',

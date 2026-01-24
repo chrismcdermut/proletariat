@@ -6,7 +6,6 @@ import { execSync } from 'node:child_process'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { findHQRoot } from '../lib/workspace.js'
-import { readMachineConfig, RegisteredHeadquarters } from '../lib/machine-config.js'
 import {
   getWorkspaceInfo,
   createEphemeralAgent,
@@ -18,18 +17,13 @@ import {
   outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
-  EXIT_NEEDS_INPUT,
 } from '../lib/prompt-json.js'
 import { styles } from '../lib/styles.js'
 import {
   DisplayMode,
-  SessionManager,
   OutputMode,
-  ExecutorType,
   ExecutionContext,
   ExecutionEnvironment,
-  TerminalApp,
-  Shell,
   DEFAULT_EXECUTION_CONFIG,
 } from '../lib/execution/types.js'
 import { runExecution, isDockerRunning, isGitHubTokenAvailable } from '../lib/execution/runners.js'
@@ -43,7 +37,7 @@ import {
   hasTerminalPreference,
   hasShellPreference,
 } from '../lib/execution/config.js'
-import { hasDevcontainerConfig, createDevcontainerConfig } from '../lib/execution/devcontainer.js'
+import { hasDevcontainerConfig } from '../lib/execution/devcontainer.js'
 
 // Catch-all devcontainer image for directories without .devcontainer
 const CATCHALL_DEVCONTAINER_IMAGE = 'ghcr.io/chrismcdermut/proletariat-claude:latest'
@@ -204,6 +198,7 @@ export default class Claude extends Command {
       // Loop to handle Docker not running
       let environmentSelected = false
       while (!environmentSelected) {
+        // eslint-disable-next-line no-await-in-loop -- Interactive user prompt in loop
         const { selectedEnv } = await inquirer.prompt([
           {
             type: 'list',
@@ -255,6 +250,7 @@ export default class Claude extends Command {
             )
             this.log('')
 
+            // eslint-disable-next-line no-await-in-loop -- Interactive user prompt in loop
             const { tokenAction } = await inquirer.prompt([
               {
                 type: 'list',
@@ -619,6 +615,7 @@ export default class Claude extends Command {
       } else if (!jsonMode) {
         let environmentSelected = false
         while (!environmentSelected) {
+          // eslint-disable-next-line no-await-in-loop -- Interactive user prompt in loop
           const { selectedEnv } = await inquirer.prompt([
             {
               type: 'list',
@@ -671,6 +668,7 @@ export default class Claude extends Command {
               )
               this.log('')
 
+              // eslint-disable-next-line no-await-in-loop -- Interactive user prompt in loop
               const { tokenAction } = await inquirer.prompt([
                 {
                   type: 'list',
@@ -782,7 +780,9 @@ export default class Claude extends Command {
       this.log(styles.success(`   Created ticket: ${ticket.id}`))
 
       // Now use the slug from ticket title if not provided
-      const slug = flags.slug || ticketTitle!.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 30)
+      // Note: slug reserved for future branch naming
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const _slug = flags.slug || ticketTitle!.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 30)
 
       // Create ephemeral agent (with rollback on failure)
       this.log(styles.muted('   Creating ephemeral agent...'))
@@ -798,7 +798,7 @@ export default class Claude extends Command {
         try {
           await storage.deleteTicket(ticket.id)
           this.log(styles.muted(`   Deleted orphaned ticket: ${ticket.id}`))
-        } catch (deleteError) {
+        } catch {
           this.warn(`Failed to delete orphaned ticket ${ticket.id}. Manual cleanup may be needed.`)
         }
         throw agentError
@@ -976,7 +976,7 @@ export default class Claude extends Command {
       try {
         execSync(`docker pull ${CATCHALL_DEVCONTAINER_IMAGE}`, { stdio: 'pipe', timeout: 120000 })
         return { available: true }
-      } catch (pullError) {
+      } catch {
         return {
           available: false,
           error: `Failed to pull catch-all container image: ${CATCHALL_DEVCONTAINER_IMAGE}. Try running on host instead, or ensure Docker is configured correctly.`,

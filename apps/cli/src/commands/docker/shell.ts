@@ -1,6 +1,6 @@
 import { Args, Command, Flags } from '@oclif/core'
-import { spawn } from 'child_process'
-import * as path from 'path'
+import { spawn } from 'node:child_process'
+import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'

@@ -65,15 +65,6 @@ export default class StatusList extends PMOCommand {
       canceled: '🚫',
     };
 
-    const categoryColors: Record<StateCategory, string> = {
-      triage: '#A78BFA',    // purple
-      backlog: '#9CA3AF',   // gray
-      unstarted: '#60A5FA', // blue
-      started: '#FBBF24',   // yellow
-      completed: '#34D399', // green
-      canceled: '#F87171',  // red
-    };
-
     for (const category of STATE_CATEGORY_ORDER) {
       if (flags.category && flags.category !== category) continue;
 

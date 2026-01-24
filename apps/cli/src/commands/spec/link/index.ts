@@ -90,9 +90,11 @@ export default class SpecLink extends PMOCommand {
     // Interactive mode: show menu in a loop
     let continueLoop = true
     while (continueLoop) {
+      // eslint-disable-next-line no-await-in-loop -- Interactive user loop
       const allSpecs = await this.storage.listSpecs()
       const otherSpecs = allSpecs.filter(s => s.id !== specId)
 
+      // eslint-disable-next-line no-await-in-loop -- Interactive user prompt
       const { action } = await inquirer.prompt([{
         type: 'list',
         name: 'action',
@@ -114,16 +116,19 @@ export default class SpecLink extends PMOCommand {
       }
 
       if (action === 'view') {
+        // eslint-disable-next-line no-await-in-loop -- User action handling
         await this.viewDependencies(specId!, spec, flags.all)
         continue
       }
 
       if (action === 'remove') {
+        // eslint-disable-next-line no-await-in-loop -- User action handling
         const dependencies = await this.storage.listSpecDependencies(specId!)
         if (dependencies.length === 0) {
           this.log(styles.muted('\nNo dependencies to remove.'))
           continue
         }
+        // eslint-disable-next-line no-await-in-loop -- Building choices for current interaction
         const choices = await Promise.all(dependencies.map(async dep => {
           const depSpec = await this.storage.getSpec(dep.dependsOnSpecId)
           return {
@@ -131,12 +136,14 @@ export default class SpecLink extends PMOCommand {
             value: { targetId: dep.dependsOnSpecId, type: dep.dependencyType }
           }
         }))
+        // eslint-disable-next-line no-await-in-loop -- User selection prompt
         const { selected } = await inquirer.prompt([{
           type: 'list',
           name: 'selected',
           message: 'Select dependency to remove:',
           choices,
         }])
+        // eslint-disable-next-line no-await-in-loop -- Action after user selection
         await this.storage.deleteSpecDependency(specId!, selected.targetId, selected.type)
         this.log(styles.success(`\n✅ Removed dependency: ${specId} → ${selected.targetId}`))
         continue
@@ -147,12 +154,14 @@ export default class SpecLink extends PMOCommand {
         this.log(styles.muted('\nNo other specs to link to.'))
         continue
       }
+      // eslint-disable-next-line no-await-in-loop -- User selection prompt
       const { targetId } = await inquirer.prompt([{
         type: 'list',
         name: 'targetId',
         message: `Select spec that ${specId} ${action === 'depends_on' ? 'depends on' : action === 'relates_to' ? 'relates to' : 'duplicates'}:`,
         choices: otherSpecs.map(s => ({ name: `${s.id} - ${s.title}`, value: s.id })),
       }])
+      // eslint-disable-next-line no-await-in-loop -- Action after user selection
       await this.addDependency(specId!, targetId, action as SpecDependencyType, spec.title)
     }
   }
@@ -202,8 +211,11 @@ export default class SpecLink extends PMOCommand {
     const dependsOn = dependencies.filter(d => d.dependencyType === 'depends_on')
     if (dependsOn.length > 0) {
       this.log(styles.muted('\n  Depends on:'))
-      for (const dep of dependsOn) {
-        const depSpec = await this.storage.getSpec(dep.dependsOnSpecId)
+      // Fetch all dependency specs in parallel
+      const depSpecs = await Promise.all(
+        dependsOn.map(dep => this.storage.getSpec(dep.dependsOnSpecId))
+      )
+      for (const depSpec of depSpecs) {
         if (depSpec) this.log(`    - ${depSpec.id}: ${depSpec.title}`)
       }
     }
@@ -211,24 +223,31 @@ export default class SpecLink extends PMOCommand {
     const otherDeps = dependencies.filter(d => d.dependencyType !== 'depends_on')
     if (otherDeps.length > 0) {
       this.log(styles.muted('\n  Related:'))
-      for (const dep of otherDeps) {
-        const relatedSpec = await this.storage.getSpec(dep.dependsOnSpecId)
+      // Fetch all related specs in parallel
+      const relatedSpecs = await Promise.all(
+        otherDeps.map(async dep => ({ dep, spec: await this.storage.getSpec(dep.dependsOnSpecId) }))
+      )
+      for (const { dep, spec: relatedSpec } of relatedSpecs) {
         if (relatedSpec) this.log(`    - ${dep.dependencyType}: ${relatedSpec.id} - ${relatedSpec.title}`)
       }
     }
 
     if (showAll) {
       const allSpecs = await this.storage.listSpecs()
-      const dependedBy: Array<{ spec: typeof spec; type: string }> = []
-      for (const otherSpec of allSpecs) {
-        if (otherSpec.id === specId) continue
-        const otherDeps = await this.storage.listSpecDependencies(otherSpec.id)
-        const dep = otherDeps.find(d => d.dependsOnSpecId === specId)
-        if (dep) dependedBy.push({ spec: otherSpec, type: dep.dependencyType })
-      }
+      // Find all specs that depend on this spec in parallel
+      const dependedByResults = await Promise.all(
+        allSpecs
+          .filter(otherSpec => otherSpec.id !== specId)
+          .map(async otherSpec => {
+            const otherDeps = await this.storage.listSpecDependencies(otherSpec.id)
+            const dep = otherDeps.find(d => d.dependsOnSpecId === specId)
+            return dep ? { spec: otherSpec, type: dep.dependencyType } : null
+          })
+      )
+      const dependedBy = dependedByResults.filter((d): d is NonNullable<typeof d> => d !== null)
       if (dependedBy.length > 0) {
         this.log(styles.muted('\n  Depended by:'))
-        for (const { spec: depSpec, type } of dependedBy) this.log(`    - ${depSpec.id}: ${depSpec.title} (${type})`)
+        for (const item of dependedBy) this.log(`    - ${item.spec.id}: ${item.spec.title} (${item.type})`)
       }
     }
 

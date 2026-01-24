@@ -153,6 +153,7 @@ export default class RoadmapCreate extends PMOCommand {
         }]);
 
         for (const projectId of selectedProjects) {
+          // eslint-disable-next-line no-await-in-loop -- Sequential updates
           await this.storage.addProjectToRoadmap(roadmap.id, projectId);
         }
 

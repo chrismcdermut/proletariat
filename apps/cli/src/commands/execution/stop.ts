@@ -122,6 +122,7 @@ export default class ExecutionStop extends PMOCommand {
 
     for (const execution of activeExecutions) {
       try {
+        // eslint-disable-next-line no-await-in-loop -- Sequential stop with user feedback
         const success = await this.stopExecution(execution, flags.force || false)
 
         if (success) {

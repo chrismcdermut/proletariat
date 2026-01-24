@@ -49,6 +49,7 @@ describe('prlt init', () => {
   });
 
   // SKIPPED: Init tests have bugs unrelated to TKT-040. See TKT-041.
+  // eslint-disable-next-line mocha/no-skipped-tests
   describe.skip('HQ creation', () => {
     it('should create basic HQ structure outside git repo', async () => {
       // Since we can't easily mock inquirer in integration tests,
@@ -104,6 +105,7 @@ describe('prlt init', () => {
   });
 
   // SKIPPED: Init tests have bugs unrelated to TKT-040. See TKT-041.
+  // eslint-disable-next-line mocha/no-skipped-tests
   describe.skip('workspace-only creation', () => {
     it('should create workspace structure next to git repo', async () => {
       // Create a git repo
@@ -145,6 +147,7 @@ describe('prlt init', () => {
   });
 
   // SKIPPED: Init tests have bugs unrelated to TKT-040. See TKT-041.
+  // eslint-disable-next-line mocha/no-skipped-tests
   describe.skip('agent creation', () => {
     it('should create agent worktrees in workspace', async () => {
       // Create a git repo with initial commit

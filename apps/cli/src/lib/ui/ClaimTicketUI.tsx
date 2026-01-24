@@ -48,7 +48,7 @@ export function ClaimTicketUI({
     value: ticket.id
   }));
 
-  const handleTicketSelect = (item: any) => {
+  const handleTicketSelect = (item: { label: string; value: string }) => {
     setSelectedTicket(item.value);
     if (needsAgentName && !defaultAgentName) {
       setStep('agent');

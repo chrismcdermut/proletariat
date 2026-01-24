@@ -328,6 +328,7 @@ export default class WorkWatch extends PMOCommand {
       this.log('')
 
       while (this.isRunning) {
+        // eslint-disable-next-line no-await-in-loop -- Continuous polling loop
         await this.pollForNewTickets(
           flags,
           executionStorage,
@@ -336,6 +337,7 @@ export default class WorkWatch extends PMOCommand {
         )
 
         // Wait for interval
+        // eslint-disable-next-line no-await-in-loop -- Poll interval delay
         await new Promise(resolve => setTimeout(resolve, flags.interval * 1000))
       }
 

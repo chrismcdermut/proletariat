@@ -45,13 +45,17 @@ export default class EpicList extends PMOCommand {
     // Group epics by status
     const grouped = this.groupByStatus(epics);
 
-    // Get ticket counts for each epic
-    const epicProgress: Map<string, { done: number; total: number }> = new Map();
-    for (const epic of epics) {
-      const tickets = await this.storage.getTicketsForEpic(projectId, epic.id);
-      const done = tickets.filter((t: Ticket) => t.status === 'done').length;
-      epicProgress.set(epic.id, { done, total: tickets.length });
-    }
+    // Get ticket counts for each epic in parallel
+    const ticketCounts = await Promise.all(
+      epics.map(async (epic) => {
+        const tickets = await this.storage.getTicketsForEpic(projectId, epic.id);
+        const done = tickets.filter((t: Ticket) => t.status === 'done').length;
+        return { epicId: epic.id, done, total: tickets.length };
+      })
+    );
+    const epicProgress = new Map(
+      ticketCounts.map(({ epicId, done, total }) => [epicId, { done, total }])
+    );
 
     const projectName = await this.getProjectName(projectId);
     this.log(`\n🎯 ${styles.emphasis('Epics')} - ${projectName}`);

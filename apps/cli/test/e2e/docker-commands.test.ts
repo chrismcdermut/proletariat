@@ -1,9 +1,16 @@
 import { expect } from 'chai'
-import * as fs from 'fs'
-import * as path from 'path'
-import * as os from 'os'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import * as os from 'node:os'
 import Database from 'better-sqlite3'
 import { execProduction as exec } from './test-helpers.js'
+
+/** Database row type for agent_work queries */
+interface AgentWorkRow {
+  container_id: string | null
+  environment: string
+  status: string
+}
 
 /**
  * End-to-end tests for Docker Management Commands
@@ -476,11 +483,11 @@ describe('Docker Commands E2E Tests', () => {
         SELECT * FROM agent_work WHERE container_id IS NOT NULL
       `
         )
-        .get() as any
+        .get() as AgentWorkRow | undefined
 
       expect(execution).to.exist
-      expect(execution.container_id).to.equal('abc123')
-      expect(execution.environment).to.equal('devcontainer')
+      expect(execution!.container_id).to.equal('abc123')
+      expect(execution!.environment).to.equal('devcontainer')
     })
 
     it('should find orphaned executions (container_id but not running)', () => {

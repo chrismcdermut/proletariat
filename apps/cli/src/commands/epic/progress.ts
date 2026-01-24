@@ -179,6 +179,16 @@ export default class EpicProgress extends PMOCommand {
       future: '🔮',
     };
 
+    // Fetch all epic ticket counts in parallel
+    const epicProgress = new Map<string, { done: number; total: number }>();
+    await Promise.all(
+      epics.map(async (epic) => {
+        const tickets = await this.storage.getTicketsForEpic(projectId, epic.id);
+        const doneTickets = tickets.filter((t: Ticket) => t.status === 'done').length;
+        epicProgress.set(epic.id, { done: doneTickets, total: tickets.length });
+      })
+    );
+
     for (const status of statusOrder) {
       const statusEpics = grouped.get(status);
       if (!statusEpics || statusEpics.length === 0) continue;
@@ -186,13 +196,12 @@ export default class EpicProgress extends PMOCommand {
       this.log(`\n${statusEmoji[status]} ${status.toUpperCase()} (${statusEpics.length})`);
 
       for (const epic of statusEpics) {
-        const tickets = await this.storage.getTicketsForEpic(projectId, epic.id);
-        const doneTickets = tickets.filter((t: Ticket) => t.status === 'done').length;
-        const percent = tickets.length > 0 ? Math.round((doneTickets / tickets.length) * 100) : 0;
+        const progress = epicProgress.get(epic.id) || { done: 0, total: 0 };
+        const percent = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
         const bar = progressBar(percent);
         const readyToArchive = percent === 100 && status === 'active' ? ' ← ready to archive' : '';
 
-        this.log(`  ${epic.id.padEnd(10)} ${epic.title.substring(0, 30).padEnd(30)} ${bar} ${String(percent).padStart(3)}% (${doneTickets}/${tickets.length})${readyToArchive}`);
+        this.log(`  ${epic.id.padEnd(10)} ${epic.title.substring(0, 30).padEnd(30)} ${bar} ${String(percent).padStart(3)}% (${progress.done}/${progress.total})${readyToArchive}`);
       }
     }
 

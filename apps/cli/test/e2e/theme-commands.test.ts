@@ -5,6 +5,32 @@ import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { exec } from './test-helpers.js';
 
+/** Database row types for theme queries */
+interface ThemeRow {
+  id: string;
+  name: string;
+  display_name: string;
+  description: string | null;
+  builtin: number;
+  created_at: string;
+}
+
+interface ThemeNameRow {
+  name: string;
+  theme_id?: string;
+  used?: number;
+}
+
+interface AgentRow {
+  name: string;
+  theme_id: string | null;
+  created_at: string;
+}
+
+interface CountRow {
+  count: number;
+}
+
 /**
  * End-to-end tests for Agent Theme Commands
  * Tests theme creation, listing, name management, and case-insensitive uniqueness
@@ -70,7 +96,7 @@ describe('Agent Theme Commands E2E Tests', () => {
       expect(output).to.contain('my-team');
 
       // Verify in database
-      const theme = db.prepare('SELECT * FROM agent_themes WHERE id = ?').get('my-team') as any;
+      const theme = db.prepare('SELECT * FROM agent_themes WHERE id = ?').get('my-team') as ThemeRow | undefined;
       expect(theme).to.exist;
       expect(theme.name).to.equal('my-team');
     });
@@ -78,15 +104,15 @@ describe('Agent Theme Commands E2E Tests', () => {
     it('should auto-format display name from ID', () => {
       exec('agents themes create cool-names');
 
-      const theme = db.prepare('SELECT display_name FROM agent_themes WHERE id = ?').get('cool-names') as any;
-      expect(theme.display_name).to.equal('Cool Names');
+      const theme = db.prepare('SELECT display_name FROM agent_themes WHERE id = ?').get('cool-names') as Pick<ThemeRow, 'display_name'> | undefined;
+      expect(theme?.display_name).to.equal('Cool Names');
     });
 
     it('should use custom display name when provided', () => {
       exec('agents themes create test-theme --display-name "My Custom Theme"');
 
-      const theme = db.prepare('SELECT display_name FROM agent_themes WHERE id = ?').get('test-theme') as any;
-      expect(theme.display_name).to.equal('My Custom Theme');
+      const theme = db.prepare('SELECT display_name FROM agent_themes WHERE id = ?').get('test-theme') as Pick<ThemeRow, 'display_name'> | undefined;
+      expect(theme?.display_name).to.equal('My Custom Theme');
     });
 
     it('should not allow duplicate theme IDs', () => {
@@ -106,7 +132,7 @@ describe('Agent Theme Commands E2E Tests', () => {
       expect(output).to.contain('3');
 
       // Verify in database
-      const names = db.prepare('SELECT name FROM agent_theme_names WHERE theme_id = ?').all('test-theme') as any[];
+      const names = db.prepare('SELECT name FROM agent_theme_names WHERE theme_id = ?').all('test-theme') as ThemeNameRow[];
       expect(names).to.have.lengthOf(3);
       expect(names.map(n => n.name)).to.include.members(['alice', 'bob', 'charlie']);
     });
@@ -115,7 +141,7 @@ describe('Agent Theme Commands E2E Tests', () => {
       exec('agents themes create test-theme');
       exec('agents themes add-names test-theme Alice BOB "Mary Jane"');
 
-      const names = db.prepare('SELECT name FROM agent_theme_names WHERE theme_id = ?').all('test-theme') as any[];
+      const names = db.prepare('SELECT name FROM agent_theme_names WHERE theme_id = ?').all('test-theme') as ThemeNameRow[];
       const nameList = names.map(n => n.name);
 
       // Names preserve case but spaces are converted to dashes
@@ -130,7 +156,7 @@ describe('Agent Theme Commands E2E Tests', () => {
       exec('agents themes add-names test-theme ALICE Alice');
 
       // Should only have one 'alice'
-      const names = db.prepare('SELECT name FROM agent_theme_names WHERE theme_id = ?').all('test-theme') as any[];
+      const names = db.prepare('SELECT name FROM agent_theme_names WHERE theme_id = ?').all('test-theme') as ThemeNameRow[];
       expect(names).to.have.lengthOf(1);
     });
 
@@ -153,7 +179,7 @@ describe('Agent Theme Commands E2E Tests', () => {
         WHERE NOT EXISTS (SELECT 1 FROM agents WHERE LOWER(name) = LOWER(?))
       `).run('testagent', new Date().toISOString(), 'testagent');
 
-      const agents = db.prepare('SELECT name FROM agents').all() as any[];
+      const agents = db.prepare('SELECT name FROM agents').all() as Pick<AgentRow, 'name'>[];
       expect(agents).to.have.lengthOf(1);
       expect(agents[0].name).to.equal('TestAgent');
     });
@@ -164,7 +190,7 @@ describe('Agent Theme Commands E2E Tests', () => {
       // List triggers seeding
       exec('agents themes list');
 
-      const themes = db.prepare('SELECT * FROM agent_themes WHERE builtin = 1').all() as any[];
+      const themes = db.prepare('SELECT * FROM agent_themes WHERE builtin = 1').all() as ThemeRow[];
       expect(themes.length).to.be.greaterThan(0);
 
       const themeIds = themes.map(t => t.id);
@@ -176,8 +202,8 @@ describe('Agent Theme Commands E2E Tests', () => {
     it('should have names for built-in themes', () => {
       exec('agents themes list');
 
-      const billionaireNames = db.prepare('SELECT COUNT(*) as count FROM agent_theme_names WHERE theme_id = ?').get('billionaires') as any;
-      expect(billionaireNames.count).to.be.greaterThan(0);
+      const billionaireNames = db.prepare('SELECT COUNT(*) as count FROM agent_theme_names WHERE theme_id = ?').get('billionaires') as CountRow | undefined;
+      expect(billionaireNames?.count).to.be.greaterThan(0);
     });
   });
 });

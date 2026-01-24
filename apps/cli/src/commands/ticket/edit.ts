@@ -5,10 +5,8 @@ import { PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class TicketEdit extends PMOCommand {
@@ -164,18 +162,21 @@ export default class TicketEdit extends PMOCommand {
       if (flags.title) updates.title = flags.title;
       if (flags.description) updates.description = flags.description;
       if (flags.priority) {
-        updates.priority = flags.priority === 'none' ? undefined : flags.priority;
+        // 'none' clears the priority (sets to null in database), otherwise use the flag value
+        // Type assertion needed because Ticket interface uses string | undefined, but storage accepts null
+        updates.priority = flags.priority === 'none' ? (null as unknown as string | undefined) : flags.priority;
       }
       if (flags.category) updates.category = flags.category;
       if (flags.owner) updates.owner = flags.owner;
       if (flags.assignee) updates.assignee = flags.assignee;
     }
 
-    // Handle subtasks
+    // Handle subtasks - sequential for consistent ordering
     let subtasksChanged = false;
     if (flags['clear-subtasks']) {
       // Clear all subtasks first - get from ticket object
       for (const subtask of ticket.subtasks) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.removeSubtask(ticketId!, subtask.id);
       }
       subtasksChanged = true;
@@ -183,6 +184,7 @@ export default class TicketEdit extends PMOCommand {
 
     if (flags['add-subtask'] && flags['add-subtask'].length > 0) {
       for (const subtaskTitle of flags['add-subtask']) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.addSubtask(ticketId!, subtaskTitle);
       }
       subtasksChanged = true;
@@ -214,7 +216,9 @@ export default class TicketEdit extends PMOCommand {
     }
 
     if (flags['add-ac'] && flags['add-ac'].length > 0) {
+      // Sequential for consistent ordering
       for (const criterion of flags['add-ac']) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.addAcceptanceCriterion(ticketId!, criterion);
       }
       acChanged = true;

@@ -822,7 +822,7 @@ export async function runDevcontainer(
 
         // Check if tmux session exists inside the container
         try {
-          const checkResult = execSync(
+          execSync(
             `docker exec ${containerId} tmux has-session -t "${sessionId}" 2>&1`,
             { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
           )
@@ -1237,6 +1237,7 @@ exec $SHELL
 /**
  * Legacy: Run devcontainer in host-side tmux (kept for non-container modes)
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function runDevcontainerInHostTmux(
   context: ExecutionContext,
   devcontainerCmd: string,

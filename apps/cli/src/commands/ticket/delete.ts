@@ -8,10 +8,8 @@ import {
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class TicketDelete extends PMOCommand {
@@ -196,8 +194,10 @@ export default class TicketDelete extends PMOCommand {
     let successCount = 0;
     let failCount = 0;
 
+    // Process sequentially for clear success/failure logging
     for (const ticketId of selectedTickets) {
       try {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.deleteTicket(ticketId);
         this.log(styles.success(`Deleted ${ticketId}`));
         successCount++;

@@ -456,7 +456,7 @@ export default class WorkStart extends PMOCommand {
       const assignedAgent = agentName as string
 
       // Validate agent - for non-ephemeral agents, check if it exists in workspace
-      let agentInfo = workspaceInfo.agents.find((a) => a.name === assignedAgent)
+      const agentInfo = workspaceInfo.agents.find((a) => a.name === assignedAgent)
       if (!isEphemeralAgent && !agentInfo) {
         db.close()
         this.error(
@@ -752,6 +752,7 @@ export default class WorkStart extends PMOCommand {
         // Loop to allow re-selection if Docker isn't running
         let environmentSelected = false
         while (!environmentSelected) {
+          // eslint-disable-next-line no-await-in-loop -- Interactive loop with retry on Docker check
           const { selectedEnvironment } = await inquirer.prompt([
             {
               type: 'list',
@@ -811,6 +812,7 @@ export default class WorkStart extends PMOCommand {
               )
               this.log('')
 
+              // eslint-disable-next-line no-await-in-loop -- Interactive user prompt in loop
               const { tokenAction } = await inquirer.prompt([
                 {
                   type: 'list',
@@ -830,6 +832,7 @@ export default class WorkStart extends PMOCommand {
               if (tokenAction === 'host') {
                 environment = 'host'
                 // Skip to host mode prompts
+                // eslint-disable-next-line no-await-in-loop -- Follow-up prompt after user selection
                 const { selectedDisplay } = await inquirer.prompt([
                   {
                     type: 'list',
@@ -852,6 +855,7 @@ export default class WorkStart extends PMOCommand {
 
             environment = 'devcontainer'
             // Pick display mode for devcontainer
+            // eslint-disable-next-line no-await-in-loop -- Follow-up prompt after selection
             const { selectedDisplay } = await inquirer.prompt([
               {
                 type: 'list',
@@ -871,6 +875,7 @@ export default class WorkStart extends PMOCommand {
           } else {
             // User chose host
             environment = 'host'
+            // eslint-disable-next-line no-await-in-loop -- Follow-up prompt after selection
             const { selectedDisplay } = await inquirer.prompt([
               {
                 type: 'list',
@@ -928,7 +933,7 @@ export default class WorkStart extends PMOCommand {
 
       // Default to interactive output mode (streaming UI)
       // Can be overridden via --output flag if needed
-      let outputMode: OutputMode = flags.output as OutputMode || DEFAULT_EXECUTION_CONFIG.outputMode
+      const outputMode: OutputMode = flags.output as OutputMode || DEFAULT_EXECUTION_CONFIG.outputMode
 
       // Prompt for permissions mode (all environments)
       // Skip prompt if --permission-mode flag is set
@@ -938,15 +943,25 @@ export default class WorkStart extends PMOCommand {
         const containerNote = environment === 'devcontainer'
           ? ' (container provides additional isolation)'
           : ''
+        const permissionChoices = [
+          { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger', command: `prlt work start ${ticketId} --skip-permissions` },
+          { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+        ]
+
+        // Handle JSON mode
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildPromptConfig('list', 'permissionMode', `Permission mode for Claude Code${containerNote}:`, permissionChoices, 'danger'),
+            createMetadata('work start', flags as Record<string, unknown>)
+          )
+        }
+
         const { permissionMode } = await inquirer.prompt([
           {
             type: 'list',
             name: 'permissionMode',
             message: `Permission mode for Claude Code${containerNote}:`,
-            choices: [
-              { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
-              { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
-            ],
+            choices: permissionChoices,
             default: 'danger',
           },
         ])
@@ -1334,7 +1349,8 @@ export default class WorkStart extends PMOCommand {
     flags: { display?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean; 'permission-mode'?: string }
   ): Promise<void> {
     // Get all tickets and filter to backlog/unstarted (not in progress)
-    // Note: In batch mode, we use undefined to get all tickets across all projects
+    // Note: In batch mode, we get all tickets across all projects (pass undefined for projectId)
+    // eslint-disable-next-line unicorn/no-useless-undefined
     const allTickets = await this.storage.listTickets(undefined)
     const backlogTickets = allTickets.filter(t =>
       t.statusCategory === 'backlog' || t.statusCategory === 'unstarted' || !t.statusCategory
@@ -1433,6 +1449,7 @@ export default class WorkStart extends PMOCommand {
         // Use the work:start command for each ticket
         // Pass --project from ticket to avoid re-prompting for project selection
         // Pass --permission-mode to skip prompts in recursive calls (TKT-513)
+        // eslint-disable-next-line no-await-in-loop -- Sequential spawning with user feedback
         await this.config.runCommand('work:start', [
           ticket.id,
           ...(ticket.projectId ? ['--project', ticket.projectId] : []),

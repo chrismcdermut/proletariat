@@ -74,7 +74,7 @@ export default class Remove extends PMOCommand {
     if (!agentName) {
       // Build choices once, use for both JSON and interactive modes
       const agentChoices = [
-        ...workspaceInfo.agents.map((agent: any) => ({ name: agent.name, value: agent.name })),
+        ...workspaceInfo.agents.map((agent) => ({ name: agent.name, value: agent.name })),
         { name: 'Cancel', value: 'cancel' },
       ];
       const selectMessage = 'Select agent to remove:';
@@ -110,9 +110,9 @@ export default class Remove extends PMOCommand {
     }
 
     // Validate agent exists
-    const agent = workspaceInfo.agents.find((a: any) => a.name === agentName);
+    const agent = workspaceInfo.agents.find((a) => a.name === agentName);
     if (!agent) {
-      return handleError('AGENT_NOT_FOUND', `Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map((a: any) => a.name).join(', ')}`);
+      return handleError('AGENT_NOT_FOUND', `Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map((a) => a.name).join(', ')}`);
     }
 
     const agentsToRemove = [agentName!];

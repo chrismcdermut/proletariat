@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { DEFAULT_AGENTS_DIR, TEMP_AGENTS_DIR, ensureBuiltinThemes, getThemePersistentDir, getThemeEphemeralDir } from '../themes.js';
+import { ensureBuiltinThemes, getThemePersistentDir, getThemeEphemeralDir } from '../themes.js';
 import { createAgentWorktrees } from '../agents/index.js';
 import { addRepositoriesToHQ, isInGitRepo } from '../repos/index.js';
 import {
@@ -174,6 +174,7 @@ export async function promptForHQLocation(hqName: string): Promise<string> {
   }
 
   while (true) {
+    // eslint-disable-next-line no-await-in-loop -- Interactive validation loop
     const { location } = await inquirer.prompt([{
       type: 'input',
       name: 'location',

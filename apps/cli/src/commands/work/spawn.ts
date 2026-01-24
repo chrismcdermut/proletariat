@@ -6,13 +6,10 @@ import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index
 import { styles } from '../../lib/styles.js'
 import {
   getWorkspaceInfo,
-  createEphemeralAgent,
   getTicketTmuxSession,
   killTmuxSession
 } from '../../lib/agents/commands.js'
-import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning, isGitHubTokenAvailable } from '../../lib/execution/runners.js'
-import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import {
   shouldOutputJson,
   outputPromptAsJson,
@@ -156,10 +153,9 @@ export default class WorkSpawn extends PMOCommand {
       return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt init" first.')
     }
 
-    // Open database for execution storage
+    // Open database
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
     const db = new Database(dbPath)
-    const executionStorage = new ExecutionStorage(db)
 
     try {
       // Get board to list available columns
@@ -667,6 +663,7 @@ export default class WorkSpawn extends PMOCommand {
         if (hasDevcontainer && !batchRunOnHost && !batchDisplay) {
           let environmentSelected = false
           while (!environmentSelected) {
+            // eslint-disable-next-line no-await-in-loop -- Interactive loop with retry on Docker check
             const { selectedEnvironment } = await inquirer.prompt([
               {
                 type: 'list',
@@ -725,6 +722,7 @@ export default class WorkSpawn extends PMOCommand {
                 )
                 this.log('')
 
+                // eslint-disable-next-line no-await-in-loop -- Interactive user prompt in loop
                 const { tokenAction } = await inquirer.prompt([
                   {
                     type: 'list',
@@ -754,6 +752,7 @@ export default class WorkSpawn extends PMOCommand {
 
               // For devcontainer, prompt for display mode
               // Simplified: tmux is always used inside container for session persistence
+              // eslint-disable-next-line no-await-in-loop -- Follow-up prompt after selection
               const { selectedDisplay } = await inquirer.prompt([
                 {
                   type: 'list',
@@ -854,6 +853,7 @@ export default class WorkSpawn extends PMOCommand {
       let successCount = 0
       let failCount = 0
 
+      // Process sequentially for clear logging and resource management
       for (const ticket of ticketsToSpawn) {
         try {
           this.log(styles.muted(`Starting ${ticket.id} with ephemeral agent...`))
@@ -889,6 +889,7 @@ export default class WorkSpawn extends PMOCommand {
             if (flags.session) startArgs.push('--session', flags.session)
           }
 
+          // eslint-disable-next-line no-await-in-loop
           await this.config.runCommand('work:start', startArgs)
 
           successCount++

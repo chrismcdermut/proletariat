@@ -1,5 +1,5 @@
 import { Command, Args, Flags } from '@oclif/core'
-import { execSync } from 'child_process'
+import { execSync } from 'node:child_process'
 import inquirer from 'inquirer'
 import { validateBranchName, BranchType } from '../lib/branch/index.js'
 import { styles } from '../lib/styles.js'

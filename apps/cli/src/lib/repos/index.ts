@@ -109,9 +109,10 @@ export async function promptForRepositories(
     }
   }
 
-  // Loop to add more repos
+  // Loop to add more repos - user interaction requires sequential processing
   let addingRepos = true;
   while (addingRepos) {
+    // eslint-disable-next-line no-await-in-loop
     const { repoAction } = await inquirer.prompt([{
       type: 'list',
       name: 'repoAction',
@@ -133,6 +134,7 @@ export async function promptForRepositories(
     }
 
     if (repoAction === 'create') {
+      // eslint-disable-next-line no-await-in-loop
       const newRepo = await createNewRepository();
       if (newRepo) {
         repos.push(newRepo);
@@ -141,11 +143,13 @@ export async function promptForRepositories(
     }
 
     if (repoAction === 'search') {
+      // eslint-disable-next-line no-await-in-loop
       const foundRepos = await searchForRepositories();
       repos.push(...foundRepos);
       
       // After search, ask if they want to add more (unless they selected nothing)
       if (foundRepos.length > 0) {
+        // eslint-disable-next-line no-await-in-loop
         const { addMoreAfterSearch } = await inquirer.prompt([{
           type: 'list',
           name: 'addMoreAfterSearch',
@@ -166,6 +170,7 @@ export async function promptForRepositories(
     }
 
     // Manual entry (existing logic)
+    // eslint-disable-next-line no-await-in-loop
     const { repoPath } = await inquirer.prompt([{
       type: 'input',
       name: 'repoPath',
@@ -193,6 +198,7 @@ export async function promptForRepositories(
         console.log(chalk.yellow(`Cannot move ${repoName} - you're currently inside it. Will clone instead.`));
         repos.push({ path: resolvedPath, action: 'clone' });
       } else {
+        // eslint-disable-next-line no-await-in-loop
         const { action } = await inquirer.prompt([{
           type: 'list',
           name: 'action',
@@ -793,8 +799,8 @@ export async function promptSelectRepo(
   ];
 
   if (allowCancel) {
-    choices.push(
-      new inquirer.Separator() as any,
+    (choices as Array<{ name: string; value: string } | inquirer.Separator>).push(
+      new inquirer.Separator(),
       { name: '❌ Cancel', value: 'cancel' }
     );
   }

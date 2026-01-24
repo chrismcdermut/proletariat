@@ -72,7 +72,7 @@ export default class Visit extends PMOCommand {
     if (!agentName) {
       // In JSON mode, output agent selection prompt
       if (jsonMode) {
-        const agentChoices = workspaceInfo.agents.map((agent: any) => ({ name: agent.name, value: agent.name }));
+        const agentChoices = workspaceInfo.agents.map((agent) => ({ name: agent.name, value: agent.name }));
         outputPromptAsJson(
           buildPromptConfig('list', 'name', 'Select agent to visit:', agentChoices),
           createMetadata('agent visit', flags)

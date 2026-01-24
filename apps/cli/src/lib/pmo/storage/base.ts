@@ -132,8 +132,8 @@ export function runMigrations(db: Database.Database): void {
   // Migration: Add position column to actions table
   if (tableExists(T.actions)) {
     const actionsColumns = db.pragma(`table_info(${T.actions})`) as Array<{ name: string }>
-    const actionsColumnNames = actionsColumns.map(c => c.name)
-    if (!actionsColumnNames.includes('position')) {
+    const actionsColumnNames = new Set(actionsColumns.map(c => c.name))
+    if (!actionsColumnNames.has('position')) {
       try {
         db.exec(`ALTER TABLE ${T.actions} ADD COLUMN position INTEGER NOT NULL DEFAULT 0`)
         const positionMap: Record<string, number> = {
@@ -147,7 +147,7 @@ export function runMigrations(db: Database.Database): void {
       }
     }
 
-    if (!actionsColumnNames.includes('end_prompt')) {
+    if (!actionsColumnNames.has('end_prompt')) {
       try {
         db.exec(`ALTER TABLE ${T.actions} ADD COLUMN end_prompt TEXT`)
       } catch {

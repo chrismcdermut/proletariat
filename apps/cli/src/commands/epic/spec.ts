@@ -219,7 +219,9 @@ export default class EpicSpec extends PMOCommand {
       }
 
       if (action === 'align_all') {
+        // Update sequentially for clear logging
         for (const t of ticketsWithDifferentSpec) {
+          // eslint-disable-next-line no-await-in-loop
           await this.storage.updateTicket(t.id, { specId });
           this.log(styles.muted(`   Updated ${t.id} to spec "${specId}"`));
         }

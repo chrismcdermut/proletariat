@@ -83,7 +83,7 @@ describe('Branch Naming', () => {
     });
 
     it('returns feat for undefined category', () => {
-      expect(getBranchType(undefined)).to.equal('feat');
+      expect(getBranchType()).to.equal('feat');
     });
 
     it('handles case-insensitive categories', () => {

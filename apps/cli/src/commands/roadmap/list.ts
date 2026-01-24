@@ -1,4 +1,3 @@
-import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 
@@ -27,7 +26,16 @@ export default class RoadmapList extends PMOCommand {
 
     this.log(styles.title('\nRoadmaps\n'));
 
-    for (const roadmap of roadmaps) {
+    // Fetch all project counts in parallel
+    const projectCounts = await Promise.all(
+      roadmaps.map(async (roadmap) => {
+        const projects = await this.storage.listRoadmapProjects(roadmap.id);
+        return projects.length;
+      })
+    );
+
+    for (let i = 0; i < roadmaps.length; i++) {
+      const roadmap = roadmaps[i];
       const markers: string[] = [];
       if (roadmap.isDefault) markers.push(styles.success('default'));
 
@@ -36,9 +44,8 @@ export default class RoadmapList extends PMOCommand {
       this.log(`  ${styles.emphasis(roadmap.name)}${markerStr}`);
       this.log(styles.muted(`    ID: ${roadmap.id}`));
 
-      // Get project count
-      const projects = await this.storage.listRoadmapProjects(roadmap.id);
-      this.log(styles.muted(`    Projects: ${projects.length}`));
+      // Get project count (already fetched in parallel)
+      this.log(styles.muted(`    Projects: ${projectCounts[i]}`));
 
       if (roadmap.description) {
         this.log(styles.muted(`    ${roadmap.description}`));

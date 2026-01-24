@@ -150,8 +150,8 @@ export default class Themes extends Command {
             };
           });
 
-          // Add option to create new theme
-          themeChoices.push(new inquirer.Separator() as any);
+          // Add option to create new theme (using type assertion for mixed array)
+          (themeChoices as Array<{ name: string; value: string } | inquirer.Separator>).push(new inquirer.Separator());
           themeChoices.push({ name: chalk.green('+ Create new theme'), value: '__create_new__' });
 
           const { selectedTheme } = await inquirer.prompt([{

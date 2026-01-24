@@ -677,7 +677,7 @@ export class ContainerStorage {
     agentName: string
   }>): { added: number; updated: number; removed: number } {
     const now = Date.now()
-    let added = 0, updated = 0, removed = 0
+    let added = 0; let updated = 0; let removed = 0
 
     // Create a set of docker IDs currently running
     const activeDockerIds = new Set(dockerContainers.map(c => c.id.substring(0, 12)))

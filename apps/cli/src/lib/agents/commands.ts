@@ -24,7 +24,6 @@ import {
   isValidAgentName,
   getSuggestedAgentNames,
   generateEphemeralAgentName,
-  isEphemeralAgentName,
   GenerateEphemeralNameOptions,
   getThemePersistentDir,
   getThemeEphemeralDir,
@@ -306,13 +305,13 @@ export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string):
     try {
       const ticketsFile = path.join(workspaceInfo.path, 'pmo', 'tickets.json');
       if (fs.existsSync(ticketsFile)) {
-        const tickets = JSON.parse(fs.readFileSync(ticketsFile, 'utf-8'));
+        const tickets = JSON.parse(fs.readFileSync(ticketsFile, 'utf-8')) as Array<{ id: string; assignee?: string; status?: string }>;
         status.assignedTickets = tickets
-          .filter((t: any) => t.assignee === agentName && t.status !== 'done')
-          .map((t: any) => t.id);
+          .filter((t) => t.assignee === agentName && t.status !== 'done')
+          .map((t) => t.id);
         status.completedTickets = tickets
-          .filter((t: any) => t.assignee === agentName && t.status === 'done')
-          .map((t: any) => t.id);
+          .filter((t) => t.assignee === agentName && t.status === 'done')
+          .map((t) => t.id);
       }
     } catch {
       // Ignore ticket loading errors
@@ -462,10 +461,12 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
     // Clear ticket assignees for removed agents
     try {
       const { storage } = await getPMOContext();
+      // eslint-disable-next-line unicorn/no-useless-undefined
       const allTickets = await storage.listTickets(undefined);
       for (const ticket of allTickets) {
         if (ticket.assignee && removed.includes(ticket.assignee)) {
           // Pass null to clear the assignee in the database
+          // eslint-disable-next-line no-await-in-loop -- Sequential updates for cleanup
           await storage.updateTicket(ticket.id, { assignee: null as unknown as string });
         }
       }
@@ -504,8 +505,8 @@ export async function createEphemeralAgent(
 ): Promise<EphemeralAgentResult> {
   // Get existing agent names for uniqueness check
   const existingNames = new Set([
-    ...workspaceInfo.agents.map(a => a.name.toLowerCase()),
-    ...Array.from(getEphemeralAgentNames(workspaceInfo.path))
+    ...Array.from(getEphemeralAgentNames(workspaceInfo.path)),
+    ...workspaceInfo.agents.map(a => a.name.toLowerCase())
   ]);
 
   const log = options?.log;
@@ -582,7 +583,7 @@ export async function createEphemeralAgent(
             cwd: sourceRepoPath,
             stdio: 'pipe'
           });
-        } catch (error) {
+        } catch {
           // If worktree creation fails, try to just create the directory
           // The agent can still work without a worktree (e.g., for non-git projects)
           if (!fs.existsSync(worktreePath)) {

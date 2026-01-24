@@ -22,7 +22,6 @@ import {
   PhaseFilter,
   PhaseTemplate,
   PhaseTemplateFilter,
-  PMOError,
   PMOStorage,
   Project,
   ProjectFilter,
@@ -53,7 +52,6 @@ import {
 import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from '../schema.js'
 import { StorageContext } from './types.js'
 import {
-  initializePMOTables,
   runMigrations,
   seedBuiltinWorkflows,
   seedBuiltinPhases,

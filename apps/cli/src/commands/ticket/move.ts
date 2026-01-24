@@ -8,10 +8,8 @@ import {
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class TicketMove extends PMOCommand {
@@ -236,8 +234,10 @@ export default class TicketMove extends PMOCommand {
     let successCount = 0;
     let failCount = 0;
 
+    // Process sequentially for clear success/failure logging
     for (const ticketId of selectedTickets) {
       try {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.moveTicket(projectId, ticketId, targetColumn);
         this.log(styles.success(`Moved ${ticketId} to ${targetColumn}`));
         successCount++;

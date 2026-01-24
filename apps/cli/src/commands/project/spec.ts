@@ -162,6 +162,7 @@ export default class ProjectSpec extends PMOCommand {
     let continueLoop = true;
     while (continueLoop) {
       // Refresh project specs each iteration
+      // eslint-disable-next-line no-await-in-loop -- Interactive user loop
       const currentSpecs = await this.storage.getSpecsForProject(projectId!);
       const currentSpecIds = new Set(currentSpecs.map(s => s.id));
 
@@ -174,6 +175,7 @@ export default class ProjectSpec extends PMOCommand {
         }
       }
 
+      // eslint-disable-next-line no-await-in-loop -- Interactive user prompt
       const { action } = await inquirer.prompt([{
         type: 'list',
         name: 'action',
@@ -193,6 +195,7 @@ export default class ProjectSpec extends PMOCommand {
 
       if (action === 'add') {
         // Get all specs not already associated
+        // eslint-disable-next-line no-await-in-loop -- User action handling
         const allSpecs = await this.storage.listSpecs();
         const availableSpecs = allSpecs.filter(s => !currentSpecIds.has(s.id));
 
@@ -201,6 +204,7 @@ export default class ProjectSpec extends PMOCommand {
           continue;
         }
 
+        // eslint-disable-next-line no-await-in-loop -- User selection prompt
         const { selected } = await inquirer.prompt([{
           type: 'checkbox',
           name: 'selected',
@@ -217,6 +221,7 @@ export default class ProjectSpec extends PMOCommand {
         }
 
         for (const specId of selected) {
+          // eslint-disable-next-line no-await-in-loop -- Sequential updates with feedback
           await this.storage.linkProjectToSpec(projectId!, specId);
           this.log(styles.success(`  Added ${specId}`));
         }
@@ -229,6 +234,7 @@ export default class ProjectSpec extends PMOCommand {
           continue;
         }
 
+        // eslint-disable-next-line no-await-in-loop -- User selection prompt
         const { selected } = await inquirer.prompt([{
           type: 'checkbox',
           name: 'selected',
@@ -245,6 +251,7 @@ export default class ProjectSpec extends PMOCommand {
         }
 
         for (const specId of selected) {
+          // eslint-disable-next-line no-await-in-loop -- Sequential updates with feedback
           await this.storage.unlinkProjectFromSpec(projectId!, specId);
           this.log(styles.success(`  Removed ${specId}`));
         }

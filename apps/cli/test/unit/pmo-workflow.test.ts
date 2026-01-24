@@ -308,9 +308,12 @@ describe('PMO Workflow Status', () => {
       const workflows = await storage.listWorkflows();
       expect(workflows.length).to.be.greaterThan(1);
 
-      // Switch through all available workflows
+      // Switch through all available workflows - must be sequential since each iteration
+      // updates the same project and verifies the switch before the next
       for (const workflow of workflows) {
+        // eslint-disable-next-line no-await-in-loop
         await storage.updateProject(projectId, { workflowId: workflow.id });
+        // eslint-disable-next-line no-await-in-loop
         const project = await storage.getProject(projectId);
         expect(project!.workflowId).to.equal(workflow.id);
       }
@@ -352,12 +355,12 @@ describe('PMO Workflow Status', () => {
         { ticket: doneTicket, oldCategory: 'completed' },
       ];
 
-      for (const { ticket, oldCategory } of tickets) {
+      await Promise.all(tickets.map(async ({ ticket, oldCategory }) => {
         const newStatus = categoryToStatus[oldCategory];
         expect(newStatus).to.not.be.undefined;
         const moved = await storage.moveTicket(projectId, ticket.id, newStatus.name);
         expect(moved.statusCategory).to.equal(oldCategory);
-      }
+      }));
     });
   });
 });

@@ -1,4 +1,3 @@
-import { runCommand } from '@oclif/test';
 import { expect } from 'chai';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,9 +18,9 @@ function runCli(args: string[]): string {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Return stdout even on error (for --help commands that may exit with code 0)
-    return error.stdout || '';
+    return (error as { stdout?: string })?.stdout || '';
   }
 }
 

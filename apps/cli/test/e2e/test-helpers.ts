@@ -18,6 +18,14 @@ import * as os from 'node:os';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+/**
+ * Error type for execSync failures, which include stdout/stderr from the child process.
+ */
+interface ExecError extends Error {
+  stdout?: string;
+  stderr?: string;
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -240,10 +248,11 @@ export function exec(cmd: string): string {
       env: getIsolatedEnv(),
     });
     return result;
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const execError = error as ExecError;
     // Command failed - capture both stdout and stderr
-    const stdout = error.stdout || '';
-    const stderr = error.stderr || '';
+    const stdout = execError.stdout || '';
+    const stderr = execError.stderr || '';
 
     // Return stdout if available (for expected error messages)
     if (stdout.trim()) {
@@ -252,7 +261,7 @@ export function exec(cmd: string): string {
 
     // Filter out Node.js warnings from stderr
     const filteredStderr = filterOutput(stderr);
-    return filteredStderr || error.message;
+    return filteredStderr || execError.message || 'Unknown error';
   }
 }
 
@@ -270,13 +279,14 @@ export function execWithFilter(cmd: string): string {
       env: getIsolatedEnv(),
     });
     return filterOutput(result);
-  } catch (error: any) {
-    const stdout = error.stdout || '';
-    const stderr = error.stderr || '';
+  } catch (error: unknown) {
+    const execError = error as ExecError;
+    const stdout = execError.stdout || '';
+    const stderr = execError.stderr || '';
     // Return filtered output from either stream
     const combined = stdout + stderr;
     const filtered = filterOutput(combined);
-    return filtered || error.message;
+    return filtered || execError.message || 'Unknown error';
   }
 }
 
@@ -296,9 +306,10 @@ export function execProduction(cmd: string): string {
       cwd: cliDir, // Run from CLI directory for proper module resolution
     });
     return filterNodeWarnings(result);
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const execError = error as ExecError;
     // Return output even if command exits with non-zero
-    const output = error.stdout || error.stderr || error.message;
+    const output = execError.stdout || execError.stderr || execError.message || 'Unknown error';
     return filterNodeWarnings(output);
   }
 }
@@ -315,9 +326,10 @@ export function execRaw(cmd: string): string {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: getIsolatedEnv(),
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const execError = error as ExecError;
     // Return output even if command exits with non-zero
-    return error.stdout || error.stderr || error.message;
+    return execError.stdout || execError.stderr || execError.message || 'Unknown error';
   }
 }
 

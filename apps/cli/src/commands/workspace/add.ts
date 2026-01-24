@@ -2,7 +2,6 @@ import { Command, Args, Flags } from '@oclif/core';
 import chalk from 'chalk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { isValidHQ } from '../../lib/workspace.js';
 import {
   registerWorkspace,
   normalizePath,

@@ -1,14 +1,11 @@
 import { Args, Flags } from '@oclif/core'
-import inquirer from 'inquirer'
 import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js'
 import { styles } from '../../../lib/styles.js'
 import { TicketDependencyType } from '../../../lib/pmo/types.js'
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../../lib/prompt-json.js'
 
 export default class TicketLink extends PMOCommand {
@@ -102,9 +99,10 @@ export default class TicketLink extends PMOCommand {
       return
     }
 
-    // Interactive mode: show menu in a loop
+    // Interactive mode: show menu in a loop - user interaction requires sequential processing
     let continueLoop = true
     while (continueLoop) {
+      // eslint-disable-next-line no-await-in-loop
       const allTickets = await this.storage.listTickets(projectId)
       const otherTickets = allTickets.filter(t => t.id !== ticketId)
 
@@ -117,6 +115,7 @@ export default class TicketLink extends PMOCommand {
         { id: 'done', name: 'Done' },
       ]
 
+      // eslint-disable-next-line no-await-in-loop
       const action = await this.selectFromList({
         message: `Dependencies for ${ticket.id}:`,
         items: menuChoices,
@@ -141,17 +140,20 @@ export default class TicketLink extends PMOCommand {
       }
 
       if (action === 'view') {
+        // eslint-disable-next-line no-await-in-loop
         await this.viewDependencies(this.storage, ticketId!, ticket, flags.all)
         continue
       }
 
       if (action === 'remove') {
+        // eslint-disable-next-line no-await-in-loop
         const dependencies = await this.storage.listTicketDependencies(ticketId!)
         if (dependencies.length === 0) {
           this.log(styles.muted('\nNo dependencies to remove.'))
           continue
         }
-        const depChoices = await Promise.all(dependencies.map(async dep => {
+        // eslint-disable-next-line no-await-in-loop
+      const depChoices = await Promise.all(dependencies.map(async dep => {
           const depTicket = await this.storage.getTicket(dep.dependsOnTicketId)
           return {
             id: dep.dependsOnTicketId,
@@ -160,6 +162,7 @@ export default class TicketLink extends PMOCommand {
           }
         }))
 
+        // eslint-disable-next-line no-await-in-loop
         const selected = await this.selectFromList({
           message: 'Select dependency to remove:',
           items: depChoices,
@@ -175,7 +178,9 @@ export default class TicketLink extends PMOCommand {
 
         const selectedDep = depChoices.find(d => d.id === selected)
         if (selectedDep) {
+          // eslint-disable-next-line no-await-in-loop
           await this.storage.deleteTicketDependency(ticketId!, selected, selectedDep.type as TicketDependencyType)
+          // eslint-disable-next-line no-await-in-loop
           await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
           this.log(styles.success(`\n✅ Removed dependency: ${ticketId} → ${selected}`))
         }
@@ -188,6 +193,7 @@ export default class TicketLink extends PMOCommand {
         continue
       }
 
+      // eslint-disable-next-line no-await-in-loop
       const targetId = await this.selectFromList({
         message: `Select ticket that ${ticketId} ${action === 'blocks' ? 'is blocked by' : action === 'relates_to' ? 'relates to' : 'duplicates'}:`,
         items: otherTickets,
@@ -198,6 +204,7 @@ export default class TicketLink extends PMOCommand {
       })
 
       if (targetId) {
+        // eslint-disable-next-line no-await-in-loop
         await this.addDependency(this.storage, this.pmoPath, ticketId!, targetId, action as TicketDependencyType, ticket.title)
       }
     }
@@ -266,8 +273,14 @@ export default class TicketLink extends PMOCommand {
     const otherDeps = dependencies.filter(d => d.dependencyType !== 'blocks')
     if (otherDeps.length > 0) {
       this.log(styles.muted('\n  Related:'))
-      for (const dep of otherDeps) {
-        const relatedTicket = await this.storage.getTicket(dep.dependsOnTicketId)
+      // Fetch all related tickets in parallel
+      const relatedTickets = await Promise.all(
+        otherDeps.map(async dep => ({
+          dep,
+          ticket: await this.storage.getTicket(dep.dependsOnTicketId)
+        }))
+      )
+      for (const { dep, ticket: relatedTicket } of relatedTickets) {
         if (relatedTicket) {
           this.log(`    - ${dep.dependencyType}: ${relatedTicket.id} - ${relatedTicket.title}`)
         }

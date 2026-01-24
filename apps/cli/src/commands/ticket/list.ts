@@ -1,7 +1,7 @@
 import { Command, Flags } from '@oclif/core';
 import { Ticket, pmoBaseFlags, TicketFilter } from '../../lib/pmo/index.js';
 import { PRIORITIES } from '../../lib/pmo/types.js';
-import { getPMOContext, type PMOContext } from '../../lib/pmo/pmo-context.js';
+import { getPMOContext } from '../../lib/pmo/pmo-context.js';
 import {
   styles,
   formatPriority,
@@ -72,10 +72,9 @@ export default class TicketList extends Command {
 
     // When --all is set, we don't need to select a specific project
     // Otherwise, use the normal project selection flow
-    let pmoContext: PMOContext | undefined;
 
     // Get PMO context - no project selection needed
-    pmoContext = await getPMOContext({
+    const pmoContext = await getPMOContext({
       logger: (msg) => this.log(styles.muted(msg)),
     });
 

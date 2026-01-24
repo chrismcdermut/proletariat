@@ -10,7 +10,7 @@ import inquirer from 'inquirer'
 import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell, DisplayMode, OutputMode, ExecutionEnvironment } from './types.js'
 import { isGHInstalled, isGHAuthenticated } from '../pr/index.js'
 
-import { execSync } from 'child_process'
+import { execSync } from 'node:child_process'
 
 const SETTINGS_TABLE = 'workspace_settings'
 

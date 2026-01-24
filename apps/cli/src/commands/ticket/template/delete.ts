@@ -4,10 +4,8 @@ import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import { styles } from '../../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../../lib/prompt-json.js';
 
 export default class TicketTemplateDelete extends PMOCommand {

@@ -4,7 +4,6 @@ import inquirer from 'inquirer';
 import { colors, format } from '../../lib/colors.js';
 import {
   findHQRoot,
-  promptSelectRepo,
   promptSelectMultipleRepos,
   removeRepository,
   getWorkspaceRepoInfo
@@ -251,6 +250,7 @@ export default class Remove extends PMOCommand {
     for (const repoName of selectedRepos) {
       this.log(colors.textMuted(`Removing ${repoName}...`));
 
+      // eslint-disable-next-line no-await-in-loop -- Sequential remove with user feedback
       const result = await removeRepository(hqPath, repoName, keepFiles);
 
       if (result.success) {

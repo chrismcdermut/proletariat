@@ -8,7 +8,6 @@ import {
   outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
   buildFormPromptConfig,
   FormField,
 } from '../../../lib/prompt-json.js';
@@ -147,8 +146,8 @@ export default class TicketTemplateApply extends PMOCommand {
     let category = flags.category || template.defaultCategory;
     let assignee = flags.assignee || template.defaultAssignee;
     let owner = flags.owner || template.defaultOwner;
-    let statusId = flags.status || template.defaultStatusId;
-    let labels = flags.labels ? flags.labels.split(',').map(l => l.trim()).filter(l => l) : template.defaultLabels;
+    const statusId = flags.status || template.defaultStatusId;
+    const labels = flags.labels ? flags.labels.split(',').map(l => l.trim()).filter(Boolean) : template.defaultLabels;
     let description = flags.description || template.descriptionTemplate;
 
     // Interactive mode - prompt for values
@@ -247,9 +246,10 @@ export default class TicketTemplateApply extends PMOCommand {
       epicId: flags.epic,
     });
 
-    // Add subtasks from template (unless disabled)
+    // Add subtasks from template (unless disabled) - sequential for ordering
     if (!flags['no-subtasks'] && template.suggestedSubtasks.length > 0) {
       for (const subtask of template.suggestedSubtasks) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.addSubtask(ticket.id, subtask.title);
       }
     }

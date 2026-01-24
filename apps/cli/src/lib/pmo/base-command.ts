@@ -91,14 +91,10 @@ export abstract class PMOCommand extends Command {
     const { flags } = await this.parse(this.constructor as typeof Command);
     this.projectFlag = (flags as { project?: string }).project;
 
-    try {
-      this.pmoContext = await getPMOContext({
-        logger: (msg) => this.pmoLogger(msg),
-      });
-      this.contextInitialized = true;
-    } catch (error) {
-      throw error;
-    }
+    this.pmoContext = await getPMOContext({
+      logger: (msg) => this.pmoLogger(msg),
+    });
+    this.contextInitialized = true;
   }
 
   /**
@@ -139,6 +135,7 @@ export abstract class PMOCommand extends Command {
     if (options?.filterEmptyProjects) {
       const projectsWithTickets: typeof projects = [];
       for (const p of projects) {
+        // eslint-disable-next-line no-await-in-loop -- Sequential filtering for project selection
         const tickets = await this.storage.listTickets(p.id);
         if (tickets.length > 0) {
           projectsWithTickets.push(p);

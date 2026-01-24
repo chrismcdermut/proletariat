@@ -292,8 +292,10 @@ export default class TicketReassign extends PMOCommand {
     let successCount = 0;
     let failCount = 0;
 
+    // Process sequentially for clear success/failure logging
     for (const ticketId of selectedTickets) {
       try {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.updateTicket(ticketId, { assignee: targetAssignee || undefined });
 
         const action = targetAssignee ? `Reassigned to ${targetAssignee}` : 'Unassigned';

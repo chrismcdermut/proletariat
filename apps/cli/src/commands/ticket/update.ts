@@ -330,6 +330,7 @@ export default class TicketUpdate extends PMOCommand {
     let successCount = 0;
     let failCount = 0;
 
+    // Process sequentially for clear success/failure logging
     for (const ticketId of selectedTickets) {
       try {
         const changes: { priority?: string; category?: string } = {};
@@ -340,6 +341,7 @@ export default class TicketUpdate extends PMOCommand {
           changes.category = updateCategory || undefined;
         }
 
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.updateTicket(ticketId, changes);
 
         const updates: string[] = [];

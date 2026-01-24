@@ -4,19 +4,17 @@
 
 import { PMO_TABLES } from '../schema.js'
 import {
-  Epic,
   EpicDependency,
   EpicDependencyType,
   PMOError,
-  Spec,
   SpecDependency,
   SpecDependencyType,
   Ticket,
   TicketDependency,
   TicketDependencyType,
 } from '../types.js'
-import { StorageContext, TicketRow, SpecRow, EpicRow } from './types.js'
-import { rowToTicket, rowToSpec } from './helpers.js'
+import { StorageContext, TicketRow } from './types.js'
+import { rowToTicket } from './helpers.js'
 
 const T = PMO_TABLES
 

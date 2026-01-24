@@ -8,7 +8,6 @@ import {
   shouldOutputJson,
   outputPromptAsJson,
   outputErrorAsJson,
-  outputSuccessAsJson,
   createMetadata,
   buildPromptConfig,
 } from '../../lib/prompt-json.js';
@@ -137,7 +136,7 @@ export default class TicketCreate extends PMOCommand {
 
     // Parse labels from flag
     const labelsFromFlag = flags.labels
-      ? flags.labels.split(',').map(l => l.trim()).filter(l => l)
+      ? flags.labels.split(',').map(l => l.trim()).filter(Boolean)
       : undefined;
 
     // Get ticket data (interactive or from flags)
@@ -210,7 +209,9 @@ export default class TicketCreate extends PMOCommand {
 
     // Add subtasks from template if applicable
     if (template && template.suggestedSubtasks.length > 0) {
+      // Sequential subtask creation for consistent ordering
       for (const subtask of template.suggestedSubtasks) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.addSubtask(ticket.id, subtask.title);
       }
     }
@@ -393,7 +394,7 @@ export default class TicketCreate extends PMOCommand {
 
     // Parse labels from flag or use template defaults
     const labels = flags.labels
-      ? flags.labels.split(',').map(l => l.trim()).filter(l => l)
+      ? flags.labels.split(',').map(l => l.trim()).filter(Boolean)
       : template?.defaultLabels;
 
     return {

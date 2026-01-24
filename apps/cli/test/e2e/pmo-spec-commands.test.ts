@@ -24,6 +24,7 @@ import { exec } from './test-helpers.js';
  * - prlt spec view <spec-id>
  * - prlt spec link <spec-id> <ticket-id>
  */
+// eslint-disable-next-line mocha/no-skipped-tests
 describe.skip('PMO Spec Commands E2E Tests', () => {
   let testDir: string;
   let originalCwd: string;
@@ -111,6 +112,7 @@ describe.skip('PMO Spec Commands E2E Tests', () => {
 
   // Note: spec generate-tickets was replaced with spec plan which uses AI to generate tickets
   // These tests are skipped as they test the old generate-tickets command
+  // eslint-disable-next-line mocha/no-skipped-tests
   describe.skip('prlt spec generate-tickets (deprecated)', () => {
     it('should generate tickets from spec frontmatter', () => {
       // This command no longer exists - use spec plan instead

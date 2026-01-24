@@ -193,11 +193,11 @@ export default class Init extends Command {
       },
     };
 
-    try {
-      // Suppress console output in JSON mode
-      const originalLog = console.log;
-      console.log = () => {};
+    // Suppress console output in JSON mode
+    const originalLog = console.log;
+    console.log = () => {};
 
+    try {
       // Initialize the HQ
       await initializeHQ(options);
 
@@ -217,7 +217,7 @@ export default class Init extends Command {
       });
     } catch (error) {
       // Restore console.log on error
-      console.log = console.log;
+      console.log = originalLog;
 
       this.outputJson({
         success: false,

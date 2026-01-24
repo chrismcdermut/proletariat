@@ -54,7 +54,7 @@ describe('prlt claude', () => {
         execWithFilter('claude --json');
         // If we get here without error, that's also acceptable
         expect(true).to.be.true;
-      } catch (error: unknown) {
+      } catch {
         // JSON mode exits with special code when prompting - this is expected
         // Just verify the command was invoked (it will fail/exit but that's ok)
         expect(true).to.be.true;
@@ -95,7 +95,7 @@ describe('prlt claude', () => {
         // In HQ without PMO, should fail or prompt for PMO init
         // The exact behavior depends on whether PMO is required
         expect(parsed).to.satisfy((p: Record<string, unknown>) =>
-          p.hasOwnProperty('prompt') || p.hasOwnProperty('error')
+          Object.hasOwn(p, 'prompt') || Object.hasOwn(p, 'error')
         );
       } catch {
         // Expected - HQ detected but may need PMO
