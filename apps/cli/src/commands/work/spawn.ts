@@ -547,7 +547,8 @@ export default class WorkSpawn extends PMOCommand {
       // Batch mode settings - prompt once for all tickets
       let batchDisplay = flags.display
       let batchOutput = flags.output
-      let batchSkipPermissions = flags['skip-permissions']
+      // Track permission mode as string ('danger' or 'safe') instead of boolean
+      let batchPermissionMode: 'danger' | 'safe' | undefined = flags['skip-permissions'] ? 'danger' : undefined
       let batchCreatePr = flags['create-pr']
       let batchNoPr = flags['no-pr']
       let batchRunOnHost = flags['run-on-host']
@@ -646,7 +647,7 @@ export default class WorkSpawn extends PMOCommand {
               batchDisplay = 'terminal'
             }
             batchOutput = 'interactive'
-            batchSkipPermissions = false
+            batchPermissionMode = 'safe'
             // For non-code-modifying actions, don't create PRs
             if (modifiesCode) {
               batchCreatePr = true
@@ -799,7 +800,7 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         // Prompt for permissions mode if not provided
-        if (!batchSkipPermissions) {
+        if (!batchPermissionMode) {
           const { permissionMode } = await inquirer.prompt([
             {
               type: 'list',
@@ -812,7 +813,7 @@ export default class WorkSpawn extends PMOCommand {
               default: 'danger',
             },
           ])
-          batchSkipPermissions = permissionMode === 'danger'
+          batchPermissionMode = permissionMode as 'danger' | 'safe'
         }
 
         // Prompt for PR creation if not provided AND action modifies code
@@ -880,7 +881,8 @@ export default class WorkSpawn extends PMOCommand {
             if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
             if (batchOutput) startArgs.push('--output', batchOutput)
-            if (batchSkipPermissions) startArgs.push('--skip-permissions')
+            // Always pass permission mode to skip the prompt in work:start
+            if (batchPermissionMode) startArgs.push('--permission-mode', batchPermissionMode)
             if (batchCreatePr) startArgs.push('--create-pr')
             if (batchNoPr) startArgs.push('--no-pr')
             // Pass action flag (from prompt or flag)

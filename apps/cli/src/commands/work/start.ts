@@ -167,6 +167,10 @@ export default class WorkStart extends PMOCommand {
       description: 'Permission mode for Claude Code (danger=skip checks, safe=require approval)',
       options: ['danger', 'safe'],
     }),
+    'skip-permissions': Flags.boolean({
+      description: 'Skip permission checks (shorthand for --permission-mode danger)',
+      default: false,
+    }),
     'create-pr': Flags.boolean({
       description: 'Create PR when work is ready',
       default: false,
@@ -203,6 +207,19 @@ export default class WorkStart extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkStart)
     const projectId = (flags as { project?: string }).project
+
+    // Handle --skip-permissions flag (alias for --permission-mode danger)
+    // Check for conflicting flags first
+    if (flags['skip-permissions'] && flags['permission-mode']) {
+      this.error(
+        'Cannot use both --skip-permissions and --permission-mode flags.\n' +
+        'Use only one: --skip-permissions OR --permission-mode danger/safe'
+      )
+    }
+    // Apply --skip-permissions as --permission-mode danger
+    if (flags['skip-permissions']) {
+      flags['permission-mode'] = 'danger'
+    }
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
