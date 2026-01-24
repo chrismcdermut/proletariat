@@ -66,10 +66,10 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Show what would be spawned without executing',
       default: false,
     }),
-    mode: Flags.string({
-      char: 'm',
-      description: 'Runtime mode for spawned agents',
-      options: ['foreground', 'background', 'tmux', 'terminal', 'devcontainer', 'docker', 'vm'],
+    display: Flags.string({
+      char: 'd',
+      description: 'Display mode for spawned agents (foreground not available for batch)',
+      options: ['terminal', 'background'],
     }),
     executor: Flags.string({
       char: 'e',
@@ -549,7 +549,7 @@ export default class WorkSpawn extends PMOCommand {
       }
 
       // Batch mode settings - prompt once for all tickets
-      let batchMode = flags.mode
+      let batchDisplay = flags.display
       let batchOutput = flags.output
       let batchSkipPermissions = flags['skip-permissions']
       let batchCreatePr = flags['create-pr']
@@ -597,7 +597,7 @@ export default class WorkSpawn extends PMOCommand {
         selectedActionDetails = await this.storage.getAction(batchAction || 'implement')
 
         // Check if any explicit settings were provided via flags
-        const hasExplicitSettings = flags.mode || flags.output || flags['skip-permissions'] ||
+        const hasExplicitSettings = flags.display || flags.output || flags['skip-permissions'] ||
           flags['create-pr'] || flags['no-pr'] || flags['run-on-host']
 
         // Offer to use default settings if no explicit flags provided
@@ -624,10 +624,10 @@ export default class WorkSpawn extends PMOCommand {
           if (useDefaults) {
             // Apply defaults
             if (hasDevcontainer) {
-              batchMode = 'devcontainer'
+              batchDisplay = 'devcontainer'
               batchDisplayMode = 'terminal'
             } else {
-              batchMode = 'terminal'
+              batchDisplay = 'terminal'
             }
             batchOutput = 'interactive'
             batchSkipPermissions = false
@@ -644,7 +644,7 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         // Prompt for environment (devcontainer vs host) if devcontainer available and not already set
-        if (hasDevcontainer && !batchRunOnHost && !batchMode) {
+        if (hasDevcontainer && !batchRunOnHost && !batchDisplay) {
           let environmentSelected = false
           while (!environmentSelected) {
             const { selectedEnvironment } = await inquirer.prompt([
@@ -678,7 +678,7 @@ export default class WorkSpawn extends PMOCommand {
                 this.log('')
                 continue
               }
-              batchMode = 'devcontainer'
+              batchDisplay = 'devcontainer'
               environmentSelected = true
 
               // For devcontainer, prompt for display mode
@@ -707,7 +707,7 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         // Prompt for display mode if not already set (for host mode without devcontainer)
-        if (!batchMode) {
+        if (!batchDisplay) {
           const { selectedMode } = await inquirer.prompt([
             {
               type: 'list',
@@ -719,7 +719,7 @@ export default class WorkSpawn extends PMOCommand {
               ],
             },
           ])
-          batchMode = selectedMode
+          batchDisplay = selectedMode
         }
 
         // Default to interactive output mode (streaming UI)
@@ -793,16 +793,18 @@ export default class WorkSpawn extends PMOCommand {
           const startArgs: string[] = [ticket.id, '--project', projectId, '--ephemeral']
 
           if (flags['per-ticket']) {
-            // Per-ticket mode: only pass mode flag, let start prompt for the rest
-            if (batchMode) startArgs.push('--mode', batchMode)
-            if (batchDisplayMode) startArgs.push('--display', batchDisplayMode)
+            // Per-ticket mode: only pass display flag, let start prompt for the rest
+            // batchDisplayMode is for devcontainer, batchDisplay is for host
+            const displayToUse = batchDisplayMode || batchDisplay
+            if (displayToUse && displayToUse !== 'devcontainer') startArgs.push('--display', displayToUse)
             if (flags.executor) startArgs.push('--executor', flags.executor)
             if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
           } else {
             // Batch mode: pass all settings to skip prompts
-            if (batchMode) startArgs.push('--mode', batchMode)
-            if (batchDisplayMode) startArgs.push('--display', batchDisplayMode)
+            // batchDisplayMode is for devcontainer, batchDisplay is for host
+            const displayToUse = batchDisplayMode || batchDisplay
+            if (displayToUse && displayToUse !== 'devcontainer') startArgs.push('--display', displayToUse)
             if (flags.executor) startArgs.push('--executor', flags.executor)
             if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')

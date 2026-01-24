@@ -469,15 +469,18 @@ describe.skip('Execution Commands E2E Tests', () => {
 
     it('should allow all environment/display combinations', () => {
       createAgent(db, 'agent-1');
+      // Note: display modes are foreground, terminal, background
+      // All create tmux sessions - the difference is how they attach:
+      // - foreground: attach in current terminal (blocking)
+      // - terminal: open new tab attached to session
+      // - background: don't attach (detached, reattach later)
       const combinations = [
         { env: 'host', display: 'terminal' },
         { env: 'host', display: 'foreground' },
         { env: 'host', display: 'background' },
-        { env: 'host', display: 'tmux' },
         { env: 'devcontainer', display: 'terminal' },
         { env: 'devcontainer', display: 'foreground' },
-        { env: 'docker', display: 'background' },
-        { env: 'vm', display: 'tmux' },
+        { env: 'devcontainer', display: 'background' },
       ];
 
       for (const combo of combinations) {
