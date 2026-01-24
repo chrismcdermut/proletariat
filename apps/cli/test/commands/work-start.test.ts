@@ -44,9 +44,6 @@ describe('Work Start Command', () => {
       expect(helpOutput).to.contain('safe');
     });
 
-    it('shows --skip-permissions flag in help', () => {
-      expect(helpOutput).to.contain('--skip-permissions');
-    });
 
     it('accepts danger as permission mode value', () => {
       // Verify the flag accepts 'danger' as an option
