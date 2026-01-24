@@ -419,6 +419,45 @@ exec $SHELL
 }
 
 // =============================================================================
+// GitHub Token Check
+// =============================================================================
+
+/**
+ * Check if GitHub token is available for git push operations.
+ * Checks environment variables first, then tries gh auth token.
+ * Returns the token if available, null otherwise.
+ */
+export function getGitHubToken(): string | null {
+  // Check environment variables first
+  if (process.env.GITHUB_TOKEN) {
+    return process.env.GITHUB_TOKEN
+  }
+  if (process.env.GH_TOKEN) {
+    return process.env.GH_TOKEN
+  }
+
+  // Try to get token from gh CLI
+  try {
+    const token = execSync('gh auth token', { encoding: 'utf-8', stdio: 'pipe' }).trim()
+    if (token) {
+      return token
+    }
+  } catch {
+    // gh auth token failed - user not logged in
+  }
+
+  return null
+}
+
+/**
+ * Check if GitHub token is available.
+ * Returns true if token is available via env vars or gh CLI.
+ */
+export function isGitHubTokenAvailable(): boolean {
+  return getGitHubToken() !== null
+}
+
+// =============================================================================
 // Docker Status Check
 // =============================================================================
 

@@ -17,7 +17,7 @@ import { findHQRoot } from '../repos/index.js'
 import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
-import { runExecution, isDockerRunning } from './runners.js'
+import { runExecution, isDockerRunning, isGitHubTokenAvailable } from './runners.js'
 import {
   DisplayMode,
   SessionManager,
@@ -725,7 +725,7 @@ export async function spawnForColumn(
 }
 
 // =============================================================================
-// Docker Check
+// Docker & GitHub Token Checks
 // =============================================================================
 
-export { isDockerRunning }
+export { isDockerRunning, isGitHubTokenAvailable }

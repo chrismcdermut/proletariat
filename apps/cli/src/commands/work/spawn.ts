@@ -11,7 +11,7 @@ import {
   killTmuxSession
 } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
-import { isDockerRunning } from '../../lib/execution/runners.js'
+import { isDockerRunning, isGitHubTokenAvailable } from '../../lib/execution/runners.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import {
   shouldOutputJson,
@@ -698,6 +698,45 @@ export default class WorkSpawn extends PMOCommand {
                 this.log('')
                 continue
               }
+
+              // Check GitHub token is available for git push operations
+              if (!isGitHubTokenAvailable()) {
+                this.log('')
+                this.warn(
+                  'GitHub token not found.\n' +
+                  'Git push operations may fail inside containers.\n' +
+                  'Run `gh auth login` to authenticate, or continue without token.'
+                )
+                this.log('')
+
+                const { tokenAction } = await inquirer.prompt([
+                  {
+                    type: 'list',
+                    name: 'tokenAction',
+                    message: 'Continue without GitHub token?',
+                    choices: [
+                      { name: 'Yes, continue anyway (git push may fail)', value: 'continue' },
+                      { name: 'No, let me run gh auth login first', value: 'cancel' },
+                      { name: 'Switch to host mode instead', value: 'host' },
+                    ],
+                    default: 'continue',
+                  },
+                ])
+
+                if (tokenAction === 'cancel') {
+                  db.close()
+                  this.log(styles.muted('Run `gh auth login` and try again.'))
+                  return
+                }
+
+                if (tokenAction === 'host') {
+                  batchRunOnHost = true
+                  environmentSelected = true
+                  continue
+                }
+                // tokenAction === 'continue' - fall through to devcontainer setup
+              }
+
               batchDisplay = 'devcontainer'
               environmentSelected = true
 
