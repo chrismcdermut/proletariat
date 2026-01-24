@@ -195,6 +195,13 @@ export class RoadmapStorage {
         SELECT COALESCE(MAX(position), -1) as max_pos FROM ${T.roadmap_projects} WHERE roadmap_id = ?
       `).get(roadmapId) as { max_pos: number }
       position = maxPos.max_pos + 1
+    } else {
+      // Shift existing projects at or after this position
+      this.ctx.db.prepare(`
+        UPDATE ${T.roadmap_projects}
+        SET position = position + 1
+        WHERE roadmap_id = ? AND position >= ?
+      `).run(roadmapId, position)
     }
 
     const now = Date.now()
