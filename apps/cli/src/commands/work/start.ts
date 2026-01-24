@@ -35,7 +35,7 @@ import {
   generateBranchName,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
-import { runExecution, isDockerRunning } from '../../lib/execution/runners.js'
+import { runExecution, isDockerRunning, isGitHubTokenAvailable } from '../../lib/execution/runners.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
 import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
@@ -784,6 +784,72 @@ export default class WorkStart extends PMOCommand {
               this.log('')
               continue  // Re-prompt for environment selection
             }
+
+            // Check GitHub token is available for git push operations
+            if (!isGitHubTokenAvailable()) {
+              const tokenChoices = [
+                { name: 'Yes, continue anyway (git push may fail)', value: 'continue' },
+                { name: 'No, let me run gh auth login first', value: 'cancel' },
+                { name: 'Switch to host mode instead', value: 'host' },
+              ]
+              const tokenMessage = 'GitHub token not found. Git push may fail. Continue without token?'
+
+              if (jsonMode) {
+                outputPromptAsJson(
+                  buildPromptConfig('list', 'tokenAction', tokenMessage, tokenChoices),
+                  createMetadata('work start', flags)
+                )
+                db.close()
+                return
+              }
+
+              this.log('')
+              this.warn(
+                'GitHub token not found.\n' +
+                'Git push operations may fail inside the container.\n' +
+                'Run `gh auth login` to authenticate, or continue without token.'
+              )
+              this.log('')
+
+              const { tokenAction } = await inquirer.prompt([
+                {
+                  type: 'list',
+                  name: 'tokenAction',
+                  message: tokenMessage,
+                  choices: tokenChoices,
+                  default: 'continue',
+                },
+              ])
+
+              if (tokenAction === 'cancel') {
+                db.close()
+                this.log(styles.muted('Run `gh auth login` and try again.'))
+                return
+              }
+
+              if (tokenAction === 'host') {
+                environment = 'host'
+                // Skip to host mode prompts
+                const { selectedDisplay } = await inquirer.prompt([
+                  {
+                    type: 'list',
+                    name: 'selectedDisplay',
+                    message: 'How should the agent output be displayed?',
+                    choices: [
+                      { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                      { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
+                      { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+                    ],
+                    default: 'terminal',
+                  },
+                ])
+                displayMode = selectedDisplay as DisplayMode
+                environmentSelected = true
+                continue
+              }
+              // tokenAction === 'continue' - fall through to devcontainer setup
+            }
+
             environment = 'devcontainer'
             // Pick display mode for devcontainer
             const { selectedDisplay } = await inquirer.prompt([

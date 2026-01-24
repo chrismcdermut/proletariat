@@ -419,6 +419,45 @@ exec $SHELL
 }
 
 // =============================================================================
+// GitHub Token Check
+// =============================================================================
+
+/**
+ * Check if GitHub token is available for git push operations.
+ * Checks environment variables first, then tries gh auth token.
+ * Returns the token if available, null otherwise.
+ */
+export function getGitHubToken(): string | null {
+  // Check environment variables first
+  if (process.env.GITHUB_TOKEN) {
+    return process.env.GITHUB_TOKEN
+  }
+  if (process.env.GH_TOKEN) {
+    return process.env.GH_TOKEN
+  }
+
+  // Try to get token from gh CLI
+  try {
+    const token = execSync('gh auth token', { encoding: 'utf-8', stdio: 'pipe' }).trim()
+    if (token) {
+      return token
+    }
+  } catch {
+    // gh auth token failed - user not logged in
+  }
+
+  return null
+}
+
+/**
+ * Check if GitHub token is available.
+ * Returns true if token is available via env vars or gh CLI.
+ */
+export function isGitHubTokenAvailable(): boolean {
+  return getGitHubToken() !== null
+}
+
+// =============================================================================
 // Docker Status Check
 // =============================================================================
 
@@ -715,6 +754,20 @@ export async function runDevcontainer(
 
     // Get container ID for docker exec (enables streaming output with TTY)
     const containerId = getDevcontainerContainerId(context.agentDir)
+
+    // Inject fresh GitHub token into container (containers may be reused with stale/empty tokens)
+    // This ensures git push works even if the container was created before token was available
+    if (containerId && (env.GITHUB_TOKEN || env.GH_TOKEN)) {
+      const token = env.GITHUB_TOKEN || env.GH_TOKEN
+      try {
+        // Write token to file and configure git credential helper
+        execSync(`docker exec ${containerId} bash -c 'echo "${token}" > /home/node/.github-token && chmod 600 /home/node/.github-token && git config --global credential.helper "!f() { echo \\"username=x-access-token\\"; echo \\"password=\\$(cat /home/node/.github-token)\\"; }; f" && git config --global url."https://github.com/".insteadOf "git@github.com:"'`, {
+          stdio: 'pipe',
+        })
+      } catch {
+        // Non-fatal - token injection failed but execution can continue
+      }
+    }
 
     // Build the devcontainer exec command (just runs claude directly)
     // tmux session setup is handled by runDevcontainerInTmux, not buildDevcontainerCommand

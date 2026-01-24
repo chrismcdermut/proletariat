@@ -17,6 +17,7 @@ import {
   outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
+  buildPromptConfig,
   EXIT_NEEDS_INPUT,
 } from '../lib/prompt-json.js'
 import { styles } from '../lib/styles.js'
@@ -31,7 +32,7 @@ import {
   Shell,
   DEFAULT_EXECUTION_CONFIG,
 } from '../lib/execution/types.js'
-import { runExecution, isDockerRunning } from '../lib/execution/runners.js'
+import { runExecution, isDockerRunning, isGitHubTokenAvailable } from '../lib/execution/runners.js'
 import { ExecutionStorage } from '../lib/execution/storage.js'
 import {
   loadExecutionConfig,
@@ -227,6 +228,54 @@ export default class Claude extends Command {
             this.warn('Docker is not running. Please start Docker Desktop or select "host".')
             this.log('')
             continue
+          }
+
+          // Check GitHub token is available for git push operations
+          if (!isGitHubTokenAvailable()) {
+            const tokenChoices = [
+              { name: 'Yes, continue anyway (git push may fail)', value: 'continue' },
+              { name: 'No, let me run gh auth login first', value: 'cancel' },
+              { name: 'Switch to host mode instead', value: 'host' },
+            ]
+            const tokenMessage = 'GitHub token not found. Git push may fail. Continue without token?'
+
+            if (jsonMode) {
+              outputPromptAsJson(
+                buildPromptConfig('list', 'tokenAction', tokenMessage, tokenChoices),
+                createMetadata('claude', flags)
+              )
+              return
+            }
+
+            this.log('')
+            this.warn(
+              'GitHub token not found.\n' +
+              'Git push operations may fail inside the container.\n' +
+              'Run `gh auth login` to authenticate, or continue without token.'
+            )
+            this.log('')
+
+            const { tokenAction } = await inquirer.prompt([
+              {
+                type: 'list',
+                name: 'tokenAction',
+                message: tokenMessage,
+                choices: tokenChoices,
+                default: 'continue',
+              },
+            ])
+
+            if (tokenAction === 'cancel') {
+              this.log(styles.muted('Run `gh auth login` and try again.'))
+              return
+            }
+
+            if (tokenAction === 'host') {
+              environment = 'host'
+              environmentSelected = true
+              continue
+            }
+            // tokenAction === 'continue' - fall through to devcontainer setup
           }
         }
 
@@ -594,6 +643,56 @@ export default class Claude extends Command {
               this.warn('Docker is not running. Please start Docker Desktop or select "host".')
               this.log('')
               continue
+            }
+
+            // Check GitHub token is available for git push operations
+            if (!isGitHubTokenAvailable()) {
+              const tokenChoices = [
+                { name: 'Yes, continue anyway (git push may fail)', value: 'continue' },
+                { name: 'No, let me run gh auth login first', value: 'cancel' },
+                { name: 'Switch to host mode instead', value: 'host' },
+              ]
+              const tokenMessage = 'GitHub token not found. Git push may fail. Continue without token?'
+
+              if (jsonMode) {
+                outputPromptAsJson(
+                  buildPromptConfig('list', 'tokenAction', tokenMessage, tokenChoices),
+                  createMetadata('claude', flags)
+                )
+                db.close()
+                return
+              }
+
+              this.log('')
+              this.warn(
+                'GitHub token not found.\n' +
+                'Git push operations may fail inside the container.\n' +
+                'Run `gh auth login` to authenticate, or continue without token.'
+              )
+              this.log('')
+
+              const { tokenAction } = await inquirer.prompt([
+                {
+                  type: 'list',
+                  name: 'tokenAction',
+                  message: tokenMessage,
+                  choices: tokenChoices,
+                  default: 'continue',
+                },
+              ])
+
+              if (tokenAction === 'cancel') {
+                db.close()
+                this.log(styles.muted('Run `gh auth login` and try again.'))
+                return
+              }
+
+              if (tokenAction === 'host') {
+                environment = 'host'
+                environmentSelected = true
+                continue
+              }
+              // tokenAction === 'continue' - fall through to devcontainer setup
             }
           }
 
