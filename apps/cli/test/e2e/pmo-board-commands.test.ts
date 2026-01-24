@@ -16,6 +16,7 @@ import { exec as execCommand } from './test-helpers.js';
  * These tests would need to be rewritten to test the interactive menu or
  * the underlying storage methods directly.
  */
+// eslint-disable-next-line mocha/no-skipped-tests
 describe.skip('PMO Board Commands Integration Tests', () => {
   let testDir: string;
   let originalCwd: string;

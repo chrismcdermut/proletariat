@@ -24,8 +24,6 @@ import {
   outputPromptAsJson,
   createMetadata,
   buildPromptConfig,
-  buildFormPromptConfig,
-  FormField,
 } from '../../lib/prompt-json.js';
 
 // Build template options dynamically from shared definitions (picker templates + custom)

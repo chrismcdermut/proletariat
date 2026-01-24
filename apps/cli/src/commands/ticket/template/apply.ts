@@ -8,7 +8,6 @@ import {
   outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
   buildFormPromptConfig,
   FormField,
 } from '../../../lib/prompt-json.js';
@@ -147,8 +146,8 @@ export default class TicketTemplateApply extends PMOCommand {
     let category = flags.category || template.defaultCategory;
     let assignee = flags.assignee || template.defaultAssignee;
     let owner = flags.owner || template.defaultOwner;
-    let statusId = flags.status || template.defaultStatusId;
-    let labels = flags.labels ? flags.labels.split(',').map(l => l.trim()).filter(l => l) : template.defaultLabels;
+    const statusId = flags.status || template.defaultStatusId;
+    const labels = flags.labels ? flags.labels.split(',').map(l => l.trim()).filter(Boolean) : template.defaultLabels;
     let description = flags.description || template.descriptionTemplate;
 
     // Interactive mode - prompt for values

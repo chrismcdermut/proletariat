@@ -97,8 +97,7 @@ export default class WorkflowCreate extends PMOCommand {
 
     // If statuses were provided, add them
     if (flags.statuses) {
-      const statusNames = flags.statuses.split(',').map(s => s.trim()).filter(s => s);
-      const defaultCategories = ['backlog', 'unstarted', 'started', 'started', 'completed'];
+      const statusNames = flags.statuses.split(',').map(s => s.trim()).filter(Boolean);
 
       for (let i = 0; i < statusNames.length; i++) {
         const statusName = statusNames[i];

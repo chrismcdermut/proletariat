@@ -8,7 +8,6 @@ import {
   shouldOutputJson,
   outputPromptAsJson,
   outputErrorAsJson,
-  outputSuccessAsJson,
   createMetadata,
   buildPromptConfig,
 } from '../../lib/prompt-json.js';
@@ -137,7 +136,7 @@ export default class TicketCreate extends PMOCommand {
 
     // Parse labels from flag
     const labelsFromFlag = flags.labels
-      ? flags.labels.split(',').map(l => l.trim()).filter(l => l)
+      ? flags.labels.split(',').map(l => l.trim()).filter(Boolean)
       : undefined;
 
     // Get ticket data (interactive or from flags)
@@ -393,7 +392,7 @@ export default class TicketCreate extends PMOCommand {
 
     // Parse labels from flag or use template defaults
     const labels = flags.labels
-      ? flags.labels.split(',').map(l => l.trim()).filter(l => l)
+      ? flags.labels.split(',').map(l => l.trim()).filter(Boolean)
       : template?.defaultLabels;
 
     return {

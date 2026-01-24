@@ -1,6 +1,6 @@
 import { Command, Flags } from '@oclif/core'
-import { execSync } from 'child_process'
-import * as path from 'path'
+import { execSync } from 'node:child_process'
+import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
 import { styles } from '../../lib/styles.js'

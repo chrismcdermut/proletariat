@@ -9,7 +9,6 @@ import {
   Spec,
   StateCategory,
   Ticket,
-  Subtask,
   normalizePriority,
 } from '../types.js'
 import {

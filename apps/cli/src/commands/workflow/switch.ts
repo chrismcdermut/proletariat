@@ -2,7 +2,6 @@ import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
-import { STATE_CATEGORY_ORDER, StateCategory } from '../../lib/pmo/types.js';
 
 export default class WorkflowSwitch extends PMOCommand {
   static description = 'Switch a project to use a different workflow';

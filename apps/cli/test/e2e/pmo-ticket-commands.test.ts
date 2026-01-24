@@ -255,9 +255,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
       expect(content).to.contain('Edited for board');
     });
 
-    // Note: The --priority none flag currently doesn't clear priority in the database
-    // This is expected behavior - undefined in updates object doesn't update the field
-    it.skip('should clear priority with none value', () => {
+    it('should clear priority with none value', () => {
       exec('ticket create --title "Clear priority" --priority HIGH --column "SHIP BL"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Clear priority') as { id: string };
 

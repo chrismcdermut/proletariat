@@ -6,13 +6,10 @@ import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index
 import { styles } from '../../lib/styles.js'
 import {
   getWorkspaceInfo,
-  createEphemeralAgent,
   getTicketTmuxSession,
   killTmuxSession
 } from '../../lib/agents/commands.js'
-import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
-import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import {
   shouldOutputJson,
   outputPromptAsJson,
@@ -156,10 +153,9 @@ export default class WorkSpawn extends PMOCommand {
       return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt init" first.')
     }
 
-    // Open database for execution storage
+    // Open database
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
     const db = new Database(dbPath)
-    const executionStorage = new ExecutionStorage(db)
 
     try {
       // Get board to list available columns

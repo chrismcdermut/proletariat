@@ -4,7 +4,6 @@ import { findAllHQs, findHQRootWithSource, isValidHQ } from '../../lib/workspace
 import {
   getRegisteredWorkspaces,
   getActiveWorkspace,
-  RegisteredWorkspace,
 } from '../../lib/machine-config.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';

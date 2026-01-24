@@ -1,4 +1,3 @@
-import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 

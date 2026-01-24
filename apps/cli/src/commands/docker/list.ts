@@ -1,6 +1,6 @@
 import { Command, Flags } from '@oclif/core'
-import { execSync } from 'child_process'
-import * as path from 'path'
+import { execSync } from 'node:child_process'
+import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
@@ -173,7 +173,7 @@ export default class DockerList extends Command {
   private getDockerContainers(agentsPath: string, showAll: boolean): ContainerInfo[] {
     try {
       // Get containers - filter by devcontainer label unless --all
-      let cmd = 'docker ps -a --format "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.Label \\"devcontainer.local_folder\\"}}"'
+      const cmd = 'docker ps -a --format "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.Label \\"devcontainer.local_folder\\"}}"'
 
       const output = execSync(cmd, {
         encoding: 'utf-8',
@@ -222,11 +222,6 @@ export default class DockerList extends Command {
 
 function padEnd(str: string, length: number): string {
   return str.padEnd(length)
-}
-
-function truncate(str: string, maxLength: number): string {
-  if (str.length <= maxLength) return str
-  return str.substring(0, maxLength - 2) + '..'
 }
 
 function getStatusColor(status: string): (s: string) => string {

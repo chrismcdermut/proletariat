@@ -180,14 +180,15 @@ describe('PMO Base Command', () => {
       try {
         await ErrorCommand.run([], config);
         expect.fail('Should have thrown');
-      } catch (error: any) {
-        expect(error.message).to.equal('Test error');
+      } catch (error: unknown) {
+        expect((error as Error).message).to.equal('Test error');
       }
 
       expect(ErrorCommand.cleanupCalled).to.be.true;
     });
 
     // Skip: Test infrastructure issue - requireProject() looks for a different database path than the test setup
+    // eslint-disable-next-line mocha/no-skipped-tests
     it.skip('should allow requireProject to get a project ID', async () => {
       const config = await Config.load({ root: path.join(__dirname, '../..') });
       await RequireProjectCommand.run([], config);

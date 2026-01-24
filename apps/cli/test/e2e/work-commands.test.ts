@@ -5,6 +5,18 @@ import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { exec } from './test-helpers.js';
 
+/** Database row type for agent_work queries */
+interface AgentWorkRow {
+  ticket_id: string;
+  agent_name: string;
+  executor: string;
+  environment: string;
+  display_mode: string;
+  sandboxed: number;
+  status: string;
+  branch?: string;
+}
+
 /**
  * End-to-end tests for Work Commands
  * Tests actual CLI usage as a user would interact with it
@@ -17,6 +29,7 @@ import { exec } from './test-helpers.js';
  * - Valid ticket/execution state
  * These tests verify database operations directly rather than CLI commands.
  */
+// eslint-disable-next-line mocha/no-skipped-tests
 describe.skip('Work Commands E2E Tests', () => {
   let testDir: string;
   let originalCwd: string;
@@ -254,15 +267,16 @@ describe.skip('Work Commands E2E Tests', () => {
 
       const execution = db.prepare(`
         SELECT * FROM agent_work WHERE ticket_id = ?
-      `).get(ticketId) as any;
+      `).get(ticketId) as AgentWorkRow | undefined;
 
-      expect(execution.ticket_id).to.equal(ticketId);
-      expect(execution.agent_name).to.equal('agent-1');
-      expect(execution.executor).to.equal('claude-code');
-      expect(execution.environment).to.equal('host');
-      expect(execution.display_mode).to.equal('terminal');
-      expect(execution.sandboxed).to.equal(1);
-      expect(execution.status).to.equal('running');
+      expect(execution).to.exist;
+      expect(execution!.ticket_id).to.equal(ticketId);
+      expect(execution!.agent_name).to.equal('agent-1');
+      expect(execution!.executor).to.equal('claude-code');
+      expect(execution!.environment).to.equal('host');
+      expect(execution!.display_mode).to.equal('terminal');
+      expect(execution!.sandboxed).to.equal(1);
+      expect(execution!.status).to.equal('running');
     });
 
     it('should record environment and display_mode separately', () => {

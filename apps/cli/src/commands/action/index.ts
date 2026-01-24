@@ -2,12 +2,7 @@ import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { WorkAction } from '../../lib/pmo/types.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 
 export default class Action extends PMOCommand {
   static description = 'Interactive menu for work action operations';

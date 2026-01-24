@@ -5,10 +5,8 @@ import { PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class TicketEdit extends PMOCommand {
@@ -164,7 +162,9 @@ export default class TicketEdit extends PMOCommand {
       if (flags.title) updates.title = flags.title;
       if (flags.description) updates.description = flags.description;
       if (flags.priority) {
-        updates.priority = flags.priority === 'none' ? undefined : flags.priority;
+        // 'none' clears the priority (sets to null in database), otherwise use the flag value
+        // Type assertion needed because Ticket interface uses string | undefined, but storage accepts null
+        updates.priority = flags.priority === 'none' ? (null as unknown as string | undefined) : flags.priority;
       }
       if (flags.category) updates.category = flags.category;
       if (flags.owner) updates.owner = flags.owner;

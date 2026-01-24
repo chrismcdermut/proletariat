@@ -38,10 +38,10 @@ export function setTerminalTitle(title: string): void {
   const safeTitle = title.replace(/[\\'"]/g, '')
 
   // OSC 0 - Set both window and tab title (most compatible)
-  process.stdout.write(`\x1b]0;${safeTitle}\x07`)
+  process.stdout.write(`\u001B]0;${safeTitle}\u0007`)
 
   // OSC 1 - Set tab title (iTerm2 and others)
-  process.stdout.write(`\x1b]1;${safeTitle}\x07`)
+  process.stdout.write(`\u001B]1;${safeTitle}\u0007`)
 }
 
 /**

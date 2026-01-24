@@ -4,10 +4,8 @@ import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class TicketSpec extends PMOCommand {

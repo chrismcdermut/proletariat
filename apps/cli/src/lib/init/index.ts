@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { DEFAULT_AGENTS_DIR, TEMP_AGENTS_DIR, ensureBuiltinThemes, getThemePersistentDir, getThemeEphemeralDir } from '../themes.js';
+import { ensureBuiltinThemes, getThemePersistentDir, getThemeEphemeralDir } from '../themes.js';
 import { createAgentWorktrees } from '../agents/index.js';
 import { addRepositoriesToHQ, isInGitRepo } from '../repos/index.js';
 import {

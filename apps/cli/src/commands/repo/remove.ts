@@ -4,7 +4,6 @@ import inquirer from 'inquirer';
 import { colors, format } from '../../lib/colors.js';
 import {
   findHQRoot,
-  promptSelectRepo,
   promptSelectMultipleRepos,
   removeRepository,
   getWorkspaceRepoInfo

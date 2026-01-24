@@ -456,7 +456,7 @@ export default class WorkStart extends PMOCommand {
       const assignedAgent = agentName as string
 
       // Validate agent - for non-ephemeral agents, check if it exists in workspace
-      let agentInfo = workspaceInfo.agents.find((a) => a.name === assignedAgent)
+      const agentInfo = workspaceInfo.agents.find((a) => a.name === assignedAgent)
       if (!isEphemeralAgent && !agentInfo) {
         db.close()
         this.error(
@@ -849,7 +849,7 @@ export default class WorkStart extends PMOCommand {
 
       // Default to interactive output mode (streaming UI)
       // Can be overridden via --output flag if needed
-      let outputMode: OutputMode = flags.output as OutputMode || DEFAULT_EXECUTION_CONFIG.outputMode
+      const outputMode: OutputMode = flags.output as OutputMode || DEFAULT_EXECUTION_CONFIG.outputMode
 
       // Prompt for permissions mode (all environments)
       // Skip prompt if --skip-permissions flag is set
@@ -1265,7 +1265,8 @@ export default class WorkStart extends PMOCommand {
     flags: { display?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean }
   ): Promise<void> {
     // Get all tickets and filter to backlog/unstarted (not in progress)
-    // Note: In batch mode, we use undefined to get all tickets across all projects
+    // Note: In batch mode, we get all tickets across all projects (pass undefined for projectId)
+    // eslint-disable-next-line unicorn/no-useless-undefined
     const allTickets = await this.storage.listTickets(undefined)
     const backlogTickets = allTickets.filter(t =>
       t.statusCategory === 'backlog' || t.statusCategory === 'unstarted' || !t.statusCategory

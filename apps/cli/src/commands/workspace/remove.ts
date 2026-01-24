@@ -44,15 +44,6 @@ export default class WorkspaceRemove extends Command {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
-      if (jsonMode) {
-        outputErrorAsJson(code, message, createMetadata('workspace remove', flags));
-        this.exit(1);
-      }
-      this.error(message);
-    };
-
     const input = args.nameOrPath;
 
     // Resolve workspace path

@@ -5,6 +5,15 @@ import * as os from 'node:os';
 import { execSync } from 'node:child_process';
 import { exec } from './test-helpers.js';
 
+/** Branch info returned by branch list --format json */
+interface BranchInfo {
+  name: string;
+  type?: string;
+  owner?: string;
+  ticketId?: string;
+  current?: boolean;
+}
+
 /**
  * End-to-end tests for Branch Commands
  * Tests branch list, validate, and create (with flags)
@@ -70,9 +79,9 @@ describe('Branch Commands E2E Tests', () => {
       const output = exec('branch list --format json');
       const branches = JSON.parse(output);
 
-      const branch = branches.find((b: any) => b.name === 'TKT-001/feat/chris/altman/add-auth');
+      const branch = branches.find((b: { name: string; ticketId?: string }) => b.name === 'TKT-001/feat/chris/altman/add-auth');
       expect(branch).to.exist;
-      expect(branch.ticketId).to.equal('TKT-001');
+      expect(branch!.ticketId).to.equal('TKT-001');
     });
 
     it('should support compact format', () => {
@@ -185,8 +194,6 @@ describe('Branch Commands E2E Tests', () => {
       // Need PMO context for ticket lookup, so test direct name instead
       const output = exec('branch create TKT-001/feat/test/add-feature');
 
-      // Should prompt about non-conventional but allow creation
-      const branches = execSync('git branch', { encoding: 'utf-8' });
       // Branch may or may not be created depending on prompt answer
       // Just verify command ran without crash
       expect(output).to.be.a('string');
@@ -267,9 +274,9 @@ describe('Branch Commands E2E Tests', () => {
       const branches = JSON.parse(output);
 
       for (const type of types) {
-        const branch = branches.find((b: any) => b.name === `${type}/test/type-${type}`);
+        const branch = branches.find((b: BranchInfo) => b.name === `${type}/test/type-${type}`);
         expect(branch, `Branch with type ${type} should exist`).to.exist;
-        expect(branch.type).to.equal(type);
+        expect(branch!.type).to.equal(type);
       }
     });
 
@@ -284,9 +291,9 @@ describe('Branch Commands E2E Tests', () => {
       const branches = JSON.parse(output);
 
       for (const type of types) {
-        const branch = branches.find((b: any) => b.name === `${type}/test/ext-${type}`);
+        const branch = branches.find((b: BranchInfo) => b.name === `${type}/test/ext-${type}`);
         expect(branch, `Branch with type ${type} should exist`).to.exist;
-        expect(branch.type).to.equal(type);
+        expect(branch!.type).to.equal(type);
       }
     });
 
@@ -301,9 +308,9 @@ describe('Branch Commands E2E Tests', () => {
       const branches = JSON.parse(output);
 
       for (const type of types) {
-        const branch = branches.find((b: any) => b.name === `${type}/test/founder-${type}`);
+        const branch = branches.find((b: BranchInfo) => b.name === `${type}/test/founder-${type}`);
         expect(branch, `Branch with type ${type} should exist`).to.exist;
-        expect(branch.type).to.equal(type);
+        expect(branch!.type).to.equal(type);
       }
     });
 
@@ -313,7 +320,7 @@ describe('Branch Commands E2E Tests', () => {
       const output = exec('branch list --format json');
       const branches = JSON.parse(output);
 
-      const branch = branches.find((b: any) => b.name.startsWith('TKT-123'));
+      const branch = branches.find((b: BranchInfo) => b.name.startsWith('TKT-123'));
       expect(branch).to.exist;
       expect(branch.ticketId).to.equal('TKT-123');
       expect(branch.type).to.equal('feat');
@@ -326,7 +333,7 @@ describe('Branch Commands E2E Tests', () => {
       const output = exec('branch list --format json');
       const branches = JSON.parse(output);
 
-      const branch = branches.find((b: any) => b.name === 'fix/john-doe/bug-fix');
+      const branch = branches.find((b: BranchInfo) => b.name === 'fix/john-doe/bug-fix');
       expect(branch).to.exist;
       expect(branch.owner).to.equal('john-doe');
     });
@@ -337,7 +344,7 @@ describe('Branch Commands E2E Tests', () => {
       const output = exec('branch list --format json');
       const branches = JSON.parse(output);
 
-      const branch = branches.find((b: any) => b.name.startsWith('TKT-001'));
+      const branch = branches.find((b: BranchInfo) => b.name.startsWith('TKT-001'));
       expect(branch).to.exist;
       expect(branch.agent).to.equal('altman');
     });

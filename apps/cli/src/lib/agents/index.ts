@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { isValidAgentName, getSuggestedAgentNames, normalizeAgentName, BUILTIN_THEMES, getThemePersistentDir } from '../themes.js';
+import { isValidAgentName, getSuggestedAgentNames, BUILTIN_THEMES, getThemePersistentDir } from '../themes.js';
 import { getWorkspaceRepositories, getActiveTheme } from '../database/index.js';
 import { styles } from '../styles.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';

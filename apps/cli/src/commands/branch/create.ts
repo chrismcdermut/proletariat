@@ -1,6 +1,6 @@
 import { Args, Flags } from '@oclif/core'
-import * as fs from 'fs'
-import * as path from 'path'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
@@ -11,8 +11,6 @@ import {
   outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
-  buildFormPromptConfig,
-  FormField,
 } from '../../lib/prompt-json.js'
 import {
   BRANCH_TYPES,
@@ -354,14 +352,14 @@ export default class BranchCreate extends PMOCommand {
   /**
    * Create branch from ticket ID with defaults (non-interactive).
    */
-  private async createFromTicketId(ticketId: string, ownerOverride?: string, projectId?: string): Promise<WizardResult | null> {
+  private async createFromTicketId(ticketId: string, ownerOverride?: string, _projectId?: string): Promise<WizardResult | null> {
     try {
       // Search for ticket across all projects
       const projects = await this.storage.listProjects()
       let foundTicket: { id: string; title: string; category?: string } | null = null
 
-      for (const project of projects) {
-        const tickets = await this.storage.listTickets(projectId)
+      for (const proj of projects) {
+        const tickets = await this.storage.listTickets(proj.id)
         const match = tickets.find(t => t.id === ticketId)
         if (match) {
           foundTicket = match
@@ -398,7 +396,7 @@ export default class BranchCreate extends PMOCommand {
     const defaultOwnerName = this.getDefaultOwnerName()
 
     // Load tickets from PMO (across all projects)
-    let tickets: Array<{ id: string; title: string; category?: string; status?: string; projectName?: string }> = []
+    const tickets: Array<{ id: string; title: string; category?: string; status?: string; projectName?: string }> = []
     try {
       // Get all projects and their tickets
       const projects = await this.storage.listProjects()
@@ -591,7 +589,7 @@ export default class BranchCreate extends PMOCommand {
       },
     ])
 
-    let fromOrigin = branchFrom === 'origin-main'
+    const fromOrigin = branchFrom === 'origin-main'
     let customStartPoint: string | undefined
 
     if (branchFrom === 'other') {
@@ -703,7 +701,7 @@ export default class BranchCreate extends PMOCommand {
       },
     ])
 
-    let fromOrigin = branchFrom === 'origin-main'
+    const fromOrigin = branchFrom === 'origin-main'
     let customStartPoint: string | undefined
 
     if (branchFrom === 'other') {

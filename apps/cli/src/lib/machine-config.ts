@@ -226,7 +226,7 @@ export function registerHeadquarters(
     orgName,
   };
 
-  if (existingIndex >= 0) {
+  if (existingIndex !== -1) {
     // Update existing entry
     config.headquarters[existingIndex] = entry;
   } else {

@@ -24,7 +24,6 @@ import {
   isValidAgentName,
   getSuggestedAgentNames,
   generateEphemeralAgentName,
-  isEphemeralAgentName,
   GenerateEphemeralNameOptions,
   getThemePersistentDir,
   getThemeEphemeralDir,
@@ -462,6 +461,7 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
     // Clear ticket assignees for removed agents
     try {
       const { storage } = await getPMOContext();
+      // eslint-disable-next-line unicorn/no-useless-undefined
       const allTickets = await storage.listTickets(undefined);
       for (const ticket of allTickets) {
         if (ticket.assignee && removed.includes(ticket.assignee)) {
@@ -504,8 +504,8 @@ export async function createEphemeralAgent(
 ): Promise<EphemeralAgentResult> {
   // Get existing agent names for uniqueness check
   const existingNames = new Set([
-    ...workspaceInfo.agents.map(a => a.name.toLowerCase()),
-    ...Array.from(getEphemeralAgentNames(workspaceInfo.path))
+    ...Array.from(getEphemeralAgentNames(workspaceInfo.path)),
+    ...workspaceInfo.agents.map(a => a.name.toLowerCase())
   ]);
 
   const log = options?.log;
@@ -582,7 +582,7 @@ export async function createEphemeralAgent(
             cwd: sourceRepoPath,
             stdio: 'pipe'
           });
-        } catch (error) {
+        } catch {
           // If worktree creation fails, try to just create the directory
           // The agent can still work without a worktree (e.g., for non-git projects)
           if (!fs.existsSync(worktreePath)) {

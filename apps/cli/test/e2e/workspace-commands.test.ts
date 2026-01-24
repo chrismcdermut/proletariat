@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { exec, filterOutput, getIsolatedEnv, getBinPath } from './test-helpers.js';
+import { filterOutput, getIsolatedEnv, getBinPath } from './test-helpers.js';
 import { execSync } from 'node:child_process';
 
 /**
@@ -72,10 +72,11 @@ describe('Workspace Commands E2E Tests', () => {
         env,
       });
       return filterOutput(result);
-    } catch (error: any) {
-      const stdout = error.stdout || '';
-      const stderr = error.stderr || '';
-      return filterOutput(stdout + stderr) || error.message;
+    } catch (error: unknown) {
+      const execError = error as { stdout?: string; stderr?: string; message?: string };
+      const stdout = execError.stdout || '';
+      const stderr = execError.stderr || '';
+      return filterOutput(stdout + stderr) || execError.message || 'Unknown error';
     }
   }
 

@@ -11,9 +11,8 @@ import {
   PMOError,
   Project,
   ProjectFilter,
-  WorkflowStatus,
 } from '../types.js'
-import { slugify, generateEntityId } from '../utils.js'
+import { generateEntityId } from '../utils.js'
 import { generateBoardMarkdown } from '../markdown.js'
 import { StorageContext, ProjectRow, TicketRow } from './types.js'
 import { rowToTicket } from './helpers.js'

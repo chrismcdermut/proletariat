@@ -92,27 +92,30 @@ describe('PMO Board Templates', () => {
     });
 
     it('seeded workflow statuses match BUILTIN_TEMPLATES', async () => {
-      for (const template of BUILTIN_TEMPLATES) {
+      await Promise.all(BUILTIN_TEMPLATES.map(async (template) => {
         const dbStatuses = await storage.listStatuses(template.id);
+        // eslint-disable-next-line max-nested-callbacks
         const templateStatusNames = template.statuses.map(s => s.name);
+        // eslint-disable-next-line max-nested-callbacks
         const dbStatusNames = dbStatuses.map(s => s.name);
 
         expect(dbStatusNames).to.have.members(templateStatusNames,
           `Workflow ${template.id} statuses don't match BUILTIN_TEMPLATES`);
-      }
+      }));
     });
 
     it('seeded workflow status categories match BUILTIN_TEMPLATES', async () => {
-      for (const template of BUILTIN_TEMPLATES) {
+      await Promise.all(BUILTIN_TEMPLATES.map(async (template) => {
         const dbStatuses = await storage.listStatuses(template.id);
 
         for (const templateStatus of template.statuses) {
+          // eslint-disable-next-line max-nested-callbacks
           const dbStatus = dbStatuses.find(s => s.name === templateStatus.name);
           expect(dbStatus).to.not.be.undefined;
           expect(dbStatus!.category).to.equal(templateStatus.category,
             `Status ${templateStatus.name} in ${template.id} has wrong category`);
         }
-      }
+      }));
     });
   });
 

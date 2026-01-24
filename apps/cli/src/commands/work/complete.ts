@@ -1,7 +1,6 @@
 import { Args, Flags } from '@oclif/core';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
@@ -9,10 +8,8 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ExecutionStorage } from '../../lib/execution/storage.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class WorkComplete extends PMOCommand {

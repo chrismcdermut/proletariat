@@ -91,14 +91,10 @@ export abstract class PMOCommand extends Command {
     const { flags } = await this.parse(this.constructor as typeof Command);
     this.projectFlag = (flags as { project?: string }).project;
 
-    try {
-      this.pmoContext = await getPMOContext({
-        logger: (msg) => this.pmoLogger(msg),
-      });
-      this.contextInitialized = true;
-    } catch (error) {
-      throw error;
-    }
+    this.pmoContext = await getPMOContext({
+      logger: (msg) => this.pmoLogger(msg),
+    });
+    this.contextInitialized = true;
   }
 
   /**
