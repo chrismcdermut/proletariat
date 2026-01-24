@@ -35,7 +35,7 @@ import {
   generateBranchName,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
-import { runExecution, isDockerRunning } from '../../lib/execution/runners.js'
+import { runExecution, isDockerRunning, isGitHubTokenAvailable } from '../../lib/execution/runners.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
 import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
@@ -163,9 +163,9 @@ export default class WorkStart extends PMOCommand {
       description: 'Re-prompt for terminal app preference',
       default: false,
     }),
-    'skip-permissions': Flags.boolean({
-      description: 'Skip permission prompts (danger mode)',
-      default: false,
+    'permission-mode': Flags.string({
+      description: 'Permission mode for Claude Code (danger=skip checks, safe=require approval)',
+      options: ['danger', 'safe'],
     }),
     'create-pr': Flags.boolean({
       description: 'Create PR when work is ready',
@@ -668,6 +668,7 @@ export default class WorkStart extends PMOCommand {
 
         actionChoices.push(new inquirer.Separator('── Custom ──'))
         actionChoices.push({ name: 'Custom prompt...', value: '__custom__' })
+        actionChoices.push({ name: 'Ad-hoc session - unstructured exploration/debugging', value: '__adhoc__' })
 
         const { selectedActionId } = await inquirer.prompt([
           {
@@ -688,6 +689,18 @@ export default class WorkStart extends PMOCommand {
             },
           ])
           customPrompt = customInput.trim()
+        } else if (selectedActionId === '__adhoc__') {
+          // Ad-hoc session - no specific action, just launch Claude for exploration
+          selectedAction = {
+            id: 'adhoc',
+            name: 'Ad-hoc',
+            description: 'Unstructured exploration and debugging',
+            prompt: 'You are working on an ad-hoc session for exploration and debugging. Help the user with whatever they need.',
+            modifiesCode: false,
+            defaultMoveToCategory: 'started',
+            isBuiltin: false,
+            createdAt: new Date(),
+          }
         } else {
           selectedAction = await this.storage.getAction(selectedActionId)
         }
@@ -772,6 +785,74 @@ export default class WorkStart extends PMOCommand {
               this.log('')
               continue  // Re-prompt for environment selection
             }
+
+            // Check GitHub token is available for git push operations
+            if (!isGitHubTokenAvailable()) {
+              const tokenChoices = [
+                { name: 'Yes, continue anyway (git push may fail)', value: 'continue' },
+                { name: 'No, let me run gh auth login first', value: 'cancel' },
+                { name: 'Switch to host mode instead', value: 'host' },
+              ]
+              const tokenMessage = 'GitHub token not found. Git push may fail. Continue without token?'
+
+              if (jsonMode) {
+                outputPromptAsJson(
+                  buildPromptConfig('list', 'tokenAction', tokenMessage, tokenChoices),
+                  createMetadata('work start', flags)
+                )
+                db.close()
+                return
+              }
+
+              this.log('')
+              this.warn(
+                'GitHub token not found.\n' +
+                'Git push operations may fail inside the container.\n' +
+                'Run `gh auth login` to authenticate, or continue without token.'
+              )
+              this.log('')
+
+              // eslint-disable-next-line no-await-in-loop -- Interactive user prompt in loop
+              const { tokenAction } = await inquirer.prompt([
+                {
+                  type: 'list',
+                  name: 'tokenAction',
+                  message: tokenMessage,
+                  choices: tokenChoices,
+                  default: 'continue',
+                },
+              ])
+
+              if (tokenAction === 'cancel') {
+                db.close()
+                this.log(styles.muted('Run `gh auth login` and try again.'))
+                return
+              }
+
+              if (tokenAction === 'host') {
+                environment = 'host'
+                // Skip to host mode prompts
+                // eslint-disable-next-line no-await-in-loop -- Follow-up prompt after user selection
+                const { selectedDisplay } = await inquirer.prompt([
+                  {
+                    type: 'list',
+                    name: 'selectedDisplay',
+                    message: 'How should the agent output be displayed?',
+                    choices: [
+                      { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                      { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
+                      { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+                    ],
+                    default: 'terminal',
+                  },
+                ])
+                displayMode = selectedDisplay as DisplayMode
+                environmentSelected = true
+                continue
+              }
+              // tokenAction === 'continue' - fall through to devcontainer setup
+            }
+
             environment = 'devcontainer'
             // Pick display mode for devcontainer
             // eslint-disable-next-line no-await-in-loop -- Follow-up prompt after selection
@@ -855,9 +936,9 @@ export default class WorkStart extends PMOCommand {
       const outputMode: OutputMode = flags.output as OutputMode || DEFAULT_EXECUTION_CONFIG.outputMode
 
       // Prompt for permissions mode (all environments)
-      // Skip prompt if --skip-permissions flag is set
-      if (flags['skip-permissions']) {
-        sandboxed = false
+      // Skip prompt if --permission-mode flag is set
+      if (flags['permission-mode']) {
+        sandboxed = flags['permission-mode'] === 'safe'
       } else {
         const containerNote = environment === 'devcontainer'
           ? ' (container provides additional isolation)'
@@ -1265,7 +1346,7 @@ export default class WorkStart extends PMOCommand {
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
     db: Database.Database,
     executionStorage: ExecutionStorage,
-    flags: { display?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean }
+    flags: { display?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean; 'permission-mode'?: string }
   ): Promise<void> {
     // Get all tickets and filter to backlog/unstarted (not in progress)
     // Note: In batch mode, we get all tickets across all projects (pass undefined for projectId)
@@ -1332,6 +1413,24 @@ export default class WorkStart extends PMOCommand {
       return
     }
 
+    // Prompt for permissions mode once for all tickets (TKT-513)
+    let batchPermissionMode: 'danger' | 'safe' = flags['permission-mode'] as 'danger' | 'safe'
+    if (!batchPermissionMode) {
+      const { permissionMode } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'permissionMode',
+          message: 'Permission mode for Claude Code:',
+          choices: [
+            { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
+            { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+          ],
+          default: 'danger',
+        },
+      ])
+      batchPermissionMode = permissionMode
+    }
+
     // Assign tickets to agents (round-robin)
     const assignments: Array<{ ticket: typeof backlogTickets[0]; agent: typeof availableAgents[0] }> = []
     for (let i = 0; i < backlogTickets.length; i++) {
@@ -1349,6 +1448,7 @@ export default class WorkStart extends PMOCommand {
 
         // Use the work:start command for each ticket
         // Pass --project from ticket to avoid re-prompting for project selection
+        // Pass --permission-mode to skip prompts in recursive calls (TKT-513)
         // eslint-disable-next-line no-await-in-loop -- Sequential spawning with user feedback
         await this.config.runCommand('work:start', [
           ticket.id,
@@ -1357,6 +1457,7 @@ export default class WorkStart extends PMOCommand {
           ...(flags.executor ? ['--executor', flags.executor] : []),
           ...(flags['run-on-host'] ? ['--run-on-host'] : []),
           ...(flags.force ? ['--force'] : []),
+          '--permission-mode', batchPermissionMode,
         ])
 
         successCount++
@@ -1389,7 +1490,7 @@ export default class WorkStart extends PMOCommand {
     flags: {
       force?: boolean
       'run-on-host'?: boolean
-      'skip-permissions'?: boolean
+      'permission-mode'?: string
       'create-pr'?: boolean
       'no-pr'?: boolean
       executor?: string
@@ -1484,7 +1585,7 @@ export default class WorkStart extends PMOCommand {
     // Non-interactive defaults
     const environment: ExecutionEnvironment = useDevcontainer ? 'devcontainer' : 'host'
     const displayMode: DisplayMode = 'terminal'
-    const sandboxed = !flags['skip-permissions']
+    const sandboxed = flags['permission-mode'] === 'safe'
     const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
     const outputMode: OutputMode = 'interactive'
 

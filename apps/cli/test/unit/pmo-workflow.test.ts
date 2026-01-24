@@ -286,7 +286,7 @@ describe('PMO Workflow Status', () => {
       });
 
       // Verify ticket is in started category
-      const ticketBefore = await storage.getTicket(projectId, ticket.id);
+      const ticketBefore = await storage.getTicket(ticket.id);
       expect(ticketBefore!.statusCategory).to.equal('started');
 
       // Switch to bug-smash workflow

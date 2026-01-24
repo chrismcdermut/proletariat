@@ -64,3 +64,35 @@ const { confirmed } = await inquirer.prompt([{
   ],
 }])
 ```
+
+## JSON Mode for AI Agents
+
+**When adding any `inquirer.prompt`, ALWAYS include the JSON output pattern.** This allows AI agents to receive prompt configs as JSON instead of interactive menus.
+
+```typescript
+// 1. Define choices and message ONCE (reuse for both modes)
+const choices = [
+  { name: 'Option A', value: 'a' },
+  { name: 'Option B', value: 'b' },
+]
+const message = 'Select an option:'
+
+// 2. Handle JSON mode FIRST - output prompt config and return
+if (jsonMode) {
+  outputPromptAsJson(
+    buildPromptConfig('list', 'fieldName', message, choices),
+    createMetadata('command-name', flags)
+  )
+  return
+}
+
+// 3. THEN do interactive prompt for humans
+const { fieldName } = await inquirer.prompt([{
+  type: 'list',
+  name: 'fieldName',
+  message,
+  choices,
+}])
+```
+
+**Never add an `inquirer.prompt` without the corresponding `outputPromptAsJson` block.**

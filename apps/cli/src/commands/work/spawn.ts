@@ -9,7 +9,7 @@ import {
   getTicketTmuxSession,
   killTmuxSession
 } from '../../lib/agents/commands.js'
-import { isDockerRunning } from '../../lib/execution/runners.js'
+import { isDockerRunning, isGitHubTokenAvailable } from '../../lib/execution/runners.js'
 import {
   shouldOutputJson,
   outputPromptAsJson,
@@ -577,6 +577,12 @@ export default class WorkSpawn extends PMOCommand {
               value: a.id,
             }))
 
+          // Add adhoc option at the end
+          actionChoices.push({
+            name: 'adhoc        - Unstructured exploration/debugging',
+            value: '__adhoc__',
+          })
+
           const { selectedAction } = await inquirer.prompt([
             {
               type: 'list',
@@ -586,11 +592,25 @@ export default class WorkSpawn extends PMOCommand {
               default: 'implement',
             },
           ])
-          batchAction = selectedAction
+          batchAction = selectedAction === '__adhoc__' ? 'adhoc' : selectedAction
         }
 
         // Now fetch action details after selection is made
-        selectedActionDetails = await this.storage.getAction(batchAction || 'implement')
+        if (batchAction === 'adhoc') {
+          // Adhoc is a synthetic action, not stored in database
+          selectedActionDetails = {
+            id: 'adhoc',
+            name: 'Ad-hoc',
+            description: 'Unstructured exploration and debugging',
+            prompt: 'You are working on an ad-hoc session for exploration and debugging. Help the user with whatever they need.',
+            modifiesCode: false,
+            defaultMoveToCategory: 'started',
+            isBuiltin: false,
+            createdAt: new Date(),
+          }
+        } else {
+          selectedActionDetails = await this.storage.getAction(batchAction || 'implement')
+        }
 
         // Check if any explicit settings were provided via flags
         const hasExplicitSettings = flags.display || flags.output || flags['skip-permissions'] ||
@@ -675,6 +695,58 @@ export default class WorkSpawn extends PMOCommand {
                 this.log('')
                 continue
               }
+
+              // Check GitHub token is available for git push operations
+              if (!isGitHubTokenAvailable()) {
+                const tokenChoices = [
+                  { name: 'Yes, continue anyway (git push may fail)', value: 'continue' },
+                  { name: 'No, let me run gh auth login first', value: 'cancel' },
+                  { name: 'Switch to host mode instead', value: 'host' },
+                ]
+                const tokenMessage = 'GitHub token not found. Git push may fail. Continue without token?'
+
+                if (jsonMode) {
+                  outputPromptAsJson(
+                    buildPromptConfig('list', 'tokenAction', tokenMessage, tokenChoices),
+                    createMetadata('work spawn', flags)
+                  )
+                  db.close()
+                  return
+                }
+
+                this.log('')
+                this.warn(
+                  'GitHub token not found.\n' +
+                  'Git push operations may fail inside containers.\n' +
+                  'Run `gh auth login` to authenticate, or continue without token.'
+                )
+                this.log('')
+
+                // eslint-disable-next-line no-await-in-loop -- Interactive user prompt in loop
+                const { tokenAction } = await inquirer.prompt([
+                  {
+                    type: 'list',
+                    name: 'tokenAction',
+                    message: tokenMessage,
+                    choices: tokenChoices,
+                    default: 'continue',
+                  },
+                ])
+
+                if (tokenAction === 'cancel') {
+                  db.close()
+                  this.log(styles.muted('Run `gh auth login` and try again.'))
+                  return
+                }
+
+                if (tokenAction === 'host') {
+                  batchRunOnHost = true
+                  environmentSelected = true
+                  continue
+                }
+                // tokenAction === 'continue' - fall through to devcontainer setup
+              }
+
               batchDisplay = 'devcontainer'
               environmentSelected = true
 

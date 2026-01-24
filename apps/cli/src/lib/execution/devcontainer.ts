@@ -8,6 +8,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG } from './types.js'
+import { parseChannel } from '../workspace-config.js'
 
 export interface DevcontainerOptions {
   agentName: string
@@ -16,6 +17,8 @@ export interface DevcontainerOptions {
   memory?: string
   cpus?: number
   timezone?: string
+  /** prlt channel: "npm", "npm:dev", "gh", "gh:dev", "mount", or version like "npm:1.2.3" */
+  prltChannel?: string
 }
 
 export interface DevcontainerJson {
@@ -50,13 +53,32 @@ export interface DevcontainerJson {
 export function generateDevcontainerJson(options: DevcontainerOptions, config?: ExecutionConfig): DevcontainerJson {
   const cfg = config || DEFAULT_EXECUTION_CONFIG
 
+  // Parse the channel to determine registry and version
+  const channel = parseChannel(options.prltChannel || 'npm')
+  const useMount = channel.registry === 'mount'
+
+  // Build args for Dockerfile
+  const buildArgs: Record<string, string> = {
+    TZ: options.timezone || 'America/Los_Angeles',
+  }
+
+  // Pass registry and version to Dockerfile
+  // For mount mode, we pass PRLT_REGISTRY=mount so Dockerfile skips npm install
+  buildArgs.PRLT_REGISTRY = channel.registry
+  if (!useMount) {
+    buildArgs.PRLT_VERSION = channel.version || 'latest'
+  }
+
+  // For GitHub Packages, pass GITHUB_TOKEN as build arg
+  if (channel.registry === 'gh') {
+    buildArgs.GITHUB_TOKEN = '${localEnv:GITHUB_TOKEN}'
+  }
+
   const devcontainerJson: DevcontainerJson = {
     name: `Agent: ${options.agentName}`,
     build: {
       dockerfile: 'Dockerfile',
-      args: {
-        TZ: options.timezone || 'America/Los_Angeles',
-      },
+      args: buildArgs,
     },
     customizations: {
       vscode: {
@@ -83,6 +105,8 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       'source=claude-credentials,target=/home/node/.claude,type=volume',
       // NOTE: ~/.claude.json is COPIED (not mounted) to /workspace/.claude.json
       // to avoid corruption from concurrent writes by multiple containers
+      // NOTE: SSH agent socket mounting doesn't work reliably on Docker Desktop for Mac
+      // So we use HTTPS + token approach instead. The token is fetched fresh at spawn time.
       'source=${localEnv:PRLT_HQ_PATH}/.proletariat,target=/hq/.proletariat,type=bind',
       // PMO path can be anywhere (e.g., /hq/pmo or /hq/repos/myrepo/pmo)
       // Use PRLT_PMO_PATH env var to mount the actual location to /hq/pmo
@@ -93,6 +117,9 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       ...(options.repoWorktrees || []).map(
         repoName => `source=\${localEnv:PRLT_HQ_PATH}/repos/${repoName},target=/hq/repos/${repoName},type=bind`
       ),
+      // If using "mount" channel, mount local prlt build from PRLT_REPO_PATH
+      // The setup-prlt.sh script will detect /opt/prlt and configure the wrapper
+      ...(useMount ? ['source=${localEnv:PRLT_REPO_PATH},target=/opt/prlt,type=bind,readonly'] : []),
     ],
     containerEnv: {
       DEVCONTAINER: 'true',
@@ -168,8 +195,30 @@ USER node
 RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code
 USER root
 
-# Install prlt CLI from npm
-RUN npm install -g @proletariat/cli
+# Install prlt CLI
+# PRLT_REGISTRY: "npm" (public npmjs.com) or "gh" (GitHub Packages)
+# PRLT_VERSION: version/tag like "latest", "dev", "next", or "1.2.3"
+# GitHub Packages requires GITHUB_TOKEN build arg with read:packages scope
+ARG GITHUB_TOKEN
+ARG PRLT_REGISTRY=npm
+ARG PRLT_VERSION=latest
+RUN if [ "\${PRLT_REGISTRY}" = "gh" ]; then \\
+      if [ -z "\${GITHUB_TOKEN}" ]; then \\
+        echo "ERROR: PRLT_REGISTRY=gh requires GITHUB_TOKEN with read:packages scope"; \\
+        echo "Either set GITHUB_TOKEN or use PRLT_REGISTRY=npm (public npm) or mount mode"; \\
+        exit 1; \\
+      fi; \\
+      echo "//npm.pkg.github.com/:_authToken=\${GITHUB_TOKEN}" >> ~/.npmrc && \\
+      echo "@chrismcdermut:registry=https://npm.pkg.github.com" >> ~/.npmrc && \\
+      echo "Installing @chrismcdermut/prlt@\${PRLT_VERSION} from GitHub Packages..." && \\
+      npm install -g @chrismcdermut/prlt@\${PRLT_VERSION} && \\
+      rm ~/.npmrc; \\
+    elif [ "\${PRLT_REGISTRY}" = "npm" ]; then \\
+      echo "Installing prlt@\${PRLT_VERSION} from public npm..." && \\
+      npm install -g prlt@\${PRLT_VERSION}; \\
+    else \\
+      echo "prlt will be mounted from host (mount mode)"; \\
+    fi
 
 # Copy and set up scripts
 COPY init-firewall.sh /usr/local/bin/init-firewall.sh
@@ -406,8 +455,8 @@ if [ -f "/workspace/.claude.json" ]; then
     echo "Claude credentials copied"
 fi
 
-# Configure git to use GitHub token for authentication
-# Check for token in environment or get from gh CLI
+# Configure git authentication using GitHub token
+# Token is passed via GITHUB_TOKEN env var (set fresh at spawn time by runners.ts)
 TOKEN=""
 if [ -n "$GITHUB_TOKEN" ]; then
     TOKEN="$GITHUB_TOKEN"
@@ -439,7 +488,7 @@ if [ -n "$TOKEN" ]; then
 
     echo "Git configured for GitHub push via HTTPS"
 else
-    echo "Warning: No GitHub token found, push to GitHub will require manual auth"
+    echo "Warning: No GitHub token found, git push will require manual auth"
 fi
 
 # Check if prlt is already installed globally (via npm from GitHub Packages)
@@ -497,7 +546,9 @@ LOADER_EOF
 NODE_NO_WARNINGS=1 exec node --experimental-loader /home/node/.prlt-local/loader.mjs /opt/prlt/apps/cli/bin/run.js "$@"
 WRAPPER_EOF
     chmod +x "$WRAPPER"
-    echo "prlt wrapper ready at $WRAPPER"
+    # Create prltdev symlink for consistency with dev environment
+    ln -sf "$WRAPPER" /home/node/.npm-global/bin/prltdev
+    echo "prlt wrapper ready at $WRAPPER (also available as prltdev)"
 else
     echo "No mounted prlt found, skipping setup"
 fi
