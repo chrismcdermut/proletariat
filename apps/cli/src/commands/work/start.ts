@@ -163,9 +163,9 @@ export default class WorkStart extends PMOCommand {
       description: 'Re-prompt for terminal app preference',
       default: false,
     }),
-    'skip-permissions': Flags.boolean({
-      description: 'Skip permission prompts (danger mode)',
-      default: false,
+    'permission-mode': Flags.string({
+      description: 'Permission mode for Claude Code (danger=skip checks, safe=require approval)',
+      options: ['danger', 'safe'],
     }),
     'create-pr': Flags.boolean({
       description: 'Create PR when work is ready',
@@ -865,9 +865,9 @@ export default class WorkStart extends PMOCommand {
       let outputMode: OutputMode = flags.output as OutputMode || DEFAULT_EXECUTION_CONFIG.outputMode
 
       // Prompt for permissions mode (all environments)
-      // Skip prompt if --skip-permissions flag is set
-      if (flags['skip-permissions']) {
-        sandboxed = false
+      // Skip prompt if --permission-mode flag is set
+      if (flags['permission-mode']) {
+        sandboxed = flags['permission-mode'] === 'safe'
       } else {
         const containerNote = environment === 'devcontainer'
           ? ' (container provides additional isolation)'
@@ -1265,7 +1265,7 @@ export default class WorkStart extends PMOCommand {
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
     db: Database.Database,
     executionStorage: ExecutionStorage,
-    flags: { display?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean }
+    flags: { display?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean; 'permission-mode'?: string }
   ): Promise<void> {
     // Get all tickets and filter to backlog/unstarted (not in progress)
     // Note: In batch mode, we use undefined to get all tickets across all projects
@@ -1331,6 +1331,24 @@ export default class WorkStart extends PMOCommand {
       return
     }
 
+    // Prompt for permissions mode once for all tickets (TKT-513)
+    let batchPermissionMode: 'danger' | 'safe' = flags['permission-mode'] as 'danger' | 'safe'
+    if (!batchPermissionMode) {
+      const { permissionMode } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'permissionMode',
+          message: 'Permission mode for Claude Code:',
+          choices: [
+            { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
+            { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+          ],
+          default: 'danger',
+        },
+      ])
+      batchPermissionMode = permissionMode
+    }
+
     // Assign tickets to agents (round-robin)
     const assignments: Array<{ ticket: typeof backlogTickets[0]; agent: typeof availableAgents[0] }> = []
     for (let i = 0; i < backlogTickets.length; i++) {
@@ -1348,6 +1366,7 @@ export default class WorkStart extends PMOCommand {
 
         // Use the work:start command for each ticket
         // Pass --project from ticket to avoid re-prompting for project selection
+        // Pass --permission-mode to skip prompts in recursive calls (TKT-513)
         await this.config.runCommand('work:start', [
           ticket.id,
           ...(ticket.projectId ? ['--project', ticket.projectId] : []),
@@ -1355,6 +1374,7 @@ export default class WorkStart extends PMOCommand {
           ...(flags.executor ? ['--executor', flags.executor] : []),
           ...(flags['run-on-host'] ? ['--run-on-host'] : []),
           ...(flags.force ? ['--force'] : []),
+          '--permission-mode', batchPermissionMode,
         ])
 
         successCount++
@@ -1387,7 +1407,7 @@ export default class WorkStart extends PMOCommand {
     flags: {
       force?: boolean
       'run-on-host'?: boolean
-      'skip-permissions'?: boolean
+      'permission-mode'?: string
       'create-pr'?: boolean
       'no-pr'?: boolean
       executor?: string
@@ -1482,7 +1502,7 @@ export default class WorkStart extends PMOCommand {
     // Non-interactive defaults
     const environment: ExecutionEnvironment = useDevcontainer ? 'devcontainer' : 'host'
     const displayMode: DisplayMode = 'terminal'
-    const sandboxed = !flags['skip-permissions']
+    const sandboxed = flags['permission-mode'] === 'safe'
     const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
     const outputMode: OutputMode = 'interactive'
 
