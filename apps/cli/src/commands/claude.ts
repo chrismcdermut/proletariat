@@ -1,6 +1,7 @@
 import { Command, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import * as os from 'node:os'
 import { execSync } from 'node:child_process'
 import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
@@ -305,25 +306,39 @@ export default class Claude extends Command {
     // Build session name
     const sessionName = `adhoc-${slug}`
 
+    // Prepare devcontainer if needed and not present
+    let devcontainerConfigDir = workDir
+    let cleanupDevcontainer: (() => void) | undefined
+    if (environment === 'devcontainer' && !hasProjectDevcontainer) {
+      // Check if catch-all image is available
+      const imageCheck = await this.checkCatchallImage()
+      if (!imageCheck.available) {
+        if (jsonMode) {
+          outputErrorAsJson('CONTAINER_IMAGE_UNAVAILABLE', imageCheck.error!, createMetadata('claude', flags))
+          this.exit(1)
+        }
+        this.error(imageCheck.error!)
+      }
+
+      // Create temporary devcontainer config using catch-all image
+      this.log(styles.muted(`   Using catch-all devcontainer: ${CATCHALL_DEVCONTAINER_IMAGE}`))
+      const devcontainerSetup = await this.setupCatchallDevcontainer(workDir, slug!)
+      devcontainerConfigDir = devcontainerSetup.configDir
+      cleanupDevcontainer = devcontainerSetup.cleanup
+    }
+
     // Build minimal execution context for yolo mode
+    // Use devcontainerConfigDir for worktreePath so runner finds .devcontainer there
     const context: ExecutionContext = {
       ticketId: 'ADHOC',
       ticketTitle: `Ad-hoc: ${slug}`,
       agentName: 'adhoc',
       agentDir: workDir,
-      worktreePath: workDir,
+      worktreePath: devcontainerConfigDir, // Runner looks here for .devcontainer
       branch: 'adhoc',
       actionName: slug,
       actionPrompt: flags.prompt,
       modifiesCode: false, // Don't try to create branches
-    }
-
-    // Prepare devcontainer if needed and not present
-    let effectiveWorkDir = workDir
-    if (environment === 'devcontainer' && !hasProjectDevcontainer) {
-      // Create temporary devcontainer config using catch-all image
-      this.log(styles.muted(`   Using catch-all devcontainer: ${CATCHALL_DEVCONTAINER_IMAGE}`))
-      effectiveWorkDir = await this.setupCatchallDevcontainer(workDir, slug!)
     }
 
     // Load execution config (use defaults for yolo mode)
@@ -378,19 +393,35 @@ export default class Claude extends Command {
     // Run execution
     this.log(styles.muted('Starting Claude...'))
 
-    const result = await runExecution(environment, context, 'claude-code', executionConfig, {
-      displayMode,
-      sessionManager: environment === 'devcontainer' ? 'tmux' : undefined,
-    })
+    try {
+      const result = await runExecution(environment, context, 'claude-code', executionConfig, {
+        displayMode,
+        sessionManager: environment === 'devcontainer' ? 'tmux' : undefined,
+      })
 
-    if (result.success) {
-      this.log('')
-      this.log(styles.success(`✓ Session started: ${sessionName}`))
-      if (displayMode === 'background') {
-        this.log(styles.muted(`   Reattach with: tmux attach -t "${sessionName}"`))
+      if (result.success) {
+        this.log('')
+        this.log(styles.success(`✓ Session started: ${sessionName}`))
+        if (displayMode === 'background') {
+          this.log(styles.muted(`   Reattach with: tmux attach -t "${sessionName}"`))
+        }
+        // Clean up temp devcontainer config after session starts (container has cached the config)
+        if (cleanupDevcontainer) {
+          cleanupDevcontainer()
+        }
+      } else {
+        // Clean up on failure
+        if (cleanupDevcontainer) {
+          cleanupDevcontainer()
+        }
+        this.error(`Failed to start session: ${result.error}`)
       }
-    } else {
-      this.error(`Failed to start session: ${result.error}`)
+    } catch (error) {
+      // Clean up on error
+      if (cleanupDevcontainer) {
+        cleanupDevcontainer()
+      }
+      throw error
     }
   }
 
@@ -530,20 +561,7 @@ export default class Claude extends Command {
         }
       }
 
-      // Create adhoc ticket
-      const ticket = await storage.createTicket(projectId!, {
-        title: ticketTitle!,
-        description: ticketDescription,
-        category: 'adhoc',
-        priority: 'P2',
-      })
-
-      this.log(styles.success(`   Created ticket: ${ticket.id}`))
-
-      // Now use the slug from ticket title if not provided
-      const slug = flags.slug || ticketTitle!.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 30)
-
-      // Prompt for environment
+      // Prompt for environment first (before creating ticket) so user can cancel early
       const hasProjectDevcontainer = hasDevcontainerConfig(workDir)
 
       let environment: ExecutionEnvironment = 'host'
@@ -654,12 +672,38 @@ export default class Claude extends Command {
         }
       }
 
-      // Create ephemeral agent
-      this.log(styles.muted('   Creating ephemeral agent...'))
-      const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
-        skipDevcontainer: environment === 'host',
-        log: (msg) => this.log(styles.muted(`   ${msg}`)),
+      // Now create ticket (after all prompts so user can cancel early without orphaned ticket)
+      const ticket = await storage.createTicket(projectId!, {
+        title: ticketTitle!,
+        description: ticketDescription,
+        category: 'adhoc',
+        priority: 'P2',
       })
+
+      this.log(styles.success(`   Created ticket: ${ticket.id}`))
+
+      // Now use the slug from ticket title if not provided
+      const slug = flags.slug || ticketTitle!.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 30)
+
+      // Create ephemeral agent (with rollback on failure)
+      this.log(styles.muted('   Creating ephemeral agent...'))
+      let ephemeralResult: { name: string; worktreePath: string }
+      try {
+        ephemeralResult = await createEphemeralAgent(workspaceInfo, {
+          skipDevcontainer: environment === 'host',
+          log: (msg) => this.log(styles.muted(`   ${msg}`)),
+        })
+      } catch (agentError) {
+        // Rollback: delete the ticket we just created
+        this.log(styles.muted('   Rolling back ticket creation due to agent error...'))
+        try {
+          await storage.deleteTicket(ticket.id)
+          this.log(styles.muted(`   Deleted orphaned ticket: ${ticket.id}`))
+        } catch (deleteError) {
+          this.warn(`Failed to delete orphaned ticket ${ticket.id}. Manual cleanup may be needed.`)
+        }
+        throw agentError
+      }
 
       const agentName = ephemeralResult.name
       const agentDir = ephemeralResult.worktreePath
@@ -767,42 +811,78 @@ export default class Claude extends Command {
 
   /**
    * Set up catch-all devcontainer for directories without one
+   * Uses a temp directory to avoid polluting user's cwd
+   * Returns { configDir, workDir } where configDir contains .devcontainer
    */
-  private async setupCatchallDevcontainer(workDir: string, slug: string): Promise<string> {
-    // For yolo mode, we create a temporary .devcontainer in the working directory
-    // This will be used by the devcontainer runner
-    const devcontainerDir = path.join(workDir, '.devcontainer')
+  private async setupCatchallDevcontainer(workDir: string, slug: string): Promise<{ configDir: string; workDir: string; cleanup: () => void }> {
+    // Create temp directory for devcontainer config
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prlt-adhoc-'))
+    const devcontainerDir = path.join(tempDir, '.devcontainer')
+    fs.mkdirSync(devcontainerDir, { recursive: true })
 
-    if (!fs.existsSync(devcontainerDir)) {
-      fs.mkdirSync(devcontainerDir, { recursive: true })
-
-      // Create minimal devcontainer.json using catch-all image
-      const devcontainerJson = {
-        name: `adhoc-${slug}`,
-        image: CATCHALL_DEVCONTAINER_IMAGE,
-        customizations: {
-          vscode: {
-            extensions: ['anthropic.claude-code'],
-          },
+    // Create minimal devcontainer.json using catch-all image
+    // Use absolute path for mount to point to user's actual workDir
+    const devcontainerJson = {
+      name: `adhoc-${slug}`,
+      image: CATCHALL_DEVCONTAINER_IMAGE,
+      customizations: {
+        vscode: {
+          extensions: ['anthropic.claude-code'],
         },
-        remoteUser: 'node',
-        workspaceFolder: '/workspace',
-        mounts: [
-          'source=${localWorkspaceFolder},target=/workspace,type=bind',
-        ],
-        containerEnv: {
-          ANTHROPIC_API_KEY: '${localEnv:ANTHROPIC_API_KEY}',
-        },
-      }
-
-      fs.writeFileSync(
-        path.join(devcontainerDir, 'devcontainer.json'),
-        JSON.stringify(devcontainerJson, null, 2)
-      )
-
-      this.log(styles.muted('   Created temporary .devcontainer config'))
+      },
+      remoteUser: 'node',
+      workspaceFolder: '/workspace',
+      mounts: [
+        // Use absolute path to user's workDir, not ${localWorkspaceFolder}
+        `source=${workDir},target=/workspace,type=bind`,
+      ],
+      containerEnv: {
+        ANTHROPIC_API_KEY: '${localEnv:ANTHROPIC_API_KEY}',
+      },
     }
 
-    return workDir
+    fs.writeFileSync(
+      path.join(devcontainerDir, 'devcontainer.json'),
+      JSON.stringify(devcontainerJson, null, 2)
+    )
+
+    this.log(styles.muted('   Created temporary .devcontainer config'))
+
+    // Cleanup function to remove temp directory
+    const cleanup = () => {
+      try {
+        if (fs.existsSync(tempDir)) {
+          fs.rmSync(tempDir, { recursive: true, force: true })
+        }
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+
+    return { configDir: tempDir, workDir, cleanup }
+  }
+
+  /**
+   * Check if catch-all container image is available
+   * Returns true if image exists locally or can be pulled
+   */
+  private async checkCatchallImage(): Promise<{ available: boolean; error?: string }> {
+    try {
+      // First check if image exists locally
+      execSync(`docker image inspect ${CATCHALL_DEVCONTAINER_IMAGE}`, { stdio: 'pipe' })
+      return { available: true }
+    } catch {
+      // Image not local, try to pull it
+      this.log(styles.muted(`   Pulling container image: ${CATCHALL_DEVCONTAINER_IMAGE}`))
+      try {
+        execSync(`docker pull ${CATCHALL_DEVCONTAINER_IMAGE}`, { stdio: 'pipe', timeout: 120000 })
+        return { available: true }
+      } catch (pullError) {
+        return {
+          available: false,
+          error: `Failed to pull catch-all container image: ${CATCHALL_DEVCONTAINER_IMAGE}. Try running on host instead, or ensure Docker is configured correctly.`,
+        }
+      }
+    }
   }
 }
