@@ -129,11 +129,6 @@ export default class WorkStart extends PMOCommand {
       description: 'Start work on all unassigned backlog tickets (batch mode)',
       default: false,
     }),
-    mode: Flags.string({
-      char: 'm',
-      description: 'Display mode (foreground=current terminal, terminal=new tab, background=detached)',
-      options: ['foreground', 'terminal', 'background'],
-    }),
     executor: Flags.string({
       char: 'e',
       description: 'Override executor',
@@ -187,8 +182,8 @@ export default class WorkStart extends PMOCommand {
     }),
     display: Flags.string({
       char: 'd',
-      description: 'Display mode for devcontainer (where to show output)',
-      options: ['terminal', 'foreground', 'background'],
+      description: 'Display mode (foreground=current terminal, terminal=new tab, background=detached)',
+      options: ['foreground', 'terminal', 'background'],
     }),
     session: Flags.string({
       char: 's',
@@ -739,7 +734,7 @@ export default class WorkStart extends PMOCommand {
       let displayMode: DisplayMode = 'terminal'
       let sandboxed = false  // Whether --dangerously-skip-permissions is NOT used
 
-      if (hasDevcontainer && !flags.mode && !flags['run-on-host']) {
+      if (hasDevcontainer && !flags.display && !flags['run-on-host']) {
         // Agent has devcontainer - prompt for environment choice
         // Loop to allow re-selection if Docker isn't running
         let environmentSelected = false
@@ -815,13 +810,10 @@ export default class WorkStart extends PMOCommand {
           }
         }
       } else if (useDevcontainer) {
-        // Devcontainer with explicit mode flag
+        // Devcontainer with explicit display flag
         environment = 'devcontainer'
-        // Use --display flag if provided, otherwise fall back to --mode or default to 'terminal'
         if (flags.display) {
           displayMode = flags.display as DisplayMode
-        } else if (flags.mode && ['terminal', 'background'].includes(flags.mode)) {
-          displayMode = flags.mode as DisplayMode
         } else {
           // Default to terminal for devcontainer (opens new tab instead of blocking current terminal)
           displayMode = 'terminal'
@@ -829,8 +821,8 @@ export default class WorkStart extends PMOCommand {
       } else {
         // No devcontainer or --run-on-host - host mode selection
         environment = 'host'
-        if (flags.mode) {
-          displayMode = flags.mode as DisplayMode
+        if (flags.display) {
+          displayMode = flags.display as DisplayMode
         } else {
           const warningMsg = flags['run-on-host']
             ? 'Select display mode (--run-on-host: bypassing devcontainer):'
@@ -1260,7 +1252,7 @@ export default class WorkStart extends PMOCommand {
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
     db: Database.Database,
     executionStorage: ExecutionStorage,
-    flags: { mode?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean }
+    flags: { display?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean }
   ): Promise<void> {
     // Get all tickets and filter to backlog/unstarted (not in progress)
     // Note: In batch mode, we use undefined to get all tickets across all projects
@@ -1346,7 +1338,7 @@ export default class WorkStart extends PMOCommand {
         await this.config.runCommand('work:start', [
           ticket.id,
           ...(ticket.projectId ? ['--project', ticket.projectId] : []),
-          '--mode', flags.mode || 'background',
+          '--display', flags.display || 'background',
           ...(flags.executor ? ['--executor', flags.executor] : []),
           ...(flags['run-on-host'] ? ['--run-on-host'] : []),
           ...(flags.force ? ['--force'] : []),
