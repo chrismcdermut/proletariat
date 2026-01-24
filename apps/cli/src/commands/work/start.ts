@@ -668,6 +668,7 @@ export default class WorkStart extends PMOCommand {
 
         actionChoices.push(new inquirer.Separator('── Custom ──'))
         actionChoices.push({ name: 'Custom prompt...', value: '__custom__' })
+        actionChoices.push({ name: 'Ad-hoc session - unstructured exploration/debugging', value: '__adhoc__' })
 
         const { selectedActionId } = await inquirer.prompt([
           {
@@ -688,6 +689,18 @@ export default class WorkStart extends PMOCommand {
             },
           ])
           customPrompt = customInput.trim()
+        } else if (selectedActionId === '__adhoc__') {
+          // Ad-hoc session - no specific action, just launch Claude for exploration
+          selectedAction = {
+            id: 'adhoc',
+            name: 'Ad-hoc',
+            description: 'Unstructured exploration and debugging',
+            prompt: 'You are working on an ad-hoc session for exploration and debugging. Help the user with whatever they need.',
+            modifiesCode: false,
+            defaultMoveToCategory: 'started',
+            isBuiltin: false,
+            createdAt: new Date(),
+          }
         } else {
           selectedAction = await this.storage.getAction(selectedActionId)
         }
