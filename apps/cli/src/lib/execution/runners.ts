@@ -18,6 +18,7 @@ import {
   ExecutionConfig,
   DEFAULT_EXECUTION_CONFIG,
 } from './types.js'
+import { getSetTitleCommands } from '../terminal.js'
 
 // =============================================================================
 // Terminal Title Helpers
@@ -44,23 +45,7 @@ function buildTmuxWindowName(context: ExecutionContext): string {
   return buildSessionName(context)
 }
 
-/**
- * Generate shell commands to set the terminal tab/window title.
- * Uses ANSI escape sequences that work across most terminal emulators.
- *
- * \033]0;Title\007 - Sets both window and tab title (most compatible)
- * \033]1;Title\007 - Sets tab title only (iTerm2, some others)
- * \033]2;Title\007 - Sets window title only
- */
-function getSetTitleCommands(title: string): string {
-  // Escape any special characters in the title
-  const safeTitle = title.replace(/[\\'"]/g, '')
-  return `
-# Set terminal tab/window title
-echo -ne "\\033]0;${safeTitle}\\007"
-echo -ne "\\033]1;${safeTitle}\\007"
-`
-}
+// getSetTitleCommands is now imported from '../terminal.js'
 
 // =============================================================================
 // Executor Commands
