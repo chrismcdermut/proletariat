@@ -131,8 +131,8 @@ export default class WorkStart extends PMOCommand {
     }),
     mode: Flags.string({
       char: 'm',
-      description: 'Runtime mode',
-      options: ['foreground', 'background', 'tmux', 'terminal', 'devcontainer', 'docker', 'vm'],
+      description: 'Display mode (foreground=current terminal, terminal=new tab, background=detached)',
+      options: ['foreground', 'terminal', 'background'],
     }),
     executor: Flags.string({
       char: 'e',
@@ -188,7 +188,7 @@ export default class WorkStart extends PMOCommand {
     display: Flags.string({
       char: 'd',
       description: 'Display mode for devcontainer (where to show output)',
-      options: ['terminal', 'background'],
+      options: ['terminal', 'foreground', 'background'],
     }),
     session: Flags.string({
       char: 's',
@@ -785,6 +785,7 @@ export default class WorkStart extends PMOCommand {
                 message: 'How should the agent output be displayed?',
                 choices: [
                   { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                  { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
                   { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
                 ],
                 default: 'terminal',
@@ -803,6 +804,7 @@ export default class WorkStart extends PMOCommand {
                 message: 'How should the agent output be displayed?',
                 choices: [
                   { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                  { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
                   { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
                 ],
                 default: 'terminal',
@@ -826,24 +828,13 @@ export default class WorkStart extends PMOCommand {
         }
       } else {
         // No devcontainer or --run-on-host - host mode selection
+        environment = 'host'
         if (flags.mode) {
-          const flagMode = flags.mode
-          // Set environment based on mode flag
-          if (flagMode === 'docker') {
-            environment = 'docker'
-            displayMode = 'terminal'
-          } else if (flagMode === 'vm') {
-            environment = 'vm'
-            displayMode = 'terminal'
-          } else {
-            // Host environment: terminal/background are display modes
-            environment = 'host'
-            displayMode = flagMode as DisplayMode
-          }
+          displayMode = flags.mode as DisplayMode
         } else {
           const warningMsg = flags['run-on-host']
-            ? 'Select execution mode (--run-on-host: bypassing devcontainer):'
-            : 'Select execution mode (no devcontainer - running on host):'
+            ? 'Select display mode (--run-on-host: bypassing devcontainer):'
+            : 'Select display mode (no devcontainer - running on host):'
 
           const { selectedMode } = await inquirer.prompt([
             {
@@ -852,27 +843,13 @@ export default class WorkStart extends PMOCommand {
               message: warningMsg,
               choices: [
                 { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
                 { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
-                new inquirer.Separator('── Sandboxed (requires setup) ──'),
-                { name: '🐳 Docker      - Container with worktree mounted', value: 'docker' },
-                new inquirer.Separator('── Remote ──'),
-                { name: '☁️  VM          - Remote VM via SSH', value: 'vm' },
               ],
               default: 'terminal',
             },
           ])
-          // Set environment based on selection
-          if (selectedMode === 'docker') {
-            environment = 'docker'
-            displayMode = 'terminal'
-          } else if (selectedMode === 'vm') {
-            environment = 'vm'
-            displayMode = 'terminal'
-          } else {
-            // Host environment: terminal/background are display modes
-            environment = 'host'
-            displayMode = selectedMode as DisplayMode
-          }
+          displayMode = selectedMode as DisplayMode
         }
       }
 
@@ -887,7 +864,7 @@ export default class WorkStart extends PMOCommand {
       if (flags['skip-permissions']) {
         sandboxed = false
       } else {
-        const containerNote = (environment === 'devcontainer' || environment === 'docker')
+        const containerNote = environment === 'devcontainer'
           ? ' (container provides additional isolation)'
           : ''
         const { permissionMode } = await inquirer.prompt([
@@ -938,7 +915,7 @@ export default class WorkStart extends PMOCommand {
       this.log(styles.muted(`   Executor: ${executor}`))
 
       // Environment info
-      const envIcon = environment === 'devcontainer' ? '🐳' : (environment === 'docker' ? '📦' : '💻')
+      const envIcon = environment === 'devcontainer' ? '🐳' : '💻'
       this.log(styles.muted(`   Environment: ${envIcon} ${environment}`))
       this.log(styles.muted(`   Display: ${displayMode}`))
 

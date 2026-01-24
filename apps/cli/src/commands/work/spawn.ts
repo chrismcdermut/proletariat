@@ -68,8 +68,8 @@ export default class WorkSpawn extends PMOCommand {
     }),
     mode: Flags.string({
       char: 'm',
-      description: 'Runtime mode for spawned agents',
-      options: ['foreground', 'background', 'tmux', 'terminal', 'devcontainer', 'docker', 'vm'],
+      description: 'Display mode for spawned agents (foreground not available for batch)',
+      options: ['terminal', 'background'],
     }),
     executor: Flags.string({
       char: 'e',

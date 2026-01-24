@@ -45,10 +45,12 @@ export type SessionManager =
  * DisplayMode - How output is presented to the user.
  * - terminal: Opens a new terminal tab attached to the tmux session
  * - background: Runs detached, reattach later with `prlt session attach`
+ * - foreground: Attaches tmux in current terminal (blocking)
  */
 export type DisplayMode =
   | 'terminal'      // New terminal tab showing execution
   | 'background'    // Detached tmux session, reattach later
+  | 'foreground'    // Attached tmux in current terminal (blocking)
 
 /**
  * OutputMode - How Claude Code displays its output.

@@ -299,11 +299,28 @@ exec $SHELL
       }
     }
 
-    // Step 2: Open terminal tab attached to tmux session (unless background mode)
+    // Step 2: Open terminal tab attached to tmux session (unless background or foreground mode)
     if (displayMode === 'background') {
       return {
         success: true,
         sessionId: sessionName,
+      }
+    }
+
+    // Foreground mode: attach to tmux session in current terminal (blocking)
+    if (displayMode === 'foreground') {
+      try {
+        // Clear screen and attach - this blocks until user detaches or claude exits
+        execSync(`clear && tmux attach -t "${sessionName}"`, { stdio: 'inherit' })
+        return {
+          success: true,
+          sessionId: sessionName,
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: `Failed to attach to tmux session: ${error instanceof Error ? error.message : error}`,
+        }
       }
     }
 
@@ -1056,6 +1073,24 @@ exec bash
         success: true,
         containerId: actualContainerId,
         sessionId: sessionName, // Container tmux session name for tracking
+      }
+    }
+
+    // Foreground mode: attach to container's tmux session in current terminal (blocking)
+    if (displayMode === 'foreground') {
+      try {
+        // Clear screen and attach - this blocks until user detaches or claude exits
+        execSync(`clear && docker exec -it ${actualContainerId} tmux -u attach -t "${sessionName}"`, { stdio: 'inherit' })
+        return {
+          success: true,
+          containerId: actualContainerId,
+          sessionId: sessionName,
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: `Failed to attach to container tmux session: ${error instanceof Error ? error.message : error}`,
+        }
       }
     }
 
