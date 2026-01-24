@@ -44,9 +44,8 @@ describe('Work Start Command', () => {
       expect(helpOutput).to.contain('safe');
     });
 
-    it('shows --skip-permissions flag as deprecated in help', () => {
+    it('shows --skip-permissions flag in help', () => {
       expect(helpOutput).to.contain('--skip-permissions');
-      expect(helpOutput).to.contain('deprecated');
     });
 
     it('accepts danger as permission mode value', () => {

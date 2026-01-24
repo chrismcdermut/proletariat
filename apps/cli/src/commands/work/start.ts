@@ -164,7 +164,7 @@ export default class WorkStart extends PMOCommand {
       default: false,
     }),
     'skip-permissions': Flags.boolean({
-      description: 'Skip permission prompts (danger mode) - deprecated, use --permission-mode',
+      description: 'Skip permission prompts (danger mode)',
       default: false,
     }),
     'permission-mode': Flags.string({
