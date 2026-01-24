@@ -1,7 +1,7 @@
 {
   "name": "@proletariat/cli",
   "description": "Proletariat CLI v2 - Multi-agent development orchestration",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "author": "Chris McDermut",
   "publishConfig": {
     "access": "public"
