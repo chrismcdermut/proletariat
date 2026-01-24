@@ -323,6 +323,35 @@ export interface PhaseTemplatePhase {
 }
 
 // =============================================================================
+// Roadmap Types
+// =============================================================================
+
+/**
+ * Roadmap - a curated collection of projects for documentation/visualization.
+ * Roadmaps group projects in a specific order for generating roadmap documents.
+ * Projects can appear in multiple roadmaps (e.g., "Public Roadmap" vs "Internal Roadmap").
+ */
+export interface Roadmap {
+  id: string
+  name: string
+  description?: string
+  isDefault: boolean
+  createdAt: Date
+  updatedAt: Date
+}
+
+/**
+ * RoadmapProject - association between a roadmap and a project with ordering.
+ * Projects can be in multiple roadmaps with different positions.
+ */
+export interface RoadmapProject {
+  roadmapId: string
+  projectId: string
+  position: number
+  createdAt: Date
+}
+
+// =============================================================================
 // Work Action Types
 // =============================================================================
 
@@ -757,6 +786,11 @@ export interface BoardViewFilter {
   search?: string
 }
 
+export interface RoadmapFilter {
+  isDefault?: boolean
+  search?: string
+}
+
 // =============================================================================
 // Result Types
 // =============================================================================
@@ -930,6 +964,22 @@ export interface PMOStorage {
   deleteBoardView(id: string): Promise<void>
   getDefaultBoardView(projectId: string): Promise<BoardView | null>
   getBoardWithView(projectId: string, viewId?: string, filters?: BoardViewFilters): Promise<Board>
+
+  // Roadmap Operations
+  listRoadmaps(filter?: RoadmapFilter): Promise<Roadmap[]>
+  getRoadmap(id: string): Promise<Roadmap | null>
+  createRoadmap(roadmap: Partial<Roadmap> & { name: string }): Promise<Roadmap>
+  updateRoadmap(id: string, changes: Partial<Roadmap>): Promise<Roadmap>
+  deleteRoadmap(id: string): Promise<void>
+  getDefaultRoadmap(): Promise<Roadmap | null>
+  setDefaultRoadmap(id: string): Promise<Roadmap>
+
+  // Roadmap Project Operations (managing projects within a roadmap)
+  listRoadmapProjects(roadmapId: string): Promise<Project[]>
+  addProjectToRoadmap(roadmapId: string, projectId: string, position?: number): Promise<RoadmapProject>
+  removeProjectFromRoadmap(roadmapId: string, projectId: string): Promise<void>
+  reorderRoadmapProject(roadmapId: string, projectId: string, newPosition: number): Promise<RoadmapProject>
+  getRoadmapsForProject(projectId: string): Promise<Roadmap[]>
 
   // Sync Operations
   pull(): Promise<SyncResult>
