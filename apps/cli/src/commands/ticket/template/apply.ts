@@ -246,9 +246,10 @@ export default class TicketTemplateApply extends PMOCommand {
       epicId: flags.epic,
     });
 
-    // Add subtasks from template (unless disabled)
+    // Add subtasks from template (unless disabled) - sequential for ordering
     if (!flags['no-subtasks'] && template.suggestedSubtasks.length > 0) {
       for (const subtask of template.suggestedSubtasks) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.addSubtask(ticket.id, subtask.title);
       }
     }

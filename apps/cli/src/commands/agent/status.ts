@@ -3,7 +3,8 @@ import inquirer from 'inquirer';
 import { colors, format } from '../../lib/colors.js';
 import {
   getWorkspaceInfo,
-  getAgentStatus
+  getAgentStatus,
+  WorkspaceInfo
 } from '../../lib/agents/commands.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
@@ -65,7 +66,7 @@ export default class Status extends PMOCommand {
     if (!agentName) {
       // In JSON mode, output agent selection prompt
       if (jsonMode) {
-        const agentChoices = workspaceInfo.agents.map((agent: any) => ({ name: agent.name, value: agent.name }));
+        const agentChoices = workspaceInfo.agents.map((agent) => ({ name: agent.name, value: agent.name }));
         outputPromptAsJson(
           buildPromptConfig('list', 'name', 'Select agent to view status:', agentChoices),
           createMetadata('agent status', flags)
@@ -78,7 +79,7 @@ export default class Status extends PMOCommand {
           type: 'list',
           name: 'selected',
           message: 'Select agent to view status:',
-          choices: workspaceInfo.agents.map((agent: any) => ({
+          choices: workspaceInfo.agents.map((agent) => ({
             name: agent.name,
             value: agent.name
           }))
@@ -90,11 +91,11 @@ export default class Status extends PMOCommand {
     await this.showDetailedStatus(workspaceInfo, agentName!);
   }
 
-  private async showDetailedStatus(workspaceInfo: any, agentName: string): Promise<void> {
+  private async showDetailedStatus(workspaceInfo: WorkspaceInfo, agentName: string): Promise<void> {
     // Validate agent exists
-    const agent = workspaceInfo.agents.find((a: any) => a.name === agentName);
+    const agent = workspaceInfo.agents.find((a) => a.name === agentName);
     if (!agent) {
-      this.error(`Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map((a: any) => a.name).join(', ')}`);
+      this.error(`Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map((a) => a.name).join(', ')}`);
     }
 
     const agentStatus = getAgentStatus(workspaceInfo, agentName);

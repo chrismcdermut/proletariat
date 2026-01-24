@@ -171,11 +171,12 @@ export default class TicketEdit extends PMOCommand {
       if (flags.assignee) updates.assignee = flags.assignee;
     }
 
-    // Handle subtasks
+    // Handle subtasks - sequential for consistent ordering
     let subtasksChanged = false;
     if (flags['clear-subtasks']) {
       // Clear all subtasks first - get from ticket object
       for (const subtask of ticket.subtasks) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.removeSubtask(ticketId!, subtask.id);
       }
       subtasksChanged = true;
@@ -183,6 +184,7 @@ export default class TicketEdit extends PMOCommand {
 
     if (flags['add-subtask'] && flags['add-subtask'].length > 0) {
       for (const subtaskTitle of flags['add-subtask']) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.addSubtask(ticketId!, subtaskTitle);
       }
       subtasksChanged = true;
@@ -214,7 +216,9 @@ export default class TicketEdit extends PMOCommand {
     }
 
     if (flags['add-ac'] && flags['add-ac'].length > 0) {
+      // Sequential for consistent ordering
       for (const criterion of flags['add-ac']) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.addAcceptanceCriterion(ticketId!, criterion);
       }
       acChanged = true;

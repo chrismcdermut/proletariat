@@ -209,7 +209,9 @@ export default class TicketCreate extends PMOCommand {
 
     // Add subtasks from template if applicable
     if (template && template.suggestedSubtasks.length > 0) {
+      // Sequential subtask creation for consistent ordering
       for (const subtask of template.suggestedSubtasks) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.addSubtask(ticket.id, subtask.title);
       }
     }

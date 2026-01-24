@@ -100,15 +100,17 @@ export default class ActionRun extends PMOCommand {
         tickets = allTickets.filter(t => t.statusCategory === 'backlog' || !t.statusCategory);
       }
     } else if (ticketIds.length > 0) {
-      // Get specific tickets
-      for (const id of ticketIds) {
-        const ticket = await this.storage.getTicket(id);
-        if (ticket) {
-          tickets.push(ticket);
-        } else {
-          this.warn(`Ticket not found: ${id}`);
-        }
-      }
+      // Get specific tickets in parallel
+      const results = await Promise.all(
+        ticketIds.map(async (id) => {
+          const ticket = await this.storage.getTicket(id);
+          if (!ticket) {
+            this.warn(`Ticket not found: ${id}`);
+          }
+          return ticket;
+        })
+      );
+      tickets = results.filter((t): t is Ticket => t !== null);
     } else {
       // Interactive: show list of tickets to select
       const allTickets = await this.storage.listTickets(projectId);
@@ -142,10 +144,10 @@ export default class ActionRun extends PMOCommand {
         validate: (input: string[]) => input.length > 0 || 'Select at least one ticket',
       }]);
 
-      for (const id of selectedTickets) {
-        const ticket = await this.storage.getTicket(id);
-        if (ticket) tickets.push(ticket);
-      }
+      const selectedResults = await Promise.all(
+        selectedTickets.map((id: string) => this.storage.getTicket(id))
+      );
+      tickets = selectedResults.filter((t): t is Ticket => t !== null);
     }
 
     if (tickets.length === 0) {

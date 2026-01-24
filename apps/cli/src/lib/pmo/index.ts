@@ -386,6 +386,7 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
       }
       // Default: backlog (for first columns, custom backlogs, etc.)
 
+      // eslint-disable-next-line no-await-in-loop -- Sequential status creation in order
       await storage.createStatus(projectId, {
         name,
         category,
@@ -528,6 +529,7 @@ export function hasPMO(hqPath: string): boolean {
   }
 
   try {
+    // eslint-disable-next-line unicorn/prefer-module
     const Database = require('better-sqlite3');
     const db = new Database(dbPath);
     const result = db.prepare(

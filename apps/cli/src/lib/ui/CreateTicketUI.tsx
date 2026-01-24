@@ -31,7 +31,7 @@ export function CreateTicketUI({ initialTitle, queues, onComplete }: CreateTicke
     }
   });
 
-  const priorityItems = [
+  const priorityItems: Array<{ label: string; value: 'high' | 'medium' | 'low' }> = [
     { label: '🔴 High', value: 'high' },
     { label: '🟡 Medium', value: 'medium' },
     { label: '🟢 Low', value: 'low' }
@@ -61,12 +61,12 @@ export function CreateTicketUI({ initialTitle, queues, onComplete }: CreateTicke
     }
   };
 
-  const handlePrioritySelect = (item: any) => {
+  const handlePrioritySelect = (item: { label: string; value: 'high' | 'medium' | 'low' }) => {
     setPriority(item.value);
     setStep('queue');
   };
 
-  const handleQueueSelect = (item: any) => {
+  const handleQueueSelect = (item: { label: string; value: string }) => {
     setQueue(item.value);
     setStep('description');
   };

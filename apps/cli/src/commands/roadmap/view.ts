@@ -112,6 +112,7 @@ export default class RoadmapView extends PMOCommand {
 
     for (let i = 0; i < projects.length; i++) {
       const project = projects[i];
+      // eslint-disable-next-line no-await-in-loop -- Sequential display output
       const tickets = await this.storage.listTickets(project.id);
       const ticketCount = tickets.length;
 

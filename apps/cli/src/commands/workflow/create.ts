@@ -95,7 +95,7 @@ export default class WorkflowCreate extends PMOCommand {
       description: flags.description,
     });
 
-    // If statuses were provided, add them
+    // If statuses were provided, add them sequentially for consistent ordering
     if (flags.statuses) {
       const statusNames = flags.statuses.split(',').map(s => s.trim()).filter(Boolean);
 
@@ -113,6 +113,7 @@ export default class WorkflowCreate extends PMOCommand {
           category = 'started';
         }
 
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.createStatus(workflow.id, {
           name: statusName,
           category: category as StateCategory,

@@ -265,9 +265,10 @@ export default class Cleanup extends PMOCommand {
     if (!skipConfirm && !dryRun) {
       // In JSON mode, output confirmation prompt with context
       if (jsonMode) {
-        const promptConfig = buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices);
-        // Add context about what will be cleaned
-        (promptConfig as any).context = { agentsToCleanup };
+        const promptConfig = {
+          ...buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
+          context: { agentsToCleanup },
+        };
         outputPromptAsJson(promptConfig, createMetadata('agent cleanup', flags));
         return;
       }
@@ -316,6 +317,7 @@ export default class Cleanup extends PMOCommand {
         this.log(colors.primary(`\nCleaning up: ${agentName}`));
       }
 
+      // eslint-disable-next-line no-await-in-loop -- Sequential cleanup with user interaction
       const result = await cleanupAgent(workspaceInfo, agentName, {
         log: jsonMode ? undefined : (msg) => this.log(colors.textMuted(`  ${msg}`)),
         dryRun,
@@ -362,6 +364,7 @@ export default class Cleanup extends PMOCommand {
         choices.push({ name: '⏭️  Skip this agent', value: 'skip' });
 
         // In interactive mode, prompt for action
+        // eslint-disable-next-line no-await-in-loop -- User interaction per agent
         const { action } = await inquirer.prompt([
           {
             type: 'list',
@@ -378,6 +381,7 @@ export default class Cleanup extends PMOCommand {
         }
 
         // Re-run cleanup with the selected option
+        // eslint-disable-next-line no-await-in-loop
         const retryResult = await cleanupAgent(workspaceInfo, agentName, {
           log: (msg) => this.log(colors.textMuted(`  ${msg}`)),
           dryRun,

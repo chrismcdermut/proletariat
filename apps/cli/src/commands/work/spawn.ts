@@ -643,6 +643,7 @@ export default class WorkSpawn extends PMOCommand {
         if (hasDevcontainer && !batchRunOnHost && !batchDisplay) {
           let environmentSelected = false
           while (!environmentSelected) {
+            // eslint-disable-next-line no-await-in-loop -- Interactive loop with retry on Docker check
             const { selectedEnvironment } = await inquirer.prompt([
               {
                 type: 'list',
@@ -679,6 +680,7 @@ export default class WorkSpawn extends PMOCommand {
 
               // For devcontainer, prompt for display mode
               // Simplified: tmux is always used inside container for session persistence
+              // eslint-disable-next-line no-await-in-loop -- Follow-up prompt after selection
               const { selectedDisplay } = await inquirer.prompt([
                 {
                   type: 'list',
@@ -779,6 +781,7 @@ export default class WorkSpawn extends PMOCommand {
       let successCount = 0
       let failCount = 0
 
+      // Process sequentially for clear logging and resource management
       for (const ticket of ticketsToSpawn) {
         try {
           this.log(styles.muted(`Starting ${ticket.id} with ephemeral agent...`))
@@ -814,6 +817,7 @@ export default class WorkSpawn extends PMOCommand {
             if (flags.session) startArgs.push('--session', flags.session)
           }
 
+          // eslint-disable-next-line no-await-in-loop
           await this.config.runCommand('work:start', startArgs)
 
           successCount++

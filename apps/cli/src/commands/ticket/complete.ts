@@ -186,12 +186,14 @@ export default class TicketComplete extends PMOCommand {
     let successCount = 0;
     let failCount = 0;
 
+    // Process sequentially for clear success/failure logging
     for (const ticketId of selectedTickets) {
       try {
         const ticket = incompleteTickets.find(t => t.id === ticketId);
         if (!ticket) {
           throw new Error('Ticket not found in incomplete tickets list');
         }
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.moveTicket(ticket.projectId!, ticketId, doneColumnName);
         this.log(styles.success(`Completed ${ticketId}`));
         successCount++;

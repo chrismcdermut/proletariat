@@ -119,6 +119,7 @@ export default class Add extends PMOCommand {
     let failCount = 0;
 
     for (const repo of reposToAdd) {
+      // eslint-disable-next-line no-await-in-loop -- Sequential add with user feedback
       const result = await addRepository(hqPath, repo.path, repo.action);
 
       if (result.success) {

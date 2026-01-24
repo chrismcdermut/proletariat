@@ -103,9 +103,11 @@ export default class AgentRestart extends PMOCommand {
 
     for (const containerName of containerNames) {
       this.log(colors.textSecondary(`  Stopping container: ${containerName}...`));
+      // eslint-disable-next-line no-await-in-loop -- Sequential container operations with user feedback
       await execAsync(`docker stop ${containerName}`);
 
       this.log(colors.textSecondary(`  Removing container: ${containerName}...`));
+      // eslint-disable-next-line no-await-in-loop
       await execAsync(`docker rm ${containerName}`);
     }
 

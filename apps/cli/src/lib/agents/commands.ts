@@ -305,13 +305,13 @@ export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string):
     try {
       const ticketsFile = path.join(workspaceInfo.path, 'pmo', 'tickets.json');
       if (fs.existsSync(ticketsFile)) {
-        const tickets = JSON.parse(fs.readFileSync(ticketsFile, 'utf-8'));
+        const tickets = JSON.parse(fs.readFileSync(ticketsFile, 'utf-8')) as Array<{ id: string; assignee?: string; status?: string }>;
         status.assignedTickets = tickets
-          .filter((t: any) => t.assignee === agentName && t.status !== 'done')
-          .map((t: any) => t.id);
+          .filter((t) => t.assignee === agentName && t.status !== 'done')
+          .map((t) => t.id);
         status.completedTickets = tickets
-          .filter((t: any) => t.assignee === agentName && t.status === 'done')
-          .map((t: any) => t.id);
+          .filter((t) => t.assignee === agentName && t.status === 'done')
+          .map((t) => t.id);
       }
     } catch {
       // Ignore ticket loading errors
@@ -466,6 +466,7 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
       for (const ticket of allTickets) {
         if (ticket.assignee && removed.includes(ticket.assignee)) {
           // Pass null to clear the assignee in the database
+          // eslint-disable-next-line no-await-in-loop -- Sequential updates for cleanup
           await storage.updateTicket(ticket.id, { assignee: null as unknown as string });
         }
       }

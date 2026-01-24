@@ -67,6 +67,7 @@ export default class RoadmapGenerate extends PMOCommand {
       }
 
       for (const roadmap of roadmaps) {
+        // eslint-disable-next-line no-await-in-loop -- Sequential generation with user feedback
         await this.generateRoadmap(roadmap.id, outputDir);
       }
       this.log(styles.success(`\nGenerated ${roadmaps.length} roadmap(s) to ${outputDir}`));
@@ -137,6 +138,7 @@ export default class RoadmapGenerate extends PMOCommand {
     // Process each project
     for (let i = 0; i < projects.length; i++) {
       const project = projects[i];
+      // eslint-disable-next-line no-await-in-loop -- Sequential processing for output generation
       const tickets = await this.storage.listTickets(project.id);
 
       if (tickets.length === 0) continue;

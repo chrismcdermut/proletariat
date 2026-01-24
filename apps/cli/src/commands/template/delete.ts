@@ -159,9 +159,11 @@ export default class TemplateDelete extends PMOCommand {
       try {
         switch (templateType) {
           case 'ticket':
+            // eslint-disable-next-line no-await-in-loop -- Sequential deletes with error handling
             await this.storage.deleteTicketTemplate(id);
             break;
           case 'phase':
+            // eslint-disable-next-line no-await-in-loop -- Sequential deletes with error handling
             await this.storage.deletePhaseTemplate(id);
             break;
         }

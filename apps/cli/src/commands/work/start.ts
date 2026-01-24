@@ -739,6 +739,7 @@ export default class WorkStart extends PMOCommand {
         // Loop to allow re-selection if Docker isn't running
         let environmentSelected = false
         while (!environmentSelected) {
+          // eslint-disable-next-line no-await-in-loop -- Interactive loop with retry on Docker check
           const { selectedEnvironment } = await inquirer.prompt([
             {
               type: 'list',
@@ -773,6 +774,7 @@ export default class WorkStart extends PMOCommand {
             }
             environment = 'devcontainer'
             // Pick display mode for devcontainer
+            // eslint-disable-next-line no-await-in-loop -- Follow-up prompt after selection
             const { selectedDisplay } = await inquirer.prompt([
               {
                 type: 'list',
@@ -792,6 +794,7 @@ export default class WorkStart extends PMOCommand {
           } else {
             // User chose host
             environment = 'host'
+            // eslint-disable-next-line no-await-in-loop -- Follow-up prompt after selection
             const { selectedDisplay } = await inquirer.prompt([
               {
                 type: 'list',
@@ -1346,6 +1349,7 @@ export default class WorkStart extends PMOCommand {
 
         // Use the work:start command for each ticket
         // Pass --project from ticket to avoid re-prompting for project selection
+        // eslint-disable-next-line no-await-in-loop -- Sequential spawning with user feedback
         await this.config.runCommand('work:start', [
           ticket.id,
           ...(ticket.projectId ? ['--project', ticket.projectId] : []),

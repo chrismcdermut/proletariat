@@ -135,6 +135,7 @@ export abstract class PMOCommand extends Command {
     if (options?.filterEmptyProjects) {
       const projectsWithTickets: typeof projects = [];
       for (const p of projects) {
+        // eslint-disable-next-line no-await-in-loop -- Sequential filtering for project selection
         const tickets = await this.storage.listTickets(p.id);
         if (tickets.length > 0) {
           projectsWithTickets.push(p);

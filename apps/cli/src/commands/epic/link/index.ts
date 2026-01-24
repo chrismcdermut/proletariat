@@ -123,9 +123,11 @@ export default class EpicLink extends PMOCommand {
     // Interactive mode: show menu in a loop
     let continueLoop = true
     while (continueLoop) {
+      // eslint-disable-next-line no-await-in-loop -- Interactive user loop
       const allEpics = await this.storage.listEpics(projectId)
       const otherEpics = allEpics.filter(e => e.id !== epicId)
 
+      // eslint-disable-next-line no-await-in-loop -- Interactive user prompt
       const { action } = await inquirer.prompt([{
         type: 'list',
         name: 'action',
@@ -147,16 +149,19 @@ export default class EpicLink extends PMOCommand {
       }
 
       if (action === 'view') {
+        // eslint-disable-next-line no-await-in-loop -- User action handling
         await this.viewDependencies(epicId!, epic, flags.all)
         continue
       }
 
       if (action === 'remove') {
+        // eslint-disable-next-line no-await-in-loop -- User action handling
         const dependencies = await this.storage.listEpicDependencies(epicId!)
         if (dependencies.length === 0) {
           this.log(styles.muted('\nNo dependencies to remove.'))
           continue
         }
+        // eslint-disable-next-line no-await-in-loop -- Building choices for current interaction
         const choices = await Promise.all(dependencies.map(async dep => {
           const depEpic = await this.storage.getEpic(dep.dependsOnEpicId)
           return {
@@ -164,13 +169,16 @@ export default class EpicLink extends PMOCommand {
             value: { targetId: dep.dependsOnEpicId, type: dep.dependencyType }
           }
         }))
+        // eslint-disable-next-line no-await-in-loop -- User selection prompt
         const { selected } = await inquirer.prompt([{
           type: 'list',
           name: 'selected',
           message: 'Select dependency to remove:',
           choices,
         }])
+        // eslint-disable-next-line no-await-in-loop -- Action after user selection
         await this.storage.deleteEpicDependency(epicId!, selected.targetId, selected.type)
+        // eslint-disable-next-line no-await-in-loop
         await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
         this.log(styles.success(`\n✅ Removed dependency: ${epicId} → ${selected.targetId}`))
         continue
@@ -181,12 +189,14 @@ export default class EpicLink extends PMOCommand {
         this.log(styles.muted('\nNo other epics to link to.'))
         continue
       }
+      // eslint-disable-next-line no-await-in-loop -- User selection prompt
       const { targetId } = await inquirer.prompt([{
         type: 'list',
         name: 'targetId',
         message: `Select epic that ${epicId} ${action === 'blocks' ? 'is blocked by' : action === 'relates_to' ? 'relates to' : 'duplicates'}:`,
         choices: otherEpics.map(e => ({ name: `${e.id} - ${e.title}`, value: e.id })),
       }])
+      // eslint-disable-next-line no-await-in-loop -- Action after user selection
       await this.addDependency(epicId!, targetId, action as EpicDependencyType, epic.title)
     }
   }
@@ -242,8 +252,11 @@ export default class EpicLink extends PMOCommand {
     const blockers = dependencies.filter(d => d.dependencyType === 'blocks')
     if (blockers.length > 0) {
       this.log(styles.muted('\n  Blocked by:'))
-      for (const dep of blockers) {
-        const blockerEpic = await this.storage.getEpic(dep.dependsOnEpicId)
+      // Fetch all blocker epics in parallel
+      const blockerEpics = await Promise.all(
+        blockers.map(dep => this.storage.getEpic(dep.dependsOnEpicId))
+      )
+      for (const blockerEpic of blockerEpics) {
         if (blockerEpic) {
           const status = blockerEpic.status === 'complete' ? styles.success('complete') : styles.warning(blockerEpic.status)
           this.log(`    - ${blockerEpic.id}: ${blockerEpic.title} (${status})`)
@@ -254,8 +267,11 @@ export default class EpicLink extends PMOCommand {
     const otherDeps = dependencies.filter(d => d.dependencyType !== 'blocks')
     if (otherDeps.length > 0) {
       this.log(styles.muted('\n  Related:'))
-      for (const dep of otherDeps) {
-        const relatedEpic = await this.storage.getEpic(dep.dependsOnEpicId)
+      // Fetch all related epics in parallel
+      const relatedEpics = await Promise.all(
+        otherDeps.map(async dep => ({ dep, epic: await this.storage.getEpic(dep.dependsOnEpicId) }))
+      )
+      for (const { dep, epic: relatedEpic } of relatedEpics) {
         if (relatedEpic) {
           this.log(`    - ${dep.dependencyType}: ${relatedEpic.id} - ${relatedEpic.title}`)
         }
@@ -264,21 +280,23 @@ export default class EpicLink extends PMOCommand {
 
     if (showAll) {
       const allEpics = await this.storage.listEpics(epic.projectId)
-      const blocking: Array<{ epic: typeof epic; type: string }> = []
 
-      for (const otherEpic of allEpics) {
-        if (otherEpic.id === epicId) continue
-        const otherDeps = await this.storage.listEpicDependencies(otherEpic.id)
-        const blockingDep = otherDeps.find(d => d.dependsOnEpicId === epicId)
-        if (blockingDep) {
-          blocking.push({ epic: otherEpic, type: blockingDep.dependencyType })
-        }
-      }
+      // Find all epics that depend on this epic in parallel
+      const blockingResults = await Promise.all(
+        allEpics
+          .filter(otherEpic => otherEpic.id !== epicId)
+          .map(async otherEpic => {
+            const otherDeps = await this.storage.listEpicDependencies(otherEpic.id)
+            const blockingDep = otherDeps.find(d => d.dependsOnEpicId === epicId)
+            return blockingDep ? { epic: otherEpic, type: blockingDep.dependencyType } : null
+          })
+      )
+      const blocking = blockingResults.filter((b): b is NonNullable<typeof b> => b !== null)
 
       if (blocking.length > 0) {
         this.log(styles.muted('\n  Blocking:'))
-        for (const { epic: blockedEpic, type } of blocking) {
-          this.log(`    - ${blockedEpic.id}: ${blockedEpic.title} (${type})`)
+        for (const item of blocking) {
+          this.log(`    - ${item.epic.id}: ${item.epic.title} (${item.type})`)
         }
       }
     }

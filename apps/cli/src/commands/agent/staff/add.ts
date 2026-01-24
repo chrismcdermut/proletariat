@@ -235,7 +235,7 @@ export default class Add extends Command {
           }
 
           // Add separator and styling for interactive mode
-          const interactiveChoices: any[] = [
+          const interactiveChoices: Array<{ name: string; value: string } | inquirer.Separator> = [
             ...themeChoices.slice(0, -1).map(c => ({
               name: c.name.replace(/\((\d+) available\)/, chalk.dim(`($1 available)`)),
               value: c.value

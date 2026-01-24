@@ -252,9 +252,10 @@ export default class TicketSpec extends PMOCommand {
       return;
     }
 
-    // Handle unlink
+    // Handle unlink - sequential for clear logging
     if (flags.unlink) {
       for (const ticketId of selectedTickets) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.updateTicket(ticketId, { specId: undefined });
         this.log(styles.success(`  Unlinked spec from ${ticketId}`));
       }
@@ -291,8 +292,9 @@ export default class TicketSpec extends PMOCommand {
       this.error(`Spec not found: ${specId}`);
     }
 
-    // Assign spec to all selected tickets
+    // Assign spec to all selected tickets - sequential for clear logging
     for (const ticketId of selectedTickets) {
+      // eslint-disable-next-line no-await-in-loop
       await this.storage.updateTicket(ticketId, { specId });
       this.log(styles.success(`  Linked ${ticketId} to ${specId}`));
     }

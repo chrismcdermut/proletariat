@@ -212,6 +212,7 @@ export default class BranchWhere extends PMOCommand {
     while (current !== root) {
       try {
         const dbPath = path.join(current, '.proletariat', 'workspace.db')
+        // eslint-disable-next-line unicorn/prefer-module
         const fs = require('node:fs')
         if (fs.existsSync(dbPath)) {
           return current

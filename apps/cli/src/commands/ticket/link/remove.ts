@@ -99,7 +99,9 @@ export default class TicketLinkRemove extends PMOCommand {
         return
       }
 
+      // Delete sequentially for data integrity
       for (const dep of dependencies) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.deleteTicketDependency(args.id, dep.dependsOnTicketId, dep.dependencyType)
       }
 

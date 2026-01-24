@@ -174,6 +174,7 @@ export async function promptForHQLocation(hqName: string): Promise<string> {
   }
 
   while (true) {
+    // eslint-disable-next-line no-await-in-loop -- Interactive validation loop
     const { location } = await inquirer.prompt([{
       type: 'input',
       name: 'location',

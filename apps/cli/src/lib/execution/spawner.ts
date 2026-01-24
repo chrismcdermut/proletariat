@@ -675,6 +675,7 @@ export async function spawnForColumn(
 
     log(`Spawning ${agentName} for ${ticket.id}: ${ticket.title}`)
 
+    // eslint-disable-next-line no-await-in-loop -- Sequential spawning with user feedback
     const spawnResult = await spawnAgentForTicket(
       ticket,
       agentName,

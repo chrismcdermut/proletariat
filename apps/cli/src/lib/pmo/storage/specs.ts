@@ -357,6 +357,7 @@ export class SpecStorage {
 
     const specs: Spec[] = []
     for (const row of rows) {
+      // eslint-disable-next-line no-await-in-loop -- Sequential lookup for relationship chain
       const spec = await this.getSpec(row.depends_on)
       if (spec) specs.push(spec)
     }
@@ -373,6 +374,7 @@ export class SpecStorage {
 
     const specs: Spec[] = []
     for (const row of rows) {
+      // eslint-disable-next-line no-await-in-loop -- Sequential lookup for relationship chain
       const spec = await this.getSpec(row.spec_id)
       if (spec) specs.push(spec)
     }
