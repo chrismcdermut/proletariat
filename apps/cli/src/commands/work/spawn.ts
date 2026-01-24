@@ -701,6 +701,22 @@ export default class WorkSpawn extends PMOCommand {
 
               // Check GitHub token is available for git push operations
               if (!isGitHubTokenAvailable()) {
+                const tokenChoices = [
+                  { name: 'Yes, continue anyway (git push may fail)', value: 'continue' },
+                  { name: 'No, let me run gh auth login first', value: 'cancel' },
+                  { name: 'Switch to host mode instead', value: 'host' },
+                ]
+                const tokenMessage = 'GitHub token not found. Git push may fail. Continue without token?'
+
+                if (jsonMode) {
+                  outputPromptAsJson(
+                    buildPromptConfig('list', 'tokenAction', tokenMessage, tokenChoices),
+                    createMetadata('work spawn', flags)
+                  )
+                  db.close()
+                  return
+                }
+
                 this.log('')
                 this.warn(
                   'GitHub token not found.\n' +
@@ -713,12 +729,8 @@ export default class WorkSpawn extends PMOCommand {
                   {
                     type: 'list',
                     name: 'tokenAction',
-                    message: 'Continue without GitHub token?',
-                    choices: [
-                      { name: 'Yes, continue anyway (git push may fail)', value: 'continue' },
-                      { name: 'No, let me run gh auth login first', value: 'cancel' },
-                      { name: 'Switch to host mode instead', value: 'host' },
-                    ],
+                    message: tokenMessage,
+                    choices: tokenChoices,
                     default: 'continue',
                   },
                 ])
