@@ -859,15 +859,25 @@ export default class WorkStart extends PMOCommand {
         const containerNote = environment === 'devcontainer'
           ? ' (container provides additional isolation)'
           : ''
+        const permissionChoices = [
+          { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger', command: `prlt work start ${ticketId} --skip-permissions` },
+          { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+        ]
+
+        // Handle JSON mode
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildPromptConfig('list', 'permissionMode', `Permission mode for Claude Code${containerNote}:`, permissionChoices, 'danger'),
+            createMetadata('work start', flags as Record<string, unknown>)
+          )
+        }
+
         const { permissionMode } = await inquirer.prompt([
           {
             type: 'list',
             name: 'permissionMode',
             message: `Permission mode for Claude Code${containerNote}:`,
-            choices: [
-              { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
-              { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
-            ],
+            choices: permissionChoices,
             default: 'danger',
           },
         ])
