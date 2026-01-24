@@ -27,6 +27,9 @@ import {
   Project,
   ProjectFilter,
   ProjectPhase,
+  Roadmap,
+  RoadmapFilter,
+  RoadmapProject,
   Spec,
   SpecDependency,
   SpecDependencyType,
@@ -70,6 +73,7 @@ import { TemplateStorage } from './templates.js'
 import { PhaseStorage } from './phases.js'
 import { ActionStorage } from './actions.js'
 import { ViewStorage } from './views.js'
+import { RoadmapStorage } from './roadmaps.js'
 
 const T = PMO_TABLES
 
@@ -91,6 +95,7 @@ export class SQLiteStorage implements PMOStorage {
   private phaseStorage: PhaseStorage
   private actionStorage: ActionStorage
   private viewStorage: ViewStorage
+  private roadmapStorage: RoadmapStorage
 
   constructor(dbPath: string) {
     this.dbPath = dbPath
@@ -119,6 +124,7 @@ export class SQLiteStorage implements PMOStorage {
     this.phaseStorage = new PhaseStorage(ctx)
     this.actionStorage = new ActionStorage(ctx)
     this.viewStorage = new ViewStorage(ctx)
+    this.roadmapStorage = new RoadmapStorage(ctx)
 
     // Ensure PMO tables exist
     this.ensurePMOTables()
@@ -765,6 +771,62 @@ export class SQLiteStorage implements PMOStorage {
 
   async getBoardWithView(projectId: string, viewId?: string, filters?: BoardViewFilters): Promise<Board> {
     return this.viewStorage.getBoardWithView(projectId, viewId, filters)
+  }
+
+  // ===========================================================================
+  // Roadmap Operations
+  // ===========================================================================
+
+  async listRoadmaps(filter?: RoadmapFilter): Promise<Roadmap[]> {
+    return this.roadmapStorage.listRoadmaps(filter)
+  }
+
+  async getRoadmap(id: string): Promise<Roadmap | null> {
+    return this.roadmapStorage.getRoadmap(id)
+  }
+
+  async createRoadmap(roadmap: Partial<Roadmap> & { name: string }): Promise<Roadmap> {
+    return this.roadmapStorage.createRoadmap(roadmap)
+  }
+
+  async updateRoadmap(id: string, changes: Partial<Roadmap>): Promise<Roadmap> {
+    return this.roadmapStorage.updateRoadmap(id, changes)
+  }
+
+  async deleteRoadmap(id: string): Promise<void> {
+    return this.roadmapStorage.deleteRoadmap(id)
+  }
+
+  async getDefaultRoadmap(): Promise<Roadmap | null> {
+    return this.roadmapStorage.getDefaultRoadmap()
+  }
+
+  async setDefaultRoadmap(id: string): Promise<Roadmap> {
+    return this.roadmapStorage.setDefaultRoadmap(id)
+  }
+
+  // ===========================================================================
+  // Roadmap Project Operations
+  // ===========================================================================
+
+  async listRoadmapProjects(roadmapId: string): Promise<Project[]> {
+    return this.roadmapStorage.listRoadmapProjects(roadmapId)
+  }
+
+  async addProjectToRoadmap(roadmapId: string, projectId: string, position?: number): Promise<RoadmapProject> {
+    return this.roadmapStorage.addProjectToRoadmap(roadmapId, projectId, position)
+  }
+
+  async removeProjectFromRoadmap(roadmapId: string, projectId: string): Promise<void> {
+    return this.roadmapStorage.removeProjectFromRoadmap(roadmapId, projectId)
+  }
+
+  async reorderRoadmapProject(roadmapId: string, projectId: string, newPosition: number): Promise<RoadmapProject> {
+    return this.roadmapStorage.reorderRoadmapProject(roadmapId, projectId, newPosition)
+  }
+
+  async getRoadmapsForProject(projectId: string): Promise<Roadmap[]> {
+    return this.roadmapStorage.getRoadmapsForProject(projectId)
   }
 
   // ===========================================================================

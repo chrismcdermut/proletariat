@@ -218,3 +218,19 @@ export interface TicketTemplateRow {
   is_builtin: number
   created_at: string
 }
+
+export interface RoadmapRow {
+  id: string
+  name: string
+  description: string | null
+  is_default: number
+  created_at: string
+  updated_at: string
+}
+
+export interface RoadmapProjectRow {
+  roadmap_id: string
+  project_id: string
+  position: number
+  created_at: string
+}

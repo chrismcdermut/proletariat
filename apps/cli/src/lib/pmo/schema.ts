@@ -38,6 +38,9 @@ export const PMO_TABLES = {
   phase_templates: 'pmo_phase_templates',  // Phase configuration templates
   actions: 'pmo_actions',  // Work actions (reusable agent prompts)
   ticket_templates: 'pmo_ticket_templates',  // Ticket templates for quick creation
+  // Roadmap tables (ordered collections of projects for documentation)
+  roadmaps: 'pmo_roadmaps',  // Named roadmap definitions
+  roadmap_projects: 'pmo_roadmap_projects',  // Many-to-many: roadmaps ↔ projects with ordering
   // Legacy tables (deprecated, kept for migration)
   columns: 'pmo_columns',  // DEPRECATED: use workflow_statuses
   board_tickets: 'pmo_board_tickets',  // DEPRECATED: tickets now use status_id directly
@@ -435,6 +438,27 @@ export const PMO_TABLE_SCHEMAS = {
       suggested_subtasks TEXT NOT NULL DEFAULT '[]',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
+
+  // Roadmap definitions (named collections of projects for documentation)
+  roadmaps: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.roadmaps} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+  // Roadmap-to-project associations with ordering
+  roadmap_projects: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.roadmap_projects} (
+      roadmap_id TEXT NOT NULL REFERENCES ${PMO_TABLES.roadmaps}(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES ${PMO_TABLES.projects}(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (roadmap_id, project_id)
+    )`,
 } as const;
 
 // =============================================================================
@@ -486,6 +510,10 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_workflow_statuses_category ON ${PMO_TABLES.workflow_statuses}(workflow_id, category);
   CREATE INDEX IF NOT EXISTS idx_pmo_workflow_statuses_position ON ${PMO_TABLES.workflow_statuses}(workflow_id, position);
   CREATE INDEX IF NOT EXISTS idx_pmo_workflows_builtin ON ${PMO_TABLES.workflows}(is_builtin);
+  CREATE INDEX IF NOT EXISTS idx_pmo_roadmaps_default ON ${PMO_TABLES.roadmaps}(is_default);
+  CREATE INDEX IF NOT EXISTS idx_pmo_roadmap_projects_roadmap ON ${PMO_TABLES.roadmap_projects}(roadmap_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_roadmap_projects_project ON ${PMO_TABLES.roadmap_projects}(project_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_roadmap_projects_position ON ${PMO_TABLES.roadmap_projects}(roadmap_id, position);
 `;
 
 // =============================================================================
@@ -524,6 +552,8 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.containers,  // Docker containers per agent
   PMO_TABLE_SCHEMAS.actions,  // Work actions (reusable agent prompts)
   PMO_TABLE_SCHEMAS.ticket_templates,  // Ticket templates for quick creation
+  PMO_TABLE_SCHEMAS.roadmaps,  // Named roadmap definitions
+  PMO_TABLE_SCHEMAS.roadmap_projects,  // Roadmap-to-project associations
   // Legacy tables (kept for migration, will be dropped after data migrated)
   PMO_TABLE_SCHEMAS.columns,  // DEPRECATED
   PMO_TABLE_SCHEMAS.board_tickets,  // DEPRECATED

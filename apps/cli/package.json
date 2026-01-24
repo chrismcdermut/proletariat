@@ -113,7 +113,8 @@
     "test:e2e": "mocha --forbid-only \"test/e2e/**/*.test.ts\"",
     "test:e2e:pmo": "mocha --forbid-only \"test/e2e/pmo-*.test.ts\"",
     "test:commands": "mocha --forbid-only \"test/commands/**/*.test.ts\"",
-    "version": "oclif readme && git add README.md"
+    "version": "oclif readme && git add README.md",
+    "roadmap:generate": "node ./bin/run.js roadmap generate --all"
   },
   "types": "dist/index.d.ts"
 }
