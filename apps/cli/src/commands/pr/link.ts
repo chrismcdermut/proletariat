@@ -49,10 +49,6 @@ export default class PRLink extends Command {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   async run(): Promise<void> {
@@ -99,7 +95,8 @@ export default class PRLink extends Command {
       let ticketId = args.ticketId;
 
       if (!ticketId) {
-        const allTickets = await storage.listTickets();
+        const projectId = (flags as { project?: string }).project
+        const allTickets = await storage.listTickets(projectId);
         const activeTickets = allTickets.filter(t =>
           t.statusName && !t.statusName.toLowerCase().includes('done') && !t.statusName.toLowerCase().includes('archive')
         );

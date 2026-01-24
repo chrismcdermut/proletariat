@@ -36,14 +36,11 @@ export default class WorkComplete extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkComplete);
+    const projectId = (flags as { project?: string }).project;
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -75,8 +72,8 @@ export default class WorkComplete extends PMOCommand {
       let ticketId = args.ticketId;
 
       if (!ticketId) {
-        // Get all tickets that could be completed (in progress / started)
-        const allTickets = await this.storage.listTickets();
+        // Get all tickets that could be completed (in progress / started), optionally filtered by project
+        const allTickets = await this.storage.listTickets(projectId);
         const completableTickets = allTickets.filter(t =>
           t.statusCategory === 'started' || (t.statusName && t.statusName.toLowerCase().includes('progress'))
         );
@@ -91,28 +88,20 @@ export default class WorkComplete extends PMOCommand {
           return;
         }
 
-        // In JSON mode, output ticket selection prompt and exit
-        if (jsonMode) {
-          const ticketChoices = completableTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.statusName})`,
-            value: t.id,
-          }));
-          outputPromptAsJson(
-            buildPromptConfig('list', 'ticketId', 'Select work to mark as complete:', ticketChoices),
-            createMetadata('work complete', flags)
-          );
-        }
-
-        const { selectedTicketId } = await inquirer.prompt([{
-          type: 'list',
-          name: 'selectedTicketId',
+        const selected = await this.selectFromList({
           message: 'Select work to mark as complete:',
-          choices: completableTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.statusName})`,
-            value: t.id,
-          })),
-        }]);
-        ticketId = selectedTicketId;
+          items: completableTickets,
+          getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+          getValue: (t) => t.id,
+          getCommand: (t) => `prlt work complete ${t.id} --json`,
+          jsonMode: jsonMode ? { flags, commandName: 'work complete' } : null,
+        });
+
+        if (!selected) {
+          db.close();
+          return;
+        }
+        ticketId = selected;
       }
 
       // Get ticket
@@ -124,7 +113,8 @@ export default class WorkComplete extends PMOCommand {
 
       // Get configured column name (from pmo_settings or default)
       const targetColumnName = getWorkColumnSetting(db, 'done');
-      const board = await this.storage.getBoard();
+
+      const board = await this.storage.getBoard(ticket.projectId!);
       const columnNames = board.columns.map(col => col.name);
       const doneColumn = findColumnByName(columnNames, targetColumnName);
 
@@ -136,7 +126,7 @@ export default class WorkComplete extends PMOCommand {
       const previousColumn = ticket.statusName;
 
       // Move to Done column (moveTicket also updates status_id)
-      await this.storage.moveTicket(ticketId!, doneColumn);
+      await this.storage.moveTicket(ticket.projectId!, ticketId!, doneColumn);
 
       // Auto-export to board.md if configured
       await autoExportToBoard(this.pmoPath, this.storage);

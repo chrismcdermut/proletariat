@@ -40,10 +40,6 @@ export default class WorkWatch extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     column: Flags.string({
       char: 'c',
       description: 'Column to watch for new tickets (prompts if not provided)',
@@ -74,7 +70,7 @@ export default class WorkWatch extends PMOCommand {
     mode: Flags.string({
       char: 'm',
       description: 'Display mode for agent output',
-      options: ['terminal', 'foreground', 'background', 'tmux'],
+      options: ['terminal', 'background'],
     }),
     'skip-permissions': Flags.boolean({
       description: 'Skip permission prompts (danger mode)',
@@ -89,6 +85,7 @@ export default class WorkWatch extends PMOCommand {
   private isRunning = true
   private knownTickets = new Set<string>()
   private columnName = ''
+  private projectId = ''
   private environment: ExecutionEnvironment = 'host'
   private displayMode: DisplayMode = 'terminal'
   private executionConfig: ExecutionConfig | undefined
@@ -126,6 +123,9 @@ export default class WorkWatch extends PMOCommand {
       return handleError('NO_AGENTS', 'No agents found in workspace. Add agents first with "prlt agent add".')
     }
 
+    // Get project
+    this.projectId = await this.requireProject()
+
     // Open database for execution storage
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
     const db = new Database(dbPath)
@@ -145,7 +145,7 @@ export default class WorkWatch extends PMOCommand {
 
     try {
       // Get board columns for selection
-      const board = await this.storage.getBoard()
+      const board = await this.storage.getBoard(this.projectId)
       const columns = board.columns.map(col => col.name)
 
       if (columns.length === 0) {
@@ -235,10 +235,8 @@ export default class WorkWatch extends PMOCommand {
             name: 'selectedDisplay',
             message: 'How should agent output be displayed?',
             choices: [
-              { name: 'terminal     - New terminal window per agent (macOS)', value: 'terminal' },
-              { name: 'tmux         - New tmux pane/window per agent', value: 'tmux' },
-              { name: 'background   - Detached, logs to file (quiet)', value: 'background' },
-              { name: 'foreground   - Run sequentially in current terminal', value: 'foreground' },
+              { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+              { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
             ],
             default: 'terminal',
           },
@@ -289,7 +287,7 @@ export default class WorkWatch extends PMOCommand {
       this.log('')
 
       // Initial scan - record current tickets as "known"
-      const initialTickets = await this.storage.listTickets({ column: this.columnName })
+      const initialTickets = await this.storage.listTickets(this.projectId, { column: this.columnName })
       for (const ticket of initialTickets) {
         this.knownTickets.add(ticket.id)
       }
@@ -299,6 +297,7 @@ export default class WorkWatch extends PMOCommand {
       if (flags.once) {
         this.log('')
         const result = await spawnForColumn(
+          this.projectId,
           this.columnName,
           this.storage,
           executionStorage,
@@ -360,7 +359,7 @@ export default class WorkWatch extends PMOCommand {
     db: Database.Database
   ): Promise<void> {
     // Get current tickets in column
-    const currentTickets = await this.storage.listTickets({ column: this.columnName })
+    const currentTickets = await this.storage.listTickets(this.projectId, { column: this.columnName })
 
     // Find new tickets (in current but not in known)
     const newTickets = currentTickets.filter(t => !this.knownTickets.has(t.id))
@@ -387,6 +386,7 @@ export default class WorkWatch extends PMOCommand {
 
     // Spawn agents for new tickets
     const result = await spawnForColumn(
+      this.projectId,
       this.columnName,
       this.storage,
       executionStorage,

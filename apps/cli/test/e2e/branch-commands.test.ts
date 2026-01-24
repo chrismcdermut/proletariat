@@ -342,4 +342,86 @@ describe('Branch Commands E2E Tests', () => {
       expect(branch.agent).to.equal('altman');
     });
   });
+
+  describe('prlt branch where', () => {
+    it('should find branch in main worktree by exact name', () => {
+      // Create a branch
+      execSync('git checkout -b feat/test/find-me', { stdio: 'pipe' });
+      execSync('git checkout -', { stdio: 'pipe' });
+
+      const output = exec('branch where feat/test/find-me');
+
+      expect(output).to.contain('feat/test/find-me');
+      expect(output).to.contain('Path:');
+    });
+
+    it('should find branch by partial match', () => {
+      execSync('git checkout -b feat/test/unique-branch-name', { stdio: 'pipe' });
+
+      const output = exec('branch where unique-branch');
+
+      expect(output).to.contain('unique-branch-name');
+    });
+
+    it('should find branch by ticket ID prefix', () => {
+      execSync('git checkout -b TKT-999/feat/test/ticket-feature', { stdio: 'pipe' });
+
+      const output = exec('branch where TKT-999');
+
+      expect(output).to.contain('TKT-999');
+      expect(output).to.contain('ticket-feature');
+    });
+
+    it('should output JSON format when --json flag is used', () => {
+      execSync('git checkout -b feat/test/json-test', { stdio: 'pipe' });
+
+      const output = exec('branch where json-test --json');
+
+      // Should be valid JSON
+      const parsed = JSON.parse(output);
+      expect(parsed).to.have.property('found', true);
+      expect(parsed).to.have.property('search', 'json-test');
+      expect(parsed).to.have.property('matches');
+      expect(parsed.matches).to.be.an('array');
+      expect(parsed.matches.length).to.be.greaterThan(0);
+      expect(parsed.matches[0]).to.have.property('path');
+      expect(parsed.matches[0]).to.have.property('branch');
+    });
+
+    it('should return not found for non-existent branch', () => {
+      const output = exec('branch where non-existent-branch-xyz');
+
+      expect(output.toLowerCase()).to.contain('no worktree found');
+    });
+
+    it('should return JSON with found=false for non-existent branch', () => {
+      const output = exec('branch where non-existent-xyz --json');
+
+      const parsed = JSON.parse(output);
+      expect(parsed).to.have.property('found', false);
+      expect(parsed).to.have.property('search', 'non-existent-xyz');
+      expect(parsed.matches).to.be.an('array');
+      expect(parsed.matches.length).to.equal(0);
+    });
+
+    it('should be case-insensitive when searching', () => {
+      execSync('git checkout -b feat/test/CaseSensitive', { stdio: 'pipe' });
+
+      const output = exec('branch where casesensitive');
+
+      expect(output).to.contain('CaseSensitive');
+    });
+
+    it('should find multiple matching branches', () => {
+      execSync('git checkout -b feat/test/multi-one', { stdio: 'pipe' });
+      execSync('git checkout -b feat/test/multi-two', { stdio: 'pipe' });
+      execSync('git checkout -b fix/test/multi-three', { stdio: 'pipe' });
+
+      const output = exec('branch where multi --json');
+      const parsed = JSON.parse(output);
+
+      expect(parsed.found).to.equal(true);
+      expect(parsed.matches.length).to.equal(3);
+    });
+  });
 });

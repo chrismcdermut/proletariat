@@ -21,7 +21,7 @@ export default class TicketTemplateDelete extends PMOCommand {
   static args = {
     id: Args.string({
       description: 'Template ID to delete',
-      required: true,
+      required: false,
     }),
   };
 
@@ -29,10 +29,6 @@ export default class TicketTemplateDelete extends PMOCommand {
     ...pmoBaseFlags,
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
       default: false,
     }),
     force: Flags.boolean({
@@ -61,9 +57,30 @@ export default class TicketTemplateDelete extends PMOCommand {
       this.error(message);
     };
 
-    const template = await this.storage.getTicketTemplate(args.id);
+    // Get template - prompt for selection if not provided
+    let templateId = args.id;
+    if (!templateId) {
+      const templates = await this.storage.listTicketTemplates();
+      const deletableTemplates = templates.filter(t => !t.isBuiltin);
+      if (deletableTemplates.length === 0) {
+        return handleError('NO_TEMPLATES', `No deletable ticket templates found (built-in templates cannot be deleted).`);
+      }
+
+      const { selectedTemplate } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selectedTemplate',
+        message: 'Select a template to delete:',
+        choices: deletableTemplates.map(t => ({
+          name: `${t.name}${t.description ? ` - ${t.description}` : ''}`,
+          value: t.id,
+        })),
+      }]);
+      templateId = selectedTemplate;
+    }
+
+    const template = await this.storage.getTicketTemplate(templateId!);
     if (!template) {
-      return handleError('TEMPLATE_NOT_FOUND', `Template "${args.id}" not found.\nRun 'prlt ticket template list' to see available templates.`);
+      return handleError('TEMPLATE_NOT_FOUND', `Template "${templateId}" not found.\nRun 'prlt ticket template list' to see available templates.`);
     }
 
     if (template.isBuiltin) {
@@ -71,36 +88,27 @@ export default class TicketTemplateDelete extends PMOCommand {
     }
 
     if (!flags.force) {
-      // In JSON mode, output confirmation prompt
-      if (jsonMode) {
-        const confirmChoices = [
-          { name: 'No', value: 'false' },
-          { name: 'Yes', value: 'true' },
-        ];
-        outputPromptAsJson(
-          buildPromptConfig('list', 'confirm', `Delete template "${template.name}"?`, confirmChoices),
-          createMetadata('ticket template delete', flags)
-        );
-        return;
-      }
+      const confirmChoices = [
+        { id: 'no', name: 'No, cancel' },
+        { id: 'yes', name: `Yes, delete "${template.name}"` },
+      ];
 
-      const { confirm } = await inquirer.prompt<{ confirm: boolean }>([{
-        type: 'list',
-        name: 'confirm',
+      const confirm = await this.selectFromList({
         message: `Delete template "${template.name}"?`,
-        choices: [
-          { name: 'No', value: false },
-          { name: 'Yes', value: true },
-        ],
-      }]);
+        items: confirmChoices,
+        getName: (c) => c.name,
+        getValue: (c) => c.id,
+        getCommand: (c) => c.id === 'yes' ? `prlt ticket template delete ${templateId} --force` : '',
+        jsonMode: jsonMode ? { flags, commandName: 'ticket template delete' } : null,
+      });
 
-      if (!confirm) {
+      if (confirm !== 'yes') {
         this.log(styles.muted('Cancelled.'));
         return;
       }
     }
 
-    await this.storage.deleteTicketTemplate(args.id);
+    await this.storage.deleteTicketTemplate(templateId!);
 
     this.log(styles.success(`\nDeleted template "${template.name}"`));
   }

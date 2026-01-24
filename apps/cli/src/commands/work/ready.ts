@@ -54,10 +54,6 @@ export default class WorkReady extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     pr: Flags.boolean({
       description: 'Create a pull request for this work',
       default: false,
@@ -74,6 +70,7 @@ export default class WorkReady extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkReady);
+    const projectId = (flags as { project?: string }).project;
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -105,8 +102,8 @@ export default class WorkReady extends PMOCommand {
       let ticketId = args.ticketId;
 
       if (!ticketId) {
-        // Get all in-progress (started) tickets for selection
-        const allTickets = await this.storage.listTickets();
+        // Get all in-progress (started) tickets for selection, optionally filtered by project
+        const allTickets = await this.storage.listTickets(projectId);
         const inProgressTickets = allTickets.filter(t =>
           t.statusCategory === 'started' || (t.statusName && t.statusName.toLowerCase().includes('progress'))
         );
@@ -121,28 +118,20 @@ export default class WorkReady extends PMOCommand {
           return;
         }
 
-        // In JSON mode, output ticket selection prompt and exit
-        if (jsonMode) {
-          const ticketChoices = inProgressTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.statusName})`,
-            value: t.id,
-          }));
-          outputPromptAsJson(
-            buildPromptConfig('list', 'ticketId', 'Select work to mark as ready for review:', ticketChoices),
-            createMetadata('work ready', flags)
-          );
-        }
-
-        const { selectedTicketId } = await inquirer.prompt([{
-          type: 'list',
-          name: 'selectedTicketId',
+        const selected = await this.selectFromList({
           message: 'Select work to mark as ready for review:',
-          choices: inProgressTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.statusName})`,
-            value: t.id,
-          })),
-        }]);
-        ticketId = selectedTicketId;
+          items: inProgressTickets,
+          getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+          getValue: (t) => t.id,
+          getCommand: (t) => `prlt work ready ${t.id} --json`,
+          jsonMode: jsonMode ? { flags, commandName: 'work ready' } : null,
+        });
+
+        if (!selected) {
+          db.close();
+          return;
+        }
+        ticketId = selected;
       }
 
       // Get ticket
@@ -155,7 +144,8 @@ export default class WorkReady extends PMOCommand {
       // Get configured column name (from pmo_settings or default)
       // In Linear-style workflow, "ready" moves ticket to Done (review is implicit via PR)
       const targetColumnName = getWorkColumnSetting(db, 'done');
-      const board = await this.storage.getBoard();
+
+      const board = await this.storage.getBoard(ticket.projectId!);
       const columnNames = board.columns.map(col => col.name);
       const doneColumn = findColumnByName(columnNames, targetColumnName);
 
@@ -167,7 +157,7 @@ export default class WorkReady extends PMOCommand {
       const previousColumn = ticket.statusName;
 
       // Move to Done column (moveTicket also updates status_id)
-      await this.storage.moveTicket(ticketId!, doneColumn);
+      await this.storage.moveTicket(ticket.projectId!, ticketId!, doneColumn);
 
       // Auto-export to board.md if configured
       await autoExportToBoard(this.pmoPath, this.storage);

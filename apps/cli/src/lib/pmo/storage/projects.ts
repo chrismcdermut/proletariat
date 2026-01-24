@@ -1,5 +1,6 @@
 /**
  * Project operations.
+ * Board columns are now derived from workflow statuses (single source of truth).
  */
 
 import { PMO_TABLES } from '../schema.js'
@@ -12,7 +13,7 @@ import {
   ProjectFilter,
   WorkflowStatus,
 } from '../types.js'
-import { slugify } from '../utils.js'
+import { slugify, generateEntityId } from '../utils.js'
 import { generateBoardMarkdown } from '../markdown.js'
 import { StorageContext, ProjectRow, TicketRow } from './types.js'
 import { rowToTicket } from './helpers.js'
@@ -23,69 +24,60 @@ export class ProjectStorage {
   constructor(private ctx: StorageContext) {}
 
   /**
-   * Initialize a project with columns.
+   * Initialize a project with a workflow.
+   * @deprecated Use createProject with a template instead.
    */
-  async init(config: BoardConfig): Promise<Board> {
-    const projectId = this.ctx.getCurrentProjectId()
+  async init(projectId: string, config: BoardConfig): Promise<Board> {
     const projectName = config.name || 'Project Board'
-    const columns = config.columns || ['Backlog', 'Planned', 'In Progress', 'Done']
     const now = Date.now()
 
-    // Create or update project
+    // Create or update project with default workflow
     this.ctx.db.prepare(`
-      INSERT OR REPLACE INTO ${T.projects} (id, name, template, updated_at)
-      VALUES (?, ?, ?, ?)
+      INSERT OR REPLACE INTO ${T.projects} (id, name, template, workflow_id, updated_at)
+      VALUES (?, ?, ?, 'default', ?)
     `).run(projectId, projectName, 'kanban', now)
 
-    // Delete existing columns for this project
-    this.ctx.db.prepare(`DELETE FROM ${T.columns} WHERE project_id = ?`).run(projectId)
-
-    // Create columns
-    const insertColumn = this.ctx.db.prepare(`
-      INSERT INTO ${T.columns} (id, project_id, name, position, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `)
-
-    columns.forEach((name, position) => {
-      insertColumn.run(slugify(name), projectId, name, position, now)
-    })
-
-    return this.getBoard()
+    return this.getBoard(projectId)
   }
 
   /**
-   * Get the current project board.
+   * Get the project board.
+   * Columns are derived from the project's workflow statuses.
+   * Tickets are sorted by priority (P0 first) then created_at (oldest first).
    */
-  async getBoard(): Promise<Board> {
-    const projectId = this.ctx.getCurrentProjectId()
-
-    // Get project metadata
-    const projectRow = this.ctx.db.prepare(`SELECT * FROM ${T.projects} WHERE id = ?`).get(
-      projectId
-    ) as { id: string; name: string; updated_at: string } | undefined
+  async getBoard(projectId: string): Promise<Board> {
+    // Get project metadata with workflow
+    const projectRow = this.ctx.db.prepare(`
+      SELECT id, name, workflow_id, updated_at FROM ${T.projects} WHERE id = ?
+    `).get(projectId) as { id: string; name: string; workflow_id: string | null; updated_at: string } | undefined
 
     if (!projectRow) {
       throw new PMOError('NOT_FOUND', `Project not found: ${projectId}. Run init() first.`)
     }
 
-    // Get columns with tickets for current project
-    const columnRows = this.ctx.db.prepare(`
-      SELECT * FROM ${T.columns}
-      WHERE project_id = ?
+    // Get workflow statuses as columns
+    const workflowId = projectRow.workflow_id || 'default'
+    const statusRows = this.ctx.db.prepare(`
+      SELECT * FROM ${T.workflow_statuses}
+      WHERE workflow_id = ?
       ORDER BY position
-    `).all(projectId) as Array<{
+    `).all(workflowId) as Array<{
       id: string
-      project_id: string
+      workflow_id: string
       name: string
+      category: string
       position: number
+      color: string | null
     }>
 
+    // Build columns from statuses, with tickets sorted by priority then created_at
     const columns: Column[] = await Promise.all(
-      columnRows.map(async (col) => ({
-        id: col.id,
-        name: col.name,
-        position: col.position,
-        tickets: await this.getTicketsForColumn(col.id, projectId),
+      statusRows.map(async (status) => ({
+        id: status.id,
+        name: status.name,
+        position: status.position,
+        status: status.category,
+        tickets: await this.getTicketsForStatus(status.id, projectId),
       }))
     )
 
@@ -100,100 +92,78 @@ export class ProjectStorage {
   /**
    * Get the board as markdown.
    */
-  async getBoardMarkdown(): Promise<string> {
-    const board = await this.getBoard()
+  async getBoardMarkdown(projectId: string): Promise<string> {
+    const board = await this.getBoard(projectId)
     return generateBoardMarkdown(board)
   }
 
   /**
    * Create a new project.
+   * Assigns a workflow based on the workflow ID (defaults to 'default' workflow).
    */
   async createProject(
-    project: { id?: string; name: string; template?: string; description?: string },
-    applyTemplate: (projectId: string, templateId: string) => Promise<WorkflowStatus[]>,
-    listStatuses: (projectId: string) => Promise<WorkflowStatus[]>,
-    getTemplate: (id: string) => Promise<{ id: string } | null>
+    project: { id?: string; name: string; template?: string; description?: string }
   ): Promise<Board> {
-    const id = project.id || slugify(project.name)
-    const templateId = project.template || 'kanban'
+    const id = project.id || generateEntityId(this.ctx.db, 'project')
+    const workflowId = project.template || 'default'
     const now = Date.now()
 
+    // Try to find a workflow with matching ID
+    const workflow = this.ctx.db.prepare(`
+      SELECT id FROM ${T.workflows} WHERE id = ?
+    `).get(workflowId) as { id: string } | undefined
+
+    // Use the requested workflow if it exists, otherwise fall back to default
+    const finalWorkflowId = workflow ? workflowId : 'default'
+
+    // Insert project with workflow
     this.ctx.db.prepare(`
-      INSERT INTO ${T.projects} (id, name, template, description, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, project.name, templateId, project.description || null, now, now)
+      INSERT OR REPLACE INTO ${T.projects} (id, name, template, description, workflow_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, project.name, workflowId, project.description || null, finalWorkflowId, now, now)
 
-    // Try to apply workflow template if it exists
-    const template = await getTemplate(templateId)
-    if (template) {
-      // Apply workflow template - creates statuses for this project
-      await applyTemplate(id, templateId)
-
-      // Create columns from statuses (columns mirror statuses)
-      const statuses = await listStatuses(id)
-      const insertColumn = this.ctx.db.prepare(`
-        INSERT INTO ${T.columns} (id, project_id, name, position, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `)
-
-      statuses.forEach((status, position) => {
-        insertColumn.run(slugify(status.name), id, status.name, position, now)
-      })
-    } else {
-      // Fallback to default columns if template doesn't exist
-      const defaultColumns = ['Backlog', 'Planned', 'In Progress', 'Done']
-      const insertColumn = this.ctx.db.prepare(`
-        INSERT INTO ${T.columns} (id, project_id, name, position, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `)
-
-      defaultColumns.forEach((name, position) => {
-        insertColumn.run(slugify(name), id, name, position, now)
-      })
-    }
-
-    // Get the board for the new project
-    return this.getProjectBoard(id) as Promise<Board>
+    return this.getBoard(id)
   }
 
   /**
    * Get project board by ID.
    */
   async getProjectBoard(projectId: string): Promise<Board | null> {
-    const projectRow = this.ctx.db.prepare(`SELECT * FROM ${T.projects} WHERE id = ?`).get(
-      projectId
-    ) as
-      | {
-          id: string
-          name: string
-          template: string | null
-          description: string | null
-          updated_at: string
-        }
-      | undefined
+    const projectRow = this.ctx.db.prepare(`
+      SELECT id, name, template, description, workflow_id, updated_at FROM ${T.projects} WHERE id = ?
+    `).get(projectId) as {
+      id: string
+      name: string
+      template: string | null
+      description: string | null
+      workflow_id: string | null
+      updated_at: string
+    } | undefined
 
     if (!projectRow) {
       return null
     }
 
-    // Get columns with tickets for this project
-    const columnRows = this.ctx.db.prepare(`
-      SELECT * FROM ${T.columns}
-      WHERE project_id = ?
+    // Get workflow statuses as columns
+    const workflowId = projectRow.workflow_id || 'default'
+    const statusRows = this.ctx.db.prepare(`
+      SELECT * FROM ${T.workflow_statuses}
+      WHERE workflow_id = ?
       ORDER BY position
-    `).all(projectId) as Array<{
+    `).all(workflowId) as Array<{
       id: string
-      project_id: string
       name: string
+      category: string
       position: number
     }>
 
     const columns: Column[] = await Promise.all(
-      columnRows.map(async (col) => ({
-        id: col.id,
-        name: col.name,
-        position: col.position,
-        tickets: await this.getTicketsForColumn(col.id, projectId),
+      statusRows.map(async (status) => ({
+        id: status.id,
+        name: status.name,
+        position: status.position,
+        status: status.category,
+        tickets: await this.getTicketsForStatus(status.id, projectId),
       }))
     )
 
@@ -206,19 +176,27 @@ export class ProjectStorage {
   }
 
   /**
-   * Get tickets for a column.
+   * Get tickets for a status (column).
+   * Tickets are sorted by priority (P0 first) then created_at (oldest first).
    */
-  private async getTicketsForColumn(columnId: string, projectId: string) {
+  private async getTicketsForStatus(statusId: string, projectId: string) {
     const ticketRows = this.ctx.db.prepare(`
-      SELECT t.*, bt.position as board_position, c.name as column_name,
-             s.name as status_name, s.category as status_category
+      SELECT t.*,
+             ws.name as status_name,
+             ws.category as status_category
       FROM ${T.tickets} t
-      JOIN ${T.board_tickets} bt ON t.id = bt.ticket_id AND t.project_id = bt.project_id
-      JOIN ${T.columns} c ON bt.column_id = c.id AND bt.project_id = c.project_id
-      LEFT JOIN ${T.statuses} s ON t.status_id = s.id
-      WHERE bt.column_id = ? AND bt.project_id = ?
-      ORDER BY bt.position
-    `).all(columnId, projectId) as TicketRow[]
+      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
+      WHERE t.status_id = ? AND t.project_id = ?
+      ORDER BY
+        CASE t.priority
+          WHEN 'P0' THEN 0
+          WHEN 'P1' THEN 1
+          WHEN 'P2' THEN 2
+          WHEN 'P3' THEN 3
+          ELSE 4
+        END,
+        t.created_at ASC
+    `).all(statusId, projectId) as TicketRow[]
 
     return Promise.all(ticketRows.map((row) => rowToTicket(this.ctx.db, row)))
   }
@@ -272,7 +250,7 @@ export class ProjectStorage {
       throw new PMOError('NOT_FOUND', `Project not found: ${projectId}`)
     }
 
-    // Columns and tickets are deleted via CASCADE
+    // Tickets are deleted via CASCADE
   }
 
   /**
@@ -315,6 +293,10 @@ export class ProjectStorage {
     if (changes.phaseId !== undefined) {
       updates.push('phase_id = ?')
       params.push(changes.phaseId || null)
+    }
+    if (changes.workflowId !== undefined) {
+      updates.push('workflow_id = ?')
+      params.push(changes.workflowId || null)
     }
     if (changes.isArchived !== undefined) {
       updates.push('is_archived = ?')
@@ -410,6 +392,7 @@ export class ProjectStorage {
       description: row.description || undefined,
       status: (row.status || 'active') as 'draft' | 'active' | 'completed' | 'archived',
       phaseId: row.phase_id || undefined,
+      workflowId: row.workflow_id || undefined,
       isArchived: row.is_archived === 1,
       targetDate: row.target_date ? new Date(row.target_date) : undefined,
       initiativeId: row.initiative_id || undefined,

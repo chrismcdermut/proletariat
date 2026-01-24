@@ -19,7 +19,6 @@ import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
 import { runExecution, isDockerRunning } from './runners.js'
 import {
-  RuntimeMode,
   DisplayMode,
   SessionManager,
   ExecutorType,
@@ -30,6 +29,76 @@ import {
   DEFAULT_EXECUTION_CONFIG,
 } from './types.js'
 import { Ticket } from '../pmo/types.js'
+
+// =============================================================================
+// Git Utilities
+// =============================================================================
+
+/**
+ * Try to execute a git command, return true if successful
+ */
+function tryGitCommand(cmd: string, cwd: string): boolean {
+  try {
+    execSync(cmd, { cwd, stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Check if a directory is a git repository
+ */
+function isGitRepo(dir: string): boolean {
+  return tryGitCommand('git rev-parse --git-dir', dir)
+}
+
+/**
+ * Find the first existing branch from a list of candidates
+ */
+function findBaseBranch(repoPath: string, candidates: string[] = ['origin/main', 'origin/master']): string {
+  for (const branch of candidates) {
+    if (tryGitCommand(`git rev-parse --verify ${branch}`, repoPath)) {
+      return branch
+    }
+  }
+  return 'HEAD'
+}
+
+/**
+ * Try to execute a docker exec git command, return true if successful
+ */
+function tryDockerGitCommand(containerId: string, containerRepoPath: string, gitArgs: string): boolean {
+  try {
+    execSync(`docker exec ${containerId} git -C "${containerRepoPath}" ${gitArgs}`, { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Check if a path is a git repo inside a container
+ */
+function isGitRepoInContainer(containerId: string, containerRepoPath: string): boolean {
+  return tryDockerGitCommand(containerId, containerRepoPath, 'rev-parse --git-dir')
+}
+
+/**
+ * Find the base branch inside a container
+ */
+function findBaseBranchInContainer(
+  containerId: string,
+  containerRepoPath: string,
+  candidates: string[] = ['origin/main', 'origin/master']
+): string {
+  for (const branch of candidates) {
+    if (tryDockerGitCommand(containerId, containerRepoPath, `rev-parse --verify ${branch}`)) {
+      return branch
+    }
+  }
+  return 'HEAD'
+}
 
 // =============================================================================
 // Types
@@ -101,14 +170,24 @@ export function getAgentsWithCounts(
 }
 
 /**
- * Get agents that are not currently running any executions.
+ * Get staff agents that are not currently running any executions.
+ * Only considers persistent (staff) agents with status='active'.
+ * Cleans up stale executions before checking availability (TKT-604).
  */
 export function getAvailableAgents(
   workspaceInfo: WorkspaceInfo,
   executionStorage: ExecutionStorage
 ): string[] {
+  // Clean up stale executions first (TKT-604)
+  executionStorage.cleanupStaleExecutions()
+
+  // Filter for active staff agents only (not ephemeral agents)
   return workspaceInfo.agents
-    .filter(agent => executionStorage.isAgentAvailable(agent.name))
+    .filter(agent =>
+      agent.type === 'persistent' &&
+      agent.status === 'active' &&
+      executionStorage.isAgentAvailable(agent.name)
+    )
     .map(agent => agent.name)
 }
 
@@ -305,16 +384,6 @@ export async function spawnAgentForTicket(
   }
 
   const displayMode: DisplayMode = options.displayMode || 'terminal'
-
-  // Determine runtime mode based on environment and display mode
-  let mode: RuntimeMode
-  if (environment === 'devcontainer') {
-    mode = 'devcontainer'
-  } else {
-    // For host environment, mode matches display mode
-    mode = displayMode as RuntimeMode
-  }
-
   const sandboxed = !(options.skipPermissions ?? false)
 
   // Create branch in worktree(s)
@@ -323,6 +392,14 @@ export async function spawnAgentForTicket(
   const gitRepos = repoWorktrees.length > 0
     ? repoWorktrees.map(r => path.join(agentDir, r))
     : [worktreePath]
+
+  // Always fetch latest from origin before branch operations
+  // This ensures all spawn actions work with the latest code
+  for (const repoPath of gitRepos) {
+    if (isGitRepo(repoPath)) {
+      tryGitCommand('git fetch origin', repoPath)
+    }
+  }
 
   if (environment === 'devcontainer') {
     // Get container ID for this agent
@@ -343,22 +420,26 @@ export async function spawnAgentForTicket(
         // Map host path to container path: /workspace/{repoName}
         const containerRepoPath = `/workspace/${repoName}`
 
-        try {
-          // Check if this is a git repo inside the container
-          try {
-            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" rev-parse --git-dir`, { stdio: 'pipe' })
-          } catch {
-            continue
-          }
+        // Skip if not a git repo
+        if (!isGitRepoInContainer(containerId, containerRepoPath)) {
+          continue
+        }
 
-          // Check if branch exists
-          try {
-            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" rev-parse --verify ${branch}`, { stdio: 'pipe' })
+        try {
+          // Fetch latest from origin inside container (may fail if offline)
+          tryDockerGitCommand(containerId, containerRepoPath, 'fetch origin')
+
+          // Find base branch (origin/main or origin/master)
+          const baseBranch = findBaseBranchInContainer(containerId, containerRepoPath)
+
+          // Check if branch exists and checkout, or create new branch
+          const branchExists = tryDockerGitCommand(containerId, containerRepoPath, `rev-parse --verify ${branch}`)
+          if (branchExists) {
             execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout ${branch}`, { stdio: 'pipe' })
-          } catch {
-            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout -b ${branch}`, { stdio: 'pipe' })
+          } else {
+            execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout -b ${branch} ${baseBranch}`, { stdio: 'pipe' })
           }
-          log(`Created branch ${branch} in ${repoName} (inside container)`)
+          log(`Created branch ${branch} in ${repoName} from ${baseBranch} (inside container)`)
         } catch (error) {
           log(`Could not create branch in ${repoName}: ${error instanceof Error ? error.message : error}`)
         }
@@ -369,20 +450,21 @@ export async function spawnAgentForTicket(
   } else {
     // Host environment - run git commands directly
     for (const repoPath of gitRepos) {
-      try {
-        // Check if this is a git repo
-        try {
-          execSync('git rev-parse --git-dir', { cwd: repoPath, stdio: 'pipe' })
-        } catch {
-          continue
-        }
+      // Skip if not a git repo
+      if (!isGitRepo(repoPath)) {
+        continue
+      }
 
-        // Check if branch exists
-        try {
-          execSync(`git rev-parse --verify ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+      try {
+        // Find base branch (origin/main or origin/master)
+        const baseBranch = findBaseBranch(repoPath)
+
+        // Check if branch exists and checkout, or create new branch
+        const branchExists = tryGitCommand(`git rev-parse --verify ${branch}`, repoPath)
+        if (branchExists) {
           execSync(`git checkout ${branch}`, { cwd: repoPath, stdio: 'pipe' })
-        } catch {
-          execSync(`git checkout -b ${branch}`, { cwd: repoPath, stdio: 'pipe' })
+        } else {
+          execSync(`git checkout -b ${branch} ${baseBranch}`, { cwd: repoPath, stdio: 'pipe' })
         }
       } catch (error) {
         log(`Could not create branch in ${path.basename(repoPath)}: ${error instanceof Error ? error.message : error}`)
@@ -395,7 +477,6 @@ export async function spawnAgentForTicket(
     ticketId: ticket.id,
     agentName,
     executor,
-    mode,
     environment,
     displayMode,
     sandboxed,
@@ -410,8 +491,8 @@ export async function spawnAgentForTicket(
 
   // Run execution
   const sessionManager = options.sessionManager || 'direct'
-  const result = await runExecution(mode, context, executor, executionConfig, {
-    displayMode: environment === 'devcontainer' ? displayMode : undefined,
+  const result = await runExecution(environment, context, executor, executionConfig, {
+    displayMode,
     sessionManager: environment === 'devcontainer' ? sessionManager : undefined,
   })
 
@@ -431,12 +512,12 @@ export async function spawnAgentForTicket(
     })
 
     const targetColumnName = getWorkColumnSetting(db, 'in_progress')
-    const board = await storage.getBoard()
+    const board = await storage.getBoard(ticket.projectId!)
     const columnNames = board.columns.map(col => col.name)
     const inProgressColumn = findColumnByName(columnNames, targetColumnName)
 
     if (inProgressColumn && ticket.statusName !== inProgressColumn) {
-      await storage.moveTicket(ticket.id, inProgressColumn)
+      await storage.moveTicket(ticket.projectId!, ticket.id, inProgressColumn)
     }
 
     await autoExportToBoard(pmoPath, storage, log)
@@ -463,6 +544,7 @@ export async function spawnAgentForTicket(
  * Spawn agents for all tickets in a column.
  */
 export async function spawnForColumn(
+  projectId: string,
   columnName: string,
   storage: SQLiteStorage,
   executionStorage: ExecutionStorage,
@@ -489,7 +571,7 @@ export async function spawnForColumn(
   }
 
   // Get tickets in the specified column
-  let allTickets = await storage.listTickets({ column: columnName })
+  let allTickets = await storage.listTickets(projectId, { column: columnName })
 
   // If specific ticket IDs provided, filter to only those tickets
   if (options.ticketIds && options.ticketIds.length > 0) {

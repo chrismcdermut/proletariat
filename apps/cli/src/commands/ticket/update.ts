@@ -1,13 +1,12 @@
 import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
+import { PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class TicketUpdate extends PMOCommand {
@@ -34,14 +33,10 @@ export default class TicketUpdate extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     priority: Flags.string({
       char: 'p',
-      description: 'Set priority (URGENT, HIGH, MEDIUM, LOW)',
-      options: ['URGENT', 'HIGH', 'MEDIUM', 'LOW'],
+      description: 'Set priority (P0, P1, P2, P3)',
+      options: [...PRIORITIES],
     }),
     category: Flags.string({
       char: 'c',
@@ -61,12 +56,13 @@ export default class TicketUpdate extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketUpdate);
+    const projectId = (flags as { project?: string }).project;
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
     // Get all tickets
-    const allTickets = await this.storage.listTickets();
+    const allTickets = await this.storage.listTickets(projectId);
 
     if (allTickets.length === 0) {
       if (jsonMode) {
@@ -87,29 +83,19 @@ export default class TicketUpdate extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = allTickets.map(t => ({
-          name: `${t.id} - ${t.title}  [P:${t.priority || 'none'} C:${t.category || 'none'}]`,
-          value: t.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to update:', ticketChoices),
-          createMetadata('ticket update', flags)
-        );
+      const selected = await this.selectFromList({
+        message: 'Select ticket to update:',
+        items: allTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket update ${t.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket update' } : null,
+      });
+
+      if (!selected) {
         return;
       }
-
-      const { selectedTicketId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedTicketId',
-        message: 'Select ticket to update:',
-        choices: allTickets.map(t => ({
-          name: `${t.id} - ${t.title}  [P:${t.priority || 'none'} C:${t.category || 'none'}]`,
-          value: t.id,
-        })),
-      }]);
-      ticketId = selectedTicketId;
+      ticketId = selected;
     }
 
     // Get ticket
@@ -142,10 +128,7 @@ export default class TicketUpdate extends PMOCommand {
           message: 'Set priority to:',
           choices: [
             { name: `(Keep existing: ${ticket.priority || 'none'})`, value: null },
-            { name: 'URGENT', value: 'URGENT' },
-            { name: 'HIGH', value: 'HIGH' },
-            { name: 'MEDIUM', value: 'MEDIUM' },
-            { name: 'LOW', value: 'LOW' },
+            ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p })),
             { name: 'None (clear priority)', value: '' },
           ],
         }]);
@@ -261,10 +244,7 @@ export default class TicketUpdate extends PMOCommand {
           message: 'Set priority to:',
           choices: [
             { name: '(Keep existing)', value: null },
-            { name: 'URGENT', value: 'URGENT' },
-            { name: 'HIGH', value: 'HIGH' },
-            { name: 'MEDIUM', value: 'MEDIUM' },
-            { name: 'LOW', value: 'LOW' },
+            ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p })),
             { name: 'None (clear priority)', value: '' },
           ],
         }]);

@@ -19,10 +19,6 @@ export default class Branch extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   }
 
   protected getPMOOptions() {
@@ -36,39 +32,25 @@ export default class Branch extends PMOCommand {
     const jsonMode = shouldOutputJson(flags)
 
     // Define choices once, use for both JSON and interactive modes
+    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'Create new branch', value: 'create' },
-      { name: 'List branches', value: 'list' },
-      { name: 'Validate branch name', value: 'validate' },
-      { name: 'Cancel', value: 'cancel' },
+      { id: 'create', name: 'Create new branch', command: 'prlt branch create --json' },
+      { id: 'list', name: 'List branches', command: 'prlt branch list --format json' },
+      { id: 'validate', name: 'Validate branch name', command: 'prlt branch validate' },
+      { id: 'cancel', name: 'Cancel', command: '' },
     ]
     const message = 'What would you like to do?'
 
-    // In JSON mode, output menu prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('branch', flags)
-      )
-      return
-    }
+    const action = await this.selectFromList({
+      message,
+      items: menuChoices,
+      getName: (c) => c.name,
+      getValue: (c) => c.id,
+      getCommand: (c) => c.command,
+      jsonMode: jsonMode ? { flags, commandName: 'branch' } : null,
+    })
 
-    const { action } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'action',
-        message,
-        choices: [
-          { name: '✨ ' + menuChoices[0].name, value: menuChoices[0].value },
-          { name: '📋 ' + menuChoices[1].name, value: menuChoices[1].value },
-          { name: '✅ ' + menuChoices[2].name, value: menuChoices[2].value },
-          new inquirer.Separator(),
-          { name: '❌ ' + menuChoices[3].name, value: menuChoices[3].value },
-        ],
-      },
-    ])
-
-    if (action === 'cancel') {
+    if (action === 'cancel' || !action) {
       return
     }
 

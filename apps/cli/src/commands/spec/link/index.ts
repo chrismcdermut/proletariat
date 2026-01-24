@@ -32,10 +32,6 @@ export default class SpecLink extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     depends: Flags.string({ char: 'd', description: 'Add depends_on dependency' }),
     relates: Flags.string({ char: 'r', description: 'Add relates_to dependency' }),
     duplicates: Flags.string({ description: 'Add duplicates dependency' }),

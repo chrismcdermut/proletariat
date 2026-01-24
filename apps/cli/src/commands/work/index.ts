@@ -21,10 +21,6 @@ export default class Work extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -34,71 +30,42 @@ export default class Work extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(Work);
+    // This command requires project context - get it once and reuse
+    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices once, use for both JSON and interactive modes
+    // Execution actions first (most common), then ownership
+    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'Claim work (own + assign)', value: 'claim' },
-      { name: 'Assign work to agent/person', value: 'assign' },
-      { name: 'Take ownership (accountable)', value: 'own' },
-      { name: 'Start work (launch single agent)', value: 'start' },
-      { name: 'Spawn work (batch by column)', value: 'spawn' },
-      { name: 'Watch column (auto-spawn)', value: 'watch' },
-      { name: 'Mark work ready for review', value: 'ready' },
-      { name: 'Mark work complete', value: 'complete' },
-      { name: 'Cancel', value: 'cancel' },
+      { id: 'start', name: 'Start work (launch single agent)', command: `prlt work start -P ${projectId} --json` },
+      { id: 'spawn', name: 'Spawn work (batch by column)', command: `prlt work spawn -P ${projectId} --json` },
+      { id: 'watch', name: 'Watch column (auto-spawn)', command: `prlt work watch -P ${projectId} --json` },
+      { id: 'ready', name: 'Mark work ready for review', command: `prlt work ready -P ${projectId} --json` },
+      { id: 'complete', name: 'Mark work complete', command: `prlt work complete -P ${projectId} --json` },
+      { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'Work Operations - What would you like to do?';
 
-    // In JSON mode, output action selection prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('work', flags)
-      );
-      return;
-    }
-
-    // Show interactive menu
-    const { action } = await inquirer.prompt([{
-      type: 'list',
-      name: 'action',
+    const action = await this.selectFromList({
       message: '🔨 ' + message,
-      choices: [
-        new inquirer.Separator('── Ownership ──'),
-        menuChoices[0],
-        menuChoices[1],
-        menuChoices[2],
-        new inquirer.Separator('── Execution ──'),
-        menuChoices[3],
-        menuChoices[4],
-        menuChoices[5],
-        menuChoices[6],
-        menuChoices[7],
-        new inquirer.Separator('──────────────'),
-        menuChoices[8],
-      ],
-    }]);
+      items: menuChoices,
+      getName: (c) => c.name,
+      getValue: (c) => c.id,
+      getCommand: (c) => c.command,
+      jsonMode: jsonMode ? { flags, commandName: 'work' } : null,
+    });
 
-    if (action === 'cancel') {
+    if (action === 'cancel' || !action) {
       return;
     }
 
     // Run the selected subcommand
     // Pass --project to avoid re-prompting for project selection
-    const projectArgs = ['--project', this.projectId];
+    const projectArgs = ['--project', projectId];
     switch (action) {
-      case 'claim':
-        await this.config.runCommand('work:claim', projectArgs);
-        break;
-      case 'assign':
-        await this.config.runCommand('work:assign', projectArgs);
-        break;
-      case 'own':
-        await this.config.runCommand('work:own', projectArgs);
-        break;
       case 'start':
         await this.config.runCommand('work:start', projectArgs);
         break;

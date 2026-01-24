@@ -111,10 +111,12 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       // PMO path can be anywhere (e.g., /hq/pmo or /hq/repos/myrepo/pmo)
       // Use PRLT_PMO_PATH env var to mount the actual location to /hq/pmo
       'source=${localEnv:PRLT_PMO_PATH},target=/hq/pmo,type=bind',
-      // Mount the main repo's .git directory so git worktrees can resolve their parent
-      // Worktree .git files reference paths like /Users/.../repos/proletariat/.git/worktrees/name
-      // This mount makes those paths accessible inside the container at /hq/repos/proletariat
-      'source=${localEnv:PRLT_HQ_PATH}/repos/proletariat,target=/hq/repos/proletariat,type=bind',
+      // Mount each repo's directory so git worktrees can resolve their parent
+      // Worktree .git files reference paths like /Users/.../repos/{repoName}/.git/worktrees/name
+      // These mounts make those paths accessible inside the container at /hq/repos/{repoName}
+      ...(options.repoWorktrees || []).map(
+        repoName => `source=\${localEnv:PRLT_HQ_PATH}/repos/${repoName},target=/hq/repos/${repoName},type=bind`
+      ),
       // If using "mount" channel, mount local prlt build from PRLT_REPO_PATH
       // The setup-prlt.sh script will detect /opt/prlt and configure the wrapper
       ...(useMount ? ['source=${localEnv:PRLT_REPO_PATH},target=/opt/prlt,type=bind,readonly'] : []),
@@ -126,6 +128,9 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       GH_TOKEN: '${localEnv:GH_TOKEN}',
       GITHUB_TOKEN: '${localEnv:GITHUB_TOKEN}',
       PRLT_HQ_PATH: '/hq',
+      // Agent identity - allows agent to know its name and host path
+      PRLT_AGENT_NAME: options.agentName,
+      PRLT_HOST_PATH: options.agentDir,
       // /hq/.proletariat/bin contains prlt wrapper with ESM loader for native modules
       PATH: '/hq/.proletariat/bin:/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin',
     },
@@ -145,6 +150,9 @@ export function generateDockerfile(options: DevcontainerOptions): string {
   const timezone = options.timezone || 'America/Los_Angeles'
 
   return `FROM node:20
+
+# Ensure we run as root for apt-get and system setup
+USER root
 
 ARG TZ=${timezone}
 ENV TZ=\${TZ}
@@ -182,9 +190,9 @@ RUN mkdir -p /home/node/.npm-global/bin /home/node/.npm-global/lib \\
 ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
 ENV PATH=/home/node/.npm-global/bin:\$PATH
 
-# Install Claude Code as node user so files are owned correctly
+# Install pnpm and Claude Code as node user so files are owned correctly
 USER node
-RUN npm install -g @anthropic-ai/claude-code
+RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code
 USER root
 
 # Install prlt CLI
@@ -376,8 +384,8 @@ export function generatePrltSetupScript(): string {
 # Setup prlt CLI - rebuild native modules if using mounted version
 
 # Configure git wrapper to handle worktree path translation
-# Worktree .git files contain host paths like: gitdir: /Users/.../repos/proletariat/.git/worktrees/name
-# Inside container, the parent repo is mounted at /hq/repos/proletariat
+# Worktree .git files contain host paths like: gitdir: /Users/.../repos/{repoName}/.git/worktrees/name
+# Inside container, the parent repos are mounted at /hq/repos/{repoName}
 #
 # We create a git wrapper that translates paths on-the-fly using GIT_DIR
 # This avoids modifying the .git file which is bind-mounted from the host
@@ -410,14 +418,18 @@ find_git_file() {
 GIT_FILE="$(find_git_file)"
 if [ -n "$GIT_FILE" ]; then
     # Read the gitdir path from the .git file
-    # Format is: gitdir: /path/to/parent/.git/worktrees/name
+    # Format is: gitdir: /path/to/repos/{repoName}/.git/worktrees/name
     HOST_PATH="$(sed -n 's/^gitdir: *//p' "$GIT_FILE")"
 
     # Check if it's a host path that needs translation
     case "$HOST_PATH" in
         /Users/*|/home/*)
             WORKTREE_NAME="$(basename "$HOST_PATH")"
-            CONTAINER_PATH="/hq/repos/proletariat/.git/worktrees/$WORKTREE_NAME"
+            # Extract repo name from host path: .../repos/{repoName}/.git/worktrees/...
+            # Remove .git/worktrees/name suffix, then get basename
+            REPO_PATH="$(echo "$HOST_PATH" | sed 's|/.git/worktrees/.*||')"
+            REPO_NAME="$(basename "$REPO_PATH")"
+            CONTAINER_PATH="/hq/repos/$REPO_NAME/.git/worktrees/$WORKTREE_NAME"
             if [ -d "$CONTAINER_PATH" ]; then
                 export GIT_DIR="$CONTAINER_PATH"
                 export GIT_WORK_TREE="$(dirname "$GIT_FILE")"
@@ -540,6 +552,35 @@ WRAPPER_EOF
 else
     echo "No mounted prlt found, skipping setup"
 fi
+
+# Install workspace dependencies if package.json exists
+install_workspace_deps() {
+    local workspace_dir="$1"
+    if [ -f "$workspace_dir/package.json" ]; then
+        echo "Installing dependencies in $workspace_dir..."
+        cd "$workspace_dir"
+        if [ -f "pnpm-lock.yaml" ]; then
+            pnpm install 2>&1 || npm install 2>&1
+        elif [ -f "package-lock.json" ]; then
+            npm ci 2>&1 || npm install 2>&1
+        else
+            npm install 2>&1
+        fi
+    fi
+}
+
+# Check workspace repos for package.json and install deps
+for repo_dir in /workspace/*/; do
+    if [ -d "$repo_dir" ] && [ -f "$repo_dir/package.json" ]; then
+        install_workspace_deps "$repo_dir"
+        # Also check for monorepo structure (apps/cli for prlt)
+        if [ -f "$repo_dir/apps/cli/package.json" ]; then
+            install_workspace_deps "$repo_dir/apps/cli"
+        fi
+    fi
+done
+
+echo "Workspace setup complete"
 `
 }
 

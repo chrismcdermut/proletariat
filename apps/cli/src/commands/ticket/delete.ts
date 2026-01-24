@@ -38,10 +38,6 @@ export default class TicketDelete extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation prompt',
@@ -56,6 +52,7 @@ export default class TicketDelete extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketDelete);
+    const projectId = (flags as { project?: string }).project;
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -70,7 +67,7 @@ export default class TicketDelete extends PMOCommand {
     };
 
     // Get all tickets for selection
-    const allTickets = await this.storage.listTickets();
+    const allTickets = await this.storage.listTickets(projectId);
 
     if (allTickets.length === 0) {
       return handleError('NO_TICKETS', 'No tickets found.');
@@ -86,29 +83,20 @@ export default class TicketDelete extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to delete:', ticketChoices),
-          createMetadata('ticket delete', flags)
-        );
-        return;
-      }
-
-      const { selectedTicketId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedTicketId',
+      // Use helper for ticket selection (handles JSON mode automatically)
+      const selected = await this.selectFromList({
         message: 'Select ticket to delete:',
-        choices: allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        })),
-      }]);
-      ticketId = selectedTicketId;
+        items: allTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket delete ${t.id} --force --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket delete' } : null,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      ticketId = selected;
     }
 
     // Get ticket to show details in confirmation
@@ -118,7 +106,7 @@ export default class TicketDelete extends PMOCommand {
     }
 
     // Get board for project name
-    const board = await this.storage.getBoard();
+    const board = await this.storage.getBoard(ticket.projectId!);
 
     // Confirmation prompt (unless --force)
     if (!flags.force) {

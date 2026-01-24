@@ -2,7 +2,7 @@ import { Flags, Args } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import inquirer from 'inquirer';
-import { createBoardContent, createSpecFolders, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { createBoardContent, createSpecFolders, PMOCommand, pmoBaseFlags, BUILTIN_TEMPLATES } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { slugify } from '../../lib/pmo/utils.js';
 import {
@@ -12,6 +12,9 @@ import {
   buildFormPromptConfig,
   FormField,
 } from '../../lib/prompt-json.js';
+
+// Build template options dynamically from shared definitions
+const TEMPLATE_IDS = BUILTIN_TEMPLATES.map(t => t.id);
 
 export default class ProjectCreate extends PMOCommand {
   static description = 'Create a new project in the PMO';
@@ -45,7 +48,7 @@ export default class ProjectCreate extends PMOCommand {
     template: Flags.string({
       char: 't',
       description: 'Workflow template',
-      options: ['kanban', 'linear', 'bug-smash', '5-tool-founder', 'gtm'],
+      options: TEMPLATE_IDS,
       default: 'kanban',
     }),
     interactive: Flags.boolean({
@@ -55,10 +58,6 @@ export default class ProjectCreate extends PMOCommand {
     }),
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
       default: false,
     }),
   };
@@ -82,14 +81,11 @@ export default class ProjectCreate extends PMOCommand {
     };
 
     if (flags.interactive || (!args.name && !flags.name)) {
-      // Build choices once - single source of truth
-      const templateChoices = [
-        { name: 'Kanban - Backlog → To Do → In Progress → Done', value: 'kanban' },
-        { name: 'Linear - Backlog, Triage, Todo, In Progress, In Review, Done', value: 'linear' },
-        { name: 'Bug Smash - Reported → Confirmed → Fixing → Verifying → Fixed', value: 'bug-smash' },
-        { name: '5-Tool Founder - Ideas → Next Up → Building → Shipping → Shipped', value: '5-tool-founder' },
-        { name: 'GTM - Ideation → Planning → In Development → Ready to Launch → Launched', value: 'gtm' },
-      ];
+      // Build choices dynamically from shared template definitions
+      const templateChoices = BUILTIN_TEMPLATES.map(t => ({
+        name: `${t.name} - ${t.statuses.map(s => s.name).join(' → ')}`,
+        value: t.id,
+      }));
 
       // Define fields once - single source of truth for both JSON and interactive modes
       const fields: FormField[] = [
@@ -145,8 +141,8 @@ export default class ProjectCreate extends PMOCommand {
     // Create spec folders in project directory
     const specsPath = createSpecFolders(this.pmoPath, projectId);
 
-    // Get the statuses that were created
-    const statuses = await this.storage.listStatuses(projectId);
+    // Get the statuses from the workflow (template name = workflow ID for built-in templates)
+    const statuses = await this.storage.listStatuses(projectData.template);
 
     this.log(styles.success(`\nCreated project "${styles.emphasis(project.name)}"`));
     this.log(styles.muted(`  ID: ${project.id}`));

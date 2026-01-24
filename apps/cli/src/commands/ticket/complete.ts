@@ -8,10 +8,8 @@ import {
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class TicketComplete extends PMOCommand {
@@ -36,10 +34,6 @@ export default class TicketComplete extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     bulk: Flags.boolean({
       char: 'b',
       description: 'Enable bulk mode to complete multiple tickets',
@@ -54,6 +48,7 @@ export default class TicketComplete extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketComplete);
+    const projectId = (flags as { project?: string }).project;
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -68,7 +63,7 @@ export default class TicketComplete extends PMOCommand {
     };
 
     // Get all incomplete tickets
-    const allTickets = await this.storage.listTickets();
+    const allTickets = await this.storage.listTickets(projectId);
     const incompleteTickets = allTickets.filter(t =>
       t.statusName && !t.statusName.toLowerCase().includes('done')
     );
@@ -82,8 +77,8 @@ export default class TicketComplete extends PMOCommand {
       return;
     }
 
-    // Get board for columns
-    const board = await this.storage.getBoard();
+    // Get board for columns (use the first incomplete ticket's project)
+    const board = await this.storage.getBoard(incompleteTickets[0].projectId!);
 
     // Find the "Done" column (case-insensitive)
     const doneColumn = board.columns.find(col =>
@@ -104,29 +99,19 @@ export default class TicketComplete extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = incompleteTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to complete:', ticketChoices),
-          createMetadata('ticket complete', flags)
-        );
+      const selected = await this.selectFromList({
+        message: 'Select ticket to mark complete:',
+        items: incompleteTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket complete ${t.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket complete' } : null,
+      });
+
+      if (!selected) {
         return;
       }
-
-      const { selectedTicketId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedTicketId',
-        message: 'Select ticket to complete:',
-        choices: incompleteTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        })),
-      }]);
-      ticketId = selectedTicketId;
+      ticketId = selected;
     }
 
     // Get ticket
@@ -136,7 +121,7 @@ export default class TicketComplete extends PMOCommand {
     }
 
     // Move to Done column
-    await this.storage.moveTicket(ticketId!, doneColumn.name);
+    await this.storage.moveTicket(ticket.projectId!, ticketId!, doneColumn.name);
 
     // Auto-export to board.md if configured
     await autoExportToBoard(this.pmoPath, this.storage);
@@ -203,7 +188,11 @@ export default class TicketComplete extends PMOCommand {
 
     for (const ticketId of selectedTickets) {
       try {
-        await this.storage.moveTicket(ticketId, doneColumnName);
+        const ticket = incompleteTickets.find(t => t.id === ticketId);
+        if (!ticket) {
+          throw new Error('Ticket not found in incomplete tickets list');
+        }
+        await this.storage.moveTicket(ticket.projectId!, ticketId, doneColumnName);
         this.log(styles.success(`Completed ${ticketId}`));
         successCount++;
       } catch (error) {

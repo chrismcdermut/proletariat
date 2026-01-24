@@ -29,8 +29,10 @@ export default class EpicList extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(EpicList);
+    const projectId = await this.requireProject();
 
     const epics = await this.storage.listEpics(
+      projectId,
       flags.status ? { status: flags.status as EpicStatus } : undefined
     );
 
@@ -46,12 +48,13 @@ export default class EpicList extends PMOCommand {
     // Get ticket counts for each epic
     const epicProgress: Map<string, { done: number; total: number }> = new Map();
     for (const epic of epics) {
-      const tickets = await this.storage.getTicketsForEpic(epic.id);
+      const tickets = await this.storage.getTicketsForEpic(projectId, epic.id);
       const done = tickets.filter((t: Ticket) => t.status === 'done').length;
       epicProgress.set(epic.id, { done, total: tickets.length });
     }
 
-    this.log(`\n🎯 ${styles.emphasis('Epics')} - ${this.projectName}`);
+    const projectName = await this.getProjectName(projectId);
+    this.log(`\n🎯 ${styles.emphasis('Epics')} - ${projectName}`);
     this.log('═'.repeat(55));
 
     const statusOrder: EpicStatus[] = ['active', 'draft', 'complete', 'dropped', 'future'];

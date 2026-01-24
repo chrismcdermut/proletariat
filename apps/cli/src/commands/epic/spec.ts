@@ -37,10 +37,6 @@ export default class EpicSpec extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     unlink: Flags.boolean({
       char: 'u',
       description: 'Remove spec from epic instead of adding',
@@ -63,8 +59,10 @@ export default class EpicSpec extends PMOCommand {
       this.error(message);
     };
 
+    const projectId = await this.requireProject();
+
     // Get all epics
-    const epics = await this.storage.listEpics();
+    const epics = await this.storage.listEpics(projectId);
     if (epics.length === 0) {
       if (jsonMode) {
         outputErrorAsJson('NO_EPICS', 'No epics found.', createMetadata('epic spec', flags));
@@ -179,7 +177,7 @@ export default class EpicSpec extends PMOCommand {
     }
 
     // Reconciliation: Check if epic's tickets have different specs
-    const epicTickets = await this.storage.getTicketsForEpic(epicId!);
+    const epicTickets = await this.storage.getTicketsForEpic(projectId, epicId!);
     const ticketsWithDifferentSpec = epicTickets.filter(t => t.specId && t.specId !== specId);
 
     if (ticketsWithDifferentSpec.length > 0) {

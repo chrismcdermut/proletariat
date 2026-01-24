@@ -6,6 +6,7 @@
 import Database from 'better-sqlite3'
 import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from '../schema.js'
 import { StateCategory } from '../types.js'
+import { BUILTIN_TEMPLATES } from '../templates-builtin.js'
 
 const T = PMO_TABLES
 
@@ -16,7 +17,7 @@ const T = PMO_TABLES
 export function initializePMOTables(db: Database.Database): void {
   runMigrations(db)
   db.exec(PMO_SCHEMA_SQL)
-  seedBuiltinTemplates(db)
+  seedBuiltinWorkflows(db)  // Workflows are the source of truth for status configurations
   seedBuiltinPhases(db)
   seedBuiltinPhaseTemplates(db)
   seedBuiltinActions(db)
@@ -186,108 +187,102 @@ export function runMigrations(db: Database.Database): void {
       }
     }
   }
+
+  // Migration: Convert legacy priority values (URGENT/HIGH/MEDIUM/LOW) to P0-P3
+  if (tableExists(T.tickets)) {
+    try {
+      // Convert ticket priorities
+      db.exec(`UPDATE ${T.tickets} SET priority = 'P0' WHERE priority = 'URGENT'`)
+      db.exec(`UPDATE ${T.tickets} SET priority = 'P1' WHERE priority = 'HIGH'`)
+      db.exec(`UPDATE ${T.tickets} SET priority = 'P2' WHERE priority = 'MEDIUM'`)
+      db.exec(`UPDATE ${T.tickets} SET priority = 'P3' WHERE priority = 'LOW'`)
+    } catch {
+      // Ignore errors if migration already ran
+    }
+  }
+
+  // Migration: Convert legacy priority values in ticket templates
+  if (tableExists(T.ticket_templates)) {
+    try {
+      db.exec(`UPDATE ${T.ticket_templates} SET default_priority = 'P0' WHERE default_priority = 'URGENT'`)
+      db.exec(`UPDATE ${T.ticket_templates} SET default_priority = 'P1' WHERE default_priority = 'HIGH'`)
+      db.exec(`UPDATE ${T.ticket_templates} SET default_priority = 'P2' WHERE default_priority = 'MEDIUM'`)
+      db.exec(`UPDATE ${T.ticket_templates} SET default_priority = 'P3' WHERE default_priority = 'LOW'`)
+    } catch {
+      // Ignore errors if migration already ran
+    }
+  }
+
+  // Migration: Add workflow_id column to projects table
+  if (!projectsColumnNames.has('workflow_id')) {
+    try {
+      db.exec(`ALTER TABLE ${T.projects} ADD COLUMN workflow_id TEXT`)
+    } catch {
+      // Column may already exist
+    }
+  }
+
+  // Migration: Drop pmo_templates table (workflows are now used directly)
+  if (tableExists('pmo_templates')) {
+    try {
+      db.exec('DROP TABLE pmo_templates')
+    } catch {
+      // Table may already be dropped
+    }
+  }
+
 }
 
 /**
- * Seed built-in workflow templates.
+ * Seed built-in workflows from BUILTIN_TEMPLATES (single source of truth).
+ * Creates workflows from template definitions for reuse across projects.
  */
-export function seedBuiltinTemplates(db: Database.Database): void {
-  type WorkflowTemplateStatus = {
-    name: string
-    category: StateCategory
-    position: number
-  }
+export function seedBuiltinWorkflows(db: Database.Database): void {
+  const now = new Date().toISOString()
 
-  const builtinTemplates: Array<{
-    id: string
-    name: string
-    description: string
-    statuses: WorkflowTemplateStatus[]
-  }> = [
-    {
-      id: 'kanban',
-      name: 'Kanban',
-      description: 'Simple kanban workflow: Backlog → To Do → In Progress → Done',
-      statuses: [
-        { name: 'Backlog', category: 'backlog', position: 0 },
-        { name: 'To Do', category: 'unstarted', position: 0 },
-        { name: 'In Progress', category: 'started', position: 0 },
-        { name: 'Done', category: 'completed', position: 0 },
-        { name: 'Canceled', category: 'canceled', position: 0 },
-      ],
-    },
-    {
-      id: 'linear',
-      name: 'Linear',
-      description: 'Linear-style workflow with backlog, triage, and review stages',
-      statuses: [
-        { name: 'Backlog', category: 'backlog', position: 0 },
-        { name: 'Triage', category: 'backlog', position: 1 },
-        { name: 'Todo', category: 'unstarted', position: 0 },
-        { name: 'In Progress', category: 'started', position: 0 },
-        { name: 'In Review', category: 'started', position: 1 },
-        { name: 'Done', category: 'completed', position: 0 },
-        { name: 'Canceled', category: 'canceled', position: 0 },
-      ],
-    },
-    {
-      id: 'bug-smash',
-      name: 'Bug Smash',
-      description: 'Bug tracking workflow with verification stages',
-      statuses: [
-        { name: 'Reported', category: 'backlog', position: 0 },
-        { name: 'Confirmed', category: 'unstarted', position: 0 },
-        { name: 'Fixing', category: 'started', position: 0 },
-        { name: 'Verifying', category: 'started', position: 1 },
-        { name: 'Fixed', category: 'completed', position: 0 },
-        { name: "Won't Fix", category: 'canceled', position: 0 },
-      ],
-    },
-    {
-      id: '5-tool-founder',
-      name: '5-Tool Founder',
-      description: 'Founder workflow: Ideas → Build → Ship → Measure → Iterate',
-      statuses: [
-        { name: 'Ideas', category: 'backlog', position: 0 },
-        { name: 'Next Up', category: 'unstarted', position: 0 },
-        { name: 'Building', category: 'started', position: 0 },
-        { name: 'Shipping', category: 'started', position: 1 },
-        { name: 'Measuring', category: 'started', position: 2 },
-        { name: 'Shipped', category: 'completed', position: 0 },
-        { name: 'Parked', category: 'canceled', position: 0 },
-      ],
-    },
-    {
-      id: 'gtm',
-      name: 'GTM',
-      description: 'Go-to-market workflow for launches and campaigns',
-      statuses: [
-        { name: 'Ideation', category: 'backlog', position: 0 },
-        { name: 'Planning', category: 'unstarted', position: 0 },
-        { name: 'In Development', category: 'started', position: 0 },
-        { name: 'Ready to Launch', category: 'started', position: 1 },
-        { name: 'Launched', category: 'completed', position: 0 },
-        { name: 'Retired', category: 'canceled', position: 0 },
-      ],
-    },
-  ]
-
-  const insertTemplate = db.prepare(`
-    INSERT OR IGNORE INTO ${T.templates} (id, name, description, is_builtin, statuses, created_at)
+  const insertWorkflow = db.prepare(`
+    INSERT OR IGNORE INTO ${T.workflows} (id, name, description, is_builtin, created_at, updated_at)
     VALUES (?, ?, ?, 1, ?, ?)
   `)
 
-  const now = new Date().toISOString()
-  for (const template of builtinTemplates) {
-    insertTemplate.run(
-      template.id,
-      template.name,
-      template.description,
-      JSON.stringify(template.statuses),
-      now
-    )
+  const insertStatus = db.prepare(`
+    INSERT OR IGNORE INTO ${T.workflow_statuses} (id, workflow_id, name, category, position, color, description, is_default, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  // Read from BUILTIN_TEMPLATES - the single source of truth
+  for (const template of BUILTIN_TEMPLATES) {
+    insertWorkflow.run(template.id, template.name, template.description, now, now)
+
+    for (let i = 0; i < template.statuses.length; i++) {
+      const status = template.statuses[i]
+      const statusId = `${template.id}-${status.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`
+      // First status is the default
+      const isDefault = i === 0
+      insertStatus.run(
+        statusId,
+        template.id,
+        status.name,
+        status.category,
+        status.position,
+        null, // color
+        null, // description
+        isDefault ? 1 : 0,
+        now
+      )
+    }
   }
+
+  // Assign default workflow to any projects without a workflow
+  db.prepare(`
+    UPDATE ${T.projects}
+    SET workflow_id = 'default'
+    WHERE workflow_id IS NULL
+  `).run()
 }
+
+// REMOVED: seedBuiltinTemplates - workflows are now used directly (no separate template concept)
+// Built-in workflows are seeded in seedBuiltinWorkflows() above
 
 /**
  * Seed default project phases.
@@ -432,13 +427,15 @@ export function seedBuiltinActions(db: Database.Database): void {
 
 Do NOT implement the ticket - only improve its definition so it's ready to be worked on.
 
+**AI Agent Tip:** When running \`prlt\` commands without all required arguments, use \`--json\` to receive interactive prompts as structured JSON.
+
 ## Ticket Schema Reference
 
 | Field | Type | Valid Values | CLI Flag |
 |-------|------|--------------|----------|
 | title | string | any text | --title |
 | description | markdown | requirements, context, notes | --description |
-| priority | enum | URGENT, HIGH, MEDIUM, LOW | --priority |
+| priority | enum | P0 (critical), P1 (high), P2 (medium), P3 (low) | --priority |
 | category | enum | feature, bug, refactor, docs, test, chore, performance, ci, build, security, database, release | --category |
 | subtasks | list | task descriptions | --add-subtask (--clear-subtasks to replace) |
 | acceptanceCriteria | list | testable statements | --add-ac (--clear-ac to replace) |
@@ -455,7 +452,7 @@ Do NOT implement the ticket - only improve its definition so it's ready to be wo
 | Acceptance Criteria | --add-ac | One per criterion (testable statement) |
 | Subtasks | --add-subtask | One per subtask |
 | Complexity (S/M/L/XL) | --add-label | \`complexity:M\` or \`complexity:L\` |
-| Priority | --priority | URGENT, HIGH, MEDIUM, or LOW only |
+| Priority | --priority | P0, P1, P2, or P3 only |
 | Category | --category | feature, bug, refactor, docs, test, chore |
 | Needs clarification | --add-label | \`needs-clarification\` |
 | Ready for work | --add-label | \`ready\` |
@@ -469,7 +466,7 @@ prlt ticket edit {{TICKET_ID}} \\
 Requirements:
 - R1: Sessions expire after 30 minutes of inactivity
 - R2: Users see a warning 5 minutes before timeout" \\
-  --priority MEDIUM \\
+  --priority P2 \\
   --category feature \\
   --add-label "complexity:M" \\
   --add-ac "Sessions expire after 30 min inactivity" \\
@@ -479,7 +476,7 @@ Requirements:
 \`\`\`
 
 ## Important Rules
-- Priority must be exactly: URGENT, HIGH, MEDIUM, or LOW (not custom values)
+- Priority must be exactly: P0, P1, P2, or P3 (not custom values)
 - Use \`--add-label "complexity:S|M|L|XL"\` for complexity (not a separate field)
 - Technical notes/flagged ambiguities go in description
 - Use \`--clear-subtasks\` if replacing existing subtasks
@@ -498,9 +495,22 @@ After updating, output a brief summary of your grooming changes.`,
       prompt: `Implement this ticket according to its requirements and acceptance criteria:
 - Follow the acceptance criteria exactly
 - Write clean, well-tested code
-- Create atomic commits with clear messages
 - Update documentation if the changes affect it
 - Run tests to verify the implementation
+
+**IMPORTANT: Commit and push frequently!**
+- Commit after each logical change or completed subtask
+- Push after every 1-2 commits to save your work
+- Use atomic commits with clear messages describing the change
+- Don't wait until the end to commit - your work could be lost!
+
+Example workflow:
+\`\`\`bash
+# After completing a piece of work
+git add -A
+prlt commit "implement user validation"
+git push
+\`\`\`
 
 When complete, the ticket should be ready for code review.`,
       endPrompt: `When complete:
@@ -533,7 +543,16 @@ When complete, the ticket should be ready for code review.`,
 - Review existing commits and changes to understand current state
 - Check what subtasks remain incomplete
 - Complete the remaining work
-- Ensure all acceptance criteria are met`,
+- Ensure all acceptance criteria are met
+
+**IMPORTANT: Commit and push frequently!**
+- Commit after each logical change or completed subtask
+- Push after every 1-2 commits to save your work
+- Don't wait until the end to commit - your work could be lost!
+
+\`\`\`bash
+git add -A && prlt commit "your change" && git push
+\`\`\``,
       endPrompt: `When complete:
 1. **Commit your work** in each repository directory you modified:
    \`\`\`bash
@@ -564,7 +583,15 @@ When complete, the ticket should be ready for code review.`,
 - Add integration tests where appropriate
 - Cover edge cases and error handling
 - Aim for good coverage of the changed code
-- Ensure all tests pass`,
+- Ensure all tests pass
+
+**IMPORTANT: Commit and push frequently!**
+- Commit after each test file or logical group of tests
+- Push after every 1-2 commits to save your work
+
+\`\`\`bash
+git add -A && prlt commit "add tests for X" && git push
+\`\`\``,
       endPrompt: `When complete:
 1. **Commit your tests**:
    \`\`\`bash
@@ -628,18 +655,26 @@ The PR will be updated automatically.`,
     },
   ]
 
-  const insertAction = db.prepare(`
-    INSERT OR IGNORE INTO ${T.actions} (id, name, description, prompt, end_prompt, suggested_for_categories, default_move_to_category, modifies_code, is_builtin, position, created_at)
+  // Use INSERT OR REPLACE to always update builtin actions with latest prompts
+  // This ensures prompt improvements are applied to existing databases
+  const upsertAction = db.prepare(`
+    INSERT INTO ${T.actions} (id, name, description, prompt, end_prompt, suggested_for_categories, default_move_to_category, modifies_code, is_builtin, position, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-  `)
-
-  const updateEndPrompt = db.prepare(`
-    UPDATE ${T.actions} SET end_prompt = ? WHERE id = ? AND is_builtin = 1 AND (end_prompt IS NULL OR end_prompt = '')
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
+      description = excluded.description,
+      prompt = excluded.prompt,
+      end_prompt = excluded.end_prompt,
+      suggested_for_categories = excluded.suggested_for_categories,
+      default_move_to_category = excluded.default_move_to_category,
+      modifies_code = excluded.modifies_code,
+      position = excluded.position
+    WHERE is_builtin = 1
   `)
 
   const now = new Date().toISOString()
   for (const action of builtinActions) {
-    insertAction.run(
+    upsertAction.run(
       action.id,
       action.name,
       action.description,
@@ -651,9 +686,6 @@ The PR will be updated automatically.`,
       action.position,
       now
     )
-    if (action.endPrompt) {
-      updateEndPrompt.run(action.endPrompt, action.id)
-    }
   }
 }
 
@@ -685,7 +717,7 @@ Brief description of the bug.
 - OS:
 - Version:
 `,
-      defaultPriority: 'HIGH',
+      defaultPriority: 'P1',
       defaultCategory: 'bug',
       suggestedSubtasks: [
         { title: 'Reproduce the bug' },
@@ -712,7 +744,7 @@ As a [type of user], I want [goal] so that [benefit].
 ## Design Notes
 
 `,
-      defaultPriority: 'MEDIUM',
+      defaultPriority: 'P2',
       defaultCategory: 'feature',
       suggestedSubtasks: [
         { title: 'Design implementation approach' },
@@ -734,7 +766,7 @@ Describe what needs to be done.
 ## Context
 Any relevant context or notes.
 `,
-      defaultPriority: 'MEDIUM',
+      defaultPriority: 'P2',
       defaultCategory: 'chore',
       suggestedSubtasks: [],
     },
@@ -755,7 +787,7 @@ Why is this refactor needed?
 ## Scope
 - [ ] Files/modules to change
 `,
-      defaultPriority: 'LOW',
+      defaultPriority: 'P3',
       defaultCategory: 'refactor',
       suggestedSubtasks: [
         { title: 'Analyze current code' },
@@ -781,7 +813,7 @@ Why is this refactor needed?
 ## Target Audience
 
 `,
-      defaultPriority: 'LOW',
+      defaultPriority: 'P3',
       defaultCategory: 'docs',
       suggestedSubtasks: [
         { title: 'Draft content' },

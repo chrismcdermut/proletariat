@@ -107,10 +107,6 @@ export default class BranchCreate extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   }
 
   protected getPMOOptions() {
@@ -178,7 +174,8 @@ export default class BranchCreate extends PMOCommand {
       }
     } else if (flags.ticket && !flags.type && !flags.description) {
       // Ticket-only mode: look up ticket and auto-generate branch name
-      const ticketResult = await this.createFromTicketId(flags.ticket, flags.owner)
+      const projectId = (flags as { project?: string }).project
+      const ticketResult = await this.createFromTicketId(flags.ticket, flags.owner, projectId)
       if (!ticketResult) {
         return handleError('TICKET_NOT_FOUND', `Could not find ticket: ${flags.ticket}`)
       }
@@ -357,15 +354,14 @@ export default class BranchCreate extends PMOCommand {
   /**
    * Create branch from ticket ID with defaults (non-interactive).
    */
-  private async createFromTicketId(ticketId: string, ownerOverride?: string): Promise<WizardResult | null> {
+  private async createFromTicketId(ticketId: string, ownerOverride?: string, projectId?: string): Promise<WizardResult | null> {
     try {
       // Search for ticket across all projects
       const projects = await this.storage.listProjects()
       let foundTicket: { id: string; title: string; category?: string } | null = null
 
       for (const project of projects) {
-        this.storage.setCurrentProject(project.id)
-        const tickets = await this.storage.listTickets()
+        const tickets = await this.storage.listTickets(projectId)
         const match = tickets.find(t => t.id === ticketId)
         if (match) {
           foundTicket = match
@@ -406,9 +402,9 @@ export default class BranchCreate extends PMOCommand {
     try {
       // Get all projects and their tickets
       const projects = await this.storage.listProjects()
+      const projectId = (flags as { project?: string }).project
       for (const project of projects) {
-        this.storage.setCurrentProject(project.id)
-        const projectTickets = await this.storage.listTickets()
+        const projectTickets = await this.storage.listTickets(projectId)
         // Filter to actionable tickets (todo, in-progress, backlog)
         const actionable = projectTickets.filter(t =>
           !t.status || ['todo', 'in-progress', 'backlog', 'in_progress'].includes(t.status.toLowerCase())

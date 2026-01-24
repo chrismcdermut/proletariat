@@ -42,10 +42,12 @@ export default class WorkSpawnAll extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(WorkSpawnAll)
+    // This command requires project context
+    const projectId = await this.requireProject();
 
     // Build args for work start --all
     // Pass --project to avoid re-prompting for project selection
-    const args = ['--all', '--project', this.projectId]
+    const args = ['--all', '--project', projectId]
     if (flags.force) args.push('--force')
     if (flags['run-on-host']) args.push('--run-on-host')
     if (flags['skip-permissions']) args.push('--skip-permissions')

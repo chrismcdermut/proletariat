@@ -269,8 +269,7 @@ export function getWorkspaceDbPath(pmoPath: string): string {
 export function getStorageWithAutoSync(
   pmoPath: string,
   storageType: 'sqlite' | 'git',
-  logger?: (msg: string) => void,
-  projectId: string = 'default'
+  logger?: (msg: string) => void
 ): SQLiteStorage {
   // Storage is always workspace.db (unified PMO tables with foreign keys to agents)
   const dbPath = getWorkspaceDbPath(pmoPath);
@@ -279,12 +278,8 @@ export function getStorageWithAutoSync(
     throw new Error(`Database not found at ${dbPath}. Run 'prlt init' first.`);
   }
 
-  const storage = new SQLiteStorage(dbPath, projectId);
-
-  // DISABLED: Markdown→DB sync was causing data corruption (uppercase ID parsing bug)
-  // DB is now the source of truth. Changes only flow DB→markdown via autoExportToBoard.
-  // To re-enable: uncomment the line below
-  // autoSyncFromBoard(pmoPath, storage, logger, projectId);
+  // Note: Storage no longer holds project context - projectId is passed explicitly to operations
+  const storage = new SQLiteStorage(dbPath);
 
   return storage;
 }

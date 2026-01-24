@@ -9,7 +9,6 @@ import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
-  RuntimeMode,
   DisplayMode,
   SessionManager,
   OutputMode,
@@ -61,10 +60,6 @@ export default class WorkRevise extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     mode: Flags.string({
       char: 'm',
       description: 'Runtime mode',
@@ -94,6 +89,7 @@ export default class WorkRevise extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkRevise)
+    const projectId = (flags as { project?: string }).project
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
@@ -141,7 +137,7 @@ export default class WorkRevise extends PMOCommand {
       let ticketId = args.ticketId
 
       if (!ticketId) {
-        const allTickets = await this.storage.listTickets()
+        const allTickets = await this.storage.listTickets(projectId)
         // Filter to done tickets that have a PR (may need revision based on PR feedback)
         const reviewTickets = allTickets.filter(t => {
           const isDone = t.status === 'done' || (t.statusName && t.statusName.toLowerCase().includes('done'))
@@ -278,16 +274,14 @@ export default class WorkRevise extends PMOCommand {
         prFeedback: formattedFeedback,
       }
 
-      // Determine execution mode (simplified from work start)
+      // Determine execution environment and display mode
       const hasDevcontainer = hasDevcontainerConfig(agentDir)
-      let mode: RuntimeMode = 'terminal'
-      let displayMode: DisplayMode = 'terminal'
       let environment: ExecutionEnvironment = 'host'
+      let displayMode: DisplayMode = 'terminal'
       let sandboxed = false
 
       if (hasDevcontainer && !flags['run-on-host']) {
         environment = 'devcontainer'
-        mode = 'devcontainer'
 
         const { selectedDisplay } = await inquirer.prompt([
           {
@@ -296,15 +290,15 @@ export default class WorkRevise extends PMOCommand {
             message: 'How should the agent output be displayed?',
             choices: [
               { name: 'terminal     - New terminal window', value: 'terminal' },
-              { name: 'foreground   - Run in current terminal', value: 'foreground' },
+              { name: 'background   - Runs detached, reattach with: prlt session attach', value: 'background' },
             ],
             default: 'terminal',
           },
         ])
         displayMode = selectedDisplay as DisplayMode
       } else if (flags.mode) {
-        mode = flags.mode as RuntimeMode
-        displayMode = mode as DisplayMode
+        // Host environment: terminal/background are display modes
+        displayMode = flags.mode as DisplayMode
       }
 
       // Permission mode
@@ -358,7 +352,6 @@ export default class WorkRevise extends PMOCommand {
         ticketId: ticket.id,
         agentName,
         executor,
-        mode,
         environment,
         displayMode,
         sandboxed,
@@ -370,12 +363,13 @@ export default class WorkRevise extends PMOCommand {
 
       // Move ticket back to In Progress column
       const inProgressColumnName = getWorkColumnSetting(db, 'in_progress')
-      const board = await this.storage.getBoard()
+
+      const board = await this.storage.getBoard(ticket.projectId!)
       const columnNames = board.columns.map(col => col.name)
       const inProgressColumn = findColumnByName(columnNames, inProgressColumnName)
 
       if (inProgressColumn && ticket.statusName !== inProgressColumn) {
-        await this.storage.moveTicket(ticket.id, inProgressColumn)
+        await this.storage.moveTicket(ticket.projectId!, ticket.id, inProgressColumn)
         this.log(styles.muted(`   Moved to: ${inProgressColumn}`))
       }
 
@@ -384,8 +378,8 @@ export default class WorkRevise extends PMOCommand {
       // Load execution config
       const executionConfig = loadExecutionConfig(db)
 
-      // Configure terminal if needed
-      if (mode === 'terminal' || (mode === 'devcontainer' && displayMode === 'terminal')) {
+      // Configure terminal if needed (for terminal display mode)
+      if (displayMode === 'terminal') {
         const needsTerminal = !hasTerminalPreference(db)
         const needsShell = !hasShellPreference(db)
 
@@ -410,9 +404,9 @@ export default class WorkRevise extends PMOCommand {
       // Run execution
       this.log(styles.muted('Starting agent to address feedback...'))
       const sessionManager = (flags.session || 'tmux') as SessionManager
-      const result = await runExecution(mode, context, executor, executionConfig, {
-        displayMode: mode === 'devcontainer' ? displayMode : undefined,
-        sessionManager: mode === 'devcontainer' ? sessionManager : undefined,
+      const result = await runExecution(environment, context, executor, executionConfig, {
+        displayMode,
+        sessionManager: environment === 'devcontainer' ? sessionManager : undefined,
       })
 
       if (result.success) {
@@ -427,12 +421,9 @@ export default class WorkRevise extends PMOCommand {
         this.log('')
         this.log(styles.success(`Revision started (${execution.id})`))
         this.log('')
-
-        if (mode !== 'foreground') {
-          this.log(styles.muted('Commands:'))
-          this.log(styles.muted(`  prlt work status              View work status`))
-          this.log(styles.muted(`  prlt work stop ${execution.id}    Stop work`))
-        }
+        this.log(styles.muted('Commands:'))
+        this.log(styles.muted(`  prlt work status              View work status`))
+        this.log(styles.muted(`  prlt work stop ${execution.id}    Stop work`))
       } else {
         executionStorage.updateStatus(execution.id, 'failed')
         this.error(`Failed to start revision: ${result.error}`)

@@ -35,10 +35,6 @@ export default class TicketLinkRelates extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   }
 
   async execute(): Promise<void> {
@@ -64,7 +60,8 @@ export default class TicketLinkRelates extends PMOCommand {
     let targetId = args.target
 
     if (!targetId) {
-      const allTickets = await this.storage.listTickets()
+      const projectId = (flags as { project?: string }).project
+      const allTickets = await this.storage.listTickets(projectId)
       const otherTickets = allTickets.filter(t => t.id !== args.id)
 
       if (otherTickets.length === 0) {
@@ -76,28 +73,18 @@ export default class TicketLinkRelates extends PMOCommand {
         return
       }
 
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = otherTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName || t.status})`,
-          value: t.id,
-        }))
-        outputPromptAsJson(
-          buildPromptConfig('list', 'target', `Select ticket that ${args.id} relates to:`, ticketChoices),
-          createMetadata('ticket link relates', flags)
-        )
+      const selected = await this.selectFromList({
+        message: `Select ticket that ${args.id} relates to:`,
+        items: otherTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName || t.status})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket link relates ${args.id} ${t.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket link relates' } : null,
+      })
+
+      if (!selected) {
         return
       }
-
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
-        message: `Select ticket that ${args.id} relates to:`,
-        choices: otherTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName || t.status})`,
-          value: t.id,
-        })),
-      }])
       targetId = selected
     }
 

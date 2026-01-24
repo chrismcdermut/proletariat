@@ -10,6 +10,10 @@ GREEN='\033[0;32m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLI_PATH="$SCRIPT_DIR/apps/cli/bin/run.js"
+
 # Build the CLI
 echo "📦 Building CLI..."
 npm run build
@@ -19,95 +23,78 @@ TEST_DIR="/tmp/prlt-test-$$"
 mkdir -p $TEST_DIR
 cd $TEST_DIR
 
-# Test 1: Fresh initialization
-echo -e "\n${GREEN}Test 1: Fresh repo initialization${NC}"
-mkdir test-repo-1 && cd test-repo-1
-git init && git config user.email "test@test.com" && git config user.name "Test"
-echo "# Test" > README.md && git add . && git commit -m "Initial"
-
-# Should create repo.json (not config.json)
-echo "billionaires" | node /Users/chrismcdermut/Projects/proletariat-workspace/proletariat/apps/cli/dist/bin/prlt.js init
-
-if [ -f ".proletariat/repo.json" ]; then
-    echo -e "${GREEN}✓ repo.json created${NC}"
-else
-    echo -e "${RED}✗ repo.json not created${NC}"
-    exit 1
-fi
-
-# Test 2: Backwards compatibility
-echo -e "\n${GREEN}Test 2: Backwards compatibility with config.json${NC}"
+# Test 1: HQ initialization using JSON mode
+echo -e "\n${GREEN}Test 1: HQ initialization (JSON mode)${NC}"
 cd $TEST_DIR
-mkdir test-repo-2 && cd test-repo-2
-git init && git config user.email "test@test.com" && git config user.name "Test"
-echo "# Test" > README.md && git add . && git commit -m "Initial"
 
-# Create old-style config
-mkdir -p .proletariat
-cat > .proletariat/config.json << EOF
-{
-  "version": "1.0.0",
-  "projectName": "test-repo-2",
-  "themeName": "billionaires",
-  "workspaceDir": "../test-repo-2-staff",
-  "activeAgents": [],
-  "initialized": "2024-01-01T00:00:00.000Z"
-}
-EOF
+# Create HQ using JSON mode (non-interactive)
+node "$CLI_PATH" init --json --name test-hq --no-pmo
 
-# Test that commands still work
-node $OLDPWD/apps/cli/dist/bin/prlt.js staff
-echo -e "${GREEN}✓ Old config still works${NC}"
-
-# Test upgrade command
-node $OLDPWD/apps/cli/dist/bin/prlt.js upgrade
-if [ -f ".proletariat/repo.json" ] && [ -f ".proletariat/config.json.backup" ]; then
-    echo -e "${GREEN}✓ Config migrated successfully${NC}"
+if [ -f "test-hq-hq/.proletariat/config.json" ]; then
+    echo -e "${GREEN}✓ HQ config.json created${NC}"
 else
-    echo -e "${RED}✗ Config migration failed${NC}"
+    echo -e "${RED}✗ HQ config.json not created${NC}"
     exit 1
 fi
 
-# Test 3: Workspace initialization
-echo -e "\n${GREEN}Test 3: Workspace initialization${NC}"
+if [ -f "test-hq-hq/.proletariat/workspace.db" ]; then
+    echo -e "${GREEN}✓ workspace.db created${NC}"
+else
+    echo -e "${RED}✗ workspace.db not created${NC}"
+    exit 1
+fi
+
+# Test 2: HQ with PMO enabled
+echo -e "\n${GREEN}Test 2: HQ with PMO${NC}"
 cd $TEST_DIR
-mkdir test-repo-3 && cd test-repo-3
-git init && git config user.email "test@test.com" && git config user.name "Test"
-echo "# Test" > README.md && git add . && git commit -m "Initial"
 
-echo -e "billionaires\nworkspace\ntest-workspace" | node $OLDPWD/apps/cli/dist/bin/prlt.js init
+# Create HQ with PMO
+node "$CLI_PATH" init --json --name test-pmo-hq --pmo
 
-if [ -f "../test-workspace-workspace/.proletariat/workspace.json" ]; then
-    echo -e "${GREEN}✓ Workspace config created${NC}"
+if [ -f "test-pmo-hq-hq/.proletariat/config.json" ]; then
+    echo -e "${GREEN}✓ HQ with PMO created${NC}"
 else
-    echo -e "${RED}✗ Workspace config not created${NC}"
-    # Don't fail - workspace might be in different location
-fi
-
-# Test 4: Health and repair commands
-echo -e "\n${GREEN}Test 4: Health and repair commands${NC}"
-cd $TEST_DIR/test-repo-1
-node $OLDPWD/apps/cli/dist/bin/prlt.js health
-echo -e "${GREEN}✓ Health command works${NC}"
-
-# Test 5: Create and remove agents
-echo -e "\n${GREEN}Test 5: Agent management${NC}"
-cd $TEST_DIR/test-repo-1
-node $OLDPWD/apps/cli/dist/bin/prlt.js hire bezos musk
-node $OLDPWD/apps/cli/dist/bin/prlt.js staff
-
-if [ -d "../test-repo-1-staff/bezos" ] && [ -d "../test-repo-1-staff/musk" ]; then
-    echo -e "${GREEN}✓ Agents created${NC}"
-else
-    echo -e "${RED}✗ Agent creation failed${NC}"
+    echo -e "${RED}✗ HQ with PMO creation failed${NC}"
     exit 1
 fi
 
-node $OLDPWD/apps/cli/dist/bin/prlt.js fire bezos
-if [ ! -d "../test-repo-1-staff/bezos" ] && [ -d "../test-repo-1-staff/musk" ]; then
-    echo -e "${GREEN}✓ Agent removed${NC}"
+# Test 3: HQ with agents
+echo -e "\n${GREEN}Test 3: HQ with agents${NC}"
+cd $TEST_DIR
+
+# Create HQ with agents
+node "$CLI_PATH" init --json --name test-agents-hq --agents bezos,musk --no-pmo
+
+if [ -d "test-agents-hq-hq/agents/staff" ]; then
+    echo -e "${GREEN}✓ Agents directory created${NC}"
 else
-    echo -e "${RED}✗ Agent removal failed${NC}"
+    echo -e "${RED}✗ Agents directory not created${NC}"
+    exit 1
+fi
+
+# Test 4: Verify HQ structure
+echo -e "\n${GREEN}Test 4: Verify HQ structure${NC}"
+cd $TEST_DIR/test-hq-hq
+
+# Check required directories exist
+if [ -d "repos" ] && [ -d "agents" ]; then
+    echo -e "${GREEN}✓ HQ directory structure correct${NC}"
+else
+    echo -e "${RED}✗ HQ directory structure incorrect${NC}"
+    exit 1
+fi
+
+# Test 5: Verify JSON output format
+echo -e "\n${GREEN}Test 5: Verify JSON output${NC}"
+cd $TEST_DIR
+
+# Create another HQ and check JSON output
+OUTPUT=$(node "$CLI_PATH" init --json --name json-test-hq --no-pmo)
+if echo "$OUTPUT" | grep -q '"success": true'; then
+    echo -e "${GREEN}✓ JSON output format correct${NC}"
+else
+    echo -e "${RED}✗ JSON output format incorrect${NC}"
+    echo "Output was: $OUTPUT"
     exit 1
 fi
 
@@ -116,4 +103,3 @@ cd $OLDPWD
 rm -rf $TEST_DIR
 
 echo -e "\n${GREEN}✅ All tests passed!${NC}"
-echo "Ready to publish v0.1.4 🚀"

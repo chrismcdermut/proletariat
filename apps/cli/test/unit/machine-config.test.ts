@@ -98,7 +98,7 @@ describe('Machine Config', () => {
     it('returns default config when file does not exist', () => {
       const config = readMachineConfig();
       expect(config.version).to.equal('1.0.0');
-      expect(config.workspaces).to.deep.equal([]);
+      expect(config.headquarters).to.deep.equal([]);
       expect(config.activeWorkspace).to.be.null;
     });
 
@@ -107,19 +107,22 @@ describe('Machine Config', () => {
       fs.mkdirSync(configDir, { recursive: true });
 
       const testConfig: MachineConfig = {
+        type: 'machine',
         version: '1.0.0',
-        workspaces: [
+        organizations: [],
+        headquarters: [
           { name: 'test', path: '/path/to/test', registeredAt: '2024-01-01T00:00:00.000Z' },
         ],
-        activeWorkspace: '/path/to/test',
+        activeHeadquarters: '/path/to/test',
+        activeOrganization: null,
       };
 
       fs.writeFileSync(getMachineConfigPath(), JSON.stringify(testConfig));
 
       const config = readMachineConfig();
-      expect(config.workspaces).to.have.length(1);
-      expect(config.workspaces[0].name).to.equal('test');
-      expect(config.activeWorkspace).to.equal('/path/to/test');
+      expect(config.headquarters).to.have.length(1);
+      expect(config.headquarters[0].name).to.equal('test');
+      expect(config.activeHeadquarters).to.equal('/path/to/test');
     });
 
     it('returns default config when file is invalid JSON', () => {
@@ -128,16 +131,19 @@ describe('Machine Config', () => {
       fs.writeFileSync(getMachineConfigPath(), 'invalid json');
 
       const config = readMachineConfig();
-      expect(config.workspaces).to.deep.equal([]);
+      expect(config.headquarters).to.deep.equal([]);
     });
   });
 
   describe('writeMachineConfig', () => {
     it('creates config directory if it does not exist', () => {
       const testConfig: MachineConfig = {
+        type: 'machine',
         version: '1.0.0',
-        workspaces: [],
-        activeWorkspace: null,
+        organizations: [],
+        headquarters: [],
+        activeHeadquarters: null,
+        activeOrganization: null,
       };
 
       writeMachineConfig(testConfig);
@@ -147,18 +153,21 @@ describe('Machine Config', () => {
 
     it('writes config atomically', () => {
       const testConfig: MachineConfig = {
+        type: 'machine',
         version: '1.0.0',
-        workspaces: [
+        organizations: [],
+        headquarters: [
           { name: 'test', path: '/path/to/test', registeredAt: '2024-01-01T00:00:00.000Z' },
         ],
-        activeWorkspace: '/path/to/test',
+        activeHeadquarters: '/path/to/test',
+        activeOrganization: null,
       };
 
       writeMachineConfig(testConfig);
 
       const written = JSON.parse(fs.readFileSync(getMachineConfigPath(), 'utf-8'));
-      expect(written.workspaces).to.have.length(1);
-      expect(written.activeWorkspace).to.equal('/path/to/test');
+      expect(written.headquarters).to.have.length(1);
+      expect(written.activeHeadquarters).to.equal('/path/to/test');
     });
   });
 
@@ -171,7 +180,7 @@ describe('Machine Config', () => {
       expect(entry.registeredAt).to.be.a('string');
 
       const config = readMachineConfig();
-      expect(config.workspaces).to.have.length(1);
+      expect(config.headquarters).to.have.length(1);
     });
 
     it('sets as active workspace when none exists', () => {
@@ -186,8 +195,8 @@ describe('Machine Config', () => {
       registerWorkspace(testWorkspaceDir, 'new-name');
 
       const config = readMachineConfig();
-      expect(config.workspaces).to.have.length(1);
-      expect(config.workspaces[0].name).to.equal('new-name');
+      expect(config.headquarters).to.have.length(1);
+      expect(config.headquarters[0].name).to.equal('new-name');
     });
 
     it('uses directory basename as default name', () => {

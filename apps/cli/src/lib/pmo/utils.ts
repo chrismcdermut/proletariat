@@ -60,20 +60,22 @@ interface DatabaseLike {
 }
 
 /**
- * Generate a sequential ID for an entity (e.g., TKT-001, EPIC-001)
+ * Generate a sequential ID for an entity.
+ *
+ * Format: TKT-001, EPIC-001, SPEC-001, PROJ-001
  *
  * Uses pmo_settings table to track the next ID for each entity type.
  * IDs are zero-padded to 3 digits (001-999), then expand (1000+).
  *
  * @param db - Database instance with prepare method
  * @param entityType - Type of entity (ticket, epic, spec, project)
- * @returns Generated ID like "TKT-001" or "EPIC-042"
+ * @returns Generated ID like "TKT-001"
  */
 export function generateEntityId(
   db: DatabaseLike,
   entityType: EntityType
 ): string {
-  const prefix = ENTITY_PREFIXES[entityType];
+  const typePrefix = ENTITY_PREFIXES[entityType];
   const settingKey = `next_${entityType}_id`;
 
   // Get current counter
@@ -91,7 +93,40 @@ export function generateEntityId(
 
   // Format ID with zero-padding (3 digits minimum)
   const numStr = nextNum.toString().padStart(3, '0');
-  return `${prefix}-${numStr}`;
+
+  return `${typePrefix}-${numStr}`;
+}
+
+/**
+ * Parsed entity ID components
+ */
+export interface ParsedEntityId {
+  entityType: string;
+  number: number;
+  raw: string;
+}
+
+/**
+ * Parse an entity ID into its components.
+ *
+ * Format: TKT-001 → { entityType: 'TKT', number: 1 }
+ *
+ * @param id - Entity ID to parse
+ * @returns Parsed components, or null if invalid format
+ */
+export function parseEntityId(id: string): ParsedEntityId | null {
+  if (!id) return null;
+
+  const match = id.match(/^([A-Z]+)-(\d+)$/);
+  if (match) {
+    return {
+      entityType: match[1],
+      number: parseInt(match[2], 10),
+      raw: id,
+    };
+  }
+
+  return null;
 }
 
 /**

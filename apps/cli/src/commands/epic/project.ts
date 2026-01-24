@@ -37,10 +37,6 @@ export default class EpicProject extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     'with-tickets': Flags.boolean({
       char: 't',
       description: 'Also move all tickets assigned to this epic',
@@ -63,12 +59,12 @@ export default class EpicProject extends PMOCommand {
       this.error(message);
     };
 
-    const sourceProjectId = this.storage.getCurrentProjectId();
+    const sourceProjectId = await this.requireProject();
 
     // Get epic ID
     let epicId = args.epicId;
     if (!epicId) {
-      const epics = await this.storage.listEpics();
+      const epics = await this.storage.listEpics(sourceProjectId);
       if (epics.length === 0) {
         if (jsonMode) {
           outputErrorAsJson('NO_EPICS', 'No epics found in this project.', createMetadata('epic project', flags));
@@ -180,7 +176,7 @@ export default class EpicProject extends PMOCommand {
     const db = (this.storage as unknown as { db: { prepare: (sql: string) => { run: (...args: unknown[]) => void; get: (...args: unknown[]) => unknown; all: (...args: unknown[]) => unknown[] } } }).db;
 
     // Get tickets associated with this epic
-    const epicTickets = await this.storage.getTicketsForEpic(epicId!);
+    const epicTickets = await this.storage.getTicketsForEpic(sourceProjectId, epicId!);
 
     // Handle tickets
     let moveTickets = flags['with-tickets'];
@@ -228,35 +224,18 @@ export default class EpicProject extends PMOCommand {
     // Handle tickets
     const movedTicketIds: string[] = [];
     if (epicTickets.length > 0) {
-      // Get target project's first column
+      // Get target project's default status
       const targetBoard = await this.storage.getProjectBoard(targetProjectId!);
-      const targetColumn = targetBoard?.columns[0]?.name || 'Backlog';
+      const targetStatusId = targetBoard?.columns[0]?.id;
 
       for (const ticket of epicTickets) {
         if (moveTickets) {
-          // Move ticket to target project
+          // Move ticket to target project with its default status
           db.prepare(`
             UPDATE pmo_tickets
-            SET project_id = ?, updated_at = ?
+            SET project_id = ?, status_id = ?, updated_at = ?
             WHERE id = ?
-          `).run(targetProjectId, Date.now(), ticket.id);
-
-          // Update board position
-          db.prepare(`
-            DELETE FROM pmo_board_tickets
-            WHERE ticket_id = ?
-          `).run(ticket.id);
-
-          const posResult = db.prepare(`
-            SELECT COALESCE(MAX(position), -1) + 1 as next_pos
-            FROM pmo_board_tickets
-            WHERE project_id = ? AND column_id = ?
-          `).get(targetProjectId, targetColumn) as { next_pos: number };
-
-          db.prepare(`
-            INSERT INTO pmo_board_tickets (project_id, ticket_id, column_id, position)
-            VALUES (?, ?, ?, ?)
-          `).run(targetProjectId, ticket.id, targetColumn, posResult.next_pos);
+          `).run(targetProjectId, targetStatusId, Date.now(), ticket.id);
 
           movedTicketIds.push(ticket.id);
         } else {

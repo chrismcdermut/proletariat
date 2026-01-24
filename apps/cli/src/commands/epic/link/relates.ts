@@ -25,10 +25,6 @@ export default class EpicLinkRelates extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   }
 
   async execute(): Promise<void> {
@@ -49,9 +45,11 @@ export default class EpicLinkRelates extends PMOCommand {
     const epic = await this.storage.getEpic(args.id)
     if (!epic) return handleError('EPIC_NOT_FOUND', `Epic not found: ${args.id}`)
 
+    const projectId = epic.projectId
+
     let targetId = args.target
     if (!targetId) {
-      const allEpics = await this.storage.listEpics()
+      const allEpics = await this.storage.listEpics(projectId)
       const otherEpics = allEpics.filter(e => e.id !== args.id)
       if (otherEpics.length === 0) {
         if (jsonMode) {

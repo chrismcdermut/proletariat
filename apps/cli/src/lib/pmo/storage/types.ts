@@ -7,15 +7,13 @@ import Database from 'better-sqlite3'
 
 /**
  * Base context passed to all storage modules.
- * Contains the database connection and current project context.
+ * Contains the database connection only - project ID is passed explicitly to operations.
  */
 export interface StorageContext {
   /** Database connection */
   db: Database.Database
-  /** Get the current project ID */
-  getCurrentProjectId: () => string
-  /** Update the board timestamp */
-  updateBoardTimestamp: () => void
+  /** Update the board timestamp for a project */
+  updateBoardTimestamp: (projectId: string) => void
 }
 
 /**
@@ -100,11 +98,33 @@ export interface ProjectRow {
   description: string | null
   status: string
   phase_id: string | null
+  workflow_id: string | null
   is_archived: number
   target_date: string | null
   initiative_id: string | null
   created_at: string
   updated_at: string
+}
+
+export interface WorkflowRow {
+  id: string
+  name: string
+  description: string | null
+  is_builtin: number
+  created_at: string
+  updated_at: string
+}
+
+export interface WorkflowStatusRow {
+  id: string
+  workflow_id: string
+  name: string
+  category: string
+  position: number
+  color: string | null
+  description: string | null
+  is_default: number
+  created_at: string
 }
 
 export interface ColumnRow {
@@ -134,14 +154,7 @@ export interface AcceptanceCriterionRow {
   position: number
 }
 
-export interface WorkflowTemplateRow {
-  id: string
-  name: string
-  description: string | null
-  is_builtin: number
-  statuses: string
-  created_at: string
-}
+// REMOVED: WorkflowTemplateRow - workflows are now used directly (no separate template concept)
 
 export interface PhaseRow {
   id: string
@@ -203,5 +216,21 @@ export interface TicketTemplateRow {
   default_labels: string
   suggested_subtasks: string | null
   is_builtin: number
+  created_at: string
+}
+
+export interface RoadmapRow {
+  id: string
+  name: string
+  description: string | null
+  is_default: number
+  created_at: string
+  updated_at: string
+}
+
+export interface RoadmapProjectRow {
+  roadmap_id: string
+  project_id: string
+  position: number
   created_at: string
 }

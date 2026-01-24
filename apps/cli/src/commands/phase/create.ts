@@ -54,10 +54,6 @@ export default class PhaseCreate extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -84,6 +80,7 @@ export default class PhaseCreate extends PMOCommand {
         // In JSON mode, output form prompt
         // Define labels once - single source of truth
         const categoryLabels: Record<StateCategory, string> = {
+          triage: 'Triage - Inbox, needs review',
           backlog: 'Backlog - Not yet scheduled for work',
           unstarted: 'Unstarted - Scheduled but work hasn\'t begun',
           started: 'Started - Work is actively in progress',

@@ -42,10 +42,6 @@ export default class EpicTicket extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     unlink: Flags.boolean({
       char: 'u',
       description: 'Remove tickets from this epic instead of adding',
@@ -63,6 +59,7 @@ export default class EpicTicket extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags, argv } = await this.parse(EpicTicket);
+    const filterProjectId = (flags as { project?: string }).project;
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -76,8 +73,10 @@ export default class EpicTicket extends PMOCommand {
       this.error(message);
     };
 
+    const projectId = await this.requireProject();
+
     // Get all epics
-    const epics = await this.storage.listEpics();
+    const epics = await this.storage.listEpics(projectId);
     if (epics.length === 0) {
       if (jsonMode) {
         outputErrorAsJson('NO_EPICS', 'No epics found.', createMetadata('epic ticket', flags));
@@ -88,7 +87,7 @@ export default class EpicTicket extends PMOCommand {
     }
 
     // Get all tickets
-    const allTickets = await this.storage.listTickets();
+    const allTickets = await this.storage.listTickets(filterProjectId);
     if (allTickets.length === 0) {
       if (jsonMode) {
         outputErrorAsJson('NO_TICKETS', 'No tickets found.', createMetadata('epic ticket', flags));

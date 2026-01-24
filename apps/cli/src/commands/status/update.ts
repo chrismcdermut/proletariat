@@ -36,10 +36,6 @@ export default class StatusUpdate extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     name: Flags.string({
       char: 'n',
       description: 'New status name',
@@ -69,6 +65,8 @@ export default class StatusUpdate extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusUpdate);
+    // This command requires project context
+    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -82,11 +80,17 @@ export default class StatusUpdate extends PMOCommand {
       this.error(message);
     };
 
+    // Get the project's workflow ID
+    const project = await this.storage.getProject(projectId);
+    if (!project?.workflowId) {
+      return handleError('NO_WORKFLOW', `Project "${projectId}" has no workflow assigned.`);
+    }
+
     // Get status ID - prompt if not provided
     let statusId = args.id;
 
     if (!statusId) {
-      const statuses = await this.storage.listStatuses(this.projectId);
+      const statuses = await this.storage.listStatuses(project.workflowId);
       if (statuses.length === 0) {
         return handleError('NO_STATUSES', 'No statuses found. Create a status first with "prlt status create".');
       }

@@ -21,10 +21,6 @@ export default class Epic extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -38,46 +34,33 @@ export default class Epic extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices once, use for both JSON and interactive modes
+    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'Create new epic', value: 'create' },
-      { name: 'List all epics', value: 'list' },
-      { name: 'View epic', value: 'view' },
-      { name: 'Show progress', value: 'progress' },
-      { name: 'Assign tickets to epic', value: 'ticket' },
-      { name: 'Assign spec to epic', value: 'spec' },
-      { name: 'Manage dependencies', value: 'link' },
-      { name: 'Archive epic (complete)', value: 'archive' },
-      { name: 'Activate epic', value: 'activate' },
-      { name: 'Reorder epic', value: 'move' },
-      { name: 'Move to different project', value: 'project' },
-      { name: 'Cancel', value: 'cancel' },
+      { id: 'create', name: 'Create new epic', command: 'prlt epic create --json' },
+      { id: 'list', name: 'List all epics', command: 'prlt epic list --format json' },
+      { id: 'view', name: 'View epic', command: 'prlt epic view --json' },
+      { id: 'progress', name: 'Show progress', command: 'prlt epic progress --json' },
+      { id: 'ticket', name: 'Assign tickets to epic', command: 'prlt epic ticket --json' },
+      { id: 'spec', name: 'Assign spec to epic', command: 'prlt epic spec --json' },
+      { id: 'link', name: 'Manage dependencies', command: 'prlt epic link --json' },
+      { id: 'archive', name: 'Archive epic (complete)', command: 'prlt epic archive --json' },
+      { id: 'activate', name: 'Activate epic', command: 'prlt epic activate --json' },
+      { id: 'move', name: 'Reorder epic', command: 'prlt epic move --json' },
+      { id: 'project', name: 'Move to different project', command: 'prlt epic project --json' },
+      { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'Epic Operations - What would you like to do?';
 
-    // In JSON mode, output menu prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('epic', flags)
-      );
-      return;
-    }
-
-    // Show interactive menu
-    const { action } = await inquirer.prompt([{
-      type: 'list',
-      name: 'action',
+    const action = await this.selectFromList({
       message: '🎯 ' + message,
-      choices: [
-        ...menuChoices.slice(0, 7),
-        new inquirer.Separator(),
-        ...menuChoices.slice(7, 11),
-        new inquirer.Separator(),
-        menuChoices[11],
-      ],
-    }]);
+      items: menuChoices,
+      getName: (c) => c.name,
+      getValue: (c) => c.id,
+      getCommand: (c) => c.command,
+      jsonMode: jsonMode ? { flags, commandName: 'epic' } : null,
+    });
 
-    if (action === 'cancel') {
+    if (action === 'cancel' || !action) {
       return;
     }
 

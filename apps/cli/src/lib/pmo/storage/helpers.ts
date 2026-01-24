@@ -10,12 +10,13 @@ import {
   StateCategory,
   Ticket,
   Subtask,
+  normalizePriority,
 } from '../types.js'
 import {
   AcceptanceCriterionRow,
   SpecRow,
-  StatusRow,
   TicketRow,
+  WorkflowStatusRow,
 } from './types.js'
 
 const T = PMO_TABLES
@@ -46,12 +47,12 @@ export async function rowToTicket(
     metadata[m.key] = m.value
   }
 
-  // Get status info
+  // Get status info from workflow_statuses
   let statusName: string | undefined
   let statusCategory: StateCategory | undefined
   if (row.status_id) {
     const statusRow = db
-      .prepare(`SELECT name, category FROM ${T.statuses} WHERE id = ?`)
+      .prepare(`SELECT name, category FROM ${T.workflow_statuses} WHERE id = ?`)
       .get(row.status_id) as { name: string; category: StateCategory } | undefined
     if (statusRow) {
       statusName = statusRow.name
@@ -61,6 +62,7 @@ export async function rowToTicket(
 
   // Map category to deprecated status enum for backward compat
   const categoryToStatus: Record<StateCategory, string> = {
+    triage: 'triage',
     backlog: 'backlog',
     unstarted: 'planned',
     started: 'in_progress',
@@ -83,7 +85,7 @@ export async function rowToTicket(
     projectName: row.project_name || undefined,
     title: row.title,
     description: row.description || undefined,
-    priority: row.priority || undefined,
+    priority: normalizePriority(row.priority),
     category: row.category || undefined,
     statusId: row.status_id,
     statusName,
@@ -166,12 +168,12 @@ export function rowToSpec(row: SpecRow): Spec {
 }
 
 /**
- * Convert a status database row to WorkflowStatus.
+ * Convert a workflow status database row to WorkflowStatus.
  */
-export function rowToStatus(row: StatusRow) {
+export function rowToStatus(row: WorkflowStatusRow) {
   return {
     id: row.id,
-    projectId: row.project_id,
+    workflowId: row.workflow_id,
     name: row.name,
     category: row.category as StateCategory,
     position: row.position,

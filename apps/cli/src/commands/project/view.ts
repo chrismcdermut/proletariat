@@ -31,10 +31,6 @@ export default class ProjectView extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -87,8 +83,6 @@ export default class ProjectView extends PMOCommand {
       }]);
       projectId = selectedProjectId;
     }
-
-    this.storage.setCurrentProject(projectId!);
 
     const project = await this.storage.getProjectBoard(projectId!);
     if (!project) {

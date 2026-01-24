@@ -53,76 +53,31 @@ export {
 } from './schema.js';
 
 
+// Re-export template utilities from shared definitions
+export {
+  BUILTIN_TEMPLATES,
+  getBuiltinTemplate,
+  getPickerTemplates,
+  getColumnsForTemplate,
+  getColumnSettingsForTemplate,
+} from './templates-builtin.js';
+import {
+  BUILTIN_TEMPLATES,
+  getColumnsForTemplate,
+  getColumnSettingsForTemplate,
+} from './templates-builtin.js';
+
 /**
- * Get available board templates
+ * Get available board templates (backward compatibility wrapper).
+ * @deprecated Use BUILTIN_TEMPLATES or getColumnsForTemplate() instead
  */
 export function getBoardTemplates(): { [key: string]: string[] } {
-  return {
-    // Linear-style: Simple workflow with Planned for scheduled work
-    kanban: ['Backlog', 'Planned', 'In Progress', 'Done'],
-    // Linear-style with Canceled column for visibility
-    linear: ['Backlog', 'Planned', 'In Progress', 'Done', 'Canceled'],
-    // Founder template: 5-tool backlogs + workflow stages
-    founder: [
-      'SHIP BL', 'GROW BL', 'SUPPORT BL', 'BIZOPS BL', 'STRATEGY BL',
-      'Planned', 'In Progress', 'Done', 'Dropped'
-    ],
-    custom: [] // Will be handled separately
-  };
-}
-
-/**
- * Get column settings for work commands based on board template.
- * These settings determine which columns are used for:
- * - work start: moves ticket to column_in_progress
- * - work ready: moves ticket to column_review
- * - work complete: moves ticket to column_done
- *
- * For custom templates, we try to find matching columns by keyword.
- */
-export function getColumnSettingsForTemplate(
-  template: string,
-  columns: string[]
-): { column_planned: string; column_in_progress: string; column_done: string } {
-  // Template-specific mappings (Linear-style: planned -> in_progress -> done)
-  const templateMappings: Record<string, { column_planned: string; column_in_progress: string; column_done: string }> = {
-    kanban: {
-      column_planned: 'Planned',
-      column_in_progress: 'In Progress',
-      column_done: 'Done',
-    },
-    linear: {
-      column_planned: 'Planned',
-      column_in_progress: 'In Progress',
-      column_done: 'Done',
-    },
-    founder: {
-      column_planned: 'Planned',
-      column_in_progress: 'In Progress',
-      column_done: 'Done',
-    },
-  };
-
-  // Use template mapping if available
-  if (templateMappings[template]) {
-    return templateMappings[template];
+  const result: { [key: string]: string[] } = {};
+  for (const template of BUILTIN_TEMPLATES) {
+    result[template.id] = template.columns;
   }
-
-  // For custom templates, try to find matching columns by keyword
-  const findColumn = (keywords: string[], fallback: string): string => {
-    const lowerColumns = columns.map(c => c.toLowerCase());
-    for (const keyword of keywords) {
-      const idx = lowerColumns.findIndex(c => c.includes(keyword));
-      if (idx !== -1) return columns[idx];
-    }
-    return fallback;
-  };
-
-  return {
-    column_planned: findColumn(['planned', 'ready', 'scheduled', 'todo'], columns[1] || 'Planned'),
-    column_in_progress: findColumn(['progress', 'active', 'doing', 'working'], columns[2] || 'In Progress'),
-    column_done: findColumn(['done', 'complete', 'finished', 'published', 'shipped'], columns[columns.length - 1] || 'Done'),
-  };
+  result['custom'] = []; // Special case for custom templates
+  return result;
 }
 
 export type PMOStorageType = 'sqlite' | 'git';
@@ -208,19 +163,25 @@ export async function promptForPMOLocation(hqRoot: string | null): Promise<PMOLo
 }
 
 /**
- * Prompt for board template
+ * Prompt for board template.
+ * Uses BUILTIN_TEMPLATES as the single source of truth.
  */
-export async function promptForBoardTemplate(): Promise<string> {
+export async function promptForBoardTemplate(_storage?: SQLiteStorage): Promise<string> {
+  // Use builtin templates directly - single source of truth
+  const pickerTemplates = BUILTIN_TEMPLATES.filter(t => t.showInPicker);
+  const choices: Array<{ name: string; value: string }> = pickerTemplates.map(t => ({
+    name: `${t.name} (${t.columns.slice(0, 4).join(', ')}${t.columns.length > 4 ? '...' : ''})`,
+    value: t.id,
+  }));
+
+  // Add custom option
+  choices.push({ name: 'Custom (define your own columns)', value: 'custom' });
+
   const { template } = await inquirer.prompt([{
     type: 'list',
     name: 'template',
     message: 'Choose board template:',
-    choices: [
-      { name: 'Kanban (Backlog, Planned, In Progress, Done)', value: 'kanban' },
-      { name: 'Linear (+ Canceled column)', value: 'linear' },
-      { name: '5-Tool Founder (SHIP/GROW/SUPPORT/BIZOPS/STRATEGY + workflow)', value: 'founder' },
-      { name: 'Custom (define your own columns)', value: 'custom' },
-    ],
+    choices,
     default: 'kanban',
   }]);
   return template;
@@ -261,30 +222,12 @@ export async function promptForBoardName(defaultName?: string): Promise<string> 
 
 /**
  * Full PMO setup prompt - used by both `prlt init` and `prlt pmo init`
+ *
+ * PMO is included by default (no prompt) per TKT-469 requirements.
  */
 export async function promptForPMOSetup(hqRoot: string | null, hqName?: string): Promise<PMOSetupResult> {
-  // Ask if they want PMO
-  const { includePMO } = await inquirer.prompt([{
-    type: 'list',
-    name: 'includePMO',
-    message: 'Include project management office (PMO)?',
-    choices: [
-      { name: 'Yes', value: true },
-      { name: 'No', value: false }
-    ],
-    default: true,
-  }]);
-
-  if (!includePMO) {
-    return {
-      includePMO: false,
-      boardTemplate: 'kanban',
-      storageType: 'sqlite',
-      location: 'separate',
-      boardName: '',
-      columns: [],
-    };
-  }
+  // PMO is always included by default (R5 - no prompt)
+  console.log(chalk.blue('\n📋 Setting up PMO (project management)...\n'));
 
   // PMO location (in-repo vs separate)
   const location = await promptForPMOLocation(hqRoot);
@@ -298,9 +241,8 @@ export async function promptForPMOSetup(hqRoot: string | null, hqName?: string):
     columns = await promptForCustomColumns();
   }
 
-  // Board name - default to {hqname}-kanban if hqName provided
-  const defaultBoardName = hqName ? `${hqName}-kanban` : undefined;
-  const boardName = await promptForBoardName(defaultBoardName);
+  // Board name - default to {hqname}-kanban (can be changed later via `prlt project rename`)
+  const boardName = hqName ? `${hqName}-kanban` : 'Project Board';
 
   return {
     includePMO: true,
@@ -310,14 +252,6 @@ export async function promptForPMOSetup(hqRoot: string | null, hqName?: string):
     boardName,
     columns,
   };
-}
-
-/**
- * Get columns for a board template
- */
-export function getColumnsForTemplate(template: string): string[] {
-  const templates = getBoardTemplates();
-  return templates[template] || templates.kanban;
 }
 
 /**
@@ -426,12 +360,40 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
     template: boardTemplate,
   });
 
-  // Set as current project and initialize board with columns
-  storage.setCurrentProject(projectId);
-  await storage.init({
+  // Initialize board with columns (projectId already created above)
+  await storage.init(projectId, {
     name: boardName,
     columns,
   });
+
+  // For custom templates, create statuses from columns
+  // (built-in templates have statuses created via applyTemplate in createProject)
+  if (boardTemplate === 'custom' && columns) {
+    for (let i = 0; i < columns.length; i++) {
+      const name = columns[i];
+      const nameLower = name.toLowerCase();
+
+      // Infer category from column name
+      let category: 'backlog' | 'unstarted' | 'started' | 'completed' | 'canceled' = 'backlog';
+      if (nameLower.includes('done') || nameLower.includes('complete') || nameLower.includes('shipped')) {
+        category = 'completed';
+      } else if (nameLower.includes('progress') || nameLower.includes('review') || nameLower.includes('active')) {
+        category = 'started';
+      } else if (nameLower.includes('todo') || nameLower.includes('to do') || nameLower.includes('planned') || nameLower.includes('next')) {
+        category = 'unstarted';
+      } else if (nameLower.includes('cancel') || nameLower.includes('archived')) {
+        category = 'canceled';
+      }
+      // Default: backlog (for first columns, custom backlogs, etc.)
+
+      await storage.createStatus(projectId, {
+        name,
+        category,
+        position: i,
+        isDefault: i === 0,
+      });
+    }
+  }
 
   // Save PMO path and column settings (relative to HQ root for container compatibility)
   try {
@@ -472,7 +434,7 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
   console.log(chalk.green(`  ✓ ${boardFileName} created`));
 
   // Create README for PMO
-  const readmeContent = `# PMO (Project Management Office)
+  const readmeContent = `# PMO (Project Management Org)
 
 ## Template: ${boardTemplate}
 

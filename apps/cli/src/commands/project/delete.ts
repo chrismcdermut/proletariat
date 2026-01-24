@@ -38,10 +38,6 @@ export default class ProjectDelete extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -112,8 +108,7 @@ export default class ProjectDelete extends PMOCommand {
     }
 
     // Get ticket count
-    this.storage.setCurrentProject(projectId!);
-    const tickets = await this.storage.listTickets();
+    const tickets = await this.storage.listTickets(projectId!);
     const ticketCount = tickets.length;
 
     // Confirm deletion

@@ -15,9 +15,15 @@ import {
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { StateCategory, WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
-import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
-  RuntimeMode,
+  getWorkspaceInfo,
+  createEphemeralAgent,
+  getTicketTmuxSession,
+  killTmuxSession,
+  WorkspaceInfo,
+} from '../../lib/agents/commands.js'
+import { Agent } from '../../lib/database/index.js'
+import {
   DisplayMode,
   SessionManager,
   OutputMode,
@@ -66,6 +72,33 @@ function findBaseBranch(repoPath: string, candidates: string[] = ['origin/main',
   return 'HEAD'
 }
 
+/**
+ * Get active staff agents that exist on disk.
+ * Warns about any agents in DB that are missing their directory.
+ */
+function getActiveStaffAgents(
+  workspaceInfo: WorkspaceInfo,
+  log: (msg: string) => void
+): Agent[] {
+  const result: Agent[] = []
+
+  for (const agent of workspaceInfo.agents) {
+    if (agent.type !== 'persistent' || agent.status !== 'active') continue
+
+    const agentDir = agent.worktree_path
+      ? path.join(workspaceInfo.path, agent.worktree_path)
+      : path.join(workspaceInfo.path, 'agents', 'staff', agent.name)
+
+    if (fs.existsSync(agentDir)) {
+      result.push(agent)
+    } else {
+      log(styles.warning(`⚠ Agent '${agent.name}' in database but directory missing - skipping`))
+    }
+  }
+
+  return result
+}
+
 export default class WorkStart extends PMOCommand {
   static description = 'Start work on a ticket (launches an agent to implement it)'
 
@@ -91,19 +124,10 @@ export default class WorkStart extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     all: Flags.boolean({
       char: 'a',
       description: 'Start work on all unassigned backlog tickets (batch mode)',
       default: false,
-    }),
-    mode: Flags.string({
-      char: 'm',
-      description: 'Runtime mode',
-      options: ['foreground', 'background', 'tmux', 'terminal', 'devcontainer', 'docker', 'vm'],
     }),
     executor: Flags.string({
       char: 'e',
@@ -139,9 +163,9 @@ export default class WorkStart extends PMOCommand {
       description: 'Re-prompt for terminal app preference',
       default: false,
     }),
-    'skip-permissions': Flags.boolean({
-      description: 'Skip permission prompts (danger mode)',
-      default: false,
+    'permission-mode': Flags.string({
+      description: 'Permission mode for Claude Code (danger=skip checks, safe=require approval)',
+      options: ['danger', 'safe'],
     }),
     'create-pr': Flags.boolean({
       description: 'Create PR when work is ready',
@@ -158,8 +182,8 @@ export default class WorkStart extends PMOCommand {
     }),
     display: Flags.string({
       char: 'd',
-      description: 'Display mode for devcontainer (where to show output)',
-      options: ['terminal', 'foreground', 'background', 'tmux'],
+      description: 'Display mode (foreground=current terminal, terminal=new tab, background=detached)',
+      options: ['foreground', 'terminal', 'background'],
     }),
     session: Flags.string({
       char: 's',
@@ -170,10 +194,15 @@ export default class WorkStart extends PMOCommand {
     agent: Flags.string({
       description: 'Agent to assign (skips interactive selection)',
     }),
+    ephemeral: Flags.boolean({
+      description: 'Create an ephemeral agent on-demand (auto-generates name)',
+      default: false,
+    }),
   }
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkStart)
+    const projectId = (flags as { project?: string }).project
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
@@ -211,40 +240,28 @@ export default class WorkStart extends PMOCommand {
       let ticketId = args.ticketId
 
       if (!ticketId) {
-        // Get all tickets
-        const allTickets = await this.storage.listTickets()
+        // Get all tickets, optionally filtered by project if -P/--project flag is provided
+        const allTickets = await this.storage.listTickets(projectId)
 
         if (allTickets.length === 0) {
           db.close()
           return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".')
         }
 
-        // Build choices once, use for both JSON and interactive modes
-        const ticketChoices = allTickets.map((t) => ({
-          name: `${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
-          value: t.id,
-        }))
-        const selectMessage = 'Select ticket to work on:'
+        const selected = await this.selectFromList({
+          message: 'Select ticket to work on:',
+          items: allTickets,
+          getName: (t) => `[${t.priority || 'None'}] ${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
+          getValue: (t) => t.id,
+          getCommand: (t) => `prlt work start ${t.id} --json`,
+          jsonMode: jsonMode ? { flags, commandName: 'work start' } : null,
+        })
 
-        // In JSON mode, output ticket selection prompt
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'ticketId', selectMessage, ticketChoices),
-            createMetadata('work start', flags)
-          )
+        if (!selected) {
           db.close()
           return
         }
-
-        const { selectedTicketId } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedTicketId',
-            message: selectMessage,
-            choices: ticketChoices,
-          },
-        ])
-        ticketId = selectedTicketId
+        ticketId = selected
       }
 
       // Get ticket
@@ -287,118 +304,259 @@ export default class WorkStart extends PMOCommand {
         }
       }
 
-      // Check assignee - use flag, then ticket assignee, then prompt
-      let agentName = flags.agent || ticket.assignee
-      // Debug: log agent selection
-      // this.log(styles.muted(`   DEBUG: flags.agent=${flags.agent}, ticket.assignee=${ticket.assignee}, agentName=${agentName}`))
-      if (!agentName) {
-        // Get list of busy agents (already running something)
-        const busyAgentNames = new Set<string>()
-        for (const agent of workspaceInfo.agents) {
-          const runningExecutions = executionStorage.getAgentRunningExecutions(agent.name)
-          if (runningExecutions.length > 0) {
-            busyAgentNames.add(agent.name)
-          }
-        }
+      // Check for existing tmux session for this ticket
+      const existingSession = getTicketTmuxSession(ticketId!)
+      if (existingSession && !flags.force) {
+        this.log('')
+        this.log(styles.warning(`Ticket ${ticketId} has an active tmux session (${existingSession.agent})`))
 
-        // Prompt to assign an agent
-        const agentChoices: Array<{ name: string; value: string; disabled?: string } | inquirer.Separator> = []
-
-        const availableAgents = workspaceInfo.agents.filter(a => !busyAgentNames.has(a.name))
-        const busyAgents = workspaceInfo.agents.filter(a => busyAgentNames.has(a.name))
-
-        if (availableAgents.length > 0) {
-          agentChoices.push(new inquirer.Separator('── Available Agents ──'))
-          for (const a of availableAgents) {
-            agentChoices.push({ name: a.name, value: a.name })
-          }
-        }
-
-        if (busyAgents.length > 0) {
-          agentChoices.push(new inquirer.Separator('── Busy (already working) ──'))
-          for (const a of busyAgents) {
-            const runningExecs = executionStorage.getAgentRunningExecutions(a.name)
-            const ticketIds = runningExecs.map(e => e.ticketId).join(', ')
-            agentChoices.push({ name: `${a.name} (working on ${ticketIds})`, value: a.name, disabled: 'busy' })
-          }
-        }
-
-        agentChoices.push(new inquirer.Separator('── Other ──'))
-        agentChoices.push({ name: 'Enter custom name...', value: '__custom__' })
-
-        const { selectedAgent } = await inquirer.prompt([
+        const { sessionAction } = await inquirer.prompt([
           {
             type: 'list',
-            name: 'selectedAgent',
-            message: `Ticket "${ticketId}" has no assignee. Select agent:`,
-            choices: agentChoices,
+            name: 'sessionAction',
+            message: 'What would you like to do?',
+            choices: [
+              { name: 'Attach to existing session', value: 'attach' },
+              { name: 'Spawn new agent (keeps existing session)', value: 'spawn' },
+              { name: 'Kill session and respawn', value: 'kill' },
+              { name: 'Cancel', value: 'cancel' },
+            ],
           },
         ])
 
-        if (selectedAgent === '__custom__') {
-          const { customAgent } = await inquirer.prompt([
-            {
-              type: 'input',
-              name: 'customAgent',
-              message: 'Enter agent name:',
-              validate: (input: string) => input.trim() ? true : 'Name cannot be empty',
-            },
-          ])
-          agentName = customAgent.trim()
-        } else {
-          agentName = selectedAgent
+        if (sessionAction === 'cancel') {
+          db.close()
+          this.log(styles.muted('Cancelled.'))
+          return
         }
 
-        // Note: Ticket assignee update moved to after successful spawn
-        this.log(styles.muted(`Will assign ${ticketId} to ${agentName}`))
+        if (sessionAction === 'attach') {
+          // Attach to existing session
+          execSync(`tmux attach -t "${existingSession.sessionName}"`, { stdio: 'inherit' })
+          db.close()
+          return
+        }
+
+        if (sessionAction === 'kill') {
+          killTmuxSession(existingSession.sessionName)
+          this.log(styles.success(`Killed session ${existingSession.sessionName}`))
+        }
+        // For 'spawn', we continue with creating a new agent
+      }
+
+      // Agent selection: ephemeral flag, agent flag, ticket assignee, or prompt
+      let agentName: string | undefined
+      let agentWorktreePath: string | undefined
+      let isEphemeralAgent = flags.ephemeral
+
+      if (flags.ephemeral) {
+        // Create ephemeral agent on-demand
+        this.log(styles.muted('Creating ephemeral agent...'))
+        const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
+          skipDevcontainer: flags['run-on-host'],
+          log: (msg) => this.log(msg),
+        })
+        agentName = ephemeralResult.name
+        agentWorktreePath = ephemeralResult.worktreePath
+        this.log(styles.success(`Created ephemeral agent: ${agentName}`))
+      } else if (flags.agent) {
+        // Agent specified via flag
+        agentName = flags.agent
+      } else {
+        // Note: We no longer auto-reuse ticket.assignee to enable parallel work
+        // (e.g., groom + implement, or multiple implementations on same ticket)
+        // No agent specified - default to creating ephemeral agent (new behavior)
+        // Or prompt for agent selection if staff agents exist
+
+        // Get staff agents that exist on disk (warns about missing directories)
+        const activeStaffAgents = getActiveStaffAgents(workspaceInfo, (msg) => this.log(msg))
+
+        if (activeStaffAgents.length > 0) {
+          // Clean up stale executions before checking availability (TKT-604)
+          // This fixes agents appearing as "busy" when their sessions have terminated
+          const cleanedUp = executionStorage.cleanupStaleExecutions()
+          if (cleanedUp > 0) {
+            this.log(styles.muted(`   Cleaned up ${cleanedUp} stale execution(s)`))
+          }
+
+          // Get list of busy agents (already running something)
+          const busyAgentNames = new Set<string>()
+          for (const agent of activeStaffAgents) {
+            const runningExecutions = executionStorage.getAgentRunningExecutions(agent.name)
+            if (runningExecutions.length > 0) {
+              busyAgentNames.add(agent.name)
+            }
+          }
+
+          // Prompt to assign an agent
+          const agentChoices: Array<{ name: string; value: string; disabled?: string } | inquirer.Separator> = []
+
+          // Add ephemeral option first
+          agentChoices.push({ name: 'Create new ephemeral agent (recommended)', value: '__ephemeral__' })
+          agentChoices.push(new inquirer.Separator())
+
+          // Only show staff agents that exist on disk
+          const availableAgents = activeStaffAgents.filter(a => !busyAgentNames.has(a.name))
+          const busyAgents = activeStaffAgents.filter(a => busyAgentNames.has(a.name))
+
+          if (availableAgents.length > 0) {
+            agentChoices.push(new inquirer.Separator('── Available Staff Agents ──'))
+            for (const a of availableAgents) {
+              agentChoices.push({ name: a.name, value: a.name })
+            }
+          }
+
+          if (busyAgents.length > 0) {
+            agentChoices.push(new inquirer.Separator('── Busy (already working) ──'))
+            for (const a of busyAgents) {
+              const runningExecs = executionStorage.getAgentRunningExecutions(a.name)
+              const ticketIds = runningExecs.map(e => e.ticketId).join(', ')
+              agentChoices.push({ name: `${a.name} (working on ${ticketIds})`, value: a.name, disabled: 'busy' })
+            }
+          }
+
+          const { selectedAgent } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'selectedAgent',
+              message: `Select agent for ${ticketId}:`,
+              choices: agentChoices,
+            },
+          ])
+
+          if (selectedAgent === '__ephemeral__') {
+            // Create ephemeral agent
+            this.log(styles.muted('Creating ephemeral agent...'))
+            const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
+              skipDevcontainer: flags['run-on-host'],
+              log: (msg) => this.log(msg),
+            })
+            agentName = ephemeralResult.name
+            agentWorktreePath = ephemeralResult.worktreePath
+            isEphemeralAgent = true
+            this.log(styles.success(`Created ephemeral agent: ${agentName}`))
+          } else {
+            agentName = selectedAgent
+          }
+        } else {
+          // No pre-registered agents - create ephemeral agent by default
+          this.log(styles.muted('Creating ephemeral agent...'))
+          const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
+            skipDevcontainer: flags['run-on-host'],
+            log: (msg) => this.log(msg),
+          })
+          agentName = ephemeralResult.name
+          agentWorktreePath = ephemeralResult.worktreePath
+          isEphemeralAgent = true
+          this.log(styles.success(`Created ephemeral agent: ${agentName}`))
+        }
       }
 
       // At this point agentName is guaranteed to be set
       const assignedAgent = agentName as string
 
-      // Check if agent exists in workspace
-      const agentInfo = workspaceInfo.agents.find((a) => a.name === assignedAgent)
-      if (!agentInfo) {
+      // Validate agent - for non-ephemeral agents, check if it exists in workspace
+      let agentInfo = workspaceInfo.agents.find((a) => a.name === assignedAgent)
+      if (!isEphemeralAgent && !agentInfo) {
         db.close()
         this.error(
           `Agent "${assignedAgent}" not found in workspace.\n` +
-            `Add agent first with "prlt agent add ${assignedAgent}"`
+            `Use --ephemeral to create an ephemeral agent, or add a staff agent with "prlt agent add ${assignedAgent}"`
         )
       }
 
-      // Check for running execution on this ticket
+      // Check for running execution on this ticket (warning only, allows parallel work)
       const runningExecution = executionStorage.getRunningExecution(ticketId!)
-      if (runningExecution && !flags.force) {
-        db.close()
-        this.error(
-          `Ticket "${ticketId}" already has work in progress: ${runningExecution.id}\n` +
-            `Use --force to start another, or stop with "prlt work stop ${runningExecution.id}"`
-        )
+      if (runningExecution) {
+        this.log(styles.warning(`⚠️  Ticket "${ticketId}" already has work in progress: ${runningExecution.id}`))
+        this.log(styles.muted(`   Starting parallel execution. Note: status updates may conflict.`))
       }
 
       // Check if agent is already working on something else
-      const agentRunningExecutions = executionStorage.getAgentRunningExecutions(assignedAgent)
-      if (agentRunningExecutions.length > 0 && !flags.force) {
-        const execInfo = agentRunningExecutions.map(e => `  ${e.id}: ${e.ticketId}`).join('\n')
-        db.close()
-        this.error(
-          `Agent "${assignedAgent}" is already working on other tickets:\n${execInfo}\n\n` +
-            `Use --force to start anyway, or stop existing work first.`
-        )
+      // Skip for ephemeral agents - they're created fresh for each spawn
+      if (!isEphemeralAgent) {
+        const agentRunningExecutions = executionStorage.getAgentRunningExecutions(assignedAgent)
+        if (agentRunningExecutions.length > 0 && !flags.force) {
+          const execInfo = agentRunningExecutions.map(e => `  ${e.id}: ${e.ticketId}`).join('\n')
+          db.close()
+          this.error(
+            `Agent "${assignedAgent}" is already working on other tickets:\n${execInfo}\n\n` +
+              `Use --force to start anyway, or stop existing work first.`
+          )
+        }
       }
 
       // Determine worktree path
       // Agent directory structure varies:
-      // - HQ with repos: {agentsPath}/{agent}/{repoName}/ (git worktree per repo)
+      // - Ephemeral: agents/temp/{agent}/ (created on-demand)
+      // - Staff HQ: agents/staff/{agent}/{repoName}/ (git worktree per repo)
       // - Workspace-only: {agentsPath}/{agent}/{repoName}/ (git worktree)
       // - HQ without repos: {agentsPath}/{agent}/ (placeholder, use cwd)
-      const agentDir = path.join(workspaceInfo.agentsPath, assignedAgent)
+
+      // For ephemeral agents, use the worktree path from creation
+      // For existing agents, derive from agentsPath
+      let agentDir: string
+      if (isEphemeralAgent && agentWorktreePath) {
+        agentDir = agentWorktreePath
+      } else if (agentInfo?.worktree_path) {
+        // Agent has a worktree_path in the database
+        agentDir = path.join(workspaceInfo.path, agentInfo.worktree_path)
+      } else {
+        // Fall back to default path calculation
+        agentDir = path.join(workspaceInfo.agentsPath, assignedAgent)
+      }
+
       if (!fs.existsSync(agentDir)) {
         db.close()
         this.error(
           `Agent directory not found at ${agentDir}.\n` +
-            `Create agent with "prlt agent add ${assignedAgent}"`
+            `Use --ephemeral to create an ephemeral agent, or create a staff agent with "prlt agent add ${assignedAgent}"`
         )
+      }
+
+      // For staff agents, check for uncommitted/unpushed work before starting
+      if (!isEphemeralAgent) {
+        const { getAgentGitStatus, pushAgentWork } = await import('../../lib/agents/commands.js')
+        const gitStatus = getAgentGitStatus(workspaceInfo, assignedAgent)
+
+        if (gitStatus.hasUnsavedWork) {
+          this.log(styles.warning(`\n⚠️  Agent "${assignedAgent}" has unsaved work:`))
+          for (const wt of gitStatus.worktrees) {
+            if (wt.hasUncommittedChanges) {
+              this.log(styles.muted(`  ${wt.repoName}: ${wt.uncommittedFiles.length} uncommitted file(s)`))
+            }
+            if (wt.hasUnpushedCommits) {
+              this.log(styles.muted(`  ${wt.repoName}: ${wt.unpushedCount} unpushed commit(s) on ${wt.branch}`))
+            }
+          }
+          this.log('')
+
+          const { action } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'action',
+              message: 'How would you like to proceed?',
+              choices: [
+                { name: 'Push existing work and continue', value: 'push' },
+                { name: 'Continue anyway (existing work may conflict)', value: 'continue' },
+                { name: 'Cancel', value: 'cancel' },
+              ],
+            },
+          ])
+
+          if (action === 'cancel') {
+            db.close()
+            this.log(styles.muted('Cancelled.'))
+            return
+          }
+
+          if (action === 'push') {
+            const pushed = pushAgentWork(workspaceInfo, assignedAgent, (msg) => this.log(styles.muted(`  ${msg}`)))
+            if (!pushed) {
+              this.log(styles.warning('Some work could not be pushed. Please resolve manually.'))
+            }
+          }
+        }
       }
 
       // Find worktree path for agent
@@ -510,6 +668,7 @@ export default class WorkStart extends PMOCommand {
 
         actionChoices.push(new inquirer.Separator('── Custom ──'))
         actionChoices.push({ name: 'Custom prompt...', value: '__custom__' })
+        actionChoices.push({ name: 'Ad-hoc session - unstructured exploration/debugging', value: '__adhoc__' })
 
         const { selectedActionId } = await inquirer.prompt([
           {
@@ -530,6 +689,18 @@ export default class WorkStart extends PMOCommand {
             },
           ])
           customPrompt = customInput.trim()
+        } else if (selectedActionId === '__adhoc__') {
+          // Ad-hoc session - no specific action, just launch Claude for exploration
+          selectedAction = {
+            id: 'adhoc',
+            name: 'Ad-hoc',
+            description: 'Unstructured exploration and debugging',
+            prompt: 'You are working on an ad-hoc session for exploration and debugging. Help the user with whatever they need.',
+            modifiesCode: false,
+            defaultMoveToCategory: 'started',
+            isBuiltin: false,
+            createdAt: new Date(),
+          }
         } else {
           selectedAction = await this.storage.getAction(selectedActionId)
         }
@@ -571,13 +742,12 @@ export default class WorkStart extends PMOCommand {
       // Use devcontainer by default if available, unless --run-on-host is set
       const useDevcontainer = hasDevcontainer && !flags['run-on-host']
 
-      // Determine runtime mode
-      let mode: RuntimeMode = 'terminal'
-      let displayMode: DisplayMode = 'terminal'
+      // Determine execution environment and display mode
       let environment: ExecutionEnvironment = 'host'
+      let displayMode: DisplayMode = 'terminal'
       let sandboxed = false  // Whether --dangerously-skip-permissions is NOT used
 
-      if (hasDevcontainer && !flags.mode && !flags['run-on-host']) {
+      if (hasDevcontainer && !flags.display && !flags['run-on-host']) {
         // Agent has devcontainer - prompt for environment choice
         // Loop to allow re-selection if Docker isn't running
         let environmentSelected = false
@@ -622,69 +792,54 @@ export default class WorkStart extends PMOCommand {
                 name: 'selectedDisplay',
                 message: 'How should the agent output be displayed?',
                 choices: [
-                  { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
-                  { name: 'foreground   - Run in current terminal', value: 'foreground' },
-                  { name: 'tmux         - New tmux pane/window', value: 'tmux' },
-                  { name: 'background   - Detached process, logs to file', value: 'background' },
+                  { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                  { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
+                  { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
                 ],
                 default: 'terminal',
               },
             ])
             displayMode = selectedDisplay as DisplayMode
-            mode = 'devcontainer'
+            environment = 'devcontainer'
             environmentSelected = true
           } else {
-            // User chose host - fall through to host mode selection
+            // User chose host
             environment = 'host'
-            const { selectedMode } = await inquirer.prompt([
+            const { selectedDisplay } = await inquirer.prompt([
               {
                 type: 'list',
-                name: 'selectedMode',
-                message: 'Select execution mode:',
+                name: 'selectedDisplay',
+                message: 'How should the agent output be displayed?',
                 choices: [
-                  { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
-                  { name: 'foreground   - Run in current terminal', value: 'foreground' },
-                  { name: 'tmux         - New tmux pane/window', value: 'tmux' },
-                  { name: 'background   - Detached process, logs to file', value: 'background' },
+                  { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                  { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
+                  { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
                 ],
-                default: DEFAULT_EXECUTION_CONFIG.defaultMode,
+                default: 'terminal',
               },
             ])
-            mode = selectedMode as RuntimeMode
-            displayMode = mode as DisplayMode
+            displayMode = selectedDisplay as DisplayMode
             environmentSelected = true
           }
         }
       } else if (useDevcontainer) {
-        // Devcontainer with explicit mode flag
+        // Devcontainer with explicit display flag
         environment = 'devcontainer'
-        // Use --display flag if provided, otherwise fall back to --mode or default to 'terminal'
         if (flags.display) {
           displayMode = flags.display as DisplayMode
-        } else if (flags.mode && ['terminal', 'foreground', 'background', 'tmux'].includes(flags.mode)) {
-          displayMode = flags.mode as DisplayMode
         } else {
           // Default to terminal for devcontainer (opens new tab instead of blocking current terminal)
           displayMode = 'terminal'
         }
-        mode = 'devcontainer'
       } else {
         // No devcontainer or --run-on-host - host mode selection
-        if (flags.mode) {
-          mode = flags.mode as RuntimeMode
-          // Set environment based on mode
-          if (mode === 'docker') {
-            environment = 'docker'
-          } else if (mode === 'vm') {
-            environment = 'vm'
-          } else {
-            environment = 'host'
-          }
-          displayMode = mode as DisplayMode
+        environment = 'host'
+        if (flags.display) {
+          displayMode = flags.display as DisplayMode
         } else {
           const warningMsg = flags['run-on-host']
-            ? 'Select execution mode (--run-on-host: bypassing devcontainer):'
-            : 'Select execution mode (no devcontainer - running on host):'
+            ? 'Select display mode (--run-on-host: bypassing devcontainer):'
+            : 'Select display mode (no devcontainer - running on host):'
 
           const { selectedMode } = await inquirer.prompt([
             {
@@ -692,64 +847,29 @@ export default class WorkStart extends PMOCommand {
               name: 'selectedMode',
               message: warningMsg,
               choices: [
-                { name: 'terminal     - New terminal window (macOS)', value: 'terminal' },
-                { name: 'foreground   - Run in current terminal', value: 'foreground' },
-                { name: 'tmux         - New tmux pane/window', value: 'tmux' },
-                { name: 'background   - Detached process, logs to file', value: 'background' },
-                new inquirer.Separator('── Sandboxed (requires setup) ──'),
-                { name: 'docker       - Container with worktree mounted', value: 'docker' },
-                new inquirer.Separator('── Remote ──'),
-                { name: 'vm           - Remote VM via SSH', value: 'vm' },
+                { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+                { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
+                { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
               ],
-              default: DEFAULT_EXECUTION_CONFIG.defaultMode,
+              default: 'terminal',
             },
           ])
-          mode = selectedMode as RuntimeMode
-          // Set environment based on mode
-          if (mode === 'docker') {
-            environment = 'docker'
-          } else if (mode === 'vm') {
-            environment = 'vm'
-          } else {
-            environment = 'host'
-          }
-          displayMode = mode as DisplayMode
+          displayMode = selectedMode as DisplayMode
         }
       }
 
       const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
 
-      // Prompt for output mode (interactive vs print)
-      // Only show this for display modes where streaming makes sense (terminal, tmux, foreground)
-      let outputMode: OutputMode = DEFAULT_EXECUTION_CONFIG.outputMode
-      const streamingDisplayModes: DisplayMode[] = ['terminal', 'tmux', 'foreground']
-      const currentDisplayMode = mode === 'devcontainer' ? displayMode : mode as DisplayMode
-
-      if (flags.output) {
-        // Use flag value
-        outputMode = flags.output as OutputMode
-      } else if (streamingDisplayModes.includes(currentDisplayMode)) {
-        const { selectedOutputMode } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedOutputMode',
-            message: 'How should Claude display output?',
-            choices: [
-              { name: 'interactive  - Watch Claude work in real-time (streaming UI)', value: 'interactive' },
-              { name: 'print        - Show final result only (better for logs)', value: 'print' },
-            ],
-            default: 'interactive',
-          },
-        ])
-        outputMode = selectedOutputMode as OutputMode
-      }
+      // Default to interactive output mode (streaming UI)
+      // Can be overridden via --output flag if needed
+      let outputMode: OutputMode = flags.output as OutputMode || DEFAULT_EXECUTION_CONFIG.outputMode
 
       // Prompt for permissions mode (all environments)
-      // Skip prompt if --skip-permissions flag is set
-      if (flags['skip-permissions']) {
-        sandboxed = false
+      // Skip prompt if --permission-mode flag is set
+      if (flags['permission-mode']) {
+        sandboxed = flags['permission-mode'] === 'safe'
       } else {
-        const containerNote = (environment === 'devcontainer' || environment === 'docker')
+        const containerNote = environment === 'devcontainer'
           ? ' (container provides additional isolation)'
           : ''
         const { permissionMode } = await inquirer.prompt([
@@ -758,10 +878,10 @@ export default class WorkStart extends PMOCommand {
             name: 'permissionMode',
             message: `Permission mode for Claude Code${containerNote}:`,
             choices: [
-              { name: '🔒 safe   - Requires approval for dangerous operations (recommended)', value: 'safe' },
-              { name: '⚠️  danger - Skip permission checks (--dangerously-skip-permissions)', value: 'danger' },
+              { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
+              { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
             ],
-            default: 'safe',
+            default: 'danger',
           },
         ])
         sandboxed = permissionMode === 'safe'
@@ -800,7 +920,7 @@ export default class WorkStart extends PMOCommand {
       this.log(styles.muted(`   Executor: ${executor}`))
 
       // Environment info
-      const envIcon = environment === 'devcontainer' ? '🐳' : (environment === 'docker' ? '📦' : '💻')
+      const envIcon = environment === 'devcontainer' ? '🐳' : '💻'
       this.log(styles.muted(`   Environment: ${envIcon} ${environment}`))
       this.log(styles.muted(`   Display: ${displayMode}`))
 
@@ -1001,7 +1121,6 @@ export default class WorkStart extends PMOCommand {
         ticketId: ticket.id,
         agentName: assignedAgent,
         executor,
-        mode,
         environment,
         displayMode,
         sandboxed,
@@ -1018,7 +1137,7 @@ export default class WorkStart extends PMOCommand {
 
       // If terminal display mode, ensure terminal and shell preferences are set (prompts on first use)
       // Also re-prompt if --reconfigure flag is set
-      const needsTerminalConfig = (mode === 'terminal') || (useDevcontainer && displayMode === 'terminal')
+      const needsTerminalConfig = displayMode === 'terminal'
       if (needsTerminalConfig) {
         const needsTerminal = !hasTerminalPreference(db)
         const needsShell = !hasShellPreference(db)
@@ -1057,10 +1176,10 @@ export default class WorkStart extends PMOCommand {
       // Run execution
       this.log(styles.muted('Starting agent...'))
       const sessionManager = (flags.session || 'tmux') as SessionManager
-      const result = await runExecution(mode, context, executor, executionConfig, {
+      const result = await runExecution(environment, context, executor, executionConfig, {
         host: flags['vm-host'],
-        displayMode: mode === 'devcontainer' ? displayMode : undefined,
-        sessionManager: mode === 'devcontainer' ? sessionManager : undefined,
+        displayMode,
+        sessionManager: environment === 'devcontainer' ? sessionManager : undefined,
       })
 
       if (result.success) {
@@ -1073,8 +1192,8 @@ export default class WorkStart extends PMOCommand {
           logPath: result.logPath,
         })
 
-        // Track container in containers table (for devcontainer mode)
-        if (mode === 'devcontainer' && result.containerId) {
+        // Track container in containers table (for devcontainer environment)
+        if (environment === 'devcontainer' && result.containerId) {
           const containerStorage = new ContainerStorage(db)
           containerStorage.upsertContainer({
             agentName: context.agentName,
@@ -1093,7 +1212,8 @@ export default class WorkStart extends PMOCommand {
         // Move ticket to target column based on action's defaultMoveToCategory
         // If action has a target category, find the matching column; otherwise use "started" default
         const targetCategory = selectedAction?.defaultMoveToCategory || 'started'
-        const board = await this.storage.getBoard()
+
+        const board = await this.storage.getBoard(ticket.projectId!)
         const columnNames = board.columns.map(col => col.name)
 
         // Map category to column type for lookup
@@ -1109,7 +1229,7 @@ export default class WorkStart extends PMOCommand {
 
         if (targetColumnName && ticket.statusName !== targetColumnName) {
           try {
-            await this.storage.moveTicket(ticket.id, targetColumnName)
+            await this.storage.moveTicket(ticket.projectId!, ticket.id, targetColumnName)
             this.log(styles.muted(`   Moved to: ${targetColumnName}`))
           } catch (moveError) {
             // Non-fatal - work can proceed even if column move fails
@@ -1122,13 +1242,10 @@ export default class WorkStart extends PMOCommand {
         this.log('')
         this.log(styles.success(`✓ Work started (${execution.id})`))
         this.log('')
-
-        if (mode !== 'foreground') {
-          this.log(styles.muted('Commands:'))
-          this.log(styles.muted(`  prlt work status              View work status`))
-          this.log(styles.muted(`  prlt work ready ${ticketId}     Mark ready for review`))
-          this.log(styles.muted(`  prlt work stop ${execution.id}    Stop work`))
-        }
+        this.log(styles.muted('Commands:'))
+        this.log(styles.muted(`  prlt work status              View work status`))
+        this.log(styles.muted(`  prlt work ready ${ticketId}     Mark ready for review`))
+        this.log(styles.muted(`  prlt work stop ${execution.id}    Stop work`))
       } else {
         executionStorage.updateStatus(execution.id, 'failed')
         this.error(`Failed to start work: ${result.error}`)
@@ -1148,17 +1265,18 @@ export default class WorkStart extends PMOCommand {
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
     db: Database.Database,
     executionStorage: ExecutionStorage,
-    flags: { mode?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean }
+    flags: { display?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean; 'permission-mode'?: string }
   ): Promise<void> {
-    // Get all tickets and filter to unassigned backlog/unstarted (not in progress)
-    const allTickets = await this.storage.listTickets()
+    // Get all tickets and filter to backlog/unstarted (not in progress)
+    // Note: In batch mode, we use undefined to get all tickets across all projects
+    const allTickets = await this.storage.listTickets(undefined)
     const backlogTickets = allTickets.filter(t =>
-      !t.assignee && (t.statusCategory === 'backlog' || t.statusCategory === 'unstarted' || !t.statusCategory)
+      t.statusCategory === 'backlog' || t.statusCategory === 'unstarted' || !t.statusCategory
     )
 
     if (backlogTickets.length === 0) {
       db.close()
-      this.log(styles.muted('No unassigned backlog tickets to start.'))
+      this.log(styles.muted('No backlog tickets to start.'))
       return
     }
 
@@ -1166,16 +1284,24 @@ export default class WorkStart extends PMOCommand {
     this.log(styles.header(`🚀 Batch Start: ${backlogTickets.length} backlog tickets`))
     this.log('')
 
-    // Get available agents
+    // Get staff agents that exist on disk (warns about missing directories)
+    const activeStaffAgents = getActiveStaffAgents(workspaceInfo, (msg) => this.log(msg))
+
+    // Clean up stale executions before checking availability (TKT-604)
+    const cleanedUp = executionStorage.cleanupStaleExecutions()
+    if (cleanedUp > 0) {
+      this.log(styles.muted(`   Cleaned up ${cleanedUp} stale execution(s)`))
+    }
+
     const busyAgentNames = new Set<string>()
-    for (const agent of workspaceInfo.agents) {
+    for (const agent of activeStaffAgents) {
       const runningExecutions = executionStorage.getAgentRunningExecutions(agent.name)
       if (runningExecutions.length > 0) {
         busyAgentNames.add(agent.name)
       }
     }
 
-    const availableAgents = workspaceInfo.agents.filter(a => !busyAgentNames.has(a.name))
+    const availableAgents = activeStaffAgents.filter(a => !busyAgentNames.has(a.name))
 
     if (availableAgents.length === 0) {
       db.close()
@@ -1205,6 +1331,24 @@ export default class WorkStart extends PMOCommand {
       return
     }
 
+    // Prompt for permissions mode once for all tickets (TKT-513)
+    let batchPermissionMode: 'danger' | 'safe' = flags['permission-mode'] as 'danger' | 'safe'
+    if (!batchPermissionMode) {
+      const { permissionMode } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'permissionMode',
+          message: 'Permission mode for Claude Code:',
+          choices: [
+            { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
+            { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+          ],
+          default: 'danger',
+        },
+      ])
+      batchPermissionMode = permissionMode
+    }
+
     // Assign tickets to agents (round-robin)
     const assignments: Array<{ ticket: typeof backlogTickets[0]; agent: typeof availableAgents[0] }> = []
     for (let i = 0; i < backlogTickets.length; i++) {
@@ -1221,14 +1365,16 @@ export default class WorkStart extends PMOCommand {
         this.log(styles.muted(`Starting ${ticket.id} with ${agent.name}...`))
 
         // Use the work:start command for each ticket
-        // Pass --project to avoid re-prompting for project selection
+        // Pass --project from ticket to avoid re-prompting for project selection
+        // Pass --permission-mode to skip prompts in recursive calls (TKT-513)
         await this.config.runCommand('work:start', [
           ticket.id,
-          '--project', this.projectId,
-          '--mode', flags.mode || 'background',
+          ...(ticket.projectId ? ['--project', ticket.projectId] : []),
+          '--display', flags.display || 'background',
           ...(flags.executor ? ['--executor', flags.executor] : []),
           ...(flags['run-on-host'] ? ['--run-on-host'] : []),
           ...(flags.force ? ['--force'] : []),
+          '--permission-mode', batchPermissionMode,
         ])
 
         successCount++
@@ -1253,7 +1399,7 @@ export default class WorkStart extends PMOCommand {
    * Spawn work on a single ticket with non-interactive defaults.
    */
   private async spawnSingleTicket(
-    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; subtasks?: Array<{ title: string; done: boolean }> },
+    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; projectId?: string; subtasks?: Array<{ title: string; done: boolean }> },
     agent: { name: string },
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
     executionStorage: ExecutionStorage,
@@ -1261,7 +1407,7 @@ export default class WorkStart extends PMOCommand {
     flags: {
       force?: boolean
       'run-on-host'?: boolean
-      'skip-permissions'?: boolean
+      'permission-mode'?: string
       'create-pr'?: boolean
       'no-pr'?: boolean
       executor?: string
@@ -1354,10 +1500,9 @@ export default class WorkStart extends PMOCommand {
     const useDevcontainer = hasDevcontainer && !flags['run-on-host']
 
     // Non-interactive defaults
-    const mode: RuntimeMode = useDevcontainer ? 'devcontainer' : 'terminal'
-    const displayMode: DisplayMode = 'terminal'
     const environment: ExecutionEnvironment = useDevcontainer ? 'devcontainer' : 'host'
-    const sandboxed = !flags['skip-permissions']
+    const displayMode: DisplayMode = 'terminal'
+    const sandboxed = flags['permission-mode'] === 'safe'
     const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
     const outputMode: OutputMode = 'interactive'
 
@@ -1400,7 +1545,6 @@ export default class WorkStart extends PMOCommand {
       ticketId: ticket.id,
       agentName,
       executor,
-      mode,
       environment,
       displayMode,
       sandboxed,
@@ -1418,9 +1562,9 @@ export default class WorkStart extends PMOCommand {
     this.log(styles.muted(`   Starting ${ticket.id} → ${agentName}...`))
 
     const batchSessionManager = (flags.session || 'tmux') as SessionManager
-    const result = await runExecution(mode, context, executor, executionConfig, {
-      displayMode: mode === 'devcontainer' ? displayMode : undefined,
-      sessionManager: mode === 'devcontainer' ? batchSessionManager : undefined,
+    const result = await runExecution(environment, context, executor, executionConfig, {
+      displayMode,
+      sessionManager: environment === 'devcontainer' ? batchSessionManager : undefined,
     })
 
     if (result.success) {
@@ -1439,12 +1583,13 @@ export default class WorkStart extends PMOCommand {
 
       // Move ticket to In Progress column ONLY after successful spawn
       const targetColumnName = getWorkColumnSetting(db, 'in_progress')
-      const board = await this.storage.getBoard()
+
+      const board = await this.storage.getBoard(ticket.projectId!)
       const columnNames = board.columns.map(col => col.name)
       const inProgressColumn = findColumnByName(columnNames, targetColumnName)
 
       if (inProgressColumn && ticket.status !== inProgressColumn) {
-        await this.storage.moveTicket(ticket.id, inProgressColumn)
+        await this.storage.moveTicket(ticket.projectId!, ticket.id, inProgressColumn)
       }
 
       await autoExportToBoard(this.pmoPath, this.storage, () => {})

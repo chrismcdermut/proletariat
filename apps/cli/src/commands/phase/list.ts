@@ -49,6 +49,7 @@ export default class PhaseList extends PMOCommand {
     this.log('═'.repeat(60));
 
     const categoryEmoji: Record<StateCategory, string> = {
+      triage: '📬',
       backlog: '📥',
       unstarted: '📋',
       started: '🚀',

@@ -23,6 +23,7 @@ const CONFIG_KEYS = {
   autoExecute: 'execution.auto_execute',
   tmuxSession: 'execution.tmux.session',
   tmuxLayout: 'execution.tmux.layout',
+  tmuxControlMode: 'execution.tmux.control_mode',
   dockerImage: 'execution.docker.image',
   dockerNetwork: 'execution.docker.network',
   dockerMemory: 'execution.docker.memory',
@@ -73,10 +74,10 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
     config.shell = shell as Shell
   }
 
-  // Load default mode
-  const defaultMode = getSetting(db, CONFIG_KEYS.defaultMode)
-  if (defaultMode) {
-    config.defaultMode = defaultMode as ExecutionConfig['defaultMode']
+  // Load default environment
+  const defaultEnvironment = getSetting(db, CONFIG_KEYS.defaultMode)
+  if (defaultEnvironment) {
+    config.defaultEnvironment = defaultEnvironment as ExecutionConfig['defaultEnvironment']
   }
 
   // Load default executor
@@ -99,6 +100,10 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
   const tmuxLayout = getSetting(db, CONFIG_KEYS.tmuxLayout)
   if (tmuxLayout) {
     config.tmux = { ...config.tmux, layout: tmuxLayout as 'split' | 'window' }
+  }
+  const tmuxControlMode = getSetting(db, CONFIG_KEYS.tmuxControlMode)
+  if (tmuxControlMode !== null) {
+    config.tmux = { ...config.tmux, controlMode: tmuxControlMode === 'true' }
   }
 
   // Load docker settings
@@ -162,6 +167,14 @@ export function saveShell(db: Database.Database, shell: Shell): void {
 }
 
 /**
+ * Save tmux control mode preference.
+ * When enabled and using iTerm, tmux -CC is used for native tab integration.
+ */
+export function saveTmuxControlMode(db: Database.Database, enabled: boolean): void {
+  setSetting(db, CONFIG_KEYS.tmuxControlMode, enabled.toString())
+}
+
+/**
  * Check if terminal app preference has been set
  */
 export function hasTerminalPreference(db: Database.Database): boolean {
@@ -173,6 +186,44 @@ export function hasTerminalPreference(db: Database.Database): boolean {
  */
 export function hasShellPreference(db: Database.Database): boolean {
   return getSetting(db, CONFIG_KEYS.shell) !== null
+}
+
+/**
+ * Auto-detect terminal app from environment.
+ * Uses TERM_PROGRAM env var set by most terminal emulators.
+ */
+export function detectTerminalApp(): TerminalApp | null {
+  const termProgram = process.env.TERM_PROGRAM?.toLowerCase() || ''
+
+  // Map TERM_PROGRAM values to our TerminalApp type
+  if (termProgram === 'iterm.app') return 'iTerm'
+  if (termProgram === 'apple_terminal') return 'Terminal'
+  if (termProgram === 'alacritty') return 'Alacritty'
+  if (termProgram === 'wezterm') return 'WezTerm'
+  if (termProgram === 'ghostty') return 'Ghostty'
+  if (termProgram === 'kitty') return 'Kitty'
+  if (termProgram === 'warp') return 'Warp'
+
+  // Also check TERMINAL_EMULATOR for some apps
+  const termEmulator = process.env.TERMINAL_EMULATOR?.toLowerCase() || ''
+  if (termEmulator.includes('jetbrains')) return 'tmux' // IDE terminal, fall back to tmux
+
+  return null
+}
+
+/**
+ * Auto-detect shell from environment.
+ * Uses SHELL env var.
+ */
+export function detectShell(): Shell | null {
+  const shellPath = process.env.SHELL || ''
+  const shellName = shellPath.split('/').pop()?.toLowerCase() || ''
+
+  if (shellName === 'zsh') return 'zsh'
+  if (shellName === 'bash') return 'bash'
+  if (shellName === 'fish') return 'fish'
+
+  return null
 }
 
 /**
@@ -201,11 +252,46 @@ export async function promptTerminalPreference(db: Database.Database): Promise<T
   // Save preference to database
   saveTerminalApp(db, terminalApp)
 
+  // If iTerm selected, prompt for control mode preference
+  if (terminalApp === 'iTerm') {
+    await promptTmuxControlModePreference(db)
+  }
+
   return terminalApp
 }
 
 /**
- * Get terminal app, prompting if not set
+ * Prompt user for tmux control mode preference (iTerm only).
+ * When enabled, tmux -CC is used for native iTerm tab/window integration.
+ */
+export async function promptTmuxControlModePreference(db: Database.Database): Promise<boolean> {
+  const { useControlMode } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'useControlMode',
+      message: 'iTerm tmux integration mode:',
+      choices: [
+        {
+          name: 'Native tabs (tmux -CC) - iTerm handles windows/scrollback natively (Recommended)',
+          value: true,
+        },
+        {
+          name: 'Standard tmux - Traditional tmux interface inside iTerm',
+          value: false,
+        },
+      ],
+      default: true,
+    },
+  ])
+
+  // Save preference to database
+  saveTmuxControlMode(db, useControlMode)
+
+  return useControlMode
+}
+
+/**
+ * Get terminal app, auto-detecting or prompting if not set
  */
 export async function getTerminalApp(db: Database.Database): Promise<TerminalApp> {
   const config = loadExecutionConfig(db)
@@ -215,7 +301,18 @@ export async function getTerminalApp(db: Database.Database): Promise<TerminalApp
     return config.terminal.app
   }
 
-  // First time - prompt user
+  // Try auto-detection first
+  const detected = detectTerminalApp()
+  if (detected) {
+    saveTerminalApp(db, detected)
+    // If iTerm detected, also enable control mode by default (best experience)
+    if (detected === 'iTerm') {
+      saveTmuxControlMode(db, true)
+    }
+    return detected
+  }
+
+  // Fall back to prompting user
   return promptTerminalPreference(db)
 }
 
@@ -244,7 +341,7 @@ export async function promptShellPreference(db: Database.Database): Promise<Shel
 }
 
 /**
- * Get shell, prompting if not set
+ * Get shell, auto-detecting or prompting if not set
  */
 export async function getShell(db: Database.Database): Promise<Shell> {
   const config = loadExecutionConfig(db)
@@ -254,7 +351,14 @@ export async function getShell(db: Database.Database): Promise<Shell> {
     return config.shell
   }
 
-  // First time - prompt user
+  // Try auto-detection first
+  const detected = detectShell()
+  if (detected) {
+    saveShell(db, detected)
+    return detected
+  }
+
+  // Fall back to prompting user
   return promptShellPreference(db)
 }
 
@@ -329,9 +433,9 @@ export async function promptExecutionSettings(
   }
 
   // Prompt for output mode (interactive vs print)
-  // Only show this for display modes where streaming makes sense (terminal, tmux, foreground)
+  // Only show this for terminal mode where streaming makes sense (not background)
   let outputMode: OutputMode = options.outputMode ?? DEFAULT_EXECUTION_CONFIG.outputMode
-  const streamingDisplayModes: DisplayMode[] = ['terminal', 'tmux', 'foreground']
+  const streamingDisplayModes: DisplayMode[] = ['terminal']
 
   if (options.outputMode === undefined && streamingDisplayModes.includes(displayMode)) {
     const { selectedOutputMode } = await inquirer.prompt([
