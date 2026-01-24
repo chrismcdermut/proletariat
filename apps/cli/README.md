@@ -201,6 +201,31 @@ Scrum Workflow
 
 Tickets flow through statuses as work progresses. Agents automatically move tickets when they start work, open PRs, or complete tasks.
 
+### Agent Naming Themes
+
+Themes control how agents are named. Staff agents use theme names directly (e.g., `bezos`, `camry`). Ephemeral agents add an adjective prefix (e.g., `bold-bezos`, `keen-camry`). Currently ephemeral names also include a number suffix (`bold-bezos-1`), but this will be removed soon.
+
+**Built-in Themes:**
+
+| Theme | Description | Example Names |
+| --- | --- | --- |
+| `billionaires` | Tech founders & executives (default) | `musk`, `gates`, `bezos` |
+| `toyotas` | Toyota vehicle models | `camry`, `supra`, `tacoma` |
+| `companies` | Major tech companies | `stripe`, `vercel`, `linear` |
+
+> *billionaires* — Finally, they work for us.
+
+**Theme Commands:**
+
+```bash
+prlt agent themes list              # List available themes
+prlt agent themes set billionaires  # Set active theme
+prlt agent themes create mytheme    # Create custom theme
+prlt agent themes add-names mytheme # Add names to custom theme
+```
+
+Themes are selected during `prlt init`.
+
 ### Workspace Structure
 
 Each agent gets a copy of all repos (repo scoping coming soon). Work happens on isolated branches.
