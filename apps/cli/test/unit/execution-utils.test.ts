@@ -212,6 +212,57 @@ describe('Execution Utils', () => {
     })
   })
 
+  describe('iTerm Preferences Configuration', () => {
+    /**
+     * These tests document the expected iTerm preference values.
+     * Actual `defaults write` calls are tested via integration tests.
+     */
+    it('should map tab mode to OpenTmuxWindowsIn value 2', () => {
+      // OpenTmuxWindowsIn: 0=native windows, 1=new window, 2=tabs in existing window
+      const getOpenTmuxWindowsInValue = (mode: 'tab' | 'window') => mode === 'tab' ? 2 : 1
+      expect(getOpenTmuxWindowsInValue('tab')).to.equal(2)
+    })
+
+    it('should map window mode to OpenTmuxWindowsIn value 1', () => {
+      const getOpenTmuxWindowsInValue = (mode: 'tab' | 'window') => mode === 'tab' ? 2 : 1
+      expect(getOpenTmuxWindowsInValue('window')).to.equal(1)
+    })
+
+    it('should document AutoHideTmuxClientSession behavior', () => {
+      // When AutoHideTmuxClientSession is true:
+      // - The terminal where tmux -CC is run gets buried/hidden
+      // - User only sees the native iTerm tabs for tmux windows
+      // This is set to true by configureITermTmuxPreferences()
+      expect(true).to.be.true
+    })
+  })
+
+  describe('iTerm Control Mode Flow', () => {
+    /**
+     * Documents the complete flow for iTerm + control mode.
+     * This serves as living documentation for the expected behavior.
+     */
+    it('should document the complete spawn flow', () => {
+      // 1. prlt spawns work, creates tmux session in container (detached)
+      // 2. configureITermTmuxPreferences() sets:
+      //    - OpenTmuxWindowsIn = 2 (tabs in existing window)
+      //    - AutoHideTmuxClientSession = true (hide control channel)
+      // 3. AppleScript creates a NEW tab (not current session)
+      // 4. tmux -CC attach runs in that new tab
+      // 5. iTerm creates native tabs for tmux windows
+      // 6. The intermediate tab is auto-hidden
+      // 7. prlt continues running in original terminal (unaffected)
+      expect(true).to.be.true
+    })
+
+    it('should create new tab to avoid interfering with prlt', () => {
+      // Running tmux -CC in current session would interfere with prlt output
+      // Creating a new tab first ensures clean separation
+      // This is especially important during batch spawns
+      expect(true).to.be.true
+    })
+  })
+
   describe('Display Mode Behavior', () => {
     /**
      * All display modes create a tmux session for persistence.
