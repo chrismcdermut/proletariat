@@ -17,6 +17,7 @@ const SETTINGS_TABLE = 'workspace_settings'
 // Config keys stored in workspace_settings table
 const CONFIG_KEYS = {
   terminalApp: 'execution.terminal.app',
+  terminalOpenInBackground: 'execution.terminal.open_in_background',
   shell: 'execution.shell',
   defaultMode: 'execution.default_mode',
   defaultExecutor: 'execution.default_executor',
@@ -65,7 +66,13 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
   // Load terminal app
   const terminalApp = getSetting(db, CONFIG_KEYS.terminalApp)
   if (terminalApp) {
-    config.terminal = { app: terminalApp as TerminalApp }
+    config.terminal = { ...config.terminal, app: terminalApp as TerminalApp }
+  }
+
+  // Load terminal open in background setting
+  const terminalOpenInBackground = getSetting(db, CONFIG_KEYS.terminalOpenInBackground)
+  if (terminalOpenInBackground !== null) {
+    config.terminal = { ...config.terminal, openInBackground: terminalOpenInBackground === 'true' }
   }
 
   // Load shell
@@ -172,6 +179,14 @@ export function saveShell(db: Database.Database, shell: Shell): void {
  */
 export function saveTmuxControlMode(db: Database.Database, enabled: boolean): void {
   setSetting(db, CONFIG_KEYS.tmuxControlMode, enabled.toString())
+}
+
+/**
+ * Save terminal open in background preference.
+ * When enabled, new terminal tabs open without stealing focus from current window.
+ */
+export function saveTerminalOpenInBackground(db: Database.Database, enabled: boolean): void {
+  setSetting(db, CONFIG_KEYS.terminalOpenInBackground, enabled.toString())
 }
 
 /**

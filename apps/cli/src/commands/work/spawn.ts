@@ -120,6 +120,10 @@ export default class WorkSpawn extends PMOCommand {
       options: ['tmux', 'direct'],
       default: 'tmux',
     }),
+    focus: Flags.boolean({
+      description: 'Bring terminal to foreground when opening new tabs (default: opens in background)',
+      default: false,
+    }),
   }
 
   async execute(): Promise<void> {
@@ -871,6 +875,7 @@ export default class WorkSpawn extends PMOCommand {
             if (flags.executor) startArgs.push('--executor', flags.executor)
             if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
+            if (flags.focus) startArgs.push('--focus')
           } else {
             // Batch mode: pass all settings to skip prompts
             // batchDisplayMode is for devcontainer, batchDisplay is for host
@@ -887,6 +892,8 @@ export default class WorkSpawn extends PMOCommand {
             startArgs.push('--action', batchAction || 'implement')
             // Pass session manager (tmux inside container by default)
             if (flags.session) startArgs.push('--session', flags.session)
+            // Pass focus flag (brings terminal to foreground)
+            if (flags.focus) startArgs.push('--focus')
           }
 
           // eslint-disable-next-line no-await-in-loop

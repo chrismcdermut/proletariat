@@ -198,6 +198,10 @@ export default class WorkStart extends PMOCommand {
       description: 'Create an ephemeral agent on-demand (auto-generates name)',
       default: false,
     }),
+    focus: Flags.boolean({
+      description: 'Bring terminal to foreground when opening new tabs (default: opens in background)',
+      default: false,
+    }),
   }
 
   async execute(): Promise<void> {
@@ -1253,6 +1257,11 @@ export default class WorkStart extends PMOCommand {
 
       // Set sandboxed mode (determines whether --dangerously-skip-permissions is used)
       executionConfig.sandboxed = sandboxed
+
+      // Handle --focus flag: when set, bring terminal to foreground instead of opening in background
+      if (flags.focus) {
+        executionConfig.terminal.openInBackground = false
+      }
 
       // Run execution
       this.log(styles.muted('Starting agent...'))

@@ -316,13 +316,17 @@ exec $SHELL
     // Use clear before attach to ensure clean display
     const attachCmd = `clear && tmux attach -t \\"${sessionName}\\"`
 
+    // Check if we should open in background (don't steal focus)
+    const openInBackground = config.terminal.openInBackground ?? true
+
     switch (terminalApp) {
       case 'iTerm':
         // iTerm2 - new tab in current window
         // Write the tmux attach command directly (no script file needed)
+        // When openInBackground is true, don't use 'activate' to avoid stealing focus
         execSync(`osascript -e '
           tell application "iTerm"
-            activate
+            ${openInBackground ? '' : 'activate'}
             if (count of windows) = 0 then
               create window with default profile
               delay 0.3
@@ -391,18 +395,31 @@ exec $SHELL
       case 'Terminal':
       default:
         // macOS Terminal.app - new tab
-        execSync(`osascript -e '
-          tell application "Terminal"
-            activate
-            tell application "System Events"
-              tell process "Terminal"
-                keystroke "t" using command down
-              end tell
+        // Note: Terminal.app with System Events keystrokes requires activation for Cmd+T
+        // But we can use 'do script' which opens a new window without activation if needed
+        if (openInBackground) {
+          // Open in background: use 'do script' which creates a new window without activating
+          execSync(`osascript -e '
+            tell application "Terminal"
+              do script "${attachCmd}"
+              set custom title of front window to "${windowTitle}"
             end tell
-            delay 0.3
-            do script "${attachCmd}" in front window
-          end tell
-        '`)
+          '`)
+        } else {
+          // Bring to front: use traditional Cmd+T for new tab
+          execSync(`osascript -e '
+            tell application "Terminal"
+              activate
+              tell application "System Events"
+                tell process "Terminal"
+                  keystroke "t" using command down
+                end tell
+              end tell
+              delay 0.3
+              do script "${attachCmd}" in front window
+            end tell
+          '`)
+        }
         break
     }
 
@@ -895,19 +912,30 @@ exec $SHELL
 `
   fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
 
+  // Check if we should open in background (don't steal focus)
+  const openInBackground = config.terminal.openInBackground ?? true
+
   try {
     switch (terminalApp) {
       case 'iTerm':
         // Run script file directly - iTerm will execute it with proper TTY
+        // When openInBackground is true, don't use 'activate' to avoid stealing focus
         execSync(`osascript -e '
           tell application "iTerm"
-            activate
-            tell current window
-              set newTab to (create tab with default profile)
-              tell current session of newTab
+            ${openInBackground ? '' : 'activate'}
+            if (count of windows) = 0 then
+              create window with default profile
+              tell current session of current window
                 write text "${scriptPath}"
               end tell
-            end tell
+            else
+              tell current window
+                set newTab to (create tab with default profile)
+                tell current session of newTab
+                  write text "${scriptPath}"
+                end tell
+              end tell
+            end if
           end tell
         '`)
         break
@@ -959,18 +987,28 @@ exec $SHELL
       case 'Terminal':
       default:
         // Use source to preserve TTY for docker exec
-        execSync(`osascript -e '
-          tell application "Terminal"
-            activate
-            tell application "System Events"
-              tell process "Terminal"
-                keystroke "t" using command down
-              end tell
+        if (openInBackground) {
+          // Open in background: use 'do script' which creates a new window without activating
+          execSync(`osascript -e '
+            tell application "Terminal"
+              do script "source ${scriptPath}"
             end tell
-            delay 0.3
-            do script "source ${scriptPath}" in front window
-          end tell
-        '`)
+          '`)
+        } else {
+          // Bring to front: use traditional Cmd+T for new tab
+          execSync(`osascript -e '
+            tell application "Terminal"
+              activate
+              tell application "System Events"
+                tell process "Terminal"
+                  keystroke "t" using command down
+                end tell
+              end tell
+              delay 0.3
+              do script "source ${scriptPath}" in front window
+            end tell
+          '`)
+        }
         break
     }
 
@@ -1161,14 +1199,17 @@ exec $SHELL
 
     // Open iTerm tab and run the attach script
     const terminalApp = config.terminal.app
+    // Check if we should open in background (don't steal focus)
+    const openInBackground = config.terminal.openInBackground ?? true
 
     switch (terminalApp) {
       case 'iTerm':
         // Create new tab in existing window, or create new window if none exists
         // Set tab name via AppleScript for reliable naming
+        // When openInBackground is true, don't use 'activate' to avoid stealing focus
         execSync(`osascript -e '
           tell application "iTerm"
-            activate
+            ${openInBackground ? '' : 'activate'}
             if (count of windows) = 0 then
               create window with default profile
               tell current session of current window
@@ -1206,18 +1247,28 @@ exec $SHELL
 
       case 'Terminal':
       default:
-        execSync(`osascript -e '
-          tell application "Terminal"
-            activate
-            tell application "System Events"
-              tell process "Terminal"
-                keystroke "t" using command down
-              end tell
+        if (openInBackground) {
+          // Open in background: use 'do script' which creates a new window without activating
+          execSync(`osascript -e '
+            tell application "Terminal"
+              do script "${hostScriptPath}"
             end tell
-            delay 0.3
-            do script "${hostScriptPath}" in front window
-          end tell
-        '`)
+          '`)
+        } else {
+          // Bring to front: use traditional Cmd+T for new tab
+          execSync(`osascript -e '
+            tell application "Terminal"
+              activate
+              tell application "System Events"
+                tell process "Terminal"
+                  keystroke "t" using command down
+                end tell
+              end tell
+              delay 0.3
+              do script "${hostScriptPath}" in front window
+            end tell
+          '`)
+        }
         break
     }
 
