@@ -306,8 +306,8 @@ export interface GenerateEphemeralNameOptions {
 
 /**
  * Generate a unique ephemeral agent name.
- * Format: {adjective}-{theme_name}-{number}
- * Example: "bold-bezos-1", "keen-camry-2"
+ * Format: {adjective}-{theme_name} or {adjective}-{theme_name}-{number}
+ * Example: "bold-bezos", "keen-camry", "bold-bezos-2" (if bold-bezos exists)
  *
  * @param existingNames - Set of existing agent names (for uniqueness checking)
  * @param options - Optional configuration for name generation
@@ -341,6 +341,25 @@ export function generateEphemeralAgentName(
     return shuffled;
   };
 
+  // Helper to check if a candidate name is available
+  const isAvailable = (candidateName: string): boolean => {
+    // Check database/in-memory conflicts first
+    if (existingNames.has(candidateName.toLowerCase())) {
+      return false;
+    }
+
+    // Check external resource conflicts if callback provided
+    if (opts.checkExternalConflict) {
+      const result = opts.checkExternalConflict(candidateName);
+      if (result.conflict) {
+        opts.onConflictSkipped?.(candidateName, result.reason ?? 'external conflict');
+        return false;
+      }
+    }
+
+    return true;
+  };
+
   // Partition base names: prefer unused ones first
   const unusedBaseNames = shuffleArray(allBaseNames.filter(name => !inUseBaseNames.has(name.toLowerCase())));
   const usedBaseNames = shuffleArray(allBaseNames.filter(name => inUseBaseNames.has(name.toLowerCase())));
@@ -353,25 +372,18 @@ export function generateEphemeralAgentName(
     // Pick base name: cycle through ordered list based on attempt
     const themeName = orderedBaseNames[attempt % orderedBaseNames.length];
 
-    // Try finding a unique number suffix (4 digits max)
-    for (let num = 1; num <= 9999; num++) {
+    // First try without a number suffix: "bold-bezos"
+    const nameWithoutNumber = `${adjective}-${themeName}`;
+    if (isAvailable(nameWithoutNumber)) {
+      return nameWithoutNumber;
+    }
+
+    // If taken, try with number suffixes: "bold-bezos-2", "bold-bezos-3", etc.
+    for (let num = 2; num <= 9999; num++) {
       const candidateName = `${adjective}-${themeName}-${num}`;
-
-      // Check database/in-memory conflicts first
-      if (existingNames.has(candidateName.toLowerCase())) {
-        continue;
+      if (isAvailable(candidateName)) {
+        return candidateName;
       }
-
-      // Check external resource conflicts if callback provided
-      if (opts.checkExternalConflict) {
-        const result = opts.checkExternalConflict(candidateName);
-        if (result.conflict) {
-          opts.onConflictSkipped?.(candidateName, result.reason ?? 'external conflict');
-          continue;
-        }
-      }
-
-      return candidateName;
     }
   }
 
@@ -382,16 +394,32 @@ export function generateEphemeralAgentName(
 
 /**
  * Check if a name looks like an ephemeral agent name.
- * Ephemeral names follow pattern: {adjective}-{name}-{number}
+ * Ephemeral names follow pattern: {adjective}-{name} or {adjective}-{name}-{number}
  */
 export function isEphemeralAgentName(name: string): boolean {
   const parts = name.split('-');
-  if (parts.length < 3) return false;
-
-  const lastPart = parts[parts.length - 1];
-  const num = parseInt(lastPart, 10);
-  if (isNaN(num) || num < 1) return false;
+  // Need at least 2 parts: adjective-baseName
+  if (parts.length < 2) return false;
 
   const adjective = parts[0].toLowerCase();
   return AGENT_ADJECTIVES.includes(adjective);
+}
+
+/**
+ * Extract the base name from an ephemeral agent name.
+ * Handles both formats: "bold-bezos" -> "bezos", "bold-bezos-2" -> "bezos"
+ */
+export function extractBaseName(agentName: string): string {
+  const parts = agentName.split('-');
+  if (parts.length < 2) return agentName;
+
+  // Check if last part is a number
+  const lastPart = parts[parts.length - 1];
+  const hasNumber = !isNaN(parseInt(lastPart, 10)) && parts.length >= 3;
+
+  // If has number: adjective-baseName-number -> baseName is middle parts
+  // If no number: adjective-baseName -> baseName is everything after adjective
+  return hasNumber
+    ? parts.slice(1, -1).join('-')
+    : parts.slice(1).join('-');
 }

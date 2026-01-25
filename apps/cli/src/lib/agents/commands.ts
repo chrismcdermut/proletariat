@@ -27,6 +27,7 @@ import {
   GenerateEphemeralNameOptions,
   getThemePersistentDir,
   getThemeEphemeralDir,
+  extractBaseName,
 } from '../themes.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
 import { getPMOContext } from '../pmo/index.js';
@@ -529,12 +530,9 @@ export async function createEphemeralAgent(
       // Agent has explicit base_name stored
       inUseBaseNames.add(agent.base_name.toLowerCase());
     } else if (agent.type === 'ephemeral') {
-      // Extract base name from ephemeral agent name pattern: adjective-baseName-number
-      const parts = agent.name.split('-');
-      if (parts.length >= 3) {
-        const baseName = parts.slice(1, -1).join('-');
-        inUseBaseNames.add(baseName.toLowerCase());
-      }
+      // Extract base name from ephemeral agent name (handles both "bold-bezos" and "bold-bezos-2")
+      const baseName = extractBaseName(agent.name);
+      inUseBaseNames.add(baseName.toLowerCase());
     } else {
       // Staff agent uses its name as the base name
       inUseBaseNames.add(agent.name.toLowerCase());
@@ -571,9 +569,8 @@ export async function createEphemeralAgent(
   };
   const agentName = generateEphemeralAgentName(existingNames, nameOptions);
 
-  // Extract base name from the generated name (e.g., "bezos" from "bold-bezos-1")
-  const parts = agentName.split('-');
-  const baseName = parts.length >= 3 ? parts.slice(1, -1).join('-') : agentName;
+  // Extract base name from the generated name (e.g., "bezos" from "bold-bezos" or "bold-bezos-2")
+  const baseName = extractBaseName(agentName);
 
   // Create temp agents directory if it doesn't exist
   if (!fs.existsSync(tempAgentsBasePath)) {
