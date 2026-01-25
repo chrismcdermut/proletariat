@@ -48,7 +48,6 @@ export interface AgentTheme {
 export interface AgentThemeName {
   theme_id: string;
   name: string;
-  used: boolean;
 }
 
 export interface AgentWorktree {
@@ -99,7 +98,6 @@ CREATE TABLE IF NOT EXISTS agent_themes (
 CREATE TABLE IF NOT EXISTS agent_theme_names (
   theme_id TEXT NOT NULL,
   name TEXT NOT NULL,
-  used BOOLEAN DEFAULT FALSE,
   PRIMARY KEY (theme_id, name),
   FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE CASCADE
 );
@@ -210,13 +208,35 @@ export function openWorkspaceDatabase(workspacePath: string): Database.Database 
     CREATE TABLE IF NOT EXISTS agent_theme_names (
       theme_id TEXT NOT NULL,
       name TEXT NOT NULL,
-      used BOOLEAN DEFAULT FALSE,
       PRIMARY KEY (theme_id, name),
       FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_theme_names_theme ON agent_theme_names(theme_id);
     CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
   `);
+
+  // Migration: drop 'used' column if it exists (no longer needed)
+  try {
+    const tableInfo = db.prepare("PRAGMA table_info(agent_theme_names)").all() as { name: string }[];
+    if (tableInfo.some(col => col.name === 'used')) {
+      // SQLite doesn't support DROP COLUMN directly, so recreate the table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS agent_theme_names_new (
+          theme_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          PRIMARY KEY (theme_id, name),
+          FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE CASCADE
+        );
+        INSERT OR IGNORE INTO agent_theme_names_new (theme_id, name)
+          SELECT theme_id, name FROM agent_theme_names;
+        DROP TABLE agent_theme_names;
+        ALTER TABLE agent_theme_names_new RENAME TO agent_theme_names;
+        CREATE INDEX IF NOT EXISTS idx_theme_names_theme ON agent_theme_names(theme_id);
+      `);
+    }
+  } catch {
+    // Ignore migration errors - table might not exist yet
+  }
 
   return db;
 }
@@ -661,18 +681,11 @@ export function getAgentWorktrees(workspacePath: string, agentName: string): Age
 export function removeAgentsFromDatabase(workspacePath: string, agentNames: string[]): void {
   const db = openWorkspaceDatabase(workspacePath);
 
-  const getAgent = db.prepare('SELECT theme_id, name FROM agents WHERE name = ?');
   const deleteAgent = db.prepare('DELETE FROM agents WHERE name = ?');
-  const clearUsedFlag = db.prepare('UPDATE agent_theme_names SET used = 0 WHERE theme_id = ? AND name = ?');
   // Note: agent_worktrees will be deleted automatically due to CASCADE
 
   const transaction = db.transaction(() => {
     for (const agentName of agentNames) {
-      // Clear used flag if agent came from a theme
-      const agent = getAgent.get(agentName) as { theme_id: string | null; name: string } | undefined;
-      if (agent?.theme_id) {
-        clearUsedFlag.run(agent.theme_id, agentName);
-      }
       deleteAgent.run(agentName);
     }
   });
@@ -750,38 +763,54 @@ export function deleteTheme(workspacePath: string, themeId: string): boolean {
 /**
  * Get names for a theme
  */
-export function getThemeNames(workspacePath: string, themeId: string, includeUsed: boolean = true): AgentThemeName[] {
+export function getThemeNames(workspacePath: string, themeId: string): AgentThemeName[] {
   const db = openWorkspaceDatabase(workspacePath);
-  const query = includeUsed
-    ? 'SELECT * FROM agent_theme_names WHERE theme_id = ? ORDER BY name'
-    : 'SELECT * FROM agent_theme_names WHERE theme_id = ? AND used = 0 ORDER BY name';
-  const names = db.prepare(query).all(themeId) as AgentThemeName[];
+  const names = db.prepare('SELECT * FROM agent_theme_names WHERE theme_id = ? ORDER BY name').all(themeId) as AgentThemeName[];
   db.close();
   return names;
 }
 
 /**
- * Get available (unused) names for a theme
- * Also excludes names that match existing agents (case-insensitive)
+ * Get available names for a theme.
+ * A name is available if:
+ * 1. No staff agent exists in the database with that name (case-insensitive), OR
+ * 2. The agent exists but its worktree directory is missing (manually deleted)
  */
 export function getAvailableThemeNames(workspacePath: string, themeId: string): string[] {
   const db = openWorkspaceDatabase(workspacePath);
 
-  // Get unused theme names
+  // Get all theme names
   const names = db.prepare(
-    'SELECT name FROM agent_theme_names WHERE theme_id = ? AND used = 0 ORDER BY name'
+    'SELECT name FROM agent_theme_names WHERE theme_id = ? ORDER BY name'
   ).all(themeId) as { name: string }[];
 
-  // Get existing agent names (lowercase for comparison)
-  const existingAgents = db.prepare('SELECT LOWER(name) as name FROM agents').all() as { name: string }[];
-  const existingSet = new Set(existingAgents.map(a => a.name));
+  // Get existing staff agents with their worktree paths (persistent type only)
+  const existingAgents = db.prepare(`
+    SELECT LOWER(name) as name, worktree_path
+    FROM agents
+    WHERE type = 'persistent' AND (status = 'active' OR status IS NULL)
+  `).all() as { name: string; worktree_path: string | null }[];
 
   db.close();
 
-  // Filter out names that match existing agents
+  // Build a set of names that are truly in use (agent exists AND worktree exists)
+  const inUseNames = new Set<string>();
+  for (const agent of existingAgents) {
+    if (agent.worktree_path) {
+      const fullPath = path.join(workspacePath, agent.worktree_path);
+      if (fs.existsSync(fullPath)) {
+        inUseNames.add(agent.name);
+      }
+    } else {
+      // No worktree path means we can't verify - treat as in use to be safe
+      inUseNames.add(agent.name);
+    }
+  }
+
+  // Filter out names that are truly in use
   return names
     .map(n => n.name)
-    .filter(name => !existingSet.has(name.toLowerCase()));
+    .filter(name => !inUseNames.has(name.toLowerCase()));
 }
 
 /**
@@ -794,8 +823,8 @@ export function addThemeNames(workspacePath: string, themeId: string, names: str
   const checkExisting = db.prepare('SELECT name FROM agent_theme_names WHERE theme_id = ? AND LOWER(name) = LOWER(?)');
 
   const insertName = db.prepare(`
-    INSERT INTO agent_theme_names (theme_id, name, used)
-    VALUES (?, ?, 0)
+    INSERT INTO agent_theme_names (theme_id, name)
+    VALUES (?, ?)
   `);
 
   const transaction = db.transaction(() => {
@@ -810,23 +839,5 @@ export function addThemeNames(workspacePath: string, themeId: string, names: str
   });
 
   transaction();
-  db.close();
-}
-
-/**
- * Mark a theme name as used
- */
-export function markThemeNameUsed(workspacePath: string, themeId: string, name: string): void {
-  const db = openWorkspaceDatabase(workspacePath);
-  db.prepare('UPDATE agent_theme_names SET used = 1 WHERE theme_id = ? AND name = ?').run(themeId, name);
-  db.close();
-}
-
-/**
- * Mark a theme name as available
- */
-export function markThemeNameAvailable(workspacePath: string, themeId: string, name: string): void {
-  const db = openWorkspaceDatabase(workspacePath);
-  db.prepare('UPDATE agent_theme_names SET used = 0 WHERE theme_id = ? AND name = ?').run(themeId, name);
   db.close();
 }

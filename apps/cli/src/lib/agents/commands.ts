@@ -521,6 +521,26 @@ export async function createEphemeralAgent(
   const ephemeralDir = themeId ? getThemeEphemeralDir(themeId) : workspaceInfo.ephemeralAgentsDir;
   const tempAgentsBasePath = path.join(workspaceInfo.path, 'agents', ephemeralDir);
 
+  // Extract base names currently in use by active agents
+  // This helps the generator prefer fresh base names
+  const inUseBaseNames = new Set<string>();
+  for (const agent of workspaceInfo.agents) {
+    if (agent.base_name) {
+      // Agent has explicit base_name stored
+      inUseBaseNames.add(agent.base_name.toLowerCase());
+    } else if (agent.type === 'ephemeral') {
+      // Extract base name from ephemeral agent name pattern: adjective-baseName-number
+      const parts = agent.name.split('-');
+      if (parts.length >= 3) {
+        const baseName = parts.slice(1, -1).join('-');
+        inUseBaseNames.add(baseName.toLowerCase());
+      }
+    } else {
+      // Staff agent uses its name as the base name
+      inUseBaseNames.add(agent.name.toLowerCase());
+    }
+  }
+
   // Create a conflict checker for external resources (tmux sessions, directories)
   const checkExternalConflict = (candidateName: string): { conflict: boolean; reason?: string } => {
     // Check if a tmux session with this name already exists (could be from manual creation)
@@ -546,7 +566,8 @@ export async function createEphemeralAgent(
   const nameOptions: GenerateEphemeralNameOptions = {
     themeId,
     checkExternalConflict,
-    onConflictSkipped
+    onConflictSkipped,
+    inUseBaseNames
   };
   const agentName = generateEphemeralAgentName(existingNames, nameOptions);
 

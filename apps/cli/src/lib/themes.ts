@@ -297,6 +297,11 @@ export interface GenerateEphemeralNameOptions {
    * Optional callback for logging/messaging when conflicts are detected
    */
   onConflictSkipped?: (name: string, reason: string) => void;
+  /**
+   * Optional set of base names currently in use by active agents.
+   * If provided, the generator will prefer base names NOT in this set.
+   */
+  inUseBaseNames?: Set<string>;
 }
 
 /**
@@ -321,9 +326,32 @@ export function generateEphemeralAgentName(
   // Use specified theme or default (no mixing themes)
   const themeId = opts.themeId ?? DEFAULT_EPHEMERAL_THEME;
 
+  // Get all theme names and partition into preferred (unused) and fallback (in use)
+  const theme = BUILTIN_THEMES.find(t => t.id === themeId) ?? BUILTIN_THEMES[0];
+  const allBaseNames = [...theme.names];
+  const inUseBaseNames = opts.inUseBaseNames ?? new Set<string>();
+
+  // Shuffle arrays for randomness
+  const shuffleArray = <T>(arr: T[]): T[] => {
+    const shuffled = [...arr];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  };
+
+  // Partition base names: prefer unused ones first
+  const unusedBaseNames = shuffleArray(allBaseNames.filter(name => !inUseBaseNames.has(name.toLowerCase())));
+  const usedBaseNames = shuffleArray(allBaseNames.filter(name => inUseBaseNames.has(name.toLowerCase())));
+
+  // Try unused base names first, then fall back to used ones
+  const orderedBaseNames = [...unusedBaseNames, ...usedBaseNames];
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const adjective = pickAdjective();
-    const themeName = pickThemeName(themeId);
+    // Pick base name: cycle through ordered list based on attempt
+    const themeName = orderedBaseNames[attempt % orderedBaseNames.length];
 
     // Try finding a unique number suffix (4 digits max)
     for (let num = 1; num <= 9999; num++) {
