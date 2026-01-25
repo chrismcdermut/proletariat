@@ -80,7 +80,8 @@ export class ExecutionStorage {
 
   /**
    * Create a new execution record.
-   * Uses atomic INSERT with ID generated inside the SQL to prevent collisions.
+   * Uses IMMEDIATE transaction to acquire write lock before reading MAX ID,
+   * preventing race conditions when multiple processes try to insert concurrently.
    */
   createExecution(params: {
     ticketId: string
@@ -98,34 +99,45 @@ export class ExecutionStorage {
   }): AgentWork {
     const now = Date.now()
 
-    // Atomic INSERT: generate ID inside the INSERT statement itself
-    // This prevents race conditions - no separate "generate then insert"
-    const result = this.db.prepare(`
-      INSERT INTO ${T.agent_work} (
-        id, ticket_id, agent_name, executor, environment, display_mode, sandboxed,
-        status, branch, pid, container_id, session_id, host, log_path, started_at
-      ) VALUES (
-        (SELECT 'WORK-' || printf('%03d', COALESCE(MAX(CAST(SUBSTR(id, 6) AS INTEGER)), 0) + 1) FROM ${T.agent_work}),
-        ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?
-      )
-      RETURNING id
-    `).get(
-      params.ticketId,
-      params.agentName,
-      params.executor,
-      params.environment,
-      params.displayMode,
-      params.sandboxed ? 1 : 0,
-      params.branch || null,
-      params.pid || null,
-      params.containerId || null,
-      params.sessionId || null,
-      params.host || null,
-      params.logPath || null,
-      now
-    ) as { id: string }
+    // Use IMMEDIATE transaction to acquire write lock BEFORE reading MAX
+    // This prevents race conditions where multiple processes read the same MAX value
+    const insertExecution = this.db.transaction(() => {
+      // Calculate next ID within the locked transaction
+      const maxResult = this.db.prepare(`
+        SELECT COALESCE(MAX(CAST(SUBSTR(id, 6) AS INTEGER)), 0) as max_num FROM ${T.agent_work}
+      `).get() as { max_num: number }
 
-    return this.getExecution(result.id)!
+      const nextNum = maxResult.max_num + 1
+      const id = `WORK-${String(nextNum).padStart(3, '0')}`
+
+      this.db.prepare(`
+        INSERT INTO ${T.agent_work} (
+          id, ticket_id, agent_name, executor, environment, display_mode, sandboxed,
+          status, branch, pid, container_id, session_id, host, log_path, started_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        params.ticketId,
+        params.agentName,
+        params.executor,
+        params.environment,
+        params.displayMode,
+        params.sandboxed ? 1 : 0,
+        params.branch || null,
+        params.pid || null,
+        params.containerId || null,
+        params.sessionId || null,
+        params.host || null,
+        params.logPath || null,
+        now
+      )
+
+      return id
+    })
+
+    // Execute as IMMEDIATE transaction (acquire write lock at start)
+    const id = insertExecution.immediate()
+    return this.getExecution(id)!
   }
 
   /**
