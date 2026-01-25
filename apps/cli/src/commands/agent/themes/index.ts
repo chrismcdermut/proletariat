@@ -3,7 +3,7 @@ import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { getWorkspaceInfo } from '../../../lib/agents/commands.js';
 import { ensureBuiltinThemes } from '../../../lib/themes.js';
-import { getThemes, getThemeNames } from '../../../lib/database/index.js';
+import { getThemes, getAvailableThemeNames } from '../../../lib/database/index.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
@@ -141,11 +141,10 @@ export default class Themes extends Command {
 
           // Build choices with theme info
           const themeChoices = themes.map(t => {
-            const names = getThemeNames(workspaceInfo.path, t.id);
-            const available = names.filter(n => !n.used).length;
+            const availableNames = getAvailableThemeNames(workspaceInfo.path, t.id);
             const builtinTag = t.builtin ? chalk.dim(' [built-in]') : '';
             return {
-              name: `${t.display_name}${builtinTag} ${chalk.dim(`(${available} names available)`)}`,
+              name: `${t.display_name}${builtinTag} ${chalk.dim(`(${availableNames.length} names available)`)}`,
               value: t.id
             };
           });

@@ -11,7 +11,6 @@ import {
   getTheme,
   getThemes,
   getAvailableThemeNames,
-  markThemeNameUsed,
   getActiveTheme
 } from '../../../lib/database/index.js';
 import {
@@ -120,11 +119,6 @@ export default class Add extends Command {
         }]);
 
         agentNames = selected;
-
-        // Mark selected names as used
-        for (const name of agentNames) {
-          markThemeNameUsed(workspaceInfo.path, themeId, name);
-        }
       }
       // Interactive mode: show names from workspace's active theme
       else if (agentNames.length === 0) {
@@ -202,10 +196,6 @@ export default class Add extends Command {
 
           if (themedSelections.length > 0) {
             agentNames.push(...themedSelections);
-            // Mark themed names as used
-            for (const name of themedSelections) {
-              markThemeNameUsed(workspaceInfo.path, activeTheme.id, name);
-            }
           }
         } else {
           // No active theme - prompt to pick one or enter custom names
@@ -291,10 +281,6 @@ export default class Add extends Command {
             }]);
 
             agentNames = selected;
-
-            for (const name of agentNames) {
-              markThemeNameUsed(workspaceInfo.path, selectedTheme, name);
-            }
           }
         }
 

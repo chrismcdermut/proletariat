@@ -18,7 +18,6 @@ interface ThemeRow {
 interface ThemeNameRow {
   name: string;
   theme_id?: string;
-  used?: number;
 }
 
 interface AgentRow {
@@ -245,7 +244,6 @@ function setupTestDatabase(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS agent_theme_names (
       theme_id TEXT NOT NULL,
       name TEXT NOT NULL,
-      used BOOLEAN DEFAULT FALSE,
       PRIMARY KEY (theme_id, name),
       FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE CASCADE
     );
