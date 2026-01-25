@@ -323,6 +323,7 @@ export interface ExecutionConfig {
     session: string
     layout: 'split' | 'window'
     controlMode: boolean  // Use tmux -CC for iTerm native integration
+    windowMode: 'tab' | 'window'  // How iTerm opens tmux windows: tab in current window, or new window
   }
   terminal: {
     app: TerminalApp
@@ -370,6 +371,7 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
     session: 'proletariat',
     layout: 'window',
     controlMode: true,  // Enable -CC for iTerm native integration by default
+    windowMode: 'tab',  // Open tmux windows as tabs in current window by default
   },
   terminal: {
     app: 'Terminal',
