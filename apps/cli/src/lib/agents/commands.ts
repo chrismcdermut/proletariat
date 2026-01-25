@@ -28,6 +28,7 @@ import {
   getThemePersistentDir,
   getThemeEphemeralDir,
   extractBaseName,
+  getAgentBaseName,
 } from '../themes.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
 import { getPMOContext } from '../pmo/index.js';
@@ -524,20 +525,9 @@ export async function createEphemeralAgent(
 
   // Extract base names currently in use by active agents
   // This helps the generator prefer fresh base names
-  const inUseBaseNames = new Set<string>();
-  for (const agent of workspaceInfo.agents) {
-    if (agent.base_name) {
-      // Agent has explicit base_name stored
-      inUseBaseNames.add(agent.base_name.toLowerCase());
-    } else if (agent.type === 'ephemeral') {
-      // Extract base name from ephemeral agent name (handles both "bold-bezos" and "bold-bezos-2")
-      const baseName = extractBaseName(agent.name);
-      inUseBaseNames.add(baseName.toLowerCase());
-    } else {
-      // Staff agent uses its name as the base name
-      inUseBaseNames.add(agent.name.toLowerCase());
-    }
-  }
+  const inUseBaseNames = new Set(
+    workspaceInfo.agents.map(agent => getAgentBaseName(agent).toLowerCase())
+  );
 
   // Create a conflict checker for external resources (tmux sessions, directories)
   const checkExternalConflict = (candidateName: string): { conflict: boolean; reason?: string } => {

@@ -2,6 +2,7 @@ import {
   createTheme,
   addThemeNames,
   getThemes,
+  Agent,
 } from './database/index.js';
 
 /**
@@ -422,4 +423,16 @@ export function extractBaseName(agentName: string): string {
   return hasNumber
     ? parts.slice(1, -1).join('-')
     : parts.slice(1).join('-');
+}
+
+/**
+ * Get the base name for any agent type.
+ * - If agent has explicit base_name, use it
+ * - If ephemeral, extract from name pattern
+ * - Otherwise (staff), use agent name directly
+ */
+export function getAgentBaseName(agent: Agent): string {
+  if (agent.base_name) return agent.base_name;
+  if (agent.type === 'ephemeral') return extractBaseName(agent.name);
+  return agent.name;
 }

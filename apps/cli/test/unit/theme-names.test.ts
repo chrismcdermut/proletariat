@@ -3,8 +3,10 @@ import {
   generateEphemeralAgentName,
   extractBaseName,
   isEphemeralAgentName,
+  getAgentBaseName,
   BUILTIN_THEMES,
 } from '../../src/lib/themes.js';
+import { Agent } from '../../src/lib/database/index.js';
 
 /**
  * Unit tests for theme name generation and parsing (TKT-503)
@@ -164,6 +166,40 @@ describe('Theme Name Generation (TKT-503)', () => {
     it('should reject single-part names', () => {
       expect(isEphemeralAgentName('bezos')).to.be.false;
       expect(isEphemeralAgentName('bold')).to.be.false;
+    });
+  });
+
+  describe('getAgentBaseName()', () => {
+    const makeAgent = (overrides: Partial<Agent>): Agent => ({
+      name: 'test-agent',
+      type: 'persistent',
+      status: 'active',
+      base_name: null,
+      theme_id: null,
+      worktree_path: null,
+      created_at: new Date().toISOString(),
+      cleaned_at: null,
+      ...overrides,
+    });
+
+    it('should return base_name if explicitly set', () => {
+      const agent = makeAgent({ name: 'bold-bezos', base_name: 'bezos', type: 'ephemeral' });
+      expect(getAgentBaseName(agent)).to.equal('bezos');
+    });
+
+    it('should extract base name for ephemeral agents without base_name', () => {
+      const agent = makeAgent({ name: 'bold-bezos', type: 'ephemeral' });
+      expect(getAgentBaseName(agent)).to.equal('bezos');
+    });
+
+    it('should extract base name for numbered ephemeral agents', () => {
+      const agent = makeAgent({ name: 'keen-musk-2', type: 'ephemeral' });
+      expect(getAgentBaseName(agent)).to.equal('musk');
+    });
+
+    it('should return name directly for staff agents', () => {
+      const agent = makeAgent({ name: 'gates', type: 'persistent' });
+      expect(getAgentBaseName(agent)).to.equal('gates');
     });
   });
 });
