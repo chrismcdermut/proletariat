@@ -16,7 +16,7 @@ import {
   getEphemeralAgentNames,
   getActiveTheme,
   markAgentCleaned,
-  syncAgentsWithDisk,
+  discoverAgentsOnDisk,
   Agent,
   Repository
 } from '../database/index.js';
@@ -27,6 +27,8 @@ import {
   GenerateEphemeralNameOptions,
   getThemePersistentDir,
   getThemeEphemeralDir,
+  extractBaseName,
+  getAgentBaseName,
 } from '../themes.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
 import { getPMOContext } from '../pmo/index.js';
@@ -77,8 +79,8 @@ export function getWorkspaceInfo(): WorkspaceInfo {
       try {
         const config = getWorkspaceConfig(hqPath);
         if (config) {
-          // Sync agents with disk - mark missing ones as cleaned
-          syncAgentsWithDisk(hqPath);
+          // Discover agents on disk and sync with database
+          discoverAgentsOnDisk(hqPath);
           const agents = getWorkspaceAgents(hqPath);
           const repositories = getWorkspaceRepositories(hqPath);
           const activeTheme = getActiveTheme(hqPath);
@@ -117,8 +119,8 @@ export function getWorkspaceInfo(): WorkspaceInfo {
       try {
         const config = getWorkspaceConfig(currentDir);
         if (config) {
-          // Sync agents with disk - mark missing ones as cleaned
-          syncAgentsWithDisk(currentDir);
+          // Discover agents on disk and sync with database
+          discoverAgentsOnDisk(currentDir);
           const agents = getWorkspaceAgents(currentDir);
           const repositories = getWorkspaceRepositories(currentDir);
           const activeTheme = getActiveTheme(currentDir);
@@ -521,6 +523,12 @@ export async function createEphemeralAgent(
   const ephemeralDir = themeId ? getThemeEphemeralDir(themeId) : workspaceInfo.ephemeralAgentsDir;
   const tempAgentsBasePath = path.join(workspaceInfo.path, 'agents', ephemeralDir);
 
+  // Extract base names currently in use by active agents
+  // This helps the generator prefer fresh base names
+  const inUseBaseNames = new Set(
+    workspaceInfo.agents.map(agent => getAgentBaseName(agent).toLowerCase())
+  );
+
   // Create a conflict checker for external resources (tmux sessions, directories)
   const checkExternalConflict = (candidateName: string): { conflict: boolean; reason?: string } => {
     // Check if a tmux session with this name already exists (could be from manual creation)
@@ -546,13 +554,13 @@ export async function createEphemeralAgent(
   const nameOptions: GenerateEphemeralNameOptions = {
     themeId,
     checkExternalConflict,
-    onConflictSkipped
+    onConflictSkipped,
+    inUseBaseNames
   };
   const agentName = generateEphemeralAgentName(existingNames, nameOptions);
 
-  // Extract base name from the generated name (e.g., "bezos" from "bold-bezos-1")
-  const parts = agentName.split('-');
-  const baseName = parts.length >= 3 ? parts.slice(1, -1).join('-') : agentName;
+  // Extract base name from the generated name (e.g., "bezos" from "bold-bezos" or "bold-bezos-2")
+  const baseName = extractBaseName(agentName);
 
   // Create temp agents directory if it doesn't exist
   if (!fs.existsSync(tempAgentsBasePath)) {

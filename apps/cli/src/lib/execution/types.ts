@@ -61,6 +61,15 @@ export type OutputMode =
   | 'interactive'   // Streaming UI (no -p flag) - watch Claude work in real-time
   | 'print'         // Print mode (-p flag) - final result only, good for automation
 
+/**
+ * PermissionMode - How Claude Code handles permission checks.
+ * - danger: Skip permission checks (faster, relies on container/environment isolation)
+ * - safe: Requires approval for dangerous operations
+ */
+export type PermissionMode =
+  | 'danger'        // Skip permission checks (--dangerously-skip-permissions)
+  | 'safe'          // Require approval for dangerous operations
+
 // =============================================================================
 // Executor Types
 // =============================================================================
@@ -314,6 +323,7 @@ export interface ExecutionConfig {
     session: string
     layout: 'split' | 'window'
     controlMode: boolean  // Use tmux -CC for iTerm native integration
+    windowMode: 'tab' | 'window'  // How iTerm opens tmux windows: tab in current window, or new window
   }
   terminal: {
     app: TerminalApp
@@ -362,6 +372,7 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
     session: 'proletariat',
     layout: 'window',
     controlMode: true,  // Enable -CC for iTerm native integration by default
+    windowMode: 'tab',  // Open tmux windows as tabs in current window by default
   },
   terminal: {
     app: 'Terminal',

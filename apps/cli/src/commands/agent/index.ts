@@ -1,7 +1,12 @@
 import { Flags } from '@oclif/core';
+import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
-import { shouldOutputJson } from '../../lib/prompt-json.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+} from '../../lib/prompt-json.js';
 
 export default class Agent extends PMOCommand {
   static description = 'Manage agents in the workspace';
@@ -37,8 +42,7 @@ export default class Agent extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // Define choices once, use for both JSON and interactive modes
-    // Each choice includes the full command for AI agents to execute
+    // Define choices for JSON mode (flat list with commands)
     const menuChoices = [
       { id: 'list', name: 'List all agents', command: 'prlt agent list --format json' },
       { id: 'status', name: 'Show status', command: 'prlt agent status --json' },
@@ -49,6 +53,7 @@ export default class Agent extends PMOCommand {
       { id: 'shell', name: 'Open shell', command: 'prlt agent shell --json' },
       { id: 'restart', name: 'Restart', command: 'prlt agent restart --json' },
       { id: 'rebuild', name: 'Rebuild', command: 'prlt agent rebuild --json' },
+      { id: 'discover', name: 'Discover agents on disk', command: 'prlt agent discover' },
       { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'What would you like to do?';
@@ -59,16 +64,48 @@ export default class Agent extends PMOCommand {
     this.log(colors.textMuted('Use "prlt work spawn" to create ephemeral agents automatically.'));
     this.log('');
 
-    const action = await this.selectFromList({
-      message,
-      items: menuChoices,
-      getName: (c) => c.name,
-      getValue: (c) => c.id,
-      getCommand: (c) => c.command,
-      jsonMode: jsonMode ? { flags, commandName: 'agent' } : null,
-    });
+    // In JSON mode, output flat list with commands
+    if (jsonMode) {
+      outputPromptAsJson(
+        {
+          type: 'list',
+          name: 'action',
+          message,
+          choices: menuChoices.map(c => ({ name: c.name, value: c.id, command: c.command })),
+        },
+        createMetadata('agent', flags)
+      );
+      return;
+    }
 
-    if (action === 'cancel' || !action) {
+    // Interactive mode with separators for logical groupings
+    const { action } = await inquirer.prompt([{
+      type: 'list',
+      name: 'action',
+      message,
+      choices: [
+        // View/Info group
+        { name: '📋 List all agents', value: 'list' },
+        { name: '📊 Show status', value: 'status' },
+        { name: '📂 Visit directory', value: 'visit' },
+        new inquirer.Separator(),
+        // Management group
+        { name: '👔 Manage staff agents', value: 'staff' },
+        { name: '⏱️  Manage temp agents', value: 'temp' },
+        { name: '🎨 Manage themes', value: 'themes' },
+        new inquirer.Separator(),
+        // Operations group
+        { name: '🐚 Open shell', value: 'shell' },
+        { name: '🔄 Restart', value: 'restart' },
+        { name: '🔨 Rebuild', value: 'rebuild' },
+        { name: '🔍 Discover agents on disk', value: 'discover' },
+        new inquirer.Separator(),
+        // Cancel
+        { name: '❌ Cancel', value: 'cancel' },
+      ],
+    }]);
+
+    if (action === 'cancel') {
       this.log(colors.textMuted('Operation cancelled.'));
       return;
     }
@@ -129,6 +166,12 @@ export default class Agent extends PMOCommand {
         case 'shell': {
           const { default: ShellCommand } = await import('./shell.js');
           const cmd = new ShellCommand([], this.config);
+          await cmd.run();
+          break;
+        }
+        case 'discover': {
+          const { default: DiscoverCommand } = await import('./discover.js');
+          const cmd = new DiscoverCommand([], this.config);
           await cmd.run();
           break;
         }

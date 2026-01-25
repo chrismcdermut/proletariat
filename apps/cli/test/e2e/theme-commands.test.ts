@@ -18,7 +18,6 @@ interface ThemeRow {
 interface ThemeNameRow {
   name: string;
   theme_id?: string;
-  used?: number;
 }
 
 interface AgentRow {
@@ -98,7 +97,7 @@ describe('Agent Theme Commands E2E Tests', () => {
       // Verify in database
       const theme = db.prepare('SELECT * FROM agent_themes WHERE id = ?').get('my-team') as ThemeRow | undefined;
       expect(theme).to.exist;
-      expect(theme.name).to.equal('my-team');
+      expect(theme!.name).to.equal('my-team');
     });
 
     it('should auto-format display name from ID', () => {
@@ -245,7 +244,6 @@ function setupTestDatabase(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS agent_theme_names (
       theme_id TEXT NOT NULL,
       name TEXT NOT NULL,
-      used BOOLEAN DEFAULT FALSE,
       PRIMARY KEY (theme_id, name),
       FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE CASCADE
     );

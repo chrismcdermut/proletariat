@@ -59,12 +59,15 @@ export default class Remove extends PMOCommand {
     // Get workspace information
     const workspaceInfo = getWorkspaceInfo();
 
-    if (workspaceInfo.agents.length === 0) {
+    // Filter to staff (persistent) agents only
+    const staffAgents = workspaceInfo.agents.filter(a => a.type === 'persistent');
+
+    if (staffAgents.length === 0) {
       if (jsonMode) {
-        outputErrorAsJson('NO_AGENTS', 'No agents to remove.', createMetadata('agent remove', flags));
+        outputErrorAsJson('NO_AGENTS', 'No staff agents to remove.', createMetadata('agent staff remove', flags));
         return;
       }
-      this.log(colors.warning('No agents to remove.'));
+      this.log(colors.warning('No staff agents to remove.'));
       return;
     }
 
@@ -74,7 +77,7 @@ export default class Remove extends PMOCommand {
     if (!agentName) {
       // Build choices once, use for both JSON and interactive modes
       const agentChoices = [
-        ...workspaceInfo.agents.map((agent) => ({ name: agent.name, value: agent.name })),
+        ...staffAgents.map((agent) => ({ name: agent.name, value: agent.name })),
         { name: 'Cancel', value: 'cancel' },
       ];
       const selectMessage = 'Select agent to remove:';
@@ -109,10 +112,10 @@ export default class Remove extends PMOCommand {
       agentName = selected;
     }
 
-    // Validate agent exists
-    const agent = workspaceInfo.agents.find((a) => a.name === agentName);
+    // Validate agent exists and is a staff agent
+    const agent = staffAgents.find((a) => a.name === agentName);
     if (!agent) {
-      return handleError('AGENT_NOT_FOUND', `Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map((a) => a.name).join(', ')}`);
+      return handleError('AGENT_NOT_FOUND', `Staff agent "${agentName}" not found. Available staff agents: ${staffAgents.map((a) => a.name).join(', ')}`);
     }
 
     const agentsToRemove = [agentName!];

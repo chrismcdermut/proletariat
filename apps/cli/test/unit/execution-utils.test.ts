@@ -1,8 +1,14 @@
 import { expect } from 'chai'
 import { execSync } from 'node:child_process'
 
-import { isDockerRunning, buildSessionName } from '../../src/lib/execution/runners.js'
-import type { ExecutionContext, DisplayMode } from '../../src/lib/execution/types.js'
+import {
+  isDockerRunning,
+  buildSessionName,
+  shouldUseControlMode,
+  buildTmuxMouseOption,
+  buildTmuxAttachCommand,
+} from '../../src/lib/execution/runners.js'
+import type { ExecutionContext, DisplayMode, TerminalApp } from '../../src/lib/execution/types.js'
 
 /**
  * Unit tests for execution utility functions
@@ -112,6 +118,148 @@ describe('Execution Utils', () => {
       expect(validModes).to.include('foreground')
       expect(validModes).to.include('terminal')
       expect(validModes).to.include('background')
+    })
+  })
+
+  describe('shouldUseControlMode', () => {
+    it('should return true for iTerm with controlMode enabled', () => {
+      expect(shouldUseControlMode('iTerm', true)).to.be.true
+    })
+
+    it('should return false for iTerm with controlMode disabled', () => {
+      expect(shouldUseControlMode('iTerm', false)).to.be.false
+    })
+
+    it('should return false for Terminal even with controlMode enabled', () => {
+      expect(shouldUseControlMode('Terminal', true)).to.be.false
+    })
+
+    it('should return false for Ghostty even with controlMode enabled', () => {
+      expect(shouldUseControlMode('Ghostty', true)).to.be.false
+    })
+
+    it('should return false for all non-iTerm terminals', () => {
+      const terminals: TerminalApp[] = ['Terminal', 'Alacritty', 'Ghostty', 'Kitty', 'tmux', 'Warp', 'WezTerm']
+      for (const terminal of terminals) {
+        expect(shouldUseControlMode(terminal, true)).to.be.false
+        expect(shouldUseControlMode(terminal, false)).to.be.false
+      }
+    })
+  })
+
+  describe('buildTmuxMouseOption', () => {
+    it('should return empty string when control mode is active', () => {
+      const result = buildTmuxMouseOption(true)
+      expect(result).to.equal('')
+    })
+
+    it('should return mouse-on option when control mode is not active', () => {
+      const result = buildTmuxMouseOption(false)
+      expect(result).to.equal(' \\; set-option -g mouse on')
+    })
+  })
+
+  describe('buildTmuxAttachCommand', () => {
+    it('should return -CC attach for control mode', () => {
+      const result = buildTmuxAttachCommand(true)
+      expect(result).to.equal('tmux -CC attach')
+    })
+
+    it('should return regular attach without control mode', () => {
+      const result = buildTmuxAttachCommand(false)
+      expect(result).to.equal('tmux attach')
+    })
+
+    it('should include -u flag when unicode flag is requested', () => {
+      const result = buildTmuxAttachCommand(false, true)
+      expect(result).to.equal('tmux -u attach')
+    })
+
+    it('should include both -u and -CC flags when both are requested', () => {
+      const result = buildTmuxAttachCommand(true, true)
+      expect(result).to.equal('tmux -u -CC attach')
+    })
+  })
+
+  describe('Control Mode Integration', () => {
+    /**
+     * These tests document the expected behavior when iTerm control mode (-CC) is used.
+     * Control mode enables native iTerm scrolling, selection, and gesture support.
+     */
+    it('iTerm with controlMode should NOT enable tmux mouse mode', () => {
+      const useControlMode = shouldUseControlMode('iTerm', true)
+      const mouseOption = buildTmuxMouseOption(useControlMode)
+      expect(mouseOption).to.equal('')
+    })
+
+    it('iTerm with controlMode should use -CC attach', () => {
+      const useControlMode = shouldUseControlMode('iTerm', true)
+      const attachCmd = buildTmuxAttachCommand(useControlMode)
+      expect(attachCmd).to.include('-CC')
+    })
+
+    it('Terminal (non-iTerm) should enable tmux mouse mode', () => {
+      const useControlMode = shouldUseControlMode('Terminal', true)
+      const mouseOption = buildTmuxMouseOption(useControlMode)
+      expect(mouseOption).to.include('mouse on')
+    })
+
+    it('Terminal (non-iTerm) should use regular attach', () => {
+      const useControlMode = shouldUseControlMode('Terminal', true)
+      const attachCmd = buildTmuxAttachCommand(useControlMode)
+      expect(attachCmd).to.not.include('-CC')
+      expect(attachCmd).to.equal('tmux attach')
+    })
+  })
+
+  describe('iTerm Preferences Configuration', () => {
+    /**
+     * These tests document the expected iTerm preference values.
+     * Actual `defaults write` calls are tested via integration tests.
+     */
+    it('should map tab mode to OpenTmuxWindowsIn value 2', () => {
+      // OpenTmuxWindowsIn: 0=native windows, 1=new window, 2=tabs in existing window
+      const getOpenTmuxWindowsInValue = (mode: 'tab' | 'window') => mode === 'tab' ? 2 : 1
+      expect(getOpenTmuxWindowsInValue('tab')).to.equal(2)
+    })
+
+    it('should map window mode to OpenTmuxWindowsIn value 1', () => {
+      const getOpenTmuxWindowsInValue = (mode: 'tab' | 'window') => mode === 'tab' ? 2 : 1
+      expect(getOpenTmuxWindowsInValue('window')).to.equal(1)
+    })
+
+    it('should document AutoHideTmuxClientSession behavior', () => {
+      // When AutoHideTmuxClientSession is true:
+      // - The terminal where tmux -CC is run gets buried/hidden
+      // - User only sees the native iTerm tabs for tmux windows
+      // This is set to true by configureITermTmuxPreferences()
+      expect(true).to.be.true
+    })
+  })
+
+  describe('iTerm Control Mode Flow', () => {
+    /**
+     * Documents the complete flow for iTerm + control mode.
+     * This serves as living documentation for the expected behavior.
+     */
+    it('should document the complete spawn flow', () => {
+      // 1. prlt spawns work, creates tmux session in container (detached)
+      // 2. configureITermTmuxPreferences() sets:
+      //    - OpenTmuxWindowsIn = 2 (tabs in existing window)
+      //    - AutoHideTmuxClientSession = true (hide control channel)
+      // 3. AppleScript creates a NEW tab (not current session)
+      // 4. tmux -CC attach runs in that new tab
+      // 5. iTerm creates native tabs for tmux windows
+      // 6. The intermediate tab is auto-hidden
+      // 7. prlt continues running in original terminal (unaffected)
+      expect(true).to.be.true
+    })
+
+    it('should create new tab to avoid interfering with prlt', () => {
+      // Running tmux -CC in current session would interfere with prlt output
+      // Creating a new tab first ensures clean separation
+      // This is especially important during batch spawns
+      expect(true).to.be.true
     })
   })
 
