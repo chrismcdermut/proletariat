@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { getThemePersistentDir } from '../themes.js';
+import { getThemePersistentDir, isEphemeralAgentName } from '../themes.js';
 import { PMO_SCHEMA_SQL } from '../pmo/schema.js';
 
 export interface WorkspaceConfig {
@@ -163,6 +163,22 @@ function ensureEphemeralAgentTypes(db: Database.Database): void {
     WHERE type != 'ephemeral'
     AND name GLOB '*-*-[0-9]*'
   `);
+
+  // Also detect numberless ephemeral names (e.g., bold-bezos) using isEphemeralAgentName()
+  // This catches agents that match the adjective-name pattern but don't have a number suffix
+  const potentialEphemeral = db.prepare(`
+    SELECT name FROM agents
+    WHERE type != 'ephemeral'
+    AND name LIKE '%-%'
+    AND name NOT GLOB '*-*-[0-9]*'
+  `).all() as { name: string }[];
+
+  const updateStmt = db.prepare("UPDATE agents SET type = 'ephemeral' WHERE name = ?");
+  for (const agent of potentialEphemeral) {
+    if (isEphemeralAgentName(agent.name)) {
+      updateStmt.run(agent.name);
+    }
+  }
 }
 
 /**
