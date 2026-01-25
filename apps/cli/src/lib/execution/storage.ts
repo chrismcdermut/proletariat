@@ -136,7 +136,8 @@ export class ExecutionStorage {
   }
 
   /**
-   * Create a new execution record
+   * Create a new execution record.
+   * Includes retry logic to handle ID collisions (e.g., from stale sequence values).
    */
   createExecution(params: {
     ticketId: string
@@ -152,32 +153,72 @@ export class ExecutionStorage {
     host?: string
     logPath?: string
   }): AgentWork {
-    const id = generateWorkId(this.db)
     const now = Date.now()
+    const maxRetries = 5
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const id = generateWorkId(this.db)
+
+      try {
+        this.db.prepare(`
+          INSERT INTO ${T.agent_work} (
+            id, ticket_id, agent_name, executor, environment, display_mode, sandboxed,
+            status, branch, pid, container_id, session_id, host, log_path, started_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          id,
+          params.ticketId,
+          params.agentName,
+          params.executor,
+          params.environment,
+          params.displayMode,
+          params.sandboxed ? 1 : 0,
+          params.branch || null,
+          params.pid || null,
+          params.containerId || null,
+          params.sessionId || null,
+          params.host || null,
+          params.logPath || null,
+          now
+        )
+
+        return this.getExecution(id)!
+      } catch (error) {
+        // Check if it's a UNIQUE constraint error on id
+        const isUniqueError = error instanceof Error &&
+          error.message.includes('UNIQUE constraint failed') &&
+          error.message.includes('agent_work.id')
+
+        if (isUniqueError && attempt < maxRetries - 1) {
+          // Force sequence to sync with actual MAX(id) before retry
+          this.syncIdSequence()
+          continue
+        }
+
+        // Re-throw if not a UNIQUE error or we've exhausted retries
+        throw error
+      }
+    }
+
+    // Should never reach here, but TypeScript needs this
+    throw new Error('Failed to create execution after max retries')
+  }
+
+  /**
+   * Force the id_sequences table to sync with actual MAX(id) in agent_work.
+   * Used for recovery when IDs collide due to stale sequence values.
+   */
+  private syncIdSequence(): void {
+    const maxResult = this.db.prepare(`
+      SELECT MAX(CAST(SUBSTR(id, 6) AS INTEGER)) as max_num FROM ${T.agent_work}
+    `).get() as { max_num: number | null }
+    const maxExistingId = maxResult?.max_num || 0
 
     this.db.prepare(`
-      INSERT INTO ${T.agent_work} (
-        id, ticket_id, agent_name, executor, environment, display_mode, sandboxed,
-        status, branch, pid, container_id, session_id, host, log_path, started_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      params.ticketId,
-      params.agentName,
-      params.executor,
-      params.environment,
-      params.displayMode,
-      params.sandboxed ? 1 : 0,
-      params.branch || null,
-      params.pid || null,
-      params.containerId || null,
-      params.sessionId || null,
-      params.host || null,
-      params.logPath || null,
-      now
-    )
-
-    return this.getExecution(id)!
+      UPDATE ${T.id_sequences}
+      SET next_id = ?
+      WHERE table_name = 'agent_work'
+    `).run(maxExistingId + 1)
   }
 
   /**
