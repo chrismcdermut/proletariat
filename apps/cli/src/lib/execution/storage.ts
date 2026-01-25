@@ -68,63 +68,6 @@ function rowToAgentWork(row: AgentWorkRow): AgentWork {
 }
 
 // =============================================================================
-// ID Generation
-// =============================================================================
-
-/**
- * Generate a unique work ID using a sequence table.
- * This avoids ID collisions when rows are deleted (unlike COUNT(*) or MAX(id)).
- * The sequence only ever increments, never reuses IDs.
- *
- * Self-healing: If sequence is behind MAX(id), it auto-corrects.
- */
-function generateWorkId(db: Database.Database): string {
-  // Ensure id_sequences table exists (for existing databases)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS ${T.id_sequences} (
-      table_name TEXT PRIMARY KEY,
-      next_id INTEGER NOT NULL DEFAULT 1
-    )
-  `)
-
-  // Get current MAX(id) from agent_work table
-  const maxResult = db.prepare(`
-    SELECT MAX(CAST(SUBSTR(id, 6) AS INTEGER)) as max_num FROM ${T.agent_work}
-  `).get() as { max_num: number | null }
-  const maxExistingId = maxResult?.max_num || 0
-
-  // Get current sequence value (if exists)
-  const existing = db.prepare(`
-    SELECT next_id FROM ${T.id_sequences} WHERE table_name = 'agent_work'
-  `).get() as { next_id: number } | undefined
-
-  if (!existing) {
-    // Initialize sequence from MAX(id) + 1
-    db.prepare(`
-      INSERT INTO ${T.id_sequences} (table_name, next_id)
-      VALUES ('agent_work', ?)
-    `).run(maxExistingId + 1)
-  } else if (existing.next_id <= maxExistingId) {
-    // Self-healing: sequence is behind, fix it
-    db.prepare(`
-      UPDATE ${T.id_sequences}
-      SET next_id = ?
-      WHERE table_name = 'agent_work'
-    `).run(maxExistingId + 1)
-  }
-
-  // Atomically get and increment the sequence
-  const result = db.prepare(`
-    UPDATE ${T.id_sequences}
-    SET next_id = next_id + 1
-    WHERE table_name = 'agent_work'
-    RETURNING next_id - 1 as current_id
-  `).get() as { current_id: number }
-
-  return `WORK-${String(result.current_id).padStart(3, '0')}`
-}
-
-// =============================================================================
 // Execution Storage Class
 // =============================================================================
 
@@ -137,7 +80,7 @@ export class ExecutionStorage {
 
   /**
    * Create a new execution record.
-   * Includes retry logic to handle ID collisions (e.g., from stale sequence values).
+   * Uses atomic INSERT with ID generated inside the SQL to prevent collisions.
    */
   createExecution(params: {
     ticketId: string
@@ -154,71 +97,35 @@ export class ExecutionStorage {
     logPath?: string
   }): AgentWork {
     const now = Date.now()
-    const maxRetries = 5
 
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      const id = generateWorkId(this.db)
+    // Atomic INSERT: generate ID inside the INSERT statement itself
+    // This prevents race conditions - no separate "generate then insert"
+    const result = this.db.prepare(`
+      INSERT INTO ${T.agent_work} (
+        id, ticket_id, agent_name, executor, environment, display_mode, sandboxed,
+        status, branch, pid, container_id, session_id, host, log_path, started_at
+      ) VALUES (
+        (SELECT 'WORK-' || printf('%03d', COALESCE(MAX(CAST(SUBSTR(id, 6) AS INTEGER)), 0) + 1) FROM ${T.agent_work}),
+        ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?
+      )
+      RETURNING id
+    `).get(
+      params.ticketId,
+      params.agentName,
+      params.executor,
+      params.environment,
+      params.displayMode,
+      params.sandboxed ? 1 : 0,
+      params.branch || null,
+      params.pid || null,
+      params.containerId || null,
+      params.sessionId || null,
+      params.host || null,
+      params.logPath || null,
+      now
+    ) as { id: string }
 
-      try {
-        this.db.prepare(`
-          INSERT INTO ${T.agent_work} (
-            id, ticket_id, agent_name, executor, environment, display_mode, sandboxed,
-            status, branch, pid, container_id, session_id, host, log_path, started_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          id,
-          params.ticketId,
-          params.agentName,
-          params.executor,
-          params.environment,
-          params.displayMode,
-          params.sandboxed ? 1 : 0,
-          params.branch || null,
-          params.pid || null,
-          params.containerId || null,
-          params.sessionId || null,
-          params.host || null,
-          params.logPath || null,
-          now
-        )
-
-        return this.getExecution(id)!
-      } catch (error) {
-        // Check if it's a UNIQUE constraint error on id
-        const isUniqueError = error instanceof Error &&
-          error.message.includes('UNIQUE constraint failed') &&
-          error.message.includes('agent_work.id')
-
-        if (isUniqueError && attempt < maxRetries - 1) {
-          // Force sequence to sync with actual MAX(id) before retry
-          this.syncIdSequence()
-          continue
-        }
-
-        // Re-throw if not a UNIQUE error or we've exhausted retries
-        throw error
-      }
-    }
-
-    // Should never reach here, but TypeScript needs this
-    throw new Error('Failed to create execution after max retries')
-  }
-
-  /**
-   * Force the id_sequences table to sync with actual MAX(id) in agent_work.
-   * Used for recovery when IDs collide due to stale sequence values.
-   */
-  private syncIdSequence(): void {
-    const maxResult = this.db.prepare(`
-      SELECT MAX(CAST(SUBSTR(id, 6) AS INTEGER)) as max_num FROM ${T.agent_work}
-    `).get() as { max_num: number | null }
-    const maxExistingId = maxResult?.max_num || 0
-
-    this.db.prepare(`
-      UPDATE ${T.id_sequences}
-      SET next_id = ?
-      WHERE table_name = 'agent_work'
-    `).run(maxExistingId + 1)
+    return this.getExecution(result.id)!
   }
 
   /**
