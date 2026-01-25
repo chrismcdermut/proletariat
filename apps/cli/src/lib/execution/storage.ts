@@ -85,11 +85,23 @@ function generateWorkId(db: Database.Database): string {
     )
   `)
 
-  // Initialize sequence for agent_work if not exists
-  db.prepare(`
-    INSERT OR IGNORE INTO ${T.id_sequences} (table_name, next_id)
-    VALUES ('agent_work', 1)
-  `).run()
+  // Check if sequence exists for agent_work
+  const existing = db.prepare(`
+    SELECT next_id FROM ${T.id_sequences} WHERE table_name = 'agent_work'
+  `).get() as { next_id: number } | undefined
+
+  if (!existing) {
+    // Initialize sequence from existing MAX(id) to avoid collisions with existing data
+    const maxResult = db.prepare(`
+      SELECT MAX(CAST(SUBSTR(id, 6) AS INTEGER)) as max_num FROM ${T.agent_work}
+    `).get() as { max_num: number | null }
+    const startId = (maxResult?.max_num || 0) + 1
+
+    db.prepare(`
+      INSERT INTO ${T.id_sequences} (table_name, next_id)
+      VALUES ('agent_work', ?)
+    `).run(startId)
+  }
 
   // Atomically get and increment the sequence
   const result = db.prepare(`
