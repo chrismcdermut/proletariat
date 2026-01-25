@@ -363,10 +363,26 @@ exec $SHELL
     const tmuxAttach = buildTmuxAttachCommand(useControlMode)
     const attachCmd = `clear && ${tmuxAttach} -t \\"${sessionName}\\"`
 
+    // For iTerm with control mode, just run the -CC attach directly
+    // iTerm will create its own native window for the tmux session
+    if (terminalApp === 'iTerm' && useControlMode) {
+      execSync(`osascript -e '
+        tell application "iTerm"
+          activate
+          tell current session of current window
+            write text "tmux -CC attach -t \\"${sessionName}\\""
+          end tell
+        end tell
+      '`)
+      return {
+        success: true,
+        sessionId: sessionName,
+      }
+    }
+
     switch (terminalApp) {
       case 'iTerm':
-        // iTerm2 - new tab in current window
-        // Write the tmux attach command directly (no script file needed)
+        // Without control mode, create a new tab and attach normally
         execSync(`osascript -e '
           tell application "iTerm"
             activate
@@ -1193,6 +1209,28 @@ exec bash
     const tmuxAttach = buildTmuxAttachCommand(useControlMode, true)
     const attachCmd = `docker exec -it ${actualContainerId} ${tmuxAttach} -t "${sessionName}"`
 
+    // Open terminal and run the attach command
+    const terminalApp = config.terminal.app
+
+    // For iTerm with control mode, just run the -CC attach directly
+    // iTerm will create its own native window for the tmux session
+    if (terminalApp === 'iTerm' && useControlMode) {
+      execSync(`osascript -e '
+        tell application "iTerm"
+          activate
+          tell current session of current window
+            write text "docker exec -it ${actualContainerId} tmux -u -CC attach -t \\"${sessionName}\\""
+          end tell
+        end tell
+      '`)
+      return {
+        success: true,
+        containerId: actualContainerId,
+        sessionId: sessionName,
+      }
+    }
+
+    // For all other cases, create a script file and open in a new tab
     const baseDir = context.hqPath
       ? path.join(context.hqPath, '.proletariat', 'scripts')
       : path.join(os.homedir(), '.proletariat', 'scripts')
@@ -1214,13 +1252,9 @@ exec $SHELL
 `
     fs.writeFileSync(hostScriptPath, hostScript, { mode: 0o755 })
 
-    // Open iTerm tab and run the attach script
-    const terminalApp = config.terminal.app
-
     switch (terminalApp) {
       case 'iTerm':
-        // Create new tab in existing window, or create new window if none exists
-        // Set tab name via AppleScript for reliable naming
+        // Without control mode, create a new tab and attach normally
         execSync(`osascript -e '
           tell application "iTerm"
             activate
