@@ -633,6 +633,19 @@ export function isDockerRunning(): boolean {
   return false
 }
 
+/**
+ * Check if the devcontainer CLI is installed.
+ * Returns true if the CLI is available, false otherwise.
+ */
+export function isDevcontainerCliInstalled(): boolean {
+  try {
+    execSync('which devcontainer', { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
 // =============================================================================
 // Devcontainer Runner
 // =============================================================================

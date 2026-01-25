@@ -35,7 +35,7 @@ import {
   generateBranchName,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
-import { runExecution, isDockerRunning, isGitHubTokenAvailable } from '../../lib/execution/runners.js'
+import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } from '../../lib/execution/runners.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
 import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
@@ -802,6 +802,18 @@ export default class WorkStart extends PMOCommand {
                 'Docker is not running.\n' +
                 'Docker is required for devcontainer execution.\n' +
                 'Please start Docker Desktop or select "host" to run directly on your machine.'
+              )
+              this.log('')
+              continue  // Re-prompt for environment selection
+            }
+
+            // Check devcontainer CLI is installed
+            if (!isDevcontainerCliInstalled()) {
+              this.log('')
+              this.warn(
+                'devcontainer CLI is not installed.\n' +
+                'Install with: npm install -g @devcontainers/cli\n' +
+                'Or select "host" to run directly on your machine.'
               )
               this.log('')
               continue  // Re-prompt for environment selection

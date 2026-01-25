@@ -26,7 +26,7 @@ import {
   ExecutionEnvironment,
   DEFAULT_EXECUTION_CONFIG,
 } from '../lib/execution/types.js'
-import { runExecution, isDockerRunning, isGitHubTokenAvailable } from '../lib/execution/runners.js'
+import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } from '../lib/execution/runners.js'
 import { ExecutionStorage } from '../lib/execution/storage.js'
 import {
   loadExecutionConfig,
@@ -221,6 +221,17 @@ export default class Claude extends Command {
           if (!isDockerRunning()) {
             this.log('')
             this.warn('Docker is not running. Please start Docker Desktop or select "host".')
+            this.log('')
+            continue
+          }
+
+          if (!isDevcontainerCliInstalled()) {
+            this.log('')
+            this.warn(
+              'devcontainer CLI is not installed.\n' +
+              'Install with: npm install -g @devcontainers/cli\n' +
+              'Or select "host" to run directly on your machine.'
+            )
             this.log('')
             continue
           }
@@ -638,6 +649,17 @@ export default class Claude extends Command {
             if (!isDockerRunning()) {
               this.log('')
               this.warn('Docker is not running. Please start Docker Desktop or select "host".')
+              this.log('')
+              continue
+            }
+
+            if (!isDevcontainerCliInstalled()) {
+              this.log('')
+              this.warn(
+                'devcontainer CLI is not installed.\n' +
+                'Install with: npm install -g @devcontainers/cli\n' +
+                'Or select "host" to run directly on your machine.'
+              )
               this.log('')
               continue
             }

@@ -19,7 +19,7 @@ import {
   Shell,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
-import { runExecution, isDockerRunning } from '../../lib/execution/runners.js'
+import { runExecution, isDockerRunning, isDevcontainerCliInstalled } from '../../lib/execution/runners.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { loadExecutionConfig, getTerminalApp, getShell, hasTerminalPreference, hasShellPreference } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
@@ -113,6 +113,16 @@ export default class WorkRevise extends PMOCommand {
         'Docker is not running.\n\n' +
         'Docker is required for devcontainer execution (recommended for agent sandboxing).\n' +
         'Please start Docker Desktop and try again.\n\n' +
+        'Alternatively, use --run-on-host to run directly on your machine (bypasses sandbox).'
+      )
+    }
+
+    // Early devcontainer CLI check
+    if (!flags['run-on-host'] && !isDevcontainerCliInstalled()) {
+      return handleError(
+        'DEVCONTAINER_CLI_NOT_INSTALLED',
+        'devcontainer CLI is not installed.\n\n' +
+        'Install with: npm install -g @devcontainers/cli\n\n' +
         'Alternatively, use --run-on-host to run directly on your machine (bypasses sandbox).'
       )
     }

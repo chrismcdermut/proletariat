@@ -9,7 +9,7 @@ import {
   getTicketTmuxSession,
   killTmuxSession
 } from '../../lib/agents/commands.js'
-import { isDockerRunning, isGitHubTokenAvailable } from '../../lib/execution/runners.js'
+import { isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } from '../../lib/execution/runners.js'
 import { PermissionMode } from '../../lib/execution/types.js'
 import {
   shouldOutputJson,
@@ -697,6 +697,17 @@ export default class WorkSpawn extends PMOCommand {
                   'Docker is not running.\n' +
                   'Docker is required for devcontainer execution.\n' +
                   'Please start Docker Desktop or select "host" to run directly on your machine.'
+                )
+                this.log('')
+                continue
+              }
+
+              if (!isDevcontainerCliInstalled()) {
+                this.log('')
+                this.warn(
+                  'devcontainer CLI is not installed.\n' +
+                  'Install with: npm install -g @devcontainers/cli\n' +
+                  'Or select "host" to run directly on your machine.'
                 )
                 this.log('')
                 continue
