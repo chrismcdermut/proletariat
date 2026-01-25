@@ -87,6 +87,21 @@ export function buildTmuxAttachCommand(useControlMode: boolean, includeUnicodeFl
   return `tmux ${unicodeFlag}attach`
 }
 
+/**
+ * Configure iTerm tmux window mode preference.
+ * This controls whether tmux -CC opens windows as tabs or new windows.
+ * @param mode - 'tab' for tabs in current window, 'window' for new windows
+ */
+export function configureITermTmuxWindowMode(mode: 'tab' | 'window'): void {
+  // OpenTmuxWindowsIn: 0=native windows, 1=new window, 2=tabs in existing window
+  const value = mode === 'tab' ? 2 : 1
+  try {
+    execSync(`defaults write com.googlecode.iterm2 OpenTmuxWindowsIn -int ${value}`, { stdio: 'pipe' })
+  } catch {
+    // Non-fatal - preference setting failed but execution can continue
+  }
+}
+
 // =============================================================================
 // Executor Commands
 // =============================================================================
@@ -364,8 +379,11 @@ exec $SHELL
     const attachCmd = `clear && ${tmuxAttach} -t \\"${sessionName}\\"`
 
     // For iTerm with control mode, just run the -CC attach directly
-    // iTerm will create its own native window for the tmux session
+    // iTerm will create its own native window/tab for the tmux session
     if (terminalApp === 'iTerm' && useControlMode) {
+      // Configure iTerm to open tmux windows as tabs or windows based on user preference
+      configureITermTmuxWindowMode(config.tmux.windowMode)
+
       execSync(`osascript -e '
         tell application "iTerm"
           activate
@@ -1213,8 +1231,11 @@ exec bash
     const terminalApp = config.terminal.app
 
     // For iTerm with control mode, just run the -CC attach directly
-    // iTerm will create its own native window for the tmux session
+    // iTerm will create its own native window/tab for the tmux session
     if (terminalApp === 'iTerm' && useControlMode) {
+      // Configure iTerm to open tmux windows as tabs or windows based on user preference
+      configureITermTmuxWindowMode(config.tmux.windowMode)
+
       execSync(`osascript -e '
         tell application "iTerm"
           activate
