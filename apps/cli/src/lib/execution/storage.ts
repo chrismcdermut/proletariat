@@ -6,6 +6,7 @@
 
 import Database from 'better-sqlite3'
 import { execSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { PMO_TABLES } from '../pmo/schema.js'
 import {
   AgentWork,
@@ -80,8 +81,7 @@ export class ExecutionStorage {
 
   /**
    * Create a new execution record.
-   * Uses IMMEDIATE transaction to acquire write lock before reading MAX ID,
-   * preventing race conditions when multiple processes try to insert concurrently.
+   * Uses UUID-based IDs to guarantee uniqueness without race conditions.
    */
   createExecution(params: {
     ticketId: string
@@ -99,44 +99,32 @@ export class ExecutionStorage {
   }): AgentWork {
     const now = Date.now()
 
-    // Use IMMEDIATE transaction to acquire write lock BEFORE reading MAX
-    // This prevents race conditions where multiple processes read the same MAX value
-    const insertExecution = this.db.transaction(() => {
-      // Calculate next ID within the locked transaction
-      const maxResult = this.db.prepare(`
-        SELECT COALESCE(MAX(CAST(SUBSTR(id, 6) AS INTEGER)), 0) as max_num FROM ${T.agent_work}
-      `).get() as { max_num: number }
+    // Generate a unique ID using UUID (first 8 chars, uppercase)
+    // Format: WORK-A1B2C3D4 - guaranteed unique, no race conditions
+    const id = `WORK-${randomUUID().substring(0, 8).toUpperCase()}`
 
-      const nextNum = maxResult.max_num + 1
-      const id = `WORK-${String(nextNum).padStart(3, '0')}`
+    this.db.prepare(`
+      INSERT INTO ${T.agent_work} (
+        id, ticket_id, agent_name, executor, environment, display_mode, sandboxed,
+        status, branch, pid, container_id, session_id, host, log_path, started_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      params.ticketId,
+      params.agentName,
+      params.executor,
+      params.environment,
+      params.displayMode,
+      params.sandboxed ? 1 : 0,
+      params.branch || null,
+      params.pid || null,
+      params.containerId || null,
+      params.sessionId || null,
+      params.host || null,
+      params.logPath || null,
+      now
+    )
 
-      this.db.prepare(`
-        INSERT INTO ${T.agent_work} (
-          id, ticket_id, agent_name, executor, environment, display_mode, sandboxed,
-          status, branch, pid, container_id, session_id, host, log_path, started_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        id,
-        params.ticketId,
-        params.agentName,
-        params.executor,
-        params.environment,
-        params.displayMode,
-        params.sandboxed ? 1 : 0,
-        params.branch || null,
-        params.pid || null,
-        params.containerId || null,
-        params.sessionId || null,
-        params.host || null,
-        params.logPath || null,
-        now
-      )
-
-      return id
-    })
-
-    // Execute as IMMEDIATE transaction (acquire write lock at start)
-    const id = insertExecution.immediate()
     return this.getExecution(id)!
   }
 
