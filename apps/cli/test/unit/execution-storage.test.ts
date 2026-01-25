@@ -359,6 +359,36 @@ describe('ExecutionStorage', () => {
       })
       expect(exec.id).to.equal('WORK-001')
     })
+
+    it('self-heals when sequence is behind existing IDs (migration)', () => {
+      // Simulate existing data from before sequence table existed
+      db.prepare(`
+        INSERT INTO ${PMO_TABLES.agent_work} (
+          id, ticket_id, agent_name, executor, environment, display_mode,
+          sandboxed, status, started_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run('WORK-010', 'TKT-OLD', 'old-agent', 'claude-code', 'host', 'terminal', 1, 'completed', Date.now())
+
+      // Simulate a broken sequence that was initialized to 1
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS id_sequences (
+          table_name TEXT PRIMARY KEY,
+          next_id INTEGER NOT NULL DEFAULT 1
+        )
+      `)
+      db.prepare(`INSERT OR REPLACE INTO id_sequences (table_name, next_id) VALUES ('agent_work', 1)`).run()
+
+      // Now create a new execution - should self-heal and use WORK-011, not WORK-001
+      const exec = storage.createExecution({
+        ticketId: 'TKT-NEW',
+        agentName: 'new-agent',
+        executor: 'claude-code',
+        environment: 'host',
+        displayMode: 'terminal',
+        sandboxed: true,
+      })
+      expect(exec.id).to.equal('WORK-011')
+    })
   })
 
   describe('getAgentRunningExecutions', () => {

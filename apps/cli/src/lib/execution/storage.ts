@@ -75,6 +75,8 @@ function rowToAgentWork(row: AgentWorkRow): AgentWork {
  * Generate a unique work ID using a sequence table.
  * This avoids ID collisions when rows are deleted (unlike COUNT(*) or MAX(id)).
  * The sequence only ever increments, never reuses IDs.
+ *
+ * Self-healing: If sequence is behind MAX(id), it auto-corrects.
  */
 function generateWorkId(db: Database.Database): string {
   // Ensure id_sequences table exists (for existing databases)
@@ -85,22 +87,30 @@ function generateWorkId(db: Database.Database): string {
     )
   `)
 
-  // Check if sequence exists for agent_work
+  // Get current MAX(id) from agent_work table
+  const maxResult = db.prepare(`
+    SELECT MAX(CAST(SUBSTR(id, 6) AS INTEGER)) as max_num FROM ${T.agent_work}
+  `).get() as { max_num: number | null }
+  const maxExistingId = maxResult?.max_num || 0
+
+  // Get current sequence value (if exists)
   const existing = db.prepare(`
     SELECT next_id FROM ${T.id_sequences} WHERE table_name = 'agent_work'
   `).get() as { next_id: number } | undefined
 
   if (!existing) {
-    // Initialize sequence from existing MAX(id) to avoid collisions with existing data
-    const maxResult = db.prepare(`
-      SELECT MAX(CAST(SUBSTR(id, 6) AS INTEGER)) as max_num FROM ${T.agent_work}
-    `).get() as { max_num: number | null }
-    const startId = (maxResult?.max_num || 0) + 1
-
+    // Initialize sequence from MAX(id) + 1
     db.prepare(`
       INSERT INTO ${T.id_sequences} (table_name, next_id)
       VALUES ('agent_work', ?)
-    `).run(startId)
+    `).run(maxExistingId + 1)
+  } else if (existing.next_id <= maxExistingId) {
+    // Self-healing: sequence is behind, fix it
+    db.prepare(`
+      UPDATE ${T.id_sequences}
+      SET next_id = ?
+      WHERE table_name = 'agent_work'
+    `).run(maxExistingId + 1)
   }
 
   // Atomically get and increment the sequence
