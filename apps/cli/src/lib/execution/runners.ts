@@ -416,29 +416,62 @@ exec $SHELL
     switch (terminalApp) {
       case 'iTerm':
         // Without control mode, create a new tab and attach normally
-        // When openInBackground is true, don't use 'activate' to avoid stealing focus
-        execSync(`osascript -e '
-          tell application "iTerm"
-            ${openInBackground ? '' : 'activate'}
-            if (count of windows) = 0 then
-              create window with default profile
-              delay 0.3
-              tell current session of current window
-                set name to "${windowTitle}"
-                write text "${attachCmd}"
-              end tell
-            else
-              tell current window
-                set newTab to (create tab with default profile)
+        // When openInBackground is true, save frontmost app and restore after
+        if (openInBackground) {
+          execSync(`osascript -e '
+            -- Save the currently active application
+            tell application "System Events"
+              set frontApp to name of first application process whose frontmost is true
+            end tell
+
+            tell application "iTerm"
+              if (count of windows) = 0 then
+                create window with default profile
                 delay 0.3
-                tell current session of newTab
+                tell current session of current window
                   set name to "${windowTitle}"
                   write text "${attachCmd}"
                 end tell
-              end tell
-            end if
-          end tell
-        '`)
+              else
+                tell current window
+                  set newTab to (create tab with default profile)
+                  delay 0.3
+                  tell current session of newTab
+                    set name to "${windowTitle}"
+                    write text "${attachCmd}"
+                  end tell
+                end tell
+              end if
+            end tell
+
+            -- Restore focus to the original application
+            delay 0.1
+            tell application frontApp to activate
+          '`)
+        } else {
+          execSync(`osascript -e '
+            tell application "iTerm"
+              activate
+              if (count of windows) = 0 then
+                create window with default profile
+                delay 0.3
+                tell current session of current window
+                  set name to "${windowTitle}"
+                  write text "${attachCmd}"
+                end tell
+              else
+                tell current window
+                  set newTab to (create tab with default profile)
+                  delay 0.3
+                  tell current session of newTab
+                    set name to "${windowTitle}"
+                    write text "${attachCmd}"
+                  end tell
+                end tell
+              end if
+            end tell
+          '`)
+        }
         break
 
       case 'Ghostty':
@@ -1012,25 +1045,54 @@ exec $SHELL
     switch (terminalApp) {
       case 'iTerm':
         // Run script file directly - iTerm will execute it with proper TTY
-        // When openInBackground is true, don't use 'activate' to avoid stealing focus
-        execSync(`osascript -e '
-          tell application "iTerm"
-            ${openInBackground ? '' : 'activate'}
-            if (count of windows) = 0 then
-              create window with default profile
-              tell current session of current window
-                write text "${scriptPath}"
-              end tell
-            else
-              tell current window
-                set newTab to (create tab with default profile)
-                tell current session of newTab
+        // When openInBackground is true, save frontmost app and restore after
+        if (openInBackground) {
+          execSync(`osascript -e '
+            -- Save the currently active application
+            tell application "System Events"
+              set frontApp to name of first application process whose frontmost is true
+            end tell
+
+            tell application "iTerm"
+              if (count of windows) = 0 then
+                create window with default profile
+                tell current session of current window
                   write text "${scriptPath}"
                 end tell
-              end tell
-            end if
-          end tell
-        '`)
+              else
+                tell current window
+                  set newTab to (create tab with default profile)
+                  tell current session of newTab
+                    write text "${scriptPath}"
+                  end tell
+                end tell
+              end if
+            end tell
+
+            -- Restore focus to the original application
+            delay 0.1
+            tell application frontApp to activate
+          '`)
+        } else {
+          execSync(`osascript -e '
+            tell application "iTerm"
+              activate
+              if (count of windows) = 0 then
+                create window with default profile
+                tell current session of current window
+                  write text "${scriptPath}"
+                end tell
+              else
+                tell current window
+                  set newTab to (create tab with default profile)
+                  tell current session of newTab
+                    write text "${scriptPath}"
+                  end tell
+                end tell
+              end if
+            end tell
+          '`)
+        }
         break
 
       case 'Ghostty':
@@ -1332,27 +1394,58 @@ exec $SHELL
     switch (terminalApp) {
       case 'iTerm':
         // Without control mode, create a new tab and attach normally
-        // When openInBackground is true, don't use 'activate' to avoid stealing focus
-        execSync(`osascript -e '
-          tell application "iTerm"
-            ${openInBackground ? '' : 'activate'}
-            if (count of windows) = 0 then
-              create window with default profile
-              tell current session of current window
-                set name to "${windowTitle}"
-                write text "${hostScriptPath}"
-              end tell
-            else
-              tell current window
-                create tab with default profile
-                tell current session
+        // When openInBackground is true, save frontmost app and restore after
+        if (openInBackground) {
+          execSync(`osascript -e '
+            -- Save the currently active application
+            tell application "System Events"
+              set frontApp to name of first application process whose frontmost is true
+            end tell
+
+            tell application "iTerm"
+              if (count of windows) = 0 then
+                create window with default profile
+                tell current session of current window
                   set name to "${windowTitle}"
                   write text "${hostScriptPath}"
                 end tell
-              end tell
-            end if
-          end tell
-        '`)
+              else
+                tell current window
+                  create tab with default profile
+                  tell current session
+                    set name to "${windowTitle}"
+                    write text "${hostScriptPath}"
+                  end tell
+                end tell
+              end if
+            end tell
+
+            -- Restore focus to the original application
+            delay 0.1
+            tell application frontApp to activate
+          '`)
+        } else {
+          execSync(`osascript -e '
+            tell application "iTerm"
+              activate
+              if (count of windows) = 0 then
+                create window with default profile
+                tell current session of current window
+                  set name to "${windowTitle}"
+                  write text "${hostScriptPath}"
+                end tell
+              else
+                tell current window
+                  create tab with default profile
+                  tell current session
+                    set name to "${windowTitle}"
+                    write text "${hostScriptPath}"
+                  end tell
+                end tell
+              end if
+            end tell
+          '`)
+        }
         break
 
       case 'Ghostty':
