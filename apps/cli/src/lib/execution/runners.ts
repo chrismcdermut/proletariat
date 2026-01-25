@@ -48,6 +48,46 @@ function buildTmuxWindowName(context: ExecutionContext): string {
 // getSetTitleCommands is now imported from '../terminal.js'
 
 // =============================================================================
+// Control Mode Helpers (iTerm -CC integration)
+// =============================================================================
+
+import type { TerminalApp } from './types.js'
+
+/**
+ * Check if tmux control mode (-CC) should be used.
+ * Control mode is only used with iTerm when controlMode is enabled in config.
+ *
+ * When control mode is active:
+ * - iTerm handles scrolling, selection, and gestures natively
+ * - tmux mouse mode should be disabled to avoid conflicts
+ */
+export function shouldUseControlMode(terminalApp: TerminalApp, controlModeEnabled: boolean): boolean {
+  return terminalApp === 'iTerm' && controlModeEnabled
+}
+
+/**
+ * Build the tmux mouse option string for session creation.
+ * Returns empty string if control mode is active (iTerm handles mouse natively).
+ * Returns mouse-on option if control mode is not active (tmux handles scrolling).
+ */
+export function buildTmuxMouseOption(useControlMode: boolean): string {
+  return useControlMode ? '' : ' \\; set-option -g mouse on'
+}
+
+/**
+ * Build the tmux attach command based on control mode.
+ * Uses -CC flag for iTerm control mode (native scrolling/selection).
+ * Uses regular attach otherwise.
+ */
+export function buildTmuxAttachCommand(useControlMode: boolean, includeUnicodeFlag: boolean = false): string {
+  const unicodeFlag = includeUnicodeFlag ? '-u ' : ''
+  if (useControlMode) {
+    return `tmux ${unicodeFlag}-CC attach`
+  }
+  return `tmux ${unicodeFlag}attach`
+}
+
+// =============================================================================
 // Executor Commands
 // =============================================================================
 
@@ -271,9 +311,15 @@ exec $SHELL
 
     const terminalApp = config.terminal.app
 
+    // Check if we should use iTerm control mode (-CC)
+    // When using -CC, iTerm handles scrolling/selection natively, so we DON'T set mouse on
+    // Without -CC, we need mouse on for tmux to handle scrolling
+    const useControlMode = shouldUseControlMode(terminalApp, config.tmux.controlMode)
+
     // Step 1: Create host tmux session (detached)
-    // Enable mouse mode for native scrolling
-    const tmuxCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" "${scriptPath}" \\; set-option -g mouse on \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
+    // Only enable mouse mode if NOT using control mode (control mode lets iTerm handle mouse natively)
+    const mouseOption = buildTmuxMouseOption(useControlMode)
+    const tmuxCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" "${scriptPath}"${mouseOption} \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
 
     try {
       execSync(tmuxCmd, { stdio: 'pipe' })
@@ -296,7 +342,9 @@ exec $SHELL
     if (displayMode === 'foreground') {
       try {
         // Clear screen and attach - this blocks until user detaches or claude exits
-        execSync(`clear && tmux attach -t "${sessionName}"`, { stdio: 'inherit' })
+        // Use -CC for iTerm when control mode is enabled
+        const fgTmuxAttach = buildTmuxAttachCommand(useControlMode)
+        execSync(`clear && ${fgTmuxAttach} -t "${sessionName}"`, { stdio: 'inherit' })
         return {
           success: true,
           sessionId: sessionName,
@@ -309,12 +357,11 @@ exec $SHELL
       }
     }
 
-    // NOTE: Don't use tmux -CC here. While -CC gives native iTerm scrolling,
-    // it also causes iTerm to create new windows for tmux sessions.
-    // Regular tmux attach inside an iTerm tab works well with mouse mode enabled.
-    // User can reattach with `prlt session attach` which offers -CC option.
-    // Use clear before attach to ensure clean display
-    const attachCmd = `clear && tmux attach -t \\"${sessionName}\\"`
+    // Use tmux -CC (control mode) for iTerm when enabled in config
+    // -CC gives native iTerm scrolling, selection, and gesture support
+    // Without -CC, use regular attach (relies on mouse mode for scrolling)
+    const tmuxAttach = buildTmuxAttachCommand(useControlMode)
+    const attachCmd = `clear && ${tmuxAttach} -t \\"${sessionName}\\"`
 
     switch (terminalApp) {
       case 'iTerm':
@@ -1040,6 +1087,11 @@ async function runDevcontainerInTmux(
   const sessionName = buildTmuxWindowName(context)
   const windowTitle = buildWindowTitle(context)
 
+  // Check if we should use iTerm control mode (-CC)
+  // When using -CC, iTerm handles scrolling/selection natively, so we DON'T set mouse on
+  const terminalApp = config.terminal.app
+  const useControlMode = shouldUseControlMode(terminalApp, config.tmux.controlMode)
+
   try {
     // Get container ID - prefer passed value, fallback to extracting from command
     // The devcontainerCmd is like: docker exec [-it] <containerId> bash -c '...'
@@ -1090,9 +1142,10 @@ exec bash
     // Write script and start tmux session inside container
     // -n sets the window name (shows in iTerm tab title with -CC mode)
     // sessionName is already ticket-action-agent format
-    // Enable mouse mode for native scrolling (trackpad/mouse wheel works without -CC mode)
+    // Only enable mouse mode if NOT using control mode (control mode lets iTerm handle mouse natively)
     // set-titles on + set-titles-string: makes tmux set terminal title to window name
-    const setupCmd = `echo ${base64Script} | base64 -d > ${scriptPath} && chmod +x ${scriptPath} && tmux new-session -d -s "${sessionName}" -n "${sessionName}" "${scriptPath}" \\; set-option -g mouse on \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
+    const mouseOption = buildTmuxMouseOption(useControlMode)
+    const setupCmd = `echo ${base64Script} | base64 -d > ${scriptPath} && chmod +x ${scriptPath} && tmux new-session -d -s "${sessionName}" -n "${sessionName}" "${scriptPath}"${mouseOption} \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
 
     try {
       execSync(`docker exec ${actualContainerId} bash -c '${setupCmd}'`, { stdio: 'pipe' })
@@ -1118,7 +1171,9 @@ exec bash
     if (displayMode === 'foreground') {
       try {
         // Clear screen and attach - this blocks until user detaches or claude exits
-        execSync(`clear && docker exec -it ${actualContainerId} tmux -u attach -t "${sessionName}"`, { stdio: 'inherit' })
+        // Use -CC for iTerm when control mode is enabled
+        const fgTmuxAttach = buildTmuxAttachCommand(useControlMode, true)
+        execSync(`clear && docker exec -it ${actualContainerId} ${fgTmuxAttach} -t "${sessionName}"`, { stdio: 'inherit' })
         return {
           success: true,
           containerId: actualContainerId,
@@ -1132,11 +1187,11 @@ exec bash
       }
     }
 
-    // NOTE: We don't use tmux -CC (control mode) here because we're already
-    // creating a tab via AppleScript. Using -CC would cause iTerm to create
-    // another window for the tmux session (double windows).
-    // Users can reattach with `prlt session attach` which uses -CC for native scrolling.
-    const attachCmd = `docker exec -it ${actualContainerId} tmux -u attach -t "${sessionName}"`
+    // Use tmux -CC (control mode) for iTerm when enabled in config
+    // -CC gives native iTerm scrolling, selection, and gesture support
+    // Without -CC, use regular attach (relies on mouse mode for scrolling)
+    const tmuxAttach = buildTmuxAttachCommand(useControlMode, true)
+    const attachCmd = `docker exec -it ${actualContainerId} ${tmuxAttach} -t "${sessionName}"`
 
     const baseDir = context.hqPath
       ? path.join(context.hqPath, '.proletariat', 'scripts')

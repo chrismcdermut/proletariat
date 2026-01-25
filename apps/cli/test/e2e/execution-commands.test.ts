@@ -353,18 +353,19 @@ describe.skip('Execution Commands E2E Tests', () => {
         SELECT * FROM agent_work WHERE ticket_id = ?
       `).get(ticketId) as AgentWorkRow | undefined;
 
-      expect(execution.ticket_id).to.equal(ticketId);
-      expect(execution.agent_name).to.equal('agent-1');
-      expect(execution.executor).to.equal('claude-code');
-      expect(execution.mode).to.equal('foreground');
-      expect(execution.environment).to.equal('host');
-      expect(execution.display_mode).to.equal('terminal');
-      expect(execution.sandboxed).to.equal(1);
-      expect(execution.status).to.equal('running');
-      expect(execution.branch).to.equal('agent/agent-1/schema-test');
-      expect(execution.pid).to.equal('12345');
-      expect(execution.log_path).to.equal('/path/to/logs');
-      expect(execution.started_at).to.exist;
+      expect(execution).to.exist;
+      expect(execution!.ticket_id).to.equal(ticketId);
+      expect(execution!.agent_name).to.equal('agent-1');
+      expect(execution!.executor).to.equal('claude-code');
+      expect(execution!.mode).to.equal('foreground');
+      expect(execution!.environment).to.equal('host');
+      expect(execution!.display_mode).to.equal('terminal');
+      expect(execution!.sandboxed).to.equal(1);
+      expect(execution!.status).to.equal('running');
+      expect(execution!.branch).to.equal('agent/agent-1/schema-test');
+      expect(execution!.pid).to.equal('12345');
+      expect(execution!.log_path).to.equal('/path/to/logs');
+      expect(execution!.started_at).to.exist;
     });
 
     it('should track execution lifecycle', () => {
@@ -375,8 +376,9 @@ describe.skip('Execution Commands E2E Tests', () => {
 
       // Verify started_at is set
       let execution = db.prepare(`SELECT * FROM agent_work WHERE id = ?`).get(execId) as AgentWorkRow | undefined;
-      expect(execution.started_at).to.exist;
-      expect(execution.completed_at).to.be.null;
+      expect(execution).to.exist;
+      expect(execution!.started_at).to.exist;
+      expect(execution!.completed_at).to.be.null;
 
       // Complete the execution
       db.prepare(`
@@ -385,8 +387,9 @@ describe.skip('Execution Commands E2E Tests', () => {
       `).run(execId);
 
       execution = db.prepare(`SELECT * FROM agent_work WHERE id = ?`).get(execId) as AgentWorkRow | undefined;
-      expect(execution.status).to.equal('completed');
-      expect(execution.completed_at).to.exist;
+      expect(execution).to.exist;
+      expect(execution!.status).to.equal('completed');
+      expect(execution!.completed_at).to.exist;
     });
 
     it('should track exit codes', () => {
@@ -428,7 +431,8 @@ describe.skip('Execution Commands E2E Tests', () => {
       `).run(execId);
 
       const execution = db.prepare(`SELECT status FROM agent_work WHERE id = ?`).get(execId) as AgentWorkRow | undefined;
-      expect(execution.status).to.equal('completed');
+      expect(execution).to.exist;
+      expect(execution!.status).to.equal('completed');
     });
 
     it('should transition from running to failed', () => {
@@ -444,8 +448,9 @@ describe.skip('Execution Commands E2E Tests', () => {
       `).run(execId);
 
       const execution = db.prepare(`SELECT status, exit_code FROM agent_work WHERE id = ?`).get(execId) as AgentWorkRow | undefined;
-      expect(execution.status).to.equal('failed');
-      expect(execution.exit_code).to.equal(1);
+      expect(execution).to.exist;
+      expect(execution!.status).to.equal('failed');
+      expect(execution!.exit_code).to.equal(1);
     });
 
     it('should transition from running to stopped', () => {
@@ -461,7 +466,8 @@ describe.skip('Execution Commands E2E Tests', () => {
       `).run(execId);
 
       const execution = db.prepare(`SELECT status FROM agent_work WHERE id = ?`).get(execId) as AgentWorkRow | undefined;
-      expect(execution.status).to.equal('stopped');
+      expect(execution).to.exist;
+      expect(execution!.status).to.equal('stopped');
     });
   });
 
