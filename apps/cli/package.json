@@ -99,6 +99,7 @@
   "scripts": {
     "postinstall": "npm rebuild better-sqlite3 2>/dev/null || true",
     "build": "shx rm -rf dist && tsc -b",
+    "rebuild": "pnpm install && pnpm build",
     "clean": "shx rm -rf dist",
     "dev": "tsc --watch",
     "lint": "eslint",
