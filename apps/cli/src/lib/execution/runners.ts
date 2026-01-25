@@ -387,8 +387,8 @@ exec $SHELL
     const tmuxAttach = buildTmuxAttachCommand(useControlMode)
     const attachCmd = `clear && ${tmuxAttach} -t \\"${sessionName}\\"`
 
-    // For iTerm with control mode, just run the -CC attach directly
-    // iTerm will create its own native window/tab for the tmux session
+    // For iTerm with control mode, create a new tab and run -CC attach there
+    // This avoids interfering with the terminal where prlt is running
     if (terminalApp === 'iTerm' && useControlMode) {
       // Configure iTerm to open tmux windows as tabs or windows based on user preference
       configureITermTmuxWindowMode(config.tmux.windowMode)
@@ -396,8 +396,11 @@ exec $SHELL
       execSync(`osascript -e '
         tell application "iTerm"
           activate
-          tell current session of current window
-            write text "tmux -CC attach -t \\"${sessionName}\\""
+          tell current window
+            set newTab to (create tab with default profile)
+            tell current session of newTab
+              write text "tmux -CC attach -t \\"${sessionName}\\""
+            end tell
           end tell
         end tell
       '`)
@@ -1239,8 +1242,8 @@ exec bash
     // Open terminal and run the attach command
     const terminalApp = config.terminal.app
 
-    // For iTerm with control mode, just run the -CC attach directly
-    // iTerm will create its own native window/tab for the tmux session
+    // For iTerm with control mode, create a new tab and run -CC attach there
+    // This avoids interfering with the terminal where prlt is running
     if (terminalApp === 'iTerm' && useControlMode) {
       // Configure iTerm to open tmux windows as tabs or windows based on user preference
       configureITermTmuxWindowMode(config.tmux.windowMode)
@@ -1248,8 +1251,11 @@ exec bash
       execSync(`osascript -e '
         tell application "iTerm"
           activate
-          tell current session of current window
-            write text "docker exec -it ${actualContainerId} tmux -u -CC attach -t \\"${sessionName}\\""
+          tell current window
+            set newTab to (create tab with default profile)
+            tell current session of newTab
+              write text "docker exec -it ${actualContainerId} tmux -u -CC attach -t \\"${sessionName}\\""
+            end tell
           end tell
         end tell
       '`)
