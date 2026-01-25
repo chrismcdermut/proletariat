@@ -30,6 +30,7 @@ export const PMO_TABLES = {
   settings: 'pmo_settings',
   agent_work: 'agent_work',
   containers: 'containers',  // Docker containers per agent
+  id_sequences: 'id_sequences',  // Sequence counters for ID generation
   // Workflow tables (consolidated - workflows are the single source of truth for board columns)
   workflows: 'pmo_workflows',  // Shared workflow definitions
   workflow_statuses: 'pmo_workflow_statuses',  // Statuses belonging to workflows (= board columns)
@@ -362,6 +363,13 @@ export const PMO_TABLE_SCHEMAS = {
       FOREIGN KEY (current_execution_id) REFERENCES ${PMO_TABLES.agent_work}(id) ON DELETE SET NULL
     )`,
 
+  // Sequence counters for ID generation (avoids collisions after deletions)
+  id_sequences: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.id_sequences} (
+      table_name TEXT PRIMARY KEY,
+      next_id INTEGER NOT NULL DEFAULT 1
+    )`,
+
   // DEPRECATED: Legacy per-project statuses - use workflow_statuses instead
   // Kept for migration from old schema
   statuses: `
@@ -550,6 +558,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.settings,
   PMO_TABLE_SCHEMAS.agent_work,  // Execution tracking
   PMO_TABLE_SCHEMAS.containers,  // Docker containers per agent
+  PMO_TABLE_SCHEMAS.id_sequences,  // Sequence counters for ID generation
   PMO_TABLE_SCHEMAS.actions,  // Work actions (reusable agent prompts)
   PMO_TABLE_SCHEMAS.ticket_templates,  // Ticket templates for quick creation
   PMO_TABLE_SCHEMAS.roadmaps,  // Named roadmap definitions
