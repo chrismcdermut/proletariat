@@ -808,7 +808,7 @@ export async function runDevcontainer(
   executor: ExecutorType,
   config: ExecutionConfig,
   displayMode: DisplayMode = 'terminal',
-  sessionManager: SessionManager = 'direct'
+  sessionManager: SessionManager = 'tmux'  // Default to tmux for session persistence
 ): Promise<RunnerResult> {
   // Devcontainer config is in the agent directory, not the worktree
   // (worktree may be a subdirectory like agents/altman/textdeck)
