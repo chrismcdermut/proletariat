@@ -61,6 +61,15 @@ export type OutputMode =
   | 'interactive'   // Streaming UI (no -p flag) - watch Claude work in real-time
   | 'print'         // Print mode (-p flag) - final result only, good for automation
 
+/**
+ * PermissionMode - How Claude Code handles permission checks.
+ * - danger: Skip permission checks (faster, relies on container/environment isolation)
+ * - safe: Requires approval for dangerous operations
+ */
+export type PermissionMode =
+  | 'danger'        // Skip permission checks (--dangerously-skip-permissions)
+  | 'safe'          // Require approval for dangerous operations
+
 // =============================================================================
 // Executor Types
 // =============================================================================

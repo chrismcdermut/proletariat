@@ -24,9 +24,30 @@ function runCli(args: string[]): string {
   }
 }
 
+// Helper to run CLI and capture stderr (for error testing)
+function runCliWithError(args: string[]): { stdout: string; stderr: string; exitCode: number } {
+  const binPath = path.join(root, 'bin', 'run.js');
+  try {
+    const stdout = execSync(`node ${binPath} ${args.join(' ')}`, {
+      cwd: root,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return { stdout, stderr: '', exitCode: 0 };
+  } catch (error: unknown) {
+    const err = error as { stdout?: string; stderr?: string; status?: number };
+    return {
+      stdout: err.stdout || '',
+      stderr: err.stderr || '',
+      exitCode: err.status || 1,
+    };
+  }
+}
+
 /**
  * Tests for work start command
  * TKT-513: Permission mode flag for batch spawn
+ * TKT-650: Skip permissions flag as alias
  */
 describe('Work Start Command', () => {
   let helpOutput: string;
@@ -59,6 +80,38 @@ describe('Work Start Command', () => {
       // The description is split across lines in help output
       expect(helpOutput).to.contain('danger');
       expect(helpOutput).to.contain('safe');
+    });
+  });
+
+  describe('Skip Permissions Flag (TKT-650)', () => {
+    it('shows --skip-permissions flag in help', () => {
+      expect(helpOutput).to.contain('--skip-permissions');
+    });
+
+    it('describes --skip-permissions as shorthand for --permission-mode danger', () => {
+      expect(helpOutput).to.contain('Skip permission checks');
+      expect(helpOutput).to.contain('shorthand');
+    });
+
+    it('errors when both --skip-permissions and --permission-mode are used', () => {
+      const result = runCliWithError([
+        'work', 'start', 'TKT-999',
+        '--skip-permissions',
+        '--permission-mode', 'danger',
+      ]);
+
+      expect(result.exitCode).to.not.equal(0);
+      expect(result.stderr).to.contain('Cannot use both --skip-permissions and --permission-mode');
+    });
+
+    it('error message suggests using only one flag', () => {
+      const result = runCliWithError([
+        'work', 'start', 'TKT-999',
+        '--skip-permissions',
+        '--permission-mode', 'safe',
+      ]);
+
+      expect(result.stderr).to.contain('Use only one');
     });
   });
 
