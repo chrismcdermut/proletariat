@@ -80,15 +80,32 @@ export default class Visit extends PMOCommand {
         return;
       }
 
+      // Group agents by type
+      const staffAgents = workspaceInfo.agents.filter(a => a.type === 'persistent');
+      const tempAgents = workspaceInfo.agents.filter(a => a.type === 'ephemeral');
+
+      const choices: Array<{ name: string; value: string } | inquirer.Separator> = [];
+
+      if (staffAgents.length > 0) {
+        choices.push(new inquirer.Separator('── Staff Agents ──'));
+        for (const agent of staffAgents) {
+          choices.push({ name: `👔 ${agent.name}`, value: agent.name });
+        }
+      }
+
+      if (tempAgents.length > 0) {
+        choices.push(new inquirer.Separator('── Temp Agents ──'));
+        for (const agent of tempAgents) {
+          choices.push({ name: `⏱️  ${agent.name}`, value: agent.name });
+        }
+      }
+
       const { selected } = await inquirer.prompt([
         {
           type: 'list',
           name: 'selected',
           message: 'Select agent to visit:',
-          choices: workspaceInfo.agents.map(agent => ({
-            name: agent.name,
-            value: agent.name
-          }))
+          choices
         }
       ]);
       agentName = selected;

@@ -77,16 +77,35 @@ export default class Shell extends PMOCommand {
 
     // Interactive mode if no agent specified
     if (!agentName) {
-      // Build choices once, use for both JSON and interactive modes
-      const agentChoices = workspaceInfo.agents.map((agent) => ({ name: agent.name, value: agent.name }));
       const selectMessage = 'Select agent to open shell in:';
 
       // In JSON mode, output agent selection prompt and exit
       if (jsonMode) {
+        const agentChoices = workspaceInfo.agents.map((agent) => ({ name: agent.name, value: agent.name }));
         outputPromptAsJson(
           buildPromptConfig('list', 'name', selectMessage, agentChoices),
           createMetadata('agent shell', flags)
         );
+      }
+
+      // Group agents by type for interactive mode
+      const staffAgents = workspaceInfo.agents.filter(a => a.type === 'persistent');
+      const tempAgents = workspaceInfo.agents.filter(a => a.type === 'ephemeral');
+
+      const choices: Array<{ name: string; value: string } | inquirer.Separator> = [];
+
+      if (staffAgents.length > 0) {
+        choices.push(new inquirer.Separator('── Staff Agents ──'));
+        for (const agent of staffAgents) {
+          choices.push({ name: `👔 ${agent.name}`, value: agent.name });
+        }
+      }
+
+      if (tempAgents.length > 0) {
+        choices.push(new inquirer.Separator('── Temp Agents ──'));
+        for (const agent of tempAgents) {
+          choices.push({ name: `⏱️  ${agent.name}`, value: agent.name });
+        }
       }
 
       const { selected } = await inquirer.prompt([
@@ -94,7 +113,7 @@ export default class Shell extends PMOCommand {
           type: 'list',
           name: 'selected',
           message: selectMessage,
-          choices: agentChoices
+          choices
         }
       ]);
       agentName = selected;
