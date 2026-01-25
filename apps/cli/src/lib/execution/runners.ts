@@ -88,18 +88,27 @@ export function buildTmuxAttachCommand(useControlMode: boolean, includeUnicodeFl
 }
 
 /**
- * Configure iTerm tmux window mode preference.
- * This controls whether tmux -CC opens windows as tabs or new windows.
+ * Configure iTerm tmux preferences for control mode.
+ * - windowMode: whether tmux -CC opens windows as tabs or new windows
+ * - autoHide: automatically bury/hide the control session (the terminal where -CC was run)
  * @param mode - 'tab' for tabs in current window, 'window' for new windows
  */
-export function configureITermTmuxWindowMode(mode: 'tab' | 'window'): void {
-  // OpenTmuxWindowsIn: 0=native windows, 1=new window, 2=tabs in existing window
-  const value = mode === 'tab' ? 2 : 1
+export function configureITermTmuxPreferences(mode: 'tab' | 'window'): void {
   try {
-    execSync(`defaults write com.googlecode.iterm2 OpenTmuxWindowsIn -int ${value}`, { stdio: 'pipe' })
+    // OpenTmuxWindowsIn: 0=native windows, 1=new window, 2=tabs in existing window
+    const windowModeValue = mode === 'tab' ? 2 : 1
+    execSync(`defaults write com.googlecode.iterm2 OpenTmuxWindowsIn -int ${windowModeValue}`, { stdio: 'pipe' })
+
+    // AutoHideTmuxClientSession: hide the control channel terminal so it doesn't clutter
+    execSync(`defaults write com.googlecode.iterm2 AutoHideTmuxClientSession -bool true`, { stdio: 'pipe' })
   } catch {
     // Non-fatal - preference setting failed but execution can continue
   }
+}
+
+// Legacy alias for backwards compatibility
+export function configureITermTmuxWindowMode(mode: 'tab' | 'window'): void {
+  configureITermTmuxPreferences(mode)
 }
 
 // =============================================================================
