@@ -214,8 +214,8 @@ RUN if [ "\${PRLT_REGISTRY}" = "gh" ]; then \\
       npm install -g @chrismcdermut/prlt@\${PRLT_VERSION} && \\
       rm ~/.npmrc; \\
     elif [ "\${PRLT_REGISTRY}" = "npm" ]; then \\
-      echo "Installing prlt@\${PRLT_VERSION} from public npm..." && \\
-      npm install -g prlt@\${PRLT_VERSION}; \\
+      echo "Installing @proletariat/cli@\${PRLT_VERSION} from public npm..." && \\
+      npm install -g @proletariat/cli@\${PRLT_VERSION}; \\
     else \\
       echo "prlt will be mounted from host (mount mode)"; \\
     fi
