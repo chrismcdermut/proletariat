@@ -50,6 +50,16 @@ export const ENTITY_PREFIXES = {
 export type EntityType = keyof typeof ENTITY_PREFIXES;
 
 /**
+ * Entity type to table name mapping for self-healing ID generation
+ */
+const ENTITY_TABLES = {
+  ticket: 'pmo_tickets',
+  epic: 'pmo_epics',
+  spec: 'pmo_specs',
+  project: 'pmo_projects',
+} as const;
+
+/**
  * Database interface for ID generation (compatible with better-sqlite3)
  */
 interface DatabaseLike {
@@ -67,6 +77,8 @@ interface DatabaseLike {
  * Uses pmo_settings table to track the next ID for each entity type.
  * IDs are zero-padded to 3 digits (001-999), then expand (1000+).
  *
+ * Self-healing: If counter is behind MAX(id) in the table, auto-corrects.
+ *
  * @param db - Database instance with prepare method
  * @param entityType - Type of entity (ticket, epic, spec, project)
  * @returns Generated ID like "TKT-001"
@@ -76,14 +88,28 @@ export function generateEntityId(
   entityType: EntityType
 ): string {
   const typePrefix = ENTITY_PREFIXES[entityType];
+  const tableName = ENTITY_TABLES[entityType];
   const settingKey = `next_${entityType}_id`;
+
+  // Get MAX(id) from the entity table for self-healing
+  // Extract numeric part: TKT-001 → 1, EPIC-042 → 42
+  const prefixLen = typePrefix.length + 1; // e.g., "TKT-" = 4 chars
+  const maxResult = db.prepare(
+    `SELECT MAX(CAST(SUBSTR(id, ${prefixLen + 1}) AS INTEGER)) as max_num FROM ${tableName}`
+  ).get() as { max_num: number | null } | undefined;
+  const maxExistingId = maxResult?.max_num || 0;
 
   // Get current counter
   const row = db.prepare(
     `SELECT value FROM pmo_settings WHERE key = ?`
   ).get(settingKey) as { value: string } | undefined;
 
-  const nextNum = row ? parseInt(row.value, 10) : 1;
+  let nextNum = row ? parseInt(row.value, 10) : 1;
+
+  // Self-healing: if counter is behind existing IDs, fix it
+  if (nextNum <= maxExistingId) {
+    nextNum = maxExistingId + 1;
+  }
 
   // Update counter
   db.prepare(`

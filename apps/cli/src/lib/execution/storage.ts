@@ -71,12 +71,57 @@ function rowToAgentWork(row: AgentWorkRow): AgentWork {
 // ID Generation
 // =============================================================================
 
+/**
+ * Generate a unique work ID using a sequence table.
+ * This avoids ID collisions when rows are deleted (unlike COUNT(*) or MAX(id)).
+ * The sequence only ever increments, never reuses IDs.
+ *
+ * Self-healing: If sequence is behind MAX(id), it auto-corrects.
+ */
 function generateWorkId(db: Database.Database): string {
-  const result = db
-    .prepare(`SELECT COUNT(*) as count FROM ${T.agent_work}`)
-    .get() as { count: number }
-  const num = (result?.count || 0) + 1
-  return `WORK-${String(num).padStart(3, '0')}`
+  // Ensure id_sequences table exists (for existing databases)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ${T.id_sequences} (
+      table_name TEXT PRIMARY KEY,
+      next_id INTEGER NOT NULL DEFAULT 1
+    )
+  `)
+
+  // Get current MAX(id) from agent_work table
+  const maxResult = db.prepare(`
+    SELECT MAX(CAST(SUBSTR(id, 6) AS INTEGER)) as max_num FROM ${T.agent_work}
+  `).get() as { max_num: number | null }
+  const maxExistingId = maxResult?.max_num || 0
+
+  // Get current sequence value (if exists)
+  const existing = db.prepare(`
+    SELECT next_id FROM ${T.id_sequences} WHERE table_name = 'agent_work'
+  `).get() as { next_id: number } | undefined
+
+  if (!existing) {
+    // Initialize sequence from MAX(id) + 1
+    db.prepare(`
+      INSERT INTO ${T.id_sequences} (table_name, next_id)
+      VALUES ('agent_work', ?)
+    `).run(maxExistingId + 1)
+  } else if (existing.next_id <= maxExistingId) {
+    // Self-healing: sequence is behind, fix it
+    db.prepare(`
+      UPDATE ${T.id_sequences}
+      SET next_id = ?
+      WHERE table_name = 'agent_work'
+    `).run(maxExistingId + 1)
+  }
+
+  // Atomically get and increment the sequence
+  const result = db.prepare(`
+    UPDATE ${T.id_sequences}
+    SET next_id = next_id + 1
+    WHERE table_name = 'agent_work'
+    RETURNING next_id - 1 as current_id
+  `).get() as { current_id: number }
+
+  return `WORK-${String(result.current_id).padStart(3, '0')}`
 }
 
 // =============================================================================

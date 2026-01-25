@@ -195,27 +195,14 @@ USER node
 RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code
 USER root
 
-# Install prlt CLI
-# PRLT_REGISTRY: "npm" (public npmjs.com) or "gh" (GitHub Packages)
+# Install prlt CLI from public npm
+# PRLT_REGISTRY: "npm" (install from npmjs.com) or "mount" (use host mount)
 # PRLT_VERSION: version/tag like "latest", "dev", "next", or "1.2.3"
-# GitHub Packages requires GITHUB_TOKEN build arg with read:packages scope
-ARG GITHUB_TOKEN
 ARG PRLT_REGISTRY=npm
 ARG PRLT_VERSION=latest
-RUN if [ "\${PRLT_REGISTRY}" = "gh" ]; then \\
-      if [ -z "\${GITHUB_TOKEN}" ]; then \\
-        echo "ERROR: PRLT_REGISTRY=gh requires GITHUB_TOKEN with read:packages scope"; \\
-        echo "Either set GITHUB_TOKEN or use PRLT_REGISTRY=npm (public npm) or mount mode"; \\
-        exit 1; \\
-      fi; \\
-      echo "//npm.pkg.github.com/:_authToken=\${GITHUB_TOKEN}" >> ~/.npmrc && \\
-      echo "@chrismcdermut:registry=https://npm.pkg.github.com" >> ~/.npmrc && \\
-      echo "Installing @chrismcdermut/prlt@\${PRLT_VERSION} from GitHub Packages..." && \\
-      npm install -g @chrismcdermut/prlt@\${PRLT_VERSION} && \\
-      rm ~/.npmrc; \\
-    elif [ "\${PRLT_REGISTRY}" = "npm" ]; then \\
-      echo "Installing prlt@\${PRLT_VERSION} from public npm..." && \\
-      npm install -g prlt@\${PRLT_VERSION}; \\
+RUN if [ "\${PRLT_REGISTRY}" = "npm" ] || [ "\${PRLT_REGISTRY}" = "gh" ]; then \\
+      echo "Installing @proletariat/cli@\${PRLT_VERSION} from npm..." && \\
+      npm install -g @proletariat/cli@\${PRLT_VERSION}; \\
     else \\
       echo "prlt will be mounted from host (mount mode)"; \\
     fi
