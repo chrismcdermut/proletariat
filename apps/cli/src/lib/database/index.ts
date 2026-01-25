@@ -686,9 +686,15 @@ export function discoverAgentsOnDisk(workspacePath: string): DiscoverResult {
   // First, clean up missing agents
   result.cleaned = syncAgentsWithDisk(workspacePath);
 
-  // Get existing agents from DB (case-insensitive lookup)
-  const existingAgents = getWorkspaceAgents(workspacePath, true); // Include cleaned
-  const existingNames = new Set(existingAgents.map(a => a.name.toLowerCase()));
+  // Get existing ACTIVE agents from DB (case-insensitive lookup)
+  const activeAgents = getWorkspaceAgents(workspacePath, false); // Only active agents
+  const activeNames = new Set(activeAgents.map(a => a.name.toLowerCase()));
+
+  // Get ALL agents including cleaned (for reactivation)
+  const allAgents = getWorkspaceAgents(workspacePath, true);
+  const cleanedAgents = new Map(
+    allAgents.filter(a => a.status === 'cleaned').map(a => [a.name.toLowerCase(), a])
+  );
 
   const db = openWorkspaceDatabase(workspacePath);
 
@@ -699,16 +705,28 @@ export function discoverAgentsOnDisk(workspacePath: string): DiscoverResult {
       const staffEntries = fs.readdirSync(staffDir, { withFileTypes: true });
       for (const entry of staffEntries) {
         if (entry.isDirectory() && !entry.name.startsWith('.')) {
-          if (!existingNames.has(entry.name.toLowerCase())) {
-            // Register this agent
+          const nameLower = entry.name.toLowerCase();
+          if (!activeNames.has(nameLower)) {
             const worktreePath = `agents/staff/${entry.name}`;
             const now = new Date().toISOString();
-            db.prepare(`
-              INSERT INTO agents (name, type, status, worktree_path, created_at)
-              VALUES (?, 'persistent', 'active', ?, ?)
-            `).run(entry.name, worktreePath, now);
+
+            // Check if this is a cleaned agent that should be reactivated
+            const cleanedAgent = cleanedAgents.get(nameLower);
+            if (cleanedAgent) {
+              // Reactivate the cleaned agent
+              db.prepare(`
+                UPDATE agents SET status = 'active', cleaned_at = NULL, worktree_path = ?
+                WHERE LOWER(name) = LOWER(?)
+              `).run(worktreePath, entry.name);
+            } else {
+              // Register new agent
+              db.prepare(`
+                INSERT INTO agents (name, type, status, worktree_path, created_at)
+                VALUES (?, 'persistent', 'active', ?, ?)
+              `).run(entry.name, worktreePath, now);
+            }
             result.discovered.push({ name: entry.name, type: 'persistent', path: worktreePath });
-            existingNames.add(entry.name.toLowerCase());
+            activeNames.add(nameLower);
           }
         }
       }
@@ -720,16 +738,28 @@ export function discoverAgentsOnDisk(workspacePath: string): DiscoverResult {
       const tempEntries = fs.readdirSync(tempDir, { withFileTypes: true });
       for (const entry of tempEntries) {
         if (entry.isDirectory() && !entry.name.startsWith('.')) {
-          if (!existingNames.has(entry.name.toLowerCase())) {
-            // Register this agent
+          const nameLower = entry.name.toLowerCase();
+          if (!activeNames.has(nameLower)) {
             const worktreePath = `agents/temp/${entry.name}`;
             const now = new Date().toISOString();
-            db.prepare(`
-              INSERT INTO agents (name, type, status, worktree_path, created_at)
-              VALUES (?, 'ephemeral', 'active', ?, ?)
-            `).run(entry.name, worktreePath, now);
+
+            // Check if this is a cleaned agent that should be reactivated
+            const cleanedAgent = cleanedAgents.get(nameLower);
+            if (cleanedAgent) {
+              // Reactivate the cleaned agent
+              db.prepare(`
+                UPDATE agents SET status = 'active', cleaned_at = NULL, worktree_path = ?
+                WHERE LOWER(name) = LOWER(?)
+              `).run(worktreePath, entry.name);
+            } else {
+              // Register new agent
+              db.prepare(`
+                INSERT INTO agents (name, type, status, worktree_path, created_at)
+                VALUES (?, 'ephemeral', 'active', ?, ?)
+              `).run(entry.name, worktreePath, now);
+            }
             result.discovered.push({ name: entry.name, type: 'ephemeral', path: worktreePath });
-            existingNames.add(entry.name.toLowerCase());
+            activeNames.add(nameLower);
           }
         }
       }
