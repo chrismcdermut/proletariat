@@ -72,10 +72,12 @@ function rowToAgentWork(row: AgentWorkRow): AgentWork {
 // =============================================================================
 
 function generateWorkId(db: Database.Database): string {
+  // Use MAX(id) instead of COUNT(*) to avoid collisions when rows are deleted
+  // Extract the numeric part from existing IDs (e.g., "WORK-005" -> 5)
   const result = db
-    .prepare(`SELECT COUNT(*) as count FROM ${T.agent_work}`)
-    .get() as { count: number }
-  const num = (result?.count || 0) + 1
+    .prepare(`SELECT MAX(CAST(SUBSTR(id, 6) AS INTEGER)) as max_num FROM ${T.agent_work}`)
+    .get() as { max_num: number | null }
+  const num = (result?.max_num || 0) + 1
   return `WORK-${String(num).padStart(3, '0')}`
 }
 

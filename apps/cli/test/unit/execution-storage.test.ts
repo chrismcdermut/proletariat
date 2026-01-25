@@ -9,6 +9,7 @@ import { PMO_TABLES } from '../../src/lib/pmo/schema.js'
 /**
  * Unit tests for ExecutionStorage class
  * Tests the cleanupStaleExecutions() method added in TKT-604
+ * Tests ID generation fix added in TKT-656
  */
 describe('ExecutionStorage', () => {
   let testDir: string
@@ -279,6 +280,84 @@ describe('ExecutionStorage', () => {
 
       const available = storage.isAgentAvailable('failed-agent')
       expect(available).to.be.true
+    })
+  })
+
+  describe('createExecution ID generation (TKT-656)', () => {
+    it('generates sequential IDs', () => {
+      const exec1 = storage.createExecution({
+        ticketId: 'TKT-001',
+        agentName: 'agent-1',
+        executor: 'claude-code',
+        environment: 'host',
+        displayMode: 'terminal',
+        sandboxed: true,
+      })
+      expect(exec1.id).to.equal('WORK-001')
+
+      const exec2 = storage.createExecution({
+        ticketId: 'TKT-002',
+        agentName: 'agent-1',
+        executor: 'claude-code',
+        environment: 'host',
+        displayMode: 'terminal',
+        sandboxed: true,
+      })
+      expect(exec2.id).to.equal('WORK-002')
+    })
+
+    it('does not reuse IDs after deletion', () => {
+      // Create 3 executions
+      storage.createExecution({
+        ticketId: 'TKT-001',
+        agentName: 'agent-1',
+        executor: 'claude-code',
+        environment: 'host',
+        displayMode: 'terminal',
+        sandboxed: true,
+      })
+      storage.createExecution({
+        ticketId: 'TKT-002',
+        agentName: 'agent-1',
+        executor: 'claude-code',
+        environment: 'host',
+        displayMode: 'terminal',
+        sandboxed: true,
+      })
+      storage.createExecution({
+        ticketId: 'TKT-003',
+        agentName: 'agent-1',
+        executor: 'claude-code',
+        environment: 'host',
+        displayMode: 'terminal',
+        sandboxed: true,
+      })
+
+      // Delete the middle one
+      storage.deleteExecution('WORK-002')
+
+      // Next ID should be WORK-004, not WORK-003 (which still exists)
+      const exec4 = storage.createExecution({
+        ticketId: 'TKT-004',
+        agentName: 'agent-1',
+        executor: 'claude-code',
+        environment: 'host',
+        displayMode: 'terminal',
+        sandboxed: true,
+      })
+      expect(exec4.id).to.equal('WORK-004')
+    })
+
+    it('handles empty table correctly', () => {
+      const exec = storage.createExecution({
+        ticketId: 'TKT-001',
+        agentName: 'agent-1',
+        executor: 'claude-code',
+        environment: 'host',
+        displayMode: 'terminal',
+        sandboxed: true,
+      })
+      expect(exec.id).to.equal('WORK-001')
     })
   })
 
