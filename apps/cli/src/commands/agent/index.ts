@@ -53,6 +53,7 @@ export default class Agent extends PMOCommand {
       { id: 'shell', name: 'Open shell', command: 'prlt agent shell --json' },
       { id: 'restart', name: 'Restart', command: 'prlt agent restart --json' },
       { id: 'rebuild', name: 'Rebuild', command: 'prlt agent rebuild --json' },
+      { id: 'discover', name: 'Discover agents on disk', command: 'prlt agent discover' },
       { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'What would you like to do?';
@@ -97,6 +98,7 @@ export default class Agent extends PMOCommand {
         { name: '🐚 Open shell', value: 'shell' },
         { name: '🔄 Restart', value: 'restart' },
         { name: '🔨 Rebuild', value: 'rebuild' },
+        { name: '🔍 Discover agents on disk', value: 'discover' },
         new inquirer.Separator(),
         // Cancel
         { name: '❌ Cancel', value: 'cancel' },
@@ -164,6 +166,12 @@ export default class Agent extends PMOCommand {
         case 'shell': {
           const { default: ShellCommand } = await import('./shell.js');
           const cmd = new ShellCommand([], this.config);
+          await cmd.run();
+          break;
+        }
+        case 'discover': {
+          const { default: DiscoverCommand } = await import('./discover.js');
+          const cmd = new DiscoverCommand([], this.config);
           await cmd.run();
           break;
         }

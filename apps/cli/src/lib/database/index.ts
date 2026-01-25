@@ -670,6 +670,77 @@ export function syncAgentsWithDisk(workspacePath: string): string[] {
   return cleanedAgents;
 }
 
+export interface DiscoverResult {
+  discovered: { name: string; type: AgentType; path: string }[];
+  cleaned: string[];
+}
+
+/**
+ * Discover agents on disk that aren't in the database and register them.
+ * Also cleans up agents in DB whose directories no longer exist.
+ * Returns both discovered and cleaned agents.
+ */
+export function discoverAgentsOnDisk(workspacePath: string): DiscoverResult {
+  const result: DiscoverResult = { discovered: [], cleaned: [] };
+
+  // First, clean up missing agents
+  result.cleaned = syncAgentsWithDisk(workspacePath);
+
+  // Get existing agents from DB (case-insensitive lookup)
+  const existingAgents = getWorkspaceAgents(workspacePath, true); // Include cleaned
+  const existingNames = new Set(existingAgents.map(a => a.name.toLowerCase()));
+
+  const db = openWorkspaceDatabase(workspacePath);
+
+  try {
+    // Scan staff directory
+    const staffDir = path.join(workspacePath, 'agents', 'staff');
+    if (fs.existsSync(staffDir)) {
+      const staffEntries = fs.readdirSync(staffDir, { withFileTypes: true });
+      for (const entry of staffEntries) {
+        if (entry.isDirectory() && !entry.name.startsWith('.')) {
+          if (!existingNames.has(entry.name.toLowerCase())) {
+            // Register this agent
+            const worktreePath = `agents/staff/${entry.name}`;
+            const now = new Date().toISOString();
+            db.prepare(`
+              INSERT INTO agents (name, type, status, worktree_path, created_at)
+              VALUES (?, 'persistent', 'active', ?, ?)
+            `).run(entry.name, worktreePath, now);
+            result.discovered.push({ name: entry.name, type: 'persistent', path: worktreePath });
+            existingNames.add(entry.name.toLowerCase());
+          }
+        }
+      }
+    }
+
+    // Scan temp directory
+    const tempDir = path.join(workspacePath, 'agents', 'temp');
+    if (fs.existsSync(tempDir)) {
+      const tempEntries = fs.readdirSync(tempDir, { withFileTypes: true });
+      for (const entry of tempEntries) {
+        if (entry.isDirectory() && !entry.name.startsWith('.')) {
+          if (!existingNames.has(entry.name.toLowerCase())) {
+            // Register this agent
+            const worktreePath = `agents/temp/${entry.name}`;
+            const now = new Date().toISOString();
+            db.prepare(`
+              INSERT INTO agents (name, type, status, worktree_path, created_at)
+              VALUES (?, 'ephemeral', 'active', ?, ?)
+            `).run(entry.name, worktreePath, now);
+            result.discovered.push({ name: entry.name, type: 'ephemeral', path: worktreePath });
+            existingNames.add(entry.name.toLowerCase());
+          }
+        }
+      }
+    }
+  } finally {
+    db.close();
+  }
+
+  return result;
+}
+
 /**
  * Get all repositories in workspace
  */

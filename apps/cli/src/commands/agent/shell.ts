@@ -5,7 +5,7 @@ import { execSync, spawn } from 'node:child_process';
 import inquirer from 'inquirer';
 import Database from 'better-sqlite3';
 import { colors } from '../../lib/colors.js';
-import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { getWorkspaceInfo, getAgentTmuxSessions } from '../../lib/agents/commands.js';
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js';
 import { getTerminalApp } from '../../lib/execution/config.js';
 import { TerminalApp } from '../../lib/execution/types.js';
@@ -104,6 +104,47 @@ export default class Shell extends PMOCommand {
     const agent = workspaceInfo.agents.find(a => a.name === agentName);
     if (!agent) {
       return handleError('AGENT_NOT_FOUND', `Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map(a => a.name).join(', ')}`);
+    }
+
+    // Check for existing tmux sessions
+    const existingSessions = getAgentTmuxSessions(agentName!);
+    if (existingSessions.length > 0 && !jsonMode) {
+      this.log(colors.warning(`\n⚠️  Agent "${agentName}" has ${existingSessions.length} active tmux session(s):`));
+      for (const session of existingSessions) {
+        this.log(colors.textMuted(`   • ${session}`));
+      }
+      this.log('');
+
+      const { sessionAction } = await inquirer.prompt([{
+        type: 'list',
+        name: 'sessionAction',
+        message: 'What would you like to do?',
+        choices: [
+          { name: '🔗 Attach to existing session', value: 'attach' },
+          { name: '⚠️  Open new shell anyway (may cause conflicts)', value: 'continue' },
+          { name: '❌ Cancel', value: 'cancel' },
+        ],
+      }]);
+
+      if (sessionAction === 'cancel') {
+        this.log(colors.textMuted('Operation cancelled.'));
+        return;
+      }
+
+      if (sessionAction === 'attach') {
+        // Attach to the first session
+        const sessionName = existingSessions[0];
+        this.log(colors.primary(`\nAttaching to session: ${sessionName}`));
+        try {
+          execSync(`tmux attach-session -t "${sessionName}"`, { stdio: 'inherit' });
+        } catch {
+          // User detached or session ended
+          this.log(colors.textMuted('\nDetached from session.'));
+        }
+        return;
+      }
+      // If 'continue', proceed with opening a new shell
+      this.log(colors.warning('\nProceeding with new shell - be careful of conflicts!\n'));
     }
 
     const agentDir = path.join(workspaceInfo.agentsPath, agentName!);
