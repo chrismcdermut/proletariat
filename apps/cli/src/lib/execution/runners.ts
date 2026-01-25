@@ -419,9 +419,10 @@ exec $SHELL
         // When openInBackground is true, save frontmost app and restore after
         if (openInBackground) {
           execSync(`osascript -e '
-            -- Save the currently active application
+            -- Save the currently active application and window
             tell application "System Events"
               set frontApp to name of first application process whose frontmost is true
+              set frontAppBundle to bundle identifier of first application process whose frontmost is true
             end tell
 
             tell application "iTerm"
@@ -445,8 +446,12 @@ exec $SHELL
             end tell
 
             -- Restore focus to the original application
+            delay 0.2
+            tell application "System Events"
+              set frontmost of process frontApp to true
+            end tell
             delay 0.1
-            tell application frontApp to activate
+            do shell script "open -b " & quoted form of frontAppBundle
           '`)
         } else {
           execSync(`osascript -e '
@@ -1048,9 +1053,10 @@ exec $SHELL
         // When openInBackground is true, save frontmost app and restore after
         if (openInBackground) {
           execSync(`osascript -e '
-            -- Save the currently active application
+            -- Save the currently active application and window
             tell application "System Events"
               set frontApp to name of first application process whose frontmost is true
+              set frontAppBundle to bundle identifier of first application process whose frontmost is true
             end tell
 
             tell application "iTerm"
@@ -1070,8 +1076,12 @@ exec $SHELL
             end tell
 
             -- Restore focus to the original application
+            delay 0.2
+            tell application "System Events"
+              set frontmost of process frontApp to true
+            end tell
             delay 0.1
-            tell application frontApp to activate
+            do shell script "open -b " & quoted form of frontAppBundle
           '`)
         } else {
           execSync(`osascript -e '
@@ -1397,9 +1407,10 @@ exec $SHELL
         // When openInBackground is true, save frontmost app and restore after
         if (openInBackground) {
           execSync(`osascript -e '
-            -- Save the currently active application
+            -- Save the currently active application and window
             tell application "System Events"
               set frontApp to name of first application process whose frontmost is true
+              set frontAppBundle to bundle identifier of first application process whose frontmost is true
             end tell
 
             tell application "iTerm"
@@ -1421,8 +1432,12 @@ exec $SHELL
             end tell
 
             -- Restore focus to the original application
+            delay 0.2
+            tell application "System Events"
+              set frontmost of process frontApp to true
+            end tell
             delay 0.1
-            tell application frontApp to activate
+            do shell script "open -b " & quoted form of frontAppBundle
           '`)
         } else {
           execSync(`osascript -e '
