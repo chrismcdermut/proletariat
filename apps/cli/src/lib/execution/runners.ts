@@ -762,11 +762,9 @@ function createDockerContainer(
   imageName: string,
   config: ExecutionConfig
 ): boolean {
-  // Check if Claude credentials exist on host
+  // Check if Claude credentials directory exists on host
   const hostClaudeDir = path.join(os.homedir(), '.claude')
-  const hostClaudeJson = path.join(os.homedir(), '.claude.json')
   const hasClaudeDir = fs.existsSync(hostClaudeDir)
-  const hasClaudeJson = fs.existsSync(hostClaudeJson)
 
   // Build mount flags
   const mounts: string[] = [
@@ -779,9 +777,10 @@ function createDockerContainer(
     // Claude credentials directory - mount from host so auth tokens are shared
     // This contains OAuth tokens, history, settings, etc.
     ...(hasClaudeDir ? [`-v "${hostClaudeDir}:/home/node/.claude"`] : []),
-    // Claude subscription config - mount from host if it exists
-    // NOTE: Must be read-write (not :ro) because Claude writes to this file
-    ...(hasClaudeJson ? [`-v "${hostClaudeJson}:/home/node/.claude.json"`] : []),
+    // NOTE: We intentionally do NOT mount ~/.claude.json
+    // Multiple containers writing to the same file causes JSON corruption.
+    // Auth is handled via `claude setup-token` or per-container /login.
+    // The ~/.claude/ directory mount above handles settings/history.
   ]
 
   // Build environment flags
