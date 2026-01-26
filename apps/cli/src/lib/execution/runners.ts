@@ -1511,19 +1511,45 @@ exec bash
     const scriptPath = `/tmp/prlt-${sessionName}.sh`
 
     // Write script and start tmux session inside container
+    // IMPORTANT: We create the session with bash first, then send keys to run the script.
+    // This ensures bash is running interactively (required for Claude's TUI to render).
+    // If we pass the script as the session command, bash runs non-interactively and Claude won't show TUI.
     // -n sets the window name (shows in iTerm tab title with -CC mode)
     // sessionName is already ticket-action-agent format
     // Only enable mouse mode if NOT using control mode (control mode lets iTerm handle mouse natively)
     // set-titles on + set-titles-string: makes tmux set terminal title to window name
     const mouseOption = buildTmuxMouseOption(useControlMode)
-    const setupCmd = `echo ${base64Script} | base64 -d > ${scriptPath} && chmod +x ${scriptPath} && tmux new-session -d -s "${sessionName}" -n "${sessionName}" "${scriptPath}"${mouseOption} \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
 
+    // Step 1: Write the script to the container
+    const writeScriptCmd = `echo ${base64Script} | base64 -d > ${scriptPath} && chmod +x ${scriptPath}`
     try {
-      execSync(`docker exec ${actualContainerId} bash -c '${setupCmd}'`, { stdio: 'pipe' })
+      execSync(`docker exec ${actualContainerId} bash -c '${writeScriptCmd}'`, { stdio: 'pipe' })
     } catch (error) {
       return {
         success: false,
-        error: `Failed to start tmux inside container: ${error instanceof Error ? error.message : error}`,
+        error: `Failed to write script to container: ${error instanceof Error ? error.message : error}`,
+      }
+    }
+
+    // Step 2: Create tmux session with bash (interactive shell)
+    const createSessionCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}"${mouseOption} \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
+    try {
+      execSync(`docker exec ${actualContainerId} bash -c '${createSessionCmd}'`, { stdio: 'pipe' })
+    } catch (error) {
+      return {
+        success: false,
+        error: `Failed to create tmux session inside container: ${error instanceof Error ? error.message : error}`,
+      }
+    }
+
+    // Step 3: Send keys to run the script (this runs in the interactive bash)
+    const sendKeysCmd = `tmux send-keys -t "${sessionName}" "source ${scriptPath}" Enter`
+    try {
+      execSync(`docker exec ${actualContainerId} bash -c '${sendKeysCmd}'`, { stdio: 'pipe' })
+    } catch (error) {
+      return {
+        success: false,
+        error: `Failed to start script in tmux session: ${error instanceof Error ? error.message : error}`,
       }
     }
 
