@@ -762,9 +762,14 @@ function createDockerContainer(
   imageName: string,
   config: ExecutionConfig
 ): boolean {
+  // Check if Claude credentials directory exists on host
+  const hostClaudeDir = path.join(os.homedir(), '.claude')
+  const hasClaudeDir = fs.existsSync(hostClaudeDir)
+
   // Build mount flags
-  // NOTE: We do NOT mount ~/.claude.json - multiple containers writing to it causes corruption.
-  // Instead, we copy the file into each container after creation (see copyClaudeConfigToContainer).
+  // NOTE: We mount ~/.claude/ directory (for auth/session data that persists after login)
+  // but we do NOT mount ~/.claude.json (multiple containers writing causes corruption).
+  // Instead, we create a minimal agent config for ~/.claude.json in each container.
   const mounts: string[] = [
     // Agent workspace
     `-v "${context.agentDir}:/workspace"`,
@@ -772,8 +777,9 @@ function createDockerContainer(
     ...(context.hqPath ? [`-v "${context.hqPath}/.proletariat:/hq/.proletariat"`] : []),
     // PMO path
     ...(context.pmoPath ? [`-v "${context.pmoPath}:/hq/pmo"`] : []),
-    // NOTE: We also don't mount ~/.claude/ directory to avoid any shared state issues.
-    // Each container gets its own isolated Claude config.
+    // Claude directory - mount for auth/session persistence after login
+    // Once user logs in on host or in any container, auth persists here
+    ...(hasClaudeDir ? [`-v "${hostClaudeDir}:/home/node/.claude"`] : []),
   ]
 
   // Build environment flags
