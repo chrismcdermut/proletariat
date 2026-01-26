@@ -1496,7 +1496,9 @@ async function runDevcontainerInTmux(
     const claudeCmd = cmdMatch ? cmdMatch[1] : devcontainerCmd
 
     // Create a script inside the container that runs claude and keeps shell open
+    // TERM must be set for Claude's TUI to render properly
     const tmuxScript = `#!/bin/bash
+export TERM=xterm-256color
 echo "🚀 Starting: ${sessionName}"
 echo ""
 ${claudeCmd}
