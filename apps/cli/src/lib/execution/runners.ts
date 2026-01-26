@@ -898,29 +898,9 @@ function runContainerSetup(containerId: string, sandboxed: boolean = true): bool
     // Non-fatal - Claude will just prompt for settings
   }
 
-  // Sync CLAUDE_CODE_OAUTH_TOKEN to .credentials.json if env var is set
-  // This ensures the token in the file matches the env var (volume may have stale token)
-  const oauthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN
-  if (oauthToken) {
-    try {
-      const credentials = {
-        claudeAiOauth: {
-          accessToken: oauthToken,
-          expiresAt: Date.now() + 24 * 60 * 60 * 1000, // 24 hours from now
-          scopes: ['user:inference', 'user:profile'],
-          subscriptionType: 'max',
-        },
-      }
-      const base64Creds = Buffer.from(JSON.stringify(credentials)).toString('base64')
-      execSync(
-        `docker exec ${containerId} bash -c 'echo "${base64Creds}" | base64 -d > /home/node/.claude/.credentials.json && chmod 600 /home/node/.claude/.credentials.json'`,
-        { stdio: 'pipe' }
-      )
-      console.debug('[runners:docker] Synced CLAUDE_CODE_OAUTH_TOKEN to .credentials.json')
-    } catch (error) {
-      console.debug('[runners:docker] Failed to sync OAuth token to credentials file:', error)
-    }
-  }
+  // NOTE: We rely on the claude-credentials volume for auth tokens.
+  // User should run /login inside a container once to populate the volume.
+  // We do NOT sync CLAUDE_CODE_OAUTH_TOKEN env var - it may be stale.
 
   return true
 }
