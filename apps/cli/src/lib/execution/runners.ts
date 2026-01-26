@@ -121,7 +121,9 @@ function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissi
       if (skipPermissions) {
         // Skip permissions - agent runs autonomously without prompting
         // Note: NO -p flag - we want interactive mode for streaming output in terminal
-        return { cmd: 'claude', args: ['--dangerously-skip-permissions', prompt] }
+        // --permission-mode bypassPermissions: skips the "trust this folder" dialog
+        // --dangerously-skip-permissions: skips tool permission checks
+        return { cmd: 'claude', args: ['--permission-mode', 'bypassPermissions', '--dangerously-skip-permissions', prompt] }
       }
       // Manual mode - will prompt for each action (still interactive, no -p)
       return { cmd: 'claude', args: [prompt] }
@@ -135,7 +137,7 @@ function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissi
     default:
       if (skipPermissions) {
         // Note: NO -p flag - we want interactive mode for streaming output
-        return { cmd: 'claude', args: ['--dangerously-skip-permissions', prompt] }
+        return { cmd: 'claude', args: ['--permission-mode', 'bypassPermissions', '--dangerously-skip-permissions', prompt] }
       }
       return { cmd: 'claude', args: [prompt] }
   }
@@ -1017,10 +1019,12 @@ function buildDevcontainerCommand(
   const printFlag = outputMode === 'print' ? '-p ' : ''
   // sandboxed=true means safe mode (no --dangerously-skip-permissions)
   // sandboxed=false means danger mode (use --dangerously-skip-permissions)
+  // --permission-mode bypassPermissions: skips the "trust this folder" dialog
+  const bypassTrustFlag = '--permission-mode bypassPermissions '
   const permissionsFlag = !sandboxed ? '--dangerously-skip-permissions ' : ''
 
   // Build the claude command
-  const claudeCmd = `${cdCmd}${baseCmd} ${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}`
+  const claudeCmd = `${cdCmd}${baseCmd} ${bypassTrustFlag}${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}`
 
   // Use docker exec for running commands in the container
   // Use -it flags only for terminal/foreground modes where a TTY is available
