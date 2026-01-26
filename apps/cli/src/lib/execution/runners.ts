@@ -763,16 +763,18 @@ function createDockerContainer(
   config: ExecutionConfig
 ): boolean {
   // Build mount flags
-  // NOTE: Claude credentials are copied to the workspace directory (agentDir/.claude.json)
-  // before container creation. This avoids mount corruption issues and matches the
-  // original devcontainer CLI approach that was working.
+  // KEY: Use a named Docker volume for Claude credentials - this is how devcontainer.json
+  // was handling it. The volume persists across containers, so login once = logged in everywhere.
+  // This avoids corruption from concurrent writes to host filesystem.
   const mounts: string[] = [
-    // Agent workspace (includes .claude.json copied from host)
+    // Agent workspace
     `-v "${context.agentDir}:/workspace"`,
     // HQ .proletariat directory (for database access)
     ...(context.hqPath ? [`-v "${context.hqPath}/.proletariat:/hq/.proletariat"`] : []),
     // PMO path
     ...(context.pmoPath ? [`-v "${context.pmoPath}:/hq/pmo"`] : []),
+    // Claude credentials - shared named volume (login once, all containers share)
+    `-v "claude-credentials:/home/node/.claude"`,
   ]
 
   // Build environment flags
