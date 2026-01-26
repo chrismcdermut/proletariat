@@ -792,6 +792,8 @@ function createDockerContainer(
     ...(process.env.ANTHROPIC_API_KEY ? [`-e ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"`] : []),
     ...(process.env.GITHUB_TOKEN ? [`-e GITHUB_TOKEN="${process.env.GITHUB_TOKEN}"`] : []),
     ...(process.env.GH_TOKEN ? [`-e GH_TOKEN="${process.env.GH_TOKEN}"`] : []),
+    // Claude Code OAuth token for subscription-based auth in containers
+    ...(process.env.CLAUDE_CODE_OAUTH_TOKEN ? [`-e CLAUDE_CODE_OAUTH_TOKEN="${process.env.CLAUDE_CODE_OAUTH_TOKEN}"`] : []),
   ]
 
   // Resource limits
