@@ -1531,8 +1531,9 @@ exec bash
       }
     }
 
-    // Step 2: Create tmux session with bash (interactive shell)
-    const createSessionCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}"${mouseOption} \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
+    // Step 2: Create tmux session with bash explicitly (not default shell which may be zsh)
+    // Using bash avoids zsh-newuser-install prompt that blocks the session
+    const createSessionCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" bash${mouseOption} \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
     try {
       execSync(`docker exec ${actualContainerId} bash -c '${createSessionCmd}'`, { stdio: 'pipe' })
     } catch (error) {
