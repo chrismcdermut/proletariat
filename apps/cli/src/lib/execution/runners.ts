@@ -1038,19 +1038,27 @@ function buildDevcontainerCommand(
 }
 
 /**
- * Copy Claude Code credentials (~/.claude.json) into the agent directory.
- * This makes the subscription credentials available inside the devcontainer
- * since the agent directory is mounted at /workspace.
+ * Copy Claude Code credentials (~/.claude.json) into a running container.
+ * This makes the subscription credentials available at the expected path
+ * (/home/node/.claude.json) inside the container.
+ *
+ * Note: We copy INTO the container rather than mounting because:
+ * 1. Multiple containers writing to the same mounted file causes JSON corruption
+ * 2. The container may modify the file during operation
+ * 3. This gives each container its own isolated copy
  */
-function copyClaudeCredentials(agentDir: string): void {
+function copyClaudeCredentialsToContainer(containerId: string): void {
   const sourceFile = path.join(os.homedir(), '.claude.json')
-  const destFile = path.join(agentDir, '.claude.json')
 
   if (fs.existsSync(sourceFile)) {
     try {
-      fs.copyFileSync(sourceFile, destFile)
+      // docker cp copies the file into the container
+      execSync(`docker cp "${sourceFile}" ${containerId}:/home/node/.claude.json`, { stdio: 'pipe' })
+      // Ensure the node user owns the file
+      execSync(`docker exec ${containerId} chown node:node /home/node/.claude.json`, { stdio: 'pipe' })
+      console.debug('[runners:credentials] Copied .claude.json into container')
     } catch (err) {
-      console.debug('[runners:credentials] Failed to copy .claude.json:', err)
+      console.debug('[runners:credentials] Failed to copy .claude.json into container:', err)
     }
   }
 }
@@ -1092,9 +1100,6 @@ export async function runDevcontainer(
       }
     }
 
-    // Copy Claude credentials into agent directory so container can access them
-    copyClaudeCredentials(context.agentDir)
-
     // Ensure GitHub token is available for git push operations
     // Try to get token from gh CLI if not already in environment
     if (!process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) {
@@ -1118,6 +1123,10 @@ export async function runDevcontainer(
         error: 'Failed to start Docker container. Check Docker logs for details.',
       }
     }
+
+    // Copy Claude credentials into container (gives each container its own isolated copy)
+    // This enables Claude to authenticate without requiring /login for each new container
+    copyClaudeCredentialsToContainer(containerId)
 
     // Write prompt to file in worktree (accessible by container)
     const { hostPath: promptHostPath, containerPath: promptFile } = writePromptFile(context)
