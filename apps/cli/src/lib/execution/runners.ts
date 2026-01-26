@@ -913,31 +913,33 @@ function ensureDockerContainer(
     // Don't fail completely - setup might partially work
   }
 
-  // Copy Claude config into container (each container gets its own copy)
-  // This avoids corruption from multiple containers writing to mounted file
-  copyClaudeConfigToContainer(containerId)
+  // Create minimal Claude config for agent mode
+  // This pre-accepts bypass permissions and skips onboarding without touching user's personal config
+  createAgentClaudeConfig(containerId)
 
   return containerId
 }
 
 /**
- * Copy Claude config file (~/.claude.json) into a container.
- * Each container gets its own copy to avoid corruption from concurrent writes.
- * This copies the host's config which includes settings, theme, and bypass acceptance.
+ * Create a minimal Claude config for agent containers.
+ * This sets up the necessary flags for unattended agent operation without
+ * modifying or copying the user's personal ~/.claude.json.
  */
-function copyClaudeConfigToContainer(containerId: string): void {
-  const hostClaudeJson = path.join(os.homedir(), '.claude.json')
+function createAgentClaudeConfig(containerId: string): void {
+  // Minimal config for agent mode - pre-accepts bypass permissions and skips onboarding prompts
+  const agentConfig = {
+    bypassPermissionsModeAccepted: true,  // Skip "accept bypass permissions" prompt
+    hasCompletedOnboarding: true,         // Skip theme selection and onboarding
+    theme: 'dark',                        // Default theme for agents
+  }
 
-  if (fs.existsSync(hostClaudeJson)) {
-    try {
-      // Copy the file into the container
-      execSync(`docker cp "${hostClaudeJson}" ${containerId}:/home/node/.claude.json`, { stdio: 'pipe' })
-      // Ensure proper ownership
-      execSync(`docker exec ${containerId} chown node:node /home/node/.claude.json`, { stdio: 'pipe' })
-      console.debug('[runners:docker] Copied .claude.json into container')
-    } catch (err) {
-      console.debug('[runners:docker] Failed to copy .claude.json:', err)
-    }
+  try {
+    const configJson = JSON.stringify(agentConfig)
+    // Write config directly to container
+    execSync(`docker exec ${containerId} bash -c 'echo ${JSON.stringify(configJson)} > /home/node/.claude.json && chown node:node /home/node/.claude.json'`, { stdio: 'pipe' })
+    console.debug('[runners:docker] Created agent .claude.json config')
+  } catch (err) {
+    console.debug('[runners:docker] Failed to create agent config:', err)
   }
 }
 
