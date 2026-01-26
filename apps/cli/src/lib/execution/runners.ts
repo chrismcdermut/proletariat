@@ -762,24 +762,17 @@ function createDockerContainer(
   imageName: string,
   config: ExecutionConfig
 ): boolean {
-  // Check if Claude credentials directory exists on host
-  const hostClaudeDir = path.join(os.homedir(), '.claude')
-  const hasClaudeDir = fs.existsSync(hostClaudeDir)
-
   // Build mount flags
-  // NOTE: We mount ~/.claude/ directory (for auth/session data that persists after login)
-  // but we do NOT mount ~/.claude.json (multiple containers writing causes corruption).
-  // Instead, we create a minimal agent config for ~/.claude.json in each container.
+  // NOTE: Claude credentials are copied to the workspace directory (agentDir/.claude.json)
+  // before container creation. This avoids mount corruption issues and matches the
+  // original devcontainer CLI approach that was working.
   const mounts: string[] = [
-    // Agent workspace
+    // Agent workspace (includes .claude.json copied from host)
     `-v "${context.agentDir}:/workspace"`,
     // HQ .proletariat directory (for database access)
     ...(context.hqPath ? [`-v "${context.hqPath}/.proletariat:/hq/.proletariat"`] : []),
     // PMO path
     ...(context.pmoPath ? [`-v "${context.pmoPath}:/hq/pmo"`] : []),
-    // Claude directory - mount for auth/session persistence after login
-    // Once user logs in on host or in any container, auth persists here
-    ...(hasClaudeDir ? [`-v "${hostClaudeDir}:/home/node/.claude"`] : []),
   ]
 
   // Build environment flags
@@ -919,33 +912,30 @@ function ensureDockerContainer(
     // Don't fail completely - setup might partially work
   }
 
-  // Create minimal Claude config for agent mode
-  // This pre-accepts bypass permissions and skips onboarding without touching user's personal config
-  createAgentClaudeConfig(containerId)
+  // NOTE: Claude credentials are copied to workspace before container creation
+  // (see copyClaudeCredentials call in runDevcontainer)
 
   return containerId
 }
 
 /**
- * Create a minimal Claude config for agent containers.
- * This sets up the necessary flags for unattended agent operation without
- * modifying or copying the user's personal ~/.claude.json.
+ * Copy Claude Code credentials (~/.claude.json) into the agent directory.
+ * This makes the subscription credentials available inside the devcontainer
+ * since the agent directory is mounted at /workspace.
+ *
+ * This was the original working approach before the raw Docker refactor.
  */
-function createAgentClaudeConfig(containerId: string): void {
-  // Minimal config for agent mode - pre-accepts bypass permissions and skips onboarding prompts
-  const agentConfig = {
-    bypassPermissionsModeAccepted: true,  // Skip "accept bypass permissions" prompt
-    hasCompletedOnboarding: true,         // Skip theme selection and onboarding
-    theme: 'dark',                        // Default theme for agents
-  }
+function copyClaudeCredentials(agentDir: string): void {
+  const sourceFile = path.join(os.homedir(), '.claude.json')
+  const destFile = path.join(agentDir, '.claude.json')
 
-  try {
-    const configJson = JSON.stringify(agentConfig)
-    // Write config directly to container
-    execSync(`docker exec ${containerId} bash -c 'echo ${JSON.stringify(configJson)} > /home/node/.claude.json && chown node:node /home/node/.claude.json'`, { stdio: 'pipe' })
-    console.debug('[runners:docker] Created agent .claude.json config')
-  } catch (err) {
-    console.debug('[runners:docker] Failed to create agent config:', err)
+  if (fs.existsSync(sourceFile)) {
+    try {
+      fs.copyFileSync(sourceFile, destFile)
+      console.debug('[runners:credentials] Copied .claude.json to workspace')
+    } catch (err) {
+      console.debug('[runners:credentials] Failed to copy .claude.json:', err)
+    }
   }
 }
 
@@ -1114,6 +1104,10 @@ export async function runDevcontainer(
         console.debug('[runners:docker] gh auth token failed:', err)
       }
     }
+
+    // Copy Claude credentials into agent directory so container can access them
+    // This was the original working approach - credentials at /workspace/.claude.json
+    copyClaudeCredentials(context.agentDir)
 
     // Start or reuse container using raw Docker commands
     // No devcontainer CLI required!
