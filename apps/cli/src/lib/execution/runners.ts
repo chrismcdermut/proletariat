@@ -861,25 +861,15 @@ function ensureDockerContainer(
   const containerName = getContainerName(context.agentName)
   const imageName = getImageName(context.agentName)
 
-  // Check if container already exists and is running
-  if (isContainerRunning(containerName)) {
-    console.debug(`[runners:docker] Container ${containerName} is already running`)
-    return getContainerId(containerName)
-  }
-
-  // Check if container exists but is stopped
+  // Always create fresh container to ensure mounts are up-to-date
+  // TODO: Revisit container reuse strategy - for now, fresh containers ensure
+  // correct volume mounts (especially claude-credentials) are applied
   if (containerExists(containerName)) {
-    console.debug(`[runners:docker] Starting existing container ${containerName}`)
+    console.debug(`[runners:docker] Removing existing container ${containerName} to create fresh one`)
     try {
-      execSync(`docker start ${containerName}`, { stdio: 'pipe' })
-      return getContainerId(containerName)
-    } catch (error) {
-      console.debug(`[runners:docker] Failed to start container, removing and recreating:`, error)
-      try {
-        execSync(`docker rm -f ${containerName}`, { stdio: 'pipe' })
-      } catch {
-        // Ignore removal errors
-      }
+      execSync(`docker rm -f ${containerName}`, { stdio: 'pipe' })
+    } catch {
+      // Ignore removal errors
     }
   }
 
