@@ -828,9 +828,11 @@ function createDockerContainer(
 
 /**
  * Run the post-start setup commands in a container.
- * This includes firewall initialization and prlt setup.
+ * This includes firewall initialization, prlt setup, and Claude settings.
+ * @param containerId - Docker container ID
+ * @param sandboxed - Whether running in safe mode (true) or danger mode (false)
  */
-function runContainerSetup(containerId: string): boolean {
+function runContainerSetup(containerId: string, sandboxed: boolean = true): boolean {
   try {
     // Run firewall init (requires sudo since we're running as node user)
     execSync(
@@ -842,11 +844,49 @@ function runContainerSetup(containerId: string): boolean {
       `docker exec ${containerId} /usr/local/bin/setup-prlt.sh`,
       { stdio: 'pipe' }
     )
-    return true
   } catch (error) {
-    console.debug(`[runners:docker] Container setup failed:`, error)
-    return false
+    console.debug(`[runners:docker] Container setup scripts failed:`, error)
+    // Continue - setup might partially work
   }
+
+  // Copy Claude settings file (.claude.json) from host to container
+  // This is needed for Claude Code to recognize settings and bypass prompts
+  // Note: Auth tokens are in the claude-credentials volume at /home/node/.claude/.credentials.json
+  // But settings (.claude.json) need to be at /home/node/.claude.json (outside the .claude dir)
+  try {
+    const hostClaudeJson = path.join(os.homedir(), '.claude.json')
+    let settings: Record<string, unknown> = {}
+
+    if (fs.existsSync(hostClaudeJson)) {
+      // Read host file content as base
+      const content = fs.readFileSync(hostClaudeJson, 'utf-8')
+      try {
+        settings = JSON.parse(content)
+      } catch {
+        console.debug('[runners:docker] Failed to parse host .claude.json, using empty settings')
+      }
+    }
+
+    // Only set bypassPermissionsModeAccepted when user chose danger mode (!sandboxed)
+    // This doesn't modify the host file - only the container copy
+    if (!sandboxed) {
+      settings.bypassPermissionsModeAccepted = true
+    }
+
+    // Base64 encode to avoid shell escaping issues
+    const base64Content = Buffer.from(JSON.stringify(settings)).toString('base64')
+    // Write to container at /home/node/.claude.json
+    execSync(
+      `docker exec ${containerId} bash -c 'echo "${base64Content}" | base64 -d > /home/node/.claude.json'`,
+      { stdio: 'pipe' }
+    )
+    console.debug(`[runners:docker] Copied .claude.json settings to container (bypassPermissionsModeAccepted=${!sandboxed})`)
+  } catch (error) {
+    console.debug('[runners:docker] Failed to copy .claude.json to container:', error)
+    // Non-fatal - Claude will just prompt for settings
+  }
+
+  return true
 }
 
 /**
@@ -897,9 +937,10 @@ function ensureDockerContainer(
     return null
   }
 
-  // Run post-start setup (firewall, prlt)
-  console.debug(`[runners:docker] Running container setup`)
-  if (!runContainerSetup(containerId)) {
+  // Run post-start setup (firewall, prlt, Claude settings)
+  // Pass sandboxed config to determine whether to set bypassPermissionsModeAccepted
+  console.debug(`[runners:docker] Running container setup (sandboxed=${config.sandboxed})`)
+  if (!runContainerSetup(containerId, config.sandboxed)) {
     console.debug(`[runners:docker] Setup failed, but continuing...`)
     // Don't fail completely - setup might partially work
   }
