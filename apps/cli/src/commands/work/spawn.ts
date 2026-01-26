@@ -667,6 +667,20 @@ export default class WorkSpawn extends PMOCommand {
 
         // Prompt for environment (devcontainer vs host) if devcontainer available and not already set
         if (hasDevcontainer && !batchRunOnHost && !batchDisplay) {
+          // Check devcontainer prerequisites upfront
+          const dockerRunning = isDockerRunning()
+          const devcontainerCliInstalled = isDevcontainerCliInstalled()
+          const devcontainerReady = dockerRunning && devcontainerCliInstalled
+
+          // Build missing requirements message for devcontainer option
+          let devcontainerLabel = '🐳 devcontainer (sandboxed, recommended)'
+          if (!devcontainerReady) {
+            const missing: string[] = []
+            if (!dockerRunning) missing.push('Docker')
+            if (!devcontainerCliInstalled) missing.push('devcontainer CLI')
+            devcontainerLabel = `🐳 devcontainer (requires: ${missing.join(', ')})`
+          }
+
           let environmentSelected = false
           while (!environmentSelected) {
             // eslint-disable-next-line no-await-in-loop -- Interactive loop with retry on Docker check
@@ -676,11 +690,11 @@ export default class WorkSpawn extends PMOCommand {
                 name: 'selectedEnvironment',
                 message: 'Where should agents run?',
                 choices: [
-                  { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
+                  { name: devcontainerLabel, value: 'devcontainer', disabled: !devcontainerReady },
                   { name: '💻 host (runs directly on your machine)', value: 'host' },
                   { name: '✗  cancel', value: 'cancel' },
                 ],
-                default: 'devcontainer',
+                default: devcontainerReady ? 'devcontainer' : 'host',
               },
             ])
 
@@ -691,6 +705,7 @@ export default class WorkSpawn extends PMOCommand {
             }
 
             if (selectedEnvironment === 'devcontainer') {
+              // Double-check prerequisites (in case user retried after starting Docker)
               if (!isDockerRunning()) {
                 this.log('')
                 this.warn(

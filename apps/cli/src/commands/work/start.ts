@@ -770,6 +770,20 @@ export default class WorkStart extends PMOCommand {
 
       if (hasDevcontainer && !flags.display && !flags['run-on-host']) {
         // Agent has devcontainer - prompt for environment choice
+        // Check devcontainer prerequisites upfront
+        const dockerRunning = isDockerRunning()
+        const devcontainerCliInstalled = isDevcontainerCliInstalled()
+        const devcontainerReady = dockerRunning && devcontainerCliInstalled
+
+        // Build missing requirements message for devcontainer option
+        let devcontainerLabel = '🐳 devcontainer (sandboxed, recommended)'
+        if (!devcontainerReady) {
+          const missing: string[] = []
+          if (!dockerRunning) missing.push('Docker')
+          if (!devcontainerCliInstalled) missing.push('devcontainer CLI')
+          devcontainerLabel = `🐳 devcontainer (requires: ${missing.join(', ')})`
+        }
+
         // Loop to allow re-selection if Docker isn't running
         let environmentSelected = false
         while (!environmentSelected) {
@@ -780,11 +794,11 @@ export default class WorkStart extends PMOCommand {
               name: 'selectedEnvironment',
               message: 'Where should the agent run?',
               choices: [
-                { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
+                { name: devcontainerLabel, value: 'devcontainer', disabled: !devcontainerReady },
                 { name: '💻 host (runs directly on your machine)', value: 'host' },
                 { name: '✗  cancel', value: 'cancel' },
               ],
-              default: 'devcontainer',
+              default: devcontainerReady ? 'devcontainer' : 'host',
             },
           ])
 
@@ -795,7 +809,7 @@ export default class WorkStart extends PMOCommand {
           }
 
           if (selectedEnvironment === 'devcontainer') {
-            // Check Docker is running before proceeding with devcontainer
+            // Double-check prerequisites (in case user retried after starting Docker)
             if (!isDockerRunning()) {
               this.log('')
               this.warn(

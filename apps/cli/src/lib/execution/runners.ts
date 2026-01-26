@@ -636,18 +636,280 @@ export function isDockerRunning(): boolean {
 /**
  * Check if the devcontainer CLI is installed.
  * Returns true if the CLI is available, false otherwise.
+ * @deprecated No longer required - we use raw Docker commands now
  */
 export function isDevcontainerCliInstalled(): boolean {
+  // Always return true since we no longer require devcontainer CLI
+  // We use raw Docker commands instead
+  return true
+}
+
+// =============================================================================
+// Docker Container Management (Raw Docker, no devcontainer CLI)
+// =============================================================================
+
+/**
+ * Get the container name for an agent.
+ * Format: prlt-agent-{agentName}
+ */
+export function getAgentContainerName(agentName: string): string {
+  // Sanitize agent name for Docker container naming (alphanumeric, dash, underscore only)
+  const sanitized = agentName.replace(/[^a-zA-Z0-9_-]/g, '-')
+  return `prlt-agent-${sanitized}`
+}
+
+// Alias for internal use
+const getContainerName = getAgentContainerName
+
+/**
+ * Get the image name for an agent.
+ * Format: prlt-agent-{agentName}:latest
+ */
+function getImageName(agentName: string): string {
+  const sanitized = agentName.replace(/[^a-zA-Z0-9_-]/g, '-')
+  return `prlt-agent-${sanitized}:latest`
+}
+
+/**
+ * Check if a Docker container exists (running or stopped).
+ */
+export function containerExists(containerName: string): boolean {
   try {
-    execSync('which devcontainer', { stdio: 'pipe' })
+    execSync(`docker container inspect ${containerName}`, { stdio: 'pipe' })
     return true
   } catch {
     return false
   }
 }
 
+/**
+ * Check if a Docker container is running.
+ */
+export function isContainerRunning(containerName: string): boolean {
+  try {
+    const status = execSync(
+      `docker container inspect -f '{{.State.Running}}' ${containerName}`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+    ).trim()
+    return status === 'true'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Get the container ID for a running container.
+ */
+export function getContainerId(containerName: string): string | null {
+  try {
+    const containerId = execSync(
+      `docker container inspect -f '{{.Id}}' ${containerName}`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+    ).trim()
+    return containerId ? containerId.substring(0, 12) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Build Docker image for an agent from its Dockerfile.
+ */
+function buildDockerImage(agentDir: string, imageName: string, buildArgs: Record<string, string> = {}): boolean {
+  const dockerfilePath = path.join(agentDir, '.devcontainer', 'Dockerfile')
+  if (!fs.existsSync(dockerfilePath)) {
+    console.debug(`[runners:docker] Dockerfile not found at ${dockerfilePath}`)
+    return false
+  }
+
+  try {
+    // Build --build-arg flags
+    const buildArgFlags = Object.entries(buildArgs)
+      .map(([key, value]) => `--build-arg ${key}="${value}"`)
+      .join(' ')
+
+    const buildCmd = `docker build -t ${imageName} -f "${dockerfilePath}" ${buildArgFlags} "${path.join(agentDir, '.devcontainer')}"`
+    console.debug(`[runners:docker] Building image: ${buildCmd}`)
+    execSync(buildCmd, { stdio: 'pipe' })
+    return true
+  } catch (error) {
+    console.debug(`[runners:docker] Failed to build image:`, error)
+    return false
+  }
+}
+
+/**
+ * Check if a Docker image exists.
+ */
+function imageExists(imageName: string): boolean {
+  try {
+    execSync(`docker image inspect ${imageName}`, { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Create and start a Docker container for an agent.
+ * Uses raw Docker commands instead of devcontainer CLI.
+ */
+function createDockerContainer(
+  context: ExecutionContext,
+  containerName: string,
+  imageName: string,
+  config: ExecutionConfig
+): boolean {
+  // Build mount flags
+  const mounts: string[] = [
+    // Agent workspace
+    `-v "${context.agentDir}:/workspace"`,
+    // HQ .proletariat directory (for database access)
+    ...(context.hqPath ? [`-v "${context.hqPath}/.proletariat:/hq/.proletariat"`] : []),
+    // PMO path
+    ...(context.pmoPath ? [`-v "${context.pmoPath}:/hq/pmo"`] : []),
+  ]
+
+  // Build environment flags
+  const envVars: string[] = [
+    `-e DEVCONTAINER=true`,
+    `-e PRLT_HQ_PATH=/hq`,
+    `-e PRLT_AGENT_NAME="${context.agentName}"`,
+    `-e PRLT_HOST_PATH="${context.agentDir}"`,
+    ...(process.env.ANTHROPIC_API_KEY ? [`-e ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"`] : []),
+    ...(process.env.GITHUB_TOKEN ? [`-e GITHUB_TOKEN="${process.env.GITHUB_TOKEN}"`] : []),
+    ...(process.env.GH_TOKEN ? [`-e GH_TOKEN="${process.env.GH_TOKEN}"`] : []),
+  ]
+
+  // Resource limits
+  const resourceFlags = [
+    `--memory=${config.devcontainer.memory}`,
+    `--cpus=${config.devcontainer.cpus}`,
+  ]
+
+  // Security flags - these provide the sandboxing
+  const securityFlags = [
+    '--cap-add=NET_ADMIN',   // For firewall setup
+    '--cap-add=NET_RAW',     // For firewall setup
+    // Note: After firewall is set up, the container is network-restricted
+  ]
+
+  try {
+    const createCmd = [
+      'docker run -d',
+      `--name ${containerName}`,
+      '--user node',
+      '-w /workspace',
+      ...mounts,
+      ...envVars,
+      ...resourceFlags,
+      ...securityFlags,
+      imageName,
+      'sleep infinity',  // Keep container running
+    ].join(' ')
+
+    console.debug(`[runners:docker] Creating container: ${createCmd}`)
+    execSync(createCmd, { stdio: 'pipe' })
+    return true
+  } catch (error) {
+    console.debug(`[runners:docker] Failed to create container:`, error)
+    return false
+  }
+}
+
+/**
+ * Run the post-start setup commands in a container.
+ * This includes firewall initialization and prlt setup.
+ */
+function runContainerSetup(containerId: string): boolean {
+  try {
+    // Run firewall init (requires sudo since we're running as node user)
+    execSync(
+      `docker exec ${containerId} sudo /usr/local/bin/init-firewall.sh`,
+      { stdio: 'pipe' }
+    )
+    // Run prlt setup
+    execSync(
+      `docker exec ${containerId} /usr/local/bin/setup-prlt.sh`,
+      { stdio: 'pipe' }
+    )
+    return true
+  } catch (error) {
+    console.debug(`[runners:docker] Container setup failed:`, error)
+    return false
+  }
+}
+
+/**
+ * Ensure a Docker container is running for the agent.
+ * Builds image and creates container if needed.
+ * Returns the container ID if successful, null otherwise.
+ */
+function ensureDockerContainer(
+  context: ExecutionContext,
+  config: ExecutionConfig
+): string | null {
+  const containerName = getContainerName(context.agentName)
+  const imageName = getImageName(context.agentName)
+
+  // Check if container already exists and is running
+  if (isContainerRunning(containerName)) {
+    console.debug(`[runners:docker] Container ${containerName} is already running`)
+    return getContainerId(containerName)
+  }
+
+  // Check if container exists but is stopped
+  if (containerExists(containerName)) {
+    console.debug(`[runners:docker] Starting existing container ${containerName}`)
+    try {
+      execSync(`docker start ${containerName}`, { stdio: 'pipe' })
+      return getContainerId(containerName)
+    } catch (error) {
+      console.debug(`[runners:docker] Failed to start container, removing and recreating:`, error)
+      try {
+        execSync(`docker rm -f ${containerName}`, { stdio: 'pipe' })
+      } catch {
+        // Ignore removal errors
+      }
+    }
+  }
+
+  // Build image if it doesn't exist
+  if (!imageExists(imageName)) {
+    console.debug(`[runners:docker] Building image ${imageName}`)
+    const buildArgs: Record<string, string> = {
+      TZ: 'America/Los_Angeles',
+      PRLT_REGISTRY: 'npm',
+      PRLT_VERSION: 'latest',
+    }
+    if (!buildDockerImage(context.agentDir, imageName, buildArgs)) {
+      return null
+    }
+  }
+
+  // Create and start container
+  console.debug(`[runners:docker] Creating container ${containerName}`)
+  if (!createDockerContainer(context, containerName, imageName, config)) {
+    return null
+  }
+
+  const containerId = getContainerId(containerName)
+  if (!containerId) {
+    return null
+  }
+
+  // Run post-start setup (firewall, prlt)
+  console.debug(`[runners:docker] Running container setup`)
+  if (!runContainerSetup(containerId)) {
+    console.debug(`[runners:docker] Setup failed, but continuing...`)
+    // Don't fail completely - setup might partially work
+  }
+
+  return containerId
+}
+
 // =============================================================================
-// Devcontainer Runner
+// Devcontainer Runner (now uses raw Docker)
 // =============================================================================
 
 /**
@@ -705,35 +967,9 @@ function writePromptFile(context: ExecutionContext): { hostPath: string; contain
 
 /**
  * Build the command to run Claude inside the container.
- * Uses devcontainer exec which handles user context and working directory automatically.
+ * Uses docker exec for direct container access.
  * Uses a prompt file to avoid shell escaping issues.
  */
-/**
- * Get the container ID for a devcontainer workspace.
- */
-function getDevcontainerContainerId(agentDir: string): string | null {
-  try {
-    // devcontainer up outputs JSON with container ID
-    const result = execSync(
-      `devcontainer up --workspace-folder "${agentDir}" 2>/dev/null | tail -1`,
-      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-    )
-    const json = JSON.parse(result.trim())
-    return json.containerId || null
-  } catch (err) {
-    console.debug('[runners:devcontainer] devcontainer up failed, trying docker ps fallback:', err)
-    try {
-      const containerId = execSync(
-        `docker ps -q --filter "label=devcontainer.local_folder=${agentDir}"`,
-        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-      ).trim()
-      return containerId || null
-    } catch (fallbackErr) {
-      console.debug('[runners:devcontainer] docker ps fallback also failed:', fallbackErr)
-      return null
-    }
-  }
-}
 
 function buildDevcontainerCommand(
   context: ExecutionContext,
@@ -775,18 +1011,13 @@ function buildDevcontainerCommand(
   // Build the claude command
   const claudeCmd = `${cdCmd}${baseCmd} ${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}`
 
-  // If we have a container ID, use docker exec for streaming
-  if (containerId) {
-    // Use -it flags only for terminal/foreground modes where a TTY is available
-    // Background mode runs without a TTY, so -it flags would cause "not a TTY" error
-    const ttyFlags = displayMode === 'background' ? '' : '-it '
+  // Use docker exec for running commands in the container
+  // Use -it flags only for terminal/foreground modes where a TTY is available
+  // Background mode runs without a TTY, so -it flags would cause "not a TTY" error
+  const ttyFlags = displayMode === 'background' ? '' : '-it '
 
-    // Direct mode - run claude directly (tmux setup is handled by runDevcontainerInTmux)
-    return `docker exec ${ttyFlags}${containerId} bash -c '${claudeCmd}'`
-  }
-
-  // Fallback to devcontainer exec (no streaming, but works)
-  return `devcontainer exec --workspace-folder "${context.agentDir}" bash -c '${claudeCmd}'`
+  // Direct mode - run claude directly (tmux setup is handled by runDevcontainerInTmux)
+  return `docker exec ${ttyFlags}${containerId} bash -c '${claudeCmd}'`
 }
 
 /**
@@ -809,9 +1040,9 @@ function copyClaudeCredentials(agentDir: string): void {
 
 
 /**
- * Run command inside a devcontainer.
- * Uses the devcontainer CLI to start/exec in a VS Code devcontainer.
- * Provides filesystem isolation - agent can only access mounted worktrees.
+ * Run command inside a Docker container.
+ * Uses raw Docker commands for filesystem isolation - no devcontainer CLI required.
+ * Agent can only access mounted worktrees and configured paths.
  *
  * @param displayMode - How to display output (terminal, foreground, background, tmux)
  * @param sessionManager - How to manage the session inside the container (tmux, direct)
@@ -823,31 +1054,19 @@ export async function runDevcontainer(
   displayMode: DisplayMode = 'terminal',
   sessionManager: SessionManager = 'tmux'  // Default to tmux for session persistence
 ): Promise<RunnerResult> {
-  // Devcontainer config is in the agent directory, not the worktree
-  // (worktree may be a subdirectory like agents/altman/textdeck)
+  // Docker config is in the agent directory (still uses .devcontainer for Dockerfile)
   const devcontainerPath = path.join(context.agentDir, '.devcontainer')
-  const devcontainerJson = path.join(devcontainerPath, 'devcontainer.json')
+  const dockerfile = path.join(devcontainerPath, 'Dockerfile')
 
-  // Check if devcontainer config exists
-  if (!fs.existsSync(devcontainerJson)) {
+  // Check if Dockerfile exists
+  if (!fs.existsSync(dockerfile)) {
     return {
       success: false,
-      error: `No devcontainer.json found at ${devcontainerPath}. Run 'prlt agent add' to set up the agent with devcontainer config.`,
+      error: `No Dockerfile found at ${devcontainerPath}. Run 'prlt agent add' to set up the agent with Docker config.`,
     }
   }
 
   try {
-    // Check devcontainer CLI is installed
-    try {
-      execSync('which devcontainer', { stdio: 'pipe' })
-    } catch (err) {
-      console.debug('[runners:devcontainer] devcontainer CLI not found:', err)
-      return {
-        success: false,
-        error: 'devcontainer CLI not found. Install with: npm install -g @devcontainers/cli',
-      }
-    }
-
     // Check if Docker is running
     if (!isDockerRunning()) {
       return {
@@ -859,70 +1078,40 @@ export async function runDevcontainer(
     // Copy Claude credentials into agent directory so container can access them
     copyClaudeCredentials(context.agentDir)
 
-    // Set environment variables for devcontainer mounts
-    // PRLT_HQ_PATH: allows agent to access the HQ database and run `prlt ticket complete`
-    // PRLT_PMO_PATH: allows agent to access the PMO (can be anywhere, e.g., /hq/repos/myrepo/pmo)
-    // PRLT_REPO_PATH: mounts the entire proletariat repo into the container (until prlt is on npm)
-    const env = { ...process.env }
-    if (context.hqPath) {
-      env.PRLT_HQ_PATH = context.hqPath
-    }
-    if (context.pmoPath) {
-      env.PRLT_PMO_PATH = context.pmoPath
-    }
-
     // Ensure GitHub token is available for git push operations
     // Try to get token from gh CLI if not already in environment
-    if (!env.GITHUB_TOKEN && !env.GH_TOKEN) {
+    if (!process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) {
       try {
         const token = execSync('gh auth token', { encoding: 'utf-8', stdio: 'pipe' }).trim()
         if (token) {
-          env.GITHUB_TOKEN = token
-          env.GH_TOKEN = token
+          process.env.GITHUB_TOKEN = token
+          process.env.GH_TOKEN = token
         }
       } catch (err) {
-        console.debug('[runners:devcontainer] gh auth token failed:', err)
-      }
-    }
-    // Set repo path to the proletariat monorepo (auto-detect from current CLI location)
-    // We mount the entire repo so node_modules resolution works correctly
-    if (!env.PRLT_REPO_PATH) {
-      // Get the directory where this CLI is running from (apps/cli)
-      const cliDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', '..')
-      // Go up to the monorepo root (repos/proletariat)
-      const repoDir = path.resolve(cliDir, '..', '..')
-      if (fs.existsSync(path.join(repoDir, 'apps', 'cli', 'bin', 'run.js'))) {
-        env.PRLT_REPO_PATH = repoDir
+        console.debug('[runners:docker] gh auth token failed:', err)
       }
     }
 
-    // Start or reuse container (devcontainer up is idempotent)
-    // Use agentDir as the workspace folder since that's where .devcontainer is
-    try {
-      execSync(`devcontainer up --workspace-folder "${context.agentDir}"`, {
-        stdio: 'pipe',
-        env,
-      })
-    } catch (error) {
+    // Start or reuse container using raw Docker commands
+    // No devcontainer CLI required!
+    const containerId = ensureDockerContainer(context, config)
+    if (!containerId) {
       return {
         success: false,
-        error: `Failed to start devcontainer: ${error instanceof Error ? error.message : error}`,
+        error: 'Failed to start Docker container. Check Docker logs for details.',
       }
     }
 
     // Write prompt to file in worktree (accessible by container)
     const { hostPath: promptHostPath, containerPath: promptFile } = writePromptFile(context)
 
-    // Get container ID for docker exec (enables streaming output with TTY)
-    const containerId = getDevcontainerContainerId(context.agentDir)
-
     // Inject fresh GitHub token into container (containers may be reused with stale/empty tokens)
     // This ensures git push works even if the container was created before token was available
-    if (containerId && (env.GITHUB_TOKEN || env.GH_TOKEN)) {
-      const token = env.GITHUB_TOKEN || env.GH_TOKEN
+    const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
+    if (containerId && githubToken) {
       try {
         // Write token to file and configure git credential helper
-        execSync(`docker exec ${containerId} bash -c 'echo "${token}" > /home/node/.github-token && chmod 600 /home/node/.github-token && git config --global credential.helper "!f() { echo \\"username=x-access-token\\"; echo \\"password=\\$(cat /home/node/.github-token)\\"; }; f" && git config --global url."https://github.com/".insteadOf "git@github.com:"'`, {
+        execSync(`docker exec ${containerId} bash -c 'echo "${githubToken}" > /home/node/.github-token && chmod 600 /home/node/.github-token && git config --global credential.helper "!f() { echo \\"username=x-access-token\\"; echo \\"password=\\$(cat /home/node/.github-token)\\"; }; f" && git config --global url."https://github.com/".insteadOf "git@github.com:"'`, {
           stdio: 'pipe',
         })
       } catch {
@@ -930,9 +1119,9 @@ export async function runDevcontainer(
       }
     }
 
-    // Build the devcontainer exec command (just runs claude directly)
+    // Build the docker exec command (just runs claude directly)
     // tmux session setup is handled by runDevcontainerInTmux, not buildDevcontainerCommand
-    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId || undefined, config.outputMode, config.sandboxed, displayMode)
+    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId, config.outputMode, config.sandboxed, displayMode)
 
     // Execute based on display mode
     // When sessionManager is 'tmux', always use tmux inside container for session persistence
