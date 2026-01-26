@@ -760,6 +760,10 @@ function createDockerContainer(
   imageName: string,
   config: ExecutionConfig
 ): boolean {
+  // Check if Claude credentials file exists in agent dir
+  const claudeJsonPath = path.join(context.agentDir, '.claude.json')
+  const hasClaudeJson = fs.existsSync(claudeJsonPath)
+
   // Build mount flags
   const mounts: string[] = [
     // Agent workspace
@@ -768,6 +772,12 @@ function createDockerContainer(
     ...(context.hqPath ? [`-v "${context.hqPath}/.proletariat:/hq/.proletariat"`] : []),
     // PMO path
     ...(context.pmoPath ? [`-v "${context.pmoPath}:/hq/pmo"`] : []),
+    // Claude credentials - use named volume for persistence across container recreates
+    // This stores auth tokens from /login command
+    `-v claude-credentials:/home/node/.claude`,
+    // Claude subscription config - mount from agent dir if it exists
+    // (copied there by copyClaudeCredentials from ~/.claude.json)
+    ...(hasClaudeJson ? [`-v "${claudeJsonPath}:/home/node/.claude.json:ro"`] : []),
   ]
 
   // Build environment flags
