@@ -873,6 +873,18 @@ function runContainerSetup(containerId: string, sandboxed: boolean = true): bool
       settings.bypassPermissionsModeAccepted = true
     }
 
+    // Skip first-run onboarding (theme picker, tips, etc.) for automated agents
+    // These flags indicate Claude Code has been run before
+    settings.numStartups = settings.numStartups || 1
+    settings.hasCompletedOnboarding = true
+    settings.theme = settings.theme || 'dark'
+    // Ensure tipsHistory exists to prevent tip prompts
+    if (!settings.tipsHistory || typeof settings.tipsHistory !== 'object') {
+      settings.tipsHistory = {}
+    }
+    const tips = settings.tipsHistory as Record<string, number>
+    tips['new-user-warmup'] = tips['new-user-warmup'] || 1
+
     // Base64 encode to avoid shell escaping issues
     const base64Content = Buffer.from(JSON.stringify(settings)).toString('base64')
     // Write to container at /home/node/.claude.json
