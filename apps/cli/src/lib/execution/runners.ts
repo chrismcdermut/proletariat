@@ -762,13 +762,9 @@ function createDockerContainer(
   imageName: string,
   config: ExecutionConfig
 ): boolean {
-  // Check if Claude credentials exist on host
-  const hostClaudeDir = path.join(os.homedir(), '.claude')
-  const hostClaudeJson = path.join(os.homedir(), '.claude.json')
-  const hasClaudeDir = fs.existsSync(hostClaudeDir)
-  const hasClaudeJson = fs.existsSync(hostClaudeJson)
-
   // Build mount flags
+  // NOTE: We do NOT mount ~/.claude.json - multiple containers writing to it causes corruption.
+  // Instead, we copy the file into each container after creation (see copyClaudeConfigToContainer).
   const mounts: string[] = [
     // Agent workspace
     `-v "${context.agentDir}:/workspace"`,
@@ -776,13 +772,8 @@ function createDockerContainer(
     ...(context.hqPath ? [`-v "${context.hqPath}/.proletariat:/hq/.proletariat"`] : []),
     // PMO path
     ...(context.pmoPath ? [`-v "${context.pmoPath}:/hq/pmo"`] : []),
-    // Claude credentials directory - mount from host so auth tokens are shared
-    // This contains OAuth tokens, history, settings, etc.
-    ...(hasClaudeDir ? [`-v "${hostClaudeDir}:/home/node/.claude"`] : []),
-    // Claude config file - contains auth tokens, settings, onboarding state
-    // Multiple Claude instances on host write to this file without corruption,
-    // so container instances should handle it the same way (file locking/atomic writes)
-    ...(hasClaudeJson ? [`-v "${hostClaudeJson}:/home/node/.claude.json"`] : []),
+    // NOTE: We also don't mount ~/.claude/ directory to avoid any shared state issues.
+    // Each container gets its own isolated Claude config.
   ]
 
   // Build environment flags
@@ -922,7 +913,32 @@ function ensureDockerContainer(
     // Don't fail completely - setup might partially work
   }
 
+  // Copy Claude config into container (each container gets its own copy)
+  // This avoids corruption from multiple containers writing to mounted file
+  copyClaudeConfigToContainer(containerId)
+
   return containerId
+}
+
+/**
+ * Copy Claude config file (~/.claude.json) into a container.
+ * Each container gets its own copy to avoid corruption from concurrent writes.
+ * This copies the host's config which includes settings, theme, and bypass acceptance.
+ */
+function copyClaudeConfigToContainer(containerId: string): void {
+  const hostClaudeJson = path.join(os.homedir(), '.claude.json')
+
+  if (fs.existsSync(hostClaudeJson)) {
+    try {
+      // Copy the file into the container
+      execSync(`docker cp "${hostClaudeJson}" ${containerId}:/home/node/.claude.json`, { stdio: 'pipe' })
+      // Ensure proper ownership
+      execSync(`docker exec ${containerId} chown node:node /home/node/.claude.json`, { stdio: 'pipe' })
+      console.debug('[runners:docker] Copied .claude.json into container')
+    } catch (err) {
+      console.debug('[runners:docker] Failed to copy .claude.json:', err)
+    }
+  }
 }
 
 // =============================================================================
