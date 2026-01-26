@@ -760,9 +760,11 @@ function createDockerContainer(
   imageName: string,
   config: ExecutionConfig
 ): boolean {
-  // Check if Claude credentials file exists in agent dir
-  const claudeJsonPath = path.join(context.agentDir, '.claude.json')
-  const hasClaudeJson = fs.existsSync(claudeJsonPath)
+  // Check if Claude credentials exist on host
+  const hostClaudeDir = path.join(os.homedir(), '.claude')
+  const hostClaudeJson = path.join(os.homedir(), '.claude.json')
+  const hasClaudeDir = fs.existsSync(hostClaudeDir)
+  const hasClaudeJson = fs.existsSync(hostClaudeJson)
 
   // Build mount flags
   const mounts: string[] = [
@@ -772,12 +774,11 @@ function createDockerContainer(
     ...(context.hqPath ? [`-v "${context.hqPath}/.proletariat:/hq/.proletariat"`] : []),
     // PMO path
     ...(context.pmoPath ? [`-v "${context.pmoPath}:/hq/pmo"`] : []),
-    // Claude credentials - use named volume for persistence across container recreates
-    // This stores auth tokens from /login command
-    `-v claude-credentials:/home/node/.claude`,
-    // Claude subscription config - mount from agent dir if it exists
-    // (copied there by copyClaudeCredentials from ~/.claude.json)
-    ...(hasClaudeJson ? [`-v "${claudeJsonPath}:/home/node/.claude.json:ro"`] : []),
+    // Claude credentials directory - mount from host so auth tokens are shared
+    // This contains OAuth tokens, history, settings, etc.
+    ...(hasClaudeDir ? [`-v "${hostClaudeDir}:/home/node/.claude"`] : []),
+    // Claude subscription config - mount from host if it exists
+    ...(hasClaudeJson ? [`-v "${hostClaudeJson}:/home/node/.claude.json:ro"`] : []),
   ]
 
   // Build environment flags
