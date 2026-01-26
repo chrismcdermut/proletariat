@@ -762,9 +762,11 @@ function createDockerContainer(
   imageName: string,
   config: ExecutionConfig
 ): boolean {
-  // Check if Claude credentials directory exists on host
+  // Check if Claude credentials exist on host
   const hostClaudeDir = path.join(os.homedir(), '.claude')
+  const hostClaudeJson = path.join(os.homedir(), '.claude.json')
   const hasClaudeDir = fs.existsSync(hostClaudeDir)
+  const hasClaudeJson = fs.existsSync(hostClaudeJson)
 
   // Build mount flags
   const mounts: string[] = [
@@ -777,10 +779,10 @@ function createDockerContainer(
     // Claude credentials directory - mount from host so auth tokens are shared
     // This contains OAuth tokens, history, settings, etc.
     ...(hasClaudeDir ? [`-v "${hostClaudeDir}:/home/node/.claude"`] : []),
-    // NOTE: We intentionally do NOT mount ~/.claude.json
-    // Multiple containers writing to the same file causes JSON corruption.
-    // Auth is handled via `claude setup-token` or per-container /login.
-    // The ~/.claude/ directory mount above handles settings/history.
+    // Claude config file - contains auth tokens, settings, onboarding state
+    // Multiple Claude instances on host write to this file without corruption,
+    // so container instances should handle it the same way (file locking/atomic writes)
+    ...(hasClaudeJson ? [`-v "${hostClaudeJson}:/home/node/.claude.json"`] : []),
   ]
 
   // Build environment flags
@@ -1037,31 +1039,6 @@ function buildDevcontainerCommand(
   return `docker exec ${ttyFlags}${containerId} bash -c '${claudeCmd}'`
 }
 
-/**
- * Copy Claude Code credentials (~/.claude.json) into a running container.
- * This makes the subscription credentials available at the expected path
- * (/home/node/.claude.json) inside the container.
- *
- * Note: We copy INTO the container rather than mounting because:
- * 1. Multiple containers writing to the same mounted file causes JSON corruption
- * 2. The container may modify the file during operation
- * 3. This gives each container its own isolated copy
- */
-function copyClaudeCredentialsToContainer(containerId: string): void {
-  const sourceFile = path.join(os.homedir(), '.claude.json')
-
-  if (fs.existsSync(sourceFile)) {
-    try {
-      // docker cp copies the file into the container
-      execSync(`docker cp "${sourceFile}" ${containerId}:/home/node/.claude.json`, { stdio: 'pipe' })
-      // Ensure the node user owns the file
-      execSync(`docker exec ${containerId} chown node:node /home/node/.claude.json`, { stdio: 'pipe' })
-      console.debug('[runners:credentials] Copied .claude.json into container')
-    } catch (err) {
-      console.debug('[runners:credentials] Failed to copy .claude.json into container:', err)
-    }
-  }
-}
 
 
 /**
@@ -1123,10 +1100,6 @@ export async function runDevcontainer(
         error: 'Failed to start Docker container. Check Docker logs for details.',
       }
     }
-
-    // Copy Claude credentials into container (gives each container its own isolated copy)
-    // This enables Claude to authenticate without requiring /login for each new container
-    copyClaudeCredentialsToContainer(containerId)
 
     // Write prompt to file in worktree (accessible by container)
     const { hostPath: promptHostPath, containerPath: promptFile } = writePromptFile(context)
