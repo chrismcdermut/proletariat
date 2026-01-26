@@ -780,7 +780,8 @@ function createDockerContainer(
     // This contains OAuth tokens, history, settings, etc.
     ...(hasClaudeDir ? [`-v "${hostClaudeDir}:/home/node/.claude"`] : []),
     // Claude subscription config - mount from host if it exists
-    ...(hasClaudeJson ? [`-v "${hostClaudeJson}:/home/node/.claude.json:ro"`] : []),
+    // NOTE: Must be read-write (not :ro) because Claude writes to this file
+    ...(hasClaudeJson ? [`-v "${hostClaudeJson}:/home/node/.claude.json"`] : []),
   ]
 
   // Build environment flags
