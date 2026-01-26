@@ -1498,8 +1498,13 @@ async function runDevcontainerInTmux(
 
     // Create a script inside the container that runs claude and keeps shell open
     // TERM must be set for Claude's TUI to render properly
+    // Unset DEVCONTAINER and CI to prevent Claude from detecting container/CI environment
+    // which might cause it to suppress TUI output
     const tmuxScript = `#!/bin/bash
 export TERM=xterm-256color
+export COLORTERM=truecolor
+unset DEVCONTAINER
+unset CI
 echo "🚀 Starting: ${sessionName}"
 echo ""
 ${claudeCmd}
