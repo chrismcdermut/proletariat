@@ -371,7 +371,7 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   tmux: {
     session: 'proletariat',
     layout: 'window',
-    controlMode: true,  // Enable -CC for iTerm native integration by default
+    controlMode: false,  // Disable -CC by default - interferes with Claude's TUI rendering
     windowMode: 'tab',  // Open tmux windows as tabs in current window by default
   },
   terminal: {
