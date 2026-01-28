@@ -999,7 +999,7 @@ export default class WorkStart extends PMOCommand {
               choices: [
                 { name: '🔐 Run prlt agent auth now (one-time setup)', value: 'auth' },
                 { name: '💻 Switch to host environment instead', value: 'host' },
-                { name: '⚠️  Continue anyway (will likely fail)', value: 'continue' },
+                { name: '⏩ Continue anyway (must run /login in first agent)', value: 'continue' },
                 { name: '✗  Cancel', value: 'cancel' },
               ],
             },
@@ -1566,7 +1566,6 @@ export default class WorkStart extends PMOCommand {
             choices: [
               { name: '🔐 Run prlt agent auth now (one-time setup)', value: 'auth' },
               { name: '💻 Run all agents on host instead (--run-on-host)', value: 'host' },
-              { name: '⚠️  Continue anyway (will likely fail)', value: 'continue' },
               { name: '✗  Cancel', value: 'cancel' },
             ],
           },
