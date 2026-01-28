@@ -1016,29 +1016,56 @@ export default class WorkStart extends PMOCommand {
             this.log(styles.muted('Switched to host environment.'))
           } else if (authAction === 'auth') {
             this.log('')
-            this.log(styles.primary(`Running: ${this.config.bin} agent auth`))
+            this.log(styles.primary(`Opening ${this.config.bin} agent auth in new tab...`))
             this.log('')
+
+            // Open auth in a new terminal tab (steals focus so user sees it)
+            const authCmd = `${process.argv[1]} agent auth`
             try {
-              // Run agent auth command using the same CLI binary
-              execSync(`${process.argv[1]} agent auth`, { stdio: 'inherit' })
-              // Re-check credentials after auth
-              if (!dockerCredentialsExist()) {
-                this.log('')
-                this.log(styles.warning('Authentication did not complete.'))
-                db.close()
-                return
-              }
-              const info = getDockerCredentialInfo()
-              this.log('')
-              this.log(styles.success('✓ Credentials configured'))
-              if (info) {
-                this.log(styles.muted(`   Subscription: ${info.subscriptionType || 'unknown'}`))
-                this.log(styles.muted(`   Expires: ${info.expiresAt.toLocaleDateString()}`))
-              }
+              execSync(`osascript -e '
+                tell application "iTerm"
+                  activate
+                  tell current window
+                    set newTab to (create tab with default profile)
+                    tell current session of newTab
+                      write text "${authCmd}"
+                    end tell
+                  end tell
+                end tell
+              '`)
             } catch {
-              this.log(styles.warning('Authentication command failed.'))
+              // Fallback: try Terminal.app
+              try {
+                execSync(`osascript -e 'tell application "Terminal" to do script "${authCmd}"'`)
+              } catch {
+                this.log(styles.warning('Could not open new terminal tab.'))
+                this.log(styles.muted(`Please run manually: ${authCmd}`))
+              }
+            }
+
+            this.log(styles.muted('Complete the /login flow in the new tab, then press Enter here...'))
+            this.log('')
+
+            // Wait for user to complete auth
+            await inquirer.prompt([{
+              type: 'input',
+              name: 'done',
+              message: 'Press Enter when authentication is complete:',
+            }])
+
+            // Check if credentials now exist
+            if (!dockerCredentialsExist()) {
+              this.log('')
+              this.log(styles.warning('Authentication did not complete. No credentials found.'))
               db.close()
               return
+            }
+            const info = getDockerCredentialInfo()
+            this.log('')
+            this.log(styles.success('✓ Credentials configured'))
+            if (info) {
+              this.log(styles.muted(`   Subscription: ${info.subscriptionType || 'unknown'}`))
+              this.log(styles.muted(`   Expires: ${info.expiresAt.toLocaleDateString()}`))
             }
             this.log('')
           }
@@ -1585,27 +1612,56 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.muted('All agents will run on host.'))
         } else if (authAction === 'auth') {
           this.log('')
-          this.log(styles.primary(`Running: ${this.config.bin} agent auth`))
+          this.log(styles.primary(`Opening ${this.config.bin} agent auth in new tab...`))
           this.log('')
+
+          // Open auth in a new terminal tab (steals focus so user sees it)
+          const authCmd = `${process.argv[1]} agent auth`
           try {
-            execSync(`${process.argv[1]} agent auth`, { stdio: 'inherit' })
-            if (!dockerCredentialsExist()) {
-              this.log('')
-              this.log(styles.warning('Authentication did not complete.'))
-              db.close()
-              return
-            }
-            const info = getDockerCredentialInfo()
-            this.log('')
-            this.log(styles.success('✓ Credentials configured'))
-            if (info) {
-              this.log(styles.muted(`   Subscription: ${info.subscriptionType || 'unknown'}`))
-              this.log(styles.muted(`   Expires: ${info.expiresAt.toLocaleDateString()}`))
-            }
+            execSync(`osascript -e '
+              tell application "iTerm"
+                activate
+                tell current window
+                  set newTab to (create tab with default profile)
+                  tell current session of newTab
+                    write text "${authCmd}"
+                  end tell
+                end tell
+              end tell
+            '`)
           } catch {
-            this.log(styles.warning('Authentication command failed.'))
+            // Fallback: try Terminal.app
+            try {
+              execSync(`osascript -e 'tell application "Terminal" to do script "${authCmd}"'`)
+            } catch {
+              this.log(styles.warning('Could not open new terminal tab.'))
+              this.log(styles.muted(`Please run manually: ${authCmd}`))
+            }
+          }
+
+          this.log(styles.muted('Complete the /login flow in the new tab, then press Enter here...'))
+          this.log('')
+
+          // Wait for user to complete auth
+          await inquirer.prompt([{
+            type: 'input',
+            name: 'done',
+            message: 'Press Enter when authentication is complete:',
+          }])
+
+          // Check if credentials now exist
+          if (!dockerCredentialsExist()) {
+            this.log('')
+            this.log(styles.warning('Authentication did not complete. No credentials found.'))
             db.close()
             return
+          }
+          const info = getDockerCredentialInfo()
+          this.log('')
+          this.log(styles.success('✓ Credentials configured'))
+          if (info) {
+            this.log(styles.muted(`   Subscription: ${info.subscriptionType || 'unknown'}`))
+            this.log(styles.muted(`   Expires: ${info.expiresAt.toLocaleDateString()}`))
           }
           this.log('')
         }
