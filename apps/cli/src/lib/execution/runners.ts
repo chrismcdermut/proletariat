@@ -397,17 +397,35 @@ exec $SHELL
       // Configure iTerm to open tmux windows as tabs or windows based on user preference
       configureITermTmuxWindowMode(config.tmux.windowMode)
 
-      execSync(`osascript -e '
-        tell application "iTerm"
-          activate
-          tell current window
-            set newTab to (create tab with default profile)
-            tell current session of newTab
-              write text "tmux -u -CC attach -t \\"${sessionName}\\""
+      const openInBackground = config.terminal.openInBackground ?? true
+
+      if (openInBackground) {
+        // Open tab without stealing focus - save frontmost app and restore after
+        execSync(`osascript -e '
+          set frontApp to path to frontmost application as text
+          tell application "iTerm"
+            tell current window
+              set newTab to (create tab with default profile)
+              tell current session of newTab
+                write text "tmux -u -CC attach -t \\"${sessionName}\\""
+              end tell
             end tell
           end tell
-        end tell
-      '`)
+          tell application frontApp to activate
+        '`)
+      } else {
+        execSync(`osascript -e '
+          tell application "iTerm"
+            activate
+            tell current window
+              set newTab to (create tab with default profile)
+              tell current session of newTab
+                write text "tmux -u -CC attach -t \\"${sessionName}\\""
+              end tell
+            end tell
+          end tell
+        '`)
+      }
       return {
         success: true,
         sessionId: sessionName,
@@ -1663,17 +1681,35 @@ exec bash
       // Configure iTerm to open tmux windows as tabs or windows based on user preference
       configureITermTmuxWindowMode(config.tmux.windowMode)
 
-      execSync(`osascript -e '
-        tell application "iTerm"
-          activate
-          tell current window
-            set newTab to (create tab with default profile)
-            tell current session of newTab
-              write text "docker exec -it ${actualContainerId} tmux -u -CC attach -t \\"${sessionName}\\""
+      const openInBackground = config.terminal.openInBackground ?? true
+
+      if (openInBackground) {
+        // Open tab without stealing focus - save frontmost app and restore after
+        execSync(`osascript -e '
+          set frontApp to path to frontmost application as text
+          tell application "iTerm"
+            tell current window
+              set newTab to (create tab with default profile)
+              tell current session of newTab
+                write text "docker exec -it ${actualContainerId} tmux -u -CC attach -t \\"${sessionName}\\""
+              end tell
             end tell
           end tell
-        end tell
-      '`)
+          tell application frontApp to activate
+        '`)
+      } else {
+        execSync(`osascript -e '
+          tell application "iTerm"
+            activate
+            tell current window
+              set newTab to (create tab with default profile)
+              tell current session of newTab
+                write text "docker exec -it ${actualContainerId} tmux -u -CC attach -t \\"${sessionName}\\""
+              end tell
+            end tell
+          end tell
+        '`)
+      }
       return {
         success: true,
         containerId: actualContainerId,
