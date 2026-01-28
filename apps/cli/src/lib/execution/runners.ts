@@ -67,11 +67,12 @@ export function shouldUseControlMode(terminalApp: TerminalApp, controlModeEnable
 
 /**
  * Build the tmux mouse option string for session creation.
- * Returns empty string if control mode is active (iTerm handles mouse natively).
- * Returns mouse-on option if control mode is not active (tmux handles scrolling).
+ * Always disables tmux mouse mode so iTerm handles mouse natively.
+ * This allows: native text selection, two-finger tab switching, normal scrolling.
+ * Without this, tmux captures mouse events causing yellow copy-mode and blocked gestures.
  */
-export function buildTmuxMouseOption(useControlMode: boolean): string {
-  return useControlMode ? '' : ' \\; set-option -g mouse on'
+export function buildTmuxMouseOption(_useControlMode: boolean): string {
+  return ' \\; set-option mouse off'
 }
 
 /**
@@ -786,8 +787,8 @@ function createDockerContainer(
     ...(process.env.ANTHROPIC_API_KEY ? [`-e ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"`] : []),
     ...(process.env.GITHUB_TOKEN ? [`-e GITHUB_TOKEN="${process.env.GITHUB_TOKEN}"`] : []),
     ...(process.env.GH_TOKEN ? [`-e GH_TOKEN="${process.env.GH_TOKEN}"`] : []),
-    // Claude Code OAuth token for subscription-based auth in containers
-    ...(process.env.CLAUDE_CODE_OAUTH_TOKEN ? [`-e CLAUDE_CODE_OAUTH_TOKEN="${process.env.CLAUDE_CODE_OAUTH_TOKEN}"`] : []),
+    // NOTE: Do NOT pass CLAUDE_CODE_OAUTH_TOKEN - it overrides credentials file
+    // and setup-token generates invalid tokens. Use "prlt agent auth" instead.
   ]
 
   // Resource limits
@@ -898,9 +899,10 @@ function runContainerSetup(containerId: string, sandboxed: boolean = true): bool
     // Non-fatal - Claude will just prompt for settings
   }
 
-  // NOTE: We rely on the claude-credentials volume for auth tokens.
-  // User should run /login inside a container once to populate the volume.
-  // We do NOT sync CLAUDE_CODE_OAUTH_TOKEN env var - it may be stale.
+  // NOTE: Auth credentials come from the claude-credentials volume.
+  // Run "prlt agent auth" to set up authentication (one-time).
+  // Do NOT sync CLAUDE_CODE_OAUTH_TOKEN env var - it causes issues
+  // (setup-token generates invalid tokens, and env var overrides valid credentials file).
 
   return true
 }
