@@ -997,7 +997,7 @@ export default class WorkStart extends PMOCommand {
               name: 'authAction',
               message: 'What would you like to do?',
               choices: [
-                { name: '🔐 Run prlt agent auth now (one-time setup)', value: 'auth' },
+                { name: `🔐 Run ${this.config.bin} agent auth now (one-time setup)`, value: 'auth' },
                 { name: '💻 Switch to host environment instead', value: 'host' },
                 { name: '⏩ Continue anyway (must run /login in first agent)', value: 'continue' },
                 { name: '✗  Cancel', value: 'cancel' },
@@ -1016,26 +1016,29 @@ export default class WorkStart extends PMOCommand {
             this.log(styles.muted('Switched to host environment.'))
           } else if (authAction === 'auth') {
             this.log('')
-            this.log(styles.primary('Running: prlt agent auth'))
+            this.log(styles.primary(`Running: ${this.config.bin} agent auth`))
             this.log('')
             try {
-              // Run agent auth command
-              execSync('prlt agent auth', { stdio: 'inherit' })
+              // Run agent auth command using the same CLI binary
+              execSync(`${process.argv[1]} agent auth`, { stdio: 'inherit' })
               // Re-check credentials after auth
               if (!dockerCredentialsExist()) {
                 this.log('')
-                this.log(styles.warning('Authentication may not have completed. Continuing anyway...'))
-              } else {
-                const info = getDockerCredentialInfo()
-                this.log('')
-                this.log(styles.success('✓ Credentials configured'))
-                if (info) {
-                  this.log(styles.muted(`   Subscription: ${info.subscriptionType || 'unknown'}`))
-                  this.log(styles.muted(`   Expires: ${info.expiresAt.toLocaleDateString()}`))
-                }
+                this.log(styles.warning('Authentication did not complete.'))
+                db.close()
+                return
+              }
+              const info = getDockerCredentialInfo()
+              this.log('')
+              this.log(styles.success('✓ Credentials configured'))
+              if (info) {
+                this.log(styles.muted(`   Subscription: ${info.subscriptionType || 'unknown'}`))
+                this.log(styles.muted(`   Expires: ${info.expiresAt.toLocaleDateString()}`))
               }
             } catch {
-              this.log(styles.warning('Authentication command failed. Continuing anyway...'))
+              this.log(styles.warning('Authentication command failed.'))
+              db.close()
+              return
             }
             this.log('')
           }
@@ -1564,7 +1567,7 @@ export default class WorkStart extends PMOCommand {
             name: 'authAction',
             message: 'What would you like to do?',
             choices: [
-              { name: '🔐 Run prlt agent auth now (one-time setup)', value: 'auth' },
+              { name: `🔐 Run ${this.config.bin} agent auth now (one-time setup)`, value: 'auth' },
               { name: '💻 Run all agents on host instead (--run-on-host)', value: 'host' },
               { name: '✗  Cancel', value: 'cancel' },
             ],
@@ -1582,28 +1585,30 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.muted('All agents will run on host.'))
         } else if (authAction === 'auth') {
           this.log('')
-          this.log(styles.primary('Running: prlt agent auth'))
+          this.log(styles.primary(`Running: ${this.config.bin} agent auth`))
           this.log('')
           try {
-            execSync('prlt agent auth', { stdio: 'inherit' })
+            execSync(`${process.argv[1]} agent auth`, { stdio: 'inherit' })
             if (!dockerCredentialsExist()) {
               this.log('')
-              this.log(styles.warning('Authentication may not have completed. Continuing anyway...'))
-            } else {
-              const info = getDockerCredentialInfo()
-              this.log('')
-              this.log(styles.success('✓ Credentials configured'))
-              if (info) {
-                this.log(styles.muted(`   Subscription: ${info.subscriptionType || 'unknown'}`))
-                this.log(styles.muted(`   Expires: ${info.expiresAt.toLocaleDateString()}`))
-              }
+              this.log(styles.warning('Authentication did not complete.'))
+              db.close()
+              return
+            }
+            const info = getDockerCredentialInfo()
+            this.log('')
+            this.log(styles.success('✓ Credentials configured'))
+            if (info) {
+              this.log(styles.muted(`   Subscription: ${info.subscriptionType || 'unknown'}`))
+              this.log(styles.muted(`   Expires: ${info.expiresAt.toLocaleDateString()}`))
             }
           } catch {
-            this.log(styles.warning('Authentication command failed. Continuing anyway...'))
+            this.log(styles.warning('Authentication command failed.'))
+            db.close()
+            return
           }
           this.log('')
         }
-        // authAction === 'continue' falls through
       }
     }
 
