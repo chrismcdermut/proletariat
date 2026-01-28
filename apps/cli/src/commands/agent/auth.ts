@@ -117,13 +117,11 @@ export default class Auth extends Command {
           'run',
           '-it',
           '--rm',
-          '--user', 'node',
           '-v', `${CLAUDE_CREDENTIALS_VOLUME}:/home/node/.claude`,
-          '-e', 'CLAUDE_CONFIG_DIR=/home/node/.claude',
-          '-e', 'HOME=/home/node',
           'node:20',
           'bash', '-c',
-          'npm install -g @anthropic-ai/claude-code@latest --silent 2>/dev/null && echo "" && echo "Type: /login" && echo "" && claude'
+          // Install as root, then run claude as node user (so credentials have correct ownership)
+          'npm install -g @anthropic-ai/claude-code@latest --silent 2>/dev/null && chown -R node:node /home/node/.claude && echo "" && echo "Type: /login" && echo "" && su -s /bin/bash -c "HOME=/home/node CLAUDE_CONFIG_DIR=/home/node/.claude claude" node'
         ],
         { stdio: 'inherit' }
       );
