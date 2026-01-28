@@ -68,7 +68,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
         sessionId: 'test-session',
       })
       storage.updateStatus('WORK-001', 'completed')
@@ -113,7 +113,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
         // No sessionId
       })
 
@@ -133,7 +133,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
         sessionId: 'non-existent-session-12345',
       })
       storage.updateStatus('WORK-001', 'running')
@@ -172,7 +172,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
         sessionId: 'fake-session-xyz',
       })
       storage.updateStatus('WORK-001', 'running')
@@ -189,7 +189,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'devcontainer',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
         containerId: 'abc123def456',
         sessionId: 'container-session',
       })
@@ -214,7 +214,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       storage.updateStatus('WORK-001', 'running')
 
@@ -229,7 +229,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       // Status starts as 'starting' by default
 
@@ -244,7 +244,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       storage.updateStatus('WORK-001', 'completed')
 
@@ -259,7 +259,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       storage.updateStatus('WORK-001', 'stopped')
 
@@ -274,7 +274,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       storage.updateStatus('WORK-001', 'failed')
 
@@ -291,7 +291,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       expect(exec1.id).to.equal('WORK-001')
 
@@ -301,7 +301,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       expect(exec2.id).to.equal('WORK-002')
     })
@@ -314,7 +314,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       storage.createExecution({
         ticketId: 'TKT-002',
@@ -322,7 +322,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       storage.createExecution({
         ticketId: 'TKT-003',
@@ -330,7 +330,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
 
       // Delete the middle one
@@ -343,7 +343,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       expect(exec4.id).to.equal('WORK-004')
     })
@@ -355,7 +355,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       expect(exec.id).to.equal('WORK-001')
     })
@@ -385,7 +385,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       expect(exec.id).to.equal('WORK-011')
     })
@@ -405,7 +405,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
 
       // Create running execution
@@ -415,7 +415,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       storage.updateStatus('WORK-002', 'running')
 
@@ -426,7 +426,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       storage.updateStatus('WORK-003', 'completed')
 

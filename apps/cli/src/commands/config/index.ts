@@ -109,7 +109,7 @@ export default class Config extends Command {
             defaultExecutor: config.defaultExecutor,
             defaultEnvironment: config.defaultEnvironment,
             outputMode: config.outputMode,
-            sandboxed: config.sandboxed,
+            dangerMode: config.dangerMode,
           }, createMetadata('config', flags))
         } else {
           this.log('')
@@ -130,7 +130,7 @@ export default class Config extends Command {
           this.log(`  defaultExecutor:  ${config.defaultExecutor}`)
           this.log(`  defaultEnvironment: ${config.defaultEnvironment}`)
           this.log(`  outputMode:       ${config.outputMode}`)
-          this.log(`  sandboxed:        ${config.sandboxed}`)
+          this.log(`  dangerMode:       ${config.dangerMode}`)
           this.log('')
         }
         db.close()

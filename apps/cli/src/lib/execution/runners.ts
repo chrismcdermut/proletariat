@@ -356,8 +356,8 @@ export async function runHost(
   const windowTitle = buildWindowTitle(context)
 
   const prompt = buildPrompt(context)
-  // Terminal - use sandboxed setting
-  const skipPermissions = !config.sandboxed
+  // Terminal - use dangerMode setting
+  const skipPermissions = config.dangerMode
   const { cmd } = getExecutorCommand(executor, prompt, skipPermissions)
 
   // Write command to temp script to avoid shell escaping issues
@@ -917,9 +917,9 @@ function createDockerContainer(
  * Run the post-start setup commands in a container.
  * This includes firewall initialization, prlt setup, and Claude settings.
  * @param containerId - Docker container ID
- * @param sandboxed - Whether running in safe mode (true) or danger mode (false)
+ * @param dangerMode - Whether running in danger mode (true) or safe mode (false)
  */
-function runContainerSetup(containerId: string, sandboxed: boolean = true): boolean {
+function runContainerSetup(containerId: string, dangerMode: boolean = false): boolean {
   try {
     // Run firewall init (requires sudo since we're running as node user)
     execSync(
@@ -954,9 +954,9 @@ function runContainerSetup(containerId: string, sandboxed: boolean = true): bool
       }
     }
 
-    // Only set bypassPermissionsModeAccepted when user chose danger mode (!sandboxed)
+    // Only set bypassPermissionsModeAccepted when user chose danger mode
     // This doesn't modify the host file - only the container copy
-    if (!sandboxed) {
+    if (dangerMode) {
       settings.bypassPermissionsModeAccepted = true
     }
 
@@ -979,7 +979,7 @@ function runContainerSetup(containerId: string, sandboxed: boolean = true): bool
       `docker exec ${containerId} bash -c 'echo "${base64Content}" | base64 -d > /home/node/.claude.json'`,
       { stdio: 'pipe' }
     )
-    console.debug(`[runners:docker] Copied .claude.json settings to container (bypassPermissionsModeAccepted=${!sandboxed})`)
+    console.debug(`[runners:docker] Copied .claude.json settings to container (bypassPermissionsModeAccepted=${dangerMode})`)
   } catch (error) {
     console.debug('[runners:docker] Failed to copy .claude.json to container:', error)
     // Non-fatal - Claude will just prompt for settings
@@ -1042,9 +1042,9 @@ function ensureDockerContainer(
   }
 
   // Run post-start setup (firewall, prlt, Claude settings)
-  // Pass sandboxed config to determine whether to set bypassPermissionsModeAccepted
-  console.debug(`[runners:docker] Running container setup (sandboxed=${config.sandboxed})`)
-  if (!runContainerSetup(containerId, config.sandboxed)) {
+  // Pass dangerMode config to determine whether to set bypassPermissionsModeAccepted
+  console.debug(`[runners:docker] Running container setup (dangerMode=${config.dangerMode})`)
+  if (!runContainerSetup(containerId, config.dangerMode)) {
     console.debug(`[runners:docker] Setup failed, but continuing...`)
     // Don't fail completely - setup might partially work
   }
@@ -1145,7 +1145,7 @@ function buildDevcontainerCommand(
   promptFile: string,
   containerId?: string,
   outputMode: OutputMode = 'interactive',
-  sandboxed: boolean = true,
+  dangerMode: boolean = false,
   displayMode: DisplayMode = 'terminal'
 ): string {
   // Get base command (just 'claude' for claude-code)
@@ -1168,15 +1168,15 @@ function buildDevcontainerCommand(
   const relativePath = path.relative(context.agentDir, context.worktreePath)
   const cdCmd = relativePath ? `cd /workspace/${relativePath} && ` : ''
 
-  // Build Claude flags based on output mode and sandboxed setting
+  // Build Claude flags based on output mode and dangerMode setting
   // - interactive: No -p flag, shows streaming UI (watch Claude work in real-time)
   // - print: Uses -p flag, outputs final result only (better for logs/automation)
   const printFlag = outputMode === 'print' ? '-p ' : ''
-  // sandboxed=true means safe mode (no --dangerously-skip-permissions)
-  // sandboxed=false means danger mode (use --dangerously-skip-permissions)
+  // dangerMode=true means use --dangerously-skip-permissions
+  // dangerMode=false means safe mode (require approval)
   // --permission-mode bypassPermissions: skips the "trust this folder" dialog
   const bypassTrustFlag = '--permission-mode bypassPermissions '
-  const permissionsFlag = !sandboxed ? '--dangerously-skip-permissions ' : ''
+  const permissionsFlag = dangerMode ? '--dangerously-skip-permissions ' : ''
 
   // Build the claude command
   const claudeCmd = `${cdCmd}${baseCmd} ${bypassTrustFlag}${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}`
@@ -1275,7 +1275,7 @@ export async function runDevcontainer(
 
     // Build the docker exec command (just runs claude directly)
     // tmux session setup is handled by runDevcontainerInTmux, not buildDevcontainerCommand
-    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId, config.outputMode, config.sandboxed, displayMode)
+    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId, config.outputMode, config.dangerMode, displayMode)
 
     // Execute based on display mode
     // When sessionManager is 'tmux', always use tmux inside container for session persistence

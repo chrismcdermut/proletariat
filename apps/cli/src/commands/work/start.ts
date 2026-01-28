@@ -766,7 +766,7 @@ export default class WorkStart extends PMOCommand {
       // Determine execution environment and display mode
       let environment: ExecutionEnvironment = 'host'
       let displayMode: DisplayMode = 'terminal'
-      let sandboxed = false  // Whether --dangerously-skip-permissions is NOT used
+      let dangerMode = true  // Whether --dangerously-skip-permissions is used
 
       if (hasDevcontainer && !flags.display && !flags['run-on-host']) {
         // Agent has devcontainer - prompt for environment choice
@@ -776,7 +776,7 @@ export default class WorkStart extends PMOCommand {
         const devcontainerReady = dockerRunning && devcontainerCliInstalled
 
         // Build missing requirements message for devcontainer option
-        let devcontainerLabel = '🐳 devcontainer (sandboxed, recommended)'
+        let devcontainerLabel = '🐳 devcontainer (isolated, recommended)'
         if (!devcontainerReady) {
           const missing: string[] = []
           if (!dockerRunning) missing.push('Docker')
@@ -1076,7 +1076,7 @@ export default class WorkStart extends PMOCommand {
       // Prompt for permissions mode (all environments)
       // Skip prompt if --permission-mode flag is set
       if (flags['permission-mode']) {
-        sandboxed = flags['permission-mode'] === 'safe'
+        dangerMode = flags['permission-mode'] === 'danger'
       } else {
         const containerNote = environment === 'devcontainer'
           ? ' (container provides additional isolation)'
@@ -1103,7 +1103,7 @@ export default class WorkStart extends PMOCommand {
             default: 'danger',
           },
         ])
-        sandboxed = permissionMode === 'safe'
+        dangerMode = permissionMode === 'danger'
       }
 
       // Prompt for PR creation when work is complete
@@ -1144,10 +1144,10 @@ export default class WorkStart extends PMOCommand {
       this.log(styles.muted(`   Display: ${displayMode}`))
 
       // Permissions info
-      if (sandboxed) {
-        this.log(styles.success(`   Permissions: 🔒 safe`))
-      } else {
+      if (dangerMode) {
         this.log(styles.warning(`   Permissions: ⚠️  danger (--dangerously-skip-permissions)`))
+      } else {
+        this.log(styles.success(`   Permissions: 🔒 safe`))
       }
 
       this.log(styles.muted(`   Output: ${outputMode === 'interactive' ? 'streaming (watch Claude work)' : 'print (final result only)'}`))
@@ -1342,7 +1342,7 @@ export default class WorkStart extends PMOCommand {
         executor,
         environment,
         displayMode,
-        sandboxed,
+        dangerMode,
         branch,
       })
 
@@ -1389,8 +1389,8 @@ export default class WorkStart extends PMOCommand {
       // Set output mode from user selection
       executionConfig.outputMode = outputMode
 
-      // Set sandboxed mode (determines whether --dangerously-skip-permissions is used)
-      executionConfig.sandboxed = sandboxed
+      // Set dangerMode (determines whether --dangerously-skip-permissions is used)
+      executionConfig.dangerMode = dangerMode
 
       // Handle --focus flag: when set, bring terminal to foreground instead of opening in background
       if (flags.focus) {
@@ -1822,7 +1822,7 @@ export default class WorkStart extends PMOCommand {
     // Non-interactive defaults
     const environment: ExecutionEnvironment = useDevcontainer ? 'devcontainer' : 'host'
     const displayMode: DisplayMode = 'terminal'
-    const sandboxed = flags['permission-mode'] === 'safe'
+    const dangerMode = flags['permission-mode'] === 'danger'
     const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
     const outputMode: OutputMode = 'interactive'
 
@@ -1867,7 +1867,7 @@ export default class WorkStart extends PMOCommand {
       executor,
       environment,
       displayMode,
-      sandboxed,
+      dangerMode,
       branch,
     })
 
@@ -1876,7 +1876,7 @@ export default class WorkStart extends PMOCommand {
     // Load execution config
     const executionConfig = loadExecutionConfig(db)
     executionConfig.outputMode = outputMode
-    executionConfig.sandboxed = sandboxed
+    executionConfig.dangerMode = dangerMode
 
     // Run execution
     this.log(styles.muted(`   Starting ${ticket.id} → ${agentName}...`))

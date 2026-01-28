@@ -54,7 +54,7 @@ function rowToAgentWork(row: AgentWorkRow): AgentWork {
     executor: row.executor as ExecutorType,
     environment: (row.environment || 'host') as ExecutionEnvironment,
     displayMode: (row.display_mode || 'terminal') as DisplayMode,
-    sandboxed: row.sandboxed === 1,
+    dangerMode: row.sandboxed === 0,  // DB stores sandboxed (1=safe), convert to dangerMode (true=danger)
     status: row.status as ExecutionStatus,
     branch: row.branch || undefined,
     pid: row.pid || undefined,
@@ -89,7 +89,7 @@ export class ExecutionStorage {
     executor: ExecutorType
     environment: ExecutionEnvironment
     displayMode: DisplayMode
-    sandboxed: boolean
+    dangerMode: boolean
     branch?: string
     pid?: string
     containerId?: string
@@ -115,7 +115,7 @@ export class ExecutionStorage {
       params.executor,
       params.environment,
       params.displayMode,
-      params.sandboxed ? 1 : 0,
+      params.dangerMode ? 0 : 1,  // DB stores sandboxed (1=safe), convert from dangerMode (true=danger)
       params.branch || null,
       params.pid || null,
       params.containerId || null,

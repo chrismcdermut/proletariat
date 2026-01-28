@@ -122,7 +122,7 @@ export interface AgentWork {
   environment: ExecutionEnvironment  // Where: devcontainer, host, docker, vm
   displayMode: DisplayMode       // How shown: terminal, background
   sessionManager?: SessionManager // How session is managed inside environment (tmux/direct)
-  sandboxed: boolean             // Whether --dangerously-skip-permissions was NOT used
+  dangerMode: boolean            // Whether --dangerously-skip-permissions is used
   status: ExecutionStatus
   branch?: string
   pid?: string
@@ -318,7 +318,7 @@ export interface ExecutionConfig {
   autoExecute: boolean
   shell: Shell
   outputMode: OutputMode  // interactive (streaming) or print (final result only)
-  sandboxed: boolean      // Whether --dangerously-skip-permissions is NOT used
+  dangerMode: boolean     // Whether --dangerously-skip-permissions is used
   tmux: {
     session: string
     layout: 'split' | 'window'
@@ -367,7 +367,7 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   autoExecute: false,
   shell: 'zsh',  // macOS default
   outputMode: 'interactive',  // Show streaming UI by default
-  sandboxed: true,  // Require approval for dangerous operations by default
+  dangerMode: false,  // Safe mode by default (require approval for dangerous operations)
   tmux: {
     session: 'proletariat',
     layout: 'window',

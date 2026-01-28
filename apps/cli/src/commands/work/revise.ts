@@ -286,7 +286,7 @@ export default class WorkRevise extends PMOCommand {
       const hasDevcontainer = hasDevcontainerConfig(agentDir)
       let environment: ExecutionEnvironment = 'host'
       let displayMode: DisplayMode = 'terminal'
-      let sandboxed = false
+      let dangerMode = true
 
       if (hasDevcontainer && !flags['run-on-host']) {
         environment = 'devcontainer'
@@ -322,7 +322,7 @@ export default class WorkRevise extends PMOCommand {
           default: 'danger',
         },
       ])
-      sandboxed = permissionMode === 'safe'
+      dangerMode = permissionMode === 'danger'
 
       const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
 
@@ -362,7 +362,7 @@ export default class WorkRevise extends PMOCommand {
         executor,
         environment,
         displayMode,
-        sandboxed,
+        dangerMode,
         branch,
       })
 
@@ -407,7 +407,7 @@ export default class WorkRevise extends PMOCommand {
       }
 
       executionConfig.outputMode = 'interactive' as OutputMode
-      executionConfig.sandboxed = sandboxed
+      executionConfig.dangerMode = dangerMode
 
       // Run execution
       this.log(styles.muted('Starting agent to address feedback...'))

@@ -91,8 +91,8 @@ export default class ExecutionList extends PMOCommand {
         const timeAgo = formatTimeAgo(exec.startedAt)
         const envIcon = exec.environment === 'devcontainer' ? '🐳' : (exec.environment === 'host' ? '💻' : '📦')
         const envStr = `${envIcon} ${exec.environment}`
-        const permsStr = exec.sandboxed ? 'safe' : 'danger'
-        const permsColor = exec.sandboxed ? styles.success : styles.warning
+        const permsStr = exec.dangerMode ? 'danger' : 'safe'
+        const permsColor = exec.dangerMode ? styles.warning : styles.success
 
         this.log(
           padEnd(exec.id, 11) +

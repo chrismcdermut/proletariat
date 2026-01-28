@@ -384,7 +384,7 @@ export async function spawnAgentForTicket(
   }
 
   const displayMode: DisplayMode = options.displayMode || 'terminal'
-  const sandboxed = !(options.skipPermissions ?? false)
+  const dangerMode = options.skipPermissions ?? false
 
   // Create branch in worktree(s)
   // For devcontainer environments, run git commands inside the container
@@ -479,13 +479,13 @@ export async function spawnAgentForTicket(
     executor,
     environment,
     displayMode,
-    sandboxed,
+    dangerMode,
     branch,
   })
 
   // Load execution config (use passed config or load from db)
   const executionConfig = options.executionConfig || loadExecutionConfig(db)
-  executionConfig.sandboxed = sandboxed
+  executionConfig.dangerMode = dangerMode
   // Use print mode for background, interactive for terminal/tmux
   executionConfig.outputMode = displayMode === 'background' ? 'print' : 'interactive'
 

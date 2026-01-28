@@ -120,7 +120,7 @@ describe('Spawner', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       executionStorage.updateStatus('WORK-001', 'running')
 
@@ -145,7 +145,7 @@ describe('Spawner', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
 
       const available = getAvailableAgents(workspaceInfo, executionStorage)
@@ -168,7 +168,7 @@ describe('Spawner', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       executionStorage.updateStatus('WORK-001', 'completed')
 
@@ -204,7 +204,7 @@ describe('Spawner', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       executionStorage.updateStatus('WORK-001', 'running')
 
@@ -214,7 +214,7 @@ describe('Spawner', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       executionStorage.updateStatus('WORK-002', 'running')
 
@@ -293,7 +293,7 @@ describe('Spawner', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       executionStorage.updateStatus('WORK-001', 'completed')
 
@@ -303,7 +303,7 @@ describe('Spawner', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        dangerMode: false,
       })
       executionStorage.updateStatus('WORK-002', 'completed')
 

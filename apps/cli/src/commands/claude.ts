@@ -329,9 +329,9 @@ export default class Claude extends Command {
     }
 
     // Prompt for permission mode
-    let sandboxed = true
+    let dangerMode = false
     if (flags['permission-mode']) {
-      sandboxed = flags['permission-mode'] === 'safe'
+      dangerMode = flags['permission-mode'] === 'danger'
     } else if (!jsonMode) {
       const { permissionMode } = await inquirer.prompt([
         {
@@ -345,11 +345,11 @@ export default class Claude extends Command {
           default: 'danger',
         },
       ])
-      sandboxed = permissionMode === 'safe'
+      dangerMode = permissionMode === 'danger'
     }
 
     // Warn about uncommitted changes in danger mode
-    if (!sandboxed && isGitRepo(workDir) && hasUncommittedChanges(workDir)) {
+    if (dangerMode && isGitRepo(workDir) && hasUncommittedChanges(workDir)) {
       this.log('')
       this.warn('Running in danger mode with uncommitted changes!')
       this.log(styles.muted('   Consider committing or stashing changes first.'))
@@ -415,7 +415,7 @@ export default class Claude extends Command {
 
     // Load execution config (use defaults for yolo mode)
     const executionConfig = { ...DEFAULT_EXECUTION_CONFIG }
-    executionConfig.sandboxed = sandboxed
+    executionConfig.dangerMode = dangerMode
     executionConfig.outputMode = 'interactive' as OutputMode
 
     // For terminal mode, prompt for terminal preference
@@ -456,7 +456,7 @@ export default class Claude extends Command {
     this.log(styles.muted(`   Directory: ${workDir}`))
     this.log(styles.muted(`   Environment: ${environment === 'devcontainer' ? '🐳' : '💻'} ${environment}`))
     this.log(styles.muted(`   Display: ${displayMode}`))
-    this.log(styles.muted(`   Permissions: ${sandboxed ? '🔒 safe' : '⚠️  danger'}`))
+    this.log(styles.muted(`   Permissions: ${dangerMode ? '⚠️  danger' : '🔒 safe'}`))
     if (flags.prompt) {
       this.log(styles.muted(`   Initial prompt: "${flags.prompt.substring(0, 50)}${flags.prompt.length > 50 ? '...' : ''}"`))
     }
@@ -775,9 +775,9 @@ export default class Claude extends Command {
       }
 
       // Prompt for permission mode
-      let sandboxed = true
+      let dangerMode = false
       if (flags['permission-mode']) {
-        sandboxed = flags['permission-mode'] === 'safe'
+        dangerMode = flags['permission-mode'] === 'danger'
       } else if (!jsonMode) {
         const containerNote = environment === 'devcontainer' ? ' (container provides additional isolation)' : ''
         const { permissionMode } = await inquirer.prompt([
@@ -792,11 +792,11 @@ export default class Claude extends Command {
             default: 'danger',
           },
         ])
-        sandboxed = permissionMode === 'safe'
+        dangerMode = permissionMode === 'danger'
       }
 
       // Warn about uncommitted changes in danger mode
-      if (!sandboxed && isGitRepo(workDir) && hasUncommittedChanges(workDir)) {
+      if (dangerMode && isGitRepo(workDir) && hasUncommittedChanges(workDir)) {
         this.log('')
         this.warn('Running in danger mode with uncommitted changes!')
         this.log(styles.muted('   Consider committing or stashing changes first.'))
@@ -886,7 +886,7 @@ export default class Claude extends Command {
         executor: 'claude-code',
         environment,
         displayMode,
-        sandboxed,
+        dangerMode,
         branch: 'main',
       })
 
@@ -895,7 +895,7 @@ export default class Claude extends Command {
 
       // Load execution config
       const executionConfig = loadExecutionConfig(db)
-      executionConfig.sandboxed = sandboxed
+      executionConfig.dangerMode = dangerMode
       executionConfig.outputMode = 'interactive' as OutputMode
 
       // For terminal mode, ensure terminal preference is set
@@ -920,7 +920,7 @@ export default class Claude extends Command {
       this.log(styles.muted(`   Work ID: ${execution.id}`))
       this.log(styles.muted(`   Environment: ${environment === 'devcontainer' ? '🐳' : '💻'} ${environment}`))
       this.log(styles.muted(`   Display: ${displayMode}`))
-      this.log(styles.muted(`   Permissions: ${sandboxed ? '🔒 safe' : '⚠️  danger'}`))
+      this.log(styles.muted(`   Permissions: ${dangerMode ? '⚠️  danger' : '🔒 safe'}`))
       if (flags.prompt) {
         this.log(styles.muted(`   Initial prompt: "${flags.prompt.substring(0, 50)}${flags.prompt.length > 50 ? '...' : ''}"`))
       }
