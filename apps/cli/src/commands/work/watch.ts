@@ -11,6 +11,7 @@ import {
   spawnForColumn,
   getAvailableAgents,
   isDockerRunning,
+  isDevcontainerCliInstalled,
   AgentStrategy,
 } from '../../lib/execution/spawner.js'
 import { DisplayMode, ExecutionEnvironment, ExecutionConfig } from '../../lib/execution/types.js'
@@ -206,12 +207,21 @@ export default class WorkWatch extends PMOCommand {
         )
       }
 
+      // Devcontainer CLI check
+      const devcontainerCliInstalled = isDevcontainerCliInstalled()
+      if (hasDevcontainer && dockerRunning && !devcontainerCliInstalled) {
+        this.warn(
+          'devcontainer CLI is not installed. Agents will run on host instead of devcontainer.\n' +
+          'Install with: npm install -g @devcontainers/cli'
+        )
+      }
+
       // Prompt for environment and display mode if not provided
       this.environment = 'host'
       this.displayMode = 'terminal'
 
       if (!flags.mode) {
-        if (hasDevcontainer && dockerRunning) {
+        if (hasDevcontainer && dockerRunning && devcontainerCliInstalled) {
           // Prompt for environment choice
           const { selectedEnvironment } = await inquirer.prompt([
             {

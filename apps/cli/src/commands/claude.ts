@@ -26,7 +26,7 @@ import {
   ExecutionEnvironment,
   DEFAULT_EXECUTION_CONFIG,
 } from '../lib/execution/types.js'
-import { runExecution, isDockerRunning, isGitHubTokenAvailable } from '../lib/execution/runners.js'
+import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } from '../lib/execution/runners.js'
 import { ExecutionStorage } from '../lib/execution/storage.js'
 import {
   loadExecutionConfig,
@@ -195,6 +195,22 @@ export default class Claude extends Command {
     if (flags.environment) {
       environment = flags.environment as ExecutionEnvironment
     } else if (!jsonMode) {
+      // Check devcontainer prerequisites upfront
+      const dockerRunning = isDockerRunning()
+      const devcontainerCliInstalled = isDevcontainerCliInstalled()
+      const devcontainerReady = dockerRunning && devcontainerCliInstalled
+
+      // Build devcontainer label with missing requirements
+      let devcontainerLabel = hasProjectDevcontainer
+        ? '🐳 devcontainer (uses project config, sandboxed)'
+        : '🐳 devcontainer (uses catch-all container, sandboxed)'
+      if (!devcontainerReady) {
+        const missing: string[] = []
+        if (!dockerRunning) missing.push('Docker')
+        if (!devcontainerCliInstalled) missing.push('devcontainer CLI')
+        devcontainerLabel = `🐳 devcontainer (requires: ${missing.join(', ')})`
+      }
+
       // Loop to handle Docker not running
       let environmentSelected = false
       while (!environmentSelected) {
@@ -206,21 +222,32 @@ export default class Claude extends Command {
             message: 'Where should Claude run?',
             choices: [
               {
-                name: hasProjectDevcontainer
-                  ? '🐳 devcontainer (uses project config, sandboxed)'
-                  : '🐳 devcontainer (uses catch-all container, sandboxed)',
+                name: devcontainerLabel,
                 value: 'devcontainer',
+                disabled: !devcontainerReady,
               },
               { name: '💻 host (runs directly on your machine)', value: 'host' },
             ],
-            default: 'devcontainer',
+            default: devcontainerReady ? 'devcontainer' : 'host',
           },
         ])
 
         if (selectedEnv === 'devcontainer') {
+          // Double-check prerequisites (in case user retried after starting Docker)
           if (!isDockerRunning()) {
             this.log('')
             this.warn('Docker is not running. Please start Docker Desktop or select "host".')
+            this.log('')
+            continue
+          }
+
+          if (!isDevcontainerCliInstalled()) {
+            this.log('')
+            this.warn(
+              'devcontainer CLI is not installed.\n' +
+              'Install with: npm install -g @devcontainers/cli\n' +
+              'Or select "host" to run directly on your machine.'
+            )
             this.log('')
             continue
           }
@@ -609,6 +636,22 @@ export default class Claude extends Command {
       // Prompt for environment first (before creating ticket) so user can cancel early
       const hasProjectDevcontainer = hasDevcontainerConfig(workDir)
 
+      // Check devcontainer prerequisites upfront
+      const dockerRunning = isDockerRunning()
+      const devcontainerCliInstalled = isDevcontainerCliInstalled()
+      const devcontainerReady = dockerRunning && devcontainerCliInstalled
+
+      // Build devcontainer label with missing requirements
+      let devcontainerLabel = hasProjectDevcontainer
+        ? '🐳 devcontainer (uses project config, sandboxed)'
+        : '🐳 devcontainer (uses catch-all container, sandboxed)'
+      if (!devcontainerReady) {
+        const missing: string[] = []
+        if (!dockerRunning) missing.push('Docker')
+        if (!devcontainerCliInstalled) missing.push('devcontainer CLI')
+        devcontainerLabel = `🐳 devcontainer (requires: ${missing.join(', ')})`
+      }
+
       let environment: ExecutionEnvironment = 'host'
       if (flags.environment) {
         environment = flags.environment as ExecutionEnvironment
@@ -623,21 +666,32 @@ export default class Claude extends Command {
               message: 'Where should Claude run?',
               choices: [
                 {
-                  name: hasProjectDevcontainer
-                    ? '🐳 devcontainer (uses project config, sandboxed)'
-                    : '🐳 devcontainer (uses catch-all container, sandboxed)',
+                  name: devcontainerLabel,
                   value: 'devcontainer',
+                  disabled: !devcontainerReady,
                 },
                 { name: '💻 host (runs directly on your machine)', value: 'host' },
               ],
-              default: 'devcontainer',
+              default: devcontainerReady ? 'devcontainer' : 'host',
             },
           ])
 
           if (selectedEnv === 'devcontainer') {
+            // Double-check prerequisites (in case user retried after starting Docker)
             if (!isDockerRunning()) {
               this.log('')
               this.warn('Docker is not running. Please start Docker Desktop or select "host".')
+              this.log('')
+              continue
+            }
+
+            if (!isDevcontainerCliInstalled()) {
+              this.log('')
+              this.warn(
+                'devcontainer CLI is not installed.\n' +
+                'Install with: npm install -g @devcontainers/cli\n' +
+                'Or select "host" to run directly on your machine.'
+              )
               this.log('')
               continue
             }

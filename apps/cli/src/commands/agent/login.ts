@@ -6,7 +6,12 @@ import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
-import { isDockerRunning } from '../../lib/execution/runners.js';
+import {
+  isDockerRunning,
+  getAgentContainerName,
+  isContainerRunning,
+  getContainerId,
+} from '../../lib/execution/runners.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
@@ -127,46 +132,33 @@ export default class Login extends PMOCommand {
 
     const agentDir = path.join(workspaceInfo.agentsPath, agentName!);
 
-    // Check if devcontainer exists
-    const devcontainerPath = path.join(agentDir, '.devcontainer');
-    try {
-      execSync(`test -d "${devcontainerPath}"`, { stdio: 'ignore' });
-    } catch {
-      this.error(`Agent "${agentName}" does not have a devcontainer configuration. Run "prlt agent add ${agentName}" to initialize.`);
+    // Check if Docker config exists
+    const dockerfilePath = path.join(agentDir, '.devcontainer', 'Dockerfile');
+    if (!fs.existsSync(dockerfilePath)) {
+      this.error(`Agent "${agentName}" does not have a Docker configuration. Run "prlt agent add ${agentName}" to initialize.`);
     }
 
-    // Get container ID
+    // Get container using the standard naming convention
     this.log(colors.primary(`🔐 Authenticating agent: ${agentName}`));
     this.log('');
 
-    let containerId: string;
-    try {
-      containerId = execSync(
-        `docker ps --filter "label=devcontainer.local_folder=${agentDir}" --format "{{.ID}}"`,
-        { encoding: 'utf-8' }
-      ).trim();
-    } catch {
-      this.error('Failed to find running container. Make sure the agent container is running.');
+    const containerName = getAgentContainerName(agentName!);
+    let containerId: string | null = null;
+
+    // Check if container is running
+    if (isContainerRunning(containerName)) {
+      containerId = getContainerId(containerName);
     }
 
     if (!containerId) {
-      this.log(colors.warning('Container is not running. Starting it now...'));
+      this.log(colors.warning('Container is not running.'));
       this.log('');
-
-      try {
-        execSync(`devcontainer up --workspace-folder "${agentDir}"`, {
-          stdio: 'inherit',
-          cwd: agentDir
-        });
-
-        // Get container ID again
-        containerId = execSync(
-          `docker ps --filter "label=devcontainer.local_folder=${agentDir}" --format "{{.ID}}"`,
-          { encoding: 'utf-8' }
-        ).trim();
-      } catch {
-        this.error('Failed to start container.');
-      }
+      this.log('Start the container first by running a work command:');
+      this.log('  prlt work start <ticket-id>');
+      this.log('');
+      this.log('Or start an interactive session:');
+      this.log('  prlt agent shell ' + agentName);
+      this.error('Container must be running to authenticate.');
     }
 
     // Create a helper script to launch interactive session

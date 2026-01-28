@@ -148,21 +148,20 @@ describe('Execution Utils', () => {
   })
 
   describe('buildTmuxMouseOption', () => {
-    it('should return empty string when control mode is active', () => {
-      const result = buildTmuxMouseOption(true)
-      expect(result).to.equal('')
-    })
-
-    it('should return mouse-on option when control mode is not active', () => {
-      const result = buildTmuxMouseOption(false)
-      expect(result).to.equal(' \\; set-option -g mouse on')
+    it('should always return mouse-on option (parameter is deprecated)', () => {
+      // Mouse option is always enabled - iTerm -CC mode handles mouse natively
+      // and non-iTerm terminals need mouse mode for scrolling
+      const resultTrue = buildTmuxMouseOption(true)
+      const resultFalse = buildTmuxMouseOption(false)
+      expect(resultTrue).to.equal(' \\; set-option -g mouse on')
+      expect(resultFalse).to.equal(' \\; set-option -g mouse on')
     })
   })
 
   describe('buildTmuxAttachCommand', () => {
-    it('should return -CC attach for control mode', () => {
+    it('should return -u -CC attach for control mode (always includes -u)', () => {
       const result = buildTmuxAttachCommand(true)
-      expect(result).to.equal('tmux -CC attach')
+      expect(result).to.equal('tmux -u -CC attach')
     })
 
     it('should return regular attach without control mode', () => {
@@ -186,10 +185,11 @@ describe('Execution Utils', () => {
      * These tests document the expected behavior when iTerm control mode (-CC) is used.
      * Control mode enables native iTerm scrolling, selection, and gesture support.
      */
-    it('iTerm with controlMode should NOT enable tmux mouse mode', () => {
+    it('mouse mode is always enabled (iTerm -CC handles it natively)', () => {
       const useControlMode = shouldUseControlMode('iTerm', true)
       const mouseOption = buildTmuxMouseOption(useControlMode)
-      expect(mouseOption).to.equal('')
+      // Mouse mode is always enabled - doesn't conflict with -CC mode
+      expect(mouseOption).to.equal(' \\; set-option -g mouse on')
     })
 
     it('iTerm with controlMode should use -CC attach', () => {

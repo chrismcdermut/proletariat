@@ -9,7 +9,12 @@ import { getWorkspaceInfo, getAgentTmuxSessions } from '../../lib/agents/command
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js';
 import { getTerminalApp } from '../../lib/execution/config.js';
 import { TerminalApp } from '../../lib/execution/types.js';
-import { isDockerRunning } from '../../lib/execution/runners.js';
+import {
+  isDockerRunning,
+  getAgentContainerName,
+  isContainerRunning,
+  getContainerId,
+} from '../../lib/execution/runners.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
   shouldOutputJson,
@@ -254,24 +259,27 @@ export default class Shell extends PMOCommand {
       this.error('Docker is not running. Please start Docker Desktop and try again.');
     }
 
-    // Start or ensure container is running
-    try {
-      execSync(`devcontainer up --workspace-folder "${agentDir}"`, {
-        stdio: 'pipe',
-      });
-    } catch (error) {
-      this.error(`Failed to start devcontainer: ${error instanceof Error ? error.message : error}`);
-    }
-
-    // Get container ID
+    // Get container using the standard naming convention
+    const containerName = getAgentContainerName(agentName);
     let containerId: string | null = null;
-    try {
-      containerId = execSync(
-        `docker ps -q --filter "label=devcontainer.local_folder=${agentDir}"`,
-        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-      ).trim();
-    } catch {
-      // Ignore
+
+    // Check if container is running
+    if (isContainerRunning(containerName)) {
+      containerId = getContainerId(containerName);
+    } else {
+      // Try to start a stopped container
+      try {
+        execSync(`docker start ${containerName}`, { stdio: 'pipe' });
+        containerId = getContainerId(containerName);
+      } catch {
+        // Container doesn't exist - user needs to run a work command first
+        this.log(colors.warning('Container is not running.'));
+        this.log('');
+        this.log('Start the container first by running a work command:');
+        this.log('  prlt work start <ticket-id>');
+        this.log('');
+        this.error('Container must exist. Run a work command first to create it.');
+      }
     }
 
     if (!containerId) {

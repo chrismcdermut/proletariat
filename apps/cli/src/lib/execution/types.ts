@@ -327,6 +327,7 @@ export interface ExecutionConfig {
   }
   terminal: {
     app: TerminalApp
+    openInBackground: boolean  // Open terminal tabs without stealing focus (default: true)
   }
   devcontainer: {
     defaultImage: string
@@ -370,11 +371,12 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   tmux: {
     session: 'proletariat',
     layout: 'window',
-    controlMode: true,  // Enable -CC for iTerm native integration by default
+    controlMode: true,  // Use -u -CC for native iTerm scrolling/selection
     windowMode: 'tab',  // Open tmux windows as tabs in current window by default
   },
   terminal: {
     app: 'Terminal',
+    openInBackground: true,  // Don't steal focus when opening new tabs
   },
   devcontainer: {
     defaultImage: 'mcr.microsoft.com/devcontainers/base:ubuntu',

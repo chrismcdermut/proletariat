@@ -9,7 +9,7 @@ import {
   getTicketTmuxSession,
   killTmuxSession
 } from '../../lib/agents/commands.js'
-import { isDockerRunning, isGitHubTokenAvailable } from '../../lib/execution/runners.js'
+import { isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } from '../../lib/execution/runners.js'
 import { PermissionMode } from '../../lib/execution/types.js'
 import {
   shouldOutputJson,
@@ -120,6 +120,10 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Session manager inside container (tmux runs agent in tmux inside container)',
       options: ['tmux', 'direct'],
       default: 'tmux',
+    }),
+    focus: Flags.boolean({
+      description: 'Bring terminal to foreground when opening new tabs (default: opens in background)',
+      default: false,
     }),
   }
 
@@ -663,6 +667,20 @@ export default class WorkSpawn extends PMOCommand {
 
         // Prompt for environment (devcontainer vs host) if devcontainer available and not already set
         if (hasDevcontainer && !batchRunOnHost && !batchDisplay) {
+          // Check devcontainer prerequisites upfront
+          const dockerRunning = isDockerRunning()
+          const devcontainerCliInstalled = isDevcontainerCliInstalled()
+          const devcontainerReady = dockerRunning && devcontainerCliInstalled
+
+          // Build missing requirements message for devcontainer option
+          let devcontainerLabel = '🐳 devcontainer (sandboxed, recommended)'
+          if (!devcontainerReady) {
+            const missing: string[] = []
+            if (!dockerRunning) missing.push('Docker')
+            if (!devcontainerCliInstalled) missing.push('devcontainer CLI')
+            devcontainerLabel = `🐳 devcontainer (requires: ${missing.join(', ')})`
+          }
+
           let environmentSelected = false
           while (!environmentSelected) {
             // eslint-disable-next-line no-await-in-loop -- Interactive loop with retry on Docker check
@@ -672,11 +690,11 @@ export default class WorkSpawn extends PMOCommand {
                 name: 'selectedEnvironment',
                 message: 'Where should agents run?',
                 choices: [
-                  { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
+                  { name: devcontainerLabel, value: 'devcontainer', disabled: !devcontainerReady },
                   { name: '💻 host (runs directly on your machine)', value: 'host' },
                   { name: '✗  cancel', value: 'cancel' },
                 ],
-                default: 'devcontainer',
+                default: devcontainerReady ? 'devcontainer' : 'host',
               },
             ])
 
@@ -687,12 +705,24 @@ export default class WorkSpawn extends PMOCommand {
             }
 
             if (selectedEnvironment === 'devcontainer') {
+              // Double-check prerequisites (in case user retried after starting Docker)
               if (!isDockerRunning()) {
                 this.log('')
                 this.warn(
                   'Docker is not running.\n' +
                   'Docker is required for devcontainer execution.\n' +
                   'Please start Docker Desktop or select "host" to run directly on your machine.'
+                )
+                this.log('')
+                continue
+              }
+
+              if (!isDevcontainerCliInstalled()) {
+                this.log('')
+                this.warn(
+                  'devcontainer CLI is not installed.\n' +
+                  'Install with: npm install -g @devcontainers/cli\n' +
+                  'Or select "host" to run directly on your machine.'
                 )
                 this.log('')
                 continue
@@ -873,6 +903,7 @@ export default class WorkSpawn extends PMOCommand {
             if (flags.executor) startArgs.push('--executor', flags.executor)
             if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
+            if (flags.focus) startArgs.push('--focus')
           } else {
             // Batch mode: pass all settings to skip prompts
             // batchDisplayMode is for devcontainer, batchDisplay is for host
@@ -890,6 +921,8 @@ export default class WorkSpawn extends PMOCommand {
             startArgs.push('--action', batchAction || 'implement')
             // Pass session manager (tmux inside container by default)
             if (flags.session) startArgs.push('--session', flags.session)
+            // Pass focus flag (brings terminal to foreground)
+            if (flags.focus) startArgs.push('--focus')
           }
 
           // eslint-disable-next-line no-await-in-loop

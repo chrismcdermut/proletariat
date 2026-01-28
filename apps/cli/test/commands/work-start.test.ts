@@ -142,4 +142,19 @@ describe('Work Start Command', () => {
       expect(helpOutput).to.contain('--force');
     });
   });
+
+  describe('Focus Flag (TKT-496)', () => {
+    it('shows --focus flag in help', () => {
+      expect(helpOutput).to.contain('--focus');
+    });
+
+    it('describes focus flag as bringing terminal to foreground', () => {
+      expect(helpOutput).to.contain('foreground');
+    });
+
+    it('indicates focus opens tabs without stealing focus by default', () => {
+      // The description should mention that default is background
+      expect(helpOutput).to.match(/--focus.*background/is);
+    });
+  });
 });
