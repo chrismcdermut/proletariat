@@ -1025,16 +1025,13 @@ export default class WorkStart extends PMOCommand {
               execSync(`osascript -e '
                 tell application "iTerm"
                   tell current window
+                    set originalIndex to index of current tab
                     create tab with default profile
                     tell current session
                       write text "${authCmd}"
                     end tell
-                  end tell
-                end tell
-                delay 0.2
-                tell application "System Events"
-                  tell process "iTerm2"
-                    keystroke "[" using {command down, shift down}
+                    delay 0.2
+                    select tab originalIndex
                   end tell
                 end tell
               '`)
@@ -1626,16 +1623,13 @@ export default class WorkStart extends PMOCommand {
             execSync(`osascript -e '
               tell application "iTerm"
                 tell current window
+                  set originalIndex to index of current tab
                   create tab with default profile
                   tell current session
                     write text "${authCmd}"
                   end tell
-                end tell
-              end tell
-              delay 0.2
-              tell application "System Events"
-                tell process "iTerm2"
-                  keystroke "[" using {command down, shift down}
+                  delay 0.2
+                  select tab originalIndex
                 end tell
               end tell
             '`)
