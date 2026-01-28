@@ -7,19 +7,19 @@
 ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═╝   ╚═╝
 ```
 
-### Seize the means of production - Ship 100x.
+### Multi-agent orchestration of AI labor. Spin up workers for all work, on demand.
 
-> **Turn tickets into output with AI labor**
+> **Agent orchestration platform that turns tickets into output**
 
 > 💡 *Paying for Claude Max but not maxing it out? You're leaving money on the table.*
 
-> ⚠️ **Beta Software** — Commands, flags, and APIs may change between versions. Not yet recommended for production automation scripts.
+> ⚠️ **Beta Software** — Under active development. Commands and APIs may change between versions, and bugs still exist.
 
 ---
 
 # TLDR
 
-**prlt** coordinates AI coding agents from one CLI. Isolated workspaces, secure containers, persistent state.
+**prlt** is an agent orchestration platform for AI labor. Spin up workers on demand, coordinate multi-agent development from one CLI. Isolated workspaces, secure containers, persistent state.
 
 ```bash
 npm install -g @proletariat/cli
@@ -554,7 +554,8 @@ Agent-created PRs ready for review:
   <tr><td><code>prlt workspace add</code></td><td>Add workspace</td></tr>
   <tr><td><code>prlt workspace use &lt;name&gt;</code></td><td>Switch workspace</td></tr>
   <!-- utility -->
-  <tr><td rowspan="3"><b>utility</b></td><td><code>prlt whoami</code></td><td>Show current context</td></tr>
+  <tr><td rowspan="4"><b>utility</b></td><td><code>prlt whoami</code></td><td>Show current context</td></tr>
+  <tr><td><code>prlt claude</code></td><td>Quick ad-hoc Claude session</td></tr>
   <tr><td><code>prlt commit</code></td><td>Conventional commit</td></tr>
   <tr><td><code>prlt autocomplete setup</code></td><td>Setup shell autocomplete</td></tr>
 </table>
