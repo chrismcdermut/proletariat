@@ -76,13 +76,15 @@ export function buildTmuxMouseOption(_useControlMode: boolean): string {
 
 /**
  * Build the tmux attach command based on control mode.
- * Uses -CC flag for iTerm control mode (native scrolling/selection).
+ * Uses -u -CC flags for iTerm control mode (native scrolling/selection).
+ * -u forces UTF-8 mode which is required for proper iTerm integration.
  * Uses regular attach otherwise.
  */
 export function buildTmuxAttachCommand(useControlMode: boolean, includeUnicodeFlag: boolean = false): string {
   const unicodeFlag = includeUnicodeFlag ? '-u ' : ''
   if (useControlMode) {
-    return `tmux ${unicodeFlag}-CC attach`
+    // Always use -u with -CC for proper iTerm integration
+    return `tmux -u -CC attach`
   }
   return `tmux ${unicodeFlag}attach`
 }
@@ -401,7 +403,7 @@ exec $SHELL
           tell current window
             set newTab to (create tab with default profile)
             tell current session of newTab
-              write text "tmux -CC attach -t \\"${sessionName}\\""
+              write text "tmux -u -CC attach -t \\"${sessionName}\\""
             end tell
           end tell
         end tell
