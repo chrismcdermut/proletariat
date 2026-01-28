@@ -13,7 +13,9 @@
 >
 > Themed agents, including billionaires - Finally, they work for us.
 
-> ⚠️ **Beta Software** — Under active development. Commands and APIs may change between versions, and bugs are actively being squashed. [Book a call](https://cal.com/chrismcdermut) — Feedback, ideas, or talk multi-agent workflows.
+> ⚠️ **Beta Software** — Under active development. Commands and APIs may change between versions, and bugs are actively being squashed.
+>
+> - [Book a call](https://cal.com/chrismcdermut) - Feedback, ideas, or chat multi-agent workflows and the future of work/labor (and economic labor theory..)
 
 ---
 
@@ -359,8 +361,8 @@ $ prlt work spawn --json --many
     "type": "checkbox",
     "message": "Select tickets to spawn:",
     "choices": [
-      { "name": "[P1] TKT-042 - Add user authentication", "value": "TKT-042" },
-      { "name": "[P1] TKT-043 - Add API rate limiting", "value": "TKT-043" }
+      {"name": "[P1] TKT-042 - Add user authentication", "value": "TKT-042"},
+      {"name": "[P1] TKT-043 - Add API rate limiting", "value": "TKT-043"}
     ]
   }
 }
