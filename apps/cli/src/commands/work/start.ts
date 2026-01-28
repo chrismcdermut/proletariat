@@ -1019,16 +1019,18 @@ export default class WorkStart extends PMOCommand {
             this.log(styles.primary(`Opening ${this.config.bin} agent auth in new tab...`))
             this.log('')
 
-            // Open auth in a new terminal tab (opens in background, doesn't steal focus)
+            // Open auth in a new terminal tab (opens in background, switches back to original tab)
             const authCmd = `${process.argv[1]} agent auth`
             try {
               execSync(`osascript -e '
                 tell application "iTerm"
                   tell current window
+                    set originalTab to current tab
                     set newTab to (create tab with default profile)
                     tell current session of newTab
                       write text "${authCmd}"
                     end tell
+                    select originalTab
                   end tell
                 end tell
               '`)
@@ -1614,16 +1616,18 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.primary(`Opening ${this.config.bin} agent auth in new tab...`))
           this.log('')
 
-          // Open auth in a new terminal tab (opens in background, doesn't steal focus)
+          // Open auth in a new terminal tab (opens in background, switches back to original tab)
           const authCmd = `${process.argv[1]} agent auth`
           try {
             execSync(`osascript -e '
               tell application "iTerm"
                 tell current window
+                  set originalTab to current tab
                   set newTab to (create tab with default profile)
                   tell current session of newTab
                     write text "${authCmd}"
                   end tell
+                  select originalTab
                 end tell
               end tell
             '`)
