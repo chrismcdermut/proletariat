@@ -35,7 +35,7 @@ import {
   generateBranchName,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
-import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } from '../../lib/execution/runners.js'
+import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, dockerCredentialsExist, getDockerCredentialInfo } from '../../lib/execution/runners.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
 import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
@@ -982,6 +982,67 @@ export default class WorkStart extends PMOCommand {
       // Can be overridden via --output flag if needed
       const outputMode: OutputMode = flags.output as OutputMode || DEFAULT_EXECUTION_CONFIG.outputMode
 
+      // Check Docker credentials for devcontainer environment
+      if (environment === 'devcontainer') {
+        const hasCredentials = dockerCredentialsExist()
+        if (!hasCredentials) {
+          this.log('')
+          this.log(styles.warning('⚠️  No Claude Code credentials found for Docker containers'))
+          this.log(styles.muted('   Agents will fail with 401 authentication errors without credentials.'))
+          this.log('')
+
+          const { authAction } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'authAction',
+              message: 'What would you like to do?',
+              choices: [
+                { name: '🔐 Run prlt agent auth now (one-time setup)', value: 'auth' },
+                { name: '💻 Switch to host environment instead', value: 'host' },
+                { name: '⚠️  Continue anyway (will likely fail)', value: 'continue' },
+                { name: '✗  Cancel', value: 'cancel' },
+              ],
+            },
+          ])
+
+          if (authAction === 'cancel') {
+            db.close()
+            this.log(styles.muted('Cancelled.'))
+            return
+          }
+
+          if (authAction === 'host') {
+            environment = 'host'
+            this.log(styles.muted('Switched to host environment.'))
+          } else if (authAction === 'auth') {
+            this.log('')
+            this.log(styles.primary('Running: prlt agent auth'))
+            this.log('')
+            try {
+              // Run agent auth command
+              execSync('prlt agent auth', { stdio: 'inherit' })
+              // Re-check credentials after auth
+              if (!dockerCredentialsExist()) {
+                this.log('')
+                this.log(styles.warning('Authentication may not have completed. Continuing anyway...'))
+              } else {
+                const info = getDockerCredentialInfo()
+                this.log('')
+                this.log(styles.success('✓ Credentials configured'))
+                if (info) {
+                  this.log(styles.muted(`   Subscription: ${info.subscriptionType || 'unknown'}`))
+                  this.log(styles.muted(`   Expires: ${info.expiresAt.toLocaleDateString()}`))
+                }
+              }
+            } catch {
+              this.log(styles.warning('Authentication command failed. Continuing anyway...'))
+            }
+            this.log('')
+          }
+          // authAction === 'continue' falls through
+        }
+      }
+
       // Prompt for permissions mode (all environments)
       // Skip prompt if --permission-mode flag is set
       if (flags['permission-mode']) {
@@ -1481,6 +1542,70 @@ export default class WorkStart extends PMOCommand {
         },
       ])
       batchPermissionMode = permissionMode
+    }
+
+    // Check Docker credentials if any agents use devcontainers
+    const anyUseDevcontainer = availableAgents.some(agent => {
+      const agentDir = path.join(workspaceInfo.agentsPath, agent.name)
+      return hasDevcontainerConfig(agentDir) && !flags['run-on-host']
+    })
+
+    if (anyUseDevcontainer) {
+      const hasCredentials = dockerCredentialsExist()
+      if (!hasCredentials) {
+        this.log('')
+        this.log(styles.warning('⚠️  No Claude Code credentials found for Docker containers'))
+        this.log(styles.muted('   Agents will fail with 401 authentication errors without credentials.'))
+        this.log('')
+
+        const { authAction } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'authAction',
+            message: 'What would you like to do?',
+            choices: [
+              { name: '🔐 Run prlt agent auth now (one-time setup)', value: 'auth' },
+              { name: '💻 Run all agents on host instead (--run-on-host)', value: 'host' },
+              { name: '⚠️  Continue anyway (will likely fail)', value: 'continue' },
+              { name: '✗  Cancel', value: 'cancel' },
+            ],
+          },
+        ])
+
+        if (authAction === 'cancel') {
+          db.close()
+          this.log(styles.muted('Cancelled.'))
+          return
+        }
+
+        if (authAction === 'host') {
+          flags['run-on-host'] = true
+          this.log(styles.muted('All agents will run on host.'))
+        } else if (authAction === 'auth') {
+          this.log('')
+          this.log(styles.primary('Running: prlt agent auth'))
+          this.log('')
+          try {
+            execSync('prlt agent auth', { stdio: 'inherit' })
+            if (!dockerCredentialsExist()) {
+              this.log('')
+              this.log(styles.warning('Authentication may not have completed. Continuing anyway...'))
+            } else {
+              const info = getDockerCredentialInfo()
+              this.log('')
+              this.log(styles.success('✓ Credentials configured'))
+              if (info) {
+                this.log(styles.muted(`   Subscription: ${info.subscriptionType || 'unknown'}`))
+                this.log(styles.muted(`   Expires: ${info.expiresAt.toLocaleDateString()}`))
+              }
+            }
+          } catch {
+            this.log(styles.warning('Authentication command failed. Continuing anyway...'))
+          }
+          this.log('')
+        }
+        // authAction === 'continue' falls through
+      }
     }
 
     // Assign tickets to agents (round-robin)

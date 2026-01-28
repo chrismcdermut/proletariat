@@ -114,6 +114,73 @@ export function configureITermTmuxWindowMode(mode: 'tab' | 'window'): void {
 }
 
 // =============================================================================
+// Docker Credential Helpers
+// =============================================================================
+
+const CLAUDE_CREDENTIALS_VOLUME = 'claude-credentials'
+
+/**
+ * Check if the claude-credentials Docker volume exists.
+ */
+export function credentialsVolumeExists(): boolean {
+  try {
+    execSync(`docker volume inspect ${CLAUDE_CREDENTIALS_VOLUME}`, { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Check if valid Claude credentials exist in the Docker volume.
+ * Returns true if credentials exist and are not expired.
+ */
+export function dockerCredentialsExist(): boolean {
+  try {
+    const result = execSync(
+      `docker run --rm -v ${CLAUDE_CREDENTIALS_VOLUME}:/data alpine cat /data/.credentials.json 2>/dev/null`,
+      { stdio: 'pipe', encoding: 'utf-8' }
+    )
+
+    const creds = JSON.parse(result)
+    if (creds.claudeAiOauth?.accessToken && creds.claudeAiOauth?.expiresAt) {
+      // Check if expired
+      const expiresAt = creds.claudeAiOauth.expiresAt
+      if (expiresAt > Date.now()) {
+        return true
+      }
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Get Docker credential info for display.
+ * Returns expiration date and subscription type if available.
+ */
+export function getDockerCredentialInfo(): { expiresAt: Date; subscriptionType?: string } | null {
+  try {
+    const result = execSync(
+      `docker run --rm -v ${CLAUDE_CREDENTIALS_VOLUME}:/data alpine cat /data/.credentials.json 2>/dev/null`,
+      { stdio: 'pipe', encoding: 'utf-8' }
+    )
+
+    const creds = JSON.parse(result)
+    if (creds.claudeAiOauth?.expiresAt) {
+      return {
+        expiresAt: new Date(creds.claudeAiOauth.expiresAt),
+        subscriptionType: creds.claudeAiOauth.subscriptionType,
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+// =============================================================================
 // Executor Commands
 // =============================================================================
 
