@@ -1030,6 +1030,7 @@ export default class WorkStart extends PMOCommand {
                     tell current session of newTab
                       write text "${authCmd}"
                     end tell
+                    delay 0.3
                     select originalTab
                   end tell
                 end tell
@@ -1627,6 +1628,7 @@ export default class WorkStart extends PMOCommand {
                   tell current session of newTab
                     write text "${authCmd}"
                   end tell
+                  delay 0.3
                   select originalTab
                 end tell
               end tell
