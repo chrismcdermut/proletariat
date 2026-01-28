@@ -67,12 +67,11 @@ export function shouldUseControlMode(terminalApp: TerminalApp, controlModeEnable
 
 /**
  * Build the tmux mouse option string for session creation.
- * Always disables tmux mouse mode so iTerm handles mouse natively.
- * This allows: native text selection, two-finger tab switching, normal scrolling.
- * Without this, tmux captures mouse events causing yellow copy-mode and blocked gestures.
+ * Enables mouse mode for scroll support in tmux.
+ * To select text or switch tabs, hold Shift or Option to bypass tmux.
  */
 export function buildTmuxMouseOption(_useControlMode: boolean): string {
-  return ' \\; set-option mouse off'
+  return ' \\; set-option -g mouse on'
 }
 
 /**

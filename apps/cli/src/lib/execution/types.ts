@@ -371,7 +371,7 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   tmux: {
     session: 'proletariat',
     layout: 'window',
-    controlMode: false,  // Disable -CC by default - interferes with Claude's TUI rendering
+    controlMode: false,  // -CC breaks Claude's TUI rendering
     windowMode: 'tab',  // Open tmux windows as tabs in current window by default
   },
   terminal: {
