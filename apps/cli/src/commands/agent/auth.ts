@@ -117,8 +117,10 @@ export default class Auth extends Command {
           'run',
           '-it',
           '--rm',
+          '--user', 'node',
           '-v', `${CLAUDE_CREDENTIALS_VOLUME}:/home/node/.claude`,
           '-e', 'CLAUDE_CONFIG_DIR=/home/node/.claude',
+          '-e', 'HOME=/home/node',
           'node:20',
           'bash', '-c',
           'npm install -g @anthropic-ai/claude-code@latest --silent 2>/dev/null && echo "" && echo "Type: /login" && echo "" && claude'
