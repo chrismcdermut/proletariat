@@ -870,7 +870,6 @@ function createDockerContainer(
     `-e PRLT_HQ_PATH=/hq`,
     `-e PRLT_AGENT_NAME="${context.agentName}"`,
     `-e PRLT_HOST_PATH="${context.agentDir}"`,
-    `-e CLAUDE_CONFIG_DIR=/home/node/.claude`,
     ...(process.env.ANTHROPIC_API_KEY ? [`-e ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"`] : []),
     ...(process.env.GITHUB_TOKEN ? [`-e GITHUB_TOKEN="${process.env.GITHUB_TOKEN}"`] : []),
     ...(process.env.GH_TOKEN ? [`-e GH_TOKEN="${process.env.GH_TOKEN}"`] : []),
