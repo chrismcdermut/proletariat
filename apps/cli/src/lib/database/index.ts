@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS agents (
   base_name TEXT,
   theme_id TEXT,
   worktree_path TEXT,
-  mount_mode TEXT NOT NULL DEFAULT 'clone' CHECK (mount_mode IN ('worktree', 'clone')),
+  mount_mode TEXT NOT NULL DEFAULT 'worktree' CHECK (mount_mode IN ('worktree', 'clone')),
   created_at TEXT NOT NULL,
   cleaned_at TEXT,
   FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
@@ -429,7 +429,7 @@ export function addRepositoriesToDatabase(workspacePath: string, repos: { name: 
 /**
  * Add agents to database (case-insensitive uniqueness)
  */
-export function addAgentsToDatabase(workspacePath: string, agentNames: string[], themeId?: string, mountMode: MountMode = 'clone'): void {
+export function addAgentsToDatabase(workspacePath: string, agentNames: string[], themeId?: string, mountMode: MountMode = 'worktree'): void {
   const db = openWorkspaceDatabase(workspacePath);
 
   // Check for existing agents (case-insensitive)
@@ -502,7 +502,7 @@ export function addEphemeralAgentToDatabase(
   agentName: string,
   baseName: string,
   themeId?: string,
-  mountMode: MountMode = 'clone'
+  mountMode: MountMode = 'worktree'
 ): Agent {
   const db = openWorkspaceDatabase(workspacePath);
 

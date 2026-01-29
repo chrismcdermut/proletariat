@@ -56,7 +56,7 @@ export interface DevcontainerJson {
  */
 export function generateDevcontainerJson(options: DevcontainerOptions, config?: ExecutionConfig): DevcontainerJson {
   const cfg = config || DEFAULT_EXECUTION_CONFIG
-  const mountMode = options.mountMode || 'clone'  // Default to clone mode
+  const mountMode = options.mountMode || 'worktree'  // Default to worktree mode
 
   // Parse the channel to determine registry and version
   const channel = parseChannel(options.prltChannel || 'npm')

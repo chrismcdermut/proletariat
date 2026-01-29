@@ -96,7 +96,7 @@ export type MountMode = 'worktree' | 'clone';
 
 export interface CreateAgentOptions {
   skipDevcontainer?: boolean;  // Skip devcontainer creation (default: false)
-  mountMode?: MountMode;       // 'worktree' = git worktree (shared .git), 'clone' = independent clone (default)
+  mountMode?: MountMode;       // 'worktree' = git worktree (shared .git, default), 'clone' = independent clone
 }
 
 /**
@@ -117,7 +117,7 @@ function getRemoteUrl(repoPath: string): string | null {
  * - clone mode: Uses git clone (independent repo, no path translation needed)
  */
 export async function createAgentWorktrees(workspacePath: string, agents: string[], hqPath?: string, options?: CreateAgentOptions): Promise<void> {
-  const mountMode = options?.mountMode || 'clone';  // Default to clone per TKT-453
+  const mountMode = options?.mountMode || 'worktree';  // Default to worktree for real-time file sync
   const modeLabel = mountMode === 'worktree' ? 'worktree' : 'clone';
 
   if (hqPath) {

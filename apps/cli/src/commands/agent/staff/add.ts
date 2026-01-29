@@ -51,8 +51,8 @@ export default class Add extends Command {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-    worktree: Flags.boolean({
-      description: 'Use git worktree mode instead of clone (enables real-time file sync with host)',
+    clone: Flags.boolean({
+      description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
       default: false,
     }),
   };
@@ -313,7 +313,7 @@ export default class Add extends Command {
       const addedAgents = await addAgentsToWorkspace(workspaceInfo, agentNames, {
         skipDevcontainer: flags['no-container'],
         themeId,
-        mountMode: flags.worktree ? 'worktree' : 'clone',
+        mountMode: flags.clone ? 'clone' : 'worktree',
       });
 
       if (addedAgents.length === 0) {

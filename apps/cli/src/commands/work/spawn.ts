@@ -125,8 +125,8 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Bring terminal to foreground when opening new tabs (default: opens in background)',
       default: false,
     }),
-    worktree: Flags.boolean({
-      description: 'Use git worktree mode instead of clone (enables real-time file sync with host)',
+    clone: Flags.boolean({
+      description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
       default: false,
     }),
   }
@@ -899,8 +899,8 @@ export default class WorkSpawn extends PMOCommand {
           // Pass --ephemeral to signal work:start should create an ephemeral agent
           const startArgs: string[] = [ticket.id, '--project', projectId, '--ephemeral']
 
-          // Pass worktree flag if specified
-          if (flags.worktree) startArgs.push('--worktree')
+          // Pass clone flag if specified
+          if (flags.clone) startArgs.push('--clone')
 
           if (flags['per-ticket']) {
             // Per-ticket mode: only pass display flag, let start prompt for the rest

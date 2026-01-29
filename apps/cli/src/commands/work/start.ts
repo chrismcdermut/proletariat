@@ -206,8 +206,8 @@ export default class WorkStart extends PMOCommand {
       description: 'Bring terminal to foreground when opening new tabs (default: opens in background)',
       default: false,
     }),
-    worktree: Flags.boolean({
-      description: 'Use git worktree mode instead of clone (enables real-time file sync with host)',
+    clone: Flags.boolean({
+      description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
       default: false,
     }),
   }
@@ -380,7 +380,7 @@ export default class WorkStart extends PMOCommand {
         const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
           skipDevcontainer: flags['run-on-host'],
           log: (msg) => this.log(msg),
-          mountMode: flags.worktree ? 'worktree' : 'clone',
+          mountMode: flags.clone ? 'clone' : 'worktree',
         })
         agentName = ephemeralResult.name
         agentWorktreePath = ephemeralResult.worktreePath
@@ -456,7 +456,7 @@ export default class WorkStart extends PMOCommand {
             const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
               skipDevcontainer: flags['run-on-host'],
               log: (msg) => this.log(msg),
-              mountMode: flags.worktree ? 'worktree' : 'clone',
+              mountMode: flags.clone ? 'clone' : 'worktree',
             })
             agentName = ephemeralResult.name
             agentWorktreePath = ephemeralResult.worktreePath
@@ -471,7 +471,7 @@ export default class WorkStart extends PMOCommand {
           const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
             skipDevcontainer: flags['run-on-host'],
             log: (msg) => this.log(msg),
-            mountMode: flags.worktree ? 'worktree' : 'clone',
+            mountMode: flags.clone ? 'clone' : 'worktree',
           })
           agentName = ephemeralResult.name
           agentWorktreePath = ephemeralResult.worktreePath
@@ -1700,7 +1700,7 @@ export default class WorkStart extends PMOCommand {
           ...(flags['run-on-host'] ? ['--run-on-host'] : []),
           ...(flags.force ? ['--force'] : []),
           '--permission-mode', batchPermissionMode,
-          ...((flags as { worktree?: boolean }).worktree ? ['--worktree'] : []),
+          ...((flags as { clone?: boolean }).clone ? ['--clone'] : []),
         ])
 
         successCount++

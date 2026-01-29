@@ -355,7 +355,7 @@ export type MountMode = DBMountMode;
 export interface AddAgentOptions {
   skipDevcontainer?: boolean;  // Skip devcontainer creation (default: false)
   themeId?: string;            // Theme ID if agent came from a theme
-  mountMode?: DBMountMode;     // 'worktree' = git worktree, 'clone' = independent clone (default)
+  mountMode?: DBMountMode;     // 'worktree' = git worktree (default), 'clone' = independent clone
 }
 
 /**
@@ -493,7 +493,7 @@ export interface EphemeralAgentOptions {
    * Optional logger for conflict messages (e.g., when a tmux session or directory already exists)
    */
   log?: (message: string) => void;
-  /** Mount mode: 'worktree' = git worktree, 'clone' = independent clone (default) */
+  /** Mount mode: 'worktree' = git worktree (default), 'clone' = independent clone */
   mountMode?: DBMountMode;
 }
 
@@ -583,7 +583,7 @@ export async function createEphemeralAgent(
 
   // Create worktrees/clones for each repository
   const reposPath = path.join(workspaceInfo.path, 'repos');
-  const mountMode = options?.mountMode || 'clone';
+  const mountMode = options?.mountMode || 'worktree';
 
   if (fs.existsSync(reposPath) && workspaceInfo.repositories.length > 0) {
     for (const repo of workspaceInfo.repositories) {
