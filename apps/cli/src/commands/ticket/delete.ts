@@ -11,21 +11,23 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { resolveDeprecatedArg } from '../../lib/deprecation.js';
 
 export default class TicketDelete extends PMOCommand {
   static description = 'Delete ticket(s) permanently';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> TICK-001',
-    '<%= config.bin %> <%= command.id %> TICK-001 --force',
+    '<%= config.bin %> <%= command.id %> --id TKT-001',
+    '<%= config.bin %> <%= command.id %> --id TKT-001 --force',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
     '<%= config.bin %> <%= command.id %> --bulk',
     '<%= config.bin %> <%= command.id %> --json  # Output choices as JSON',
   ];
 
+  // Deprecated: Use --id flag instead. Positional args will be removed in v1.0
   static args = {
     ticketId: Args.string({
-      description: 'Ticket ID to delete - prompts with dropdown if not provided',
+      description: '[DEPRECATED: Use --id] Ticket ID to delete',
       required: false,
     }),
   };
@@ -35,6 +37,10 @@ export default class TicketDelete extends PMOCommand {
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
+    }),
+    id: Flags.string({
+      description: 'Ticket ID to delete',
+      char: 'i',
     }),
     force: Flags.boolean({
       char: 'f',
@@ -78,7 +84,17 @@ export default class TicketDelete extends PMOCommand {
     }
 
     // Single ticket mode
-    let ticketId = args.ticketId;
+    // Resolve ticket ID from --id flag or deprecated positional arg
+    let ticketId = resolveDeprecatedArg(
+      this.log.bind(this),
+      args,
+      flags,
+      {
+        argName: 'ticketId',
+        flagName: '--id',
+        getExample: (v) => `prlt ticket delete --id ${v} --force`,
+      }
+    );
 
     if (!ticketId) {
       // Use helper for ticket selection (handles JSON mode automatically)
@@ -87,7 +103,7 @@ export default class TicketDelete extends PMOCommand {
         items: allTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket delete ${t.id} --force --json`,
+        getCommand: (t) => `prlt ticket delete --id ${t.id} --force --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket delete' } : null,
       });
 

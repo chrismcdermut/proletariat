@@ -6,18 +6,20 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { resolveDeprecatedArg } from '../../lib/deprecation.js';
 
 export default class TicketStatus extends PMOCommand {
   static description = 'Show ticket status and details';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> TICK-001',
+    '<%= config.bin %> <%= command.id %> --id TKT-001',
+    '<%= config.bin %> <%= command.id %>  # Interactive mode',
   ];
 
+  // Deprecated: Use --id flag instead. Positional args will be removed in v1.0
   static args = {
     ticketId: Args.string({
-      description: 'Ticket ID - prompts with dropdown if not provided',
+      description: '[DEPRECATED: Use --id] Ticket ID',
       required: false,
     }),
   };
@@ -27,6 +29,10 @@ export default class TicketStatus extends PMOCommand {
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
+    }),
+    id: Flags.string({
+      description: 'Ticket ID to show status for',
+      char: 'i',
     }),
   };
 
@@ -46,8 +52,17 @@ export default class TicketStatus extends PMOCommand {
       this.error(message);
     };
 
-    // Get ticketId - prompt if not provided
-    let ticketId = args.ticketId;
+    // Resolve ticket ID from --id flag or deprecated positional arg
+    let ticketId = resolveDeprecatedArg(
+      this.log.bind(this),
+      args,
+      flags,
+      {
+        argName: 'ticketId',
+        flagName: '--id',
+        getExample: (v) => `prlt ticket status --id ${v}`,
+      }
+    );
 
     if (!ticketId) {
       // Get all tickets for selection
@@ -63,7 +78,7 @@ export default class TicketStatus extends PMOCommand {
         items: allTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket status ${t.id} --json`,
+        getCommand: (t) => `prlt ticket status --id ${t.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket status' } : null,
       });
 

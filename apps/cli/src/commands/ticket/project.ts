@@ -7,24 +7,26 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { resolveDeprecatedArg } from '../../lib/deprecation.js';
 
 export default class TicketProject extends PMOCommand {
   static description = 'Move ticket(s) to a different project';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> TKT-001 new-project',
-    '<%= config.bin %> <%= command.id %> TKT-001',
-    '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> --id TKT-001 --to new-project',
+    '<%= config.bin %> <%= command.id %> --id TKT-001',
+    '<%= config.bin %> <%= command.id %>  # Interactive mode',
     '<%= config.bin %> <%= command.id %> --bulk --target other-project',
   ];
 
+  // Deprecated: Use --id and --to flags instead. Positional args will be removed in v1.0
   static args = {
     ticketId: Args.string({
-      description: 'Ticket ID',
+      description: '[DEPRECATED: Use --id] Ticket ID',
       required: false,
     }),
     targetProject: Args.string({
-      description: 'Target project ID',
+      description: '[DEPRECATED: Use --to] Target project ID',
       required: false,
     }),
   };
@@ -34,6 +36,13 @@ export default class TicketProject extends PMOCommand {
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
+    }),
+    id: Flags.string({
+      description: 'Ticket ID to move',
+      char: 'i',
+    }),
+    to: Flags.string({
+      description: 'Target project ID',
     }),
     'keep-epic': Flags.boolean({
       description: 'Keep ticket assigned to its epic (if epic is in source project, will unlink)',
@@ -65,8 +74,18 @@ export default class TicketProject extends PMOCommand {
     // Get source project ID
     const sourceProjectId = await this.requireProject();
 
-    // Get ticket ID
-    let ticketId = args.ticketId;
+    // Get ticket ID from --id flag or deprecated positional arg
+    let ticketId = resolveDeprecatedArg(
+      this.log.bind(this),
+      args,
+      flags,
+      {
+        argName: 'ticketId',
+        flagName: '--id',
+        getExample: (v) => `prlt ticket project --id ${v} --to new-project`,
+      }
+    );
+
     if (!ticketId) {
       const tickets = await this.storage.listTickets(sourceProjectId);
       if (tickets.length === 0) {
@@ -83,7 +102,7 @@ export default class TicketProject extends PMOCommand {
         items: tickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket project ${t.id} --json`,
+        getCommand: (t) => `prlt ticket project --id ${t.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket project' } : null,
       });
 
@@ -125,15 +144,25 @@ export default class TicketProject extends PMOCommand {
       return;
     }
 
-    // Get target project
-    let targetProjectId = args.targetProject;
+    // Get target project from --to flag or deprecated positional arg
+    let targetProjectId = resolveDeprecatedArg(
+      this.log.bind(this),
+      args,
+      flags,
+      {
+        argName: 'targetProject',
+        flagName: '--to',
+        getExample: (v) => `prlt ticket project --id ${ticketId} --to ${v}`,
+      }
+    );
+
     if (!targetProjectId) {
       const selected = await this.selectFromList({
         message: 'Select target project:',
         items: otherProjects,
         getName: (p) => `${p.id} - ${p.name} (${p.status})`,
         getValue: (p) => p.id,
-        getCommand: (p) => `prlt ticket project ${ticketId} ${p.id} --json`,
+        getCommand: (p) => `prlt ticket project --id ${ticketId} --to ${p.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket project' } : null,
       });
 
@@ -171,7 +200,7 @@ export default class TicketProject extends PMOCommand {
           items: actionChoices,
           getName: (a) => a.name,
           getValue: (a) => a.id,
-          getCommand: (a) => a.id === 'unlink' ? `prlt ticket project ${ticketId} ${targetProjectId} --json` : '',
+          getCommand: (a) => a.id === 'unlink' ? `prlt ticket project --id ${ticketId} --to ${targetProjectId} --json` : '',
           jsonMode: jsonMode ? { flags, commandName: 'ticket project' } : null,
         });
 

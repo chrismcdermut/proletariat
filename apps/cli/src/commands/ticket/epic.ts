@@ -8,24 +8,26 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { resolveDeprecatedArg } from '../../lib/deprecation.js';
 
 export default class TicketEpic extends PMOCommand {
   static description = 'Assign ticket(s) to an epic (parent-child relationship)';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> TKT-001 EPIC-001',
-    '<%= config.bin %> <%= command.id %> TKT-001 --unlink',
-    '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> --id TKT-001 --epic EPIC-001',
+    '<%= config.bin %> <%= command.id %> --id TKT-001 --unlink',
+    '<%= config.bin %> <%= command.id %>  # Interactive mode',
     '<%= config.bin %> <%= command.id %> --bulk --to-epic EPIC-001',
   ];
 
+  // Deprecated: Use --id and --epic flags instead. Positional args will be removed in v1.0
   static args = {
     id: Args.string({
-      description: 'Ticket ID',
+      description: '[DEPRECATED: Use --id] Ticket ID',
       required: false,
     }),
     'epic-id': Args.string({
-      description: 'Epic ID to link to',
+      description: '[DEPRECATED: Use --epic] Epic ID to link to',
       required: false,
     }),
   };
@@ -35,6 +37,14 @@ export default class TicketEpic extends PMOCommand {
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
+    }),
+    id: Flags.string({
+      description: 'Ticket ID to link',
+      char: 'i',
+    }),
+    epic: Flags.string({
+      description: 'Epic ID to link to',
+      char: 'e',
     }),
     unlink: Flags.boolean({
       char: 'u',
@@ -96,8 +106,29 @@ export default class TicketEpic extends PMOCommand {
       return row?.epic_id || null;
     };
 
-    let ticketId = args.id;
-    let epicId = args['epic-id'];
+    // Resolve ticket ID from --id flag or deprecated positional arg
+    let ticketId = resolveDeprecatedArg(
+      this.log.bind(this),
+      args,
+      flags,
+      {
+        argName: 'id',
+        flagName: '--id',
+        getExample: (v) => `prlt ticket epic --id ${v} --epic EPIC-001`,
+      }
+    );
+
+    // Resolve epic ID from --epic flag or deprecated positional arg
+    let epicId = resolveDeprecatedArg(
+      this.log.bind(this),
+      args,
+      flags,
+      {
+        argName: 'epic-id',
+        flagName: '--epic',
+        getExample: (v) => `prlt ticket epic --id ${ticketId || 'TKT-001'} --epic ${v}`,
+      }
+    );
 
     // If unlinking, we don't need an epic ID
     if (flags.unlink) {
@@ -122,7 +153,7 @@ export default class TicketEpic extends PMOCommand {
         items: ticketChoices,
         getName: (t) => t.name,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket epic ${t.id} --json`,
+        getCommand: (t) => `prlt ticket epic --id ${t.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket epic' } : null,
       });
 
@@ -185,7 +216,7 @@ export default class TicketEpic extends PMOCommand {
         items: epicChoices,
         getName: (e) => e.name,
         getValue: (e) => e.id,
-        getCommand: (e) => e.id === '__none__' ? `prlt ticket epic ${ticketId} --unlink --json` : `prlt ticket epic ${ticketId} ${e.id} --json`,
+        getCommand: (e) => e.id === '__none__' ? `prlt ticket epic --id ${ticketId} --unlink --json` : `prlt ticket epic --id ${ticketId} --epic ${e.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket epic' } : null,
       });
 

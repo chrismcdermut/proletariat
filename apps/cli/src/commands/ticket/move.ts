@@ -11,24 +11,26 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { resolveDeprecatedArg } from '../../lib/deprecation.js';
 
 export default class TicketMove extends PMOCommand {
   static description = 'Move ticket(s) to a different column';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> my-ticket "In Progress"',
-    '<%= config.bin %> <%= command.id %> implement-auth Done',
-    '<%= config.bin %> <%= command.id %> fix-bug "In Review" --position 0',
+    '<%= config.bin %> <%= command.id %> --id TKT-001 --column "In Progress"',
+    '<%= config.bin %> <%= command.id %> --id fix-bug --column "In Review" --position 0',
     '<%= config.bin %> <%= command.id %> --bulk',
+    '<%= config.bin %> <%= command.id %>  # Interactive mode',
   ];
 
+  // Deprecated: Use --id and --column flags instead. Positional args will be removed in v1.0
   static args = {
     ticketId: Args.string({
-      description: 'Ticket ID - prompts with dropdown if not provided',
+      description: '[DEPRECATED: Use --id] Ticket ID',
       required: false,
     }),
     column: Args.string({
-      description: 'Target column - prompts with dropdown if not provided',
+      description: '[DEPRECATED: Use --column] Target column',
       required: false,
     }),
   };
@@ -38,6 +40,14 @@ export default class TicketMove extends PMOCommand {
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
+    }),
+    id: Flags.string({
+      description: 'Ticket ID to move',
+      char: 'i',
+    }),
+    column: Flags.string({
+      description: 'Target column name',
+      char: 'c',
     }),
     position: Flags.integer({
       description: 'Position within the column (0 = top)',
@@ -92,7 +102,17 @@ export default class TicketMove extends PMOCommand {
     }
 
     // Single ticket mode
-    let ticketId = args.ticketId;
+    // Resolve ticket ID from --id flag or deprecated positional arg
+    let ticketId = resolveDeprecatedArg(
+      this.log.bind(this),
+      args,
+      flags,
+      {
+        argName: 'ticketId',
+        flagName: '--id',
+        getExample: (v) => `prlt ticket move --id ${v} --column "In Progress"`,
+      }
+    );
 
     if (!ticketId) {
       // Use helper for ticket selection (handles JSON mode automatically)
@@ -101,7 +121,7 @@ export default class TicketMove extends PMOCommand {
         items: allTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket move ${t.id} --json`,
+        getCommand: (t) => `prlt ticket move --id ${t.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket move' } : null,
       });
 
@@ -117,8 +137,17 @@ export default class TicketMove extends PMOCommand {
       this.error(`Ticket "${ticketId}" not found.`);
     }
 
-    // Get target column - prompt if not provided
-    let targetColumn = args.column;
+    // Get target column - from --column flag or deprecated positional arg
+    let targetColumn = resolveDeprecatedArg(
+      this.log.bind(this),
+      args,
+      flags,
+      {
+        argName: 'column',
+        flagName: '--column',
+        getExample: (v) => `prlt ticket move --id ${ticketId} --column "${v}"`,
+      }
+    );
 
     if (!targetColumn) {
       // Get columns from the database (not config.json) to ensure accuracy
@@ -133,7 +162,7 @@ export default class TicketMove extends PMOCommand {
         items: project.columns as { name: string }[],
         getName: (col) => col.name === ticket.statusName ? `${col.name} (current)` : col.name,
         getValue: (col) => col.name,
-        getCommand: (col) => `prlt ticket move ${ticketId} "${col.name}" --json`,
+        getCommand: (col) => `prlt ticket move --id ${ticketId} --column "${col.name}" --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket move' } : null,
       });
 

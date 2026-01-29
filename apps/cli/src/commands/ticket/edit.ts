@@ -8,28 +8,34 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { resolveDeprecatedArg } from '../../lib/deprecation.js';
 
 export default class TicketEdit extends PMOCommand {
   static description = 'Edit an existing ticket';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> TICK-001',
-    '<%= config.bin %> <%= command.id %> TICK-001 --title "New title"',
-    '<%= config.bin %> <%= command.id %> TICK-001 --priority HIGH --category bug',
-    '<%= config.bin %> <%= command.id %> TICK-001 --add-subtask "Implement feature" --add-subtask "Write tests"',
-    '<%= config.bin %> <%= command.id %> TICK-001 --owner "john" --assignee "agent-1"',
+    '<%= config.bin %> <%= command.id %> --id TKT-001',
+    '<%= config.bin %> <%= command.id %> --id TKT-001 --title "New title"',
+    '<%= config.bin %> <%= command.id %> --id TKT-001 --priority P1 --category bug',
+    '<%= config.bin %> <%= command.id %> --id TKT-001 --add-subtask "Implement feature" --add-subtask "Write tests"',
+    '<%= config.bin %> <%= command.id %> --id TKT-001 --owner "john" --assignee "agent-1"',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
   ];
 
+  // Deprecated: Use --id flag instead. Positional args will be removed in v1.0
   static args = {
     ticketId: Args.string({
-      description: 'Ticket ID to edit - prompts with dropdown if not provided',
+      description: '[DEPRECATED: Use --id] Ticket ID to edit',
       required: false,
     }),
   };
 
   static flags = {
     ...pmoBaseFlags,
+    id: Flags.string({
+      description: 'Ticket ID to edit',
+      char: 'i',
+    }),
     title: Flags.string({
       char: 't',
       description: 'New ticket title',
@@ -105,8 +111,17 @@ export default class TicketEdit extends PMOCommand {
       this.error(message);
     };
 
-    // Get ticketId - prompt if not provided
-    let ticketId = args.ticketId;
+    // Resolve ticket ID from --id flag or deprecated positional arg
+    let ticketId = resolveDeprecatedArg(
+      this.log.bind(this),
+      args,
+      flags,
+      {
+        argName: 'ticketId',
+        flagName: '--id',
+        getExample: (v) => `prlt ticket edit --id ${v}`,
+      }
+    );
 
     if (!ticketId) {
       // Get all tickets for selection
@@ -122,7 +137,7 @@ export default class TicketEdit extends PMOCommand {
         items: allTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket edit ${t.id} --json`,
+        getCommand: (t) => `prlt ticket edit --id ${t.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket edit' } : null,
       });
 

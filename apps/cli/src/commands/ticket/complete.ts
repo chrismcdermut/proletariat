@@ -11,19 +11,21 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { resolveDeprecatedArg } from '../../lib/deprecation.js';
 
 export default class TicketComplete extends PMOCommand {
   static description = 'Mark ticket(s) as complete (move to Done column)';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> TICK-001',
+    '<%= config.bin %> <%= command.id %> --id TKT-001',
+    '<%= config.bin %> <%= command.id %>  # Interactive mode',
     '<%= config.bin %> <%= command.id %> --bulk',
   ];
 
+  // Deprecated: Use --id flag instead. Positional args will be removed in v1.0
   static args = {
     ticketId: Args.string({
-      description: 'Ticket ID - prompts with dropdown if not provided',
+      description: '[DEPRECATED: Use --id] Ticket ID',
       required: false,
     }),
   };
@@ -33,6 +35,10 @@ export default class TicketComplete extends PMOCommand {
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
+    }),
+    id: Flags.string({
+      description: 'Ticket ID to complete',
+      char: 'i',
     }),
     bulk: Flags.boolean({
       char: 'b',
@@ -96,7 +102,17 @@ export default class TicketComplete extends PMOCommand {
     }
 
     // Single ticket mode
-    let ticketId = args.ticketId;
+    // Resolve ticket ID from --id flag or deprecated positional arg
+    let ticketId = resolveDeprecatedArg(
+      this.log.bind(this),
+      args,
+      flags,
+      {
+        argName: 'ticketId',
+        flagName: '--id',
+        getExample: (v) => `prlt ticket complete --id ${v}`,
+      }
+    );
 
     if (!ticketId) {
       const selected = await this.selectFromList({
@@ -104,7 +120,7 @@ export default class TicketComplete extends PMOCommand {
         items: incompleteTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket complete ${t.id} --json`,
+        getCommand: (t) => `prlt ticket complete --id ${t.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket complete' } : null,
       });
 

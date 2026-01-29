@@ -7,25 +7,27 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { resolveDeprecatedArg } from '../../lib/deprecation.js';
 
 export default class TicketReassign extends PMOCommand {
   static description = 'Reassign ticket(s) to a different agent';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> TKT-001 alice',
+    '<%= config.bin %> <%= command.id %> --id TKT-001 --to alice',
+    '<%= config.bin %> <%= command.id %>  # Interactive mode',
     '<%= config.bin %> <%= command.id %> --bulk --to alice',
     '<%= config.bin %> <%= command.id %> --bulk --from bob --to alice',
     '<%= config.bin %> <%= command.id %> --json  # Output choices as JSON',
   ];
 
+  // Deprecated: Use --id and --to flags instead. Positional args will be removed in v1.0
   static args = {
     ticketId: Args.string({
-      description: 'Ticket ID - prompts with dropdown if not provided',
+      description: '[DEPRECATED: Use --id] Ticket ID',
       required: false,
     }),
     assignee: Args.string({
-      description: 'Target agent name',
+      description: '[DEPRECATED: Use --to] Target agent name',
       required: false,
     }),
   };
@@ -36,8 +38,12 @@ export default class TicketReassign extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
+    id: Flags.string({
+      description: 'Ticket ID to reassign',
+      char: 'i',
+    }),
     to: Flags.string({
-      description: 'Target agent name (for bulk mode)',
+      description: 'Target agent name',
     }),
     from: Flags.string({
       description: 'Filter tickets by current assignee (bulk mode)',
@@ -99,7 +105,17 @@ export default class TicketReassign extends PMOCommand {
     }
 
     // Single ticket mode
-    let ticketId = args.ticketId;
+    // Resolve ticket ID from --id flag or deprecated positional arg
+    let ticketId = resolveDeprecatedArg(
+      this.log.bind(this),
+      args,
+      flags,
+      {
+        argName: 'ticketId',
+        flagName: '--id',
+        getExample: (v) => `prlt ticket reassign --id ${v} --to alice`,
+      }
+    );
 
     if (!ticketId) {
       const selected = await this.selectFromList({
@@ -107,7 +123,7 @@ export default class TicketReassign extends PMOCommand {
         items: allTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket reassign ${t.id} --json`,
+        getCommand: (t) => `prlt ticket reassign --id ${t.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket reassign' } : null,
       });
 
@@ -123,8 +139,18 @@ export default class TicketReassign extends PMOCommand {
       this.error(`Ticket "${ticketId}" not found.`);
     }
 
-    // Get target assignee
-    let targetAssignee = args.assignee || flags.to;
+    // Get target assignee - from --to flag or deprecated positional arg
+    const resolvedAssignee = resolveDeprecatedArg(
+      this.log.bind(this),
+      args,
+      flags,
+      {
+        argName: 'assignee',
+        flagName: '--to',
+        getExample: (v) => `prlt ticket reassign --id ${ticketId} --to ${v}`,
+      }
+    );
+    let targetAssignee = resolvedAssignee;
 
     if (!targetAssignee) {
       const { assignee } = await inquirer.prompt([{

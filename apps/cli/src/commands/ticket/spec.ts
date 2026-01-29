@@ -7,25 +7,27 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { resolveDeprecatedArg } from '../../lib/deprecation.js';
 
 export default class TicketSpec extends PMOCommand {
   static description = 'Assign a spec to ticket(s)';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> TKT-001 SPEC-001',
-    '<%= config.bin %> <%= command.id %> TKT-001',
-    '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> TKT-001 --unlink',
+    '<%= config.bin %> <%= command.id %> --id TKT-001 --spec SPEC-001',
+    '<%= config.bin %> <%= command.id %> --id TKT-001',
+    '<%= config.bin %> <%= command.id %>  # Interactive mode',
+    '<%= config.bin %> <%= command.id %> --id TKT-001 --unlink',
     '<%= config.bin %> <%= command.id %> --bulk --spec SPEC-001',
   ];
 
+  // Deprecated: Use --id and --spec flags instead. Positional args will be removed in v1.0
   static args = {
     ticketId: Args.string({
-      description: 'Ticket ID',
+      description: '[DEPRECATED: Use --id] Ticket ID',
       required: false,
     }),
     specId: Args.string({
-      description: 'Spec ID to link',
+      description: '[DEPRECATED: Use --spec] Spec ID to link',
       required: false,
     }),
   };
@@ -36,6 +38,14 @@ export default class TicketSpec extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
+    id: Flags.string({
+      description: 'Ticket ID',
+      char: 'i',
+    }),
+    spec: Flags.string({
+      char: 's',
+      description: 'Spec ID to assign',
+    }),
     unlink: Flags.boolean({
       char: 'u',
       description: 'Remove spec from ticket instead of adding',
@@ -45,10 +55,6 @@ export default class TicketSpec extends PMOCommand {
       char: 'b',
       description: 'Enable bulk mode to assign spec to multiple tickets',
       default: false,
-    }),
-    spec: Flags.string({
-      char: 's',
-      description: 'Spec ID to assign (for bulk mode)',
     }),
   };
 
@@ -76,7 +82,17 @@ export default class TicketSpec extends PMOCommand {
       return;
     }
 
-    let ticketId = args.ticketId;
+    // Resolve ticket ID from --id flag or deprecated positional arg
+    let ticketId = resolveDeprecatedArg(
+      this.log.bind(this),
+      args,
+      flags,
+      {
+        argName: 'ticketId',
+        flagName: '--id',
+        getExample: (v) => `prlt ticket spec --id ${v} --spec SPEC-001`,
+      }
+    );
 
     // If no ticket ID provided, prompt for selection
     if (!ticketId) {
@@ -93,7 +109,7 @@ export default class TicketSpec extends PMOCommand {
         items: ticketChoices,
         getName: (t) => t.name,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket spec ${t.id} --json`,
+        getCommand: (t) => `prlt ticket spec --id ${t.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket spec' } : null,
       });
 
@@ -146,7 +162,17 @@ export default class TicketSpec extends PMOCommand {
       return;
     }
 
-    let specId = args.specId;
+    // Resolve spec ID from --spec flag or deprecated positional arg
+    let specId = resolveDeprecatedArg(
+      this.log.bind(this),
+      args,
+      flags,
+      {
+        argName: 'specId',
+        flagName: '--spec',
+        getExample: (v) => `prlt ticket spec --id ${ticketId} --spec ${v}`,
+      }
+    );
 
     // If no spec ID provided, prompt for selection
     if (!specId) {
@@ -155,7 +181,7 @@ export default class TicketSpec extends PMOCommand {
         items: specs,
         getName: (s) => `${s.id} - ${s.title} (${s.status})`,
         getValue: (s) => s.id,
-        getCommand: (s) => `prlt ticket spec ${ticketId} ${s.id} --json`,
+        getCommand: (s) => `prlt ticket spec --id ${ticketId} --spec ${s.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket spec' } : null,
       });
 
@@ -200,7 +226,7 @@ export default class TicketSpec extends PMOCommand {
           items: actionChoices,
           getName: (a) => a.name,
           getValue: (a) => a.id,
-          getCommand: (a) => a.id === 'use_epic' ? `prlt ticket spec ${ticketId} ${epic.specId} --json` : `prlt ticket spec ${ticketId} ${specId} --json`,
+          getCommand: (a) => a.id === 'use_epic' ? `prlt ticket spec --id ${ticketId} --spec ${epic.specId} --json` : `prlt ticket spec --id ${ticketId} --spec ${specId} --json`,
           jsonMode: jsonMode ? { flags, commandName: 'ticket spec' } : null,
         });
 
