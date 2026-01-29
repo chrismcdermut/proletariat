@@ -35,19 +35,21 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { resolveDeprecatedArg } from '../../lib/deprecation.js'
 
 export default class WorkRevise extends PMOCommand {
   static description = 'Address PR feedback on a ticket (fetches reviews/comments and spawns agent)'
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> TKT-001',
+    '<%= config.bin %> <%= command.id %> --id TKT-001',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
     '<%= config.bin %> <%= command.id %> --json  # Output choices as JSON',
   ]
 
+  // Deprecated: Use --id flag instead. Positional args will be removed in v1.0
   static args = {
     ticketId: Args.string({
-      description: 'Ticket ID - prompts with dropdown if not provided',
+      description: '[DEPRECATED: Use --id] Ticket ID',
       required: false,
     }),
   }
@@ -57,6 +59,10 @@ export default class WorkRevise extends PMOCommand {
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
+    }),
+    id: Flags.string({
+      description: 'Ticket ID to revise',
+      char: 'i',
     }),
     mode: Flags.string({
       char: 'm',
@@ -141,8 +147,17 @@ export default class WorkRevise extends PMOCommand {
     const executionStorage = new ExecutionStorage(db)
 
     try {
-      // Get ticketId - prompt with in-review tickets
-      let ticketId = args.ticketId
+      // Resolve ticket ID from --id flag or deprecated positional arg
+      let ticketId = resolveDeprecatedArg(
+        this.log.bind(this),
+        args,
+        flags,
+        {
+          argName: 'ticketId',
+          flagName: '--id',
+          getExample: (v) => `prlt work revise --id ${v}`,
+        }
+      )
 
       if (!ticketId) {
         const allTickets = await this.storage.listTickets(projectId)
@@ -185,7 +200,7 @@ export default class WorkRevise extends PMOCommand {
       const prUrl = ticket.metadata?.pr_url as string | undefined
       if (!prUrl) {
         db.close()
-        this.error(`Ticket "${ticketId}" has no PR linked.\nCreate a PR first with "prlt pr create ${ticketId}".`)
+        this.error(`Ticket "${ticketId}" has no PR linked.\nCreate a PR first with "prlt pr create --id ${ticketId}".`)
       }
 
       // Fetch PR feedback
