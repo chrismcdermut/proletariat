@@ -1641,12 +1641,11 @@ async function runDevcontainerInTmux(
 
     // Create a script inside the container that runs claude and keeps shell open
     // TERM must be set for Claude's TUI to render properly
-    // Unset DEVCONTAINER and CI to prevent Claude from detecting container/CI environment
-    // which might cause it to suppress TUI output
+    // Unset CI to prevent Claude from detecting CI environment which suppresses TUI output
+    // Note: We keep DEVCONTAINER set so prlt workspace detection works correctly
     const tmuxScript = `#!/bin/bash
 export TERM=xterm-256color
 export COLORTERM=truecolor
-unset DEVCONTAINER
 unset CI
 echo "🚀 Starting: ${sessionName}"
 echo ""
@@ -1923,92 +1922,6 @@ exec $SHELL
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to start tmux session in container',
-    }
-  }
-}
-
-/**
- * Legacy: Run devcontainer in host-side tmux (kept for non-container modes)
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function runDevcontainerInHostTmux(
-  context: ExecutionContext,
-  devcontainerCmd: string,
-  config: ExecutionConfig
-): Promise<RunnerResult> {
-  const sessionName = config.tmux.session
-  const windowName = buildTmuxWindowName(context)
-
-  try {
-    // Check if tmux is available on host
-    execSync('which tmux', { stdio: 'pipe' })
-
-    // Write command to temp script
-    const baseDir = context.hqPath
-      ? path.join(context.hqPath, '.proletariat', 'scripts')
-      : path.join(os.homedir(), '.proletariat', 'scripts')
-    fs.mkdirSync(baseDir, { recursive: true })
-    const scriptPath = path.join(baseDir, `exec-${context.ticketId}-${Date.now()}.sh`)
-
-    const windowTitle = buildWindowTitle(context)
-    const setTitleCmds = getSetTitleCommands(windowTitle)
-
-    const scriptContent = `#!/bin/bash
-${setTitleCmds}
-echo "🚀 Starting ticket execution: ${context.ticketId}"
-${devcontainerCmd}
-rm -f "${scriptPath}"
-exec $SHELL
-`
-    fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
-
-    // Check if session exists
-    let sessionExists = false
-    try {
-      execSync(`tmux has-session -t ${sessionName}`, { stdio: 'pipe' })
-      sessionExists = true
-    } catch (err) {
-      console.debug(`[runners:hostTmux] Session ${sessionName} does not exist:`, err)
-      sessionExists = false
-    }
-
-    const targetPane = `${sessionName}:${windowName}`
-
-    if (!sessionExists) {
-      execSync(
-        `tmux new-session -d -s ${sessionName} -n "${windowName}"`,
-        { stdio: 'pipe' }
-      )
-    } else if (config.tmux.layout === 'window') {
-      // Create new window in existing session (starts with shell)
-      execSync(
-        `tmux new-window -t ${sessionName} -n "${windowName}"`,
-        { stdio: 'pipe' }
-      )
-    } else {
-      // Split existing pane (starts with shell)
-      execSync(
-        `tmux split-window -t ${sessionName} -h`,
-        { stdio: 'pipe' }
-      )
-    }
-
-    // Send the script command to the shell - execute directly (not source)
-    // Using exec replaces the shell, ensuring proper TTY passthrough
-    execSync(
-      `tmux send-keys -t "${targetPane}" 'exec ${scriptPath}' Enter`,
-      { stdio: 'pipe' }
-    )
-
-    return {
-      success: true,
-      containerId: `devcontainer-${context.agentName}`,
-      sessionId: `${sessionName}:${windowName}`,
-    }
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to start tmux session',
     }
   }
 }
