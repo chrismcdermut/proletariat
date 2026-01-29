@@ -345,6 +345,7 @@ export async function spawnAgentForTicket(
     branch,
     hqPath,
     pmoPath,
+    repoWorktrees,
     createPR: options.createPR ?? false,
   }
 

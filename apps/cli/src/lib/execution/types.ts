@@ -157,6 +157,7 @@ export interface ExecutionContext {
   branch: string
   hqPath?: string // HQ root path for storing execution artifacts
   pmoPath?: string // PMO path for mounting into container
+  repoWorktrees?: string[] // Names of repo worktrees to mount for git worktree resolution
   createPR?: boolean // Whether to create a PR when work is ready (chosen at work start)
   // Action context (what the agent should do)
   actionId?: string       // Action ID (e.g., 'implement', 'groom')
