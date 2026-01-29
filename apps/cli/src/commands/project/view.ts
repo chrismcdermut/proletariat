@@ -9,18 +9,20 @@ import {
   createMetadata,
   buildPromptConfig,
 } from '../../lib/prompt-json.js';
+import { resolveDeprecatedArg } from '../../lib/deprecation.js';
 
 export default class ProjectView extends PMOCommand {
   static description = 'View a project\'s board';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> my-project',
-    '<%= config.bin %> <%= command.id %>  # Views default project',
+    '<%= config.bin %> <%= command.id %> --id my-project',
+    '<%= config.bin %> <%= command.id %>  # Interactive mode',
   ];
 
+  // Deprecated: Use --id flag instead. Positional args will be removed in v1.0
   static args = {
     id: Args.string({
-      description: 'Project ID to view - prompts with dropdown if not provided',
+      description: '[DEPRECATED: Use --id] Project ID to view',
       required: false,
     }),
   };
@@ -30,6 +32,10 @@ export default class ProjectView extends PMOCommand {
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
+    }),
+    id: Flags.string({
+      description: 'Project ID to view',
+      char: 'i',
     }),
   };
 
@@ -52,8 +58,17 @@ export default class ProjectView extends PMOCommand {
       this.error(message);
     };
 
-    // Get project ID - prompt if not provided
-    let projectId = args.id;
+    // Resolve project ID from --id flag or deprecated positional arg
+    let projectId = resolveDeprecatedArg(
+      this.log.bind(this),
+      args,
+      flags,
+      {
+        argName: 'id',
+        flagName: '--id',
+        getExample: (v) => `prlt project view --id ${v}`,
+      }
+    );
 
     if (!projectId) {
       const projects = await this.storage.listProjects();

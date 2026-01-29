@@ -7,6 +7,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { resolveDeprecatedArg } from '../../lib/deprecation.js';
 
 // Progress bar helper
 function progressBar(percent: number, width = 20): string {
@@ -19,13 +20,14 @@ export default class EpicView extends PMOCommand {
   static description = 'View epic details and linked tickets';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> EPIC-001',
-    '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> --id EPIC-001',
+    '<%= config.bin %> <%= command.id %>  # Interactive mode',
   ];
 
+  // Deprecated: Use --id flag instead. Positional args will be removed in v1.0
   static args = {
     id: Args.string({
-      description: 'Epic ID',
+      description: '[DEPRECATED: Use --id] Epic ID',
       required: false,
     }),
   };
@@ -35,6 +37,10 @@ export default class EpicView extends PMOCommand {
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
+    }),
+    id: Flags.string({
+      description: 'Epic ID to view',
+      char: 'i',
     }),
   };
 
@@ -55,7 +61,17 @@ export default class EpicView extends PMOCommand {
 
     const projectId = await this.requireProject();
 
-    let epicId = args.id;
+    // Resolve epic ID from --id flag or deprecated positional arg
+    let epicId = resolveDeprecatedArg(
+      this.log.bind(this),
+      args,
+      flags,
+      {
+        argName: 'id',
+        flagName: '--id',
+        getExample: (v) => `prlt epic view --id ${v}`,
+      }
+    );
 
     // If no ID provided, prompt for selection
     if (!epicId) {
@@ -75,7 +91,7 @@ export default class EpicView extends PMOCommand {
         items: epics,
         getName: (e) => `${e.id} ${e.title} (${e.status})`,
         getValue: (e) => e.id,
-        getCommand: (e) => `prlt epic view ${e.id} --json`,
+        getCommand: (e) => `prlt epic view --id ${e.id} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'epic view' } : null,
       });
 
