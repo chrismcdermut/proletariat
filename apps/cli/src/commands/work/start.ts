@@ -206,6 +206,11 @@ export default class WorkStart extends PMOCommand {
       description: 'Bring terminal to foreground when opening new tabs (default: opens in background)',
       default: false,
     }),
+    worktree: Flags.boolean({
+      char: 'W',
+      description: 'Use git worktree mode for live file sync with host (default: clone mode for isolation)',
+      default: false,
+    }),
   }
 
   async execute(): Promise<void> {
@@ -375,6 +380,7 @@ export default class WorkStart extends PMOCommand {
         this.log(styles.muted('Creating ephemeral agent...'))
         const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
           skipDevcontainer: flags['run-on-host'],
+          mountMode: flags.worktree ? 'worktree' : 'clone',
           log: (msg) => this.log(msg),
         })
         agentName = ephemeralResult.name
@@ -450,6 +456,7 @@ export default class WorkStart extends PMOCommand {
             this.log(styles.muted('Creating ephemeral agent...'))
             const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
               skipDevcontainer: flags['run-on-host'],
+              mountMode: flags.worktree ? 'worktree' : 'clone',
               log: (msg) => this.log(msg),
             })
             agentName = ephemeralResult.name
@@ -464,6 +471,7 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.muted('Creating ephemeral agent...'))
           const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
             skipDevcontainer: flags['run-on-host'],
+            mountMode: flags.worktree ? 'worktree' : 'clone',
             log: (msg) => this.log(msg),
           })
           agentName = ephemeralResult.name

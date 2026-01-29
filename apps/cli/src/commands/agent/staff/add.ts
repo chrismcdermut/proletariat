@@ -29,6 +29,7 @@ export default class Add extends Command {
     '<%= config.bin %> <%= command.id %> agent-1 agent-2',
     '<%= config.bin %> <%= command.id %> --theme billionaires',
     '<%= config.bin %> <%= command.id %> my-agent --no-container',
+    '<%= config.bin %> <%= command.id %> zeus --worktree  # Live file sync mode',
   ];
 
   static args = {
@@ -41,6 +42,11 @@ export default class Add extends Command {
   static flags = {
     'no-container': Flags.boolean({
       description: 'Skip devcontainer setup (not recommended for autonomous agents)',
+      default: false,
+    }),
+    worktree: Flags.boolean({
+      char: 'w',
+      description: 'Use git worktree mode for live file sync with host (default: clone mode for isolation)',
       default: false,
     }),
     theme: Flags.string({
@@ -305,10 +311,14 @@ export default class Add extends Command {
         agentNames = valid;
       }
 
+      // Determine mount mode: worktree flag enables worktree mode, otherwise clone (default)
+      const mountMode = flags.worktree ? 'worktree' : 'clone';
+
       // Add agents to workspace
       const addedAgents = await addAgentsToWorkspace(workspaceInfo, agentNames, {
         skipDevcontainer: flags['no-container'],
         themeId,
+        mountMode,
       });
 
       if (addedAgents.length === 0) {
@@ -326,6 +336,8 @@ export default class Add extends Command {
       if (!flags['no-container']) {
         this.log(chalk.blue('   Devcontainer config created for sandboxed execution'));
       }
+
+      this.log(chalk.blue(`   Mount mode: ${mountMode}${mountMode === 'worktree' ? ' (live file sync)' : ' (isolated)'}`));
 
     } catch (error) {
       this.error(error instanceof Error ? error.message : String(error));

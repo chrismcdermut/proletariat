@@ -18,7 +18,8 @@ import {
   markAgentCleaned,
   discoverAgentsOnDisk,
   Agent,
-  Repository
+  Repository,
+  MountMode
 } from '../database/index.js';
 import {
   isValidAgentName,
@@ -351,10 +352,11 @@ export function validateAgentNames(agentNames: string[]): { valid: string[]; inv
 export interface AddAgentOptions {
   skipDevcontainer?: boolean;  // Skip devcontainer creation (default: false)
   themeId?: string;            // Theme ID if agent came from a theme
+  mountMode?: MountMode;       // 'clone' (default) for isolation, 'worktree' for live file sync
 }
 
 /**
- * Create agent worktrees and update database
+ * Create agent clones/worktrees and update database
  */
 export async function addAgentsToWorkspace(workspaceInfo: WorkspaceInfo, agentNames: string[], options?: AddAgentOptions): Promise<string[]> {
   // Import dynamically to avoid circular dependency
@@ -368,15 +370,16 @@ export async function addAgentsToWorkspace(workspaceInfo: WorkspaceInfo, agentNa
     return [];
   }
 
-  // Create worktrees
+  // Create clones/worktrees
   if (workspaceInfo.type === 'hq') {
     await createAgentWorktrees(workspaceInfo.agentsPath, newAgents, workspaceInfo.path, options);
   } else {
     await createAgentWorktrees(workspaceInfo.agentsPath, newAgents, undefined, options);
   }
 
-  // Add to database (with optional theme ID)
-  addAgentsToDatabase(workspaceInfo.path, newAgents, options?.themeId);
+  // Add to database (with optional theme ID and mount mode)
+  const mountMode = options?.mountMode || 'clone';
+  addAgentsToDatabase(workspaceInfo.path, newAgents, options?.themeId, mountMode);
 
   return newAgents;
 }
@@ -484,6 +487,7 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
 export interface EphemeralAgentOptions {
   themeId?: string;        // Theme to pick base name from
   skipDevcontainer?: boolean;  // Skip devcontainer creation
+  mountMode?: MountMode;   // 'clone' (default) for isolation, 'worktree' for live file sync
   /**
    * Optional logger for conflict messages (e.g., when a tmux session or directory already exists)
    */
@@ -574,28 +578,63 @@ export async function createEphemeralAgent(
     fs.mkdirSync(agentDir, { recursive: true });
   }
 
-  // Create worktrees for each repository
+  // Determine mount mode (default to clone for isolation)
+  const mountMode = options?.mountMode || 'clone';
+
+  // Create clones or worktrees for each repository
   const reposPath = path.join(workspaceInfo.path, 'repos');
 
   if (fs.existsSync(reposPath) && workspaceInfo.repositories.length > 0) {
     for (const repo of workspaceInfo.repositories) {
       const sourceRepoPath = path.join(reposPath, repo.name);
-      const worktreePath = path.join(agentDir, repo.name);
+      const targetPath = path.join(agentDir, repo.name);
 
-      if (fs.existsSync(sourceRepoPath) && !fs.existsSync(worktreePath)) {
-        try {
-          // Create git worktree for the repository
-          // Don't create a branch yet - that happens in work:start
-          // Use --detach to create without a branch reference
-          execSync(`git worktree add --detach "${worktreePath}"`, {
-            cwd: sourceRepoPath,
-            stdio: 'pipe'
-          });
-        } catch {
-          // If worktree creation fails, try to just create the directory
-          // The agent can still work without a worktree (e.g., for non-git projects)
-          if (!fs.existsSync(worktreePath)) {
-            fs.mkdirSync(worktreePath, { recursive: true });
+      if (fs.existsSync(sourceRepoPath) && !fs.existsSync(targetPath)) {
+        if (mountMode === 'clone') {
+          // Clone mode: Create independent git clone
+          try {
+            execSync(`git clone "${sourceRepoPath}" "${targetPath}"`, {
+              stdio: 'pipe'
+            });
+
+            // Set up remote to track origin (if source has a remote)
+            try {
+              const originUrl = execSync('git remote get-url origin', {
+                cwd: sourceRepoPath,
+                encoding: 'utf-8',
+                stdio: ['pipe', 'pipe', 'pipe']
+              }).trim();
+              if (originUrl) {
+                execSync(`git remote set-url origin "${originUrl}"`, {
+                  cwd: targetPath,
+                  stdio: 'pipe'
+                });
+              }
+            } catch {
+              // No remote origin in source, that's ok
+            }
+          } catch {
+            // If clone fails, create the directory so agent can still work
+            if (!fs.existsSync(targetPath)) {
+              fs.mkdirSync(targetPath, { recursive: true });
+            }
+          }
+        } else {
+          // Worktree mode: Create git worktree
+          try {
+            // Create git worktree for the repository
+            // Don't create a branch yet - that happens in work:start
+            // Use --detach to create without a branch reference
+            execSync(`git worktree add --detach "${targetPath}"`, {
+              cwd: sourceRepoPath,
+              stdio: 'pipe'
+            });
+          } catch {
+            // If worktree creation fails, try to just create the directory
+            // The agent can still work without a worktree (e.g., for non-git projects)
+            if (!fs.existsSync(targetPath)) {
+              fs.mkdirSync(targetPath, { recursive: true });
+            }
           }
         }
       }
@@ -609,17 +648,19 @@ export async function createEphemeralAgent(
       createDevcontainerConfig({
         agentName,
         agentDir,
-        repoWorktrees: workspaceInfo.repositories.map(r => r.name)
+        repoWorktrees: workspaceInfo.repositories.map(r => r.name),
+        mountMode
       });
     }
   }
 
-  // Add to database
+  // Add to database with mount mode
   const agent = addEphemeralAgentToDatabase(
     workspaceInfo.path,
     agentName,
     baseName,
-    options?.themeId
+    options?.themeId,
+    mountMode
   );
 
   return {

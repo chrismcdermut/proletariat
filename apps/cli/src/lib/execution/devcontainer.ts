@@ -9,6 +9,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG } from './types.js'
 import { parseChannel } from '../workspace-config.js'
+import type { MountMode } from '../database/index.js'
 
 export interface DevcontainerOptions {
   agentName: string
@@ -19,6 +20,8 @@ export interface DevcontainerOptions {
   timezone?: string
   /** prlt channel: "npm", "npm:dev", "gh", "gh:dev", "mount", or version like "npm:1.2.3" */
   prltChannel?: string
+  /** Mount mode: 'clone' (default) for isolation, 'worktree' for live file sync */
+  mountMode?: MountMode
 }
 
 export interface DevcontainerJson {
@@ -57,6 +60,10 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
   const channel = parseChannel(options.prltChannel || 'npm')
   const useMount = channel.registry === 'mount'
 
+  // Determine mount mode: 'clone' (default) for isolation, 'worktree' for live file sync
+  const mountMode = options.mountMode || 'clone'
+  const useWorktrees = mountMode === 'worktree'
+
   // Build args for Dockerfile
   const buildArgs: Record<string, string> = {
     TZ: options.timezone || 'America/Los_Angeles',
@@ -73,6 +80,9 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
   if (channel.registry === 'gh') {
     buildArgs.GITHUB_TOKEN = '${localEnv:GITHUB_TOKEN}'
   }
+
+  // Pass mount mode to setup script so it can conditionally set up git wrapper
+  buildArgs.PRLT_MOUNT_MODE = mountMode
 
   const devcontainerJson: DevcontainerJson = {
     name: `Agent: ${options.agentName}`,
@@ -111,12 +121,13 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       // PMO path can be anywhere (e.g., /hq/pmo or /hq/repos/myrepo/pmo)
       // Use PRLT_PMO_PATH env var to mount the actual location to /hq/pmo
       'source=${localEnv:PRLT_PMO_PATH},target=/hq/pmo,type=bind',
-      // Mount each repo's directory so git worktrees can resolve their parent
+      // For WORKTREE mode only: Mount each repo's directory so git worktrees can resolve their parent
       // Worktree .git files reference paths like /Users/.../repos/{repoName}/.git/worktrees/name
       // These mounts make those paths accessible inside the container at /hq/repos/{repoName}
-      ...(options.repoWorktrees || []).map(
+      // For CLONE mode: Not needed - clones are self-contained with their own .git directories
+      ...(useWorktrees ? (options.repoWorktrees || []).map(
         repoName => `source=\${localEnv:PRLT_HQ_PATH}/repos/${repoName},target=/hq/repos/${repoName},type=bind`
-      ),
+      ) : []),
       // If using "mount" channel, mount local prlt build from PRLT_REPO_PATH
       // The setup-prlt.sh script will detect /opt/prlt and configure the wrapper
       ...(useMount ? ['source=${localEnv:PRLT_REPO_PATH},target=/opt/prlt,type=bind,readonly'] : []),
@@ -131,6 +142,8 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       // Agent identity - allows agent to know its name and host path
       PRLT_AGENT_NAME: options.agentName,
       PRLT_HOST_PATH: options.agentDir,
+      // Mount mode: 'clone' or 'worktree' - used by setup script for conditional git wrapper
+      PRLT_MOUNT_MODE: mountMode,
       // /hq/.proletariat/bin contains prlt wrapper with ESM loader for native modules
       PATH: '/hq/.proletariat/bin:/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin',
     },
@@ -198,8 +211,11 @@ USER root
 # Install prlt CLI from public npm
 # PRLT_REGISTRY: "npm" (install from npmjs.com) or "mount" (use host mount)
 # PRLT_VERSION: version/tag like "latest", "dev", "next", or "1.2.3"
+# PRLT_MOUNT_MODE: "clone" (default) or "worktree" - controls git wrapper setup
 ARG PRLT_REGISTRY=npm
 ARG PRLT_VERSION=latest
+ARG PRLT_MOUNT_MODE=clone
+ENV PRLT_MOUNT_MODE=\${PRLT_MOUNT_MODE}
 RUN if [ "\${PRLT_REGISTRY}" = "npm" ] || [ "\${PRLT_REGISTRY}" = "gh" ]; then \\
       echo "Installing @proletariat/cli@\${PRLT_VERSION} from npm..." && \\
       npm install -g @proletariat/cli@\${PRLT_VERSION}; \\
@@ -370,12 +386,14 @@ export function generatePrltSetupScript(): string {
   return `#!/bin/bash
 # Setup prlt CLI - rebuild native modules if using mounted version
 
-# Configure git wrapper to handle worktree path translation
+# Configure git wrapper to handle worktree path translation (WORKTREE mode only)
 # Worktree .git files contain host paths like: gitdir: /Users/.../repos/{repoName}/.git/worktrees/name
 # Inside container, the parent repos are mounted at /hq/repos/{repoName}
 #
 # We create a git wrapper that translates paths on-the-fly using GIT_DIR
 # This avoids modifying the .git file which is bind-mounted from the host
+#
+# For CLONE mode, the git wrapper is NOT needed since clones have their own .git directories
 #
 setup_git_wrapper() {
     # Create git wrapper script in user's bin directory (already in PATH before /usr/bin)
@@ -433,8 +451,13 @@ GITWRAPPER
     echo "Git wrapper installed for worktree path translation"
 }
 
-# Set up git wrapper for worktree path translation
-setup_git_wrapper
+# Set up git wrapper for worktree path translation (WORKTREE mode only)
+# For CLONE mode, clones have their own .git directories and don't need path translation
+if [ "\${PRLT_MOUNT_MODE}" = "worktree" ]; then
+    setup_git_wrapper
+else
+    echo "Clone mode detected - git wrapper not needed"
+fi
 
 # Copy Claude credentials from workspace to home (each container gets its own copy)
 if [ -f "/workspace/.claude.json" ]; then
