@@ -296,7 +296,7 @@ function buildPrompt(context: ExecutionContext): string {
 
       prompt += `\n2. **Mark work as ready** by running:\n`
       const prFlag = context.createPR ? ' --pr' : ' --no-pr'
-      prompt += `   \`\`\`bash\n   prlt work ready ${context.ticketId}${prFlag}\n   \`\`\`\n`
+      prompt += `   \`\`\`bash\n   prlt work ready --id ${context.ticketId}${prFlag}\n   \`\`\`\n`
       if (context.createPR) {
         prompt += `   This moves the ticket to review and creates a pull request.\n`
       } else {

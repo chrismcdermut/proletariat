@@ -422,7 +422,7 @@ const PRLT_USAGE_RULE = `
 
 Example (correct):
 \`\`\`bash
-prlt ticket edit TKT-123 --add-ac "Test passes"
+prlt ticket edit --id TKT-123 --add-ac "Test passes"
 \`\`\`
 
 Example (WRONG - do not do this):
@@ -488,7 +488,7 @@ Do NOT implement the ticket - only improve its definition so it's ready to be wo
 ## Example Command
 
 \`\`\`bash
-prlt ticket edit {{TICKET_ID}} \\
+prlt ticket edit --id {{TICKET_ID}} \\
   --description "Implement user session timeout...
 
 Requirements:
@@ -559,7 +559,7 @@ When complete, the ticket should be ready for code review.`,
 
 2. **Mark work as ready** by running:
    \`\`\`bash
-   prlt work ready {{TICKET_ID}} --pr
+   prlt work ready --id {{TICKET_ID}} --pr
    \`\`\`
    This moves the ticket to review and creates a pull request.
 
@@ -604,7 +604,7 @@ git add -A && prlt commit "your change" && git push
 
 2. **Mark work as ready** by running:
    \`\`\`bash
-   prlt work ready {{TICKET_ID}} --pr
+   prlt work ready --id {{TICKET_ID}} --pr
    \`\`\`
    This moves the ticket to review and creates a pull request.
 
@@ -648,7 +648,7 @@ git add -A && prlt commit "add tests for X" && git push
 
 2. **Mark work as ready** by running:
    \`\`\`bash
-   prlt work ready {{TICKET_ID}} --pr
+   prlt work ready --id {{TICKET_ID}} --pr
    \`\`\`
 
 **IMPORTANT:** Use the global \`prlt\` command.`,
