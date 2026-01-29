@@ -860,6 +860,12 @@ function createDockerContainer(
     ...(context.hqPath ? [`-v "${context.hqPath}/.proletariat:/hq/.proletariat"`] : []),
     // PMO path
     ...(context.pmoPath ? [`-v "${context.pmoPath}:/hq/pmo"`] : []),
+    // Mount parent repos for git worktree resolution
+    // Worktree .git files reference paths like /Users/.../repos/{repoName}/.git/worktrees/name
+    // These mounts make those paths accessible inside the container at /hq/repos/{repoName}
+    ...(context.repoWorktrees || []).map(
+      repoName => `-v "${context.hqPath}/repos/${repoName}:/hq/repos/${repoName}"`
+    ),
     // Claude credentials - shared named volume (login once, all containers share)
     `-v "claude-credentials:/home/node/.claude"`,
   ]
