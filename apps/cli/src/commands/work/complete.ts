@@ -11,18 +11,20 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { resolveDeprecatedArg } from '../../lib/deprecation.js';
 
 export default class WorkComplete extends PMOCommand {
   static description = 'Mark work as complete (moves ticket to Done column)';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> TKT-001',
+    '<%= config.bin %> <%= command.id %> --id TKT-001',
+    '<%= config.bin %> <%= command.id %>  # Interactive mode',
   ];
 
+  // Deprecated: Use --id flag instead. Positional args will be removed in v1.0
   static args = {
     ticketId: Args.string({
-      description: 'Ticket ID - prompts with dropdown if not provided',
+      description: '[DEPRECATED: Use --id] Ticket ID',
       required: false,
     }),
   };
@@ -32,6 +34,10 @@ export default class WorkComplete extends PMOCommand {
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
+    }),
+    id: Flags.string({
+      description: 'Ticket ID to mark complete',
+      char: 'i',
     }),
   };
 
@@ -65,8 +71,17 @@ export default class WorkComplete extends PMOCommand {
     const executionStorage = new ExecutionStorage(db);
 
     try {
-      // Get ticketId - prompt if not provided
-      let ticketId = args.ticketId;
+      // Resolve ticket ID from --id flag or deprecated positional arg
+      let ticketId = resolveDeprecatedArg(
+        this.log.bind(this),
+        args,
+        flags,
+        {
+          argName: 'ticketId',
+          flagName: '--id',
+          getExample: (v) => `prlt work complete --id ${v}`,
+        }
+      );
 
       if (!ticketId) {
         // Get all tickets that could be completed (in progress / started), optionally filtered by project
@@ -90,7 +105,7 @@ export default class WorkComplete extends PMOCommand {
           items: completableTickets,
           getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
           getValue: (t) => t.id,
-          getCommand: (t) => `prlt work complete ${t.id} --json`,
+          getCommand: (t) => `prlt work complete --id ${t.id} --json`,
           jsonMode: jsonMode ? { flags, commandName: 'work complete' } : null,
         });
 

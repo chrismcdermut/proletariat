@@ -12,6 +12,7 @@ import {
   createMetadata,
   buildPromptConfig,
 } from '../../lib/prompt-json.js'
+import { resolveDeprecatedArg } from '../../lib/deprecation.js'
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { StateCategory, WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
@@ -103,17 +104,17 @@ export default class WorkStart extends PMOCommand {
   static description = 'Start work on a ticket (launches an agent to implement it)'
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> TKT-001',
-    '<%= config.bin %> <%= command.id %> TKT-001 --mode foreground',
-    '<%= config.bin %> <%= command.id %> TKT-001 --mode tmux',
-    '<%= config.bin %> <%= command.id %> TKT-001 --mode terminal',
+    '<%= config.bin %> <%= command.id %> --id TKT-001',
+    '<%= config.bin %> <%= command.id %> --id TKT-001 --display foreground',
+    '<%= config.bin %> <%= command.id %> --id TKT-001 --display terminal',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
     '<%= config.bin %> <%= command.id %> --all  # Spawn all backlog tickets',
   ]
 
+  // Deprecated: Use --id flag instead. Positional args will be removed in v1.0
   static args = {
     ticketId: Args.string({
-      description: 'Ticket ID - prompts with dropdown if not provided',
+      description: '[DEPRECATED: Use --id] Ticket ID',
       required: false,
     }),
   }
@@ -123,6 +124,10 @@ export default class WorkStart extends PMOCommand {
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
+    }),
+    id: Flags.string({
+      description: 'Ticket ID to start work on',
+      char: 'i',
     }),
     all: Flags.boolean({
       char: 'a',
@@ -257,8 +262,17 @@ export default class WorkStart extends PMOCommand {
         return
       }
 
-      // Get ticketId - prompt if not provided
-      let ticketId = args.ticketId
+      // Resolve ticket ID from --id flag or deprecated positional arg
+      let ticketId = resolveDeprecatedArg(
+        this.log.bind(this),
+        args,
+        flags,
+        {
+          argName: 'ticketId',
+          flagName: '--id',
+          getExample: (v) => `prlt work start --id ${v}`,
+        }
+      )
 
       if (!ticketId) {
         // Get all tickets, optionally filtered by project if -P/--project flag is provided
@@ -274,7 +288,7 @@ export default class WorkStart extends PMOCommand {
           items: allTickets,
           getName: (t) => `[${t.priority || 'None'}] ${t.id} - ${t.title} (${t.assignee ? `assignee: ${t.assignee}` : 'unassigned'})`,
           getValue: (t) => t.id,
-          getCommand: (t) => `prlt work start ${t.id} --json`,
+          getCommand: (t) => `prlt work start --id ${t.id} --json`,
           jsonMode: jsonMode ? { flags, commandName: 'work start' } : null,
         })
 

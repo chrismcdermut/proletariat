@@ -27,21 +27,23 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { resolveDeprecatedArg } from '../../lib/deprecation.js';
 
 export default class WorkReady extends PMOCommand {
   static description = 'Mark work as ready for review (moves ticket to In Review column)';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> TKT-001',
-    '<%= config.bin %> <%= command.id %> --pr',
-    '<%= config.bin %> <%= command.id %> TKT-001 --pr --draft',
+    '<%= config.bin %> <%= command.id %> --id TKT-001',
+    '<%= config.bin %> <%= command.id %> --id TKT-001 --pr',
+    '<%= config.bin %> <%= command.id %> --id TKT-001 --pr --draft',
+    '<%= config.bin %> <%= command.id %>  # Interactive mode',
     '<%= config.bin %> <%= command.id %> --json  # Output choices as JSON',
   ];
 
+  // Deprecated: Use --id flag instead. Positional args will be removed in v1.0
   static args = {
     ticketId: Args.string({
-      description: 'Ticket ID - prompts with dropdown if not provided',
+      description: '[DEPRECATED: Use --id] Ticket ID',
       required: false,
     }),
   };
@@ -51,6 +53,10 @@ export default class WorkReady extends PMOCommand {
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
+    }),
+    id: Flags.string({
+      description: 'Ticket ID to mark ready for review',
+      char: 'i',
     }),
     pr: Flags.boolean({
       description: 'Create a pull request for this work',
@@ -96,8 +102,17 @@ export default class WorkReady extends PMOCommand {
     const executionStorage = new ExecutionStorage(db);
 
     try {
-      // Get ticketId - prompt if not provided
-      let ticketId = args.ticketId;
+      // Resolve ticket ID from --id flag or deprecated positional arg
+      let ticketId = resolveDeprecatedArg(
+        this.log.bind(this),
+        args,
+        flags,
+        {
+          argName: 'ticketId',
+          flagName: '--id',
+          getExample: (v) => `prlt work ready --id ${v} --pr`,
+        }
+      );
 
       if (!ticketId) {
         // Get all in-progress (started) tickets for selection, optionally filtered by project
@@ -121,7 +136,7 @@ export default class WorkReady extends PMOCommand {
           items: inProgressTickets,
           getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
           getValue: (t) => t.id,
-          getCommand: (t) => `prlt work ready ${t.id} --json`,
+          getCommand: (t) => `prlt work ready --id ${t.id} --json`,
           jsonMode: jsonMode ? { flags, commandName: 'work ready' } : null,
         });
 
