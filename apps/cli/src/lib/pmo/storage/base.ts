@@ -410,6 +410,28 @@ export function seedBuiltinPhaseTemplates(db: Database.Database): void {
 }
 
 /**
+ * Rule for agents about using the globally installed prlt command.
+ * This prevents agents from wasting time trying to build from source when working in the prlt repo.
+ */
+const PRLT_USAGE_RULE = `
+**IMPORTANT RULES**:
+
+1. **Use globally installed prlt**: Always use the \`prlt\` command directly
+2. **Never use local dev builds**: Do NOT use \`./apps/cli/bin/dev.js\` or \`./apps/cli/bin/run.js\`
+3. **Why**: You may be working inside the prlt source code. The local builds require dependencies and may not work correctly. The globally installed version is already configured and ready to use.
+
+Example (correct):
+\`\`\`bash
+prlt ticket edit TKT-123 --add-ac "Test passes"
+\`\`\`
+
+Example (WRONG - do not do this):
+\`\`\`bash
+./apps/cli/bin/run.js ticket edit TKT-123 ...
+\`\`\`
+`.trim()
+
+/**
  * Seed built-in work actions.
  */
 export function seedBuiltinActions(db: Database.Database): void {
@@ -418,7 +440,13 @@ export function seedBuiltinActions(db: Database.Database): void {
       id: 'groom',
       name: 'Groom',
       description: 'Flesh out ticket with requirements and acceptance criteria',
-      prompt: `Analyze this ticket and improve its definition:
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Groom
+
+Analyze this ticket and improve its definition:
 - Add detailed requirements if missing or vague
 - Add clear, testable acceptance criteria
 - Break down into subtasks if the work is complex
@@ -492,7 +520,13 @@ After updating, output a brief summary of your grooming changes.`,
       id: 'implement',
       name: 'Implement',
       description: 'Write code to implement the ticket requirements',
-      prompt: `Implement this ticket according to its requirements and acceptance criteria:
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Implement
+
+Implement this ticket according to its requirements and acceptance criteria:
 - Follow the acceptance criteria exactly
 - Write clean, well-tested code
 - Update documentation if the changes affect it
@@ -539,7 +573,13 @@ When complete, the ticket should be ready for code review.`,
       id: 'continue',
       name: 'Continue',
       description: 'Continue working from where you left off',
-      prompt: `Continue working on this ticket from where you left off.
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Continue
+
+Continue working on this ticket from where you left off.
 - Review existing commits and changes to understand current state
 - Check what subtasks remain incomplete
 - Complete the remaining work
@@ -578,7 +618,13 @@ git add -A && prlt commit "your change" && git push
       id: 'test',
       name: 'Write Tests',
       description: 'Add comprehensive tests for the implementation',
-      prompt: `Write comprehensive tests for this ticket's implementation:
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Write Tests
+
+Write comprehensive tests for this ticket's implementation:
 - Add unit tests for core functionality
 - Add integration tests where appropriate
 - Cover edge cases and error handling
@@ -637,7 +683,13 @@ No commits are needed for code review.`,
       id: 'revise',
       name: 'Revise',
       description: 'Address PR feedback and review comments',
-      prompt: `Address the feedback on this ticket's pull request:
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Revise
+
+Address the feedback on this ticket's pull request:
 - Review all comments and requested changes carefully
 - Make the necessary code changes to address each point
 - Respond to questions with explanations
