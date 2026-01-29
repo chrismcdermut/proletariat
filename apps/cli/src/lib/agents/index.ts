@@ -97,18 +97,35 @@ export interface CreateAgentOptions {
 }
 
 /**
- * Create agent worktrees (shared between HQ and workspace-only modes)
+ * Get the remote URL for a git repository
  */
-export async function createAgentWorktrees(workspacePath: string, agents: string[], hqPath?: string, options?: CreateAgentOptions): Promise<void> {
+function getRemoteUrl(repoPath: string): string | null {
+  try {
+    const url = execSync('git remote get-url origin', {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe']
+    }).trim();
+    return url || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Create agent clones (shared between HQ and workspace-only modes)
+ * Uses independent git clones instead of worktrees for better isolation.
+ */
+export async function createAgentClones(workspacePath: string, agents: string[], hqPath?: string, options?: CreateAgentOptions): Promise<void> {
   if (hqPath) {
-    // HQ mode - create worktrees for all repos in repos/ directory
+    // HQ mode - create clones for all repos in repos/ directory
     const reposDir = path.join(hqPath, 'repos');
-    
+
     // Get repositories from database instead of JSON config
     const repos = getWorkspaceRepositories(hqPath);
-    
+
     if (repos.length > 0) {
-      // Create worktrees for each agent across all repositories
+      // Create clones for each agent across all repositories
       for (const agent of agents) {
         const agentDir = path.join(workspacePath, agent);
         console.log(chalk.blue(`Creating agent: ${agent}...`));
@@ -117,14 +134,14 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
           // Create agent directory
           fs.mkdirSync(agentDir, { recursive: true });
 
-          // Track which repos successfully had worktrees created
-          const createdWorktrees: string[] = [];
+          // Track which repos successfully had clones created
+          const createdClones: string[] = [];
 
-          // Create worktrees for all repositories
+          // Create clones for all repositories
           for (const repo of repos) {
             const sourceRepo = path.join(reposDir, repo.name);
-            // Worktree directory is just the repo name (the agent name is already in the parent path)
-            const worktreeDir = path.join(agentDir, repo.name);
+            // Clone directory is just the repo name (the agent name is already in the parent path)
+            const cloneDir = path.join(agentDir, repo.name);
 
             if (fs.existsSync(sourceRepo)) {
               // Check if repo is empty (no commits)
@@ -140,84 +157,40 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
                 continue;
               }
 
-              console.log(styles.muted(`  Creating worktree for ${repo.name}...`));
+              // Get remote URL from source repo
+              const remoteUrl = getRemoteUrl(sourceRepo);
+              if (!remoteUrl) {
+                console.log(chalk.yellow(`  Skipping ${repo.name} (no remote origin configured)`));
+                continue;
+              }
 
-              // Fetch latest from origin to ensure we have up-to-date main
+              console.log(styles.muted(`  Cloning ${repo.name}...`));
+
               try {
-                execSync(`git fetch origin main`, {
-                  cwd: sourceRepo,
+                // Clone the repository (full clone for complete git history)
+                execSync(`git clone "${remoteUrl}" "${cloneDir}"`, {
                   stdio: 'pipe'
                 });
-              } catch {
-                // Ignore fetch errors (might be offline)
-                console.log(chalk.yellow(`  Warning: Could not fetch origin/main, using local state`));
-              }
-
-              // Determine the base ref to use (origin/main, main, or HEAD)
-              let baseRef = 'origin/main';
-              try {
-                execSync(`git rev-parse ${baseRef}`, { cwd: sourceRepo, stdio: 'pipe' });
-              } catch {
-                // origin/main doesn't exist, try local main
-                try {
-                  execSync('git rev-parse main', { cwd: sourceRepo, stdio: 'pipe' });
-                  baseRef = 'main';
-                } catch {
-                  // No main branch, use HEAD
-                  baseRef = 'HEAD';
-                }
-              }
-
-              // Create git worktree for the agent
-              const branchName = `agent-${agent}`;
-              try {
-                execSync(`git worktree add "${worktreeDir}" -b ${branchName} ${baseRef}`, {
-                  cwd: sourceRepo,
-                  stdio: 'inherit'
-                });
-                createdWorktrees.push(repo.name);
-              } catch {
-                // Branch might already exist, try to use it or clean up
-                console.log(chalk.yellow(`  Branch ${branchName} already exists, attempting to reuse or clean up...`));
-                try {
-                  // Try without creating a new branch (use existing)
-                  execSync(`git worktree add "${worktreeDir}" ${branchName}`, {
-                    cwd: sourceRepo,
-                    stdio: 'inherit'
-                  });
-                  createdWorktrees.push(repo.name);
-                } catch {
-                  // If that fails too, clean up the orphaned branch and try again
-                  try {
-                    execSync(`git branch -D ${branchName}`, {
-                      cwd: sourceRepo,
-                      stdio: 'pipe'
-                    });
-                    execSync(`git worktree add "${worktreeDir}" -b ${branchName} ${baseRef}`, {
-                      cwd: sourceRepo,
-                      stdio: 'inherit'
-                    });
-                    createdWorktrees.push(repo.name);
-                  } catch (finalError) {
-                    throw new Error(`Failed to create worktree after cleanup: ${finalError}`);
-                  }
-                }
+                createdClones.push(repo.name);
+              } catch (cloneError) {
+                console.log(chalk.yellow(`  Warning: Could not clone ${repo.name}: ${cloneError}`));
+                continue;
               }
             }
           }
 
-          // Create devcontainer config for sandboxed execution (only for repos with worktrees)
+          // Create devcontainer config for sandboxed execution (only for repos with clones)
           // Note: Agent metadata is stored in SQLite (agents table), not in config files
-          if (!options?.skipDevcontainer && createdWorktrees.length > 0) {
+          if (!options?.skipDevcontainer && createdClones.length > 0) {
             console.log(styles.muted(`  Creating devcontainer config...`));
             createDevcontainerConfig({
               agentName: agent,
               agentDir,
-              repoWorktrees: createdWorktrees,
+              repoWorktrees: createdClones,
             });
           }
 
-          console.log(chalk.green(`✅ Agent ${agent} created with ${createdWorktrees.length} worktree(s)`));
+          console.log(chalk.green(`✅ Agent ${agent} created with ${createdClones.length} clone(s)`));
         } catch (error) {
           console.log(chalk.red(`Failed to create agent ${agent}: ${error}`));
         }
@@ -238,9 +211,9 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
 
     for (const agent of agents) {
       const agentDir = path.join(workspacePath, agent);
-      // Worktree directory is just the repo name (the agent name is already in the parent path)
-      const worktreeDir = path.join(agentDir, repoName);
-      
+      // Clone directory is just the repo name (the agent name is already in the parent path)
+      const cloneDir = path.join(agentDir, repoName);
+
       console.log(chalk.blue(`Creating agent: ${agent}...`));
 
       try {
@@ -257,66 +230,25 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
           continue;
         }
 
+        // Get remote URL from source repo
+        const remoteUrl = getRemoteUrl(sourceRepo);
+        if (!remoteUrl) {
+          console.log(chalk.yellow(`  Skipping (no remote origin configured)`));
+          continue;
+        }
+
         // Create agent directory
         fs.mkdirSync(agentDir, { recursive: true });
 
-        // Fetch latest from origin to ensure we have up-to-date main
+        console.log(styles.muted(`  Cloning repository...`));
+
         try {
-          execSync(`git fetch origin main`, {
-            cwd: sourceRepo,
+          // Clone the repository (full clone for complete git history)
+          execSync(`git clone "${remoteUrl}" "${cloneDir}"`, {
             stdio: 'pipe'
           });
-        } catch {
-          // Ignore fetch errors (might be offline)
-          console.log(chalk.yellow(`  Warning: Could not fetch origin/main, using local state`));
-        }
-
-        // Determine the base ref to use (origin/main, main, or HEAD)
-        let baseRef = 'origin/main';
-        try {
-          execSync(`git rev-parse ${baseRef}`, { cwd: sourceRepo, stdio: 'pipe' });
-        } catch {
-          // origin/main doesn't exist, try local main
-          try {
-            execSync('git rev-parse main', { cwd: sourceRepo, stdio: 'pipe' });
-            baseRef = 'main';
-          } catch {
-            // No main branch, use HEAD
-            baseRef = 'HEAD';
-          }
-        }
-
-        // Create git worktree for the agent
-        const branchName = `agent-${agent}`;
-        try {
-          execSync(`git worktree add "${worktreeDir}" -b ${branchName} ${baseRef}`, {
-            cwd: sourceRepo,
-            stdio: 'inherit'
-          });
-        } catch {
-          // Branch might already exist, try to use it or clean up
-          console.log(chalk.yellow(`  Branch ${branchName} already exists, attempting to reuse or clean up...`));
-          try {
-            // Try without creating a new branch (use existing)
-            execSync(`git worktree add "${worktreeDir}" ${branchName}`, {
-              cwd: sourceRepo,
-              stdio: 'inherit'
-            });
-          } catch {
-            // If that fails too, clean up the orphaned branch and try again
-            try {
-              execSync(`git branch -D ${branchName}`, {
-                cwd: sourceRepo,
-                stdio: 'pipe'
-              });
-              execSync(`git worktree add "${worktreeDir}" -b ${branchName} ${baseRef}`, {
-                cwd: sourceRepo,
-                stdio: 'inherit'
-              });
-            } catch (finalError) {
-              throw new Error(`Failed to create worktree after cleanup: ${finalError}`);
-            }
-          }
+        } catch (cloneError) {
+          throw new Error(`Failed to clone repository: ${cloneError}`);
         }
 
         // Create devcontainer config for sandboxed execution
@@ -330,13 +262,19 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
           });
         }
 
-        console.log(chalk.green(`✅ Agent ${agent} created with worktree`));
+        console.log(chalk.green(`✅ Agent ${agent} created with clone`));
       } catch (error) {
         console.log(chalk.red(`Failed to create agent ${agent}: ${error}`));
       }
     }
   }
 }
+
+/**
+ * Create agent worktrees (shared between HQ and workspace-only modes)
+ * @deprecated Use createAgentClones instead. This is kept for backwards compatibility.
+ */
+export const createAgentWorktrees = createAgentClones;
 
 /**
  * Result from agent prompt including optional theme info

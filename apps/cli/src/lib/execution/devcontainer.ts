@@ -111,12 +111,8 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       // PMO path can be anywhere (e.g., /hq/pmo or /hq/repos/myrepo/pmo)
       // Use PRLT_PMO_PATH env var to mount the actual location to /hq/pmo
       'source=${localEnv:PRLT_PMO_PATH},target=/hq/pmo,type=bind',
-      // Mount each repo's directory so git worktrees can resolve their parent
-      // Worktree .git files reference paths like /Users/.../repos/{repoName}/.git/worktrees/name
-      // These mounts make those paths accessible inside the container at /hq/repos/{repoName}
-      ...(options.repoWorktrees || []).map(
-        repoName => `source=\${localEnv:PRLT_HQ_PATH}/repos/${repoName},target=/hq/repos/${repoName},type=bind`
-      ),
+      // Note: Parent repo mounts removed - agents now use independent git clones
+      // instead of worktrees, so no path translation is needed
       // If using "mount" channel, mount local prlt build from PRLT_REPO_PATH
       // The setup-prlt.sh script will detect /opt/prlt and configure the wrapper
       ...(useMount ? ['source=${localEnv:PRLT_REPO_PATH},target=/opt/prlt,type=bind,readonly'] : []),
@@ -365,76 +361,10 @@ echo "Firewall setup complete."
  * Rebuilds better-sqlite3 if prlt is mounted from host (not installed via npm).
  */
 export function generatePrltSetupScript(): string {
-  // Note: Using single quotes in heredoc marker ('GITWRAPPER') prevents bash variable expansion
-  // but TypeScript still sees ${} as template literals, so we escape them with backslash
   return `#!/bin/bash
 # Setup prlt CLI - rebuild native modules if using mounted version
-
-# Configure git wrapper to handle worktree path translation
-# Worktree .git files contain host paths like: gitdir: /Users/.../repos/{repoName}/.git/worktrees/name
-# Inside container, the parent repos are mounted at /hq/repos/{repoName}
-#
-# We create a git wrapper that translates paths on-the-fly using GIT_DIR
-# This avoids modifying the .git file which is bind-mounted from the host
-#
-setup_git_wrapper() {
-    # Create git wrapper script in user's bin directory (already in PATH before /usr/bin)
-    mkdir -p /home/node/.npm-global/bin
-    cat > /home/node/.npm-global/bin/git << 'GITWRAPPER'
-#!/bin/bash
-# Git wrapper that handles worktree path translation for containers
-# Translates host paths in .git files to container paths
-
-# Find the .git file/dir by walking up the directory tree
-find_git_file() {
-    local dir="$PWD"
-    while [ "$dir" != "/" ]; do
-        if [ -f "$dir/.git" ]; then
-            echo "$dir/.git"
-            return 0
-        elif [ -d "$dir/.git" ]; then
-            # Regular git repo, not a worktree - no translation needed
-            return 1
-        fi
-        dir="$(dirname "$dir")"
-    done
-    return 1
-}
-
-# Check if we need to translate the path
-GIT_FILE="$(find_git_file)"
-if [ -n "$GIT_FILE" ]; then
-    # Read the gitdir path from the .git file
-    # Format is: gitdir: /path/to/repos/{repoName}/.git/worktrees/name
-    HOST_PATH="$(sed -n 's/^gitdir: *//p' "$GIT_FILE")"
-
-    # Check if it's a host path that needs translation
-    case "$HOST_PATH" in
-        /Users/*|/home/*)
-            WORKTREE_NAME="$(basename "$HOST_PATH")"
-            # Extract repo name from host path: .../repos/{repoName}/.git/worktrees/...
-            # Remove .git/worktrees/name suffix, then get basename
-            REPO_PATH="$(echo "$HOST_PATH" | sed 's|/.git/worktrees/.*||')"
-            REPO_NAME="$(basename "$REPO_PATH")"
-            CONTAINER_PATH="/hq/repos/$REPO_NAME/.git/worktrees/$WORKTREE_NAME"
-            if [ -d "$CONTAINER_PATH" ]; then
-                export GIT_DIR="$CONTAINER_PATH"
-                export GIT_WORK_TREE="$(dirname "$GIT_FILE")"
-            fi
-            ;;
-    esac
-fi
-
-# Run the real git command
-exec /usr/bin/git "$@"
-GITWRAPPER
-
-    chmod +x /home/node/.npm-global/bin/git
-    echo "Git wrapper installed for worktree path translation"
-}
-
-# Set up git wrapper for worktree path translation
-setup_git_wrapper
+# Note: Git wrapper for worktree path translation removed - agents now use
+# independent git clones instead of worktrees, so no path translation is needed.
 
 # Copy Claude credentials from workspace to home (each container gets its own copy)
 if [ -f "/workspace/.claude.json" ]; then

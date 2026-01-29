@@ -386,9 +386,8 @@ export async function spawnAgentForTicket(
   const displayMode: DisplayMode = options.displayMode || 'terminal'
   const sandboxed = !(options.skipPermissions ?? false)
 
-  // Create branch in worktree(s)
+  // Create branch in agent clone(s)
   // For devcontainer environments, run git commands inside the container
-  // because the worktree .git file has container paths, not host paths
   const gitRepos = repoWorktrees.length > 0
     ? repoWorktrees.map(r => path.join(agentDir, r))
     : [worktreePath]

@@ -408,46 +408,9 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
       }
 
       if (fs.existsSync(agentDir)) {
-        // Remove worktrees for each repository
-        for (const repo of workspaceInfo.repositories) {
-          const repoWorktreePath = path.join(agentDir, repo.name);
-          const sourceRepoPath = workspaceInfo.type === 'hq'
-            ? path.join(workspaceInfo.path, 'repos', repo.name)
-            : process.cwd(); // For workspace-only, source is current directory
-          
-          if (fs.existsSync(repoWorktreePath)) {
-            try {
-              execSync(`git worktree remove ${path.relative(sourceRepoPath, repoWorktreePath)} --force`, {
-                cwd: sourceRepoPath,
-                stdio: 'pipe'
-              });
-            } catch {
-              // If git worktree remove fails, remove directory manually
-              fs.rmSync(repoWorktreePath, { recursive: true, force: true });
-            }
-          }
-        }
-        
-        // Remove agent directory
-        if (fs.existsSync(agentDir)) {
-          fs.rmSync(agentDir, { recursive: true, force: true });
-        }
-        
-        // Clean up git worktree list
-        for (const repo of workspaceInfo.repositories) {
-          const sourceRepoPath = workspaceInfo.type === 'hq'
-            ? path.join(workspaceInfo.path, 'repos', repo.name)
-            : process.cwd();
-          
-          try {
-            execSync('git worktree prune', {
-              cwd: sourceRepoPath,
-              stdio: 'pipe'
-            });
-          } catch {
-            // Ignore prune errors
-          }
-        }
+        // With independent clones, we just remove the agent directory
+        // No need for git worktree commands
+        fs.rmSync(agentDir, { recursive: true, force: true });
       }
       
       removed.push(agentName);
@@ -574,28 +537,37 @@ export async function createEphemeralAgent(
     fs.mkdirSync(agentDir, { recursive: true });
   }
 
-  // Create worktrees for each repository
+  // Create clones for each repository (independent clones instead of worktrees)
   const reposPath = path.join(workspaceInfo.path, 'repos');
 
   if (fs.existsSync(reposPath) && workspaceInfo.repositories.length > 0) {
     for (const repo of workspaceInfo.repositories) {
       const sourceRepoPath = path.join(reposPath, repo.name);
-      const worktreePath = path.join(agentDir, repo.name);
+      const clonePath = path.join(agentDir, repo.name);
 
-      if (fs.existsSync(sourceRepoPath) && !fs.existsSync(worktreePath)) {
+      if (fs.existsSync(sourceRepoPath) && !fs.existsSync(clonePath)) {
         try {
-          // Create git worktree for the repository
-          // Don't create a branch yet - that happens in work:start
-          // Use --detach to create without a branch reference
-          execSync(`git worktree add --detach "${worktreePath}"`, {
+          // Get remote URL from source repo
+          const remoteUrl = execSync('git remote get-url origin', {
             cwd: sourceRepoPath,
-            stdio: 'pipe'
-          });
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe']
+          }).trim();
+
+          if (remoteUrl) {
+            // Clone the repository (full clone for complete git history)
+            execSync(`git clone "${remoteUrl}" "${clonePath}"`, {
+              stdio: 'pipe'
+            });
+          } else {
+            // No remote, create empty directory
+            fs.mkdirSync(clonePath, { recursive: true });
+          }
         } catch {
-          // If worktree creation fails, try to just create the directory
-          // The agent can still work without a worktree (e.g., for non-git projects)
-          if (!fs.existsSync(worktreePath)) {
-            fs.mkdirSync(worktreePath, { recursive: true });
+          // If clone fails, try to just create the directory
+          // The agent can still work without a clone (e.g., for non-git projects)
+          if (!fs.existsSync(clonePath)) {
+            fs.mkdirSync(clonePath, { recursive: true });
           }
         }
       }
@@ -1045,29 +1017,7 @@ export async function cleanupAgent(
     }
   }
 
-  // 3. Remove git worktrees for each repository
-  for (const repo of workspaceInfo.repositories) {
-    const worktreePath = path.join(agentDir, repo.name);
-    const sourceRepoPath = path.join(workspaceInfo.path, 'repos', repo.name);
-
-    if (fs.existsSync(worktreePath) && fs.existsSync(sourceRepoPath)) {
-      if (dryRun) {
-        log(`[dry-run] Would remove worktree: ${worktreePath}`);
-      } else {
-        log(`Removing worktree: ${worktreePath}`);
-        try {
-          execSync(`git worktree remove "${worktreePath}" --force`, {
-            cwd: sourceRepoPath,
-            stdio: 'pipe'
-          });
-        } catch {
-          // If git worktree remove fails, we'll still try to remove the directory
-        }
-      }
-    }
-  }
-
-  // 4. Remove agent directory
+  // 3. Remove agent directory (contains independent clones, not worktrees)
   if (fs.existsSync(agentDir)) {
     if (dryRun) {
       log(`[dry-run] Would remove directory: ${agentDir}`);
@@ -1084,21 +1034,7 @@ export async function cleanupAgent(
     }
   }
 
-  // 5. Prune worktrees
-  if (!dryRun) {
-    for (const repo of workspaceInfo.repositories) {
-      const sourceRepoPath = path.join(workspaceInfo.path, 'repos', repo.name);
-      if (fs.existsSync(sourceRepoPath)) {
-        try {
-          execSync('git worktree prune', { cwd: sourceRepoPath, stdio: 'pipe' });
-        } catch {
-          // Ignore prune errors
-        }
-      }
-    }
-  }
-
-  // 6. Mark agent as cleaned in database (not delete)
+  // 4. Mark agent as cleaned in database (not delete)
   if (!dryRun && result.success) {
     log(`Marking agent "${agentName}" as cleaned`);
     markAgentCleaned(workspaceInfo.path, agentName);
