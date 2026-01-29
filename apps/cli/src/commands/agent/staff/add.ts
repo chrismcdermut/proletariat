@@ -51,6 +51,10 @@ export default class Add extends Command {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
+    worktree: Flags.boolean({
+      description: 'Use git worktree mode instead of clone (enables real-time file sync with host)',
+      default: false,
+    }),
   };
 
   static strict = false; // Allow multiple agent names
@@ -309,6 +313,7 @@ export default class Add extends Command {
       const addedAgents = await addAgentsToWorkspace(workspaceInfo, agentNames, {
         skipDevcontainer: flags['no-container'],
         themeId,
+        mountMode: flags.worktree ? 'worktree' : 'clone',
       });
 
       if (addedAgents.length === 0) {
