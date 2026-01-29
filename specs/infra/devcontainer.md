@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Sandboxed execution environment for AI agents using VS Code devcontainers. Provides filesystem isolation so agents can safely run with `--dangerously-skip-permissions` without access to the host machine beyond their mounted worktrees.
+Sandboxed execution environment for AI agents using VS Code devcontainers. Provides filesystem isolation so agents can safely run with `--dangerously-skip-permissions` without access to the host machine beyond their mounted repository clones.
 
 ## Core Concepts
 
 - **Devcontainer**: Docker-based development environment defined by `.devcontainer/devcontainer.json`
 - **Filesystem Isolation**: Agent can only access explicitly mounted directories
-- **Safe Autonomous Execution**: `--dangerously-skip-permissions` is safe because damage is limited to worktrees
+- **Safe Autonomous Execution**: `--dangerously-skip-permissions` is safe because damage is limited to cloned repos
 - **Per-Agent Configuration**: Each agent can have customized container settings
 
 ## Security Model
@@ -42,7 +42,7 @@ Sandboxed execution environment for AI agents using VS Code devcontainers. Provi
 
 Devcontainers are automatically created in these locations:
 
-1. **Agent worktrees** (`prlt agents add`): Each agent gets a `.devcontainer/` for sandboxed execution
+1. **Agent directories** (`prlt agents add`): Each agent gets a `.devcontainer/` for sandboxed execution
 2. **Central repos** (`prlt repos add`): Each repo in `repos/` gets a `.devcontainer/`
 3. **Separate PMO** (`prlt pmo init --location separate`): The PMO repo gets a `.devcontainer/`
 
@@ -69,8 +69,8 @@ agents/staff/altman/
 │   └── Dockerfile (optional)
 ├── .proletariat/
 │   └── config.json
-├── frontend/     (git worktree)
-└── backend/      (git worktree)
+├── frontend/     (independent git clone)
+└── backend/      (independent git clone)
 ```
 
 ### Default devcontainer.json
@@ -98,11 +98,11 @@ agents/staff/altman/
 }
 ```
 
-Note: The workspace folder points to `/workspaces` which will contain all mounted repo worktrees.
+Note: The workspace folder points to `/workspaces` which will contain all mounted repository clones.
 
 ### Multi-Repo Mount Configuration
 
-For agents with multiple repository worktrees:
+For agents with multiple repository clones:
 
 ```json
 {
@@ -475,11 +475,17 @@ agents/staff/altman/
 │   └── Dockerfile            # Optional custom image
 ├── .proletariat/
 │   └── config.json           # Agent-specific config
-├── frontend/                 # Git worktree for repo 1
-│   └── .git                  # Worktree git file
-└── backend/                  # Git worktree for repo 2
-    └── .git                  # Worktree git file
+├── frontend/                 # Independent git clone for repo 1
+│   └── .git/                 # Full git directory
+└── backend/                  # Independent git clone for repo 2
+    └── .git/                 # Full git directory
 ```
+
+**Note**: Agents use independent git clones (not worktrees) for better isolation:
+- No branch conflicts between host and container
+- `git fetch/checkout` always works (no "branch in use" errors)
+- Container is truly isolated/ephemeral
+- Simpler state management without path translation wrappers
 
 ---
 
