@@ -24,6 +24,7 @@ export interface Repository {
 
 export type AgentType = 'persistent' | 'ephemeral';
 export type AgentStatus = 'active' | 'cleaned';
+export type MountMode = 'worktree' | 'clone';
 
 export interface Agent {
   name: string;
@@ -32,6 +33,7 @@ export interface Agent {
   base_name: string | null;  // Theme name (e.g., "bezos" from "bold-bezos-1")
   theme_id: string | null;
   worktree_path: string | null;  // e.g., "agents/temp/bold-bezos-1"
+  mount_mode: MountMode;  // 'worktree' = git worktree (shared .git), 'clone' = independent clone
   created_at: string;
   cleaned_at: string | null;  // When the agent was cleaned up
 }
@@ -110,6 +112,7 @@ CREATE TABLE IF NOT EXISTS agents (
   base_name TEXT,
   theme_id TEXT,
   worktree_path TEXT,
+  mount_mode TEXT NOT NULL DEFAULT 'worktree' CHECK (mount_mode IN ('worktree', 'clone')),
   created_at TEXT NOT NULL,
   cleaned_at TEXT,
   FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
@@ -253,6 +256,17 @@ export function openWorkspaceDatabase(workspacePath: string): Database.Database 
     }
   } catch {
     // Ignore migration errors - table might not exist yet
+  }
+
+  // Migration: add mount_mode column to agents table (TKT-686)
+  try {
+    const agentsTableInfo = db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
+    if (!agentsTableInfo.some(col => col.name === 'mount_mode')) {
+      // Add mount_mode column with default 'worktree' for existing agents (backward compat)
+      db.exec("ALTER TABLE agents ADD COLUMN mount_mode TEXT NOT NULL DEFAULT 'worktree' CHECK (mount_mode IN ('worktree', 'clone'))");
+    }
+  } catch {
+    // Ignore migration errors - table might not exist yet or column already exists
   }
 
   return db;
@@ -415,15 +429,15 @@ export function addRepositoriesToDatabase(workspacePath: string, repos: { name: 
 /**
  * Add agents to database (case-insensitive uniqueness)
  */
-export function addAgentsToDatabase(workspacePath: string, agentNames: string[], themeId?: string): void {
+export function addAgentsToDatabase(workspacePath: string, agentNames: string[], themeId?: string, mountMode: MountMode = 'worktree'): void {
   const db = openWorkspaceDatabase(workspacePath);
 
   // Check for existing agents (case-insensitive)
   const checkExisting = db.prepare('SELECT name FROM agents WHERE LOWER(name) = LOWER(?)');
 
   const insertAgent = db.prepare(`
-    INSERT OR REPLACE INTO agents (name, type, base_name, theme_id, worktree_path, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO agents (name, type, base_name, theme_id, worktree_path, mount_mode, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertWorktree = db.prepare(`
@@ -457,7 +471,7 @@ export function addAgentsToDatabase(workspacePath: string, agentNames: string[],
         : agentName;
 
       // Add agent (persistent type for manually added agents)
-      insertAgent.run(agentName, 'persistent', null, effectiveThemeId || null, agentWorktreePath, now);
+      insertAgent.run(agentName, 'persistent', null, effectiveThemeId || null, agentWorktreePath, mountMode, now);
 
       // Add worktrees for all repos
       for (const repo of repos) {
@@ -487,7 +501,8 @@ export function addEphemeralAgentToDatabase(
   workspacePath: string,
   agentName: string,
   baseName: string,
-  themeId?: string
+  themeId?: string,
+  mountMode: MountMode = 'worktree'
 ): Agent {
   const db = openWorkspaceDatabase(workspacePath);
 
@@ -495,9 +510,9 @@ export function addEphemeralAgentToDatabase(
   const worktreePath = `agents/temp/${agentName}`;
 
   db.prepare(`
-    INSERT INTO agents (name, type, status, base_name, theme_id, worktree_path, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(agentName, 'ephemeral', 'active', baseName, themeId || null, worktreePath, now);
+    INSERT INTO agents (name, type, status, base_name, theme_id, worktree_path, mount_mode, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(agentName, 'ephemeral', 'active', baseName, themeId || null, worktreePath, mountMode, now);
 
   const agent = db.prepare('SELECT * FROM agents WHERE name = ?').get(agentName) as {
     name: string;
@@ -506,6 +521,7 @@ export function addEphemeralAgentToDatabase(
     base_name: string | null;
     theme_id: string | null;
     worktree_path: string | null;
+    mount_mode: string | null;
     created_at: string;
     cleaned_at: string | null;
   };
@@ -519,6 +535,7 @@ export function addEphemeralAgentToDatabase(
     base_name: agent.base_name,
     theme_id: agent.theme_id,
     worktree_path: agent.worktree_path,
+    mount_mode: (agent.mount_mode || 'clone') as MountMode,
     created_at: agent.created_at,
     cleaned_at: agent.cleaned_at,
   };
@@ -558,6 +575,7 @@ export function getWorkspaceAgents(workspacePath: string, includeCleanedUp: bool
     base_name: string | null;
     theme_id: string | null;
     worktree_path: string | null;
+    mount_mode: string | null;
     created_at: string;
     cleaned_at: string | null;
   }>;
@@ -571,6 +589,7 @@ export function getWorkspaceAgents(workspacePath: string, includeCleanedUp: bool
     base_name: row.base_name,
     theme_id: row.theme_id,
     worktree_path: row.worktree_path,
+    mount_mode: (row.mount_mode || 'worktree') as MountMode,
     created_at: row.created_at,
     cleaned_at: row.cleaned_at,
   }));
@@ -604,6 +623,7 @@ export function getAgentByPath(workspacePath: string, absolutePath: string): Age
     base_name: string | null;
     theme_id: string | null;
     worktree_path: string | null;
+    mount_mode: string | null;
     created_at: string;
     cleaned_at: string | null;
   }>;
@@ -621,6 +641,7 @@ export function getAgentByPath(workspacePath: string, absolutePath: string): Age
           base_name: row.base_name,
           theme_id: row.theme_id,
           worktree_path: row.worktree_path,
+          mount_mode: (row.mount_mode || 'worktree') as MountMode,
           created_at: row.created_at,
           cleaned_at: row.cleaned_at,
         };
@@ -720,10 +741,10 @@ export function discoverAgentsOnDisk(workspacePath: string): DiscoverResult {
                 WHERE LOWER(name) = LOWER(?)
               `).run(worktreePath, entry.name);
             } else {
-              // Register new agent
+              // Register new agent - discovered agents default to 'worktree' mode (legacy behavior)
               db.prepare(`
-                INSERT INTO agents (name, type, status, worktree_path, created_at)
-                VALUES (?, 'persistent', 'active', ?, ?)
+                INSERT INTO agents (name, type, status, worktree_path, mount_mode, created_at)
+                VALUES (?, 'persistent', 'active', ?, 'worktree', ?)
               `).run(entry.name, worktreePath, now);
             }
             result.discovered.push({ name: entry.name, type: 'persistent', path: worktreePath });
@@ -753,10 +774,10 @@ export function discoverAgentsOnDisk(workspacePath: string): DiscoverResult {
                 WHERE LOWER(name) = LOWER(?)
               `).run(worktreePath, entry.name);
             } else {
-              // Register new agent
+              // Register new agent - discovered agents default to 'worktree' mode (legacy behavior)
               db.prepare(`
-                INSERT INTO agents (name, type, status, worktree_path, created_at)
-                VALUES (?, 'ephemeral', 'active', ?, ?)
+                INSERT INTO agents (name, type, status, worktree_path, mount_mode, created_at)
+                VALUES (?, 'ephemeral', 'active', ?, 'worktree', ?)
               `).run(entry.name, worktreePath, now);
             }
             result.discovered.push({ name: entry.name, type: 'ephemeral', path: worktreePath });

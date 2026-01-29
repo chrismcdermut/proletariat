@@ -10,15 +10,19 @@ import * as path from 'node:path'
 import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG } from './types.js'
 import { parseChannel } from '../workspace-config.js'
 
+export type MountMode = 'worktree' | 'clone'
+
 export interface DevcontainerOptions {
   agentName: string
   agentDir: string
-  repoWorktrees?: string[]  // Names of repo worktrees to mount
+  repoWorktrees?: string[]  // Names of repo worktrees to mount (only needed for worktree mode)
   memory?: string
   cpus?: number
   timezone?: string
   /** prlt channel: "npm", "npm:dev", "gh", "gh:dev", "mount", or version like "npm:1.2.3" */
   prltChannel?: string
+  /** Mount mode: 'worktree' needs parent repo mounts + git wrapper, 'clone' is self-contained */
+  mountMode?: MountMode
 }
 
 export interface DevcontainerJson {
@@ -52,6 +56,7 @@ export interface DevcontainerJson {
  */
 export function generateDevcontainerJson(options: DevcontainerOptions, config?: ExecutionConfig): DevcontainerJson {
   const cfg = config || DEFAULT_EXECUTION_CONFIG
+  const mountMode = options.mountMode || 'worktree'  // Default to worktree mode
 
   // Parse the channel to determine registry and version
   const channel = parseChannel(options.prltChannel || 'npm')
@@ -72,6 +77,37 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
   // For GitHub Packages, pass GITHUB_TOKEN as build arg
   if (channel.registry === 'gh') {
     buildArgs.GITHUB_TOKEN = '${localEnv:GITHUB_TOKEN}'
+  }
+
+  // Build mounts array - parent repo mounts only needed for worktree mode
+  const mounts: string[] = [
+    'source=${localWorkspaceFolder},target=/workspace,type=bind',
+    'source=claude-bash-history,target=/commandhistory,type=volume',
+    'source=claude-credentials,target=/home/node/.claude,type=volume',
+    // NOTE: ~/.claude.json is COPIED (not mounted) to /workspace/.claude.json
+    // to avoid corruption from concurrent writes by multiple containers
+    // NOTE: SSH agent socket mounting doesn't work reliably on Docker Desktop for Mac
+    // So we use HTTPS + token approach instead. The token is fetched fresh at spawn time.
+    'source=${localEnv:PRLT_HQ_PATH}/.proletariat,target=/hq/.proletariat,type=bind',
+    // PMO path can be anywhere (e.g., /hq/pmo or /hq/repos/myrepo/pmo)
+    // Use PRLT_PMO_PATH env var to mount the actual location to /hq/pmo
+    'source=${localEnv:PRLT_PMO_PATH},target=/hq/pmo,type=bind',
+  ]
+
+  // Only add parent repo mounts for worktree mode
+  // Worktree .git files reference paths like /Users/.../repos/{repoName}/.git/worktrees/name
+  // These mounts make those paths accessible inside the container at /hq/repos/{repoName}
+  // Clone mode doesn't need this because each clone has its own self-contained .git directory
+  if (mountMode === 'worktree' && options.repoWorktrees) {
+    for (const repoName of options.repoWorktrees) {
+      mounts.push(`source=\${localEnv:PRLT_HQ_PATH}/repos/${repoName},target=/hq/repos/${repoName},type=bind`)
+    }
+  }
+
+  // If using "mount" channel, mount local prlt build from PRLT_REPO_PATH
+  // The setup-prlt.sh script will detect /opt/prlt and configure the wrapper
+  if (useMount) {
+    mounts.push('source=${localEnv:PRLT_REPO_PATH},target=/opt/prlt,type=bind,readonly')
   }
 
   const devcontainerJson: DevcontainerJson = {
@@ -99,28 +135,7 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       `--cpus=${options.cpus || cfg.devcontainer.cpus}`,
     ],
     remoteUser: 'node',
-    mounts: [
-      'source=${localWorkspaceFolder},target=/workspace,type=bind',
-      'source=claude-bash-history,target=/commandhistory,type=volume',
-      'source=claude-credentials,target=/home/node/.claude,type=volume',
-      // NOTE: ~/.claude.json is COPIED (not mounted) to /workspace/.claude.json
-      // to avoid corruption from concurrent writes by multiple containers
-      // NOTE: SSH agent socket mounting doesn't work reliably on Docker Desktop for Mac
-      // So we use HTTPS + token approach instead. The token is fetched fresh at spawn time.
-      'source=${localEnv:PRLT_HQ_PATH}/.proletariat,target=/hq/.proletariat,type=bind',
-      // PMO path can be anywhere (e.g., /hq/pmo or /hq/repos/myrepo/pmo)
-      // Use PRLT_PMO_PATH env var to mount the actual location to /hq/pmo
-      'source=${localEnv:PRLT_PMO_PATH},target=/hq/pmo,type=bind',
-      // Mount each repo's directory so git worktrees can resolve their parent
-      // Worktree .git files reference paths like /Users/.../repos/{repoName}/.git/worktrees/name
-      // These mounts make those paths accessible inside the container at /hq/repos/{repoName}
-      ...(options.repoWorktrees || []).map(
-        repoName => `source=\${localEnv:PRLT_HQ_PATH}/repos/${repoName},target=/hq/repos/${repoName},type=bind`
-      ),
-      // If using "mount" channel, mount local prlt build from PRLT_REPO_PATH
-      // The setup-prlt.sh script will detect /opt/prlt and configure the wrapper
-      ...(useMount ? ['source=${localEnv:PRLT_REPO_PATH},target=/opt/prlt,type=bind,readonly'] : []),
-    ],
+    mounts,
     containerEnv: {
       DEVCONTAINER: 'true',
       ANTHROPIC_API_KEY: '${localEnv:ANTHROPIC_API_KEY}',
@@ -131,6 +146,8 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       // Agent identity - allows agent to know its name and host path
       PRLT_AGENT_NAME: options.agentName,
       PRLT_HOST_PATH: options.agentDir,
+      // Mount mode - allows scripts to know if git wrapper is needed
+      PRLT_MOUNT_MODE: mountMode,
       // /hq/.proletariat/bin contains prlt wrapper with ESM loader for native modules
       PATH: '/hq/.proletariat/bin:/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin',
     },
@@ -433,8 +450,12 @@ GITWRAPPER
     echo "Git wrapper installed for worktree path translation"
 }
 
-# Set up git wrapper for worktree path translation
-setup_git_wrapper
+# Set up git wrapper for worktree path translation (only needed for worktree mount mode)
+if [ "\${PRLT_MOUNT_MODE:-clone}" = "worktree" ]; then
+    setup_git_wrapper
+else
+    echo "Clone mode: git wrapper not needed (self-contained .git directories)"
+fi
 
 # Copy Claude credentials from workspace to home (each container gets its own copy)
 if [ -f "/workspace/.claude.json" ]; then

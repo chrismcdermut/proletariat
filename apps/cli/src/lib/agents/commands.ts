@@ -18,7 +18,8 @@ import {
   markAgentCleaned,
   discoverAgentsOnDisk,
   Agent,
-  Repository
+  Repository,
+  MountMode as DBMountMode
 } from '../database/index.js';
 import {
   isValidAgentName,
@@ -348,9 +349,13 @@ export function validateAgentNames(agentNames: string[]): { valid: string[]; inv
   return { valid, invalid };
 }
 
+// Re-export MountMode from database for external use
+export type MountMode = DBMountMode;
+
 export interface AddAgentOptions {
   skipDevcontainer?: boolean;  // Skip devcontainer creation (default: false)
   themeId?: string;            // Theme ID if agent came from a theme
+  mountMode?: DBMountMode;     // 'worktree' = git worktree (default), 'clone' = independent clone
 }
 
 /**
@@ -368,15 +373,15 @@ export async function addAgentsToWorkspace(workspaceInfo: WorkspaceInfo, agentNa
     return [];
   }
 
-  // Create worktrees
+  // Create worktrees/clones
   if (workspaceInfo.type === 'hq') {
     await createAgentWorktrees(workspaceInfo.agentsPath, newAgents, workspaceInfo.path, options);
   } else {
     await createAgentWorktrees(workspaceInfo.agentsPath, newAgents, undefined, options);
   }
 
-  // Add to database (with optional theme ID)
-  addAgentsToDatabase(workspaceInfo.path, newAgents, options?.themeId);
+  // Add to database (with optional theme ID and mount mode)
+  addAgentsToDatabase(workspaceInfo.path, newAgents, options?.themeId, options?.mountMode || 'clone');
 
   return newAgents;
 }
@@ -488,6 +493,8 @@ export interface EphemeralAgentOptions {
    * Optional logger for conflict messages (e.g., when a tmux session or directory already exists)
    */
   log?: (message: string) => void;
+  /** Mount mode: 'worktree' = git worktree (default), 'clone' = independent clone */
+  mountMode?: DBMountMode;
 }
 
 export interface EphemeralAgentResult {
@@ -574,28 +581,53 @@ export async function createEphemeralAgent(
     fs.mkdirSync(agentDir, { recursive: true });
   }
 
-  // Create worktrees for each repository
+  // Create worktrees/clones for each repository
   const reposPath = path.join(workspaceInfo.path, 'repos');
+  const mountMode = options?.mountMode || 'worktree';
 
   if (fs.existsSync(reposPath) && workspaceInfo.repositories.length > 0) {
     for (const repo of workspaceInfo.repositories) {
       const sourceRepoPath = path.join(reposPath, repo.name);
-      const worktreePath = path.join(agentDir, repo.name);
+      const targetPath = path.join(agentDir, repo.name);
 
-      if (fs.existsSync(sourceRepoPath) && !fs.existsSync(worktreePath)) {
-        try {
-          // Create git worktree for the repository
-          // Don't create a branch yet - that happens in work:start
-          // Use --detach to create without a branch reference
-          execSync(`git worktree add --detach "${worktreePath}"`, {
-            cwd: sourceRepoPath,
-            stdio: 'pipe'
-          });
-        } catch {
-          // If worktree creation fails, try to just create the directory
-          // The agent can still work without a worktree (e.g., for non-git projects)
-          if (!fs.existsSync(worktreePath)) {
-            fs.mkdirSync(worktreePath, { recursive: true });
+      if (fs.existsSync(sourceRepoPath) && !fs.existsSync(targetPath)) {
+        if (mountMode === 'clone') {
+          // CLONE MODE: Create independent git clone
+          try {
+            // Get remote URL from source repo
+            const remoteUrl = execSync('git remote get-url origin', {
+              cwd: sourceRepoPath,
+              encoding: 'utf-8',
+              stdio: ['pipe', 'pipe', 'pipe']
+            }).trim();
+
+            if (remoteUrl) {
+              execSync(`git clone "${remoteUrl}" "${targetPath}"`, {
+                stdio: 'pipe'
+              });
+            }
+          } catch {
+            // If clone fails, try to just create the directory
+            if (!fs.existsSync(targetPath)) {
+              fs.mkdirSync(targetPath, { recursive: true });
+            }
+          }
+        } else {
+          // WORKTREE MODE: Create git worktree
+          try {
+            // Create git worktree for the repository
+            // Don't create a branch yet - that happens in work:start
+            // Use --detach to create without a branch reference
+            execSync(`git worktree add --detach "${targetPath}"`, {
+              cwd: sourceRepoPath,
+              stdio: 'pipe'
+            });
+          } catch {
+            // If worktree creation fails, try to just create the directory
+            // The agent can still work without a worktree (e.g., for non-git projects)
+            if (!fs.existsSync(targetPath)) {
+              fs.mkdirSync(targetPath, { recursive: true });
+            }
           }
         }
       }
@@ -609,7 +641,8 @@ export async function createEphemeralAgent(
       createDevcontainerConfig({
         agentName,
         agentDir,
-        repoWorktrees: workspaceInfo.repositories.map(r => r.name)
+        repoWorktrees: mountMode === 'worktree' ? workspaceInfo.repositories.map(r => r.name) : undefined,
+        mountMode,
       });
     }
   }
@@ -619,7 +652,8 @@ export async function createEphemeralAgent(
     workspaceInfo.path,
     agentName,
     baseName,
-    options?.themeId
+    options?.themeId,
+    mountMode
   );
 
   return {
