@@ -157,6 +157,7 @@ export default class SpecImport extends PMOCommand {
         }
 
         // Check if spec already exists in database
+        // eslint-disable-next-line no-await-in-loop -- Sequential DB check needed for conflict detection
         const existingSpec = await this.storage.getSpec(specId);
 
         candidates.push({
@@ -282,6 +283,7 @@ export default class SpecImport extends PMOCommand {
 
         if (c.existsInDb) {
           // Update existing spec
+          // eslint-disable-next-line no-await-in-loop -- Sequential DB updates for clear error reporting
           await this.storage.updateSpec(c.specId, specData);
           results.push({
             file: c.file,
@@ -292,6 +294,7 @@ export default class SpecImport extends PMOCommand {
           });
         } else {
           // Create new spec
+          // eslint-disable-next-line no-await-in-loop -- Sequential DB creates for clear error reporting
           await this.storage.createSpec(specData);
           results.push({
             file: c.file,
