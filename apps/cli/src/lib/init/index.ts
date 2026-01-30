@@ -458,4 +458,8 @@ export async function showNextSteps(options: InitOptions): Promise<void> {
       console.log(chalk.green(`\nYour headquarters is fully set up and ready to use!`));
     }
   }
+
+  // Always show setup help CTA after init
+  console.log(chalk.dim(`\nNeed help getting set up? Book a quick call with me:`));
+  console.log(chalk.blue(`  → https://calendly.com/chrismcdermut/prlt-setup`));
 }
