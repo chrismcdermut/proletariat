@@ -18,6 +18,7 @@
     "@oclif/plugin-help": "^6",
     "@oclif/plugin-plugins": "^5",
     "@oclif/plugin-warn-if-update-available": "^3",
+    "@sentry/node": "^10.38.0",
     "better-sqlite3": "^12.6.2",
     "chalk": "^4.1.2",
     "chokidar": "^5.0.0",

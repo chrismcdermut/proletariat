@@ -35,6 +35,15 @@ export interface RegisteredHeadquarters {
 /** @deprecated Use RegisteredHeadquarters instead */
 export type RegisteredWorkspace = RegisteredHeadquarters;
 
+export interface TelemetryConfig {
+  /** Whether error tracking is enabled (opt-in, default false) */
+  errorTracking: boolean;
+  /** Whether user has been prompted for consent */
+  hasPromptedForConsent: boolean;
+  /** Timestamp when consent was given/denied */
+  consentTimestamp?: string;
+}
+
 export interface MachineConfig {
   type: 'machine';
   version: string;
@@ -42,6 +51,8 @@ export interface MachineConfig {
   headquarters: RegisteredHeadquarters[];
   activeHeadquarters: string | null;
   activeOrganization: string | null;
+  /** Telemetry settings for error tracking */
+  telemetry?: TelemetryConfig;
   /** @deprecated Use headquarters instead */
   workspaces?: RegisteredHeadquarters[];
   /** @deprecated Use activeHeadquarters instead */
@@ -528,3 +539,96 @@ export function getOrganizationHeadquarters(orgName: string): RegisteredHeadquar
 
 /** @deprecated Use getOrganizationHeadquarters instead */
 export const getOrganizationWorkspaces = getOrganizationHeadquarters;
+
+// =============================================================================
+// Telemetry Management
+// =============================================================================
+
+/**
+ * Get the default telemetry configuration.
+ * Error tracking is disabled by default (opt-in).
+ */
+function getDefaultTelemetryConfig(): TelemetryConfig {
+  return {
+    errorTracking: false,
+    hasPromptedForConsent: false,
+  };
+}
+
+/**
+ * Get telemetry configuration.
+ * Returns default config if not set.
+ */
+export function getTelemetryConfig(): TelemetryConfig {
+  const config = readMachineConfig();
+  return config.telemetry ?? getDefaultTelemetryConfig();
+}
+
+/**
+ * Check if error tracking is enabled.
+ */
+export function isErrorTrackingEnabled(): boolean {
+  return getTelemetryConfig().errorTracking;
+}
+
+/**
+ * Check if user has been prompted for telemetry consent.
+ */
+export function hasPromptedForTelemetryConsent(): boolean {
+  return getTelemetryConfig().hasPromptedForConsent;
+}
+
+/**
+ * Enable error tracking (user opted in).
+ */
+export function enableErrorTracking(): void {
+  const config = readMachineConfig();
+  config.telemetry = {
+    ...getDefaultTelemetryConfig(),
+    ...config.telemetry,
+    errorTracking: true,
+    hasPromptedForConsent: true,
+    consentTimestamp: new Date().toISOString(),
+  };
+  writeMachineConfig(config);
+}
+
+/**
+ * Disable error tracking (user opted out).
+ */
+export function disableErrorTracking(): void {
+  const config = readMachineConfig();
+  config.telemetry = {
+    ...getDefaultTelemetryConfig(),
+    ...config.telemetry,
+    errorTracking: false,
+    hasPromptedForConsent: true,
+    consentTimestamp: new Date().toISOString(),
+  };
+  writeMachineConfig(config);
+}
+
+/**
+ * Mark that user has been prompted for telemetry consent.
+ * Used when user dismisses the prompt without making a choice.
+ */
+export function markTelemetryPrompted(): void {
+  const config = readMachineConfig();
+  config.telemetry = {
+    ...getDefaultTelemetryConfig(),
+    ...config.telemetry,
+    hasPromptedForConsent: true,
+  };
+  writeMachineConfig(config);
+}
+
+/**
+ * Set error tracking enabled/disabled state.
+ */
+export function setErrorTracking(enabled: boolean): void {
+  if (enabled) {
+    enableErrorTracking();
+  } else {
+    disableErrorTracking();
+  }
+}
