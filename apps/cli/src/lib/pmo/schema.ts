@@ -42,6 +42,8 @@ export const PMO_TABLES = {
   // Roadmap tables (ordered collections of projects for documentation)
   roadmaps: 'pmo_roadmaps',  // Named roadmap definitions
   roadmap_projects: 'pmo_roadmap_projects',  // Many-to-many: roadmaps ↔ projects with ordering
+  // Analytics tables
+  analytics_queue: 'pmo_analytics_queue',  // Offline event queue for analytics batching
   // Legacy tables (deprecated, kept for migration)
   columns: 'pmo_columns',  // DEPRECATED: use workflow_statuses
   board_tickets: 'pmo_board_tickets',  // DEPRECATED: tickets now use status_id directly
@@ -467,6 +469,15 @@ export const PMO_TABLE_SCHEMAS = {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (roadmap_id, project_id)
     )`,
+
+  // Analytics offline queue for event batching
+  analytics_queue: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.analytics_queue} (
+      id TEXT PRIMARY KEY,
+      event TEXT NOT NULL,
+      properties TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )`,
 } as const;
 
 // =============================================================================
@@ -522,6 +533,7 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_roadmap_projects_roadmap ON ${PMO_TABLES.roadmap_projects}(roadmap_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_roadmap_projects_project ON ${PMO_TABLES.roadmap_projects}(project_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_roadmap_projects_position ON ${PMO_TABLES.roadmap_projects}(roadmap_id, position);
+  CREATE INDEX IF NOT EXISTS idx_pmo_analytics_queue_created ON ${PMO_TABLES.analytics_queue}(created_at);
 `;
 
 // =============================================================================
@@ -563,6 +575,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.ticket_templates,  // Ticket templates for quick creation
   PMO_TABLE_SCHEMAS.roadmaps,  // Named roadmap definitions
   PMO_TABLE_SCHEMAS.roadmap_projects,  // Roadmap-to-project associations
+  PMO_TABLE_SCHEMAS.analytics_queue,  // Analytics offline event queue
   // Legacy tables (kept for migration, will be dropped after data migrated)
   PMO_TABLE_SCHEMAS.columns,  // DEPRECATED
   PMO_TABLE_SCHEMAS.board_tickets,  // DEPRECATED

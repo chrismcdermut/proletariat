@@ -16,8 +16,10 @@ import {
   addAgentsToDatabase,
   createTheme,
   addThemeNames,
-  setActiveTheme
+  setActiveTheme,
+  openWorkspaceDatabase,
 } from '../database/index.js';
+import { promptAnalyticsPreference } from '../analytics/index.js';
 import {
   ensureMachineConfigDir,
   registerHeadquarters,
@@ -414,6 +416,20 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
   ensureMachineConfigDir();
   registerHeadquarters(hqPath, hqName, true, orgName);
   log(chalk.gray(`Registered headquarters in ~/.proletariat/config.json`));
+
+  // Prompt for analytics consent (only in interactive mode)
+  if (!quiet) {
+    log('');
+    const db = openWorkspaceDatabase(hqPath);
+    try {
+      const analyticsEnabled = await promptAnalyticsPreference(db);
+      if (analyticsEnabled) {
+        log(chalk.gray('Analytics enabled. Thank you for helping improve prlt!'));
+      }
+    } finally {
+      db.close();
+    }
+  }
 
   log(chalk.green(`\n✅ Headquarters created successfully at ${hqPath}`));
 }
