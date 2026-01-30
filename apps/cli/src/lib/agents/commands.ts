@@ -1163,3 +1163,225 @@ export function getCleanableAgents(
     return sessions.length === 0;
   });
 }
+
+// =============================================================================
+// Worktree Conflict Detection and Resolution
+// =============================================================================
+
+export interface GitWorktreeInfo {
+  path: string;
+  branch?: string;
+  commit?: string;
+  detached?: boolean;
+  bare?: boolean;
+}
+
+/**
+ * Get all git worktrees for a repository
+ */
+export function getGitWorktrees(repoPath: string): GitWorktreeInfo[] {
+  try {
+    const output = execSync('git worktree list --porcelain', {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const worktrees: GitWorktreeInfo[] = [];
+    let current: Partial<GitWorktreeInfo> = {};
+
+    for (const line of output.split('\n')) {
+      if (line.startsWith('worktree ')) {
+        if (current.path) {
+          worktrees.push(current as GitWorktreeInfo);
+        }
+        current = { path: line.substring(9) };
+      } else if (line.startsWith('HEAD ')) {
+        current.commit = line.substring(5);
+      } else if (line.startsWith('branch refs/heads/')) {
+        current.branch = line.substring(18);
+      } else if (line === 'bare') {
+        current.bare = true;
+      } else if (line === 'detached') {
+        current.detached = true;
+      }
+    }
+
+    // Don't forget the last entry
+    if (current.path) {
+      worktrees.push(current as GitWorktreeInfo);
+    }
+
+    return worktrees;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Find which worktree has a specific branch checked out
+ */
+export function findWorktreeWithBranch(repoPath: string, branchName: string): GitWorktreeInfo | null {
+  const worktrees = getGitWorktrees(repoPath);
+  return worktrees.find(w => w.branch === branchName) ?? null;
+}
+
+export interface BranchWorktreeConflict {
+  branch: string;
+  worktreePath: string;
+  agentName: string | null;
+  isActive: boolean;
+  hasActiveSession: boolean;
+  directoryExists: boolean;
+}
+
+/**
+ * Check if a branch is in conflict with an existing worktree.
+ * Returns conflict info if the branch is checked out in another worktree.
+ */
+export function checkBranchWorktreeConflict(
+  workspaceInfo: WorkspaceInfo,
+  branchName: string
+): BranchWorktreeConflict | null {
+  // Check each repository for the branch
+  for (const repo of workspaceInfo.repositories) {
+    const sourceRepoPath = workspaceInfo.type === 'hq'
+      ? path.join(workspaceInfo.path, 'repos', repo.name)
+      : process.cwd();
+
+    if (!fs.existsSync(sourceRepoPath)) continue;
+
+    const worktree = findWorktreeWithBranch(sourceRepoPath, branchName);
+    if (!worktree) continue;
+
+    // Found a worktree with this branch - analyze it
+    const worktreePath = worktree.path;
+    const directoryExists = fs.existsSync(worktreePath);
+
+    // Try to identify which agent owns this worktree
+    let agentName: string | null = null;
+    const agentsBasePath = path.join(workspaceInfo.path, 'agents');
+
+    // Check if worktree path is under agents directory
+    if (worktreePath.startsWith(agentsBasePath)) {
+      const relativePath = path.relative(agentsBasePath, worktreePath);
+      const parts = relativePath.split(path.sep);
+      // Path format: temp/agent-name/repo or staff/agent-name/repo
+      if (parts.length >= 2) {
+        agentName = parts[1];
+      }
+    }
+
+    // Check if agent has active tmux session
+    let hasActiveSession = false;
+    if (agentName) {
+      const sessions = getAgentTmuxSessions(agentName);
+      hasActiveSession = sessions.length > 0;
+    }
+
+    // Check if agent is in the database and active
+    const agent = agentName ? workspaceInfo.agents.find(a => a.name === agentName) : null;
+    const isActive = agent?.status === 'active';
+
+    return {
+      branch: branchName,
+      worktreePath,
+      agentName,
+      isActive: isActive && directoryExists,
+      hasActiveSession,
+      directoryExists,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Clean up a stale worktree that's blocking a branch.
+ * This removes the worktree entry and prunes the git worktree list.
+ */
+export function cleanupStaleWorktree(
+  workspaceInfo: WorkspaceInfo,
+  conflict: BranchWorktreeConflict,
+  log?: (message: string) => void
+): boolean {
+  log?.(`Cleaning up stale worktree at ${conflict.worktreePath}...`);
+
+  // For each repository, try to remove the worktree
+  for (const repo of workspaceInfo.repositories) {
+    const sourceRepoPath = workspaceInfo.type === 'hq'
+      ? path.join(workspaceInfo.path, 'repos', repo.name)
+      : process.cwd();
+
+    if (!fs.existsSync(sourceRepoPath)) continue;
+
+    try {
+      // First try to remove the worktree properly
+      if (conflict.directoryExists) {
+        try {
+          execSync(`git worktree remove "${conflict.worktreePath}" --force`, {
+            cwd: sourceRepoPath,
+            stdio: 'pipe',
+          });
+          log?.(`  Removed worktree from git`);
+        } catch {
+          // If git worktree remove fails, just remove the directory
+          log?.(`  Git worktree remove failed, removing directory manually...`);
+          try {
+            fs.rmSync(conflict.worktreePath, { recursive: true, force: true });
+            log?.(`  Removed worktree directory`);
+          } catch (rmError) {
+            log?.(`  Failed to remove directory: ${rmError}`);
+          }
+        }
+      }
+
+      // Always prune to clean up stale entries
+      try {
+        execSync('git worktree prune', { cwd: sourceRepoPath, stdio: 'pipe' });
+        log?.(`  Pruned git worktree list`);
+      } catch {
+        // Ignore prune errors
+      }
+
+      return true;
+    } catch (error) {
+      log?.(`Failed to cleanup worktree: ${error}`);
+      return false;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Clean up an entire agent (directory, worktrees, sessions) that's blocking work.
+ * More thorough than cleanupStaleWorktree - removes the whole agent.
+ */
+export async function cleanupBlockingAgent(
+  workspaceInfo: WorkspaceInfo,
+  agentName: string,
+  log?: (message: string) => void
+): Promise<boolean> {
+  log?.(`Cleaning up blocking agent: ${agentName}`);
+
+  try {
+    // Kill any tmux sessions
+    const sessions = getAgentTmuxSessions(agentName);
+    for (const session of sessions) {
+      log?.(`  Killing tmux session: ${session}`);
+      killTmuxSession(session);
+    }
+
+    // Use the existing cleanup function
+    const result = await cleanupAgent(workspaceInfo, agentName, {
+      log,
+      force: true,
+    });
+
+    return result.success;
+  } catch (error) {
+    log?.(`Failed to cleanup agent: ${error}`);
+    return false;
+  }
+}

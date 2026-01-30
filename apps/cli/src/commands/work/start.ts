@@ -21,6 +21,10 @@ import {
   getTicketTmuxSession,
   killTmuxSession,
   WorkspaceInfo,
+  checkBranchWorktreeConflict,
+  cleanupStaleWorktree,
+  cleanupBlockingAgent,
+  BranchWorktreeConflict,
 } from '../../lib/agents/commands.js'
 import { Agent } from '../../lib/database/index.js'
 import {
@@ -1265,6 +1269,86 @@ export default class WorkStart extends PMOCommand {
           // branchChoice === 'create' uses the generated branch name (default)
 
           this.log(styles.muted(`Branch: ${finalBranch}`))
+        }
+
+        // Check for worktree conflicts before checkout
+        const conflict = checkBranchWorktreeConflict(workspaceInfo, finalBranch)
+        if (conflict) {
+          // Branch is already checked out in another worktree
+          if (conflict.hasActiveSession && !flags.force && !flags.action) {
+            // Agent has an active tmux session - offer to attach or cleanup (interactive only)
+            this.log('')
+            this.log(styles.warning(`Branch "${finalBranch}" is already checked out`))
+            this.log(styles.muted(`  Worktree: ${conflict.worktreePath}`))
+            if (conflict.agentName) {
+              this.log(styles.muted(`  Agent: ${conflict.agentName} (active session)`))
+            }
+
+            const conflictChoices = [
+              { name: 'Attach to existing agent session', value: 'attach' },
+              { name: 'Kill session and cleanup worktree', value: 'cleanup' },
+              { name: 'Cancel', value: 'cancel' },
+            ]
+            const message = conflict.agentName
+              ? `${ticket.id} already has agent "${conflict.agentName}" — what would you like to do?`
+              : 'Branch is checked out in another worktree. What would you like to do?'
+
+            const { conflictAction } = await inquirer.prompt([{
+              type: 'list',
+              name: 'conflictAction',
+              message,
+              choices: conflictChoices,
+            }])
+
+            if (conflictAction === 'cancel') {
+              db.close()
+              this.log(styles.muted('Cancelled.'))
+              return
+            }
+
+            if (conflictAction === 'attach' && conflict.agentName) {
+              // Find and attach to the session
+              const existingSession = getTicketTmuxSession(ticket.id)
+              if (existingSession) {
+                execSync(`tmux attach -t "${existingSession.sessionName}"`, { stdio: 'inherit' })
+                db.close()
+                return
+              } else {
+                this.warn('Could not find tmux session to attach. Proceeding with cleanup.')
+              }
+            }
+
+            // Cleanup the blocking agent/worktree
+            if (conflict.agentName) {
+              this.log(styles.muted(`Cleaning up agent ${conflict.agentName}...`))
+              await cleanupBlockingAgent(workspaceInfo, conflict.agentName, (msg) => this.log(styles.muted(msg)))
+            } else {
+              cleanupStaleWorktree(workspaceInfo, conflict, (msg) => this.log(styles.muted(msg)))
+            }
+            this.log(styles.success('Cleaned up conflicting worktree'))
+          } else if (conflict.hasActiveSession) {
+            // Batch mode or --force: auto-cleanup active session
+            this.log(styles.muted(`Cleaning up blocking agent for branch "${finalBranch}"...`))
+            if (conflict.agentName) {
+              await cleanupBlockingAgent(workspaceInfo, conflict.agentName, (msg) => this.log(styles.muted(msg)))
+            } else {
+              cleanupStaleWorktree(workspaceInfo, conflict, (msg) => this.log(styles.muted(msg)))
+            }
+            this.log(styles.success('Cleaned up blocking worktree'))
+          } else if (conflict.isActive || conflict.directoryExists) {
+            // Agent is not actively running but directory/worktree exists - auto-cleanup
+            this.log(styles.muted(`Cleaning up stale worktree for branch "${finalBranch}"...`))
+            if (conflict.agentName) {
+              await cleanupBlockingAgent(workspaceInfo, conflict.agentName, (msg) => this.log(styles.muted(msg)))
+            } else {
+              cleanupStaleWorktree(workspaceInfo, conflict, (msg) => this.log(styles.muted(msg)))
+            }
+            this.log(styles.success('Cleaned up stale worktree'))
+          } else {
+            // Worktree entry exists but directory is gone - just prune
+            this.log(styles.muted(`Pruning stale git worktree entry for branch "${finalBranch}"...`))
+            cleanupStaleWorktree(workspaceInfo, conflict, (msg) => this.log(styles.muted(msg)))
+          }
         }
 
         // Handle branch in each repo
