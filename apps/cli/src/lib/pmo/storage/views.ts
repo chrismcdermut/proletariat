@@ -26,6 +26,58 @@ export class ViewStorage {
   constructor(private ctx: StorageContext) {}
 
   /**
+   * Resolve a project identifier to its actual ID.
+   * Tries multiple strategies:
+   * 1. Exact ID match
+   * 2. Case-insensitive ID match
+   * 3. Exact name match
+   * 4. Case-insensitive name match
+   * 5. Slugified name match
+   */
+  private resolveProjectId(identifier: string): string | null {
+    if (!identifier) return null
+
+    // 1. Exact ID match
+    const exactMatch = this.ctx.db.prepare(`
+      SELECT id FROM ${T.projects} WHERE id = ?
+    `).get(identifier) as { id: string } | undefined
+    if (exactMatch) return exactMatch.id
+
+    // 2. Case-insensitive ID match
+    const caseInsensitiveId = this.ctx.db.prepare(`
+      SELECT id FROM ${T.projects} WHERE LOWER(id) = LOWER(?)
+    `).get(identifier) as { id: string } | undefined
+    if (caseInsensitiveId) return caseInsensitiveId.id
+
+    // 3. Exact name match
+    const nameMatch = this.ctx.db.prepare(`
+      SELECT id FROM ${T.projects} WHERE name = ?
+    `).get(identifier) as { id: string } | undefined
+    if (nameMatch) return nameMatch.id
+
+    // 4. Case-insensitive name match
+    const caseInsensitiveName = this.ctx.db.prepare(`
+      SELECT id FROM ${T.projects} WHERE LOWER(name) = LOWER(?)
+    `).get(identifier) as { id: string } | undefined
+    if (caseInsensitiveName) return caseInsensitiveName.id
+
+    // 5. Slugified name match
+    const allProjects = this.ctx.db.prepare(`
+      SELECT id, name FROM ${T.projects}
+    `).all() as Array<{ id: string; name: string }>
+
+    const identifierLower = identifier.toLowerCase()
+    for (const project of allProjects) {
+      const projectSlug = slugify(project.name)
+      if (projectSlug === identifierLower || projectSlug === identifier) {
+        return project.id
+      }
+    }
+
+    return null
+  }
+
+  /**
    * List board views.
    */
   async listBoardViews(filter?: BoardViewFilter): Promise<BoardView[]> {
@@ -188,8 +240,15 @@ export class ViewStorage {
 
   /**
    * Get board with optional filters applied.
+   * @param projectIdOrName - Project ID, name, or slug. Will be resolved to actual ID.
    */
-  async getBoardWithView(projectId: string, viewId?: string, filters?: BoardViewFilters): Promise<Board> {
+  async getBoardWithView(projectIdOrName: string, viewId?: string, filters?: BoardViewFilters): Promise<Board> {
+    // Resolve project identifier to actual ID
+    const resolvedId = this.resolveProjectId(projectIdOrName)
+    if (!resolvedId) {
+      throw new PMOError('NOT_FOUND', `Project not found: ${projectIdOrName}. Run init() first.`)
+    }
+
     let viewFilters: BoardViewFilters = {}
     let viewSortBy: BoardViewSortBy | undefined
 
@@ -205,19 +264,19 @@ export class ViewStorage {
     // Override with explicit filters if provided
     const effectiveFilters = { ...viewFilters, ...filters }
 
-    // Get project metadata
+    // Get project metadata using resolved ID
     const projectRow = this.ctx.db.prepare(`SELECT * FROM ${T.projects} WHERE id = ?`).get(
-      projectId
+      resolvedId
     ) as { id: string; name: string; updated_at: string } | undefined
 
     if (!projectRow) {
-      throw new PMOError('NOT_FOUND', `Project not found: ${projectId}. Run init() first.`)
+      throw new PMOError('NOT_FOUND', `Project not found: ${projectIdOrName}. Run init() first.`)
     }
 
     // Get the project's workflow
     const projectMeta = this.ctx.db.prepare(`
       SELECT workflow_id FROM ${T.projects} WHERE id = ?
-    `).get(projectId) as { workflow_id: string | null } | undefined
+    `).get(resolvedId) as { workflow_id: string | null } | undefined
 
     const workflowId = projectMeta?.workflow_id || 'default'
 
@@ -244,7 +303,7 @@ export class ViewStorage {
       filteredColumnRows.map(async (col) => {
         const tickets = await this.getTicketsForColumnWithFilters(
           col.id,
-          projectId,
+          resolvedId,
           effectiveFilters
         )
 

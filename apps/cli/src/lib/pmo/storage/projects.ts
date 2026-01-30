@@ -12,7 +12,7 @@ import {
   Project,
   ProjectFilter,
 } from '../types.js'
-import { generateEntityId } from '../utils.js'
+import { generateEntityId, slugify } from '../utils.js'
 import { generateBoardMarkdown } from '../markdown.js'
 import { StorageContext, ProjectRow, TicketRow } from './types.js'
 import { rowToTicket } from './helpers.js'
@@ -21,6 +21,62 @@ const T = PMO_TABLES
 
 export class ProjectStorage {
   constructor(private ctx: StorageContext) {}
+
+  /**
+   * Resolve a project identifier to its actual ID.
+   * Tries multiple strategies:
+   * 1. Exact ID match
+   * 2. Case-insensitive ID match
+   * 3. Exact name match
+   * 4. Case-insensitive name match
+   * 5. Slugified name match (matches slug of project name)
+   *
+   * @param identifier - Project ID, name, or slug to resolve
+   * @returns The actual project ID, or null if not found
+   */
+  resolveProjectId(identifier: string): string | null {
+    if (!identifier) return null
+
+    // 1. Exact ID match
+    const exactMatch = this.ctx.db.prepare(`
+      SELECT id FROM ${T.projects} WHERE id = ?
+    `).get(identifier) as { id: string } | undefined
+    if (exactMatch) return exactMatch.id
+
+    // 2. Case-insensitive ID match
+    const caseInsensitiveId = this.ctx.db.prepare(`
+      SELECT id FROM ${T.projects} WHERE LOWER(id) = LOWER(?)
+    `).get(identifier) as { id: string } | undefined
+    if (caseInsensitiveId) return caseInsensitiveId.id
+
+    // 3. Exact name match
+    const nameMatch = this.ctx.db.prepare(`
+      SELECT id FROM ${T.projects} WHERE name = ?
+    `).get(identifier) as { id: string } | undefined
+    if (nameMatch) return nameMatch.id
+
+    // 4. Case-insensitive name match
+    const caseInsensitiveName = this.ctx.db.prepare(`
+      SELECT id FROM ${T.projects} WHERE LOWER(name) = LOWER(?)
+    `).get(identifier) as { id: string } | undefined
+    if (caseInsensitiveName) return caseInsensitiveName.id
+
+    // 5. Slugified name match - check if identifier is a slug of any project name
+    // Get all projects and compare slugified names
+    const allProjects = this.ctx.db.prepare(`
+      SELECT id, name FROM ${T.projects}
+    `).all() as Array<{ id: string; name: string }>
+
+    const identifierLower = identifier.toLowerCase()
+    for (const project of allProjects) {
+      const projectSlug = slugify(project.name)
+      if (projectSlug === identifierLower || projectSlug === identifier) {
+        return project.id
+      }
+    }
+
+    return null
+  }
 
   /**
    * Initialize a project with a workflow.
@@ -43,15 +99,23 @@ export class ProjectStorage {
    * Get the project board.
    * Columns are derived from the project's workflow statuses.
    * Tickets are sorted by priority (P0 first) then created_at (oldest first).
+   *
+   * @param projectIdOrName - Project ID, name, or slug. Will be resolved to actual ID.
    */
-  async getBoard(projectId: string): Promise<Board> {
-    // Get project metadata with workflow
+  async getBoard(projectIdOrName: string): Promise<Board> {
+    // Resolve project identifier to actual ID
+    const resolvedId = this.resolveProjectId(projectIdOrName)
+    if (!resolvedId) {
+      throw new PMOError('NOT_FOUND', `Project not found: ${projectIdOrName}. Run init() first.`)
+    }
+
+    // Get project metadata with workflow using resolved ID
     const projectRow = this.ctx.db.prepare(`
       SELECT id, name, workflow_id, updated_at FROM ${T.projects} WHERE id = ?
-    `).get(projectId) as { id: string; name: string; workflow_id: string | null; updated_at: string } | undefined
+    `).get(resolvedId) as { id: string; name: string; workflow_id: string | null; updated_at: string } | undefined
 
     if (!projectRow) {
-      throw new PMOError('NOT_FOUND', `Project not found: ${projectId}. Run init() first.`)
+      throw new PMOError('NOT_FOUND', `Project not found: ${projectIdOrName}. Run init() first.`)
     }
 
     // Get workflow statuses as columns
@@ -76,7 +140,7 @@ export class ProjectStorage {
         name: status.name,
         position: status.position,
         status: status.category,
-        tickets: await this.getTicketsForStatus(status.id, projectId),
+        tickets: await this.getTicketsForStatus(status.id, resolvedId),
       }))
     )
 
@@ -125,12 +189,18 @@ export class ProjectStorage {
   }
 
   /**
-   * Get project board by ID.
+   * Get project board by ID, name, or slug.
    */
-  async getProjectBoard(projectId: string): Promise<Board | null> {
+  async getProjectBoard(projectIdOrName: string): Promise<Board | null> {
+    // Resolve project identifier to actual ID
+    const resolvedId = this.resolveProjectId(projectIdOrName)
+    if (!resolvedId) {
+      return null
+    }
+
     const projectRow = this.ctx.db.prepare(`
       SELECT id, name, template, description, workflow_id, updated_at FROM ${T.projects} WHERE id = ?
-    `).get(projectId) as {
+    `).get(resolvedId) as {
       id: string
       name: string
       template: string | null
@@ -162,7 +232,7 @@ export class ProjectStorage {
         name: status.name,
         position: status.position,
         status: status.category,
-        tickets: await this.getTicketsForStatus(status.id, projectId),
+        tickets: await this.getTicketsForStatus(status.id, resolvedId),
       }))
     )
 
@@ -236,28 +306,38 @@ export class ProjectStorage {
   }
 
   /**
-   * Delete a project.
+   * Delete a project by ID, name, or slug.
    */
-  async deleteProject(projectId: string): Promise<void> {
-    if (projectId === 'default') {
+  async deleteProject(projectIdOrName: string): Promise<void> {
+    // Resolve project identifier to actual ID
+    const resolvedId = this.resolveProjectId(projectIdOrName)
+    if (!resolvedId) {
+      throw new PMOError('NOT_FOUND', `Project not found: ${projectIdOrName}`)
+    }
+
+    if (resolvedId === 'default') {
       throw new PMOError('INVALID', 'Cannot delete the default project')
     }
 
-    const result = this.ctx.db.prepare(`DELETE FROM ${T.projects} WHERE id = ?`).run(projectId)
+    const result = this.ctx.db.prepare(`DELETE FROM ${T.projects} WHERE id = ?`).run(resolvedId)
 
     if (result.changes === 0) {
-      throw new PMOError('NOT_FOUND', `Project not found: ${projectId}`)
+      throw new PMOError('NOT_FOUND', `Project not found: ${projectIdOrName}`)
     }
 
     // Tickets are deleted via CASCADE
   }
 
   /**
-   * Get a project by ID.
+   * Get a project by ID, name, or slug.
    */
-  async getProject(id: string): Promise<Project | null> {
+  async getProject(idOrName: string): Promise<Project | null> {
+    // Resolve project identifier to actual ID
+    const resolvedId = this.resolveProjectId(idOrName)
+    if (!resolvedId) return null
+
     const row = this.ctx.db.prepare(`SELECT * FROM ${T.projects} WHERE id = ?`).get(
-      id
+      resolvedId
     ) as ProjectRow | undefined
 
     if (!row) return null
@@ -266,13 +346,16 @@ export class ProjectStorage {
   }
 
   /**
-   * Update a project.
+   * Update a project by ID, name, or slug.
    */
-  async updateProject(id: string, changes: Partial<Project>): Promise<Project> {
-    const existing = await this.getProject(id)
+  async updateProject(idOrName: string, changes: Partial<Project>): Promise<Project> {
+    const existing = await this.getProject(idOrName)
     if (!existing) {
-      throw new PMOError('NOT_FOUND', `Project not found: ${id}`)
+      throw new PMOError('NOT_FOUND', `Project not found: ${idOrName}`)
     }
+
+    // Use the resolved ID for the update
+    const resolvedId = existing.id
 
     const updates: string[] = ['updated_at = ?']
     const params: unknown[] = [Date.now()]
@@ -306,12 +389,12 @@ export class ProjectStorage {
       params.push(changes.targetDate ? changes.targetDate.toISOString() : null)
     }
 
-    params.push(id)
+    params.push(resolvedId)
     this.ctx.db.prepare(`UPDATE ${T.projects} SET ${updates.join(', ')} WHERE id = ?`).run(
       ...params
     )
 
-    return (await this.getProject(id))!
+    return (await this.getProject(resolvedId))!
   }
 
   /**
@@ -352,35 +435,35 @@ export class ProjectStorage {
   }
 
   /**
-   * Archive a project.
+   * Archive a project by ID, name, or slug.
    */
-  async archiveProject(id: string): Promise<Project> {
-    const existing = await this.getProject(id)
+  async archiveProject(idOrName: string): Promise<Project> {
+    const existing = await this.getProject(idOrName)
     if (!existing) {
-      throw new PMOError('NOT_FOUND', `Project not found: ${id}`)
+      throw new PMOError('NOT_FOUND', `Project not found: ${idOrName}`)
     }
 
     if (existing.isArchived) {
       return existing
     }
 
-    return this.updateProject(id, { isArchived: true })
+    return this.updateProject(existing.id, { isArchived: true })
   }
 
   /**
-   * Unarchive a project.
+   * Unarchive a project by ID, name, or slug.
    */
-  async unarchiveProject(id: string): Promise<Project> {
-    const existing = await this.getProject(id)
+  async unarchiveProject(idOrName: string): Promise<Project> {
+    const existing = await this.getProject(idOrName)
     if (!existing) {
-      throw new PMOError('NOT_FOUND', `Project not found: ${id}`)
+      throw new PMOError('NOT_FOUND', `Project not found: ${idOrName}`)
     }
 
     if (!existing.isArchived) {
       return existing
     }
 
-    return this.updateProject(id, { isArchived: false })
+    return this.updateProject(existing.id, { isArchived: false })
   }
 
   private rowToProject(row: ProjectRow): Project {
