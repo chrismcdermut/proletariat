@@ -945,6 +945,20 @@ function runContainerSetup(containerId: string, sandboxed: boolean = true): bool
     // Continue - setup might partially work
   }
 
+  // Configure pnpm to use container-local store to prevent contention
+  // Multiple agents sharing the same pnpm store causes hangs and ERR_PNPM errors (TKT-718)
+  // Each container gets its own store at /tmp/pnpm-store for reliability
+  try {
+    execSync(
+      `docker exec ${containerId} pnpm config set store-dir /tmp/pnpm-store`,
+      { stdio: 'pipe' }
+    )
+    console.debug(`[runners:docker] Configured pnpm store-dir to /tmp/pnpm-store`)
+  } catch (error) {
+    console.debug(`[runners:docker] Failed to configure pnpm store (pnpm may not be installed):`, error)
+    // Non-fatal - pnpm may not be installed in all containers
+  }
+
   // Copy Claude settings file (.claude.json) from host to container
   // This is needed for Claude Code to recognize settings and bypass prompts
   // Note: Auth tokens are in the claude-credentials volume at /home/node/.claude/.credentials.json
