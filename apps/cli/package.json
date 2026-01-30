@@ -17,7 +17,6 @@
     "@oclif/plugin-commands": "^4",
     "@oclif/plugin-help": "^6",
     "@oclif/plugin-plugins": "^5",
-    "@oclif/plugin-update": "^4",
     "@oclif/plugin-warn-if-update-available": "^3",
     "better-sqlite3": "^9.2.2",
     "chalk": "^4.1.2",
@@ -88,7 +87,6 @@
       "@oclif/plugin-commands",
       "@oclif/plugin-help",
       "@oclif/plugin-plugins",
-      "@oclif/plugin-update",
       "@oclif/plugin-warn-if-update-available"
     ],
     "topicSeparator": " ",
