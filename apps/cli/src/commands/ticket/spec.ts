@@ -125,7 +125,8 @@ export default class TicketSpec extends PMOCommand {
     // Get all specs
     const specs = await this.storage.listSpecs();
     if (specs.length === 0) {
-      this.log(styles.muted('\nNo specs found.'));
+      this.log(styles.muted('\nNo specs found in database.'));
+      this.log(styles.muted('Have markdown specs? Import them: prlt spec import'));
       const actionChoices = [
         { id: 'create', name: 'Create a new spec' },
         { id: 'cancel', name: 'Cancel' },
@@ -270,7 +271,8 @@ export default class TicketSpec extends PMOCommand {
     if (!specId) {
       const specs = await this.storage.listSpecs();
       if (specs.length === 0) {
-        this.log(styles.muted('\nNo specs found. Create one with: prlt spec create'));
+        this.log(styles.muted('\nNo specs found in database.'));
+        this.log(styles.muted('Create: prlt spec create  |  Import: prlt spec import'));
         return;
       }
 

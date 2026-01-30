@@ -40,8 +40,10 @@ export default class SpecList extends PMOCommand {
     });
 
     if (specs.length === 0) {
-      this.log(styles.warning('\nNo specs found'));
-      this.log(styles.muted('  Create your first spec: prlt spec create'));
+      this.log(styles.warning('\nNo specs found in database'));
+      this.log(styles.muted('  Specs are stored in the PMO database, not as markdown files.'));
+      this.log(styles.muted('  Create a new spec:    prlt spec create'));
+      this.log(styles.muted('  Import from markdown: prlt spec import'));
       return;
     }
 
