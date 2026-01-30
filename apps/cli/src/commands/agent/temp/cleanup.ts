@@ -26,6 +26,7 @@ export default class Cleanup extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --temp',
     '<%= config.bin %> <%= command.id %> --temp --dry-run',
     '<%= config.bin %> <%= command.id %> --all',
+    '<%= config.bin %> <%= command.id %> bold-bezos-1 --keep-temp',
     '<%= config.bin %> <%= command.id %> --json',
   ];
 
@@ -64,6 +65,10 @@ export default class Cleanup extends PMOCommand {
       description: 'Push unpushed commits before cleanup',
       default: false,
     }),
+    'keep-temp': Flags.boolean({
+      description: 'Kill container/sessions but preserve temp directory for inspection',
+      default: false,
+    }),
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
@@ -100,6 +105,7 @@ export default class Cleanup extends PMOCommand {
     const skipConfirm = flags.yes;
     const forceCleanup = flags.force;
     const pushFirst = flags.push;
+    const keepTemp = flags['keep-temp'];
 
     // Determine which agents to clean up
     let agentsToCleanup: string[] = [];
@@ -259,7 +265,9 @@ export default class Cleanup extends PMOCommand {
       { name: 'No, cancel', value: 'false' },
       { name: 'Yes, clean up', value: 'true' },
     ];
-    const confirmMessage = `Clean up ${agentsToCleanup.length} agent(s)? This will remove directories, containers, and tmux sessions.`;
+    const confirmMessage = keepTemp
+      ? `Stop ${agentsToCleanup.length} agent(s)? This will kill containers and tmux sessions but preserve temp directories.`
+      : `Clean up ${agentsToCleanup.length} agent(s)? This will remove directories, containers, and tmux sessions.`;
 
     // Confirm unless --yes or dry-run
     if (!skipConfirm && !dryRun) {
@@ -323,6 +331,7 @@ export default class Cleanup extends PMOCommand {
         dryRun,
         force: forceCleanup,
         pushFirst,
+        keepTemp,
       });
 
       // Handle blocked by git status - offer interactive options
@@ -387,6 +396,7 @@ export default class Cleanup extends PMOCommand {
           dryRun,
           force: action === 'force',
           pushFirst: action === 'push',
+          keepTemp,
         });
         results.push(retryResult);
         continue;
@@ -397,10 +407,12 @@ export default class Cleanup extends PMOCommand {
 
     // JSON mode: output results
     if (jsonMode) {
+      const actionWord = dryRun ? 'Would stop' : keepTemp ? 'Stopped' : 'Cleaned';
       outputSuccessAsJson(
         {
-          message: `${dryRun ? 'Would clean' : 'Cleaned'} ${results.filter(r => r.success).length} agent(s)`,
+          message: `${actionWord} ${results.filter(r => r.success).length} agent(s)`,
           dryRun,
+          keepTemp,
           cleaned: results.filter(r => r.success).map(r => r.agent),
           failed: results.filter(r => !r.success).map(r => r.agent),
           details: results.map(r => ({
@@ -424,7 +436,11 @@ export default class Cleanup extends PMOCommand {
     const failed = results.filter(r => !r.success);
 
     if (successful.length > 0) {
-      this.log(format.success(`${dryRun ? 'Would clean' : 'Cleaned'} ${successful.length} agent(s): ${successful.map(r => r.agent).join(', ')}`));
+      const actionWord = dryRun ? 'Would stop' : keepTemp ? 'Stopped' : 'Cleaned';
+      this.log(format.success(`${actionWord} ${successful.length} agent(s): ${successful.map(r => r.agent).join(', ')}`));
+      if (keepTemp) {
+        this.log(colors.textMuted('  Temp directories preserved for inspection.'));
+      }
     }
 
     if (failed.length > 0) {
@@ -442,10 +458,11 @@ export default class Cleanup extends PMOCommand {
     const totalDirs = results.reduce((sum, r) => sum + r.directoriesRemoved.length, 0);
 
     if (totalTmux > 0 || totalContainers > 0 || totalDirs > 0) {
-      this.log(colors.textMuted(`\nResources ${dryRun ? 'that would be ' : ''}cleaned:`));
+      const resourceAction = dryRun ? 'that would be ' : keepTemp ? 'stopped' : 'cleaned';
+      this.log(colors.textMuted(`\nResources ${resourceAction}:`));
       if (totalTmux > 0) this.log(colors.textMuted(`  - Tmux sessions: ${totalTmux}`));
       if (totalContainers > 0) this.log(colors.textMuted(`  - Containers: ${totalContainers}`));
-      if (totalDirs > 0) this.log(colors.textMuted(`  - Directories: ${totalDirs}`));
+      if (totalDirs > 0 && !keepTemp) this.log(colors.textMuted(`  - Directories: ${totalDirs}`));
     }
   }
 }
