@@ -10,6 +10,21 @@
  * 2. Clears environment variables that could bypass isolation (PRLT_HQ_PATH, etc.)
  * 3. Changes process.cwd() to the test directory
  * 4. Cleans up all test artifacts after each test
+ *
+ * ## oclif Command Discovery
+ *
+ * E2E tests can run from temp directories because:
+ * 1. The build script generates oclif.manifest.json which pre-computes command paths
+ * 2. Commands that don't require PMO context work without PMO setup
+ * 3. Commands that need PMO will fail with clear "PMO not found" errors
+ *
+ * ## Test Categories
+ *
+ * - **Git-only tests** (branch list, validate, commit, etc.): Work in temp directories
+ *   without PMO setup. Just need a git repo.
+ *
+ * - **PMO-dependent tests** (ticket, epic, project, etc.): Need full PMO setup.
+ *   Use createTestEnvironment() + createHQConfig() + createPMODirectories().
  */
 
 import * as fs from 'node:fs';

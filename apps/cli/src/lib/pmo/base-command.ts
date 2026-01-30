@@ -21,6 +21,16 @@ export const pmoBaseFlags = {
 };
 
 /**
+ * Options returned by getPMOOptions() to control PMO behavior
+ */
+export interface PMOOptions {
+  /** If true, don't prompt when multiple projects exist */
+  promptIfMultiple?: boolean;
+  /** If true, PMO context is required and will error if not found */
+  requirePMO?: boolean;
+}
+
+/**
  * Base command class for PMO commands
  *
  * Provides automatic PMO context initialization and cleanup:
@@ -29,6 +39,9 @@ export const pmoBaseFlags = {
  * - Provides common PMO flags (--project)
  *
  * Storage is project-agnostic - projectId is passed explicitly to operations.
+ *
+ * By default, PMO context is optional. Commands that require PMO should
+ * override getPMOOptions() and return { requirePMO: true }.
  *
  * Usage:
  * ```typescript
@@ -39,6 +52,11 @@ export const pmoBaseFlags = {
  *     ...pmoBaseFlags,
  *     // additional flags...
  *   };
+ *
+ *   // Override if PMO is required for this command
+ *   protected getPMOOptions() {
+ *     return { requirePMO: true };
+ *   }
  *
  *   async execute(): Promise<void> {
  *     // For project-agnostic operations (e.g., get ticket by ID):
@@ -58,9 +76,10 @@ export const pmoBaseFlags = {
 export abstract class PMOCommand extends Command {
   /**
    * PMO context with storage, pmoPath, etc.
-   * Available after init() runs (before execute())
+   * Available after init() runs (before execute()), but may be null
+   * if PMO was not found and requirePMO is false.
    */
-  protected pmoContext!: PMOContext;
+  protected pmoContext: PMOContext | null = null;
 
   /**
    * Flag to track if context was successfully initialized
@@ -81,8 +100,16 @@ export abstract class PMOCommand extends Command {
   }
 
   /**
+   * Override this to configure PMO behavior for the command.
+   * @returns PMO options including requirePMO flag
+   */
+  protected getPMOOptions(): PMOOptions {
+    return { promptIfMultiple: true, requirePMO: false };
+  }
+
+  /**
    * oclif init hook - runs before the command executes
-   * Initializes PMO context with storage access
+   * Initializes PMO context with storage access if available
    */
   async init(): Promise<void> {
     await super.init();
@@ -91,10 +118,22 @@ export abstract class PMOCommand extends Command {
     const { flags } = await this.parse(this.constructor as typeof Command);
     this.projectFlag = (flags as { project?: string }).project;
 
-    this.pmoContext = await getPMOContext({
-      logger: (msg) => this.pmoLogger(msg),
-    });
-    this.contextInitialized = true;
+    const options = this.getPMOOptions();
+
+    try {
+      this.pmoContext = await getPMOContext({
+        logger: (msg) => this.pmoLogger(msg),
+      });
+      this.contextInitialized = true;
+    } catch (error) {
+      // If PMO is required, re-throw the error
+      if (options.requirePMO) {
+        throw error;
+      }
+      // Otherwise, PMO context is optional - continue without it
+      this.pmoContext = null;
+      this.contextInitialized = false;
+    }
   }
 
   /**
@@ -416,13 +455,24 @@ export abstract class PMOCommand extends Command {
 
   // Convenience getters for common context properties
 
-  /** Storage instance */
+  /** Storage instance - throws if PMO context not available */
   protected get storage() {
+    if (!this.pmoContext) {
+      throw new Error('PMO not found. Run "prlt pmo init" first.');
+    }
     return this.pmoContext.storage;
   }
 
-  /** PMO directory path */
+  /** PMO directory path - throws if PMO context not available */
   protected get pmoPath() {
+    if (!this.pmoContext) {
+      throw new Error('PMO not found. Run "prlt pmo init" first.');
+    }
     return this.pmoContext.pmoPath;
+  }
+
+  /** Check if PMO context is available */
+  protected get hasPMO(): boolean {
+    return this.pmoContext !== null;
   }
 }
