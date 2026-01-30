@@ -12,6 +12,7 @@ import {
   createMetadata,
   buildPromptConfig,
 } from '../../lib/prompt-json.js'
+import { FlagResolver } from '../../lib/flags/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { StateCategory, WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
@@ -1065,36 +1066,43 @@ export default class WorkStart extends PMOCommand {
       }
 
       // Prompt for permissions mode (all environments)
-      // Skip prompt if --permission-mode flag is set
+      // Use FlagResolver to unify JSON and interactive handling
       if (flags['permission-mode']) {
         sandboxed = flags['permission-mode'] === 'safe'
       } else {
         const containerNote = environment === 'devcontainer'
           ? ' (container provides additional isolation)'
           : ''
-        const permissionChoices = [
-          { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger', command: `prlt work start ${ticketId} --skip-permissions` },
-          { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
-        ]
 
-        // Handle JSON mode
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'permissionMode', `Permission mode for Claude Code${containerNote}:`, permissionChoices, 'danger'),
-            createMetadata('work start', flags as Record<string, unknown>)
-          )
+        // Use FlagResolver for permission mode selection
+        const permResolver = new FlagResolver({
+          commandName: 'work start',
+          baseCommand: `prlt work start ${ticketId}`,
+          flags: flags as Record<string, unknown>,
+          jsonMode,
+        })
+
+        permResolver.define({
+          name: 'permissionMode',
+          type: 'string',
+          promptType: 'list',
+          message: `Permission mode for Claude Code${containerNote}:`,
+          required: true,
+          default: 'danger',
+          choices: () => [
+            { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
+            { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+          ],
+          flagArg: '--permission-mode',
+        })
+
+        const permResult = await permResolver.resolve()
+        if (!permResult.complete) {
+          db.close()
+          return
         }
 
-        const { permissionMode } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'permissionMode',
-            message: `Permission mode for Claude Code${containerNote}:`,
-            choices: permissionChoices,
-            default: 'danger',
-          },
-        ])
-        sandboxed = permissionMode === 'safe'
+        sandboxed = permResult.values.permissionMode === 'safe'
       }
 
       // Prompt for PR creation when work is complete
