@@ -35,6 +35,13 @@ export interface RegisteredHeadquarters {
 /** @deprecated Use RegisteredHeadquarters instead */
 export type RegisteredWorkspace = RegisteredHeadquarters;
 
+export interface TelemetryConfig {
+  /** Whether error tracking is enabled (opt-in) */
+  errorTracking: boolean;
+  /** Whether the user has been prompted for telemetry consent */
+  prompted: boolean;
+}
+
 export interface MachineConfig {
   type: 'machine';
   version: string;
@@ -42,6 +49,8 @@ export interface MachineConfig {
   headquarters: RegisteredHeadquarters[];
   activeHeadquarters: string | null;
   activeOrganization: string | null;
+  /** Telemetry settings (opt-in error tracking) */
+  telemetry?: TelemetryConfig;
   /** @deprecated Use headquarters instead */
   workspaces?: RegisteredHeadquarters[];
   /** @deprecated Use activeHeadquarters instead */
@@ -159,6 +168,7 @@ export function readMachineConfig(): MachineConfig {
       headquarters,
       activeHeadquarters,
       activeOrganization: config.activeOrganization ?? null,
+      telemetry: config.telemetry,
     };
   } catch {
     return getDefaultConfig();

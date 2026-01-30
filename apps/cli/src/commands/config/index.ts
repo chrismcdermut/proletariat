@@ -12,6 +12,10 @@ import {
   saveTmuxControlMode,
   saveShell,
 } from '../../lib/execution/config.js'
+import {
+  isErrorTrackingEnabled,
+  setErrorTracking,
+} from '../../lib/telemetry/sentry.js'
 import { TerminalApp, Shell } from '../../lib/execution/types.js'
 import {
   shouldOutputJson,
@@ -96,6 +100,8 @@ export default class Config extends Command {
 
       // Handle --list or --json flag (just show config)
       if (flags.list || flags.json) {
+        const telemetryEnabled = isErrorTrackingEnabled()
+
         if (jsonMode) {
           outputSuccessAsJson({
             terminal: {
@@ -110,6 +116,9 @@ export default class Config extends Command {
             defaultEnvironment: config.defaultEnvironment,
             outputMode: config.outputMode,
             sandboxed: config.sandboxed,
+            telemetry: {
+              errorTracking: telemetryEnabled,
+            },
           }, createMetadata('config', flags))
         } else {
           this.log('')
@@ -131,6 +140,9 @@ export default class Config extends Command {
           this.log(`  defaultEnvironment: ${config.defaultEnvironment}`)
           this.log(`  outputMode:       ${config.outputMode}`)
           this.log(`  sandboxed:        ${config.sandboxed}`)
+          this.log('')
+          this.log(styles.emphasis('Telemetry'))
+          this.log(`  errorTracking:    ${telemetryEnabled}`)
           this.log('')
         }
         db.close()
@@ -286,6 +298,10 @@ export default class Config extends Command {
         break
       case 'tmux.controlmode':
         saveTmuxControlMode(db, value.toLowerCase() === 'true')
+        break
+      case 'telemetry.errortracking':
+        // Telemetry is machine-level config, not workspace-level
+        setErrorTracking(value.toLowerCase() === 'true')
         break
       default:
         if (jsonMode) {

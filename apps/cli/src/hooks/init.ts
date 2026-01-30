@@ -1,16 +1,39 @@
 import { Hook } from '@oclif/core'
 import { readMachineConfig } from '../lib/machine-config.js'
 import { findHQRoot } from '../lib/workspace.js'
+import {
+  initSentry,
+  setCommandContext,
+  hasBeenPromptedForTelemetry,
+  markTelemetryPrompted,
+  setErrorTracking,
+  isNonInteractive,
+  DATA_DISCLOSURE,
+} from '../lib/telemetry/sentry.js'
 
 /**
  * Init hook - runs before every command
  *
- * Detects first-time users and redirects them to the init flow.
- * A user is considered "first-time" if:
- * - No workspaces are registered in machine config (~/.proletariat/config.json)
- * - AND they're not currently inside a valid HQ directory
+ * Responsibilities:
+ * 1. Initialize Sentry error tracking (if enabled)
+ * 2. Prompt for telemetry consent on first run (interactive only)
+ * 3. Detect first-time users and redirect to init flow
  */
-const hook: Hook<'init'> = async function ({ id, config }) {
+const hook: Hook<'init'> = async function ({ id, config, argv }) {
+  // Initialize Sentry early with CLI version
+  initSentry(config.version)
+
+  // Set command context for error tracking
+  if (id) {
+    setCommandContext(id, argv)
+  }
+
+  // Check for telemetry consent prompt (skip for certain commands)
+  const skipTelemetryPrompt = ['init', 'help', 'config', 'config:telemetry']
+  if (id && !skipTelemetryPrompt.includes(id)) {
+    await checkTelemetryConsent()
+  }
+
   // Skip for init command to avoid infinite loop
   if (id === 'init') {
     return
@@ -62,6 +85,59 @@ function isFirstTimeUser(): boolean {
   }
 
   return true
+}
+
+/**
+ * Check if we need to prompt the user for telemetry consent.
+ * Only prompts once and only in interactive environments.
+ */
+async function checkTelemetryConsent(): Promise<void> {
+  // Skip if already prompted
+  if (hasBeenPromptedForTelemetry()) {
+    return
+  }
+
+  // Skip in non-interactive environments (CI, no TTY)
+  if (isNonInteractive()) {
+    // Mark as prompted so we don't check again
+    markTelemetryPrompted()
+    return
+  }
+
+  // Dynamic import to avoid loading inquirer unless needed
+  const chalk = (await import('chalk')).default
+  const inquirer = (await import('inquirer')).default
+
+  console.log('')
+  console.log(chalk.bold.cyan('━'.repeat(60)))
+  console.log(chalk.bold.cyan('  Anonymous Error Tracking'))
+  console.log(chalk.bold.cyan('━'.repeat(60)))
+  console.log('')
+  console.log(DATA_DISCLOSURE)
+  console.log('')
+
+  const { enabled } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'enabled',
+      message: 'Enable anonymous error tracking to help improve Proletariat CLI?',
+      choices: [
+        { name: 'Yes - Send anonymous error reports', value: true },
+        { name: 'No - Do not send any error reports', value: false },
+      ],
+      default: false,  // Default to opt-out for privacy
+    },
+  ])
+
+  // Save the preference
+  setErrorTracking(enabled)
+  markTelemetryPrompted()
+
+  if (enabled) {
+    console.log(chalk.green('\n✓ Thank you for helping improve Proletariat CLI!\n'))
+  } else {
+    console.log(chalk.dim('\n✓ No error reports will be sent.\n'))
+  }
 }
 
 export default hook
