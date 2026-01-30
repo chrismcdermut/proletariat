@@ -6,11 +6,10 @@ import { updateEpicTicketsSection } from '../../lib/pmo/epic-files.js';
 import { TicketTemplate, PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class TicketCreate extends PMOCommand {
   static description = 'Create a new ticket on the PMO board';
@@ -99,24 +98,6 @@ export default class TicketCreate extends PMOCommand {
       this.error(message);
     };
 
-    // In JSON mode without required data, output column selection prompt
-    if (jsonMode && !flags.title && !flags.column) {
-      // Build base command with project if specified
-      const baseCmd = flags.project
-        ? `prlt ticket create -P ${flags.project}`
-        : 'prlt ticket create';
-      const columnChoices = columns.map(c => ({
-        name: c,
-        value: c,
-        command: `${baseCmd} --column "${c}" --json`,
-      }));
-      outputPromptAsJson(
-        buildPromptConfig('list', 'column', 'Select column to place the ticket in:', columnChoices),
-        createMetadata('ticket create', flags)
-      );
-      return;
-    }
-
     // Validate epic if provided
     if (flags.epic) {
       const epic = await this.storage.getEpic(flags.epic);
@@ -151,44 +132,62 @@ export default class TicketCreate extends PMOCommand {
       labels?: string[];
     };
 
-    // In JSON mode with column but no title, output required fields info
-    if (jsonMode && flags.column && !flags.title) {
-      const baseCmd = flags.project
-        ? `prlt ticket create -P ${flags.project} --column "${flags.column}"`
-        : `prlt ticket create --column "${flags.column}"`;
-      outputPromptAsJson(
-        {
-          type: 'input',
-          name: 'title',
-          message: 'Enter ticket title:',
-          context: {
-            hint: `Provide title with: ${baseCmd} --title "Your title here"`,
-            requiredFields: ['--title'],
-            optionalFields: ['--priority', '--category', '--description', '--epic', '--labels'],
-            example: `${baseCmd} --title "Fix login bug" --priority P1 --category bug`,
-          },
-        },
-        createMetadata('ticket create', flags)
-      );
-      return;
-    }
+    // Use FlagResolver to handle both JSON mode and interactive prompts
+    // This unifies the two code paths into one pattern
+    if (!flags.interactive) {
+      const resolver = new FlagResolver<typeof flags>({
+        commandName: 'ticket create',
+        baseCommand: 'prlt ticket create',
+        jsonMode,
+        flags,
+        context: { projectId },
+      });
 
-    if (flags.interactive || !flags.title) {
-      ticketData = await this.promptTicketData(flags, this.storage, template, columns);
-    } else {
-      if (!flags.title && !template?.titlePattern) {
+      // Column selection - prompted first if missing
+      resolver.addPrompt({
+        flagName: 'column',
+        type: 'list',
+        message: 'Select column to place the ticket in:',
+        choices: () => columns.map(c => ({ name: c, value: c })),
+        when: (ctx) => !ctx.flags.column,
+      });
+
+      // Title input - prompted after column is set
+      resolver.addPrompt({
+        flagName: 'title',
+        type: 'input',
+        message: 'Enter ticket title:',
+        when: (ctx) => !ctx.flags.title && ctx.flags.column !== undefined,
+        validate: (value) => (value as string).length > 0 || 'Title is required',
+        context: (ctx) => ({
+          hint: `Provide title with: ${ctx.baseCommand}${ctx.projectId ? ` -P ${ctx.projectId}` : ''} --column "${ctx.flags.column}" --title "Your title here"`,
+          requiredFields: ['--title'],
+          optionalFields: ['--priority', '--category', '--description', '--epic', '--labels'],
+          example: `${ctx.baseCommand}${ctx.projectId ? ` -P ${ctx.projectId}` : ''} --column "${ctx.flags.column}" --title "Fix login bug" --priority P1 --category bug`,
+        }),
+      });
+
+      // Resolve missing flags (in JSON mode, outputs prompt and exits; in interactive mode, prompts user)
+      const resolvedFlags = await resolver.resolve();
+
+      // If we get here, we have both column and title
+      if (!resolvedFlags.title && !template?.titlePattern) {
         this.error('Title is required. Use --title or -t flag, or use --interactive mode.');
       }
+
       ticketData = {
-        title: flags.title || template?.titlePattern || '',
-        statusName: flags.column || columns[0],
-        priority: flags.priority || template?.defaultPriority,
-        category: flags.category || template?.defaultCategory,
-        description: flags.description || template?.descriptionTemplate,
-        id: flags.id,
-        epicId: flags.epic,
+        title: resolvedFlags.title || template?.titlePattern || '',
+        statusName: resolvedFlags.column || columns[0],
+        priority: resolvedFlags.priority || template?.defaultPriority,
+        category: resolvedFlags.category || template?.defaultCategory,
+        description: resolvedFlags.description || template?.descriptionTemplate,
+        id: resolvedFlags.id,
+        epicId: resolvedFlags.epic,
         labels: labelsFromFlag || template?.defaultLabels,
       };
+    } else {
+      // Full interactive mode - use the detailed prompts
+      ticketData = await this.promptTicketData(flags, this.storage, template, columns);
     }
 
     // Validate status/column
