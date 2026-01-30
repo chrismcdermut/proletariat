@@ -8,6 +8,7 @@ import { spawn, execSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
+import { fileURLToPath } from 'node:url'
 import {
   ExecutionEnvironment,
   DisplayMode,
@@ -118,6 +119,99 @@ export function configureITermTmuxWindowMode(mode: 'tab' | 'window'): void {
 // =============================================================================
 
 const CLAUDE_CREDENTIALS_VOLUME = 'claude-credentials'
+
+// Base image name for shared agent Docker images
+const BASE_IMAGE_NAME = 'prlt-agent-base'
+
+// =============================================================================
+// Base Image Management
+// =============================================================================
+
+/**
+ * Get the prlt CLI version from package.json.
+ * This is used to tag base images for version consistency.
+ */
+export function getPrltVersion(): string {
+  try {
+    // Navigate from this file to package.json
+    const currentDir = path.dirname(fileURLToPath(import.meta.url))
+    const packageJsonPath = path.join(currentDir, '..', '..', '..', 'package.json')
+    const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'))
+    return pkg.version
+  } catch (error) {
+    console.debug('[runners:version] Failed to read package.json:', error)
+    return 'latest'
+  }
+}
+
+/**
+ * Get the base image tag for the current prlt version.
+ * Format: prlt-agent-base:{version}
+ */
+export function getBaseImageTag(): string {
+  const version = getPrltVersion()
+  return `${BASE_IMAGE_NAME}:${version}`
+}
+
+/**
+ * Build the shared base Docker image from an agent's Dockerfile.
+ * This image is shared across all agents for the same prlt version.
+ *
+ * @param agentDir - Path to an agent directory with .devcontainer/Dockerfile
+ * @param imageTag - The tag for the base image (e.g., prlt-agent-base:0.3.17)
+ * @param buildArgs - Build arguments for the Dockerfile
+ * @returns true if build succeeded, false otherwise
+ */
+export function buildBaseImage(agentDir: string, imageTag: string, buildArgs: Record<string, string> = {}): boolean {
+  const dockerfilePath = path.join(agentDir, '.devcontainer', 'Dockerfile')
+  if (!fs.existsSync(dockerfilePath)) {
+    console.debug(`[runners:docker] Dockerfile not found at ${dockerfilePath}`)
+    return false
+  }
+
+  try {
+    // Build --build-arg flags
+    const buildArgFlags = Object.entries(buildArgs)
+      .map(([key, value]) => `--build-arg ${key}="${value}"`)
+      .join(' ')
+
+    const buildCmd = `docker build -t ${imageTag} -f "${dockerfilePath}" ${buildArgFlags} "${path.join(agentDir, '.devcontainer')}"`
+    console.debug(`[runners:docker] Building base image: ${buildCmd}`)
+    execSync(buildCmd, { stdio: 'pipe' })
+    return true
+  } catch (error) {
+    console.debug(`[runners:docker] Failed to build base image:`, error)
+    return false
+  }
+}
+
+/**
+ * Ensure the shared base image exists, building it if necessary.
+ * This is called before container creation to ensure we have a base image
+ * for the current prlt version.
+ *
+ * @param agentDir - Path to an agent directory with .devcontainer/Dockerfile
+ * @returns The base image tag if available, null if build failed
+ */
+export function ensureBaseImageExists(agentDir: string): string | null {
+  const baseImageTag = getBaseImageTag()
+
+  if (!imageExists(baseImageTag)) {
+    console.debug(`[runners:docker] Building base image ${baseImageTag}`)
+    const buildArgs: Record<string, string> = {
+      TZ: 'America/Los_Angeles',
+      PRLT_REGISTRY: 'npm',
+      PRLT_VERSION: 'latest',
+    }
+    if (!buildBaseImage(agentDir, baseImageTag, buildArgs)) {
+      return null
+    }
+  } else {
+    console.debug(`[runners:docker] Using existing base image ${baseImageTag}`)
+  }
+
+  return baseImageTag
+}
 
 /**
  * Check if the claude-credentials Docker volume exists.
@@ -1018,7 +1112,7 @@ function runContainerSetup(containerId: string, sandboxed: boolean = true): bool
 
 /**
  * Ensure a Docker container is running for the agent.
- * Builds image and creates container if needed.
+ * Uses shared base image (prlt-agent-base:{version}) instead of per-agent images.
  * Returns the container ID if successful, null otherwise.
  */
 function ensureDockerContainer(
@@ -1026,7 +1120,6 @@ function ensureDockerContainer(
   config: ExecutionConfig
 ): string | null {
   const containerName = getContainerName(context.agentName)
-  const imageName = getImageName(context.agentName)
 
   // Always create fresh container to ensure mounts are up-to-date
   // TODO: Revisit container reuse strategy - for now, fresh containers ensure
@@ -1040,22 +1133,17 @@ function ensureDockerContainer(
     }
   }
 
-  // Build image if it doesn't exist
-  if (!imageExists(imageName)) {
-    console.debug(`[runners:docker] Building image ${imageName}`)
-    const buildArgs: Record<string, string> = {
-      TZ: 'America/Los_Angeles',
-      PRLT_REGISTRY: 'npm',
-      PRLT_VERSION: 'latest',
-    }
-    if (!buildDockerImage(context.agentDir, imageName, buildArgs)) {
-      return null
-    }
+  // Use shared base image instead of per-agent images
+  // This dramatically speeds up spawning after the first build
+  const baseImageTag = ensureBaseImageExists(context.agentDir)
+  if (!baseImageTag) {
+    console.debug(`[runners:docker] Failed to ensure base image exists`)
+    return null
   }
 
-  // Create and start container
-  console.debug(`[runners:docker] Creating container ${containerName}`)
-  if (!createDockerContainer(context, containerName, imageName, config)) {
+  // Create and start container from base image with agent-specific config
+  console.debug(`[runners:docker] Creating container ${containerName} from ${baseImageTag}`)
+  if (!createDockerContainer(context, containerName, baseImageTag, config)) {
     return null
   }
 
