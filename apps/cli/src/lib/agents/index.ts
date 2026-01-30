@@ -6,7 +6,7 @@ import chalk from 'chalk';
 import { isValidAgentName, getSuggestedAgentNames, BUILTIN_THEMES, getThemePersistentDir } from '../themes.js';
 import { getWorkspaceRepositories, getActiveTheme } from '../database/index.js';
 import { styles } from '../styles.js';
-import { createDevcontainerConfig } from '../execution/devcontainer.js';
+import { createDevcontainerConfig, type LanguageStack, DEFAULT_LANGUAGES } from '../execution/devcontainer.js';
 
 export interface HQConfig {
   type: 'hq';
@@ -97,6 +97,7 @@ export type MountMode = 'worktree' | 'clone';
 export interface CreateAgentOptions {
   skipDevcontainer?: boolean;  // Skip devcontainer creation (default: false)
   mountMode?: MountMode;       // 'worktree' = git worktree (shared .git, default), 'clone' = independent clone
+  languages?: LanguageStack[]; // Language runtimes to install (default: ['node'])
 }
 
 /**
@@ -252,12 +253,14 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
           // Create devcontainer config for sandboxed execution (only for repos that were created)
           // Note: Agent metadata is stored in SQLite (agents table), not in config files
           if (!options?.skipDevcontainer && createdRepos.length > 0) {
-            console.log(styles.muted(`  Creating devcontainer config...`));
+            const languages = options?.languages || DEFAULT_LANGUAGES;
+            console.log(styles.muted(`  Creating devcontainer config (languages: ${languages.join(', ')})...`));
             createDevcontainerConfig({
               agentName: agent,
               agentDir,
               repoWorktrees: mountMode === 'worktree' ? createdRepos : undefined,  // Only pass repos for worktree mode
               mountMode,
+              languages,
             });
           }
 
@@ -384,12 +387,14 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
         // Create devcontainer config for sandboxed execution
         // Note: Agent metadata is stored in SQLite (agents table), not in config files
         if (!options?.skipDevcontainer) {
-          console.log(styles.muted(`  Creating devcontainer config...`));
+          const languages = options?.languages || DEFAULT_LANGUAGES;
+          console.log(styles.muted(`  Creating devcontainer config (languages: ${languages.join(', ')})...`));
           createDevcontainerConfig({
             agentName: agent,
             agentDir,
             repoWorktrees: mountMode === 'worktree' ? [repoName] : undefined,  // Only pass repos for worktree mode
             mountMode,
+            languages,
           });
         }
 

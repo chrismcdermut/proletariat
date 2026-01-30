@@ -36,9 +36,23 @@ import * as path from 'node:path'
  */
 export type PrltChannel = 'npm' | 'npm:dev' | 'npm:next' | 'gh' | 'gh:dev' | 'mount' | string
 
+/**
+ * Container configuration for agents
+ */
+export interface ContainerConfig {
+  /**
+   * Default languages to install in agent containers.
+   * Comma-separated list: "node,python,go,rust,ruby,java"
+   * Node is always included as it's required for prlt CLI.
+   */
+  languages?: string
+}
+
 export interface PrltConfig {
   /** prlt source: "npm", "npm:dev", "gh", "gh:dev", "mount", or specific version like "npm:1.2.3" */
   channel?: PrltChannel
+  /** Container configuration for agents */
+  container?: ContainerConfig
 }
 
 export interface WorkspaceConfig {
@@ -112,6 +126,43 @@ export function getPrltChannel(hqPath: string, override?: string): string {
 
   const prltConfig = getPrltConfig(hqPath)
   return prltConfig.channel ?? 'npm'
+}
+
+/**
+ * Get container config from workspace, with defaults
+ */
+export function getContainerConfig(hqPath: string): ContainerConfig {
+  const config = readWorkspaceConfig(hqPath)
+  return config?.prlt?.container ?? {}
+}
+
+/**
+ * Get the default container languages from workspace config.
+ * Returns the configured languages string or undefined for default (node only).
+ */
+export function getDefaultLanguages(hqPath: string): string | undefined {
+  const containerConfig = getContainerConfig(hqPath)
+  return containerConfig.languages
+}
+
+/**
+ * Update container config section
+ */
+export function updateContainerConfig(hqPath: string, containerConfig: Partial<ContainerConfig>): void {
+  const config = readWorkspaceConfig(hqPath)
+  if (!config) {
+    throw new Error('No workspace config found')
+  }
+
+  config.prlt = {
+    ...config.prlt,
+    container: {
+      ...config.prlt?.container,
+      ...containerConfig,
+    },
+  }
+
+  writeWorkspaceConfig(hqPath, config)
 }
 
 /**

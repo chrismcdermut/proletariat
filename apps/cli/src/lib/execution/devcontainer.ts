@@ -3,6 +3,14 @@
  *
  * Generates .devcontainer/ configuration for agent sandboxed execution.
  * Uses a custom Dockerfile with network firewall for security sandboxing.
+ *
+ * Supports multiple language runtimes (polyglot mode):
+ * - node: Node.js 20 (always included for prlt CLI)
+ * - python: Python 3.12 with pip and uv
+ * - go: Go 1.22 with module support
+ * - rust: Rust stable with cargo
+ * - ruby: Ruby 3.3 with bundler
+ * - java: OpenJDK 21 with Maven and Gradle
  */
 
 import * as fs from 'node:fs'
@@ -11,6 +19,106 @@ import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG } from './types.js'
 import { parseChannel } from '../workspace-config.js'
 
 export type MountMode = 'worktree' | 'clone'
+
+// =============================================================================
+// Language Stack Configuration
+// =============================================================================
+
+/**
+ * Supported language runtimes.
+ * 'node' is always included as it's required for prlt CLI.
+ */
+export type LanguageStack = 'node' | 'python' | 'go' | 'rust' | 'ruby' | 'java'
+
+/**
+ * All available language stacks with descriptions
+ */
+export const LANGUAGE_STACKS: Record<LanguageStack, { name: string; description: string; tools: string[] }> = {
+  node: {
+    name: 'Node.js',
+    description: 'Node.js 20 with npm, pnpm, and yarn',
+    tools: ['node', 'npm', 'pnpm', 'yarn'],
+  },
+  python: {
+    name: 'Python',
+    description: 'Python 3.12 with pip, uv, and pipx',
+    tools: ['python3', 'pip', 'uv', 'pipx'],
+  },
+  go: {
+    name: 'Go',
+    description: 'Go 1.22 with module support',
+    tools: ['go', 'gofmt', 'gopls'],
+  },
+  rust: {
+    name: 'Rust',
+    description: 'Rust stable with cargo and rustfmt',
+    tools: ['rustc', 'cargo', 'rustfmt', 'clippy'],
+  },
+  ruby: {
+    name: 'Ruby',
+    description: 'Ruby 3.3 with bundler and gem',
+    tools: ['ruby', 'gem', 'bundler'],
+  },
+  java: {
+    name: 'Java',
+    description: 'OpenJDK 21 with Maven and Gradle',
+    tools: ['java', 'javac', 'mvn', 'gradle'],
+  },
+}
+
+/**
+ * Default language stacks (Node.js only for backwards compatibility)
+ */
+export const DEFAULT_LANGUAGES: LanguageStack[] = ['node']
+
+/**
+ * Parse a comma-separated language string into an array of LanguageStack.
+ * Always includes 'node' as it's required for prlt.
+ */
+export function parseLanguages(languageStr?: string): LanguageStack[] {
+  if (!languageStr) {
+    return DEFAULT_LANGUAGES
+  }
+
+  const requested = languageStr
+    .toLowerCase()
+    .split(',')
+    .map(l => l.trim())
+    .filter(l => l in LANGUAGE_STACKS) as LanguageStack[]
+
+  // Always include node
+  if (!requested.includes('node')) {
+    requested.unshift('node')
+  }
+
+  // Remove duplicates
+  return [...new Set(requested)]
+}
+
+/**
+ * Validate language stack names.
+ * Returns valid languages and invalid ones separately.
+ */
+export function validateLanguages(languages: string[]): { valid: LanguageStack[]; invalid: string[] } {
+  const valid: LanguageStack[] = []
+  const invalid: string[] = []
+
+  for (const lang of languages) {
+    const normalized = lang.toLowerCase().trim()
+    if (normalized in LANGUAGE_STACKS) {
+      valid.push(normalized as LanguageStack)
+    } else {
+      invalid.push(lang)
+    }
+  }
+
+  // Always include node
+  if (!valid.includes('node')) {
+    valid.unshift('node')
+  }
+
+  return { valid: [...new Set(valid)], invalid }
+}
 
 export interface DevcontainerOptions {
   agentName: string
@@ -23,6 +131,8 @@ export interface DevcontainerOptions {
   prltChannel?: string
   /** Mount mode: 'worktree' needs parent repo mounts + git wrapper, 'clone' is self-contained */
   mountMode?: MountMode
+  /** Language stacks to install (default: ['node']) */
+  languages?: LanguageStack[]
 }
 
 export interface DevcontainerJson {
@@ -110,6 +220,10 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
     mounts.push('source=${localEnv:PRLT_REPO_PATH},target=/opt/prlt,type=bind,readonly')
   }
 
+  // Get language-specific VS Code extensions
+  const languages = options.languages || DEFAULT_LANGUAGES
+  const vscodeExtensions = getVSCodeExtensions(languages)
+
   const devcontainerJson: DevcontainerJson = {
     name: `Agent: ${options.agentName}`,
     build: {
@@ -118,11 +232,7 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
     },
     customizations: {
       vscode: {
-        extensions: [
-          'anthropic.claude-code',
-          'dbaeumer.vscode-eslint',
-          'esbenp.prettier-vscode',
-        ],
+        extensions: vscodeExtensions,
         settings: {
           'editor.formatOnSave': true,
           'editor.defaultFormatter': 'esbenp.prettier-vscode',
@@ -148,6 +258,8 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       PRLT_HOST_PATH: options.agentDir,
       // Mount mode - allows scripts to know if git wrapper is needed
       PRLT_MOUNT_MODE: mountMode,
+      // Languages installed in this container (for setup scripts)
+      PRLT_LANGUAGES: languages.join(','),
       // /hq/.proletariat/bin contains prlt wrapper with ESM loader for native modules
       PATH: '/hq/.proletariat/bin:/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin',
     },
@@ -160,11 +272,50 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
 }
 
 /**
+ * Get VS Code extensions based on installed languages.
+ */
+function getVSCodeExtensions(languages: LanguageStack[]): string[] {
+  const extensions = [
+    'anthropic.claude-code',
+    'dbaeumer.vscode-eslint',
+    'esbenp.prettier-vscode',
+  ]
+
+  if (languages.includes('python')) {
+    extensions.push('ms-python.python', 'ms-python.vscode-pylance')
+  }
+
+  if (languages.includes('go')) {
+    extensions.push('golang.go')
+  }
+
+  if (languages.includes('rust')) {
+    extensions.push('rust-lang.rust-analyzer')
+  }
+
+  if (languages.includes('ruby')) {
+    extensions.push('shopify.ruby-lsp')
+  }
+
+  if (languages.includes('java')) {
+    extensions.push('redhat.java', 'vscjava.vscode-java-pack')
+  }
+
+  return extensions
+}
+
+/**
  * Generate Dockerfile content for the devcontainer.
  * Uses architecture auto-detection for cross-platform compatibility.
+ * Supports multiple language runtimes (polyglot mode).
  */
 export function generateDockerfile(options: DevcontainerOptions): string {
   const timezone = options.timezone || 'America/Los_Angeles'
+  const languages = options.languages || DEFAULT_LANGUAGES
+
+  // Build language installation sections
+  const languageInstalls = generateLanguageInstalls(languages)
+  const languageEnvVars = generateLanguageEnvVars(languages)
 
   return `FROM node:20
 
@@ -178,7 +329,8 @@ ENV DEVCONTAINER=true
 # Install system dependencies
 RUN apt-get update && apt-get install -y \\
     less git git-lfs procps sudo fzf zsh man-db unzip gnupg2 gh tmux \\
-    iptables ipset iproute2 dnsutils jq nano vim \\
+    iptables ipset iproute2 dnsutils jq nano vim curl wget \\
+    build-essential pkg-config libssl-dev \\
     && rm -rf /var/lib/apt/lists/* \\
     && git lfs install
 
@@ -212,6 +364,7 @@ USER node
 RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code
 USER root
 
+${languageInstalls}
 # Install prlt CLI from public npm
 # PRLT_REGISTRY: "npm" (install from npmjs.com) or "mount" (use host mount)
 # PRLT_VERSION: version/tag like "latest", "dev", "next", or "1.2.3"
@@ -238,9 +391,141 @@ ENV EDITOR=nano
 # Configure shell history
 ENV HISTFILE=/commandhistory/.bash_history
 
+# Language-specific environment variables
+${languageEnvVars}
 USER node
 WORKDIR /workspace
 `
+}
+
+/**
+ * Generate Dockerfile sections for installing language runtimes.
+ * Each language is installed conditionally based on the languages array.
+ */
+function generateLanguageInstalls(languages: LanguageStack[]): string {
+  const sections: string[] = []
+
+  // Python installation
+  if (languages.includes('python')) {
+    sections.push(`# ============================================================================
+# Python 3.12 with pip, uv, and pipx
+# ============================================================================
+RUN apt-get update && apt-get install -y \\
+    python3 python3-pip python3-venv python3-dev \\
+    && rm -rf /var/lib/apt/lists/* \\
+    && ln -sf /usr/bin/python3 /usr/bin/python
+
+# Install uv (fast Python package installer) and pipx
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \\
+    && mv /root/.local/bin/uv /usr/local/bin/uv \\
+    && mv /root/.local/bin/uvx /usr/local/bin/uvx \\
+    && pip3 install --break-system-packages pipx \\
+    && pipx ensurepath
+`)
+  }
+
+  // Go installation
+  if (languages.includes('go')) {
+    sections.push(`# ============================================================================
+# Go 1.22
+# ============================================================================
+RUN ARCH=$(dpkg --print-architecture) && \\
+    case "\${ARCH}" in \\
+      amd64) GOARCH="amd64" ;; \\
+      arm64) GOARCH="arm64" ;; \\
+      *) echo "Unsupported architecture: \${ARCH}" && exit 1 ;; \\
+    esac && \\
+    curl -L "https://go.dev/dl/go1.22.5.linux-\${GOARCH}.tar.gz" -o /tmp/go.tar.gz && \\
+    tar -C /usr/local -xzf /tmp/go.tar.gz && \\
+    rm /tmp/go.tar.gz
+
+# Set up Go directories for node user
+RUN mkdir -p /home/node/go/bin /home/node/go/pkg /home/node/go/src \\
+    && chown -R node:node /home/node/go
+`)
+  }
+
+  // Rust installation (as node user)
+  if (languages.includes('rust')) {
+    sections.push(`# ============================================================================
+# Rust stable with cargo
+# ============================================================================
+USER node
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \\
+    && . /home/node/.cargo/env \\
+    && rustup component add rustfmt clippy
+USER root
+`)
+  }
+
+  // Ruby installation
+  if (languages.includes('ruby')) {
+    sections.push(`# ============================================================================
+# Ruby 3.3 with bundler
+# ============================================================================
+RUN apt-get update && apt-get install -y \\
+    ruby-full ruby-bundler \\
+    && rm -rf /var/lib/apt/lists/* \\
+    && gem install bundler
+
+# Configure gem to install to user directory
+RUN mkdir -p /home/node/.gem/ruby/bin \\
+    && chown -R node:node /home/node/.gem
+`)
+  }
+
+  // Java installation
+  if (languages.includes('java')) {
+    sections.push(`# ============================================================================
+# OpenJDK 21 with Maven and Gradle
+# ============================================================================
+RUN apt-get update && apt-get install -y \\
+    openjdk-21-jdk maven \\
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Gradle
+RUN GRADLE_VERSION="8.8" && \\
+    curl -L "https://services.gradle.org/distributions/gradle-\${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip && \\
+    unzip /tmp/gradle.zip -d /opt && \\
+    ln -s /opt/gradle-\${GRADLE_VERSION} /opt/gradle && \\
+    rm /tmp/gradle.zip
+`)
+  }
+
+  return sections.join('\n')
+}
+
+/**
+ * Generate environment variable settings for installed languages.
+ */
+function generateLanguageEnvVars(languages: LanguageStack[]): string {
+  const envVars: string[] = []
+
+  if (languages.includes('go')) {
+    envVars.push('ENV GOPATH=/home/node/go')
+    envVars.push('ENV PATH=/usr/local/go/bin:/home/node/go/bin:$PATH')
+  }
+
+  if (languages.includes('rust')) {
+    envVars.push('ENV CARGO_HOME=/home/node/.cargo')
+    envVars.push('ENV PATH=/home/node/.cargo/bin:$PATH')
+  }
+
+  if (languages.includes('ruby')) {
+    envVars.push('ENV GEM_HOME=/home/node/.gem/ruby')
+    envVars.push('ENV PATH=/home/node/.gem/ruby/bin:$PATH')
+  }
+
+  if (languages.includes('java')) {
+    envVars.push('ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64')
+    envVars.push('ENV PATH=/opt/gradle/bin:$PATH')
+  }
+
+  if (languages.includes('python')) {
+    envVars.push('ENV PATH=/home/node/.local/bin:$PATH')
+  }
+
+  return envVars.join('\n')
 }
 
 /**
@@ -339,6 +624,60 @@ add_domain "npmjs.com"
 add_domain "nodejs.org"
 add_domain "update.code.visualstudio.com"
 add_domain "vscode.download.prss.microsoft.com"
+
+# ============================================================================
+# Language Package Manager Domains (polyglot support)
+# These are added based on PRLT_LANGUAGES environment variable
+# ============================================================================
+
+# Python package managers (pypi, uv)
+if [[ "\${PRLT_LANGUAGES:-node}" == *"python"* ]]; then
+    echo "Adding Python package manager domains..."
+    add_domain "pypi.org"
+    add_domain "files.pythonhosted.org"
+    add_domain "pypi.python.org"
+    add_domain "astral.sh"         # uv installer
+    add_domain "github.com"        # already added but explicit
+fi
+
+# Go modules proxy
+if [[ "\${PRLT_LANGUAGES:-node}" == *"go"* ]]; then
+    echo "Adding Go package manager domains..."
+    add_domain "proxy.golang.org"
+    add_domain "sum.golang.org"
+    add_domain "go.dev"
+    add_domain "golang.org"
+    add_domain "storage.googleapis.com"
+fi
+
+# Rust/Cargo (crates.io)
+if [[ "\${PRLT_LANGUAGES:-node}" == *"rust"* ]]; then
+    echo "Adding Rust package manager domains..."
+    add_domain "crates.io"
+    add_domain "static.crates.io"
+    add_domain "index.crates.io"
+    add_domain "static.rust-lang.org"
+    add_domain "sh.rustup.rs"
+fi
+
+# Ruby gems
+if [[ "\${PRLT_LANGUAGES:-node}" == *"ruby"* ]]; then
+    echo "Adding Ruby package manager domains..."
+    add_domain "rubygems.org"
+    add_domain "api.rubygems.org"
+    add_domain "bundler.io"
+fi
+
+# Java (Maven, Gradle)
+if [[ "\${PRLT_LANGUAGES:-node}" == *"java"* ]]; then
+    echo "Adding Java package manager domains..."
+    add_domain "repo.maven.apache.org"
+    add_domain "repo1.maven.org"
+    add_domain "central.sonatype.com"
+    add_domain "services.gradle.org"
+    add_domain "plugins.gradle.org"
+    add_domain "downloads.gradle-dn.com"
+fi
 
 # Allow traffic to whitelisted IPs
 iptables -A OUTPUT -m set --match-set allowed-domains dst -j ACCEPT
@@ -561,34 +900,132 @@ else
     echo "No mounted prlt found, skipping setup"
 fi
 
-# Install workspace dependencies if package.json exists
-install_workspace_deps() {
+# ============================================================================
+# Language-specific workspace dependency installation
+# Uses PRLT_LANGUAGES environment variable to determine which installers to run
+# ============================================================================
+
+# Install Node.js dependencies if package.json exists
+install_node_deps() {
     local workspace_dir="$1"
     if [ -f "$workspace_dir/package.json" ]; then
-        echo "Installing dependencies in $workspace_dir..."
+        echo "Installing Node.js dependencies in $workspace_dir..."
         cd "$workspace_dir"
         if [ -f "pnpm-lock.yaml" ]; then
             pnpm install 2>&1 || npm install 2>&1
         elif [ -f "package-lock.json" ]; then
             npm ci 2>&1 || npm install 2>&1
+        elif [ -f "yarn.lock" ]; then
+            yarn install 2>&1 || npm install 2>&1
         else
             npm install 2>&1
         fi
     fi
 }
 
-# Check workspace repos for package.json and install deps
+# Install Python dependencies if requirements.txt or pyproject.toml exists
+install_python_deps() {
+    local workspace_dir="$1"
+    cd "$workspace_dir"
+    if [ -f "pyproject.toml" ]; then
+        echo "Installing Python dependencies (pyproject.toml) in $workspace_dir..."
+        if command -v uv &>/dev/null; then
+            uv pip install -e . 2>&1 || pip install -e . 2>&1
+        else
+            pip install -e . 2>&1
+        fi
+    elif [ -f "requirements.txt" ]; then
+        echo "Installing Python dependencies (requirements.txt) in $workspace_dir..."
+        if command -v uv &>/dev/null; then
+            uv pip install -r requirements.txt 2>&1 || pip install -r requirements.txt 2>&1
+        else
+            pip install -r requirements.txt 2>&1
+        fi
+    fi
+}
+
+# Install Go modules if go.mod exists
+install_go_deps() {
+    local workspace_dir="$1"
+    if [ -f "$workspace_dir/go.mod" ]; then
+        echo "Installing Go modules in $workspace_dir..."
+        cd "$workspace_dir"
+        go mod download 2>&1
+    fi
+}
+
+# Install Rust dependencies if Cargo.toml exists
+install_rust_deps() {
+    local workspace_dir="$1"
+    if [ -f "$workspace_dir/Cargo.toml" ]; then
+        echo "Installing Rust dependencies in $workspace_dir..."
+        cd "$workspace_dir"
+        cargo fetch 2>&1
+    fi
+}
+
+# Install Ruby dependencies if Gemfile exists
+install_ruby_deps() {
+    local workspace_dir="$1"
+    if [ -f "$workspace_dir/Gemfile" ]; then
+        echo "Installing Ruby dependencies in $workspace_dir..."
+        cd "$workspace_dir"
+        bundle install 2>&1
+    fi
+}
+
+# Install Java/Maven dependencies if pom.xml exists
+install_java_deps() {
+    local workspace_dir="$1"
+    cd "$workspace_dir"
+    if [ -f "pom.xml" ]; then
+        echo "Installing Maven dependencies in $workspace_dir..."
+        mvn dependency:resolve 2>&1 || true
+    elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+        echo "Installing Gradle dependencies in $workspace_dir..."
+        gradle dependencies --refresh-dependencies 2>&1 || true
+    fi
+}
+
+# Main dependency installation loop
+LANGUAGES="\${PRLT_LANGUAGES:-node}"
+echo "Installing workspace dependencies for languages: $LANGUAGES"
+
 for repo_dir in /workspace/*/; do
-    if [ -d "$repo_dir" ] && [ -f "$repo_dir/package.json" ]; then
-        install_workspace_deps "$repo_dir"
+    if [ -d "$repo_dir" ]; then
+        echo "Checking $repo_dir for dependencies..."
+
+        # Always install Node.js deps (node is always enabled)
+        install_node_deps "$repo_dir"
         # Also check for monorepo structure (apps/cli for prlt)
         if [ -f "$repo_dir/apps/cli/package.json" ]; then
-            install_workspace_deps "$repo_dir/apps/cli"
+            install_node_deps "$repo_dir/apps/cli"
+        fi
+
+        # Language-specific installers based on PRLT_LANGUAGES
+        if [[ "$LANGUAGES" == *"python"* ]]; then
+            install_python_deps "$repo_dir"
+        fi
+
+        if [[ "$LANGUAGES" == *"go"* ]]; then
+            install_go_deps "$repo_dir"
+        fi
+
+        if [[ "$LANGUAGES" == *"rust"* ]]; then
+            install_rust_deps "$repo_dir"
+        fi
+
+        if [[ "$LANGUAGES" == *"ruby"* ]]; then
+            install_ruby_deps "$repo_dir"
+        fi
+
+        if [[ "$LANGUAGES" == *"java"* ]]; then
+            install_java_deps "$repo_dir"
         fi
     fi
 done
 
-echo "Workspace setup complete"
+echo "Workspace setup complete (languages: $LANGUAGES)"
 `
 }
 

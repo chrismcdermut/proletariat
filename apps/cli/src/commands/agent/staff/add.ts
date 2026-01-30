@@ -20,6 +20,12 @@ import {
   createMetadata,
   buildPromptConfig,
 } from '../../../lib/prompt-json.js';
+import {
+  parseLanguages,
+  validateLanguages,
+  LANGUAGE_STACKS,
+  type LanguageStack,
+} from '../../../lib/execution/devcontainer.js';
 
 export default class Add extends Command {
   static description = 'Add new agents to the workspace';
@@ -29,6 +35,8 @@ export default class Add extends Command {
     '<%= config.bin %> <%= command.id %> agent-1 agent-2',
     '<%= config.bin %> <%= command.id %> --theme billionaires',
     '<%= config.bin %> <%= command.id %> my-agent --no-container',
+    '<%= config.bin %> <%= command.id %> zeus --languages python,go',
+    '<%= config.bin %> <%= command.id %> altman --languages rust,java',
   ];
 
   static args = {
@@ -54,6 +62,11 @@ export default class Add extends Command {
     clone: Flags.boolean({
       description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
       default: false,
+    }),
+    languages: Flags.string({
+      char: 'l',
+      description: 'Language runtimes to install (comma-separated: node,python,go,rust,ruby,java)',
+      default: 'node',
     }),
   };
 
@@ -309,11 +322,21 @@ export default class Add extends Command {
         agentNames = valid;
       }
 
+      // Parse and validate languages
+      const languages = parseLanguages(flags.languages);
+      const langValidation = validateLanguages(flags.languages?.split(',') || ['node']);
+      if (langValidation.invalid.length > 0) {
+        const availableLangs = Object.keys(LANGUAGE_STACKS).join(', ');
+        this.log(chalk.yellow(`Unknown languages ignored: ${langValidation.invalid.join(', ')}`));
+        this.log(chalk.dim(`Available: ${availableLangs}`));
+      }
+
       // Add agents to workspace
       const addedAgents = await addAgentsToWorkspace(workspaceInfo, agentNames, {
         skipDevcontainer: flags['no-container'],
         themeId,
         mountMode: flags.clone ? 'clone' : 'worktree',
+        languages,
       });
 
       if (addedAgents.length === 0) {
@@ -329,7 +352,7 @@ export default class Add extends Command {
       }
 
       if (!flags['no-container']) {
-        this.log(chalk.blue('   Devcontainer config created for sandboxed execution'));
+        this.log(chalk.blue(`   Devcontainer config created with languages: ${languages.join(', ')}`));
       }
 
     } catch (error) {
