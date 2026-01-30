@@ -510,7 +510,11 @@ Requirements:
 - Use \`--clear-subtasks\` if replacing existing subtasks
 - Use \`--clear-ac\` if replacing existing acceptance criteria
 
-After updating, output a brief summary of your grooming changes.`,
+## When Complete
+
+After updating the ticket:
+1. Run \`prlt ticket view {{TICKET_ID}}\` to display the full ticket details
+2. Then output a brief summary of the changes you made`,
       suggestedForCategories: ['backlog'],
       defaultMoveToCategory: 'unstarted',
       modifiesCode: false,
