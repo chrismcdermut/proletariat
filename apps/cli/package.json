@@ -95,7 +95,7 @@
     },
     "warn-if-update-available": {
       "timeoutInDays": 1,
-      "message": "\n<%= chalk.yellow('Update available') %> <%= chalk.dim(config.version) %> → <%= chalk.green(latest) %>\nRun <%= chalk.cyan('npm install -g @proletariat/cli') %> to update\n"
+      "message": "\n<%= chalk.yellow('New prlt available!') %> <%= chalk.dim(config.version) %> → <%= chalk.green(latest) %>\nRun <%= chalk.cyan('npm install -g @proletariat/cli') %> to get the latest\n"
     }
   },
   "repository": {
