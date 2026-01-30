@@ -18,6 +18,7 @@ import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
 import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } from './runners.js'
+import { detectRepoWorktrees, resolveWorktreePath } from './context.js'
 import {
   DisplayMode,
   SessionManager,
@@ -272,23 +273,9 @@ export async function spawnAgentForTicket(
     }
   }
 
-  // Find worktree path for agent
-  let worktreePath = agentDir
-  const agentContents = fs.readdirSync(agentDir)
-  const repoWorktrees = agentContents.filter(item => {
-    const itemPath = path.join(agentDir, item)
-    const gitPath = path.join(itemPath, '.git')
-    return fs.statSync(itemPath).isDirectory() && fs.existsSync(gitPath)
-  })
-
-  if (repoWorktrees.length === 1) {
-    worktreePath = path.join(agentDir, repoWorktrees[0])
-  } else if (repoWorktrees.length > 1) {
-    worktreePath = agentDir
-  } else {
-    // No git worktrees found - use current directory
-    worktreePath = process.cwd()
-  }
+  // Detect repository worktrees within agent directory
+  const repoWorktrees = detectRepoWorktrees(agentDir)
+  const worktreePath = resolveWorktreePath(agentDir, repoWorktrees)
 
   // Get coder name for branch naming (prompts on first use)
   const coderName = await getOrPromptCoderName(db)
