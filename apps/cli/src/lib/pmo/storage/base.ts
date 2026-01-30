@@ -231,6 +231,55 @@ export function runMigrations(db: Database.Database): void {
     }
   }
 
+  // Migration: Migrate ticket_dependencies from old schema (blocked_by_ticket_id) to new schema (depends_on_ticket_id + dependency_type)
+  // This handles databases created before the schema update in TKT-117
+  if (tableExists(T.ticket_dependencies)) {
+    const depsColumns = db.pragma(`table_info(${T.ticket_dependencies})`) as Array<{ name: string }>
+    const depsColumnNames = new Set(depsColumns.map(c => c.name))
+
+    // Detect old schema: has blocked_by_ticket_id but not depends_on_ticket_id
+    if (depsColumnNames.has('blocked_by_ticket_id') && !depsColumnNames.has('depends_on_ticket_id')) {
+      try {
+        // SQLite doesn't support RENAME COLUMN in older versions, so we need to:
+        // 1. Create new table with correct schema
+        // 2. Copy data from old table
+        // 3. Drop old table
+        // 4. Rename new table
+
+        // Step 1: Create new table with correct schema
+        db.exec(`
+          CREATE TABLE ${T.ticket_dependencies}_new (
+            ticket_id TEXT NOT NULL,
+            depends_on_ticket_id TEXT NOT NULL,
+            dependency_type TEXT NOT NULL DEFAULT 'blocks' CHECK (dependency_type IN ('blocks', 'relates_to', 'duplicates')),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (ticket_id, depends_on_ticket_id, dependency_type),
+            CHECK (ticket_id != depends_on_ticket_id)
+          )
+        `)
+
+        // Step 2: Copy data from old table, mapping blocked_by_ticket_id to depends_on_ticket_id
+        // All existing relationships were blocking relationships (type = 'blocks')
+        db.exec(`
+          INSERT INTO ${T.ticket_dependencies}_new (ticket_id, depends_on_ticket_id, dependency_type, created_at)
+          SELECT ticket_id, blocked_by_ticket_id, 'blocks', created_at
+          FROM ${T.ticket_dependencies}
+        `)
+
+        // Step 3: Drop old table
+        db.exec(`DROP TABLE ${T.ticket_dependencies}`)
+
+        // Step 4: Rename new table
+        db.exec(`ALTER TABLE ${T.ticket_dependencies}_new RENAME TO ${T.ticket_dependencies}`)
+
+        // Step 5: Recreate the index
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_pmo_ticket_deps_depends_on ON ${T.ticket_dependencies}(depends_on_ticket_id)`)
+      } catch {
+        // Migration may have already run or failed - safe to ignore
+      }
+    }
+  }
+
 }
 
 /**

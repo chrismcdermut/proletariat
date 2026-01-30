@@ -89,9 +89,12 @@ export class DependencyStorage {
 
   /**
    * List dependencies for a ticket.
+   * For 'relates_to' relationships, returns both directions (symmetric).
+   * For 'blocks' and 'duplicates', returns only forward direction (directional).
    */
   async listTicketDependencies(ticketId: string): Promise<TicketDependency[]> {
-    const rows = this.ctx.db.prepare(`
+    // Get forward dependencies (this ticket depends on others)
+    const forwardRows = this.ctx.db.prepare(`
       SELECT ticket_id, depends_on_ticket_id, dependency_type, created_at
       FROM ${T.ticket_dependencies}
       WHERE ticket_id = ?
@@ -103,12 +106,43 @@ export class DependencyStorage {
       created_at: string
     }>
 
-    return rows.map((row) => ({
-      ticketId: row.ticket_id,
-      dependsOnTicketId: row.depends_on_ticket_id,
-      dependencyType: row.dependency_type as TicketDependencyType,
-      createdAt: new Date(row.created_at),
-    }))
+    // Get reverse 'relates_to' dependencies (others relate to this ticket)
+    // This makes relates_to symmetric - if A relates_to B, B should also see the relationship
+    const reverseRelatesRows = this.ctx.db.prepare(`
+      SELECT depends_on_ticket_id as ticket_id, ticket_id as depends_on_ticket_id, dependency_type, created_at
+      FROM ${T.ticket_dependencies}
+      WHERE depends_on_ticket_id = ? AND dependency_type = 'relates_to'
+      ORDER BY created_at DESC
+    `).all(ticketId) as Array<{
+      ticket_id: string
+      depends_on_ticket_id: string
+      dependency_type: string
+      created_at: string
+    }>
+
+    // Combine and deduplicate (avoid showing same relationship twice if both directions exist)
+    const seen = new Set<string>()
+    const results: TicketDependency[] = []
+
+    for (const row of [...forwardRows, ...reverseRelatesRows]) {
+      // Create a unique key for the relationship (sorted to ensure A-B and B-A match for relates_to)
+      const key = row.dependency_type === 'relates_to'
+        ? [row.ticket_id, row.depends_on_ticket_id].sort().join('::') + '::relates_to'
+        : `${row.ticket_id}::${row.depends_on_ticket_id}::${row.dependency_type}`
+
+      if (!seen.has(key)) {
+        seen.add(key)
+        results.push({
+          ticketId: row.ticket_id,
+          dependsOnTicketId: row.depends_on_ticket_id,
+          dependencyType: row.dependency_type as TicketDependencyType,
+          createdAt: new Date(row.created_at),
+        })
+      }
+    }
+
+    // Sort by created_at DESC
+    return results.sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0))
   }
 
   /**

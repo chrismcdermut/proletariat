@@ -79,10 +79,42 @@ async function testStorageMethods() {
   await storage.createTicket({ title: 'Ticket 3', column: 'Backlog' })
 
   const ticketDep = await storage.createTicketDependency(ticket1.id, ticket2.id, 'blocks')
-  console.log('✓ Created ticket dependency:', ticketDep.ticketId, 'blocks', ticketDep.dependsOnTicketId)
+  console.log('✓ Created blocking dependency:', ticketDep.ticketId, 'blocks', ticketDep.dependsOnTicketId)
 
   const ticketDeps = await storage.listTicketDependencies(ticket1.id)
   console.log('✓ Listed ticket dependencies:', ticketDeps.length)
+
+  // Test all three dependency types
+  console.log('\n--- All Dependency Types ---')
+  const ticket3 = await storage.createTicket({ title: 'Ticket 3', column: 'Backlog' })
+  const ticket4 = await storage.createTicket({ title: 'Ticket 4', column: 'Backlog' })
+
+  // relates_to - symmetric
+  const relatesDep = await storage.createTicketDependency(ticket1.id, ticket3.id, 'relates_to')
+  console.log('✓ Created relates_to dependency:', relatesDep.ticketId, 'relates_to', relatesDep.dependsOnTicketId)
+
+  // Check symmetric relates_to (visible from both directions)
+  const deps1 = await storage.listTicketDependencies(ticket1.id)
+  const deps3 = await storage.listTicketDependencies(ticket3.id)
+  const relates1 = deps1.filter(d => d.dependencyType === 'relates_to')
+  const relates3 = deps3.filter(d => d.dependencyType === 'relates_to')
+  console.log('✓ Ticket 1 relates_to deps:', relates1.length, '(should see ticket 3)')
+  console.log('✓ Ticket 3 relates_to deps:', relates3.length, '(should see ticket 1 - symmetric)')
+  if (relates3.length !== 1 || relates3[0].dependsOnTicketId !== ticket1.id) {
+    console.log('✗ ERROR: relates_to should be symmetric!')
+  }
+
+  // duplicates - directional
+  const dupesDep = await storage.createTicketDependency(ticket1.id, ticket4.id, 'duplicates')
+  console.log('✓ Created duplicates dependency:', dupesDep.ticketId, 'duplicates', dupesDep.dependsOnTicketId)
+
+  // Check duplicates is NOT symmetric
+  const deps4 = await storage.listTicketDependencies(ticket4.id)
+  const dupes4 = deps4.filter(d => d.dependencyType === 'duplicates')
+  console.log('✓ Ticket 4 duplicates deps:', dupes4.length, '(should be 0 - directional)')
+  if (dupes4.length !== 0) {
+    console.log('✗ ERROR: duplicates should be directional (not symmetric)!')
+  }
 
   const blockers = await storage.getTicketBlockers(ticket1.id)
   console.log('✓ Got blockers:', blockers.map(t => t.title))
