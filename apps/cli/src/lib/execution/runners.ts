@@ -871,6 +871,7 @@ function createDockerContainer(
   ]
 
   // Build environment flags
+  const hasWorktrees = context.repoWorktrees && context.repoWorktrees.length > 0
   const envVars: string[] = [
     `-e DEVCONTAINER=true`,
     `-e PRLT_HQ_PATH=/hq`,
@@ -881,6 +882,8 @@ function createDockerContainer(
     ...(process.env.GH_TOKEN ? [`-e GH_TOKEN="${process.env.GH_TOKEN}"`] : []),
     // NOTE: Do NOT pass CLAUDE_CODE_OAUTH_TOKEN - it overrides credentials file
     // and setup-token generates invalid tokens. Use "prlt agent auth" instead.
+    // Set mount mode to worktree if we have repo worktrees - triggers git wrapper setup
+    ...(hasWorktrees ? [`-e PRLT_MOUNT_MODE=worktree`] : []),
   ]
 
   // Resource limits
