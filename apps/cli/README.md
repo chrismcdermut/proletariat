@@ -15,7 +15,7 @@
 
 > ⚠️ **Beta Software** — Under active development. Commands and APIs may change between versions, and bugs are actively being squashed.
 >
-> - [Book a call](https://cal.com/chrismcdermut) - Feedback, ideas, or chat multi-agent workflows and the future of work/labor (and economic labor theory..)
+> **Let's get you shipping** [Book a call][cal-link] - I'm happy to help you get prlt running or chat feedback, ideas, multi-agent workflows, and the future of work/labor (and economic labor theory..)
 
 ---
 
@@ -55,6 +55,9 @@ prlt work spawn                    # Interactive: select tickets, environment, a
 # Agent creates PR → You review → Merge → Done
 ```
 
+<details>
+<summary><b>Workflow Diagram</b> (click to expand)</summary>
+
 ```mermaid
 sequenceDiagram
     participant You
@@ -76,6 +79,8 @@ sequenceDiagram
     You->>GitHub: Review & approve
 ```
 
+</details>
+
 Spawn agents to implement, groom, or review—not just write code.
 
 ### Interactive Menus
@@ -83,19 +88,19 @@ Spawn agents to implement, groom, or review—not just write code.
 `prlt work` guides you through project and ticket selection:
 
 <p align="center">
-  <img src="docs/images/work/work-project-select.png" alt="Project Selection" width="600">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat/main/docs/images/work/work-project-select.png" alt="Project Selection" width="600">
 </p>
 
 Choose your operation—start a single agent, batch spawn, or watch a column:
 
 <p align="center">
-  <img src="docs/images/work/work-operations-menu.png" alt="Work Operations Menu" width="600">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat/main/docs/images/work/work-operations-menu.png" alt="Work Operations Menu" width="600">
 </p>
 
 Select tickets to spawn, grouped by priority:
 
 <p align="center">
-  <img src="docs/images/work/work-ticket-select.png" alt="Ticket Selection" width="800">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat/main/docs/images/work/work-ticket-select.png" alt="Ticket Selection" width="800">
 </p>
 
 ---
@@ -249,7 +254,7 @@ $ prlt ticket create
 View ticket details with `prlt ticket`:
 
 <p align="center">
-  <img src="docs/images/ticket/ticket-view.png" alt="Ticket View" width="600">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat/main/docs/images/ticket/ticket-view.png" alt="Ticket View" width="600">
 </p>
 
 #### 2. JSON Mode (AI Agents)
@@ -381,7 +386,7 @@ Each agent works in its own branch. No conflicts.
 Monitor running agents with `prlt execution`:
 
 <p align="center">
-  <img src="docs/images/execution/execution-list.png" alt="Execution List" width="800">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat/main/docs/images/execution/execution-list.png" alt="Execution List" width="800">
 </p>
 
 ```mermaid
@@ -414,7 +419,7 @@ flowchart LR
 Agent-created PRs ready for review:
 
 <p align="center">
-  <img src="docs/images/execution/github-prs.png" alt="GitHub Pull Requests" width="800">
+  <img src="https://raw.githubusercontent.com/chrismcdermut/proletariat/main/docs/images/execution/github-prs.png" alt="GitHub Pull Requests" width="800">
 </p>
 
 ### Command Reference
@@ -637,7 +642,7 @@ Claude Code handles its own authentication via `claude login`.
 
 - **Discord**: [discord.gg/tmZyjNNSvw](https://discord.gg/tmZyjNNSvw)
 - **GitHub Issues**: [Report bugs or request features](https://github.com/chrismcdermut/proletariat-cli/issues)
-- **Chat**: [Book a call](https://cal.com/chrismcdermut) — Feedback, ideas, or talk multi-agent workflows
+- **Setup Help**: [Book a call][cal-link] - I'll help you get things running
 
 ---
 
@@ -654,3 +659,5 @@ Apache 2.0
 [Star on GitHub](https://github.com/chrismcdermut/proletariat) | [Install from NPM](https://www.npmjs.com/package/@proletariat/cli) | [Report Issues](https://github.com/chrismcdermut/proletariat/issues)
 
 Made with ⚒️ by the proletariat.
+
+[cal-link]: https://cal.com/chrismcdermut
