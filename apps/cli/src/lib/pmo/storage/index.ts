@@ -3,9 +3,13 @@
  *
  * This is the main facade that delegates to domain-specific storage modules.
  * Uses the unified workspace.db database with pmo_ prefixed tables.
+ *
+ * This module now supports Drizzle ORM for type-safe queries while maintaining
+ * backward compatibility with raw SQL queries during the migration period.
  */
 
 import Database from 'better-sqlite3'
+import { createDrizzleConnection, DrizzleDB } from '../../database/drizzle.js'
 import {
   AcceptanceCriterion,
   Board,
@@ -78,6 +82,7 @@ const T = PMO_TABLES
 export class SQLiteStorage implements PMOStorage {
   readonly type = 'sqlite' as const
   private db: Database.Database
+  private drizzle: DrizzleDB
   private dbPath: string
 
   // Domain-specific storage modules
@@ -102,10 +107,14 @@ export class SQLiteStorage implements PMOStorage {
     this.db = new Database(dbPath)
     this.db.pragma('foreign_keys = ON')
 
+    // Create Drizzle ORM connection wrapping the same database
+    this.drizzle = createDrizzleConnection(this.db)
+
     // Create the storage context shared by all modules
     // Note: projectId is passed explicitly to operations, not stored in context
     const ctx: StorageContext = {
       db: this.db,
+      drizzle: this.drizzle,
       updateBoardTimestamp: (projectId: string) => updateBoardTimestamp(this.db, projectId),
     }
 
@@ -133,6 +142,13 @@ export class SQLiteStorage implements PMOStorage {
    */
   getDatabase(): Database.Database {
     return this.db
+  }
+
+  /**
+   * Get the Drizzle ORM database connection for type-safe queries.
+   */
+  getDrizzle(): DrizzleDB {
+    return this.drizzle
   }
 
   /**

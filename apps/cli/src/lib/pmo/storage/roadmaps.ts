@@ -1,13 +1,18 @@
 /**
  * Roadmap operations for PMO.
  * Roadmaps are curated collections of projects for documentation/visualization.
+ *
+ * This module uses Drizzle ORM for type-safe database queries.
  */
 
-import { PMO_TABLES } from '../schema.js'
+import { eq, and, like, or, desc, asc, sql, gte, gt, lt, lte } from 'drizzle-orm'
+import {
+  pmoRoadmaps,
+  pmoRoadmapProjects,
+  pmoProjects,
+} from '../../database/drizzle-schema.js'
 import { Roadmap, RoadmapProject, RoadmapFilter, PMOError, Project } from '../types.js'
-import { StorageContext, RoadmapRow, RoadmapProjectRow, ProjectRow } from './types.js'
-
-const T = PMO_TABLES
+import { StorageContext } from './types.js'
 
 export class RoadmapStorage {
   constructor(private ctx: StorageContext) {}
@@ -19,24 +24,24 @@ export class RoadmapStorage {
    */
   async createRoadmap(roadmap: Partial<Roadmap> & { name: string }): Promise<Roadmap> {
     const id = roadmap.id || `roadmap-${Date.now()}`
-    const now = Date.now()
+    const now = new Date().toISOString()
 
     // If setting as default, unset other defaults first
     if (roadmap.isDefault) {
-      this.ctx.db.prepare(`UPDATE ${T.roadmaps} SET is_default = 0`).run()
+      this.ctx.drizzle
+        .update(pmoRoadmaps)
+        .set({ isDefault: false })
+        .run()
     }
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.roadmaps} (id, name, description, is_default, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
+    this.ctx.drizzle.insert(pmoRoadmaps).values({
       id,
-      roadmap.name,
-      roadmap.description || null,
-      roadmap.isDefault ? 1 : 0,
-      now,
-      now
-    )
+      name: roadmap.name,
+      description: roadmap.description || null,
+      isDefault: roadmap.isDefault || false,
+      createdAt: now,
+      updatedAt: now,
+    }).run()
 
     return {
       id,
@@ -52,9 +57,11 @@ export class RoadmapStorage {
    * Get a roadmap by ID.
    */
   async getRoadmap(id: string): Promise<Roadmap | null> {
-    const row = this.ctx.db.prepare(`
-      SELECT * FROM ${T.roadmaps} WHERE id = ?
-    `).get(id) as RoadmapRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoRoadmaps)
+      .where(eq(pmoRoadmaps.id, id))
+      .get()
 
     if (!row) return null
     return this.rowToRoadmap(row)
@@ -64,21 +71,33 @@ export class RoadmapStorage {
    * List roadmaps with optional filters.
    */
   async listRoadmaps(filter?: RoadmapFilter): Promise<Roadmap[]> {
-    let query = `SELECT * FROM ${T.roadmaps} WHERE 1=1`
-    const params: unknown[] = []
+    let query = this.ctx.drizzle
+      .select()
+      .from(pmoRoadmaps)
+      .$dynamic()
+
+    const conditions = []
 
     if (filter?.search) {
-      query += ' AND (name LIKE ? OR description LIKE ?)'
-      params.push(`%${filter.search}%`, `%${filter.search}%`)
+      conditions.push(
+        or(
+          like(pmoRoadmaps.name, `%${filter.search}%`),
+          like(pmoRoadmaps.description, `%${filter.search}%`)
+        )
+      )
     }
     if (filter?.isDefault !== undefined) {
-      query += ' AND is_default = ?'
-      params.push(filter.isDefault ? 1 : 0)
+      conditions.push(eq(pmoRoadmaps.isDefault, filter.isDefault))
     }
 
-    query += ' ORDER BY is_default DESC, name ASC'
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions))
+    }
 
-    const rows = this.ctx.db.prepare(query).all(...params) as RoadmapRow[]
+    const rows = query
+      .orderBy(desc(pmoRoadmaps.isDefault), asc(pmoRoadmaps.name))
+      .all()
+
     return rows.map(row => this.rowToRoadmap(row))
   }
 
@@ -91,32 +110,32 @@ export class RoadmapStorage {
       throw new PMOError('NOT_FOUND', `Roadmap not found: ${id}`)
     }
 
-    const updates: string[] = []
-    const params: unknown[] = []
+    const updates: Partial<typeof pmoRoadmaps.$inferInsert> = {}
 
     if (changes.name !== undefined) {
-      updates.push('name = ?')
-      params.push(changes.name)
+      updates.name = changes.name
     }
     if (changes.description !== undefined) {
-      updates.push('description = ?')
-      params.push(changes.description || null)
+      updates.description = changes.description || null
     }
     if (changes.isDefault !== undefined) {
       // If setting as default, unset other defaults first
       if (changes.isDefault) {
-        this.ctx.db.prepare(`UPDATE ${T.roadmaps} SET is_default = 0`).run()
+        this.ctx.drizzle
+          .update(pmoRoadmaps)
+          .set({ isDefault: false })
+          .run()
       }
-      updates.push('is_default = ?')
-      params.push(changes.isDefault ? 1 : 0)
+      updates.isDefault = changes.isDefault
     }
 
-    if (updates.length > 0) {
-      updates.push('updated_at = ?')
-      params.push(Date.now())
-      params.push(id)
-
-      this.ctx.db.prepare(`UPDATE ${T.roadmaps} SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+    if (Object.keys(updates).length > 0) {
+      updates.updatedAt = new Date().toISOString()
+      this.ctx.drizzle
+        .update(pmoRoadmaps)
+        .set(updates)
+        .where(eq(pmoRoadmaps.id, id))
+        .run()
     }
 
     return (await this.getRoadmap(id))!
@@ -132,16 +151,22 @@ export class RoadmapStorage {
     }
 
     // Delete roadmap (cascades to roadmap_projects)
-    this.ctx.db.prepare(`DELETE FROM ${T.roadmaps} WHERE id = ?`).run(id)
+    this.ctx.drizzle
+      .delete(pmoRoadmaps)
+      .where(eq(pmoRoadmaps.id, id))
+      .run()
   }
 
   /**
    * Get the default roadmap.
    */
   async getDefaultRoadmap(): Promise<Roadmap | null> {
-    const row = this.ctx.db.prepare(`
-      SELECT * FROM ${T.roadmaps} WHERE is_default = 1 LIMIT 1
-    `).get() as RoadmapRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoRoadmaps)
+      .where(eq(pmoRoadmaps.isDefault, true))
+      .limit(1)
+      .get()
 
     if (!row) return null
     return this.rowToRoadmap(row)
@@ -160,12 +185,26 @@ export class RoadmapStorage {
    * List projects in a roadmap, ordered by position.
    */
   async listRoadmapProjects(roadmapId: string): Promise<Project[]> {
-    const rows = this.ctx.db.prepare(`
-      SELECT p.* FROM ${T.projects} p
-      JOIN ${T.roadmap_projects} rp ON p.id = rp.project_id
-      WHERE rp.roadmap_id = ?
-      ORDER BY rp.position ASC
-    `).all(roadmapId) as ProjectRow[]
+    const rows = this.ctx.drizzle
+      .select({
+        id: pmoProjects.id,
+        name: pmoProjects.name,
+        template: pmoProjects.template,
+        description: pmoProjects.description,
+        status: pmoProjects.status,
+        phaseId: pmoProjects.phaseId,
+        workflowId: pmoProjects.workflowId,
+        isArchived: pmoProjects.isArchived,
+        targetDate: pmoProjects.targetDate,
+        initiativeId: pmoProjects.initiativeId,
+        createdAt: pmoProjects.createdAt,
+        updatedAt: pmoProjects.updatedAt,
+      })
+      .from(pmoProjects)
+      .innerJoin(pmoRoadmapProjects, eq(pmoProjects.id, pmoRoadmapProjects.projectId))
+      .where(eq(pmoRoadmapProjects.roadmapId, roadmapId))
+      .orderBy(asc(pmoRoadmapProjects.position))
+      .all()
 
     return rows.map(row => this.rowToProject(row))
   }
@@ -181,9 +220,14 @@ export class RoadmapStorage {
     }
 
     // Check if project is already in roadmap
-    const existing = this.ctx.db.prepare(`
-      SELECT * FROM ${T.roadmap_projects} WHERE roadmap_id = ? AND project_id = ?
-    `).get(roadmapId, projectId) as RoadmapProjectRow | undefined
+    const existing = this.ctx.drizzle
+      .select()
+      .from(pmoRoadmapProjects)
+      .where(and(
+        eq(pmoRoadmapProjects.roadmapId, roadmapId),
+        eq(pmoRoadmapProjects.projectId, projectId)
+      ))
+      .get()
 
     if (existing) {
       throw new PMOError('CONFLICT', `Project ${projectId} is already in roadmap ${roadmapId}`)
@@ -191,28 +235,39 @@ export class RoadmapStorage {
 
     // Get next position if not provided
     if (position === undefined) {
-      const maxPos = this.ctx.db.prepare(`
-        SELECT COALESCE(MAX(position), -1) as max_pos FROM ${T.roadmap_projects} WHERE roadmap_id = ?
-      `).get(roadmapId) as { max_pos: number }
-      position = maxPos.max_pos + 1
+      const maxPosResult = this.ctx.drizzle
+        .select({ maxPos: sql<number>`COALESCE(MAX(${pmoRoadmapProjects.position}), -1)` })
+        .from(pmoRoadmapProjects)
+        .where(eq(pmoRoadmapProjects.roadmapId, roadmapId))
+        .get()
+      position = (maxPosResult?.maxPos ?? -1) + 1
     } else {
       // Shift existing projects at or after this position
-      this.ctx.db.prepare(`
-        UPDATE ${T.roadmap_projects}
-        SET position = position + 1
-        WHERE roadmap_id = ? AND position >= ?
-      `).run(roadmapId, position)
+      this.ctx.drizzle
+        .update(pmoRoadmapProjects)
+        .set({ position: sql`${pmoRoadmapProjects.position} + 1` })
+        .where(and(
+          eq(pmoRoadmapProjects.roadmapId, roadmapId),
+          gte(pmoRoadmapProjects.position, position)
+        ))
+        .run()
     }
 
-    const now = Date.now()
+    const now = new Date().toISOString()
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.roadmap_projects} (roadmap_id, project_id, position, created_at)
-      VALUES (?, ?, ?, ?)
-    `).run(roadmapId, projectId, position, now)
+    this.ctx.drizzle.insert(pmoRoadmapProjects).values({
+      roadmapId,
+      projectId,
+      position,
+      createdAt: now,
+    }).run()
 
     // Update roadmap timestamp
-    this.ctx.db.prepare(`UPDATE ${T.roadmaps} SET updated_at = ? WHERE id = ?`).run(now, roadmapId)
+    this.ctx.drizzle
+      .update(pmoRoadmaps)
+      .set({ updatedAt: now })
+      .where(eq(pmoRoadmaps.id, roadmapId))
+      .run()
 
     return {
       roadmapId,
@@ -227,28 +282,44 @@ export class RoadmapStorage {
    */
   async removeProjectFromRoadmap(roadmapId: string, projectId: string): Promise<void> {
     // Get current position for reordering
-    const current = this.ctx.db.prepare(`
-      SELECT position FROM ${T.roadmap_projects} WHERE roadmap_id = ? AND project_id = ?
-    `).get(roadmapId, projectId) as { position: number } | undefined
+    const current = this.ctx.drizzle
+      .select({ position: pmoRoadmapProjects.position })
+      .from(pmoRoadmapProjects)
+      .where(and(
+        eq(pmoRoadmapProjects.roadmapId, roadmapId),
+        eq(pmoRoadmapProjects.projectId, projectId)
+      ))
+      .get()
 
     if (!current) {
       throw new PMOError('NOT_FOUND', `Project ${projectId} not in roadmap ${roadmapId}`)
     }
 
     // Delete the association
-    this.ctx.db.prepare(`
-      DELETE FROM ${T.roadmap_projects} WHERE roadmap_id = ? AND project_id = ?
-    `).run(roadmapId, projectId)
+    this.ctx.drizzle
+      .delete(pmoRoadmapProjects)
+      .where(and(
+        eq(pmoRoadmapProjects.roadmapId, roadmapId),
+        eq(pmoRoadmapProjects.projectId, projectId)
+      ))
+      .run()
 
     // Reorder remaining projects to fill the gap
-    this.ctx.db.prepare(`
-      UPDATE ${T.roadmap_projects}
-      SET position = position - 1
-      WHERE roadmap_id = ? AND position > ?
-    `).run(roadmapId, current.position)
+    this.ctx.drizzle
+      .update(pmoRoadmapProjects)
+      .set({ position: sql`${pmoRoadmapProjects.position} - 1` })
+      .where(and(
+        eq(pmoRoadmapProjects.roadmapId, roadmapId),
+        gt(pmoRoadmapProjects.position, current.position)
+      ))
+      .run()
 
     // Update roadmap timestamp
-    this.ctx.db.prepare(`UPDATE ${T.roadmaps} SET updated_at = ? WHERE id = ?`).run(Date.now(), roadmapId)
+    this.ctx.drizzle
+      .update(pmoRoadmaps)
+      .set({ updatedAt: new Date().toISOString() })
+      .where(eq(pmoRoadmaps.id, roadmapId))
+      .run()
   }
 
   /**
@@ -256,9 +327,17 @@ export class RoadmapStorage {
    */
   async reorderRoadmapProject(roadmapId: string, projectId: string, newPosition: number): Promise<RoadmapProject> {
     // Get current position
-    const current = this.ctx.db.prepare(`
-      SELECT position, created_at FROM ${T.roadmap_projects} WHERE roadmap_id = ? AND project_id = ?
-    `).get(roadmapId, projectId) as { position: number; created_at: string } | undefined
+    const current = this.ctx.drizzle
+      .select({
+        position: pmoRoadmapProjects.position,
+        createdAt: pmoRoadmapProjects.createdAt,
+      })
+      .from(pmoRoadmapProjects)
+      .where(and(
+        eq(pmoRoadmapProjects.roadmapId, roadmapId),
+        eq(pmoRoadmapProjects.projectId, projectId)
+      ))
+      .get()
 
     if (!current) {
       throw new PMOError('NOT_FOUND', `Project ${projectId} not in roadmap ${roadmapId}`)
@@ -270,42 +349,57 @@ export class RoadmapStorage {
         roadmapId,
         projectId,
         position: newPosition,
-        createdAt: new Date(current.created_at),
+        createdAt: new Date(current.createdAt!),
       }
     }
 
-    // Shift positions (same pattern as EpicStorage.reorderEpic)
+    // Shift positions
     if (newPosition < oldPosition) {
       // Moving up: increment positions in between
-      this.ctx.db.prepare(`
-        UPDATE ${T.roadmap_projects}
-        SET position = position + 1
-        WHERE roadmap_id = ? AND position >= ? AND position < ?
-      `).run(roadmapId, newPosition, oldPosition)
+      this.ctx.drizzle
+        .update(pmoRoadmapProjects)
+        .set({ position: sql`${pmoRoadmapProjects.position} + 1` })
+        .where(and(
+          eq(pmoRoadmapProjects.roadmapId, roadmapId),
+          gte(pmoRoadmapProjects.position, newPosition),
+          lt(pmoRoadmapProjects.position, oldPosition)
+        ))
+        .run()
     } else {
       // Moving down: decrement positions in between
-      this.ctx.db.prepare(`
-        UPDATE ${T.roadmap_projects}
-        SET position = position - 1
-        WHERE roadmap_id = ? AND position > ? AND position <= ?
-      `).run(roadmapId, oldPosition, newPosition)
+      this.ctx.drizzle
+        .update(pmoRoadmapProjects)
+        .set({ position: sql`${pmoRoadmapProjects.position} - 1` })
+        .where(and(
+          eq(pmoRoadmapProjects.roadmapId, roadmapId),
+          gt(pmoRoadmapProjects.position, oldPosition),
+          lte(pmoRoadmapProjects.position, newPosition)
+        ))
+        .run()
     }
 
     // Update the target project's position
-    this.ctx.db.prepare(`
-      UPDATE ${T.roadmap_projects}
-      SET position = ?
-      WHERE roadmap_id = ? AND project_id = ?
-    `).run(newPosition, roadmapId, projectId)
+    this.ctx.drizzle
+      .update(pmoRoadmapProjects)
+      .set({ position: newPosition })
+      .where(and(
+        eq(pmoRoadmapProjects.roadmapId, roadmapId),
+        eq(pmoRoadmapProjects.projectId, projectId)
+      ))
+      .run()
 
     // Update roadmap timestamp
-    this.ctx.db.prepare(`UPDATE ${T.roadmaps} SET updated_at = ? WHERE id = ?`).run(Date.now(), roadmapId)
+    this.ctx.drizzle
+      .update(pmoRoadmaps)
+      .set({ updatedAt: new Date().toISOString() })
+      .where(eq(pmoRoadmaps.id, roadmapId))
+      .run()
 
     return {
       roadmapId,
       projectId,
       position: newPosition,
-      createdAt: new Date(current.created_at),
+      createdAt: new Date(current.createdAt!),
     }
   }
 
@@ -313,43 +407,71 @@ export class RoadmapStorage {
    * Get all roadmaps that contain a project.
    */
   async getRoadmapsForProject(projectId: string): Promise<Roadmap[]> {
-    const rows = this.ctx.db.prepare(`
-      SELECT r.* FROM ${T.roadmaps} r
-      JOIN ${T.roadmap_projects} rp ON r.id = rp.roadmap_id
-      WHERE rp.project_id = ?
-      ORDER BY r.name ASC
-    `).all(projectId) as RoadmapRow[]
+    const rows = this.ctx.drizzle
+      .select({
+        id: pmoRoadmaps.id,
+        name: pmoRoadmaps.name,
+        description: pmoRoadmaps.description,
+        isDefault: pmoRoadmaps.isDefault,
+        createdAt: pmoRoadmaps.createdAt,
+        updatedAt: pmoRoadmaps.updatedAt,
+      })
+      .from(pmoRoadmaps)
+      .innerJoin(pmoRoadmapProjects, eq(pmoRoadmaps.id, pmoRoadmapProjects.roadmapId))
+      .where(eq(pmoRoadmapProjects.projectId, projectId))
+      .orderBy(asc(pmoRoadmaps.name))
+      .all()
 
     return rows.map(row => this.rowToRoadmap(row))
   }
 
   // ===== Helpers =====
 
-  private rowToRoadmap(row: RoadmapRow): Roadmap {
+  private rowToRoadmap(row: {
+    id: string
+    name: string
+    description: string | null
+    isDefault: boolean | null
+    createdAt: string | null
+    updatedAt: string | null
+  }): Roadmap {
     return {
       id: row.id,
       name: row.name,
       description: row.description || undefined,
-      isDefault: row.is_default === 1,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
+      isDefault: row.isDefault ?? false,
+      createdAt: new Date(row.createdAt || Date.now()),
+      updatedAt: new Date(row.updatedAt || Date.now()),
     }
   }
 
-  private rowToProject(row: ProjectRow): Project {
+  private rowToProject(row: {
+    id: string
+    name: string
+    template: string | null
+    description: string | null
+    status: string
+    phaseId: string | null
+    workflowId: string | null
+    isArchived: boolean | null
+    targetDate: string | null
+    initiativeId: string | null
+    createdAt: string | null
+    updatedAt: string | null
+  }): Project {
     return {
       id: row.id,
       name: row.name,
       template: row.template || undefined,
       description: row.description || undefined,
       status: (row.status || 'active') as 'draft' | 'active' | 'completed' | 'archived',
-      phaseId: row.phase_id || undefined,
-      workflowId: row.workflow_id || undefined,
-      isArchived: row.is_archived === 1,
-      targetDate: row.target_date ? new Date(row.target_date) : undefined,
-      initiativeId: row.initiative_id || undefined,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
+      phaseId: row.phaseId || undefined,
+      workflowId: row.workflowId || undefined,
+      isArchived: row.isArchived ?? false,
+      targetDate: row.targetDate ? new Date(row.targetDate) : undefined,
+      initiativeId: row.initiativeId || undefined,
+      createdAt: new Date(row.createdAt || Date.now()),
+      updatedAt: new Date(row.updatedAt || Date.now()),
     }
   }
 }
