@@ -745,6 +745,8 @@ export interface CleanupOptions {
   force?: boolean;
   /** If true, push unpushed commits before cleanup */
   pushFirst?: boolean;
+  /** If true, keep the temp directory (only kill container/sessions) */
+  keepTemp?: boolean;
 }
 
 export interface WorktreeGitStatus {
@@ -774,6 +776,10 @@ export interface CleanupResult {
   gitStatus?: AgentGitStatus;
   /** Whether cleanup was blocked due to unsaved work */
   blockedByGit?: boolean;
+  /** Whether temp directory was preserved (--keep-temp flag) */
+  tempPreserved?: boolean;
+  /** Path to preserved temp directory (if keepTemp was used) */
+  preservedPath?: string;
 }
 
 /**
@@ -979,6 +985,7 @@ export async function cleanupAgent(
   const dryRun = options?.dryRun ?? false;
   const force = options?.force ?? false;
   const pushFirst = options?.pushFirst ?? false;
+  const keepTemp = options?.keepTemp ?? false;
 
   const result: CleanupResult = {
     agent: agentName,
@@ -1079,30 +1086,43 @@ export async function cleanupAgent(
     }
   }
 
-  // 3. Remove git worktrees for each repository
-  for (const repo of workspaceInfo.repositories) {
-    const worktreePath = path.join(agentDir, repo.name);
-    const sourceRepoPath = path.join(workspaceInfo.path, 'repos', repo.name);
+  // 3. Remove git worktrees for each repository (skip if keepTemp)
+  if (!keepTemp) {
+    for (const repo of workspaceInfo.repositories) {
+      const worktreePath = path.join(agentDir, repo.name);
+      const sourceRepoPath = path.join(workspaceInfo.path, 'repos', repo.name);
 
-    if (fs.existsSync(worktreePath) && fs.existsSync(sourceRepoPath)) {
-      if (dryRun) {
-        log(`[dry-run] Would remove worktree: ${worktreePath}`);
-      } else {
-        log(`Removing worktree: ${worktreePath}`);
-        try {
-          execSync(`git worktree remove "${worktreePath}" --force`, {
-            cwd: sourceRepoPath,
-            stdio: 'pipe'
-          });
-        } catch {
-          // If git worktree remove fails, we'll still try to remove the directory
+      if (fs.existsSync(worktreePath) && fs.existsSync(sourceRepoPath)) {
+        if (dryRun) {
+          log(`[dry-run] Would remove worktree: ${worktreePath}`);
+        } else {
+          log(`Removing worktree: ${worktreePath}`);
+          try {
+            execSync(`git worktree remove "${worktreePath}" --force`, {
+              cwd: sourceRepoPath,
+              stdio: 'pipe'
+            });
+          } catch {
+            // If git worktree remove fails, we'll still try to remove the directory
+          }
         }
       }
     }
   }
 
-  // 4. Remove agent directory
-  if (fs.existsSync(agentDir)) {
+  // 4. Remove agent directory (skip if keepTemp)
+  if (keepTemp) {
+    // Preserve temp directory - just record the path
+    if (fs.existsSync(agentDir)) {
+      result.tempPreserved = true;
+      result.preservedPath = agentDir;
+      if (dryRun) {
+        log(`[dry-run] Would preserve directory: ${agentDir}`);
+      } else {
+        log(`Preserving directory: ${agentDir}`);
+      }
+    }
+  } else if (fs.existsSync(agentDir)) {
     if (dryRun) {
       log(`[dry-run] Would remove directory: ${agentDir}`);
       result.directoriesRemoved.push(agentDir);
@@ -1118,8 +1138,8 @@ export async function cleanupAgent(
     }
   }
 
-  // 5. Prune worktrees
-  if (!dryRun) {
+  // 5. Prune worktrees (skip if keepTemp)
+  if (!dryRun && !keepTemp) {
     for (const repo of workspaceInfo.repositories) {
       const sourceRepoPath = path.join(workspaceInfo.path, 'repos', repo.name);
       if (fs.existsSync(sourceRepoPath)) {
@@ -1133,6 +1153,7 @@ export async function cleanupAgent(
   }
 
   // 6. Mark agent as cleaned in database (not delete)
+  // Note: We mark as cleaned even with keepTemp since the container is killed
   if (!dryRun && result.success) {
     log(`Marking agent "${agentName}" as cleaned`);
     markAgentCleaned(workspaceInfo.path, agentName);
