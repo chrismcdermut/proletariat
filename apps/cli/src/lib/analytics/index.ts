@@ -56,3 +56,11 @@ export {
   flushQueue,
   shutdown,
 } from './client.js'
+
+// Re-export work event helpers
+export {
+  trackWorkStarted,
+  trackWorkCompleted,
+  trackWorkFailed,
+  trackWorkStopped,
+} from './work-events.js'
