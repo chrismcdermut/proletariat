@@ -12,6 +12,17 @@ import { parseChannel } from '../workspace-config.js'
 
 export type MountMode = 'worktree' | 'clone'
 
+/**
+ * Supported programming languages for polyglot Docker images.
+ * Node is always included (required for prlt CLI).
+ */
+export type ContainerLanguage = 'python' | 'go' | 'rust' | 'ruby' | 'java'
+
+/**
+ * All available languages including the default (node)
+ */
+export const ALL_LANGUAGES: ContainerLanguage[] = ['python', 'go', 'rust', 'ruby', 'java']
+
 export interface DevcontainerOptions {
   agentName: string
   agentDir: string
@@ -23,6 +34,8 @@ export interface DevcontainerOptions {
   prltChannel?: string
   /** Mount mode: 'worktree' needs parent repo mounts + git wrapper, 'clone' is self-contained */
   mountMode?: MountMode
+  /** Additional languages to install (Node is always included for prlt CLI) */
+  languages?: ContainerLanguage[]
 }
 
 export interface DevcontainerJson {
@@ -48,6 +61,83 @@ export interface DevcontainerJson {
 }
 
 /**
+ * Get VS Code extensions for specified languages.
+ * Returns a list of extension IDs to install in the devcontainer.
+ */
+function getLanguageExtensions(languages: ContainerLanguage[]): string[] {
+  const extensions: string[] = []
+
+  if (languages.includes('python')) {
+    extensions.push(
+      'ms-python.python',           // Python language support
+      'ms-python.vscode-pylance',   // Python language server
+      'ms-python.black-formatter',  // Black formatter
+    )
+  }
+
+  if (languages.includes('go')) {
+    extensions.push(
+      'golang.go',  // Go language support (includes gopls)
+    )
+  }
+
+  if (languages.includes('rust')) {
+    extensions.push(
+      'rust-lang.rust-analyzer',  // Rust language support
+      'tamasfe.even-better-toml', // TOML support for Cargo.toml
+    )
+  }
+
+  if (languages.includes('ruby')) {
+    extensions.push(
+      'shopify.ruby-lsp',   // Ruby LSP
+      'castwide.solargraph', // Solargraph for code completion
+    )
+  }
+
+  if (languages.includes('java')) {
+    extensions.push(
+      'redhat.java',              // Java language support
+      'vscjava.vscode-maven',     // Maven support
+      'vscjava.vscode-gradle',    // Gradle support
+      'vscjava.vscode-java-debug', // Java debugging
+    )
+  }
+
+  return extensions
+}
+
+/**
+ * Build the PATH environment variable for the container.
+ * Includes paths for all installed languages.
+ */
+function buildContainerPath(languages: ContainerLanguage[]): string {
+  const paths: string[] = ['/hq/.proletariat/bin']
+
+  // Add language-specific paths
+  if (languages.includes('python')) {
+    paths.push('/home/node/.local/bin')
+  }
+  if (languages.includes('go')) {
+    paths.push('/usr/local/go/bin', '/home/node/go/bin')
+  }
+  if (languages.includes('rust')) {
+    paths.push('/home/node/.cargo/bin')
+  }
+  if (languages.includes('ruby')) {
+    paths.push('/home/node/.gem/bin')
+  }
+  if (languages.includes('java')) {
+    paths.push('/opt/gradle/bin')
+  }
+
+  // Add standard paths last
+  paths.push('/home/node/.npm-global/bin', '/usr/local/bin', '/usr/bin', '/bin')
+
+  return paths.join(':')
+}
+
+/**
  * Generate default devcontainer.json content
  *
  * Uses a custom Dockerfile with firewall for network sandboxing.
@@ -57,6 +147,7 @@ export interface DevcontainerJson {
 export function generateDevcontainerJson(options: DevcontainerOptions, config?: ExecutionConfig): DevcontainerJson {
   const cfg = config || DEFAULT_EXECUTION_CONFIG
   const mountMode = options.mountMode || 'worktree'  // Default to worktree mode
+  const languages = options.languages || []
 
   // Parse the channel to determine registry and version
   const channel = parseChannel(options.prltChannel || 'npm')
@@ -110,6 +201,14 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
     mounts.push('source=${localEnv:PRLT_REPO_PATH},target=/opt/prlt,type=bind,readonly')
   }
 
+  // Build extensions list - base extensions + language-specific
+  const extensions = [
+    'anthropic.claude-code',
+    'dbaeumer.vscode-eslint',
+    'esbenp.prettier-vscode',
+    ...getLanguageExtensions(languages),
+  ]
+
   const devcontainerJson: DevcontainerJson = {
     name: `Agent: ${options.agentName}`,
     build: {
@@ -118,11 +217,7 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
     },
     customizations: {
       vscode: {
-        extensions: [
-          'anthropic.claude-code',
-          'dbaeumer.vscode-eslint',
-          'esbenp.prettier-vscode',
-        ],
+        extensions,
         settings: {
           'editor.formatOnSave': true,
           'editor.defaultFormatter': 'esbenp.prettier-vscode',
@@ -148,8 +243,8 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       PRLT_HOST_PATH: options.agentDir,
       // Mount mode - allows scripts to know if git wrapper is needed
       PRLT_MOUNT_MODE: mountMode,
-      // /hq/.proletariat/bin contains prlt wrapper with ESM loader for native modules
-      PATH: '/hq/.proletariat/bin:/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin',
+      // Container PATH includes all language-specific paths
+      PATH: buildContainerPath(languages),
     },
     workspaceFolder: '/workspace',
     postStartCommand: 'sudo /usr/local/bin/init-firewall.sh && /usr/local/bin/setup-prlt.sh',
@@ -160,13 +255,161 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
 }
 
 /**
+ * Generate language installation blocks for the Dockerfile.
+ * Each language is installed in its own RUN block for better caching.
+ */
+function generateLanguageInstallBlocks(languages: ContainerLanguage[]): string {
+  const blocks: string[] = []
+
+  if (languages.includes('python')) {
+    blocks.push(`
+# ============================================================
+# Python Runtime
+# ============================================================
+RUN apt-get update && apt-get install -y \\
+    python3 python3-pip python3-venv python3-dev \\
+    && rm -rf /var/lib/apt/lists/* \\
+    && ln -sf /usr/bin/python3 /usr/bin/python
+
+# Configure pip for node user
+RUN mkdir -p /home/node/.local/bin \\
+    && chown -R node:node /home/node/.local
+ENV PATH=/home/node/.local/bin:\$PATH
+
+# Install common Python tools as node user
+USER node
+RUN pip3 install --user --no-cache-dir \\
+    pipx poetry black flake8 mypy pytest
+USER root`)
+  }
+
+  if (languages.includes('go')) {
+    blocks.push(`
+# ============================================================
+# Go Runtime
+# ============================================================
+ARG GO_VERSION=1.22.0
+RUN ARCH=$(dpkg --print-architecture) && \\
+    curl -L "https://go.dev/dl/go\${GO_VERSION}.linux-\${ARCH}.tar.gz" -o /tmp/go.tar.gz && \\
+    tar -C /usr/local -xzf /tmp/go.tar.gz && \\
+    rm /tmp/go.tar.gz
+
+# Configure Go paths
+ENV GOROOT=/usr/local/go
+ENV GOPATH=/home/node/go
+ENV PATH=\${GOROOT}/bin:\${GOPATH}/bin:\$PATH
+
+# Create Go directories for node user
+RUN mkdir -p /home/node/go/bin /home/node/go/pkg /home/node/go/src \\
+    && chown -R node:node /home/node/go
+
+# Install common Go tools
+USER node
+RUN go install golang.org/x/tools/gopls@latest \\
+    && go install github.com/go-delve/delve/cmd/dlv@latest \\
+    && go install golang.org/x/lint/golint@latest
+USER root`)
+  }
+
+  if (languages.includes('rust')) {
+    blocks.push(`
+# ============================================================
+# Rust Runtime
+# ============================================================
+# Install Rust as node user (rustup installs to home directory)
+USER node
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+ENV PATH=/home/node/.cargo/bin:\$PATH
+
+# Install common Rust tools
+RUN . /home/node/.cargo/env && \\
+    rustup component add rust-analyzer clippy rustfmt && \\
+    cargo install cargo-watch cargo-edit
+USER root`)
+  }
+
+  if (languages.includes('ruby')) {
+    blocks.push(`
+# ============================================================
+# Ruby Runtime
+# ============================================================
+RUN apt-get update && apt-get install -y \\
+    ruby ruby-dev ruby-bundler \\
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure gem for node user
+RUN mkdir -p /home/node/.gem/bin \\
+    && chown -R node:node /home/node/.gem
+ENV GEM_HOME=/home/node/.gem
+ENV PATH=/home/node/.gem/bin:\$PATH
+
+# Install common Ruby tools
+USER node
+RUN gem install solargraph rubocop rake
+USER root`)
+  }
+
+  if (languages.includes('java')) {
+    blocks.push(`
+# ============================================================
+# Java Runtime (OpenJDK + Maven + Gradle)
+# ============================================================
+RUN apt-get update && apt-get install -y \\
+    openjdk-17-jdk maven \\
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Gradle
+ARG GRADLE_VERSION=8.5
+RUN curl -L "https://services.gradle.org/distributions/gradle-\${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip && \\
+    unzip /tmp/gradle.zip -d /opt && \\
+    rm /tmp/gradle.zip && \\
+    ln -s /opt/gradle-\${GRADLE_VERSION} /opt/gradle
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV GRADLE_HOME=/opt/gradle
+ENV PATH=\${GRADLE_HOME}/bin:\$PATH`)
+  }
+
+  return blocks.join('\n')
+}
+
+/**
  * Generate Dockerfile content for the devcontainer.
  * Uses architecture auto-detection for cross-platform compatibility.
+ * Supports polyglot configuration with multiple language runtimes.
  */
 export function generateDockerfile(options: DevcontainerOptions): string {
   const timezone = options.timezone || 'America/Los_Angeles'
+  const languages = options.languages || []
+
+  // Generate language-specific installation blocks
+  const languageBlocks = generateLanguageInstallBlocks(languages)
+
+  // Build the final PATH with all language paths
+  let additionalPaths = ''
+  if (languages.includes('python')) {
+    additionalPaths += '/home/node/.local/bin:'
+  }
+  if (languages.includes('go')) {
+    additionalPaths += '/usr/local/go/bin:/home/node/go/bin:'
+  }
+  if (languages.includes('rust')) {
+    additionalPaths += '/home/node/.cargo/bin:'
+  }
+  if (languages.includes('ruby')) {
+    additionalPaths += '/home/node/.gem/bin:'
+  }
+  if (languages.includes('java')) {
+    additionalPaths += '/opt/gradle/bin:'
+  }
 
   return `FROM node:20
+
+# ============================================================
+# Polyglot Agent Container
+# Base: Node.js 20 (required for prlt CLI)
+# Languages: ${languages.length > 0 ? languages.join(', ') : 'Node.js only'}
+# ============================================================
 
 # Ensure we run as root for apt-get and system setup
 USER root
@@ -178,7 +421,8 @@ ENV DEVCONTAINER=true
 # Install system dependencies
 RUN apt-get update && apt-get install -y \\
     less git git-lfs procps sudo fzf zsh man-db unzip gnupg2 gh tmux \\
-    iptables ipset iproute2 dnsutils jq nano vim \\
+    iptables ipset iproute2 dnsutils jq nano vim curl wget \\
+    build-essential pkg-config libssl-dev \\
     && rm -rf /var/lib/apt/lists/* \\
     && git lfs install
 
@@ -211,6 +455,7 @@ ENV PATH=/home/node/.npm-global/bin:\$PATH
 USER node
 RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code
 USER root
+${languageBlocks}
 
 # Install prlt CLI from public npm
 # PRLT_REGISTRY: "npm" (install from npmjs.com) or "mount" (use host mount)
@@ -237,6 +482,9 @@ ENV EDITOR=nano
 
 # Configure shell history
 ENV HISTFILE=/commandhistory/.bash_history
+
+# Final PATH configuration (include all language paths)
+ENV PATH=${additionalPaths}/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
 
 USER node
 WORKDIR /workspace
@@ -339,6 +587,48 @@ add_domain "npmjs.com"
 add_domain "nodejs.org"
 add_domain "update.code.visualstudio.com"
 add_domain "vscode.download.prss.microsoft.com"
+
+# ============================================================
+# Language Package Registries (Polyglot Support)
+# ============================================================
+
+# Python (PyPI)
+echo "Adding Python package registry domains..."
+add_domain "pypi.org"
+add_domain "files.pythonhosted.org"
+add_domain "pythonhosted.org"
+add_domain "bootstrap.pypa.io"
+
+# Go
+echo "Adding Go package registry domains..."
+add_domain "proxy.golang.org"
+add_domain "sum.golang.org"
+add_domain "go.dev"
+add_domain "golang.org"
+add_domain "storage.googleapis.com"
+
+# Rust (crates.io)
+echo "Adding Rust package registry domains..."
+add_domain "crates.io"
+add_domain "static.crates.io"
+add_domain "index.crates.io"
+add_domain "static.rust-lang.org"
+add_domain "sh.rustup.rs"
+
+# Ruby (RubyGems)
+echo "Adding Ruby package registry domains..."
+add_domain "rubygems.org"
+add_domain "index.rubygems.org"
+add_domain "rubygems.global.ssl.fastly.net"
+
+# Java (Maven Central, Gradle)
+echo "Adding Java package registry domains..."
+add_domain "repo.maven.apache.org"
+add_domain "repo1.maven.org"
+add_domain "plugins.gradle.org"
+add_domain "services.gradle.org"
+add_domain "downloads.gradle.org"
+add_domain "jcenter.bintray.com"
 
 # Allow traffic to whitelisted IPs
 iptables -A OUTPUT -m set --match-set allowed-domains dst -j ACCEPT

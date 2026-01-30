@@ -31,7 +31,7 @@ import {
   extractBaseName,
   getAgentBaseName,
 } from '../themes.js';
-import { createDevcontainerConfig } from '../execution/devcontainer.js';
+import { createDevcontainerConfig, ContainerLanguage } from '../execution/devcontainer.js';
 import { getPMOContext } from '../pmo/index.js';
 
 export interface AgentStatus {
@@ -356,6 +356,7 @@ export interface AddAgentOptions {
   skipDevcontainer?: boolean;  // Skip devcontainer creation (default: false)
   themeId?: string;            // Theme ID if agent came from a theme
   mountMode?: DBMountMode;     // 'worktree' = git worktree (default), 'clone' = independent clone
+  languages?: ContainerLanguage[];  // Languages to include in the container (python, go, rust, ruby, java)
 }
 
 /**
@@ -495,6 +496,8 @@ export interface EphemeralAgentOptions {
   log?: (message: string) => void;
   /** Mount mode: 'worktree' = git worktree (default), 'clone' = independent clone */
   mountMode?: DBMountMode;
+  /** Languages to include in the container (python, go, rust, ruby, java) */
+  languages?: ContainerLanguage[];
 }
 
 export interface EphemeralAgentResult {
@@ -643,6 +646,7 @@ export async function createEphemeralAgent(
         agentDir,
         repoWorktrees: mountMode === 'worktree' ? workspaceInfo.repositories.map(r => r.name) : undefined,
         mountMode,
+        languages: options?.languages,
       });
     }
   }

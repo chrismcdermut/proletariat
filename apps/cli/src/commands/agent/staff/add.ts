@@ -4,8 +4,9 @@ import inquirer from 'inquirer';
 import {
   getWorkspaceInfo,
   validateAgentNames,
-  addAgentsToWorkspace
+  addAgentsToWorkspace,
 } from '../../../lib/agents/commands.js';
+import { ALL_LANGUAGES, ContainerLanguage } from '../../../lib/execution/devcontainer.js';
 import { ensureBuiltinThemes, BUILTIN_THEMES, isValidAgentName, normalizeAgentName } from '../../../lib/themes.js';
 import {
   getTheme,
@@ -29,6 +30,8 @@ export default class Add extends Command {
     '<%= config.bin %> <%= command.id %> agent-1 agent-2',
     '<%= config.bin %> <%= command.id %> --theme billionaires',
     '<%= config.bin %> <%= command.id %> my-agent --no-container',
+    '<%= config.bin %> <%= command.id %> my-agent --languages python,go',
+    '<%= config.bin %> <%= command.id %> my-agent --polyglot',
   ];
 
   static args = {
@@ -53,6 +56,15 @@ export default class Add extends Command {
     }),
     clone: Flags.boolean({
       description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
+      default: false,
+    }),
+    languages: Flags.string({
+      char: 'l',
+      description: 'Languages to include in the container (comma-separated: python,go,rust,ruby,java)',
+      multiple: true,
+    }),
+    polyglot: Flags.boolean({
+      description: 'Include all supported languages in the container (python, go, rust, ruby, java)',
       default: false,
     }),
   };
@@ -309,11 +321,41 @@ export default class Add extends Command {
         agentNames = valid;
       }
 
+      // Parse languages flag
+      let languages: ContainerLanguage[] | undefined;
+      if (flags.polyglot) {
+        // Include all supported languages
+        languages = [...ALL_LANGUAGES];
+      } else if (flags.languages && flags.languages.length > 0) {
+        // Parse comma-separated languages
+        const rawLanguages = flags.languages.flatMap(l => l.split(',').map(s => s.trim().toLowerCase()));
+        const validLanguages: ContainerLanguage[] = [];
+        const invalidLanguages: string[] = [];
+
+        for (const lang of rawLanguages) {
+          if (ALL_LANGUAGES.includes(lang as ContainerLanguage)) {
+            validLanguages.push(lang as ContainerLanguage);
+          } else if (lang) {
+            invalidLanguages.push(lang);
+          }
+        }
+
+        if (invalidLanguages.length > 0) {
+          this.log(chalk.yellow(`Unknown languages: ${invalidLanguages.join(', ')}`));
+          this.log(chalk.blue(`Supported languages: ${ALL_LANGUAGES.join(', ')}`));
+        }
+
+        if (validLanguages.length > 0) {
+          languages = validLanguages;
+        }
+      }
+
       // Add agents to workspace
       const addedAgents = await addAgentsToWorkspace(workspaceInfo, agentNames, {
         skipDevcontainer: flags['no-container'],
         themeId,
         mountMode: flags.clone ? 'clone' : 'worktree',
+        languages,
       });
 
       if (addedAgents.length === 0) {
@@ -329,7 +371,11 @@ export default class Add extends Command {
       }
 
       if (!flags['no-container']) {
-        this.log(chalk.blue('   Devcontainer config created for sandboxed execution'));
+        if (languages && languages.length > 0) {
+          this.log(chalk.blue(`   Polyglot container: Node.js + ${languages.join(', ')}`));
+        } else {
+          this.log(chalk.blue('   Devcontainer config created (Node.js only)'));
+        }
       }
 
     } catch (error) {

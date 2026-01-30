@@ -6,7 +6,7 @@ import chalk from 'chalk';
 import { isValidAgentName, getSuggestedAgentNames, BUILTIN_THEMES, getThemePersistentDir } from '../themes.js';
 import { getWorkspaceRepositories, getActiveTheme } from '../database/index.js';
 import { styles } from '../styles.js';
-import { createDevcontainerConfig } from '../execution/devcontainer.js';
+import { createDevcontainerConfig, ContainerLanguage } from '../execution/devcontainer.js';
 
 export interface HQConfig {
   type: 'hq';
@@ -97,6 +97,7 @@ export type MountMode = 'worktree' | 'clone';
 export interface CreateAgentOptions {
   skipDevcontainer?: boolean;  // Skip devcontainer creation (default: false)
   mountMode?: MountMode;       // 'worktree' = git worktree (shared .git, default), 'clone' = independent clone
+  languages?: ContainerLanguage[];  // Languages to include in the container (python, go, rust, ruby, java)
 }
 
 /**
@@ -258,6 +259,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
               agentDir,
               repoWorktrees: mountMode === 'worktree' ? createdRepos : undefined,  // Only pass repos for worktree mode
               mountMode,
+              languages: options?.languages,
             });
           }
 
@@ -390,6 +392,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
             agentDir,
             repoWorktrees: mountMode === 'worktree' ? [repoName] : undefined,  // Only pass repos for worktree mode
             mountMode,
+            languages: options?.languages,
           });
         }
 
