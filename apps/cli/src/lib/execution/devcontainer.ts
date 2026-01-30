@@ -522,7 +522,7 @@ if [ -d "/opt/prlt/apps/cli" ]; then
         # Install only better-sqlite3 with correct architecture
         cd "$PRLT_LOCAL"
         npm init -y > /dev/null 2>&1
-        npm install better-sqlite3@11.6.0 --build-from-source 2>&1 || {
+        npm install better-sqlite3@12.6.2 --build-from-source 2>&1 || {
             echo "Warning: better-sqlite3 rebuild failed"
         }
 
