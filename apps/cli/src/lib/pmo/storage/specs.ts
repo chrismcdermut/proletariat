@@ -22,20 +22,19 @@ export class SpecStorage {
 
     this.ctx.db.prepare(`
       INSERT INTO ${T.specs} (
-        id, title, status, type, tags, depends_on,
+        id, title, status, type, tags,
         problem, solution, decisions, not_now, ui_ux,
         acceptance_criteria, open_questions,
         requirements_functional, requirements_technical,
         context, created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       spec.title || 'Untitled Spec',
       spec.status || 'draft',
       spec.type || null,
       spec.tags ? JSON.stringify(spec.tags) : null,
-      spec.dependsOn ? JSON.stringify(spec.dependsOn) : null,
       spec.problem || null,
       spec.solution || null,
       spec.decisions || null,
@@ -56,7 +55,8 @@ export class SpecStorage {
       status: spec.status || 'draft',
       type: spec.type,
       tags: spec.tags,
-      dependsOn: spec.dependsOn,
+      // Note: dependsOn is now handled via spec_dependencies table
+      dependsOn: undefined,
       problem: spec.problem,
       solution: spec.solution,
       decisions: spec.decisions,
@@ -77,7 +77,7 @@ export class SpecStorage {
    */
   async getSpec(id: string): Promise<Spec | null> {
     const row = this.ctx.db.prepare(`
-      SELECT id, title, status, type, tags, depends_on,
+      SELECT id, title, status, type, tags,
              problem, solution, decisions, not_now, ui_ux,
              acceptance_criteria, open_questions,
              requirements_functional, requirements_technical,
@@ -95,7 +95,7 @@ export class SpecStorage {
    */
   async listSpecs(filter?: SpecFilter): Promise<Spec[]> {
     let query = `
-      SELECT id, title, status, type, tags, depends_on,
+      SELECT id, title, status, type, tags,
              problem, solution, decisions, not_now, ui_ux,
              acceptance_criteria, open_questions,
              requirements_functional, requirements_technical,
@@ -156,10 +156,6 @@ export class SpecStorage {
     if (changes.tags !== undefined) {
       updates.push('tags = ?')
       params.push(JSON.stringify(changes.tags))
-    }
-    if (changes.dependsOn !== undefined) {
-      updates.push('depends_on = ?')
-      params.push(JSON.stringify(changes.dependsOn))
     }
     if (changes.problem !== undefined) {
       updates.push('problem = ?')
@@ -332,7 +328,7 @@ export class SpecStorage {
     }
 
     this.ctx.db.prepare(`
-      INSERT OR IGNORE INTO ${T.spec_dependencies} (spec_id, depends_on, created_at)
+      INSERT OR IGNORE INTO ${T.spec_dependencies} (spec_id, depends_on_spec_id, created_at)
       VALUES (?, ?, ?)
     `).run(specId, dependsOnId, Date.now())
   }
@@ -343,7 +339,7 @@ export class SpecStorage {
   async removeSpecDependency(specId: string, dependsOnId: string): Promise<void> {
     this.ctx.db.prepare(`
       DELETE FROM ${T.spec_dependencies}
-      WHERE spec_id = ? AND depends_on = ?
+      WHERE spec_id = ? AND depends_on_spec_id = ?
     `).run(specId, dependsOnId)
   }
 
@@ -352,13 +348,13 @@ export class SpecStorage {
    */
   async getSpecDependencies(specId: string): Promise<Spec[]> {
     const rows = this.ctx.db.prepare(`
-      SELECT depends_on FROM ${T.spec_dependencies} WHERE spec_id = ?
-    `).all(specId) as Array<{ depends_on: string }>
+      SELECT depends_on_spec_id FROM ${T.spec_dependencies} WHERE spec_id = ?
+    `).all(specId) as Array<{ depends_on_spec_id: string }>
 
     const specs: Spec[] = []
     for (const row of rows) {
       // eslint-disable-next-line no-await-in-loop -- Sequential lookup for relationship chain
-      const spec = await this.getSpec(row.depends_on)
+      const spec = await this.getSpec(row.depends_on_spec_id)
       if (spec) specs.push(spec)
     }
     return specs
@@ -369,7 +365,7 @@ export class SpecStorage {
    */
   async getSpecDependents(specId: string): Promise<Spec[]> {
     const rows = this.ctx.db.prepare(`
-      SELECT spec_id FROM ${T.spec_dependencies} WHERE depends_on = ?
+      SELECT spec_id FROM ${T.spec_dependencies} WHERE depends_on_spec_id = ?
     `).all(specId) as Array<{ spec_id: string }>
 
     const specs: Spec[] = []
@@ -420,7 +416,7 @@ export class SpecStorage {
    */
   async getSpecsForProject(projectId: string): Promise<Spec[]> {
     const rows = this.ctx.db.prepare(`
-      SELECT s.id, s.title, s.status, s.type, s.tags, s.depends_on,
+      SELECT s.id, s.title, s.status, s.type, s.tags,
              s.problem, s.solution, s.decisions, s.not_now, s.ui_ux,
              s.acceptance_criteria, s.open_questions,
              s.requirements_functional, s.requirements_technical,

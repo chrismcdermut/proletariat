@@ -63,7 +63,7 @@ export interface SpecRow {
   status: string
   type: string | null
   tags: string | null
-  depends_on: string | null
+  depends_on?: string | null  // Legacy field, no longer used (dependencies via spec_dependencies table)
   problem: string | null
   solution: string | null
   decisions: string | null
