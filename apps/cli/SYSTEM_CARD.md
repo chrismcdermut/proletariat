@@ -100,9 +100,10 @@ This is the authoritative list of commands that MUST exist in the CLI.
 
 #### PMO Commands
 
-| Command         | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
-| --------------- | -- | -- | -- | -- | -------------------------------- | ---- |
-| `prlt pmo init` | ✓  | ✓  | -  | -  | Initialize PMO system (one-time) | -    |
+| Command             | 📝 | ✅ | 🧪 | 👤 | Description                                                     | Spec |
+| ------------------- | -- | -- | -- | -- | --------------------------------------------------------------- | ---- |
+| `prlt pmo init`     | ✓  | ✓  | -  | -  | Reinitialize PMO in HQ (PMO included by default in `prlt init`) | -    |
+| `prlt migrate-pmo`  | ✓  | ✓  | -  | -  | Migrate standalone PMO to HQ                                    | -    |
 
 #### Project Commands
 

@@ -384,18 +384,49 @@ Update installed plugins.
 
 ### `prlt pmo init`
 
-Initialize PMO (Project Management Org) in current directory or HQ
+Initialize or reinitialize PMO (Project Management Org) in an HQ. **Must be run from within an HQ directory.**
+
+Note: PMO is included by default when you run `prlt init`. Use this command only to reinitialize or customize an existing PMO.
 
 **Flags:**
-- -s, `--storage` - Storage backend
-- -t, `--template` - Board template
+- -l, `--location` - PMO location (separate or repo:name)
+- -t, `--template` - Board template (kanban, linear, scrum, 5-tool, custom)
 - -n, `--name` - Board name
 
 **Examples:**
 ```bash
-prlt pmo init
-prlt pmo init --storage git --template scrum
-prlt pmo init --storage sqlite --template founder
+# First create an HQ with PMO
+prlt init --name my-project
+
+# Later, reinitialize PMO with different settings
+cd my-project-hq
+prlt pmo init --template scrum
+prlt pmo init --location repo:myrepo --template linear
+```
+
+---
+
+### `prlt migrate-pmo`
+
+Migrate tickets from a standalone PMO to an HQ workspace. Use this if you previously created a PMO outside of an HQ and need to migrate your data.
+
+**Flags:**
+- -f, `--from` - Path to standalone PMO directory (default: auto-detect)
+- -t, `--to` - Target HQ name or path
+- `--list` - List available PMOs and HQs without migrating
+- `--keep-source` - Keep the source PMO after migration
+- `--force` - Skip confirmation prompts
+
+**Examples:**
+```bash
+# List available PMOs and HQs
+prlt migrate-pmo --list
+
+# Migrate to a specific HQ
+prlt migrate-pmo --to my-hq
+
+# Migrate from a specific path
+prlt migrate-pmo --from /path/to/.pmo --to /path/to/my-hq
 ```
 
 ---
