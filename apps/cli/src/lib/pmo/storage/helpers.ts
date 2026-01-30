@@ -150,7 +150,8 @@ export function rowToSpec(row: SpecRow): Spec {
     status: row.status as 'draft' | 'active' | 'implemented',
     type: row.type as 'product' | 'platform' | 'infra' | 'integration' | undefined,
     tags: row.tags ? JSON.parse(row.tags) : undefined,
-    dependsOn: row.depends_on ? JSON.parse(row.depends_on) : undefined,
+    // Note: dependsOn is now handled via spec_dependencies table, not inline column
+    dependsOn: undefined,
     problem: row.problem || undefined,
     solution: row.solution || undefined,
     decisions: row.decisions || undefined,
