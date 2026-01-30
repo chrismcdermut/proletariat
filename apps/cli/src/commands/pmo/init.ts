@@ -22,6 +22,7 @@ import { isGHInstalled, isGHAuthenticated, getGHUsername, isGHTokenInEnv } from 
 import {
   shouldOutputJson,
   outputPromptAsJson,
+  outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
 } from '../../lib/prompt-json.js';
@@ -112,6 +113,38 @@ export default class PMOInit extends Command {
       await this.deletePMO(hqRoot!);
     }
 
+    // In JSON mode, if required flags are missing, output error with required fields
+    // Required flags: --location and --template (--name has a default)
+    if (jsonMode) {
+      const missingFlags: string[] = [];
+      if (!flags.location) missingFlags.push('--location');
+      if (!flags.template) missingFlags.push('--template');
+
+      if (missingFlags.length > 0) {
+        // Filter out 'custom' from template options since it requires interactive input
+        const templateOptions = PICKER_TEMPLATE_IDS.filter(t => t !== 'custom').join(', ');
+        outputErrorAsJson(
+          'MISSING_REQUIRED_FLAGS',
+          `Missing required flags: ${missingFlags.join(', ')}. ` +
+          `Use --location (separate or repo:name) and --template (${templateOptions}). ` +
+          `Optional: --name for board name.`,
+          createMetadata('pmo init', flags)
+        );
+        return; // outputErrorAsJson calls process.exit, but return for type safety
+      }
+
+      // 'custom' template requires interactive column input, not supported in JSON mode
+      if (flags.template === 'custom') {
+        outputErrorAsJson(
+          'CUSTOM_TEMPLATE_NOT_SUPPORTED',
+          `The 'custom' template requires interactive input for columns and is not supported in JSON mode. ` +
+          `Use one of: ${PICKER_TEMPLATE_IDS.filter(t => t !== 'custom').join(', ')}`,
+          createMetadata('pmo init', flags)
+        );
+        return;
+      }
+    }
+
     this.log(chalk.blue('🎯 Initializing PMO...\n'));
     this.log(chalk.gray('   Creates board.md and specs/ for project planning'));
     this.log(chalk.gray('   (Data stored in SQLite, synced to markdown files)\n'));
@@ -156,8 +189,9 @@ export default class PMOInit extends Command {
     // Get board name using shared prompt (or from flag)
     // Default to {hqname}-kanban pattern
     const hqName = hqRoot ? path.basename(hqRoot).replace(/-hq$/, '') : undefined;
-    const defaultBoardName = hqName ? `${hqName}-kanban` : undefined;
-    const boardName = flags.name || await promptForBoardName(defaultBoardName);
+    const defaultBoardName = hqName ? `${hqName}-kanban` : 'kanban';
+    // In JSON mode, use default if not provided (don't prompt)
+    const boardName = flags.name || (jsonMode ? defaultBoardName : await promptForBoardName(defaultBoardName));
 
     // For standalone PMO (no HQ), we need to create mini-HQ structure first
     const isStandalone = !hqRoot;

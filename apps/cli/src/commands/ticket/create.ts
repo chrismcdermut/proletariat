@@ -99,6 +99,14 @@ export default class TicketCreate extends PMOCommand {
       this.error(message);
     };
 
+    // --interactive and --json are incompatible
+    if (jsonMode && flags.interactive) {
+      return handleError(
+        'INCOMPATIBLE_FLAGS',
+        '--interactive and --json flags are incompatible. Use --json with required flags: --title, --column.'
+      );
+    }
+
     // In JSON mode without required data, output column selection prompt
     if (jsonMode && !flags.title && !flags.column) {
       // Build base command with project if specified

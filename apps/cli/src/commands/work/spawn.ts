@@ -573,11 +573,76 @@ export default class WorkSpawn extends PMOCommand {
       let selectedActionDetails: Awaited<ReturnType<typeof this.storage.getAction>> | null = null
 
       if (!flags['per-ticket']) {
-        this.log(styles.header('Batch Settings (applies to all tickets)'))
-        this.log('')
+        // In JSON mode, use sensible defaults for batch settings instead of prompting
+        if (jsonMode) {
+          // Action: use provided flag or default to 'implement'
+          batchAction = flags.action || 'implement'
 
-        // Prompt for action selection first (unless explicitly provided via --action flag)
-        if (!flags.action) {
+          // Fetch action details
+          if (batchAction === 'adhoc') {
+            selectedActionDetails = {
+              id: 'adhoc',
+              name: 'Ad-hoc',
+              description: 'Unstructured exploration and debugging',
+              prompt: 'You are working on an ad-hoc session for exploration and debugging.',
+              modifiesCode: false,
+              defaultMoveToCategory: 'started',
+              isBuiltin: false,
+              createdAt: new Date(),
+            }
+          } else {
+            selectedActionDetails = await this.storage.getAction(batchAction)
+          }
+
+          const actionModifiesCode = selectedActionDetails?.modifiesCode ?? true
+
+          // Environment: use host if --run-on-host, otherwise check devcontainer readiness
+          if (!batchRunOnHost && !batchDisplay) {
+            const dockerRunning = isDockerRunning()
+            const devcontainerCliInstalled = isDevcontainerCliInstalled()
+            const devcontainerReady = dockerRunning && devcontainerCliInstalled
+
+            if (devcontainerReady) {
+              batchDisplay = 'devcontainer'
+              batchDisplayMode = 'terminal'
+              flags.session = 'tmux'
+            } else {
+              // Devcontainer not available, use host
+              batchRunOnHost = true
+              batchDisplay = 'terminal'
+            }
+          } else if (!batchDisplay) {
+            batchDisplay = 'terminal'
+          }
+
+          // Output mode
+          if (!batchOutput) {
+            batchOutput = 'interactive'
+          }
+
+          // Permissions: use 'danger' for devcontainer (sandboxed), 'safe' for host
+          if (!flags['skip-permissions']) {
+            batchPermissionMode = batchDisplay === 'devcontainer' ? 'danger' : 'safe'
+          }
+
+          // PR creation: based on action
+          if (!batchCreatePr && !batchNoPr) {
+            if (actionModifiesCode) {
+              batchCreatePr = true
+              batchNoPr = false
+            } else {
+              batchCreatePr = false
+              batchNoPr = true
+            }
+          }
+        } else {
+          // Interactive mode - prompt for settings
+          this.log(styles.header('Batch Settings (applies to all tickets)'))
+          this.log('')
+        }
+
+        // Prompt for action selection first (unless explicitly provided via --action flag or JSON mode)
+        if (!flags.action && !jsonMode) {
           // Get available actions from database
           const actions = await this.storage.listActions()
           const actionChoices = actions
@@ -626,8 +691,8 @@ export default class WorkSpawn extends PMOCommand {
         const hasExplicitSettings = flags.display || flags.output || flags['skip-permissions'] ||
           flags['create-pr'] || flags['no-pr'] || flags['run-on-host']
 
-        // Offer to use default settings if no explicit flags provided
-        if (!hasExplicitSettings) {
+        // Offer to use default settings if no explicit flags provided (interactive mode only)
+        if (!hasExplicitSettings && !jsonMode) {
           const actionName = batchAction || 'implement'
           const modifiesCode = selectedActionDetails?.modifiesCode ?? true
           const defaultsDescription = modifiesCode
@@ -670,7 +735,8 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         // Prompt for environment (devcontainer vs host) if devcontainer available and not already set
-        if (hasDevcontainer && !batchRunOnHost && !batchDisplay) {
+        // Skip in JSON mode - defaults are set above
+        if (hasDevcontainer && !batchRunOnHost && !batchDisplay && !jsonMode) {
           // Check devcontainer prerequisites upfront
           const dockerRunning = isDockerRunning()
           const devcontainerCliInstalled = isDevcontainerCliInstalled()
@@ -813,7 +879,8 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         // Prompt for display mode if not already set (for host mode without devcontainer)
-        if (!batchDisplay) {
+        // Skip in JSON mode - defaults are set above
+        if (!batchDisplay && !jsonMode) {
           const { selectedMode } = await inquirer.prompt([
             {
               type: 'list',
@@ -835,7 +902,8 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         // Prompt for permissions mode if not explicitly set via --skip-permissions flag
-        if (!flags['skip-permissions']) {
+        // Skip in JSON mode - defaults are set above
+        if (!flags['skip-permissions'] && !jsonMode) {
           const { permissionMode } = await inquirer.prompt([
             {
               type: 'list',
@@ -853,8 +921,9 @@ export default class WorkSpawn extends PMOCommand {
 
         // Prompt for PR creation if not provided AND action modifies code
         // Skip this prompt entirely for non-code-modifying actions (like groom)
+        // Skip in JSON mode - defaults are set above
         const actionModifiesCode = selectedActionDetails?.modifiesCode ?? true
-        if (!batchCreatePr && !batchNoPr) {
+        if (!batchCreatePr && !batchNoPr && !jsonMode) {
           if (actionModifiesCode) {
             const { prChoice } = await inquirer.prompt([
               {
