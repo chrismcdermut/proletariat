@@ -16,7 +16,8 @@ import {
   addAgentsToDatabase,
   createTheme,
   addThemeNames,
-  setActiveTheme
+  setActiveTheme,
+  openWorkspaceDatabase,
 } from '../database/index.js';
 import {
   ensureMachineConfigDir,
@@ -24,6 +25,7 @@ import {
   getOrganizations,
   createOrganization,
 } from '../machine-config.js';
+import { enableAnalytics, disableAnalytics } from '../analytics/index.js';
 
 export interface HQConfig {
   type: 'hq';
@@ -54,6 +56,8 @@ export interface InitOptions {
   };
   // Organization name for this HQ
   orgName?: string;
+  // Analytics opt-in preference (null = not asked yet)
+  analyticsEnabled?: boolean;
 }
 
 /**
@@ -256,6 +260,31 @@ export async function promptForOrganization(): Promise<string> {
   return choice;
 }
 
+/**
+ * Prompt user for analytics consent
+ * Uses list selection (not Y/n confirm) per UX guidelines
+ */
+export async function promptForAnalyticsConsent(): Promise<boolean> {
+  console.log(chalk.blue('\n📊 Help improve Proletariat'));
+  console.log(chalk.gray('We collect anonymous usage data to understand which features'));
+  console.log(chalk.gray('are most useful and improve the tool.'));
+  console.log(chalk.gray('No code, file paths, or personal information is collected.'));
+  console.log(chalk.gray('You can change this anytime with: prlt config analytics\n'));
+
+  const { analyticsEnabled } = await inquirer.prompt([{
+    type: 'list',
+    name: 'analyticsEnabled',
+    message: 'Share anonymous usage analytics?',
+    choices: [
+      { name: 'Yes - Help improve Proletariat', value: true },
+      { name: 'No - Opt out of analytics', value: false },
+    ],
+    default: false, // Opt-out by default (privacy-first)
+  }]);
+
+  return analyticsEnabled;
+}
+
 
 /**
  * Create the basic HQ directory structure
@@ -332,6 +361,7 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
     customTheme,
     orgName,
     quiet,
+    analyticsEnabled,
   } = options;
 
   // Helper to log only in non-quiet mode
@@ -349,6 +379,21 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
 
   // Create database and HQ configuration
   initializeHQDatabase(hqPath, options);
+
+  // Save analytics preference if provided
+  if (analyticsEnabled !== undefined) {
+    const db = openWorkspaceDatabase(hqPath);
+    try {
+      if (analyticsEnabled) {
+        enableAnalytics(db);
+        log(chalk.gray('Analytics enabled - thank you for helping improve Proletariat!'));
+      } else {
+        disableAnalytics(db);
+      }
+    } finally {
+      db.close();
+    }
+  }
 
   // Ensure builtin themes exist
   ensureBuiltinThemes(hqPath);

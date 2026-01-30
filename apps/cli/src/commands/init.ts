@@ -7,7 +7,8 @@ import {
   promptForHQLocation,
   initializeHQ,
   showNextSteps,
-  validateHQLocation
+  validateHQLocation,
+  promptForAnalyticsConsent,
 } from '../lib/init/index.js';
 import { promptForAgentsWithTheme } from '../lib/agents/index.js';
 import { promptForRepositories } from '../lib/repos/index.js';
@@ -101,6 +102,9 @@ export default class Init extends Command {
     // Step 5: PMO setup (uses shared prompt from lib/pmo)
     const pmoSetup = await promptForPMOSetup(hqPath, hqName);
 
+    // Step 6: Analytics consent (opt-in, disabled by default)
+    const analyticsEnabled = await promptForAnalyticsConsent();
+
     // Create the options object
     const options = {
       workspaceType: 'hq' as const,
@@ -111,6 +115,7 @@ export default class Init extends Command {
       pmoSetup,
       themeId: agentResult.themeId,
       customTheme: agentResult.customTheme,
+      analyticsEnabled,
     };
 
     // Initialize the HQ

@@ -144,6 +144,21 @@ CREATE INDEX IF NOT EXISTS idx_worktrees_agent ON agent_worktrees(agent_name);
 CREATE INDEX IF NOT EXISTS idx_worktrees_repo ON agent_worktrees(repo_name);
 CREATE INDEX IF NOT EXISTS idx_theme_names_theme ON agent_theme_names(theme_id);
 CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
+
+-- =============================================================================
+-- Analytics Queue (for offline event batching)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS analytics_queue (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_type TEXT NOT NULL,
+  distinct_id TEXT NOT NULL,
+  properties TEXT NOT NULL,
+  timestamp TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_analytics_queue_created ON analytics_queue(created_at);
 `;
 
 /**
