@@ -15,7 +15,7 @@
 
 > ⚠️ **Beta Software** — Under active development. Commands and APIs may change between versions, and bugs are actively being squashed.
 >
-> - **Need help getting set up?** [Book a quick call](https://calendly.com/chrismcdermut/prlt-setup) — I'm happy to help you get prlt running
+> - **Need help getting set up?** [Book a quick call](https://cal.com/chrismcdermut/proletariat?overlayCalendar=true) — I'm happy to help you get prlt running
 
 ---
 
@@ -637,7 +637,7 @@ Claude Code handles its own authentication via `claude login`.
 
 - **Discord**: [discord.gg/tmZyjNNSvw](https://discord.gg/tmZyjNNSvw)
 - **GitHub Issues**: [Report bugs or request features](https://github.com/chrismcdermut/proletariat-cli/issues)
-- **Setup Help**: [Book a quick call](https://calendly.com/chrismcdermut/prlt-setup) — I'm happy to help you get prlt running
+- **Setup Help**: [Book a quick call](https://cal.com/chrismcdermut/proletariat?overlayCalendar=true) — I'm happy to help you get prlt running
 
 ---
 
