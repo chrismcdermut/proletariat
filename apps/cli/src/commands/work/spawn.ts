@@ -19,6 +19,7 @@ import {
   createMetadata,
   buildPromptConfig,
 } from '../../lib/prompt-json.js'
+import { FlagResolver } from '../../lib/flags/index.js'
 
 export default class WorkSpawn extends PMOCommand {
   static description = 'Spawn work for multiple tickets by column (batch mode)'
@@ -207,36 +208,34 @@ export default class WorkSpawn extends PMOCommand {
       } else if (flags.many) {
         spawnMode = 'many'
       } else if (!flags.column) {
-        // In JSON mode without explicit flags, output the mode selection prompt
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig(
-              'list',
-              'mode',
-              'How would you like to spawn work?',
-              [
-                { name: 'All - Spawn all tickets tickets in a column', value: 'all' },
-                { name: 'Many - Select specific tickets to spawn', value: 'many' },
-              ]
-            ),
-            createMetadata('work spawn', flags)
-          )
+        // Use FlagResolver for mode selection
+        const modeResolver = new FlagResolver({
+          commandName: 'work spawn',
+          baseCommand: 'prlt work spawn',
+          flags: flags as Record<string, unknown>,
+          jsonMode,
+        })
+
+        modeResolver.define({
+          name: 'mode',
+          type: 'string',
+          promptType: 'list',
+          message: 'How would you like to spawn work?',
+          required: true,
+          choices: () => [
+            { name: jsonMode ? 'All - Spawn all tickets in a column' : '📦 All    - Spawn all tickets in a column', value: 'all' },
+            { name: jsonMode ? 'Many - Select specific tickets to spawn' : '✅ Many   - Select specific tickets to spawn', value: 'many' },
+          ],
+          flagArg: '--all',
+        })
+
+        const modeResult = await modeResolver.resolve()
+        if (!modeResult.complete) {
           db.close()
           return
         }
-        // Interactive: ask user
-        const { mode } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'mode',
-            message: 'How would you like to spawn work?',
-            choices: [
-              { name: '📦 All    - Spawn all tickets tickets in a column', value: 'all' },
-              { name: '✅ Many   - Select specific tickets to spawn', value: 'many' },
-            ],
-          },
-        ])
-        spawnMode = mode
+
+        spawnMode = modeResult.values.mode as 'all' | 'many'
       }
 
       let ticketsToSpawn: typeof allTickets = []
@@ -286,39 +285,36 @@ export default class WorkSpawn extends PMOCommand {
         let targetColumn = flags.column
 
         if (!targetColumn) {
-          // Show columns with ticket counts
-          const columnChoices = columnNames.map(name => {
-            const count = allTickets.filter(t => t.statusName === name).length
-            return {
-              name: `${name} (${count} tickets)`,
-              value: name,
-            }
+          // Use FlagResolver for column selection
+          const columnResolver = new FlagResolver({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn --all',
+            flags: flags as Record<string, unknown>,
+            jsonMode,
           })
 
-          // In JSON mode, output the column selection prompt
-          if (jsonMode) {
-            outputPromptAsJson(
-              buildPromptConfig(
-                'list',
-                'selectedColumn',
-                'Select column to spawn all tickets tickets from:',
-                columnChoices
-              ),
-              createMetadata('work spawn', flags)
-            )
+          columnResolver.define({
+            name: 'column',
+            type: 'string',
+            promptType: 'list',
+            message: 'Select column to spawn all tickets from:',
+            required: true,
+            choices: () => columnNames.map(name => {
+              const count = allTickets.filter(t => t.statusName === name).length
+              return {
+                name: `${name} (${count} tickets)`,
+                value: name,
+              }
+            }),
+          })
+
+          const columnResult = await columnResolver.resolve()
+          if (!columnResult.complete) {
             db.close()
             return
           }
 
-          const { selectedColumn } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedColumn',
-              message: 'Select column to spawn all tickets tickets from:',
-              choices: columnChoices,
-            },
-          ])
-          targetColumn = selectedColumn
+          targetColumn = columnResult.values.column as string
         }
 
         // Verify column exists
@@ -356,29 +352,41 @@ export default class WorkSpawn extends PMOCommand {
       } else {
         // MANY MODE: First pick column (or all), then multi-select tickets
 
-        // In JSON mode with --many, output the ticket selection prompt directly
+        // In JSON mode with --many, use FlagResolver to output ticket selection prompt
         // (skip column selection for simplicity - show all tickets)
         if (jsonMode) {
-          // Build choices from all tickets tickets
-          const ticketChoices = allTickets.map(ticket => {
-            const priority = ticket.priority ? `[${ticket.priority}] ` : ''
-            return {
-              name: `${priority}${ticket.id} - ${ticket.title} (${ticket.statusName || 'No Status'})`,
-              value: ticket.id,
-            }
+          const ticketResolver = new FlagResolver({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            flags: flags as Record<string, unknown>,
+            jsonMode: true,
           })
 
-          outputPromptAsJson(
-            buildPromptConfig(
-              'checkbox',
-              'selectedTickets',
-              'Select tickets to spawn (provide ticket IDs as positional args to execute):',
-              ticketChoices
-            ),
-            createMetadata('work spawn', flags)
-          )
-          db.close()
-          return
+          ticketResolver.define({
+            name: 'tickets',
+            type: 'array',
+            promptType: 'checkbox',
+            message: 'Select tickets to spawn (provide ticket IDs as positional args to execute):',
+            required: true,
+            choices: () => allTickets.map(ticket => {
+              const priority = ticket.priority ? `[${ticket.priority}] ` : ''
+              return {
+                name: `${priority}${ticket.id} - ${ticket.title} (${ticket.statusName || 'No Status'})`,
+                value: ticket.id,
+              }
+            }),
+            context: () => ({
+              hint: 'Pass selected ticket IDs as positional args: prlt work spawn TKT-001 TKT-002',
+            }),
+          })
+
+          const ticketResult = await ticketResolver.resolve()
+          if (!ticketResult.complete) {
+            db.close()
+            return
+          }
+          // If we get here in JSON mode with tickets resolved, output success
+          // (though normally we'd exit earlier)
         }
 
         // Build column choices with counts - show ALL columns even if empty
