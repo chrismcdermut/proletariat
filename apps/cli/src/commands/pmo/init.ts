@@ -30,12 +30,14 @@ import {
 const PICKER_TEMPLATE_IDS = [...getPickerTemplates().map(t => t.id), 'custom'];
 
 export default class PMOInit extends Command {
-  static description = 'Initialize PMO (Project Management Org) in current directory or HQ';
+  static description = 'Initialize PMO (Project Management Org) in an HQ. Must be run from within an HQ directory.';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --location repo:proletariat --template 5-tool',
     '<%= config.bin %> <%= command.id %> --location separate --template linear',
+    '# Note: PMO is typically created automatically with "prlt init"',
+    '# Use this command to reinitialize or customize an existing PMO',
   ];
 
   static flags = {
@@ -64,41 +66,48 @@ export default class PMOInit extends Command {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // Check if PMO already exists
+    // Check if we're inside an HQ - PMO requires an HQ
     const hqRoot = this.findHQRoot();
+    if (!hqRoot) {
+      this.log(chalk.red('\n❌ Not inside an HQ directory.'));
+      this.log(chalk.gray('\nPMO requires an HQ (headquarters) to store tickets and projects.'));
+      this.log(chalk.gray('Run "prlt init" first to create an HQ with PMO included.\n'));
+      this.log(chalk.cyan('Quick start:'));
+      this.log(chalk.white('  prlt init --name my-project\n'));
+      this.exit(1);
+    }
+
     let existingPMO = false;
     let projectCount = 0;
     let ticketCount = 0;
 
-    if (hqRoot) {
-      const dbPath = path.join(hqRoot, '.proletariat', 'workspace.db');
-      if (fs.existsSync(dbPath)) {
-        try {
-          const db = new Database(dbPath);
-          const result = db.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
-          ).get();
+    const dbPath = path.join(hqRoot, '.proletariat', 'workspace.db');
+    if (fs.existsSync(dbPath)) {
+      try {
+        const db = new Database(dbPath);
+        const result = db.prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
+        ).get();
 
-          if (result !== undefined) {
-            existingPMO = true;
-            // Get counts
-            const projectCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_projects').get() as { count: number };
-            const ticketCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_tickets').get() as { count: number };
-            projectCount = projectCountResult.count;
-            ticketCount = ticketCountResult.count;
-          }
-          db.close();
-        } catch (error) {
-          // Log error for debugging
-          console.error('PMO check error:', error);
-          // Ignore errors - database might not be initialized yet
+        if (result !== undefined) {
+          existingPMO = true;
+          // Get counts
+          const projectCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_projects').get() as { count: number };
+          const ticketCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_tickets').get() as { count: number };
+          projectCount = projectCountResult.count;
+          ticketCount = ticketCountResult.count;
         }
+        db.close();
+      } catch (error) {
+        // Log error for debugging
+        console.error('PMO check error:', error);
+        // Ignore errors - database might not be initialized yet
       }
     }
 
     // If PMO exists, prompt for reinitialize
     if (existingPMO) {
-      const shouldReinitialize = await this.promptReinitialize(hqRoot!, projectCount, ticketCount, jsonMode, flags);
+      const shouldReinitialize = await this.promptReinitialize(hqRoot, projectCount, ticketCount, jsonMode, flags);
       if (shouldReinitialize === null) {
         // JSON mode returned early
         return;
@@ -109,7 +118,7 @@ export default class PMOInit extends Command {
       }
 
       // Delete existing PMO
-      await this.deletePMO(hqRoot!);
+      await this.deletePMO(hqRoot);
     }
 
     this.log(chalk.blue('🎯 Initializing PMO...\n'));
@@ -131,14 +140,12 @@ export default class PMOInit extends Command {
       template = flags.template;
     } else {
       let storage: SQLiteStorage | undefined;
-      if (hqRoot) {
-        const dbPath = path.join(hqRoot, '.proletariat', 'workspace.db');
-        if (fs.existsSync(dbPath)) {
-          try {
-            storage = new SQLiteStorage(dbPath);
-          } catch {
-            // Ignore - will fall back to builtin templates
-          }
+      const dbPathForTemplates = path.join(hqRoot, '.proletariat', 'workspace.db');
+      if (fs.existsSync(dbPathForTemplates)) {
+        try {
+          storage = new SQLiteStorage(dbPathForTemplates);
+        } catch {
+          // Ignore - will fall back to builtin templates
         }
       }
       template = await promptForBoardTemplate(storage);
@@ -155,25 +162,13 @@ export default class PMOInit extends Command {
 
     // Get board name using shared prompt (or from flag)
     // Default to {hqname}-kanban pattern
-    const hqName = hqRoot ? path.basename(hqRoot).replace(/-hq$/, '') : undefined;
-    const defaultBoardName = hqName ? `${hqName}-kanban` : undefined;
+    const hqName = path.basename(hqRoot).replace(/-hq$/, '');
+    const defaultBoardName = `${hqName}-kanban`;
     const boardName = flags.name || await promptForBoardName(defaultBoardName);
-
-    // For standalone PMO (no HQ), we need to create mini-HQ structure first
-    const isStandalone = !hqRoot;
-    let effectiveHqPath: string;
-
-    if (isStandalone) {
-      // Create mini-HQ structure
-      effectiveHqPath = path.join(process.cwd(), '.pmo');
-      await this.createStandaloneHQ(effectiveHqPath);
-    } else {
-      effectiveHqPath = hqRoot;
-    }
 
     // Use shared createPMO function
     await createPMO({
-      hqPath: effectiveHqPath,
+      hqPath: hqRoot,
       location,
       boardTemplate: template,
       boardName,
@@ -182,8 +177,8 @@ export default class PMOInit extends Command {
     });
 
     // Initialize git for separate PMO (recommended for syncing across machines)
-    if (location === 'separate' && !isStandalone) {
-      const pmoPath = determinePMOPath(effectiveHqPath, location);
+    if (location === 'separate') {
+      const pmoPath = determinePMOPath(hqRoot, location);
       await this.initGitForPMO(pmoPath);
     }
 
@@ -193,33 +188,6 @@ export default class PMOInit extends Command {
     this.checkGitHubCLI();
 
     this.logNextSteps();
-  }
-
-  /**
-   * Create standalone mini-HQ structure for PMO outside of an HQ
-   */
-  private async createStandaloneHQ(hqPath: string): Promise<void> {
-    const proletariatPath = path.join(hqPath, '.proletariat');
-    fs.mkdirSync(proletariatPath, { recursive: true });
-
-    // Create minimal config
-    const config = {
-      type: 'hq',
-      name: 'PMO',
-      created: new Date().toISOString(),
-      version: '2.0.0',
-    };
-    fs.writeFileSync(
-      path.join(proletariatPath, 'config.json'),
-      JSON.stringify(config, null, 2)
-    );
-
-    // Create workspace.db using SQLiteStorage (which creates tables)
-    const dbPath = path.join(proletariatPath, 'workspace.db');
-    const storage = new SQLiteStorage(dbPath);
-    await storage.close();
-
-    this.log(chalk.green('  ✓ Standalone PMO structure created'));
   }
 
   private findHQRoot(): string | null {

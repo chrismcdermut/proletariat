@@ -64,12 +64,13 @@ function hasPMOTables(dbPath: string): boolean {
  * Search priority:
  * 1. PRLT_HQ_PATH env var (ONLY when DEVCONTAINER=true - for devcontainer mounts)
  * 2. Current directory tree for HQ with PMO
- * 3. Current directory tree for standalone PMO (.pmo/)
- * 4. ~/.proletariat/config.json activeWorkspace (fallback when NOT in any workspace)
- * 5. Global config for default PMO
+ * 3. ~/.proletariat/config.json activeWorkspace (fallback when NOT in any workspace)
  *
  * NOTE: PRLT_HQ_PATH is ignored on host machines to support multiple agents
  * working in different workspaces simultaneously.
+ *
+ * NOTE: Standalone .pmo/ directories and defaultPMO global config are no longer
+ * supported. PMO must be inside an HQ. Use "prlt migrate-pmo" to migrate data.
  */
 export function findPMO(): string | null {
   // Check PRLT_HQ_PATH environment variable (only in devcontainers)
@@ -84,7 +85,7 @@ export function findPMO(): string | null {
 
   let currentDir = process.cwd();
 
-  // Search up the directory tree
+  // Search up the directory tree for HQ with PMO
   while (currentDir !== '/') {
     const configPath = path.join(currentDir, '.proletariat', 'config.json');
 
@@ -130,13 +131,6 @@ export function findPMO(): string | null {
       }
     }
 
-    // Check for standalone .pmo directory (mini-HQ structure)
-    const dotPmoPath = path.join(currentDir, '.pmo');
-    const dotPmoDbPath = path.join(dotPmoPath, '.proletariat', 'workspace.db');
-    if (hasPMOTables(dotPmoDbPath)) {
-      return path.join(dotPmoPath, 'pmo');
-    }
-
     currentDir = path.dirname(currentDir);
   }
 
@@ -163,23 +157,6 @@ export function findPMO(): string | null {
 
           // Fallback: default location at HQ root
           return path.join(activeHqPath, 'pmo');
-        }
-      }
-    } catch {
-      // Ignore parse errors
-    }
-  }
-
-  // Check global config for default PMO (legacy fallback)
-  const globalConfigPath = path.join(process.env.HOME || '', '.proletariat', 'config.json');
-  if (fs.existsSync(globalConfigPath)) {
-    try {
-      const config = JSON.parse(fs.readFileSync(globalConfigPath, 'utf-8'));
-      if (config.defaultPMO) {
-        // Check if it's an HQ or mini-HQ with workspace.db
-        const hqDbPath = path.join(path.dirname(config.defaultPMO), '.proletariat', 'workspace.db');
-        if (hasPMOTables(hqDbPath)) {
-          return config.defaultPMO;
         }
       }
     } catch {
