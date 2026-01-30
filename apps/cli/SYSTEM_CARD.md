@@ -98,11 +98,13 @@ This is the authoritative list of commands that MUST exist in the CLI.
 | `prlt repo view`       | ✓  | ✓  | -  | -  | View repository details         | -    |
 | `prlt repo remove`     | ✓  | ✓  | -  | -  | Remove repository               | -    |
 
-#### PMO Commands
+#### PMO Migration Commands
 
-| Command         | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
-| --------------- | -- | -- | -- | -- | -------------------------------- | ---- |
-| `prlt pmo init` | ✓  | ✓  | -  | -  | Initialize PMO system (one-time) | -    |
+| Command             | 📝 | ✅ | 🧪 | 👤 | Description                                 | Spec |
+| ------------------- | -- | -- | -- | -- | ------------------------------------------- | ---- |
+| `prlt migrate-pmo`  | ✓  | ✓  | -  | -  | Migrate from legacy global/standalone PMO   | -    |
+
+**Note:** PMO is now always created with `prlt init`. The `prlt pmo init` command has been removed.
 
 #### Project Commands
 
@@ -564,7 +566,7 @@ Examples:
 | `next_epic_id` | 1 | Auto-increment counter for EPIC-XXX IDs |
 | `pmo_path` | pmo | Relative path to PMO directory from HQ root |
 
-**Template-specific column mappings** (set automatically by `pmo init`):
+**Template-specific column mappings** (set automatically during `prlt init`):
 
 | Template | column_in_progress | column_review | column_done |
 |----------|-------------------|---------------|-------------|

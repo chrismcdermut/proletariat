@@ -31,7 +31,7 @@ Sandboxed execution environment for AI agents using VS Code devcontainers. Provi
 | `prlt agents add [names...]` | Add agents with devcontainer config (default) | ✅ Implemented |
 | `prlt agents add [names...] --no-container` | Add agents without devcontainer | ✅ Implemented |
 | `prlt repos add` | Add repos with devcontainer config | ✅ Implemented |
-| `prlt pmo init --location separate` | Create PMO with devcontainer config | ✅ Implemented |
+| `prlt init` (with separate PMO location) | Create PMO with devcontainer config | ✅ Implemented |
 | `prlt ticket execute --mode devcontainer` | Execute ticket in devcontainer | ✅ Implemented |
 | `prlt agent container start [name]` | Start agent's devcontainer | Planned |
 | `prlt agent container stop [name]` | Stop agent's devcontainer | Planned |
@@ -44,7 +44,7 @@ Devcontainers are automatically created in these locations:
 
 1. **Agent worktrees** (`prlt agents add`): Each agent gets a `.devcontainer/` for sandboxed execution
 2. **Central repos** (`prlt repos add`): Each repo in `repos/` gets a `.devcontainer/`
-3. **Separate PMO** (`prlt pmo init --location separate`): The PMO repo gets a `.devcontainer/`
+3. **Separate PMO** (via `prlt init` with separate PMO location): The PMO repo gets a `.devcontainer/`
 
 ---
 

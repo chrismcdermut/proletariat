@@ -39,7 +39,7 @@ Control which board columns are used by work lifecycle commands.
 | `column_review` | Review | `work ready` | Column for work awaiting review |
 | `column_done` | Done | `work complete` | Column for completed work |
 
-**Template defaults** (set automatically by `pmo init`):
+**Template defaults** (set automatically during `prlt init`):
 
 | Template | column_in_progress | column_review | column_done |
 |----------|-------------------|---------------|-------------|
@@ -67,7 +67,7 @@ Auto-increment counters for entity IDs.
 
 - **Fallback to defaults**: If a setting is not configured, the system uses a sensible default
 - **Case-insensitive column matching**: Column names are matched case-insensitively with partial match fallback
-- **Template initialization**: `pmo init` sets column settings based on the chosen board template
+- **Template initialization**: `prlt init` sets column settings based on the chosen board template
 - **Key format**: Setting keys use snake_case (e.g., `column_in_progress`)
 
 ## Column Matching Algorithm

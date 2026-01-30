@@ -15,7 +15,7 @@ Each workspace can have multiple projects. A "default" project is auto-created a
 
 | Ability | Description | storage | cli | api | web | obsidian |
 |---------|-------------|---------|-----|-----|-----|----------|
-| Initialize PMO | Initialize the PMO system in a workspace, creating database and default project | `init()` | `prlt pmo init` | `POST /api/pmo/init` | - | - |
+| Initialize PMO | Initialize the PMO system in a workspace, creating database and default project | `init()` | `prlt init` | `POST /api/pmo/init` | - | - |
 | Create project | Create a new project with its own board and ticket namespace | `createProject()` | `prlt project create` | `POST /api/projects` | `CreateProjectModal` | `new folder` |
 | List projects | List all projects in the workspace | `listProjects()` | `prlt project list` | `GET /api/projects` | `ProjectList` | `folders` |
 | View project | View a project's details including ticket count and board summary | `getProject()` | `prlt project view` | `GET /api/projects/:id` | `/projects/:id` | `project folder` |

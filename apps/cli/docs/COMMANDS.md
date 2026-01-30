@@ -380,23 +380,25 @@ Update installed plugins.
 
 ---
 
-## pmo
+## migrate-pmo
 
-### `prlt pmo init`
+### `prlt migrate-pmo`
 
-Initialize PMO (Project Management Org) in current directory or HQ
+Migrate tickets from a legacy global/standalone PMO to an HQ workspace.
 
 **Flags:**
-- -s, `--storage` - Storage backend
-- -t, `--template` - Board template
-- -n, `--name` - Board name
+- -t, `--to` - Target HQ workspace name or path
+- `--dry-run` - Show what would be migrated without making changes
+- `--json` - Output prompt configuration as JSON (for AI agents/scripts)
 
 **Examples:**
 ```bash
-prlt pmo init
-prlt pmo init --storage git --template scrum
-prlt pmo init --storage sqlite --template founder
+prlt migrate-pmo
+prlt migrate-pmo --to my-hq
+prlt migrate-pmo --dry-run
 ```
+
+**Note:** The `prlt pmo init` command has been removed. PMO is now always created as part of `prlt init`. Use this command to migrate data from legacy global or standalone PMOs.
 
 ---
 
