@@ -4,14 +4,18 @@
  */
 
 import Database from 'better-sqlite3'
+import { DrizzleDB } from '../../database/drizzle.js'
 
 /**
  * Base context passed to all storage modules.
- * Contains the database connection only - project ID is passed explicitly to operations.
+ * Contains both raw SQLite and Drizzle connections for gradual migration.
+ * Project ID is passed explicitly to operations.
  */
 export interface StorageContext {
-  /** Database connection */
+  /** Raw better-sqlite3 database connection (for legacy queries) */
   db: Database.Database
+  /** Drizzle ORM database connection (for type-safe queries) */
+  drizzle: DrizzleDB
   /** Update the board timestamp for a project */
   updateBoardTimestamp: (projectId: string) => void
 }
