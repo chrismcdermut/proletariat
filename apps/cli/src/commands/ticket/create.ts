@@ -99,6 +99,15 @@ export default class TicketCreate extends PMOCommand {
       this.error(message);
     };
 
+    // Validate --interactive is not used with JSON mode
+    if (jsonMode && flags.interactive) {
+      return handleError(
+        'INVALID_FLAGS',
+        '--interactive flag cannot be used with --json mode. ' +
+        'Provide required data via flags: --title, --column'
+      );
+    }
+
     // In JSON mode without required data, output column selection prompt
     if (jsonMode && !flags.title && !flags.column) {
       // Build base command with project if specified

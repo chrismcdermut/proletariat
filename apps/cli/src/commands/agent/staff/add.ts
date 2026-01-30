@@ -317,7 +317,29 @@ export default class Add extends Command {
       });
 
       if (addedAgents.length === 0) {
+        if (jsonMode) {
+          outputErrorAsJson(
+            'NO_AGENTS_ADDED',
+            'No new agents to add. All specified agents already exist.',
+            createMetadata('agent add', flags)
+          );
+        }
         this.log(chalk.yellow('No new agents to add. All specified agents already exist.'));
+        return;
+      }
+
+      // Output success as JSON in JSON mode
+      if (jsonMode) {
+        const output: Record<string, unknown> = {
+          added: addedAgents,
+          count: addedAgents.length,
+        };
+        if (themeId) {
+          const theme = getTheme(workspaceInfo.path, themeId);
+          output.theme = theme?.display_name || themeId;
+        }
+        output.devcontainer = !flags['no-container'];
+        console.log(JSON.stringify({ success: true, result: output, metadata: createMetadata('agent add', flags) }, null, 2));
         return;
       }
 

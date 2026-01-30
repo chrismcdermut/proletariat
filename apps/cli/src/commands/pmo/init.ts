@@ -22,6 +22,7 @@ import { isGHInstalled, isGHAuthenticated, getGHUsername, isGHTokenInEnv } from 
 import {
   shouldOutputJson,
   outputPromptAsJson,
+  outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
 } from '../../lib/prompt-json.js';
@@ -63,6 +64,26 @@ export default class PMOInit extends Command {
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
+
+    // In JSON mode, validate required flags early
+    // (but defer the check until we know if PMO exists and needs reinit)
+    const validateJsonModeFlags = (): void => {
+      if (!jsonMode) return;
+
+      const missingFlags: string[] = [];
+      if (!flags.location) missingFlags.push('--location');
+      if (!flags.template) missingFlags.push('--template');
+      if (!flags.name) missingFlags.push('--name');
+
+      if (missingFlags.length > 0) {
+        outputErrorAsJson(
+          'MISSING_REQUIRED_FLAGS',
+          `JSON mode requires flags: ${missingFlags.join(', ')}. ` +
+          `Example: prlt pmo init --location separate --template 5-tool --name my-board --json`,
+          createMetadata('pmo init', flags)
+        );
+      }
+    };
 
     // Check if PMO already exists
     const hqRoot = this.findHQRoot();
@@ -111,6 +132,10 @@ export default class PMOInit extends Command {
       // Delete existing PMO
       await this.deletePMO(hqRoot!);
     }
+
+    // In JSON mode, validate all required flags are present before proceeding
+    // This prevents hitting interactive prompts later
+    validateJsonModeFlags();
 
     this.log(chalk.blue('🎯 Initializing PMO...\n'));
     this.log(chalk.gray('   Creates board.md and specs/ for project planning'));
@@ -272,6 +297,9 @@ export default class PMOInit extends Command {
         buildPromptConfig('list', 'action', message, actionChoices),
         createMetadata('pmo init', flags)
       );
+      // outputPromptAsJson calls process.exit() so this is unreachable,
+      // but returning null for type safety and code clarity
+      return null;
     }
 
     this.log(chalk.yellow('\n⚠️  PMO already exists'));

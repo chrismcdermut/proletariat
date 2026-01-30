@@ -134,7 +134,13 @@ export default class WorkSpawn extends PMOCommand {
   async execute(): Promise<void> {
     const { flags, argv } = await this.parse(WorkSpawn)
     // This command requires project context
-    const projectId = await this.requireProject();
+    const projectId = await this.requireProject({
+      jsonMode: {
+        flags,
+        commandName: 'work spawn',
+        baseCommand: 'prlt work spawn',
+      },
+    });
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
@@ -150,6 +156,35 @@ export default class WorkSpawn extends PMOCommand {
 
     // Parse ticket IDs from args (everything after flags)
     const ticketIdArgs = argv as string[]
+
+    // In JSON mode, validate we can proceed non-interactively
+    // Must have either: ticket IDs as args, OR (--all AND --column), OR --many with ticket args
+    // Also validate batch mode flags to avoid later interactive prompts
+    if (jsonMode) {
+      const hasTicketArgs = ticketIdArgs.length > 0
+      const hasAllWithColumn = flags.all && flags.column
+      const hasManyWithArgs = flags.many && ticketIdArgs.length > 0
+
+      if (!hasTicketArgs && !hasAllWithColumn && !hasManyWithArgs) {
+        return handleError(
+          'MISSING_REQUIRED_FLAGS',
+          'JSON mode requires one of: ' +
+          '(1) ticket IDs as positional args (e.g., prlt work spawn TKT-001 TKT-002 --json), ' +
+          '(2) --all --column <name> flags, or ' +
+          '(3) --many with ticket IDs as args. ' +
+          'Example: prlt work spawn --all --column Backlog --json'
+        )
+      }
+
+      // For non-per-ticket mode (batch), require action flag to avoid prompts
+      if (!flags['per-ticket'] && !flags.action) {
+        return handleError(
+          'MISSING_REQUIRED_FLAGS',
+          'JSON mode requires --action flag for batch spawning. ' +
+          'Example: prlt work spawn TKT-001 --action implement --json'
+        )
+      }
+    }
 
     // Note: Docker check is handled by work:start command when spawning each ticket
     // This allows for the interactive devcontainer/host selection with retry loop
@@ -277,9 +312,11 @@ export default class WorkSpawn extends PMOCommand {
           return
         }
 
-        this.log('')
-        this.log(styles.header(`🚀 Spawn: ${ticketsToSpawn.length} ticket(s)`))
-        this.log(styles.muted(`Tickets: ${ticketsToSpawn.map(t => t.id).join(', ')}`))
+        if (!jsonMode) {
+          this.log('')
+          this.log(styles.header(`🚀 Spawn: ${ticketsToSpawn.length} ticket(s)`))
+          this.log(styles.muted(`Tickets: ${ticketsToSpawn.map(t => t.id).join(', ')}`))
+        }
 
       } else if (spawnMode === 'all') {
         // ALL MODE: Column picker, then spawn all tickets in that column
@@ -350,8 +387,10 @@ export default class WorkSpawn extends PMOCommand {
           return
         }
 
-        this.log('')
-        this.log(styles.header(`🚀 Spawn All from: ${matchedColumn}`))
+        if (!jsonMode) {
+          this.log('')
+          this.log(styles.header(`🚀 Spawn All from: ${matchedColumn}`))
+        }
 
       } else {
         // MANY MODE: First pick column (or all), then multi-select tickets
@@ -468,7 +507,7 @@ export default class WorkSpawn extends PMOCommand {
         ticketsToSpawn = ticketsToSpawn.slice(0, flags.limit)
       }
 
-      this.log('')
+      if (!jsonMode) this.log('')
 
       // Note: With ephemeral agents, we don't need to check availability
       // Each ticket will get its own ephemeral agent created on-demand
@@ -539,9 +578,11 @@ export default class WorkSpawn extends PMOCommand {
         return
       }
 
-      this.log(styles.muted(`Tickets: ${ticketsToSpawn.map(t => t.id).join(', ')}`))
-      this.log(styles.muted(`Agents:  Ephemeral (unique per ticket)`))
-      this.log('')
+      if (!jsonMode) {
+        this.log(styles.muted(`Tickets: ${ticketsToSpawn.map(t => t.id).join(', ')}`))
+        this.log(styles.muted(`Agents:  Ephemeral (unique per ticket)`))
+        this.log('')
+      }
 
       // Note: Removed redundant confirmation - user already selected tickets
       // Use --dry-run to preview without executing
@@ -573,104 +614,141 @@ export default class WorkSpawn extends PMOCommand {
       let selectedActionDetails: Awaited<ReturnType<typeof this.storage.getAction>> | null = null
 
       if (!flags['per-ticket']) {
-        this.log(styles.header('Batch Settings (applies to all tickets)'))
-        this.log('')
-
-        // Prompt for action selection first (unless explicitly provided via --action flag)
-        if (!flags.action) {
-          // Get available actions from database
-          const actions = await this.storage.listActions()
-          const actionChoices = actions
-            .filter(a => a.isBuiltin)
-            .map(a => ({
-              name: `${a.id.padEnd(12)} - ${a.description || a.name}`,
-              value: a.id,
-            }))
-
-          // Add adhoc option at the end
-          actionChoices.push({
-            name: 'adhoc        - Unstructured exploration/debugging',
-            value: '__adhoc__',
-          })
-
-          const { selectedAction } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedAction',
-              message: 'What action should agents perform?',
-              choices: actionChoices,
-              default: 'implement',
-            },
-          ])
-          batchAction = selectedAction === '__adhoc__' ? 'adhoc' : selectedAction
-        }
-
-        // Now fetch action details after selection is made
-        if (batchAction === 'adhoc') {
-          // Adhoc is a synthetic action, not stored in database
-          selectedActionDetails = {
-            id: 'adhoc',
-            name: 'Ad-hoc',
-            description: 'Unstructured exploration and debugging',
-            prompt: 'You are working on an ad-hoc session for exploration and debugging. Help the user with whatever they need.',
-            modifiesCode: false,
-            defaultMoveToCategory: 'started',
-            isBuiltin: false,
-            createdAt: new Date(),
-          }
-        } else {
-          selectedActionDetails = await this.storage.getAction(batchAction || 'implement')
-        }
-
-        // Check if any explicit settings were provided via flags
-        const hasExplicitSettings = flags.display || flags.output || flags['skip-permissions'] ||
-          flags['create-pr'] || flags['no-pr'] || flags['run-on-host']
-
-        // Offer to use default settings if no explicit flags provided
-        if (!hasExplicitSettings) {
-          const actionName = batchAction || 'implement'
-          const modifiesCode = selectedActionDetails?.modifiesCode ?? true
-          const defaultsDescription = modifiesCode
-            ? 'devcontainer, terminal, interactive, safe permissions, create PRs'
-            : 'devcontainer, terminal, interactive, safe permissions, no PRs'
-
-          const { useDefaults } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'useDefaults',
-              message: `Use default settings for "${actionName}"?`,
-              choices: [
-                { name: `✓ Yes - Use defaults (${defaultsDescription})`, value: true },
-                { name: '✗ No  - Configure each setting', value: false },
-              ],
-              default: true,
-            },
-          ])
-
-          if (useDefaults) {
-            // Apply defaults
-            if (hasDevcontainer) {
-              batchDisplay = 'devcontainer'
-              batchDisplayMode = 'terminal'
-            } else {
-              batchDisplay = 'terminal'
+        // In JSON mode, use defaults instead of prompting
+        if (jsonMode) {
+          // Get action details for the required action flag
+          if (batchAction === 'adhoc') {
+            selectedActionDetails = {
+              id: 'adhoc',
+              name: 'Ad-hoc',
+              description: 'Unstructured exploration and debugging',
+              prompt: 'You are working on an ad-hoc session for exploration and debugging. Help the user with whatever they need.',
+              modifiesCode: false,
+              defaultMoveToCategory: 'started',
+              isBuiltin: false,
+              createdAt: new Date(),
             }
-            batchOutput = 'interactive'
-            batchPermissionMode = 'safe'
-            // For non-code-modifying actions, don't create PRs
+          } else {
+            selectedActionDetails = await this.storage.getAction(batchAction || 'implement')
+          }
+
+          // Apply sensible defaults for batch mode in JSON mode
+          const modifiesCode = selectedActionDetails?.modifiesCode ?? true
+          if (!batchDisplay) {
+            // Default to host in JSON mode (devcontainer requires Docker which may not be available)
+            batchDisplay = flags['run-on-host'] ? 'terminal' : 'background'
+            batchRunOnHost = true
+          }
+          if (!batchOutput) batchOutput = 'print' // Use print mode for non-interactive
+          if (!batchCreatePr && !batchNoPr) {
             if (modifiesCode) {
               batchCreatePr = true
-              batchNoPr = false
             } else {
-              batchCreatePr = false
               batchNoPr = true
             }
-            this.log('')
           }
-        }
+        } else {
+          // Interactive mode - prompt for settings
+          this.log(styles.header('Batch Settings (applies to all tickets)'))
+          this.log('')
+
+          // Prompt for action selection first (unless explicitly provided via --action flag)
+          if (!flags.action) {
+            // Get available actions from database
+            const actions = await this.storage.listActions()
+            const actionChoices = actions
+              .filter(a => a.isBuiltin)
+              .map(a => ({
+                name: `${a.id.padEnd(12)} - ${a.description || a.name}`,
+                value: a.id,
+              }))
+
+            // Add adhoc option at the end
+            actionChoices.push({
+              name: 'adhoc        - Unstructured exploration/debugging',
+              value: '__adhoc__',
+            })
+
+            const { selectedAction } = await inquirer.prompt([
+              {
+                type: 'list',
+                name: 'selectedAction',
+                message: 'What action should agents perform?',
+                choices: actionChoices,
+                default: 'implement',
+              },
+            ])
+            batchAction = selectedAction === '__adhoc__' ? 'adhoc' : selectedAction
+          }
+
+          // Now fetch action details after selection is made
+          if (batchAction === 'adhoc') {
+            // Adhoc is a synthetic action, not stored in database
+            selectedActionDetails = {
+              id: 'adhoc',
+              name: 'Ad-hoc',
+              description: 'Unstructured exploration and debugging',
+              prompt: 'You are working on an ad-hoc session for exploration and debugging. Help the user with whatever they need.',
+              modifiesCode: false,
+              defaultMoveToCategory: 'started',
+              isBuiltin: false,
+              createdAt: new Date(),
+            }
+          } else {
+            selectedActionDetails = await this.storage.getAction(batchAction || 'implement')
+          }
+
+          // Check if any explicit settings were provided via flags
+          const hasExplicitSettings = flags.display || flags.output || flags['skip-permissions'] ||
+            flags['create-pr'] || flags['no-pr'] || flags['run-on-host']
+
+          // Offer to use default settings if no explicit flags provided
+          if (!hasExplicitSettings) {
+            const actionName = batchAction || 'implement'
+            const modifiesCode = selectedActionDetails?.modifiesCode ?? true
+            const defaultsDescription = modifiesCode
+              ? 'devcontainer, terminal, interactive, safe permissions, create PRs'
+              : 'devcontainer, terminal, interactive, safe permissions, no PRs'
+
+            const { useDefaults } = await inquirer.prompt([
+              {
+                type: 'list',
+                name: 'useDefaults',
+                message: `Use default settings for "${actionName}"?`,
+                choices: [
+                  { name: `✓ Yes - Use defaults (${defaultsDescription})`, value: true },
+                  { name: '✗ No  - Configure each setting', value: false },
+                ],
+                default: true,
+              },
+            ])
+
+            if (useDefaults) {
+              // Apply defaults
+              if (hasDevcontainer) {
+                batchDisplay = 'devcontainer'
+                batchDisplayMode = 'terminal'
+              } else {
+                batchDisplay = 'terminal'
+              }
+              batchOutput = 'interactive'
+              batchPermissionMode = 'safe'
+              // For non-code-modifying actions, don't create PRs
+              if (modifiesCode) {
+                batchCreatePr = true
+                batchNoPr = false
+              } else {
+                batchCreatePr = false
+                batchNoPr = true
+              }
+              this.log('')
+            }
+          }
+        } // end of else (interactive mode) block
 
         // Prompt for environment (devcontainer vs host) if devcontainer available and not already set
-        if (hasDevcontainer && !batchRunOnHost && !batchDisplay) {
+        // Skip in JSON mode - defaults already set above
+        if (!jsonMode && hasDevcontainer && !batchRunOnHost && !batchDisplay) {
           // Check devcontainer prerequisites upfront
           const dockerRunning = isDockerRunning()
           const devcontainerCliInstalled = isDevcontainerCliInstalled()
@@ -813,7 +891,8 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         // Prompt for display mode if not already set (for host mode without devcontainer)
-        if (!batchDisplay) {
+        // Skip in JSON mode - defaults already set above
+        if (!jsonMode && !batchDisplay) {
           const { selectedMode } = await inquirer.prompt([
             {
               type: 'list',
@@ -835,7 +914,8 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         // Prompt for permissions mode if not explicitly set via --skip-permissions flag
-        if (!flags['skip-permissions']) {
+        // Skip in JSON mode - defaults already set above
+        if (!jsonMode && !flags['skip-permissions']) {
           const { permissionMode } = await inquirer.prompt([
             {
               type: 'list',
@@ -853,8 +933,9 @@ export default class WorkSpawn extends PMOCommand {
 
         // Prompt for PR creation if not provided AND action modifies code
         // Skip this prompt entirely for non-code-modifying actions (like groom)
+        // Skip in JSON mode - defaults already set above
         const actionModifiesCode = selectedActionDetails?.modifiesCode ?? true
-        if (!batchCreatePr && !batchNoPr) {
+        if (!jsonMode && !batchCreatePr && !batchNoPr) {
           if (actionModifiesCode) {
             const { prChoice } = await inquirer.prompt([
               {
@@ -877,7 +958,7 @@ export default class WorkSpawn extends PMOCommand {
           }
         }
 
-        this.log('')
+        if (!jsonMode) this.log('')
       } else {
         // Per-ticket mode - still need to get action details if action flag was provided
         if (batchAction) {
@@ -888,11 +969,12 @@ export default class WorkSpawn extends PMOCommand {
       // Spawn each ticket - work:start will create ephemeral agents on-demand
       let successCount = 0
       let failCount = 0
+      const failedTickets: Array<{ id: string; error: string }> = []
 
       // Process sequentially for clear logging and resource management
       for (const ticket of ticketsToSpawn) {
         try {
-          this.log(styles.muted(`Starting ${ticket.id} with ephemeral agent...`))
+          if (!jsonMode) this.log(styles.muted(`Starting ${ticket.id} with ephemeral agent...`))
 
           // Build args for work:start
           // IMPORTANT: Pass --project to avoid re-prompting for project selection
@@ -938,15 +1020,34 @@ export default class WorkSpawn extends PMOCommand {
           successCount++
         } catch (error) {
           failCount++
-          this.log(styles.error(`Failed to start ${ticket.id}: ${error instanceof Error ? error.message : error}`))
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          failedTickets.push({ id: ticket.id, error: errorMessage })
+          if (!jsonMode) {
+            this.log(styles.error(`Failed to start ${ticket.id}: ${errorMessage}`))
+          }
         }
       }
 
-      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
+      await autoExportToBoard(this.pmoPath, this.storage, (msg) => {
+        if (!jsonMode) this.log(styles.muted(msg))
+      })
       db.close()
 
-      this.log('')
-      this.log(styles.success(`✓ Spawn results: ${successCount} started, ${failCount} failed`))
+      if (jsonMode) {
+        // Output success result as JSON
+        outputSuccessAsJson(
+          {
+            spawned: successCount,
+            failed: failCount,
+            tickets: ticketsToSpawn.map(t => t.id),
+            failedTickets: failedTickets.length > 0 ? failedTickets : undefined,
+          },
+          createMetadata('work spawn', flags)
+        )
+      } else {
+        this.log('')
+        this.log(styles.success(`✓ Spawn results: ${successCount} started, ${failCount} failed`))
+      }
     } catch (error) {
       db.close()
       throw error
