@@ -526,6 +526,66 @@ agents/staff/altman/
 
 ---
 
+## Polyglot Agent Containers
+
+Agent containers support multiple programming languages beyond the default Node.js runtime.
+
+### Supported Languages
+
+| Language | Package Manager | Tools Included |
+|----------|----------------|----------------|
+| **Node.js** | npm, pnpm | Always included (required for prlt CLI) |
+| **Python** | pip, pipx, poetry | black, flake8, mypy, pytest |
+| **Go** | go modules | gopls, delve, golint |
+| **Rust** | cargo | rust-analyzer, clippy, rustfmt, cargo-watch |
+| **Ruby** | gem, bundler | solargraph, rubocop, rake |
+| **Java** | maven, gradle | OpenJDK 17 |
+
+### Creating Polyglot Agents
+
+```bash
+# Add agent with specific languages
+prlt agent staff add my-agent --languages python,go
+
+# Add agent with all supported languages
+prlt agent staff add my-agent --polyglot
+
+# Multiple language flags
+prlt agent staff add my-agent -l python -l rust
+```
+
+### Network Firewall
+
+The container firewall automatically allows access to language-specific package registries:
+
+- **Python**: pypi.org, files.pythonhosted.org
+- **Go**: proxy.golang.org, sum.golang.org
+- **Rust**: crates.io, static.rust-lang.org
+- **Ruby**: rubygems.org
+- **Java**: repo.maven.apache.org, services.gradle.org
+
+### Adding New Languages
+
+To add support for a new language:
+
+1. Update `ContainerLanguage` type in `apps/cli/src/lib/execution/devcontainer.ts`
+2. Add installation block in `generateLanguageInstallBlocks()`
+3. Add VS Code extensions in `getLanguageExtensions()`
+4. Add PATH entries in `buildContainerPath()`
+5. Add package registry domains in `generateFirewallScript()`
+
+### Image Size Considerations
+
+| Configuration | Approximate Size |
+|---------------|------------------|
+| Node.js only | ~800MB |
+| +Python | ~1.2GB |
+| +Go | ~1.4GB |
+| +Rust | ~1.6GB |
+| Full polyglot | ~2.0GB |
+
+---
+
 ## Future Enhancements
 
 ### Pre-built Agent Images
