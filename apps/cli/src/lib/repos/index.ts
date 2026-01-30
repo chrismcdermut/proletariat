@@ -609,25 +609,24 @@ export async function removeRepository(
 async function createWorktreesForRepo(hqPath: string, repoName: string, repoPath: string): Promise<void> {
   const db = openWorkspaceDatabase(hqPath);
 
-  // Get workspace config for theme info
-  const workspace = db.prepare('SELECT theme FROM workspace').get() as { theme: string };
-  const theme = db.prepare('SELECT workspace_dir FROM themes WHERE name = ?').get(workspace.theme) as { workspace_dir: string };
-
-  // Get all agents
-  const agents = db.prepare('SELECT name FROM agents').all() as { name: string }[];
+  // Get all agents with their worktree paths
+  const agents = db.prepare('SELECT name, worktree_path FROM agents WHERE status = \'active\' OR status IS NULL').all() as { name: string; worktree_path: string | null }[];
 
   if (agents.length === 0) {
     db.close();
     return;
   }
 
-  const agentsBasePath = path.join(hqPath, 'agents', theme.workspace_dir);
-
   for (const agent of agents) {
+    // Skip agents without a worktree path
+    if (!agent.worktree_path) {
+      continue;
+    }
+
     // Name worktree directory as {repoName}-{agentName} so git creates unique worktree entries
     // e.g., proletariat-branson instead of proletariat (which causes proletariat1, proletariat2, etc.)
     const worktreeDirName = `${repoName}-${agent.name}`;
-    const agentRepoPath = path.join(agentsBasePath, agent.name, worktreeDirName);
+    const agentRepoPath = path.join(hqPath, agent.worktree_path, worktreeDirName);
     const branchName = `agent-${agent.name}`;
 
     try {
@@ -645,7 +644,7 @@ async function createWorktreesForRepo(hqPath: string, repoName: string, repoPath
       `).run(
         agent.name,
         repoName,
-        `agents/${theme.workspace_dir}/${agent.name}/${worktreeDirName}`,
+        `${agent.worktree_path}/${worktreeDirName}`,
         branchName,
         new Date().toISOString()
       );
@@ -663,18 +662,18 @@ async function createWorktreesForRepo(hqPath: string, repoName: string, repoPath
 async function removeWorktreesForRepo(hqPath: string, repoName: string): Promise<void> {
   const db = openWorkspaceDatabase(hqPath);
 
-  // Get workspace config for theme info
-  const workspace = db.prepare('SELECT theme FROM workspace').get() as { theme: string };
-  const theme = db.prepare('SELECT workspace_dir FROM themes WHERE name = ?').get(workspace.theme) as { workspace_dir: string };
-
-  // Get all agents
-  const agents = db.prepare('SELECT name FROM agents').all() as { name: string }[];
+  // Get all agents with their worktree paths
+  const agents = db.prepare('SELECT name, worktree_path FROM agents').all() as { name: string; worktree_path: string | null }[];
 
   const repoPath = path.join(hqPath, 'repos', repoName);
-  const agentsBasePath = path.join(hqPath, 'agents', theme.workspace_dir);
 
   for (const agent of agents) {
-    const agentRepoPath = path.join(agentsBasePath, agent.name, repoName);
+    // Skip agents without a worktree path
+    if (!agent.worktree_path) {
+      continue;
+    }
+
+    const agentRepoPath = path.join(hqPath, agent.worktree_path, repoName);
 
     try {
       // Remove worktree from git
