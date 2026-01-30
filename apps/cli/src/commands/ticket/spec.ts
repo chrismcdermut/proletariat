@@ -125,9 +125,11 @@ export default class TicketSpec extends PMOCommand {
     // Get all specs
     const specs = await this.storage.listSpecs();
     if (specs.length === 0) {
-      this.log(styles.muted('\nNo specs found.'));
+      this.log(styles.muted('\nNo specs found in database.'));
+      this.log(styles.muted('  Specs are database-managed. Use prlt spec import to import from specs/ files.'));
       const actionChoices = [
         { id: 'create', name: 'Create a new spec' },
+        { id: 'import', name: 'Import specs from specs/ directory' },
         { id: 'cancel', name: 'Cancel' },
       ];
 
@@ -136,12 +138,18 @@ export default class TicketSpec extends PMOCommand {
         items: actionChoices,
         getName: (a) => a.name,
         getValue: (a) => a.id,
-        getCommand: (a) => a.id === 'create' ? 'prlt spec create --json' : '',
+        getCommand: (a) => {
+          if (a.id === 'create') return 'prlt spec create --json';
+          if (a.id === 'import') return 'prlt spec import --json';
+          return '';
+        },
         jsonMode: jsonMode ? { flags, commandName: 'ticket spec' } : null,
       });
 
       if (action === 'create') {
         await this.config.runCommand('spec:create', []);
+      } else if (action === 'import') {
+        await this.config.runCommand('spec:import', []);
       }
       return;
     }
@@ -270,7 +278,9 @@ export default class TicketSpec extends PMOCommand {
     if (!specId) {
       const specs = await this.storage.listSpecs();
       if (specs.length === 0) {
-        this.log(styles.muted('\nNo specs found. Create one with: prlt spec create'));
+        this.log(styles.muted('\nNo specs found in database.'));
+        this.log(styles.muted('  Create: prlt spec create'));
+        this.log(styles.muted('  Import: prlt spec import'));
         return;
       }
 
