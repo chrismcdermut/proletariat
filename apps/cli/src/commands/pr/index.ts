@@ -31,11 +31,12 @@ export default class PR extends Command {
 
     const pmoPath = findPMO();
     if (!pmoPath) {
+      const errorMsg = 'PMO not found. You must be in an HQ workspace directory. Run "prlt init" to create one.';
       if (jsonMode) {
-        outputErrorAsJson('PMO_NOT_FOUND', 'PMO not found. Run "prlt pmo init" first.', createMetadata('pr', flags));
+        outputErrorAsJson('PMO_NOT_FOUND', errorMsg, createMetadata('pr', flags));
         this.exit(1);
       }
-      this.error('PMO not found. Run "prlt pmo init" first.');
+      this.error(errorMsg);
     }
 
     // Define choices once, use for both JSON and interactive modes

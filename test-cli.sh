@@ -27,8 +27,8 @@ cd $TEST_DIR
 echo -e "\n${GREEN}Test 1: HQ initialization (JSON mode)${NC}"
 cd $TEST_DIR
 
-# Create HQ using JSON mode (non-interactive)
-node "$CLI_PATH" init --json --name test-hq --no-pmo
+# Create HQ using JSON mode (non-interactive) - PMO is always included
+node "$CLI_PATH" init --json --name test-hq
 
 if [ -f "test-hq-hq/.proletariat/config.json" ]; then
     echo -e "${GREEN}✓ HQ config.json created${NC}"
@@ -44,12 +44,12 @@ else
     exit 1
 fi
 
-# Test 2: HQ with PMO enabled
-echo -e "\n${GREEN}Test 2: HQ with PMO${NC}"
+# Test 2: HQ initialization (verify PMO is created)
+echo -e "\n${GREEN}Test 2: HQ with PMO (PMO is always included)${NC}"
 cd $TEST_DIR
 
-# Create HQ with PMO
-node "$CLI_PATH" init --json --name test-pmo-hq --pmo
+# Create HQ - PMO is now always included
+node "$CLI_PATH" init --json --name test-pmo-hq
 
 if [ -f "test-pmo-hq-hq/.proletariat/config.json" ]; then
     echo -e "${GREEN}✓ HQ with PMO created${NC}"
@@ -62,8 +62,8 @@ fi
 echo -e "\n${GREEN}Test 3: HQ with agents${NC}"
 cd $TEST_DIR
 
-# Create HQ with agents
-node "$CLI_PATH" init --json --name test-agents-hq --agents bezos,musk --no-pmo
+# Create HQ with agents (PMO is always included)
+node "$CLI_PATH" init --json --name test-agents-hq --agents bezos,musk
 
 if [ -d "test-agents-hq-hq/agents/staff" ]; then
     echo -e "${GREEN}✓ Agents directory created${NC}"
@@ -88,8 +88,8 @@ fi
 echo -e "\n${GREEN}Test 5: Verify JSON output${NC}"
 cd $TEST_DIR
 
-# Create another HQ and check JSON output
-OUTPUT=$(node "$CLI_PATH" init --json --name json-test-hq --no-pmo)
+# Create another HQ and check JSON output (PMO is always included)
+OUTPUT=$(node "$CLI_PATH" init --json --name json-test-hq)
 if echo "$OUTPUT" | grep -q '"success": true'; then
     echo -e "${GREEN}✓ JSON output format correct${NC}"
 else

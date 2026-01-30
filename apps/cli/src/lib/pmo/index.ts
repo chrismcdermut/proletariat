@@ -221,7 +221,7 @@ export async function promptForBoardName(defaultName?: string): Promise<string> 
 }
 
 /**
- * Full PMO setup prompt - used by both `prlt init` and `prlt pmo init`
+ * Full PMO setup prompt - used by `prlt init`
  *
  * PMO is included by default (no prompt) per TKT-469 requirements.
  */
@@ -317,7 +317,7 @@ export interface CreatePMOOptions {
 /**
  * Create PMO structure in HQ
  *
- * Used by both `prlt init` and `prlt pmo init` for consistent behavior.
+ * Used by `prlt init` to create PMO as part of HQ initialization.
  *
  * Structure:
  * - PMO data is stored in workspace.db (pmo_* tables)

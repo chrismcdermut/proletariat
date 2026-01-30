@@ -42,7 +42,11 @@ export async function getPMOContext(
   // Find PMO
   const pmoPath = findPMO();
   if (!pmoPath) {
-    throw new Error('PMO not found. Run "prlt pmo init" first.');
+    throw new Error(
+      'PMO not found. You must be in an HQ workspace directory to use ticket commands.\n\n' +
+      'To create a new workspace: prlt init --name <name>\n' +
+      'To migrate from a legacy PMO: prlt migrate-pmo'
+    );
   }
 
   // Warn once per session if multiple HQ workspaces detected

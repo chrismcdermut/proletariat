@@ -127,7 +127,11 @@ export abstract class PMOCommand extends Command {
     const projects = await this.storage.listProjects();
 
     if (projects.length === 0) {
-      throw new Error('No projects found. Run "prlt pmo init" first.');
+      throw new Error(
+        'No projects found. Your HQ workspace may not have a project configured.\n\n' +
+        'This can happen if you created a workspace without PMO setup.\n' +
+        'You may need to re-initialize: prlt init --name <name>'
+      );
     }
 
     // Filter to projects with tickets if requested

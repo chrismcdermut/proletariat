@@ -40,7 +40,7 @@ export default class BoardWatch extends PMOCommand {
     // Load PMO config
     const configPath = path.join(this.pmoPath, 'config.json');
     if (!fs.existsSync(configPath)) {
-      this.error('PMO config not found. Run "prlt pmo init" first.');
+      this.error('PMO config not found. You must be in an HQ workspace directory. Run "prlt init" to create one.');
     }
 
     const config: PMOConfigFile = JSON.parse(fs.readFileSync(configPath, 'utf-8'));

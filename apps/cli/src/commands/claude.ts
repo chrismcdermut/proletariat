@@ -549,11 +549,12 @@ export default class Claude extends Command {
         pmoPath = pmoContext.pmoPath
         storage = pmoContext.storage
       } catch {
+        const errorMsg = 'PMO not found. You must be in an HQ workspace directory. Run "prlt init" to create one.'
         if (jsonMode) {
-          outputErrorAsJson('PMO_NOT_FOUND', 'PMO not found. Run "prlt pmo init" first.', createMetadata('claude', flags))
+          outputErrorAsJson('PMO_NOT_FOUND', errorMsg, createMetadata('claude', flags))
           this.exit(1)
         }
-        this.error('PMO not found. Run "prlt pmo init" first.')
+        this.error(errorMsg)
       }
 
       // Select project

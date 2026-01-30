@@ -21,7 +21,7 @@ export default class Init extends Command {
     '<%= config.bin %> <%= command.id %>',
     // Agent mode (JSON)
     '<%= config.bin %> <%= command.id %> --json --name myproject',
-    '<%= config.bin %> <%= command.id %> --json --name myproject --path /path/to/hq --agents agent1,agent2 --pmo',
+    '<%= config.bin %> <%= command.id %> --json --name myproject --path /path/to/hq --agents agent1,agent2',
   ];
 
   static flags = {
@@ -45,11 +45,6 @@ export default class Init extends Command {
       description: 'Comma-separated list of repository paths to clone/move',
       char: 'r',
     }),
-    pmo: Flags.boolean({
-      description: 'Include PMO (Project Management Org)',
-      default: true,
-      allowNo: true,
-    }),
   };
 
   async run(): Promise<void> {
@@ -63,14 +58,13 @@ export default class Init extends Command {
       this.outputJson({
         success: false,
         error: 'Interactive mode requires a TTY. Use --json flag for agent mode.',
-        hint: 'Run: prlt init --json --name <hq-name> [--path <path>] [--agents a1,a2] [--no-pmo]',
+        hint: 'Run: prlt init --json --name <hq-name> [--path <path>] [--agents a1,a2]',
         flags: {
           '--json': 'Enable agent mode with JSON output',
           '--name, -n': 'HQ name (required)',
           '--path, -p': 'HQ path (defaults to ./{name}-hq)',
           '--agents, -a': 'Comma-separated agent names',
           '--repos, -r': 'Comma-separated repo paths',
-          '--pmo/--no-pmo': 'Include PMO (default: true)',
         },
       });
       this.exit(1);
@@ -128,7 +122,6 @@ export default class Init extends Command {
     path?: string;
     agents?: string;
     repos?: string;
-    pmo: boolean;
   }): Promise<void> {
     // Validate required fields
     if (!flags.name) {
@@ -184,7 +177,7 @@ export default class Init extends Command {
       repos,
       quiet: true, // Suppress console output in JSON mode
       pmoSetup: {
-        includePMO: flags.pmo,
+        includePMO: true, // PMO is always included
         location: 'separate' as const,
         boardTemplate: 'default',
         boardName: `${hqName}-kanban`,
@@ -212,7 +205,7 @@ export default class Init extends Command {
           path: hqPath,
           agents: selectedAgents,
           repos: repos.map(r => r.path),
-          pmo: flags.pmo,
+          pmo: true, // PMO is always included
         },
       });
     } catch (error) {
