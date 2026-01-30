@@ -13,7 +13,6 @@ import {
   hasBranchBeenPushed,
   pushBranch,
   hasUnpushedCommits,
-  getCommitLog,
   createPR,
   getPRForBranch,
   generatePRTitle,
@@ -218,12 +217,10 @@ export default class PRCreate extends Command {
       }
 
       if (!prBody && ticket) {
-        const commits = getCommitLog(baseBranch);
         prBody = generatePRBody({
           ticketId: ticket.id,
           ticketTitle: ticket.title,
           ticketDescription: ticket.description,
-          commits: commits.slice(0, 10), // Limit to 10 commits
         });
       }
 

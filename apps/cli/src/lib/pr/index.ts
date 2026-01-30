@@ -393,9 +393,8 @@ export function generatePRBody(options: {
   ticketId: string;
   ticketTitle: string;
   ticketDescription?: string;
-  commits?: string[];
 }): string {
-  const { ticketId, ticketTitle, ticketDescription, commits } = options;
+  const { ticketId, ticketTitle, ticketDescription } = options;
 
   const lines: string[] = [];
 
@@ -408,15 +407,6 @@ export function generatePRBody(options: {
     lines.push('## Description');
     lines.push('');
     lines.push(ticketDescription);
-    lines.push('');
-  }
-
-  if (commits && commits.length > 0) {
-    lines.push('## Changes');
-    lines.push('');
-    for (const commit of commits) {
-      lines.push(`- ${commit}`);
-    }
     lines.push('');
   }
 

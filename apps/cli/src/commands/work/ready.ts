@@ -16,7 +16,6 @@ import {
   hasBranchBeenPushed,
   pushBranch,
   hasUnpushedCommits,
-  getCommitLog,
   createPR,
   getPRForBranch,
   generatePRTitle,
@@ -320,12 +319,10 @@ export default class WorkReady extends PMOCommand {
 
       // Generate PR content
       const prTitle = generatePRTitle(ticket.id, ticket.title);
-      const commits = getCommitLog(baseBranch);
       const prBody = generatePRBody({
         ticketId: ticket.id,
         ticketTitle: ticket.title,
         ticketDescription: ticket.description,
-        commits: commits.slice(0, 10),
       });
 
       // Create PR

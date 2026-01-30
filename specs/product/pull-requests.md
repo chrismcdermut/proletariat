@@ -129,12 +129,6 @@ Resolves {TICKET-ID}: {Ticket Title}
 
 {Ticket Description}
 
-## Changes
-
-- {commit 1}
-- {commit 2}
-- ...
-
 ## Test Plan
 
 - [ ] Tests pass locally

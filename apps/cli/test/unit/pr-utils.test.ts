@@ -89,25 +89,10 @@ describe('PR Utils Unit Tests', () => {
       expect(body).to.not.contain('## Description');
     });
 
-    it('should include Changes section with commits', () => {
+    it('should not include Changes section', () => {
       const options = {
         ticketId: 'TKT-001',
         ticketTitle: 'Test feature',
-        commits: ['abc123 Add initial implementation', 'def456 Fix typo'],
-      };
-
-      const body = generatePRBodyMock(options);
-
-      expect(body).to.contain('## Changes');
-      expect(body).to.contain('- abc123 Add initial implementation');
-      expect(body).to.contain('- def456 Fix typo');
-    });
-
-    it('should skip Changes section when no commits', () => {
-      const options = {
-        ticketId: 'TKT-001',
-        ticketTitle: 'Test feature',
-        commits: [],
       };
 
       const body = generatePRBodyMock(options);
@@ -261,9 +246,8 @@ function generatePRBodyMock(options: {
   ticketId: string;
   ticketTitle: string;
   ticketDescription?: string;
-  commits?: string[];
 }): string {
-  const { ticketId, ticketTitle, ticketDescription, commits } = options;
+  const { ticketId, ticketTitle, ticketDescription } = options;
 
   const lines: string[] = [];
 
@@ -276,15 +260,6 @@ function generatePRBodyMock(options: {
     lines.push('## Description');
     lines.push('');
     lines.push(ticketDescription);
-    lines.push('');
-  }
-
-  if (commits && commits.length > 0) {
-    lines.push('## Changes');
-    lines.push('');
-    for (const commit of commits) {
-      lines.push(`- ${commit}`);
-    }
     lines.push('');
   }
 
