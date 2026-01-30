@@ -5,7 +5,8 @@ on:
     types: [released]
 
 jobs:
-  publish:
+  # Publish to public npm (for real users)
+  publish-npm:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,4 +19,26 @@ jobs:
       - uses: JS-DevTools/npm-publish@19c28f1ef146469e409470805ea4279d47c3d35c
         with:
           token: ${{ secrets.NPM_TOKEN }}
+      - run: npm run postpack
+
+  # Publish to GitHub Packages (for agents - doesn't inflate public npm stats)
+  publish-github-packages:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: latest
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@proletariat'
+      - run: npm install
+      - run: npm run build
+      - run: npm run prepack
+      - name: Publish to GitHub Packages
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: npm run postpack

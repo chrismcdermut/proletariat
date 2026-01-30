@@ -22,17 +22,20 @@ import * as path from 'node:path'
 /**
  * prlt channel options:
  *
- * Public npm (npmjs.com) - no auth required:
+ * Public npm (npmjs.com) - for real users:
  * - "npm": Install @proletariat/cli@latest from public npm (default)
  * - "npm:dev": Install @proletariat/cli@dev from public npm
  * - "npm:next": Install @proletariat/cli@next from public npm
  * - "npm:x.y.z": Install specific version from public npm
  *
+ * GitHub Packages - for agent containers (doesn't inflate npm download stats):
+ * - "gh": Install @proletariat/cli@latest from GitHub Packages
+ * - "gh:dev": Install @proletariat/cli@dev from GitHub Packages
+ * - "gh:x.y.z": Install specific version from GitHub Packages
+ * Requires GITHUB_TOKEN with packages:read scope
+ *
  * Local development:
  * - "mount": Mount local prlt build from PRLT_REPO_PATH
- *
- * Legacy (deprecated, now uses npm):
- * - "gh": Alias for npm (GitHub Packages no longer used)
  */
 export type PrltChannel = 'npm' | 'npm:dev' | 'npm:next' | 'gh' | 'gh:dev' | 'mount' | string
 

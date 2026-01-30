@@ -212,12 +212,20 @@ USER node
 RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code
 USER root
 
-# Install prlt CLI from public npm
-# PRLT_REGISTRY: "npm" (install from npmjs.com) or "mount" (use host mount)
+# Install prlt CLI
+# PRLT_REGISTRY: "npm" (install from npmjs.com), "gh" (GitHub Packages), or "mount" (use host mount)
 # PRLT_VERSION: version/tag like "latest", "dev", "next", or "1.2.3"
+# Using GitHub Packages for agent builds keeps public npm download stats accurate
 ARG PRLT_REGISTRY=npm
 ARG PRLT_VERSION=latest
-RUN if [ "\${PRLT_REGISTRY}" = "npm" ] || [ "\${PRLT_REGISTRY}" = "gh" ]; then \\
+ARG GITHUB_TOKEN
+RUN if [ "\${PRLT_REGISTRY}" = "gh" ]; then \\
+      echo "Installing @proletariat/cli@\${PRLT_VERSION} from GitHub Packages..." && \\
+      echo "//npm.pkg.github.com/:_authToken=\${GITHUB_TOKEN}" > ~/.npmrc && \\
+      echo "@proletariat:registry=https://npm.pkg.github.com" >> ~/.npmrc && \\
+      npm install -g @proletariat/cli@\${PRLT_VERSION} && \\
+      rm -f ~/.npmrc; \\
+    elif [ "\${PRLT_REGISTRY}" = "npm" ]; then \\
       echo "Installing @proletariat/cli@\${PRLT_VERSION} from npm..." && \\
       npm install -g @proletariat/cli@\${PRLT_VERSION}; \\
     else \\
