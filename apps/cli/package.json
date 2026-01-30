@@ -1,7 +1,7 @@
 {
   "name": "@proletariat/cli",
   "description": "Agent orchestration platform for AI labor - Spin up workers on demand for multi-agent development",
-  "version": "0.3.16",
+  "version": "0.3.17",
   "author": "Chris McDermut",
   "publishConfig": {
     "access": "public"
