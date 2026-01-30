@@ -18,7 +18,7 @@
     "@oclif/plugin-help": "^6",
     "@oclif/plugin-plugins": "^5",
     "@oclif/plugin-warn-if-update-available": "^3",
-    "better-sqlite3": "^9.2.2",
+    "better-sqlite3": "^12.6.2",
     "chalk": "^4.1.2",
     "chokidar": "^5.0.0",
     "gray-matter": "^4.0.3",
@@ -31,7 +31,7 @@
     "@eslint/compat": "^2.0.0",
     "@oclif/prettier-config": "^0.2.1",
     "@oclif/test": "^4",
-    "@types/better-sqlite3": "^7.6.8",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/chai": "^4",
     "@types/ink-spinner": "^3.0.5",
     "@types/inquirer": "^8.2.6",
@@ -50,7 +50,7 @@
     "typescript": "^5"
   },
   "engines": {
-    "node": ">=18.0.0 <23.0.0"
+    "node": "20.x || 22.x || 23.x || 24.x || 25.x"
   },
   "files": [
     "./bin",

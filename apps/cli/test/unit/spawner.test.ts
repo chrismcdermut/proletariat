@@ -27,6 +27,7 @@ describe('Spawner', () => {
       base_name: null,
       theme_id: null,
       worktree_path: null,
+      mount_mode: 'worktree',
       created_at: new Date().toISOString(),
       cleaned_at: null,
       ...overrides,
