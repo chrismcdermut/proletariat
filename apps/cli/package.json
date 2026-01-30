@@ -17,6 +17,7 @@
     "@oclif/plugin-commands": "^4",
     "@oclif/plugin-help": "^6",
     "@oclif/plugin-plugins": "^5",
+    "@oclif/plugin-warn-if-update-available": "^3",
     "better-sqlite3": "^9.2.2",
     "chalk": "^4.1.2",
     "chokidar": "^5.0.0",
@@ -85,11 +86,16 @@
       "@oclif/plugin-autocomplete",
       "@oclif/plugin-commands",
       "@oclif/plugin-help",
-      "@oclif/plugin-plugins"
+      "@oclif/plugin-plugins",
+      "@oclif/plugin-warn-if-update-available"
     ],
     "topicSeparator": " ",
     "hooks": {
       "init": "./dist/hooks/init"
+    },
+    "warn-if-update-available": {
+      "timeoutInDays": 1,
+      "message": "\n<%= chalk.yellow('Updated prlt available!') %> <%= chalk.dim(config.version) %> → <%= chalk.green(latest) %>\nRun <%= chalk.cyan('npm install -g @proletariat/cli') %> to get the latest\n"
     }
   },
   "repository": {
