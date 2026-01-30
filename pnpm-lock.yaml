@@ -28,6 +28,9 @@ importers:
       '@oclif/plugin-plugins':
         specifier: ^5
         version: 5.4.55
+      '@oclif/plugin-warn-if-update-available':
+        specifier: ^3
+        version: 3.1.53
       better-sqlite3:
         specifier: ^12.6.2
         version: 12.6.2

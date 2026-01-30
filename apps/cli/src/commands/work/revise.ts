@@ -23,6 +23,7 @@ import { runExecution, isDockerRunning, isDevcontainerCliInstalled } from '../..
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { loadExecutionConfig, getTerminalApp, getShell, hasTerminalPreference, hasShellPreference } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
+import { detectRepoWorktrees, resolveWorktreePath } from '../../lib/execution/context.js'
 import {
   isGHInstalled,
   isGHAuthenticated,
@@ -242,22 +243,14 @@ export default class WorkRevise extends PMOCommand {
         this.error(`Agent directory not found at ${agentDir}.`)
       }
 
-      let worktreePath = agentDir
-      const agentContents = fs.readdirSync(agentDir)
-      const repoWorktrees = agentContents.filter(item => {
-        const itemPath = path.join(agentDir, item)
-        const gitPath = path.join(itemPath, '.git')
-        return fs.statSync(itemPath).isDirectory() && fs.existsSync(gitPath)
-      })
+      // Detect repository worktrees within agent directory
+      const repoWorktrees = detectRepoWorktrees(agentDir)
+      const worktreePath = resolveWorktreePath(agentDir, repoWorktrees)
 
-      if (repoWorktrees.length === 1) {
-        worktreePath = path.join(agentDir, repoWorktrees[0])
-      } else if (repoWorktrees.length > 1) {
-        worktreePath = agentDir
+      if (repoWorktrees.length > 1) {
         this.log(styles.muted(`   Repos: ${repoWorktrees.join(', ')}`))
-      } else {
+      } else if (repoWorktrees.length === 0) {
         this.log(styles.muted(`   No git worktree found, using current directory`))
-        worktreePath = process.cwd()
       }
 
       // Get branch from ticket metadata or current branch
@@ -277,6 +270,8 @@ export default class WorkRevise extends PMOCommand {
         worktreePath,
         branch,
         hqPath,
+        pmoPath: this.pmoPath,
+        repoWorktrees,
         // Revision-specific context
         isRevision: true,
         prFeedback: formattedFeedback,

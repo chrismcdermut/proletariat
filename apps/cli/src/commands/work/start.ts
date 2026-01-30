@@ -39,6 +39,7 @@ import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCl
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
 import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
+import { detectRepoWorktrees, resolveWorktreePath } from '../../lib/execution/context.js'
 import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js'
 
 /**
@@ -587,31 +588,14 @@ export default class WorkStart extends PMOCommand {
         }
       }
 
-      // Find worktree path for agent
-      // Agent directory may contain multiple repo worktrees - use the agent dir itself
-      // so Claude can work across all repos (frontend, backend, etc.)
-      let worktreePath = agentDir
+      // Detect repository worktrees within agent directory
+      const repoWorktrees = detectRepoWorktrees(agentDir)
+      const worktreePath = resolveWorktreePath(agentDir, repoWorktrees)
 
-      // Check if agent has repository worktrees (subdirectories with .git)
-      const agentContents = fs.readdirSync(agentDir)
-      const repoWorktrees = agentContents.filter(item => {
-        const itemPath = path.join(agentDir, item)
-        const gitPath = path.join(itemPath, '.git')
-        return fs.statSync(itemPath).isDirectory() && fs.existsSync(gitPath)
-      })
-
-      if (repoWorktrees.length === 1) {
-        // Single repo - open directly in the repo worktree
-        worktreePath = path.join(agentDir, repoWorktrees[0])
-      } else if (repoWorktrees.length > 1) {
-        // Multiple repos - open in agent directory, Claude can navigate between them
-        worktreePath = agentDir
+      if (repoWorktrees.length > 1) {
         this.log(styles.muted(`   Repos: ${repoWorktrees.join(', ')}`))
-      } else {
-        // No git worktrees found - agent is a placeholder
-        // Fall back to the current working directory
+      } else if (repoWorktrees.length === 0) {
         this.log(styles.muted(`   No git worktree found for agent, using current directory`))
-        worktreePath = process.cwd()
       }
 
       // Get coder name for branch naming (prompts on first use)
@@ -756,6 +740,7 @@ export default class WorkStart extends PMOCommand {
         branch,
         hqPath,
         pmoPath: this.pmoPath,          // PMO path for container mounting
+        repoWorktrees,
         // Action context
         actionId: selectedAction?.id,
         actionName: selectedAction?.name || (customPrompt ? 'Custom' : undefined),
@@ -1750,18 +1735,9 @@ export default class WorkStart extends PMOCommand {
       throw new Error(`Agent directory not found: ${agentDir}`)
     }
 
-    // Find worktree path
-    let worktreePath = agentDir
-    const agentContents = fs.readdirSync(agentDir)
-    const repoWorktrees = agentContents.filter(item => {
-      const itemPath = path.join(agentDir, item)
-      const gitPath = path.join(itemPath, '.git')
-      return fs.statSync(itemPath).isDirectory() && fs.existsSync(gitPath)
-    })
-
-    if (repoWorktrees.length === 1) {
-      worktreePath = path.join(agentDir, repoWorktrees[0])
-    }
+    // Detect repository worktrees within agent directory
+    const repoWorktrees = detectRepoWorktrees(agentDir)
+    const worktreePath = resolveWorktreePath(agentDir, repoWorktrees)
 
     // Get coder name for branch naming (prompts on first use)
     const coderName = await getOrPromptCoderName(db)
@@ -1812,6 +1788,7 @@ export default class WorkStart extends PMOCommand {
       branch,
       hqPath: workspaceInfo.path,
       pmoPath: this.pmoPath,
+      repoWorktrees,
       createPR: flags['create-pr'] || false,
       // Use 'implement' action for batch mode
       actionId: defaultAction?.id,
