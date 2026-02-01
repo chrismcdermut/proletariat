@@ -7,11 +7,10 @@ import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js'
+import { FlagResolver } from '../../lib/flags/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { StateCategory, WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
@@ -827,40 +826,43 @@ export default class WorkStart extends PMOCommand {
 
             // Check GitHub token is available for git push operations
             if (!isGitHubTokenAvailable()) {
-              const tokenChoices = [
-                { name: 'Yes, continue anyway (git push may fail)', value: 'continue' },
-                { name: 'No, let me run gh auth login first', value: 'cancel' },
-                { name: 'Switch to host mode instead', value: 'host' },
-              ]
               const tokenMessage = 'GitHub token not found. Git push may fail. Continue without token?'
 
-              if (jsonMode) {
-                outputPromptAsJson(
-                  buildPromptConfig('list', 'tokenAction', tokenMessage, tokenChoices),
-                  createMetadata('work start', flags)
+              // Use FlagResolver for token action prompt
+              const tokenResolver = new FlagResolver<{ tokenAction?: string }>({
+                commandName: 'work start',
+                baseCommand: `prlt work start ${ticketId}`,
+                jsonMode,
+                flags: {},
+              })
+
+              tokenResolver.addPrompt({
+                flagName: 'tokenAction',
+                type: 'list',
+                message: tokenMessage,
+                default: 'continue',
+                choices: () => [
+                  { name: 'Yes, continue anyway (git push may fail)', value: 'continue' },
+                  { name: 'No, let me run gh auth login first', value: 'cancel' },
+                  { name: 'Switch to host mode instead', value: 'host' },
+                ],
+              })
+
+              // In JSON mode, this will output prompt and exit
+              // In interactive mode, show warning first then prompt
+              if (!jsonMode) {
+                this.log('')
+                this.warn(
+                  'GitHub token not found.\n' +
+                  'Git push operations may fail inside the container.\n' +
+                  'Run `gh auth login` to authenticate, or continue without token.'
                 )
-                db.close()
-                return
+                this.log('')
               }
 
-              this.log('')
-              this.warn(
-                'GitHub token not found.\n' +
-                'Git push operations may fail inside the container.\n' +
-                'Run `gh auth login` to authenticate, or continue without token.'
-              )
-              this.log('')
-
               // eslint-disable-next-line no-await-in-loop -- Interactive user prompt in loop
-              const { tokenAction } = await inquirer.prompt([
-                {
-                  type: 'list',
-                  name: 'tokenAction',
-                  message: tokenMessage,
-                  choices: tokenChoices,
-                  default: 'continue',
-                },
-              ])
+              const resolved = await tokenResolver.resolve()
+              const tokenAction = resolved.tokenAction
 
               if (tokenAction === 'cancel') {
                 db.close()
@@ -1065,36 +1067,36 @@ export default class WorkStart extends PMOCommand {
       }
 
       // Prompt for permissions mode (all environments)
-      // Skip prompt if --permission-mode flag is set
+      // Use FlagResolver to handle both JSON mode and interactive prompts consistently
       if (flags['permission-mode']) {
         sandboxed = flags['permission-mode'] === 'safe'
       } else {
         const containerNote = environment === 'devcontainer'
           ? ' (container provides additional isolation)'
           : ''
-        const permissionChoices = [
-          { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger', command: `prlt work start ${ticketId} --skip-permissions` },
-          { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
-        ]
 
-        // Handle JSON mode
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'permissionMode', `Permission mode for Claude Code${containerNote}:`, permissionChoices, 'danger'),
-            createMetadata('work start', flags as Record<string, unknown>)
-          )
-        }
+        // Create resolver for permission-mode flag
+        const permissionResolver = new FlagResolver<{ 'permission-mode'?: string }>({
+          commandName: 'work start',
+          baseCommand: `prlt work start ${ticketId}`,
+          jsonMode,
+          flags: { 'permission-mode': flags['permission-mode'] },
+        })
 
-        const { permissionMode } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'permissionMode',
-            message: `Permission mode for Claude Code${containerNote}:`,
-            choices: permissionChoices,
-            default: 'danger',
-          },
-        ])
-        sandboxed = permissionMode === 'safe'
+        permissionResolver.addPrompt({
+          flagName: 'permission-mode',
+          type: 'list',
+          message: `Permission mode for Claude Code${containerNote}:`,
+          default: 'danger',
+          choices: () => [
+            { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
+            { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+          ],
+          when: (ctx) => !ctx.flags['permission-mode'],
+        })
+
+        const resolvedPermission = await permissionResolver.resolve()
+        sandboxed = resolvedPermission['permission-mode'] === 'safe'
       }
 
       // Prompt for PR creation when work is complete
