@@ -122,7 +122,7 @@ export default class TicketEdit extends PMOCommand {
         items: allTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket edit ${t.id} --json`,
+        getCommand: (t) => `prlt ticket edit ${t.id}${projectId ? ` -P ${projectId}` : ''} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket edit' } : null,
       });
 

@@ -104,7 +104,7 @@ export default class TicketComplete extends PMOCommand {
         items: incompleteTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket complete ${t.id} --json`,
+        getCommand: (t) => `prlt ticket complete ${t.id}${projectId ? ` -P ${projectId}` : ''} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket complete' } : null,
       });
 
@@ -152,7 +152,7 @@ export default class TicketComplete extends PMOCommand {
       choices: incompleteTickets.map(t => ({
         name: `${t.id} - ${t.title} (${t.statusName})`,
         value: t.id,
-        command: `prlt ticket complete ${t.id} --json`,  // For agent: complete single ticket
+        command: `prlt ticket complete ${t.id}${flags.project ? ` -P ${flags.project}` : ''} --json`,  // For agent: complete single ticket
       })),
     }], jsonModeConfig);
 
@@ -176,7 +176,7 @@ export default class TicketComplete extends PMOCommand {
         message: 'Continue?',
         choices: [
           { name: 'No, cancel', value: 'false', command: '' },
-          { name: 'Yes, complete tickets', value: 'true', command: `prlt ticket complete ${selectedTickets.join(' ')} --force --json` }
+          { name: 'Yes, complete tickets', value: 'true', command: `prlt ticket complete ${selectedTickets.join(' ')}${flags.project ? ` -P ${flags.project}` : ''} --force --json` }
         ],
       }], jsonModeConfig);
 

@@ -5,20 +5,41 @@ import { styles } from '../styles.js';
 import {
   shouldOutputJson,
   isAgentMode,
+  isMachineOutput,
   outputPromptAsJson,
   createMetadata,
   normalizeChoices,
   type JsonFlags,
+  type MachineOutputFlags,
 } from '../prompt-json.js';
 
 /**
- * Base flags for JSON/agent mode support
+ * Base flags for JSON/agent mode support (legacy)
  * Include these in your command's flags by spreading: ...jsonModeFlags
+ * @deprecated Use machineOutputFlags instead
  */
 export const jsonModeFlags = {
   json: Flags.boolean({
     description: 'Output prompts as JSON for AI agents/scripts',
     default: false,
+  }),
+};
+
+/**
+ * Base flags for machine-readable output mode
+ * Include these in your command's flags by spreading: ...machineOutputFlags
+ * Supports both --machine (new) and --json (legacy, deprecated)
+ */
+export const machineOutputFlags = {
+  machine: Flags.boolean({
+    char: 'm',
+    description: 'Output as JSON for AI agents/scripts (machine-readable mode)',
+    default: false,
+  }),
+  json: Flags.boolean({
+    description: 'Output as JSON (deprecated, use --machine)',
+    default: false,
+    hidden: true,  // Hide from help since it's deprecated
   }),
 };
 
@@ -31,7 +52,7 @@ export const pmoBaseFlags = {
     char: 'P',
     description: 'Project ID (uses first project if only one exists)',
   }),
-  ...jsonModeFlags,
+  ...machineOutputFlags,
 };
 
 /**
