@@ -91,6 +91,7 @@ export default class Shell extends PMOCommand {
           buildPromptConfig('list', 'name', selectMessage, agentChoices),
           createMetadata('agent shell', flags)
         );
+        return; // outputPromptAsJson calls process.exit, but return for clarity
       }
 
       // Group agents by type for interactive mode
@@ -196,6 +197,7 @@ export default class Shell extends PMOCommand {
         },
         createMetadata('agent shell', flags)
       );
+      return; // outputPromptAsJson calls process.exit, but return for clarity
     }
 
     // Prompt for environment
