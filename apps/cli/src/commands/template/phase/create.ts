@@ -20,6 +20,10 @@ export default class TemplatePhaseCreate extends Command {
       char: 'd',
       description: 'Template description',
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
   };
 
   async run(): Promise<void> {
@@ -28,6 +32,7 @@ export default class TemplatePhaseCreate extends Command {
     const cmdArgs: string[] = [];
     if (args.name) cmdArgs.push(args.name);
     if (flags.description) cmdArgs.push('--description', flags.description);
+    if (flags.json) cmdArgs.push('--json');
 
     await this.config.runCommand('phase:template:create', cmdArgs);
   }
