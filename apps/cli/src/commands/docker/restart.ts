@@ -117,10 +117,13 @@ export default class DockerRestart extends Command {
 
         const { confirm } = await inquirer.prompt([
           {
-            type: 'confirm',
+            type: 'list',
             name: 'confirm',
             message: confirmMessage,
-            default: true,
+            choices: [
+              { name: 'Yes', value: true },
+              { name: 'No', value: false },
+            ],
           },
         ])
 

@@ -148,10 +148,13 @@ export default class DockerClean extends Command {
 
         const { confirm } = await inquirer.prompt([
           {
-            type: 'confirm',
+            type: 'list',
             name: 'confirm',
             message: confirmMessage,
-            default: false,
+            choices: [
+              { name: 'No', value: false },
+              { name: 'Yes', value: true },
+            ],
           },
         ])
 
