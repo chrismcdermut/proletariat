@@ -2,6 +2,11 @@ import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { SpecStatus, SpecType } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputSuccessAsJson,
+  createMetadata,
+} from '../../lib/prompt-json.js';
 
 export default class SpecList extends PMOCommand {
   static description = 'List all specs';
@@ -14,6 +19,10 @@ export default class SpecList extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output as JSON (for AI agents/scripts)',
+      default: false,
+    }),
     status: Flags.string({
       char: 's',
       description: 'Filter by status',
@@ -32,12 +41,38 @@ export default class SpecList extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(SpecList);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
     // List specs with filters
     const specs = await this.storage.listSpecs({
       status: flags.status as SpecStatus | undefined,
       type: flags.type as SpecType | undefined,
       search: flags.search,
     });
+
+    // In JSON mode, output specs as structured data
+    if (jsonMode) {
+      outputSuccessAsJson({
+        specs: specs.map(s => ({
+          id: s.id,
+          title: s.title,
+          status: s.status,
+          type: s.type,
+          tags: s.tags,
+          problem: s.problem,
+          createdAt: s.createdAt?.toISOString(),
+          updatedAt: s.updatedAt?.toISOString(),
+        })),
+        count: specs.length,
+        filters: {
+          status: flags.status,
+          type: flags.type,
+          search: flags.search,
+        },
+      }, createMetadata('spec list', flags));
+      return;
+    }
 
     if (specs.length === 0) {
       this.log(styles.warning('\nNo specs found'));

@@ -1,13 +1,10 @@
 import { Flags, Args } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class SpecPlan extends PMOCommand {
@@ -66,31 +63,20 @@ export default class SpecPlan extends PMOCommand {
         return handleError('NO_SPECS', 'No specs found. Create a spec first with "prlt spec create".');
       }
 
-      // In JSON mode, output spec selection prompt
-      if (jsonMode) {
-        const specChoices = specs.map(s => ({
-          name: `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
-          value: s.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'spec', 'Select spec to plan:', specChoices),
-          createMetadata('spec plan', flags)
-        );
-        return;
-      }
+      // Use helper for spec selection (handles JSON mode automatically)
+      const selected = await this.selectFromList({
+        message: 'Select spec to plan:',
+        items: specs,
+        getName: (s) => `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
+        getValue: (s) => s.id,
+        getCommand: (s) => `prlt spec plan ${s.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'spec plan' } : null,
+      });
 
-      const { selectedSpec } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'selectedSpec',
-          message: 'Select spec to plan:',
-          choices: specs.map(s => ({
-            name: `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
-            value: s.id,
-          })),
-        },
-      ]);
-      specId = selectedSpec;
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      specId = selected;
     }
 
     // Get the spec

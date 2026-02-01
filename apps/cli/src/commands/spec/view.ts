@@ -41,11 +41,18 @@ export default class SpecView extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SpecView);
-    // This command requires project context for listing linked tickets
-    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
+
+    // This command requires project context for listing linked tickets (with JSON mode support)
+    const projectId = await this.requireProject({
+      jsonMode: jsonMode ? {
+        flags,
+        commandName: 'spec view',
+        baseCommand: 'prlt spec view',
+      } : undefined,
+    });
 
     // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
