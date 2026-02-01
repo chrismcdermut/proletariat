@@ -8,6 +8,13 @@ import {
   addRepository
 } from '../../lib/repos/index.js';
 import { getWorkspaceRepositories } from '../../lib/database/index.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class Add extends PMOCommand {
   static description = 'Add a repository to the HQ';
@@ -39,6 +46,10 @@ export default class Add extends PMOCommand {
       description: 'Add multiple repositories interactively',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -48,14 +59,36 @@ export default class Add extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(Add);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('repo add', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Find HQ root
     const hqPath = findHQRoot();
     if (!hqPath) {
-      this.error('Not in an HQ directory. Run "prlt init" first.');
+      return handleError('NOT_IN_HQ', 'Not in an HQ directory. Run "prlt init" first.');
     }
 
     // Bulk mode: add multiple repositories interactively
     if (flags.bulk) {
+      // In JSON mode, output info about bulk mode
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('checkbox', 'paths', 'Select repositories to add:', [
+            { name: 'Use --path flag to specify paths directly', value: '' },
+          ]),
+          createMetadata('repo add', flags)
+        );
+        return;
+      }
       await this.executeBulk(hqPath);
       return;
     }
@@ -75,6 +108,20 @@ export default class Add extends PMOCommand {
         action = 'clone';
       }
     } else {
+      // In JSON mode, output prompt for method selection
+      if (jsonMode) {
+        const methodChoices = [
+          { name: 'Enter path or Git URL', value: 'manual', command: 'prlt repo add <path> --json' },
+          { name: 'Search for repositories', value: 'search', command: 'prlt repo add --bulk --json' },
+          { name: 'Create new repository', value: 'create', command: 'prlt repo add <name> --json' },
+        ];
+        outputPromptAsJson(
+          buildPromptConfig('list', 'method', 'How would you like to add a repository?', methodChoices),
+          createMetadata('repo add', flags)
+        );
+        return;
+      }
+
       // Interactive mode
       const result = await promptAddSingleRepo();
       if (!result) {
