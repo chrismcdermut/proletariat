@@ -7,12 +7,7 @@ import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js'
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
 
 export default class Docker extends Command {
   static description = 'Manage Docker containers used by agents'
@@ -41,54 +36,50 @@ export default class Docker extends Command {
   async run(): Promise<void> {
     const { flags } = await this.parse(Docker)
 
-    // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
 
     // Define choices once, use for both JSON and interactive modes
     const menuChoices = [
-      { name: 'Check Docker status', value: 'status' },
-      { name: 'List containers', value: 'list' },
-      { name: 'View container logs', value: 'logs' },
-      { name: 'Start a container', value: 'start' },
-      { name: 'Stop a container', value: 'stop' },
-      { name: 'Shell into container', value: 'shell' },
-      { name: 'Restart a container', value: 'restart' },
-      { name: 'Sync containers from Docker', value: 'sync' },
-      { name: 'Clean orphaned containers', value: 'clean' },
-      { name: 'Prune unused resources', value: 'prune' },
+      { name: 'Check Docker status', value: 'status', command: 'prlt docker status --json' },
+      { name: 'List containers', value: 'list', command: 'prlt docker list --json' },
+      { name: 'View container logs', value: 'logs', command: 'prlt docker logs <target> --json' },
+      { name: 'Start a container', value: 'start', command: 'prlt docker start <target> --json' },
+      { name: 'Stop a container', value: 'stop', command: 'prlt docker stop <target> --json' },
+      { name: 'Shell into container', value: 'shell', command: 'prlt docker shell <target> --json' },
+      { name: 'Restart a container', value: 'restart', command: 'prlt docker restart <target> --json' },
+      { name: 'Sync containers from Docker', value: 'sync', command: 'prlt docker sync --json' },
+      { name: 'Clean orphaned containers', value: 'clean', command: 'prlt docker clean --json' },
+      { name: 'Prune unused resources', value: 'prune', command: 'prlt docker prune --json' },
       { name: 'Exit', value: 'exit' },
     ]
-    const message = 'What would you like to do?'
 
-    // In JSON mode, output menu prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('docker', flags)
-      )
-      return
+    const resolver = new FlagResolver<{ action?: string }>({
+      commandName: 'docker',
+      baseCommand: 'prlt docker',
+      jsonMode,
+      flags: {},
+    })
+
+    resolver.addPrompt({
+      flagName: 'action',
+      type: 'list',
+      message: 'What would you like to do?',
+      choices: () => menuChoices,
+      skipAutoCommand: true, // Use the custom commands defined above
+    })
+
+    // In JSON mode, this outputs prompt and exits
+    // In interactive mode, we need to show the header first
+    if (!jsonMode) {
+      this.log('')
+      this.log(styles.header('Docker Management'))
+      this.log('')
     }
 
-    this.log('')
-    this.log(styles.header('Docker Management'))
-    this.log('')
+    const resolved = await resolver.resolve()
+    const action = resolved.action
 
-    const { action } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'action',
-        message,
-        choices: [
-          ...menuChoices.slice(0, 7),
-          new inquirer.Separator(),
-          ...menuChoices.slice(7, 10),
-          new inquirer.Separator(),
-          menuChoices[10],
-        ],
-      },
-    ])
-
-    if (action === 'exit') {
+    if (!action || action === 'exit') {
       return
     }
 

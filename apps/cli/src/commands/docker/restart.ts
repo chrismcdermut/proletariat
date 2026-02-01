@@ -2,18 +2,12 @@ import { Args, Command, Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import Database from 'better-sqlite3'
-import inquirer from 'inquirer'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { resolveContainerId, containerExists, sanitizeContainerId } from '../../lib/docker/resolve.js'
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js'
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
 
 export default class DockerRestart extends Command {
   static description = 'Restart a container (by execution ID, agent name, or container ID)'
@@ -95,39 +89,26 @@ export default class DockerRestart extends Command {
 
       // Confirm
       if (!flags.force) {
-        // Check if JSON output mode is active
-        const jsonMode = shouldOutputJson(flags)
+        const resolver = new FlagResolver<{ confirmed?: boolean }>({
+          commandName: 'docker restart',
+          baseCommand: `prlt docker restart ${args.target}`,
+          jsonMode: shouldOutputJson(flags),
+          flags: {},
+        })
 
-        // Build choices once, use for both JSON and interactive modes
-        const confirmChoices = [
-          { name: 'Yes', value: 'true' },
-          { name: 'No', value: 'false' },
-        ]
-        const confirmMessage = `Restart container ${result.displayName}?`
+        resolver.addPrompt({
+          flagName: 'confirmed',
+          type: 'list',
+          message: `Restart container ${result.displayName}?`,
+          choices: () => [
+            { name: 'Yes', value: true },
+            { name: 'No', value: false },
+          ],
+        })
 
-        // In JSON mode, output confirmation prompt
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
-            createMetadata('docker restart', flags)
-          )
-          db.close()
-          return
-        }
+        const resolved = await resolver.resolve()
 
-        const { confirm } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'confirm',
-            message: confirmMessage,
-            choices: [
-              { name: 'Yes', value: true },
-              { name: 'No', value: false },
-            ],
-          },
-        ])
-
-        if (!confirm) {
+        if (!resolved.confirmed) {
           this.log(`${styles.muted('Aborted.')}\n`)
           db.close()
           return

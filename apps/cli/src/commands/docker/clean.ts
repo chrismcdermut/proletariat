@@ -2,18 +2,12 @@ import { Command, Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import Database from 'better-sqlite3'
-import inquirer from 'inquirer'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { sanitizeContainerId } from '../../lib/docker/resolve.js'
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js'
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
 
 interface OrphanedContainer {
   id: string
@@ -126,39 +120,26 @@ export default class DockerClean extends Command {
 
       // Confirm removal
       if (!flags.force) {
-        // Check if JSON output mode is active
-        const jsonMode = shouldOutputJson(flags)
+        const resolver = new FlagResolver<{ confirmed?: boolean }>({
+          commandName: 'docker clean',
+          baseCommand: 'prlt docker clean',
+          jsonMode: shouldOutputJson(flags),
+          flags: {},
+        })
 
-        // Build choices once, use for both JSON and interactive modes
-        const confirmChoices = [
-          { name: 'No', value: 'false' },
-          { name: 'Yes', value: 'true' },
-        ]
-        const confirmMessage = `Remove ${orphanedContainers.length} orphaned container(s)?`
+        resolver.addPrompt({
+          flagName: 'confirmed',
+          type: 'list',
+          message: `Remove ${orphanedContainers.length} orphaned container(s)?`,
+          choices: () => [
+            { name: 'Yes', value: true },
+            { name: 'No', value: false },
+          ],
+        })
 
-        // In JSON mode, output confirmation prompt
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
-            createMetadata('docker clean', flags)
-          )
-          db.close()
-          return
-        }
+        const resolved = await resolver.resolve()
 
-        const { confirm } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'confirm',
-            message: confirmMessage,
-            choices: [
-              { name: 'No', value: false },
-              { name: 'Yes', value: true },
-            ],
-          },
-        ])
-
-        if (!confirm) {
+        if (!resolved.confirmed) {
           this.log(`\n${styles.muted('Aborted.')}\n`)
           db.close()
           return

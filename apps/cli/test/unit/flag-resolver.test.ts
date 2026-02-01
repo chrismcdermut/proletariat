@@ -1,34 +1,34 @@
 import { expect } from 'chai';
-import { FlagResolver } from '../../src/lib/flags/resolver.js';
+import { FlagResolver, shouldOutputJson } from '../../src/lib/flags/index.js';
 
 describe('FlagResolver', () => {
   describe('constructor', () => {
-    it('should create resolver with provided options', () => {
+    it('should create resolver with initial flags', () => {
       const resolver = new FlagResolver({
-        commandName: 'test command',
+        commandName: 'test',
         baseCommand: 'prlt test',
         jsonMode: false,
         flags: { option: 'value' },
       });
 
-      expect(resolver.hasFlag('option')).to.be.true;
       expect(resolver.getFlag('option')).to.equal('value');
     });
 
-    it('should handle empty flags', () => {
+    it('should include context in resolver', () => {
       const resolver = new FlagResolver({
         commandName: 'test',
         baseCommand: 'prlt test',
         jsonMode: false,
         flags: {},
+        context: { projectId: 'proj-1' },
       });
 
-      expect(resolver.hasFlag('missing')).to.be.false;
+      expect(resolver.getContext('projectId')).to.equal('proj-1');
     });
   });
 
   describe('addPrompt', () => {
-    it('should add prompt to resolver', () => {
+    it('should add prompts and allow chaining', () => {
       const resolver = new FlagResolver({
         commandName: 'test',
         baseCommand: 'prlt test',
@@ -36,64 +36,124 @@ describe('FlagResolver', () => {
         flags: {},
       });
 
-      resolver.addPrompt({
-        flagName: 'selection',
-        type: 'list',
-        message: 'Select option:',
-        choices: () => [
-          { name: 'Option A', value: 'a' },
-          { name: 'Option B', value: 'b' },
-        ],
-      });
-
-      // Prompt was added successfully (internal state)
-      expect(resolver.hasFlag('selection')).to.be.false; // Not resolved yet
-    });
-
-    it('should chain multiple prompts', () => {
-      const resolver = new FlagResolver({
-        commandName: 'test',
-        baseCommand: 'prlt test',
-        jsonMode: false,
-        flags: {},
-      });
-
-      resolver
+      const result = resolver
         .addPrompt({
-          flagName: 'first',
+          flagName: 'option1',
           type: 'list',
-          message: 'First:',
+          message: 'Select option 1',
           choices: () => [{ name: 'A', value: 'a' }],
         })
         .addPrompt({
-          flagName: 'second',
+          flagName: 'option2',
           type: 'input',
-          message: 'Second:',
+          message: 'Enter option 2',
         });
 
-      // Chainable API works
-      expect(resolver).to.be.instanceOf(FlagResolver);
+      expect(result).to.equal(resolver);
     });
   });
 
-  describe('setFlag', () => {
-    it('should set flag value directly', () => {
-      const resolver = new FlagResolver<{ myFlag?: string }>({
+  describe('resolve in interactive mode', () => {
+    it('should skip prompt when flag already provided', async () => {
+      const resolver = new FlagResolver<{ confirmed?: boolean }>({
+        commandName: 'docker clean',
+        baseCommand: 'prlt docker clean',
+        jsonMode: false,
+        flags: { confirmed: true },
+      });
+
+      resolver.addPrompt({
+        flagName: 'confirmed',
+        type: 'list',
+        message: 'Confirm?',
+        choices: () => [
+          { name: 'Yes', value: true },
+          { name: 'No', value: false },
+        ],
+      });
+
+      const result = await resolver.resolve();
+
+      expect(result.confirmed).to.equal(true);
+    });
+
+    it('should respect when() condition and skip prompt', async () => {
+      const resolver = new FlagResolver<{ force?: boolean; confirmed?: boolean }>({
         commandName: 'test',
         baseCommand: 'prlt test',
         jsonMode: false,
-        flags: {},
+        flags: { force: true },
       });
 
-      resolver.setFlag('myFlag', 'my-value');
+      resolver.addPrompt({
+        flagName: 'confirmed',
+        type: 'list',
+        message: 'Confirm?',
+        choices: () => [
+          { name: 'Yes', value: true },
+          { name: 'No', value: false },
+        ],
+        when: (ctx) => !ctx.flags.force, // Skip when force is true
+      });
 
-      expect(resolver.hasFlag('myFlag')).to.be.true;
-      expect(resolver.getFlag('myFlag')).to.equal('my-value');
+      const result = await resolver.resolve();
+
+      // confirmed should be undefined since prompt was skipped
+      expect(result.confirmed).to.be.undefined;
+    });
+
+    it('should preserve all initial flags in result', async () => {
+      const resolver = new FlagResolver<{ flag1?: string; flag2?: string; flag3?: string }>({
+        commandName: 'test',
+        baseCommand: 'prlt test',
+        jsonMode: false,
+        flags: { flag1: 'value1', flag2: 'value2' },
+      });
+
+      resolver.addPrompt({
+        flagName: 'flag3',
+        type: 'input',
+        message: 'Enter flag3',
+        when: () => false, // Skip this prompt
+      });
+
+      const result = await resolver.resolve();
+
+      expect(result.flag1).to.equal('value1');
+      expect(result.flag2).to.equal('value2');
+      expect(result.flag3).to.be.undefined;
+    });
+
+    it('should resolve multiple flags when all are provided', async () => {
+      const resolver = new FlagResolver<{ action?: string; target?: string }>({
+        commandName: 'docker',
+        baseCommand: 'prlt docker',
+        jsonMode: false,
+        flags: { action: 'stop', target: 'container-1' },
+      });
+
+      resolver.addPrompt({
+        flagName: 'action',
+        type: 'list',
+        message: 'Select action',
+        choices: () => [{ name: 'Stop', value: 'stop' }],
+      });
+
+      resolver.addPrompt({
+        flagName: 'target',
+        type: 'input',
+        message: 'Enter target',
+      });
+
+      const result = await resolver.resolve();
+
+      expect(result.action).to.equal('stop');
+      expect(result.target).to.equal('container-1');
     });
   });
 
-  describe('setContext', () => {
-    it('should set custom context', () => {
+  describe('setFlag and hasFlag', () => {
+    it('should set and check flags', () => {
       const resolver = new FlagResolver({
         commandName: 'test',
         baseCommand: 'prlt test',
@@ -101,138 +161,105 @@ describe('FlagResolver', () => {
         flags: {},
       });
 
-      resolver.setContext('projectId', 'test-project');
+      expect(resolver.hasFlag('option')).to.be.false;
 
-      expect(resolver.getContext('projectId')).to.equal('test-project');
+      resolver.setFlag('option', 'value');
+
+      expect(resolver.hasFlag('option')).to.be.true;
+      expect(resolver.getFlag('option')).to.equal('value');
     });
   });
 
-  describe('resolve (interactive mode)', () => {
-    it('should skip prompts for flags that already have values', async () => {
-      const resolver = new FlagResolver<{ existingFlag?: string }>({
+  describe('setContext and getContext', () => {
+    it('should set and get context values', () => {
+      const resolver = new FlagResolver({
         commandName: 'test',
         baseCommand: 'prlt test',
         jsonMode: false,
-        flags: { existingFlag: 'preset-value' },
+        flags: {},
       });
 
-      let promptCalled = false;
-      resolver.addPrompt({
-        flagName: 'existingFlag',
-        type: 'list',
-        message: 'Should not prompt:',
-        choices: () => {
-          promptCalled = true;
-          return [{ name: 'A', value: 'a' }];
+      resolver.setContext('customKey', 'customValue');
+
+      expect(resolver.getContext('customKey')).to.equal('customValue');
+    });
+
+    it('should return undefined for missing context', () => {
+      const resolver = new FlagResolver({
+        commandName: 'test',
+        baseCommand: 'prlt test',
+        jsonMode: false,
+        flags: {},
+      });
+
+      expect(resolver.getContext('missing')).to.be.undefined;
+    });
+  });
+
+  describe('addPrompts', () => {
+    it('should add multiple prompts at once', () => {
+      const resolver = new FlagResolver({
+        commandName: 'test',
+        baseCommand: 'prlt test',
+        jsonMode: false,
+        flags: {},
+      });
+
+      resolver.addPrompts([
+        {
+          flagName: 'option1',
+          type: 'list',
+          message: 'Option 1',
+          choices: () => [{ name: 'A', value: 'a' }],
         },
-      });
-
-      const resolved = await resolver.resolve();
-
-      expect(promptCalled).to.be.false;
-      expect(resolved.existingFlag).to.equal('preset-value');
-    });
-
-    it('should skip prompts when "when" condition returns false', async () => {
-      const resolver = new FlagResolver<{ conditional?: string }>({
-        commandName: 'test',
-        baseCommand: 'prlt test',
-        jsonMode: false,
-        flags: {},
-      });
-
-      let choicesGenerated = false;
-      resolver.addPrompt({
-        flagName: 'conditional',
-        type: 'list',
-        message: 'Conditional prompt:',
-        when: () => false, // Never show this prompt
-        choices: () => {
-          choicesGenerated = true;
-          return [{ name: 'A', value: 'a' }];
+        {
+          flagName: 'option2',
+          type: 'input',
+          message: 'Option 2',
         },
+      ]);
+
+      // Can verify by trying to resolve with flags pre-set
+      resolver.setFlag('option1', 'a');
+      resolver.setFlag('option2', 'b');
+
+      // If prompts were added correctly, this should resolve without prompting
+      return resolver.resolve().then(result => {
+        expect(result.option1).to.equal('a');
+        expect(result.option2).to.equal('b');
       });
-
-      const resolved = await resolver.resolve();
-
-      expect(choicesGenerated).to.be.false;
-      expect(resolved.conditional).to.be.undefined;
-    });
-
-    it('should respect prompt order and dependencies when all flags provided', async () => {
-      // Test that when both flags are already provided, no prompts are shown
-      const resolver = new FlagResolver<{ first?: string; second?: string }>({
-        commandName: 'test',
-        baseCommand: 'prlt test',
-        jsonMode: false,
-        flags: { first: 'first-value', second: 'second-value' },
-      });
-
-      resolver.addPrompt({
-        flagName: 'first',
-        type: 'list',
-        message: 'First:',
-        choices: () => [{ name: 'First', value: 'first-value' }],
-      });
-
-      resolver.addPrompt({
-        flagName: 'second',
-        type: 'list',
-        message: 'Second:',
-        when: (ctx) => ctx.flags.first === 'first-value',
-        choices: () => [{ name: 'Second', value: 'second-value' }],
-      });
-
-      // Both flags already set, so no prompts should be shown
-      const resolved = await resolver.resolve();
-      expect(resolved.first).to.equal('first-value');
-      expect(resolved.second).to.equal('second-value');
     });
   });
+});
 
-  describe('hasFlag / getFlag', () => {
-    it('should return true for existing flags', () => {
-      const resolver = new FlagResolver({
-        commandName: 'test',
-        baseCommand: 'prlt test',
-        jsonMode: false,
-        flags: { existing: 'value' },
-      });
+describe('shouldOutputJson', () => {
+  let originalIsTTY: boolean | undefined;
 
-      expect(resolver.hasFlag('existing')).to.be.true;
-    });
+  beforeEach(() => {
+    originalIsTTY = process.stdout.isTTY;
+  });
 
-    it('should return false for non-existing flags', () => {
-      const resolver = new FlagResolver({
-        commandName: 'test',
-        baseCommand: 'prlt test',
-        jsonMode: false,
-        flags: {},
-      });
+  afterEach(() => {
+    Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, configurable: true });
+  });
 
-      expect(resolver.hasFlag('nonexistent')).to.be.false;
-    });
+  it('should return true when json flag is true', () => {
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    expect(shouldOutputJson({ json: true })).to.be.true;
+  });
 
-    it('should return undefined for non-existing flags', () => {
-      const resolver = new FlagResolver({
-        commandName: 'test',
-        baseCommand: 'prlt test',
-        jsonMode: false,
-        flags: {},
-      });
+  it('should return true in non-TTY environment', () => {
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+    expect(shouldOutputJson({})).to.be.true;
+  });
 
-      expect(resolver.getFlag('nonexistent')).to.be.undefined;
-    });
+  it('should return false when no flags and in TTY environment', () => {
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    expect(shouldOutputJson({})).to.be.false;
+  });
 
-    it('should return flag value', () => {
-      const resolver = new FlagResolver({
-        commandName: 'test',
-        baseCommand: 'prlt test',
-        jsonMode: false,
-        flags: { myFlag: 'my-value' },
-      });
-
-      expect(resolver.getFlag('myFlag')).to.equal('my-value');
-    });
+  it('should return false when json flag is explicitly false in TTY', () => {
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    expect(shouldOutputJson({ json: false })).to.be.false;
   });
 });

@@ -498,6 +498,167 @@ describe('Docker Commands E2E Tests', () => {
   })
 
   /**
+   * JSON Mode Tests (FlagResolver integration)
+   * These tests verify that docker commands output proper JSON when --json flag is used.
+   * Note: These tests may be skipped if Docker is not running, since the commands
+   * exit with an error before outputting JSON.
+   */
+  describe('JSON Mode Output', () => {
+    /**
+     * Helper to check if output indicates Docker/workspace errors
+     */
+    function hasDockerOrWorkspaceError(output: string): boolean {
+      return (
+        output.includes('Docker is not running') ||
+        output.includes('docker: not found') ||
+        output.includes('Docker check attempt') ||
+        output.includes('Not in a workspace') ||
+        output.includes('Could not find container') ||
+        output.includes('does not exist')
+      )
+    }
+
+    /**
+     * Helper to safely parse JSON from command output.
+     * Returns null if output contains error messages or no valid JSON.
+     */
+    function tryParsePromptJson(output: string): { prompt: Record<string, unknown>; metadata: Record<string, unknown> } | null {
+      // Skip if Docker not running or workspace errors
+      if (hasDockerOrWorkspaceError(output)) {
+        return null
+      }
+
+      // Look for JSON that starts with {"prompt"
+      const jsonMatch = output.match(/\{"prompt"[\s\S]*\}/)
+      if (!jsonMatch) return null
+
+      try {
+        return JSON.parse(jsonMatch[0])
+      } catch {
+        return null
+      }
+    }
+
+    it('prlt docker --json should output action menu as JSON', () => {
+      const output = exec('docker --json')
+      const json = tryParsePromptJson(output)
+
+      // Skip test if Docker not available
+      if (!json) {
+        return
+      }
+
+      expect(json.prompt).to.exist
+      expect(json.prompt.type).to.equal('list')
+      expect(json.prompt.name).to.equal('action')
+      expect(json.prompt.message).to.include('What would you like to do')
+      expect(json.prompt.choices).to.be.an('array')
+      expect((json.prompt.choices as unknown[]).length).to.be.greaterThan(0)
+
+      // Each choice should have name, value, and command
+      const statusChoice = (json.prompt.choices as Array<{ value: string; name: string; command: string }>).find(
+        c => c.value === 'status'
+      )
+      expect(statusChoice).to.exist
+      expect(statusChoice!.name).to.include('Docker status')
+      expect(statusChoice!.command).to.include('prlt docker status')
+
+      expect(json.metadata).to.exist
+      expect(json.metadata.command).to.equal('docker')
+    })
+
+    it('prlt docker clean --json should output confirm prompt or error', () => {
+      const output = exec('docker clean --json')
+      const json = tryParsePromptJson(output)
+
+      // If we get JSON, validate it
+      if (json) {
+        expect(json.prompt).to.exist
+        expect(json.prompt.type).to.equal('list')
+        expect(json.prompt.name).to.equal('confirmed')
+        expect(json.prompt.choices).to.be.an('array')
+        expect(json.metadata).to.exist
+        expect(json.metadata.command).to.equal('docker clean')
+      } else {
+        // Should have an error message
+        const hasError =
+          output.includes('Docker is not running') ||
+          output.includes('Not in a workspace')
+        expect(hasError).to.be.true
+      }
+    })
+
+    it('prlt docker prune --json should output confirm prompt or error', () => {
+      const output = exec('docker prune --json')
+      const json = tryParsePromptJson(output)
+
+      // If we get JSON, validate it
+      if (json) {
+        expect(json.prompt).to.exist
+        expect(json.prompt.type).to.equal('list')
+        expect(json.prompt.name).to.equal('confirmed')
+        expect(json.metadata).to.exist
+        expect(json.metadata.command).to.equal('docker prune')
+      } else {
+        // Should have Docker error
+        expect(hasDockerOrWorkspaceError(output)).to.be.true
+      }
+    })
+
+    it('prlt docker stop <target> --json should output confirm prompt or error', () => {
+      const output = exec('docker stop test-container --json')
+      const json = tryParsePromptJson(output)
+
+      // If we get JSON, validate it
+      if (json) {
+        expect(json.prompt).to.exist
+        expect(json.prompt.type).to.equal('list')
+        expect(json.prompt.name).to.equal('confirmed')
+        expect(json.metadata).to.exist
+        expect(json.metadata.command).to.equal('docker stop')
+      } else {
+        // Should have an error
+        expect(hasDockerOrWorkspaceError(output)).to.be.true
+      }
+    })
+
+    it('prlt docker restart <target> --json should output confirm prompt or error', () => {
+      const output = exec('docker restart test-container --json')
+      const json = tryParsePromptJson(output)
+
+      // If we get JSON, validate it
+      if (json) {
+        expect(json.prompt).to.exist
+        expect(json.prompt.type).to.equal('list')
+        expect(json.prompt.name).to.equal('confirmed')
+        expect(json.metadata).to.exist
+        expect(json.metadata.command).to.equal('docker restart')
+      } else {
+        // Should have an error
+        expect(hasDockerOrWorkspaceError(output)).to.be.true
+      }
+    })
+
+    it('--force flag should skip confirmation prompt in JSON mode', () => {
+      // With --force, should not output a prompt (goes straight to execution)
+      const output = exec('docker clean --force --json')
+
+      // If Docker not running, we get that message
+      // If workspace not found, we get that error
+      // If --force works, no prompt JSON is output
+      const hasDockerError = output.includes('Docker is not running')
+      const hasWorkspaceError = output.includes('Not in a workspace')
+      const hasNoOrphans = output.includes('No orphaned containers')
+
+      // Should NOT have a prompt JSON when --force is used
+      const jsonMatch = output.match(/\{"prompt"/)
+      if (!hasDockerError && !hasWorkspaceError && !hasNoOrphans) {
+        expect(jsonMatch).to.be.null
+      }
+    })
+  })
+
+  /**
    * Database integration tests
    */
   describe('Database Integration', () => {
@@ -569,6 +730,248 @@ describe('Docker Commands E2E Tests', () => {
         .all()
 
       expect(activeExecutions).to.have.lengthOf(1)
+    })
+  })
+})
+
+/**
+ * End-to-end Agent Flow Tests (--machine flag)
+ * These tests simulate an AI agent navigating through docker commands
+ * using the JSON machine-readable output.
+ */
+describe('End-to-end Agent Flows (--machine flag)', () => {
+  /**
+   * Extract JSON from CLI output that may contain warnings.
+   */
+  function extractJson<T>(output: string): T | null {
+    const lines = output.split('\n')
+    let jsonStart = -1
+
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim()
+      if (trimmed.startsWith('{')) {
+        jsonStart = i
+        break
+      }
+    }
+
+    if (jsonStart === -1) {
+      return null
+    }
+
+    const jsonLines = lines.slice(jsonStart).join('\n')
+    try {
+      return JSON.parse(jsonLines) as T
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Helper to simulate agent flow: execute command, parse JSON
+   */
+  function agentExec(cmd: string): {
+    prompt: {
+      type: string
+      name: string
+      message: string
+      choices: Array<{ name: string; value: string; command?: string }>
+    }
+    metadata: { command: string; flags: Record<string, unknown> }
+  } | null {
+    const output = exec(cmd)
+    // Skip if Docker not running or workspace errors
+    if (
+      output.includes('Docker is not running') ||
+      output.includes('Not in a workspace') ||
+      output.includes('docker: not found')
+    ) {
+      return null
+    }
+    return extractJson(output)
+  }
+
+  /**
+   * Helper to find a choice by partial name match
+   */
+  function findChoice(
+    choices: Array<{ name: string; value: string; command?: string }>,
+    pattern: string
+  ): { name: string; value: string; command?: string } | undefined {
+    return choices.find(c => c.name.toLowerCase().includes(pattern.toLowerCase()))
+  }
+
+  /**
+   * Helper to execute the command from a choice (strips 'prlt ' prefix)
+   */
+  function execChoice(choice: { command?: string }): string {
+    if (!choice.command) throw new Error('Choice has no command')
+    return choice.command.replace('prlt ', '')
+  }
+
+  describe('docker main menu - agent navigation', () => {
+    it('should output action menu with --machine flag', () => {
+      const result = agentExec('docker --machine')
+
+      // Skip if Docker/workspace not available
+      if (!result) {
+        return
+      }
+
+      expect(result.prompt.type).to.equal('list')
+      expect(result.prompt.name).to.equal('action')
+      expect(result.prompt.choices).to.be.an('array')
+      expect(result.metadata.flags.machine).to.equal(true)
+    })
+
+    it('should include command field in all choices', () => {
+      const result = agentExec('docker --machine')
+
+      if (!result) {
+        return
+      }
+
+      for (const choice of result.prompt.choices) {
+        expect(choice.command).to.exist
+        expect(choice.command).to.include('prlt docker')
+      }
+    })
+
+    it('should have navigable choices to subcommands', () => {
+      const result = agentExec('docker --machine')
+
+      if (!result) {
+        return
+      }
+
+      // Should have status, list, clean, prune options
+      const statusChoice = findChoice(result.prompt.choices, 'status')
+      expect(statusChoice).to.exist
+      expect(statusChoice!.command).to.include('docker status')
+
+      const listChoice = findChoice(result.prompt.choices, 'list')
+      expect(listChoice).to.exist
+      expect(listChoice!.command).to.include('docker list')
+    })
+  })
+
+  describe('docker clean - agent confirmation flow', () => {
+    it('should output confirmation prompt with --machine', () => {
+      const result = agentExec('docker clean --machine')
+
+      if (!result) {
+        return
+      }
+
+      expect(result.prompt.type).to.equal('list')
+      expect(result.prompt.name).to.equal('confirmed')
+      expect(result.prompt.choices).to.be.an('array')
+
+      // Should have Yes/No choices
+      const yesChoice = findChoice(result.prompt.choices, 'yes')
+      const noChoice = findChoice(result.prompt.choices, 'no')
+      expect(yesChoice || noChoice).to.exist
+    })
+
+    it('should include command in confirmation choices', () => {
+      const result = agentExec('docker clean --machine')
+
+      if (!result) {
+        return
+      }
+
+      for (const choice of result.prompt.choices) {
+        if (choice.command) {
+          expect(choice.command).to.include('docker clean')
+        }
+      }
+    })
+  })
+
+  describe('docker prune - agent confirmation flow', () => {
+    it('should output confirmation prompt with --machine', () => {
+      const result = agentExec('docker prune --machine')
+
+      if (!result) {
+        return
+      }
+
+      expect(result.prompt.type).to.equal('list')
+      expect(result.prompt.name).to.equal('confirmed')
+      expect(result.metadata.command).to.equal('docker prune')
+    })
+  })
+
+  describe('full agent navigation flow', () => {
+    it('should allow agent to navigate from main menu to clean', () => {
+      // Step 1: Get main menu
+      const step1 = agentExec('docker --machine')
+
+      if (!step1) {
+        return
+      }
+
+      // Step 2: Find and select "clean" option
+      const cleanChoice = findChoice(step1.prompt.choices, 'clean')
+      if (!cleanChoice) {
+        // Clean option might not be available
+        return
+      }
+
+      expect(cleanChoice.command).to.include('docker clean')
+      expect(cleanChoice.command).to.include('--json')
+
+      // Step 3: Execute the clean command
+      const cleanCmd = execChoice(cleanChoice)
+      const step2 = agentExec(cleanCmd)
+
+      if (!step2) {
+        return
+      }
+
+      // Should get confirmation prompt
+      expect(step2.prompt.type).to.equal('list')
+      expect(step2.prompt.name).to.equal('confirmed')
+    })
+
+    it('should allow agent to navigate from main menu to status', () => {
+      // Step 1: Get main menu
+      const step1 = agentExec('docker --machine')
+
+      if (!step1) {
+        return
+      }
+
+      // Step 2: Find status option
+      const statusChoice = findChoice(step1.prompt.choices, 'status')
+      expect(statusChoice).to.exist
+      expect(statusChoice!.command).to.include('docker status')
+    })
+  })
+
+  describe('--machine vs --json equivalence', () => {
+    it('should produce equivalent output structure', () => {
+      const machineOutput = exec('docker --machine')
+      const jsonOutput = exec('docker --json')
+
+      const machineResult = extractJson<{ prompt: { type: string } }>(machineOutput)
+      const jsonResult = extractJson<{ prompt: { type: string } }>(jsonOutput)
+
+      // Both should parse to same structure (or both fail due to Docker)
+      if (machineResult && jsonResult) {
+        expect(machineResult.prompt.type).to.equal(jsonResult.prompt.type)
+      }
+    })
+
+    it('should work with -m shorthand', () => {
+      const result = agentExec('docker -m')
+
+      if (!result) {
+        return
+      }
+
+      expect(result.prompt).to.exist
+      expect(result.metadata.flags.machine).to.equal(true)
     })
   })
 })

@@ -1,14 +1,8 @@
 import { Command, Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
-import inquirer from 'inquirer'
 import { styles } from '../../lib/styles.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js'
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
 
 export default class DockerPrune extends Command {
   static description = 'Remove unused Docker resources (containers, images, volumes, networks)'
@@ -93,40 +87,30 @@ export default class DockerPrune extends Command {
 
     // Confirm
     if (!flags.force) {
-      // Check if JSON output mode is active
-      const jsonMode = shouldOutputJson(flags)
-
-      // Build choices once, use for both JSON and interactive modes
-      const confirmChoices = [
-        { name: 'No', value: 'false' },
-        { name: 'Yes', value: 'true' },
-      ]
       const confirmMessage = flags.volumes
         ? 'This will remove unused resources INCLUDING VOLUMES. Data may be lost. Continue?'
         : 'Remove unused Docker resources?'
 
-      // In JSON mode, output confirmation prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
-          createMetadata('docker prune', flags)
-        )
-        return
-      }
+      const resolver = new FlagResolver<{ confirmed?: boolean }>({
+        commandName: 'docker prune',
+        baseCommand: 'prlt docker prune',
+        jsonMode: shouldOutputJson(flags),
+        flags: {},
+      })
 
-      const { confirm } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'confirm',
-          message: confirmMessage,
-          choices: [
-            { name: 'No', value: false },
-            { name: 'Yes', value: true },
-          ],
-        },
-      ])
+      resolver.addPrompt({
+        flagName: 'confirmed',
+        type: 'list',
+        message: confirmMessage,
+        choices: () => [
+          { name: 'Yes', value: true },
+          { name: 'No', value: false },
+        ],
+      })
 
-      if (!confirm) {
+      const resolved = await resolver.resolve()
+
+      if (!resolved.confirmed) {
         this.log(`${styles.muted('Aborted.')}\n`)
         return
       }
