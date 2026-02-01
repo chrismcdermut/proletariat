@@ -104,7 +104,7 @@ export default class TicketComplete extends PMOCommand {
         items: incompleteTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket complete ${t.id} --json`,
+        getCommand: (t) => `prlt ticket complete ${t.id}${projectId ? ` -P ${projectId}` : ''} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket complete' } : null,
       });
 
@@ -142,19 +142,19 @@ export default class TicketComplete extends PMOCommand {
     }
 
     // Agent mode config for prompts
-    const agentConfig = flags.json ? { flags, commandName: 'ticket complete --bulk' } : null;
+    const jsonModeConfig = flags.json ? { flags, commandName: 'ticket complete --bulk' } : null;
 
     // Select tickets to complete (now agent-compatible!)
-    const { selectedTickets } = await this.agentPrompt<{ selectedTickets: string[] }>([{
+    const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{
       type: 'checkbox',
       name: 'selectedTickets',
       message: 'Select tickets to mark as COMPLETE:',
       choices: incompleteTickets.map(t => ({
         name: `${t.id} - ${t.title} (${t.statusName})`,
         value: t.id,
-        command: `prlt ticket complete ${t.id} --json`,  // For agent: complete single ticket
+        command: `prlt ticket complete ${t.id}${flags.project ? ` -P ${flags.project}` : ''} --json`,  // For agent: complete single ticket
       })),
-    }], agentConfig);
+    }], jsonModeConfig);
 
     if (selectedTickets.length === 0) {
       this.log(styles.muted('No tickets selected.'));
@@ -170,15 +170,15 @@ export default class TicketComplete extends PMOCommand {
       }
       this.log(styles.primary(`  → Move to: ${doneColumnName}\n`));
 
-      const { confirm } = await this.agentPrompt<{ confirm: boolean }>([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: 'Continue?',
         choices: [
           { name: 'No, cancel', value: 'false', command: '' },
-          { name: 'Yes, complete tickets', value: 'true', command: `prlt ticket complete ${selectedTickets.join(' ')} --force --json` }
+          { name: 'Yes, complete tickets', value: 'true', command: `prlt ticket complete ${selectedTickets.join(' ')}${flags.project ? ` -P ${flags.project}` : ''} --force --json` }
         ],
-      }], agentConfig);
+      }], jsonModeConfig);
 
       if (!confirm) {
         this.log(styles.muted('Operation cancelled.'));

@@ -93,7 +93,7 @@ export default class TicketSpec extends PMOCommand {
         items: ticketChoices,
         getName: (t) => t.name,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket spec ${t.id} --json`,
+        getCommand: (t) => `prlt ticket spec ${t.id}${projectId ? ` -P ${projectId}` : ''} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket spec' } : null,
       });
 
@@ -155,7 +155,7 @@ export default class TicketSpec extends PMOCommand {
         items: specs,
         getName: (s) => `${s.id} - ${s.title} (${s.status})`,
         getValue: (s) => s.id,
-        getCommand: (s) => `prlt ticket spec ${ticketId} ${s.id} --json`,
+        getCommand: (s) => `prlt ticket spec ${ticketId} ${s.id}${projectId ? ` -P ${projectId}` : ''} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket spec' } : null,
       });
 
@@ -200,7 +200,7 @@ export default class TicketSpec extends PMOCommand {
           items: actionChoices,
           getName: (a) => a.name,
           getValue: (a) => a.id,
-          getCommand: (a) => a.id === 'use_epic' ? `prlt ticket spec ${ticketId} ${epic.specId} --json` : `prlt ticket spec ${ticketId} ${specId} --json`,
+          getCommand: (a) => a.id === 'use_epic' ? `prlt ticket spec ${ticketId} ${epic.specId}${projectId ? ` -P ${projectId}` : ''} --json` : `prlt ticket spec ${ticketId} ${specId}${projectId ? ` -P ${projectId}` : ''} --json`,
           jsonMode: jsonMode ? { flags, commandName: 'ticket spec' } : null,
         });
 
