@@ -87,7 +87,7 @@ export default class TicketMove extends PMOCommand {
 
     // Bulk mode
     if (flags.bulk) {
-      await this.executeBulk(allTickets, flags.force, projectId);
+      await this.executeBulk(allTickets, flags, projectId);
       return;
     }
 
@@ -169,41 +169,52 @@ export default class TicketMove extends PMOCommand {
 
   private async executeBulk(
     allTickets: Awaited<ReturnType<typeof this.storage.listTickets>>,
-    force: boolean,
+    flags: { force: boolean; json: boolean; bulk: boolean; position?: number; project?: string },
     projectId: string
   ): Promise<void> {
-    this.log(styles.emphasis('📦 Move Multiple Tickets\n'));
+    // Only show header in interactive mode
+    if (!flags.json) {
+      this.log(styles.emphasis('📦 Move Multiple Tickets\n'));
+    }
 
     // Get columns
     const board = await this.storage.getBoard(projectId);
     const columns = board.columns.map(col => col.name);
 
-    // Select tickets to move
-    const { selectedTickets } = await inquirer.prompt([{
+    // Agent mode config for prompts
+    const agentConfig = flags.json ? { flags, commandName: 'ticket move --bulk' } : null;
+
+    // Select tickets to move (now agent-compatible!)
+    const { selectedTickets } = await this.agentPrompt<{ selectedTickets: string[] }>([{
       type: 'checkbox',
       name: 'selectedTickets',
       message: 'Select tickets to move:',
       choices: allTickets.map(t => ({
         name: `${t.id} - ${t.title} (${t.statusName})`,
         value: t.id,
+        command: `prlt ticket move ${t.id} --json`,  // For agent: select single ticket
       })),
-    }]);
+    }], agentConfig);
 
     if (selectedTickets.length === 0) {
       this.log(styles.muted('No tickets selected.'));
       return;
     }
 
-    // Select target column
-    const { targetColumn } = await inquirer.prompt([{
+    // Select target column (now agent-compatible!)
+    const { targetColumn } = await this.agentPrompt<{ targetColumn: string }>([{
       type: 'list',
       name: 'targetColumn',
       message: 'Move selected tickets to:',
-      choices: columns,
-    }]);
+      choices: columns.map(c => ({
+        name: c,
+        value: c,
+        command: `prlt ticket move ${selectedTickets.join(' ')} "${c}" --json`,
+      })),
+    }], agentConfig);
 
     // Confirmation
-    if (!force) {
+    if (!flags.force) {
       this.log(styles.warning('\nThis will move:'));
       for (const ticketId of selectedTickets) {
         const ticket = allTickets.find(t => t.id === ticketId);
@@ -211,16 +222,15 @@ export default class TicketMove extends PMOCommand {
       }
       this.log(styles.primary(`  → to column: ${targetColumn}\n`));
 
-      const { confirm } = await inquirer.prompt([{
+      const { confirm } = await this.agentPrompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: 'Continue?',
         choices: [
-          { name: 'No, cancel', value: false },
-          { name: 'Yes, move tickets', value: true }
+          { name: 'No, cancel', value: 'false', command: '' },
+          { name: 'Yes, move tickets', value: 'true', command: `prlt ticket move ${selectedTickets.join(' ')} "${targetColumn}" --force --json` }
         ],
-        default: 0
-      }]);
+      }], agentConfig);
 
       if (!confirm) {
         this.log(styles.muted('Move cancelled.'));
