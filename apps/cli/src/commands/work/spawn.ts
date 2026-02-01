@@ -393,6 +393,16 @@ export default class WorkSpawn extends PMOCommand {
           })
         }
 
+        // In JSON mode, output column selection prompt for many mode
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildPromptConfig('list', 'manyColumn', 'Select from which column:', columnChoices),
+            createMetadata('work spawn', flags)
+          )
+          db.close()
+          return
+        }
+
         const { manyColumn } = await inquirer.prompt([
           {
             type: 'list',
@@ -429,17 +439,36 @@ export default class WorkSpawn extends PMOCommand {
 
         // Build choices with priority separators
         const choices: Array<{ name: string; value: string } | inquirer.Separator> = []
+        // Also build flat choices for JSON mode (without separators)
+        const flatChoices: Array<{ name: string; value: string }> = []
         for (const priority of PRIORITY_ORDER) {
           const tickets = ticketsByPriority.get(priority) || []
           if (tickets.length === 0) continue
           choices.push(new inquirer.Separator(`── ${priority} (${tickets.length}) ──`))
           for (const ticket of tickets) {
             const statusBadge = ticket.statusName ? ` [${ticket.statusName}]` : ''
-            choices.push({
+            const ticketChoice = {
               name: `[${priority}] ${ticket.id} - ${ticket.title}${statusBadge}`,
               value: ticket.id,
-            })
+            }
+            choices.push(ticketChoice)
+            flatChoices.push(ticketChoice)
           }
+        }
+
+        // JSON mode: output checkbox prompt (for multi-select)
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildPromptConfig(
+              'checkbox',
+              'selectedTicketIds',
+              'Select tickets to spawn (provide ticket IDs as positional args to execute):',
+              flatChoices
+            ),
+            createMetadata('work spawn', flags)
+          )
+          db.close()
+          return
         }
 
         const { selectedTicketIds } = await inquirer.prompt([
@@ -593,6 +622,16 @@ export default class WorkSpawn extends PMOCommand {
             value: '__adhoc__',
           })
 
+          // In JSON mode, output the action selection prompt
+          if (jsonMode) {
+            outputPromptAsJson(
+              buildPromptConfig('list', 'selectedAction', 'What action should agents perform?', actionChoices, 'implement'),
+              createMetadata('work spawn', flags)
+            )
+            db.close()
+            return
+          }
+
           const { selectedAction } = await inquirer.prompt([
             {
               type: 'list',
@@ -633,6 +672,21 @@ export default class WorkSpawn extends PMOCommand {
           const defaultsDescription = modifiesCode
             ? 'devcontainer, terminal, interactive, safe permissions, create PRs'
             : 'devcontainer, terminal, interactive, safe permissions, no PRs'
+
+          const defaultChoices = [
+            { name: `✓ Yes - Use defaults (${defaultsDescription})`, value: 'yes' },
+            { name: '✗ No  - Configure each setting', value: 'no' },
+          ]
+
+          // In JSON mode, output the defaults prompt
+          if (jsonMode) {
+            outputPromptAsJson(
+              buildPromptConfig('list', 'useDefaults', `Use default settings for "${actionName}"?`, defaultChoices, 'yes'),
+              createMetadata('work spawn', flags)
+            )
+            db.close()
+            return
+          }
 
           const { useDefaults } = await inquirer.prompt([
             {
@@ -685,6 +739,22 @@ export default class WorkSpawn extends PMOCommand {
             devcontainerLabel = `🐳 devcontainer (requires: ${missing.join(', ')})`
           }
 
+          const envChoices = [
+            { name: devcontainerLabel, value: 'devcontainer', disabled: !devcontainerReady },
+            { name: '💻 host (runs directly on your machine)', value: 'host' },
+            { name: '✗  cancel', value: 'cancel' },
+          ]
+
+          // In JSON mode, output the environment selection prompt
+          if (jsonMode) {
+            outputPromptAsJson(
+              buildPromptConfig('list', 'selectedEnvironment', 'Where should agents run?', envChoices, devcontainerReady ? 'devcontainer' : 'host'),
+              createMetadata('work spawn', flags)
+            )
+            db.close()
+            return
+          }
+
           let environmentSelected = false
           while (!environmentSelected) {
             // eslint-disable-next-line no-await-in-loop -- Interactive loop with retry on Docker check
@@ -693,11 +763,7 @@ export default class WorkSpawn extends PMOCommand {
                 type: 'list',
                 name: 'selectedEnvironment',
                 message: 'Where should agents run?',
-                choices: [
-                  { name: devcontainerLabel, value: 'devcontainer', disabled: !devcontainerReady },
-                  { name: '💻 host (runs directly on your machine)', value: 'host' },
-                  { name: '✗  cancel', value: 'cancel' },
-                ],
+                choices: envChoices,
                 default: devcontainerReady ? 'devcontainer' : 'host',
               },
             ])
@@ -814,15 +880,27 @@ export default class WorkSpawn extends PMOCommand {
 
         // Prompt for display mode if not already set (for host mode without devcontainer)
         if (!batchDisplay) {
+          const displayChoices = [
+            { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+            { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+          ]
+
+          // In JSON mode, output the display mode prompt
+          if (jsonMode) {
+            outputPromptAsJson(
+              buildPromptConfig('list', 'selectedMode', 'How should agent output be displayed?', displayChoices, 'terminal'),
+              createMetadata('work spawn', flags)
+            )
+            db.close()
+            return
+          }
+
           const { selectedMode } = await inquirer.prompt([
             {
               type: 'list',
               name: 'selectedMode',
               message: 'How should agent output be displayed?',
-              choices: [
-                { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-                { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
-              ],
+              choices: displayChoices,
             },
           ])
           batchDisplay = selectedMode
@@ -836,15 +914,27 @@ export default class WorkSpawn extends PMOCommand {
 
         // Prompt for permissions mode if not explicitly set via --skip-permissions flag
         if (!flags['skip-permissions']) {
+          const permissionChoices = [
+            { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
+            { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+          ]
+
+          // In JSON mode, output the permissions prompt
+          if (jsonMode) {
+            outputPromptAsJson(
+              buildPromptConfig('list', 'permissionMode', 'Permission mode for Claude Code:', permissionChoices, 'danger'),
+              createMetadata('work spawn', flags)
+            )
+            db.close()
+            return
+          }
+
           const { permissionMode } = await inquirer.prompt([
             {
               type: 'list',
               name: 'permissionMode',
               message: 'Permission mode for Claude Code:',
-              choices: [
-                { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
-                { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
-              ],
+              choices: permissionChoices,
               default: 'danger',
             },
           ])
@@ -856,15 +946,27 @@ export default class WorkSpawn extends PMOCommand {
         const actionModifiesCode = selectedActionDetails?.modifiesCode ?? true
         if (!batchCreatePr && !batchNoPr) {
           if (actionModifiesCode) {
+            const prChoices = [
+              { name: '✓ Yes - Create PR for each ticket', value: 'yes' },
+              { name: '✗ No  - Just move tickets to review', value: 'no' },
+            ]
+
+            // In JSON mode, output the PR creation prompt
+            if (jsonMode) {
+              outputPromptAsJson(
+                buildPromptConfig('list', 'prChoice', 'Create pull requests when work is ready?', prChoices, 'yes'),
+                createMetadata('work spawn', flags)
+              )
+              db.close()
+              return
+            }
+
             const { prChoice } = await inquirer.prompt([
               {
                 type: 'list',
                 name: 'prChoice',
                 message: 'Create pull requests when work is ready?',
-                choices: [
-                  { name: '✓ Yes - Create PR for each ticket', value: 'yes' },
-                  { name: '✗ No  - Just move tickets to review', value: 'no' },
-                ],
+                choices: prChoices,
                 default: 'yes',
               },
             ])

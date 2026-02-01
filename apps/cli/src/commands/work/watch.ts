@@ -222,20 +222,47 @@ export default class WorkWatch extends PMOCommand {
 
       if (!flags.mode) {
         if (hasDevcontainer && dockerRunning && devcontainerCliInstalled) {
+          const envChoices = [
+            { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
+            { name: '💻 host (runs directly on your machine)', value: 'host' },
+          ]
+
+          // In JSON mode, output the environment selection prompt
+          if (jsonMode) {
+            outputPromptAsJson(
+              buildPromptConfig('list', 'selectedEnvironment', 'Where should agents run?', envChoices, 'devcontainer'),
+              createMetadata('work watch', flags)
+            )
+            db.close()
+            return
+          }
+
           // Prompt for environment choice
           const { selectedEnvironment } = await inquirer.prompt([
             {
               type: 'list',
               name: 'selectedEnvironment',
               message: 'Where should agents run?',
-              choices: [
-                { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
-                { name: '💻 host (runs directly on your machine)', value: 'host' },
-              ],
+              choices: envChoices,
               default: 'devcontainer',
             },
           ])
           this.environment = selectedEnvironment
+        }
+
+        const displayChoices = [
+          { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+          { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+        ]
+
+        // In JSON mode, output the display mode prompt
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildPromptConfig('list', 'selectedDisplay', 'How should agent output be displayed?', displayChoices, 'terminal'),
+            createMetadata('work watch', flags)
+          )
+          db.close()
+          return
         }
 
         // Prompt for display mode
@@ -244,10 +271,7 @@ export default class WorkWatch extends PMOCommand {
             type: 'list',
             name: 'selectedDisplay',
             message: 'How should agent output be displayed?',
-            choices: [
-              { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-              { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
-            ],
+            choices: displayChoices,
             default: 'terminal',
           },
         ])
@@ -264,6 +288,7 @@ export default class WorkWatch extends PMOCommand {
         skipPermissions: flags['skip-permissions'] ? true : undefined,
         createPR: flags['create-pr'] ? true : undefined,
         log: (msg) => this.log(styles.header(msg)),
+        jsonMode: jsonMode ? { flags, commandName: 'work watch' } : undefined,
       })
       this.executionConfig = promptResult.executionConfig
       this.skipPermissions = promptResult.skipPermissions

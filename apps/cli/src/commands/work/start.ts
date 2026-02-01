@@ -310,6 +310,21 @@ export default class WorkStart extends PMOCommand {
         }
         this.log('')
 
+        const blockedChoices = [
+          { name: 'No, cancel', value: 'no' },
+          { name: 'Yes, start despite blockers', value: 'yes' },
+        ]
+
+        // In JSON mode, output the blocked prompt
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildPromptConfig('list', 'startAnyway', 'Start anyway?', blockedChoices, 'no'),
+            createMetadata('work start', flags)
+          )
+          db.close()
+          return
+        }
+
         const { startAnyway } = await inquirer.prompt([
           {
             type: 'list',
@@ -336,17 +351,29 @@ export default class WorkStart extends PMOCommand {
         this.log('')
         this.log(styles.warning(`Ticket ${ticketId} has an active tmux session (${existingSession.agent})`))
 
+        const sessionChoices = [
+          { name: 'Attach to existing session', value: 'attach' },
+          { name: 'Spawn new agent (keeps existing session)', value: 'spawn' },
+          { name: 'Kill session and respawn', value: 'kill' },
+          { name: 'Cancel', value: 'cancel' },
+        ]
+
+        // In JSON mode, output the session action prompt
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildPromptConfig('list', 'sessionAction', 'What would you like to do?', sessionChoices),
+            createMetadata('work start', flags)
+          )
+          db.close()
+          return
+        }
+
         const { sessionAction } = await inquirer.prompt([
           {
             type: 'list',
             name: 'sessionAction',
             message: 'What would you like to do?',
-            choices: [
-              { name: 'Attach to existing session', value: 'attach' },
-              { name: 'Spawn new agent (keeps existing session)', value: 'spawn' },
-              { name: 'Kill session and respawn', value: 'kill' },
-              { name: 'Cancel', value: 'cancel' },
-            ],
+            choices: sessionChoices,
           },
         ])
 
@@ -417,9 +444,12 @@ export default class WorkStart extends PMOCommand {
 
           // Prompt to assign an agent
           const agentChoices: Array<{ name: string; value: string; disabled?: string } | inquirer.Separator> = []
+          // Also build flat choices for JSON mode (without separators)
+          const flatAgentChoices: Array<{ name: string; value: string; disabled?: boolean }> = []
 
           // Add ephemeral option first
           agentChoices.push({ name: 'Create new ephemeral agent (recommended)', value: '__ephemeral__' })
+          flatAgentChoices.push({ name: 'Create new ephemeral agent (recommended)', value: '__ephemeral__' })
           agentChoices.push(new inquirer.Separator())
 
           // Only show staff agents that exist on disk
@@ -430,6 +460,7 @@ export default class WorkStart extends PMOCommand {
             agentChoices.push(new inquirer.Separator('── Available Staff Agents ──'))
             for (const a of availableAgents) {
               agentChoices.push({ name: a.name, value: a.name })
+              flatAgentChoices.push({ name: a.name, value: a.name })
             }
           }
 
@@ -439,7 +470,18 @@ export default class WorkStart extends PMOCommand {
               const runningExecs = executionStorage.getAgentRunningExecutions(a.name)
               const ticketIds = runningExecs.map(e => e.ticketId).join(', ')
               agentChoices.push({ name: `${a.name} (working on ${ticketIds})`, value: a.name, disabled: 'busy' })
+              flatAgentChoices.push({ name: `${a.name} (working on ${ticketIds})`, value: a.name, disabled: true })
             }
+          }
+
+          // In JSON mode, output the agent selection prompt
+          if (jsonMode) {
+            outputPromptAsJson(
+              buildPromptConfig('list', 'selectedAgent', `Select agent for ${ticketId}:`, flatAgentChoices, '__ephemeral__'),
+              createMetadata('work start', flags)
+            )
+            db.close()
+            return
           }
 
           const { selectedAgent } = await inquirer.prompt([
@@ -560,16 +602,28 @@ export default class WorkStart extends PMOCommand {
           }
           this.log('')
 
+          const unsavedChoices = [
+            { name: 'Push existing work and continue', value: 'push' },
+            { name: 'Continue anyway (existing work may conflict)', value: 'continue' },
+            { name: 'Cancel', value: 'cancel' },
+          ]
+
+          // In JSON mode, output the unsaved work prompt
+          if (jsonMode) {
+            outputPromptAsJson(
+              buildPromptConfig('list', 'action', 'How would you like to proceed?', unsavedChoices),
+              createMetadata('work start', flags)
+            )
+            db.close()
+            return
+          }
+
           const { action } = await inquirer.prompt([
             {
               type: 'list',
               name: 'action',
               message: 'How would you like to proceed?',
-              choices: [
-                { name: 'Push existing work and continue', value: 'push' },
-                { name: 'Continue anyway (existing work may conflict)', value: 'continue' },
-                { name: 'Cancel', value: 'cancel' },
-              ],
+              choices: unsavedChoices,
             },
           ])
 
@@ -661,26 +715,44 @@ export default class WorkStart extends PMOCommand {
 
         // Build choices with suggested action at top
         const actionChoices: Array<{ name: string; value: string } | inquirer.Separator> = []
+        // Also build flat choices for JSON mode (without separators)
+        const flatActionChoices: Array<{ name: string; value: string }> = []
 
         if (suggestedAction) {
-          actionChoices.push({
+          const suggestedChoice = {
             name: `${suggestedAction.name} - ${suggestedAction.description || 'Suggested for ' + currentCategory} (Recommended)`,
             value: suggestedAction.id,
-          })
+          }
+          actionChoices.push(suggestedChoice)
+          flatActionChoices.push(suggestedChoice)
           actionChoices.push(new inquirer.Separator('── Other Actions ──'))
         }
 
         for (const action of allActions) {
           if (suggestedAction && action.id === suggestedAction.id) continue
-          actionChoices.push({
+          const actionChoice = {
             name: `${action.name}${action.description ? ' - ' + action.description : ''}`,
             value: action.id,
-          })
+          }
+          actionChoices.push(actionChoice)
+          flatActionChoices.push(actionChoice)
         }
 
         actionChoices.push(new inquirer.Separator('── Custom ──'))
         actionChoices.push({ name: 'Custom prompt...', value: '__custom__' })
         actionChoices.push({ name: 'Ad-hoc session - unstructured exploration/debugging', value: '__adhoc__' })
+        flatActionChoices.push({ name: 'Custom prompt...', value: '__custom__' })
+        flatActionChoices.push({ name: 'Ad-hoc session - unstructured exploration/debugging', value: '__adhoc__' })
+
+        // In JSON mode, output the action selection prompt
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildPromptConfig('list', 'selectedActionId', `What should the agent do with ${ticket.id}?`, flatActionChoices, suggestedAction?.id),
+            createMetadata('work start', flags)
+          )
+          db.close()
+          return
+        }
 
         const { selectedActionId } = await inquirer.prompt([
           {
@@ -692,6 +764,7 @@ export default class WorkStart extends PMOCommand {
         ])
 
         if (selectedActionId === '__custom__') {
+          // In JSON mode, output the custom prompt input (this shouldn't happen as we exit above, but for completeness)
           const { customInput } = await inquirer.prompt([
             {
               type: 'input',
@@ -776,6 +849,22 @@ export default class WorkStart extends PMOCommand {
           devcontainerLabel = `🐳 devcontainer (requires: ${missing.join(', ')})`
         }
 
+        const envChoices = [
+          { name: devcontainerLabel, value: 'devcontainer', disabled: !devcontainerReady },
+          { name: '💻 host (runs directly on your machine)', value: 'host' },
+          { name: '✗  cancel', value: 'cancel' },
+        ]
+
+        // In JSON mode, output the environment selection prompt
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildPromptConfig('list', 'selectedEnvironment', 'Where should the agent run?', envChoices, devcontainerReady ? 'devcontainer' : 'host'),
+            createMetadata('work start', flags)
+          )
+          db.close()
+          return
+        }
+
         // Loop to allow re-selection if Docker isn't running
         let environmentSelected = false
         while (!environmentSelected) {
@@ -785,11 +874,7 @@ export default class WorkStart extends PMOCommand {
               type: 'list',
               name: 'selectedEnvironment',
               message: 'Where should the agent run?',
-              choices: [
-                { name: devcontainerLabel, value: 'devcontainer', disabled: !devcontainerReady },
-                { name: '💻 host (runs directly on your machine)', value: 'host' },
-                { name: '✗  cancel', value: 'cancel' },
-              ],
+              choices: envChoices,
               default: devcontainerReady ? 'devcontainer' : 'host',
             },
           ])
@@ -951,16 +1036,28 @@ export default class WorkStart extends PMOCommand {
             ? 'Select display mode (--run-on-host: bypassing devcontainer):'
             : 'Select display mode (no devcontainer - running on host):'
 
+          const displayChoices = [
+            { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+            { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
+            { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+          ]
+
+          // In JSON mode, output the display mode prompt
+          if (jsonMode) {
+            outputPromptAsJson(
+              buildPromptConfig('list', 'selectedMode', warningMsg, displayChoices, 'terminal'),
+              createMetadata('work start', flags)
+            )
+            db.close()
+            return
+          }
+
           const { selectedMode } = await inquirer.prompt([
             {
               type: 'list',
               name: 'selectedMode',
               message: warningMsg,
-              choices: [
-                { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-                { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
-                { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
-              ],
+              choices: displayChoices,
               default: 'terminal',
             },
           ])
@@ -983,17 +1080,29 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.muted('   Agents will fail with 401 authentication errors without credentials.'))
           this.log('')
 
+          const authChoices = [
+            { name: `🔐 Run ${this.config.bin} agent auth now (one-time setup)`, value: 'auth' },
+            { name: '💻 Switch to host environment instead', value: 'host' },
+            { name: '⏩ Continue anyway (must run /login in first agent)', value: 'continue' },
+            { name: '✗  Cancel', value: 'cancel' },
+          ]
+
+          // In JSON mode, output the auth action prompt
+          if (jsonMode) {
+            outputPromptAsJson(
+              buildPromptConfig('list', 'authAction', 'What would you like to do?', authChoices),
+              createMetadata('work start', flags)
+            )
+            db.close()
+            return
+          }
+
           const { authAction } = await inquirer.prompt([
             {
               type: 'list',
               name: 'authAction',
               message: 'What would you like to do?',
-              choices: [
-                { name: `🔐 Run ${this.config.bin} agent auth now (one-time setup)`, value: 'auth' },
-                { name: '💻 Switch to host environment instead', value: 'host' },
-                { name: '⏩ Continue anyway (must run /login in first agent)', value: 'continue' },
-                { name: '✗  Cancel', value: 'cancel' },
-              ],
+              choices: authChoices,
             },
           ])
 
@@ -1083,6 +1192,8 @@ export default class WorkStart extends PMOCommand {
             buildPromptConfig('list', 'permissionMode', `Permission mode for Claude Code${containerNote}:`, permissionChoices, 'danger'),
             createMetadata('work start', flags as Record<string, unknown>)
           )
+          db.close()
+          return
         }
 
         const { permissionMode } = await inquirer.prompt([
@@ -1107,15 +1218,27 @@ export default class WorkStart extends PMOCommand {
       } else if (flags['no-pr']) {
         createPR = false
       } else if (ghAvailable) {
+        const prChoices = [
+          { name: '✓ Yes - Create PR when running `prlt work ready`', value: 'yes' },
+          { name: '✗ No  - Just move ticket to review (can create PR later)', value: 'no' },
+        ]
+
+        // In JSON mode, output the PR choice prompt
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildPromptConfig('list', 'prChoice', 'Create a pull request when work is ready?', prChoices, 'yes'),
+            createMetadata('work start', flags)
+          )
+          db.close()
+          return
+        }
+
         const { prChoice } = await inquirer.prompt([
           {
             type: 'list',
             name: 'prChoice',
             message: 'Create a pull request when work is ready?',
-            choices: [
-              { name: '✓ Yes - Create PR when running `prlt work ready`', value: 'yes' },
-              { name: '✗ No  - Just move ticket to review (can create PR later)', value: 'no' },
-            ],
+            choices: prChoices,
             default: 'yes',
           },
         ])
@@ -1180,16 +1303,28 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.muted(`Branch: ${finalBranch}`))
         } else {
           // No branch in DB - ask user if one already exists
+          const branchChoices = [
+            { name: 'No, create new branch (Recommended)', value: 'create' },
+            { name: 'Yes, I\'ll enter the branch name', value: 'enter' },
+            { name: 'Search for matching branches', value: 'search' },
+          ]
+
+          // In JSON mode, output the branch choice prompt
+          if (jsonMode) {
+            outputPromptAsJson(
+              buildPromptConfig('list', 'branchChoice', `Does a branch already exist for ${ticket.id}?`, branchChoices, 'create'),
+              createMetadata('work start', flags)
+            )
+            db.close()
+            return
+          }
+
           const { branchChoice } = await inquirer.prompt([
             {
               type: 'list',
               name: 'branchChoice',
               message: `Does a branch already exist for ${ticket.id}?`,
-              choices: [
-                { name: 'No, create new branch (Recommended)', value: 'create' },
-                { name: 'Yes, I\'ll enter the branch name', value: 'enter' },
-                { name: 'Search for matching branches', value: 'search' },
-              ],
+              choices: branchChoices,
             },
           ])
 
