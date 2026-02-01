@@ -6,6 +6,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class SpecPlan extends PMOCommand {
   static description = 'Generate tickets from spec by comparing ideal state vs codebase (uses LLM)';
@@ -53,7 +54,7 @@ export default class SpecPlan extends PMOCommand {
       this.error(message);
     };
 
-    // Get spec ID
+    // Get spec ID from args or flags
     let specId = args.spec || flags.spec;
 
     if (!specId) {
@@ -63,20 +64,26 @@ export default class SpecPlan extends PMOCommand {
         return handleError('NO_SPECS', 'No specs found. Create a spec first with "prlt spec create".');
       }
 
-      // Use helper for spec selection (handles JSON mode automatically)
-      const selected = await this.selectFromList({
-        message: 'Select spec to plan:',
-        items: specs,
-        getName: (s) => `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
-        getValue: (s) => s.id,
-        getCommand: (s) => `prlt spec plan ${s.id} --json`,
-        jsonMode: jsonMode ? { flags, commandName: 'spec plan' } : null,
+      // Use FlagResolver for spec selection
+      const resolver = new FlagResolver<{ spec?: string }>({
+        commandName: 'spec plan',
+        baseCommand: 'prlt spec plan',
+        jsonMode,
+        flags: { spec: flags.spec },
       });
 
-      if (!selected) {
-        return; // Cancelled or JSON mode (already exited)
-      }
-      specId = selected;
+      resolver.addPrompt({
+        flagName: 'spec',
+        type: 'list',
+        message: 'Select spec to plan:',
+        choices: () => specs.map(s => ({
+          name: `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
+          value: s.id,
+        })),
+      });
+
+      const resolved = await resolver.resolve();
+      specId = resolved.spec;
     }
 
     // Get the spec

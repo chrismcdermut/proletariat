@@ -8,6 +8,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class SpecTicket extends PMOCommand {
   static description = 'Assign a ticket to a spec document';
@@ -76,20 +77,27 @@ export default class SpecTicket extends PMOCommand {
         return handleError('NO_TICKETS', 'No tickets found. Create one first with: prlt ticket create');
       }
 
-      // Use helper for ticket selection (handles JSON mode automatically)
-      const selected = await this.selectFromList({
-        message: 'Select ticket to link:',
-        items: tickets,
-        getName: (t) => `${t.id}: ${t.title}`,
-        getValue: (t) => t.id,
-        getCommand: (t) => `prlt spec ticket ${t.id} --json`,
-        jsonMode: jsonMode ? { flags, commandName: 'spec ticket' } : null,
+      // Use FlagResolver for ticket selection
+      const ticketResolver = new FlagResolver<{ ticket?: string }>({
+        commandName: 'spec ticket',
+        baseCommand: 'prlt spec ticket',
+        jsonMode,
+        flags: { ticket: flags.ticket },
+        context: { projectId },
       });
 
-      if (!selected) {
-        return; // Cancelled or JSON mode (already exited)
-      }
-      ticketId = selected;
+      ticketResolver.addPrompt({
+        flagName: 'ticket',
+        type: 'list',
+        message: 'Select ticket to link:',
+        choices: () => tickets.map(t => ({
+          name: `${t.id}: ${t.title}`,
+          value: t.id,
+        })),
+      });
+
+      const resolved = await ticketResolver.resolve();
+      ticketId = resolved.ticket;
     }
 
     if (!ticketId) {
@@ -111,20 +119,27 @@ export default class SpecTicket extends PMOCommand {
         return handleError('NO_SPECS', 'No specs found. Create one first with: prlt spec create');
       }
 
-      // Use helper for spec selection (handles JSON mode automatically)
-      const selected = await this.selectFromList({
-        message: 'Select spec to link:',
-        items: specs,
-        getName: (s) => `${s.name} (${s.status})`,
-        getValue: (s) => s.id,
-        getCommand: (s) => `prlt spec ticket ${ticketId} ${s.id} --json`,
-        jsonMode: jsonMode ? { flags, commandName: 'spec ticket' } : null,
+      // Use FlagResolver for spec selection
+      const specResolver = new FlagResolver<{ spec?: string }>({
+        commandName: 'spec ticket',
+        baseCommand: `prlt spec ticket --ticket "${ticketId}"`,
+        jsonMode,
+        flags: { spec: flags.spec },
+        context: { projectId, ticketId },
       });
 
-      if (!selected) {
-        return; // Cancelled or JSON mode (already exited)
-      }
-      specId = selected;
+      specResolver.addPrompt({
+        flagName: 'spec',
+        type: 'list',
+        message: 'Select spec to link:',
+        choices: () => specs.map(s => ({
+          name: `${s.name} (${s.status})`,
+          value: s.id,
+        })),
+      });
+
+      const resolved = await specResolver.resolve();
+      specId = resolved.spec;
     }
 
     if (!specId) {

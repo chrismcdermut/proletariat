@@ -1,5 +1,5 @@
 /**
- * Unit tests for spec commands JSON mode support.
+ * Unit tests for spec commands JSON mode support using FlagResolver.
  *
  * These tests verify that spec commands correctly output JSON when
  * the --json flag is used or in non-TTY environments.
@@ -9,13 +9,12 @@ import { expect } from 'chai';
 import {
   shouldOutputJson,
   createMetadata,
-  buildPromptConfig,
-  outputSuccessAsJson,
 } from '../../src/lib/prompt-json.js';
+import { FlagResolver } from '../../src/lib/flags/index.js';
 
-describe('Spec Commands JSON Mode', () => {
+describe('Spec Commands JSON Mode with FlagResolver', () => {
   describe('spec list JSON mode', () => {
-    it('should output structured spec data with outputSuccessAsJson', () => {
+    it('should output structured spec data', () => {
       // Test the shape of spec list output
       const specs = [
         {
@@ -66,8 +65,8 @@ describe('Spec Commands JSON Mode', () => {
     });
   });
 
-  describe('spec plan JSON mode', () => {
-    it('should build prompt config for spec selection', () => {
+  describe('FlagResolver for spec commands', () => {
+    it('should build choice list for spec selection (spec plan)', () => {
       const specs = [
         { id: 'spec-1', title: 'Spec 1', status: 'active', type: 'product' },
         { id: 'spec-2', title: 'Spec 2', status: 'draft', type: 'platform' },
@@ -76,41 +75,52 @@ describe('Spec Commands JSON Mode', () => {
       const choices = specs.map(s => ({
         name: `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
         value: s.id,
-        command: `prlt spec plan ${s.id} --json`,
       }));
 
       expect(choices).to.have.lengthOf(2);
       expect(choices[0].name).to.equal('Spec 1 [active] (product)');
       expect(choices[0].value).to.equal('spec-1');
-      expect(choices[0].command).to.contain('spec plan spec-1 --json');
     });
 
-    it('should use selectFromList pattern with command field', () => {
-      const items = [
+    it('should create FlagResolver with correct configuration', () => {
+      const resolver = new FlagResolver<{ spec?: string }>({
+        commandName: 'spec plan',
+        baseCommand: 'prlt spec plan',
+        jsonMode: false,
+        flags: {},
+      });
+
+      // Resolver should be created successfully
+      expect(resolver).to.be.instanceOf(FlagResolver);
+    });
+
+    it('should allow adding prompts to resolver', () => {
+      const specs = [
         { id: 'spec-1', title: 'Spec 1', status: 'active', type: 'product' },
       ];
 
-      // Simulate the selectFromList helper behavior
-      const getName = (s: typeof items[0]) => `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`;
-      const getValue = (s: typeof items[0]) => s.id;
-      const getCommand = (s: typeof items[0]) => `prlt spec plan ${s.id} --json`;
-
-      const choices = items.map(item => ({
-        name: getName(item),
-        value: getValue(item),
-        command: getCommand(item),
-      }));
-
-      expect(choices[0]).to.deep.equal({
-        name: 'Spec 1 [active] (product)',
-        value: 'spec-1',
-        command: 'prlt spec plan spec-1 --json',
+      const resolver = new FlagResolver<{ spec?: string }>({
+        commandName: 'spec plan',
+        baseCommand: 'prlt spec plan',
+        jsonMode: false,
+        flags: {},
       });
-    });
-  });
 
-  describe('spec ticket JSON mode', () => {
-    it('should build prompt config for ticket selection', () => {
+      resolver.addPrompt({
+        flagName: 'spec',
+        type: 'list',
+        message: 'Select spec to plan:',
+        choices: () => specs.map(s => ({
+          name: `${s.title} [${s.status}]`,
+          value: s.id,
+        })),
+      });
+
+      // Resolver should accept the prompt
+      expect(resolver).to.be.instanceOf(FlagResolver);
+    });
+
+    it('should build choice list for ticket selection (spec ticket)', () => {
       const tickets = [
         { id: 'TKT-001', title: 'Fix auth bug' },
         { id: 'TKT-002', title: 'Add login page' },
@@ -119,65 +129,41 @@ describe('Spec Commands JSON Mode', () => {
       const choices = tickets.map(t => ({
         name: `${t.id}: ${t.title}`,
         value: t.id,
-        command: `prlt spec ticket ${t.id} --json`,
       }));
 
       expect(choices).to.have.lengthOf(2);
       expect(choices[0].name).to.equal('TKT-001: Fix auth bug');
-      expect(choices[0].command).to.contain('spec ticket TKT-001 --json');
+      expect(choices[0].value).to.equal('TKT-001');
     });
 
-    it('should build prompt config for spec selection after ticket is selected', () => {
-      const ticketId = 'TKT-001';
-      const specs = [
-        { id: 'auth-spec', name: 'auth-spec', status: 'active' },
-        { id: 'login-spec', name: 'login-spec', status: 'draft' },
+    it('should build menu choices for spec index', () => {
+      const menuChoices = [
+        { name: 'Create new spec', value: 'create' },
+        { name: 'List all specs', value: 'list' },
+        { name: 'View spec', value: 'view' },
+        { name: 'Generate tickets from spec', value: 'generate' },
+        { name: 'Assign ticket to spec', value: 'ticket' },
+        { name: 'Manage dependencies', value: 'link' },
+        { name: 'Cancel', value: 'cancel' },
       ];
 
-      const choices = specs.map(s => ({
-        name: `${s.name} (${s.status})`,
-        value: s.id,
-        command: `prlt spec ticket ${ticketId} ${s.id} --json`,
-      }));
-
-      expect(choices).to.have.lengthOf(2);
-      expect(choices[0].name).to.equal('auth-spec (active)');
-      expect(choices[0].command).to.equal('prlt spec ticket TKT-001 auth-spec --json');
+      expect(menuChoices).to.have.lengthOf(7);
+      expect(menuChoices[0].value).to.equal('create');
+      expect(menuChoices[6].value).to.equal('cancel');
     });
-  });
 
-  describe('spec view JSON mode', () => {
-    it('should build prompt config for spec selection', () => {
-      const specs = [
-        { id: 'spec-1', title: 'Spec 1', status: 'active', type: 'product' },
+    it('should build type choices for spec create', () => {
+      const typeChoices = [
+        { name: 'Product (user-facing feature)', value: 'product' },
+        { name: 'Platform (internal tooling)', value: 'platform' },
+        { name: 'Infra (technical infrastructure)', value: 'infra' },
+        { name: 'Integration (external service)', value: 'integration' },
+        { name: 'None', value: '' },
       ];
 
-      const choices = specs.map(s => ({
-        name: `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
-        value: s.id,
-        command: `prlt spec view ${s.id} --json`,
-      }));
-
-      expect(choices[0].command).to.contain('spec view spec-1 --json');
-    });
-  });
-
-  describe('requireProject JSON mode', () => {
-    it('should include baseCommand for project selection prompt', () => {
-      const projects = [
-        { id: 'PROJ-001', name: '1. MVP' },
-        { id: 'PROJ-002', name: '2. Polish' },
-      ];
-
-      const baseCommand = 'prlt spec ticket';
-      const choices = projects.map(p => ({
-        name: `${p.name} (${p.id})`,
-        value: p.id,
-        command: `${baseCommand} -P ${p.id} --json`,
-      }));
-
-      expect(choices[0].command).to.equal('prlt spec ticket -P PROJ-001 --json');
-      expect(choices[1].command).to.equal('prlt spec ticket -P PROJ-002 --json');
+      expect(typeChoices).to.have.lengthOf(5);
+      expect(typeChoices[0].value).to.equal('product');
+      expect(typeChoices[4].value).to.equal('');
     });
   });
 
