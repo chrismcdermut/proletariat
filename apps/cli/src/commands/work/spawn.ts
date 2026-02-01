@@ -13,12 +13,11 @@ import { isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } f
 import { PermissionMode } from '../../lib/execution/types.js'
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputSuccessAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js'
+import { FlagResolver } from '../../lib/flags/index.js'
 
 export default class WorkSpawn extends PMOCommand {
   static description = 'Spawn work for multiple tickets by column (batch mode)'
@@ -133,11 +132,18 @@ export default class WorkSpawn extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags, argv } = await this.parse(WorkSpawn)
-    // This command requires project context
-    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
+
+    // This command requires project context (pass JSON mode config for AI agents)
+    const projectId = await this.requireProject({
+      jsonMode: {
+        flags,
+        commandName: 'work spawn',
+        baseCommand: 'prlt work spawn',
+      },
+    });
 
     // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
@@ -207,36 +213,29 @@ export default class WorkSpawn extends PMOCommand {
       } else if (flags.many) {
         spawnMode = 'many'
       } else if (!flags.column) {
-        // In JSON mode without explicit flags, output the mode selection prompt
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig(
-              'list',
-              'mode',
-              'How would you like to spawn work?',
-              [
-                { name: 'All - Spawn all tickets tickets in a column', value: 'all' },
-                { name: 'Many - Select specific tickets to spawn', value: 'many' },
-              ]
-            ),
-            createMetadata('work spawn', flags)
-          )
-          db.close()
-          return
-        }
-        // Interactive: ask user
-        const { mode } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'mode',
-            message: 'How would you like to spawn work?',
-            choices: [
-              { name: '📦 All    - Spawn all tickets tickets in a column', value: 'all' },
-              { name: '✅ Many   - Select specific tickets to spawn', value: 'many' },
-            ],
-          },
-        ])
-        spawnMode = mode
+        // Use FlagResolver for mode selection prompt
+        const modeResolver = new FlagResolver<{ mode?: string }>({
+          commandName: 'work spawn',
+          baseCommand: 'prlt work spawn',
+          jsonMode,
+          flags: {},
+          context: { projectId },
+        })
+
+        modeResolver.addPrompt({
+          flagName: 'mode',
+          type: 'list',
+          message: 'How would you like to spawn work?',
+          choices: () => [
+            { name: jsonMode ? 'All - Spawn all tickets in a column' : '📦 All    - Spawn all tickets tickets in a column', value: 'all' },
+            { name: jsonMode ? 'Many - Select specific tickets to spawn' : '✅ Many   - Select specific tickets to spawn', value: 'many' },
+          ],
+        })
+
+        const resolved = await modeResolver.resolve()
+        // In JSON mode, resolve() exits after outputting prompt, so we never reach here
+        // In interactive mode, we get the selected value
+        spawnMode = resolved.mode as 'all' | 'many'
       }
 
       let ticketsToSpawn: typeof allTickets = []
@@ -286,39 +285,30 @@ export default class WorkSpawn extends PMOCommand {
         let targetColumn = flags.column
 
         if (!targetColumn) {
-          // Show columns with ticket counts
-          const columnChoices = columnNames.map(name => {
-            const count = allTickets.filter(t => t.statusName === name).length
-            return {
-              name: `${name} (${count} tickets)`,
-              value: name,
-            }
+          // Use FlagResolver for column selection
+          const columnResolver = new FlagResolver<{ selectedColumn?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn --all',
+            jsonMode,
+            flags: {},
+            context: { projectId },
           })
 
-          // In JSON mode, output the column selection prompt
-          if (jsonMode) {
-            outputPromptAsJson(
-              buildPromptConfig(
-                'list',
-                'selectedColumn',
-                'Select column to spawn all tickets tickets from:',
-                columnChoices
-              ),
-              createMetadata('work spawn', flags)
-            )
-            db.close()
-            return
-          }
+          columnResolver.addPrompt({
+            flagName: 'selectedColumn',
+            type: 'list',
+            message: 'Select column to spawn all tickets tickets from:',
+            choices: () => columnNames.map(name => {
+              const count = allTickets.filter(t => t.statusName === name).length
+              return {
+                name: `${name} (${count} tickets)`,
+                value: name,
+              }
+            }),
+          })
 
-          const { selectedColumn } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedColumn',
-              message: 'Select column to spawn all tickets tickets from:',
-              choices: columnChoices,
-            },
-          ])
-          targetColumn = selectedColumn
+          const resolved = await columnResolver.resolve()
+          targetColumn = resolved.selectedColumn
         }
 
         // Verify column exists
@@ -359,24 +349,30 @@ export default class WorkSpawn extends PMOCommand {
         // In JSON mode with --many, output the ticket selection prompt directly
         // (skip column selection for simplicity - show all tickets)
         if (jsonMode) {
-          // Build choices from all tickets tickets
-          const ticketChoices = allTickets.map(ticket => {
-            const priority = ticket.priority ? `[${ticket.priority}] ` : ''
-            return {
-              name: `${priority}${ticket.id} - ${ticket.title} (${ticket.statusName || 'No Status'})`,
-              value: ticket.id,
-            }
+          // Use FlagResolver for ticket selection in JSON mode
+          const ticketResolver = new FlagResolver<{ selectedTickets?: string[] }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+            context: { projectId },
           })
 
-          outputPromptAsJson(
-            buildPromptConfig(
-              'checkbox',
-              'selectedTickets',
-              'Select tickets to spawn (provide ticket IDs as positional args to execute):',
-              ticketChoices
-            ),
-            createMetadata('work spawn', flags)
-          )
+          ticketResolver.addPrompt({
+            flagName: 'selectedTickets',
+            type: 'checkbox',
+            message: 'Select tickets to spawn (provide ticket IDs as positional args to execute):',
+            choices: () => allTickets.map(ticket => {
+              const priority = ticket.priority ? `[${ticket.priority}] ` : ''
+              return {
+                name: `${priority}${ticket.id} - ${ticket.title} (${ticket.statusName || 'No Status'})`,
+                value: ticket.id,
+              }
+            }),
+          })
+
+          // In JSON mode, this exits after outputting prompt
+          await ticketResolver.resolve()
           db.close()
           return
         }
@@ -393,24 +389,23 @@ export default class WorkSpawn extends PMOCommand {
           })
         }
 
-        // In JSON mode, output column selection prompt for many mode
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'manyColumn', 'Select from which column:', columnChoices),
-            createMetadata('work spawn', flags)
-          )
-          db.close()
-          return
-        }
+        // Use FlagResolver for column selection (many mode)
+        const manyColumnResolver = new FlagResolver<{ manyColumn?: string }>({
+          commandName: 'work spawn',
+          baseCommand: 'prlt work spawn --many',
+          jsonMode,
+          flags: {},
+        })
 
-        const { manyColumn } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'manyColumn',
-            message: 'Select from which column:',
-            choices: columnChoices,
-          },
-        ])
+        manyColumnResolver.addPrompt({
+          flagName: 'manyColumn',
+          type: 'list',
+          message: 'Select from which column:',
+          choices: () => columnChoices,
+        })
+
+        const manyColumnResult = await manyColumnResolver.resolve()
+        const manyColumn = manyColumnResult.manyColumn
 
         // Filter tickets based on column selection
         const ticketsForSelection = manyColumn === '__ALL__'
@@ -456,36 +451,29 @@ export default class WorkSpawn extends PMOCommand {
           }
         }
 
-        // JSON mode: output checkbox prompt (for multi-select)
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig(
-              'checkbox',
-              'selectedTicketIds',
-              'Select tickets to spawn (provide ticket IDs as positional args to execute):',
-              flatChoices
-            ),
-            createMetadata('work spawn', flags)
-          )
-          db.close()
-          return
-        }
+        // Use FlagResolver for ticket selection (checkbox)
+        const ticketSelectResolver = new FlagResolver<{ selectedTicketIds?: string[] }>({
+          commandName: 'work spawn',
+          baseCommand: 'prlt work spawn',
+          jsonMode,
+          flags: {},
+        })
 
-        const { selectedTicketIds } = await inquirer.prompt([
-          {
-            type: 'checkbox',
-            name: 'selectedTicketIds',
-            message: 'Select tickets to spawn (space to toggle, enter to confirm):',
-            choices,
-            validate: (input: string[]) => {
-              if (input.length === 0) {
-                return 'Please select at least one ticket'
-              }
-              return true
-            },
+        ticketSelectResolver.addPrompt({
+          flagName: 'selectedTicketIds',
+          type: 'checkbox',
+          message: 'Select tickets to spawn (space to toggle, enter to confirm):',
+          choices: () => flatChoices,
+          validate: (input) => {
+            if ((input as unknown as string[]).length === 0) {
+              return 'Please select at least one ticket'
+            }
+            return true
           },
-        ])
+        })
 
+        const ticketSelectResult = await ticketSelectResolver.resolve()
+        const selectedTicketIds = ticketSelectResult.selectedTicketIds || []
         ticketsToSpawn = allTickets.filter(t => selectedTicketIds.includes(t.id))
 
         this.log('')
@@ -622,25 +610,24 @@ export default class WorkSpawn extends PMOCommand {
             value: '__adhoc__',
           })
 
-          // In JSON mode, output the action selection prompt
-          if (jsonMode) {
-            outputPromptAsJson(
-              buildPromptConfig('list', 'selectedAction', 'What action should agents perform?', actionChoices, 'implement'),
-              createMetadata('work spawn', flags)
-            )
-            db.close()
-            return
-          }
+          // Use FlagResolver for action selection
+          const actionResolver = new FlagResolver<{ selectedAction?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+          })
 
-          const { selectedAction } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedAction',
-              message: 'What action should agents perform?',
-              choices: actionChoices,
-              default: 'implement',
-            },
-          ])
+          actionResolver.addPrompt({
+            flagName: 'selectedAction',
+            type: 'list',
+            message: 'What action should agents perform?',
+            default: 'implement',
+            choices: () => actionChoices,
+          })
+
+          const actionResult = await actionResolver.resolve()
+          const selectedAction = actionResult.selectedAction
           batchAction = selectedAction === '__adhoc__' ? 'adhoc' : selectedAction
         }
 
@@ -673,33 +660,27 @@ export default class WorkSpawn extends PMOCommand {
             ? 'devcontainer, terminal, interactive, safe permissions, create PRs'
             : 'devcontainer, terminal, interactive, safe permissions, no PRs'
 
-          const defaultChoices = [
-            { name: `✓ Yes - Use defaults (${defaultsDescription})`, value: 'yes' },
-            { name: '✗ No  - Configure each setting', value: 'no' },
-          ]
+          // Use FlagResolver for defaults choice
+          const defaultsResolver = new FlagResolver<{ useDefaults?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+          })
 
-          // In JSON mode, output the defaults prompt
-          if (jsonMode) {
-            outputPromptAsJson(
-              buildPromptConfig('list', 'useDefaults', `Use default settings for "${actionName}"?`, defaultChoices, 'yes'),
-              createMetadata('work spawn', flags)
-            )
-            db.close()
-            return
-          }
+          defaultsResolver.addPrompt({
+            flagName: 'useDefaults',
+            type: 'list',
+            message: `Use default settings for "${actionName}"?`,
+            default: 'yes',
+            choices: () => [
+              { name: `✓ Yes - Use defaults (${defaultsDescription})`, value: 'yes' },
+              { name: '✗ No  - Configure each setting', value: 'no' },
+            ],
+          })
 
-          const { useDefaults } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'useDefaults',
-              message: `Use default settings for "${actionName}"?`,
-              choices: [
-                { name: `✓ Yes - Use defaults (${defaultsDescription})`, value: true },
-                { name: '✗ No  - Configure each setting', value: false },
-              ],
-              default: true,
-            },
-          ])
+          const defaultsResult = await defaultsResolver.resolve()
+          const useDefaults = defaultsResult.useDefaults === 'yes'
 
           if (useDefaults) {
             // Apply defaults
@@ -745,12 +726,25 @@ export default class WorkSpawn extends PMOCommand {
             { name: '✗  cancel', value: 'cancel' },
           ]
 
-          // In JSON mode, output the environment selection prompt
+          // In JSON mode, use FlagResolver (outputs prompt and exits)
           if (jsonMode) {
-            outputPromptAsJson(
-              buildPromptConfig('list', 'selectedEnvironment', 'Where should agents run?', envChoices, devcontainerReady ? 'devcontainer' : 'host'),
-              createMetadata('work spawn', flags)
-            )
+            const envResolver = new FlagResolver<{ selectedEnvironment?: string }>({
+              commandName: 'work spawn',
+              baseCommand: 'prlt work spawn',
+              jsonMode,
+              flags: {},
+            })
+
+            envResolver.addPrompt({
+              flagName: 'selectedEnvironment',
+              type: 'list',
+              message: 'Where should agents run?',
+              default: devcontainerReady ? 'devcontainer' : 'host',
+              choices: () => envChoices,
+            })
+
+            await envResolver.resolve()
+            // FlagResolver exits in JSON mode, so we never reach here
             db.close()
             return
           }
@@ -800,40 +794,43 @@ export default class WorkSpawn extends PMOCommand {
 
               // Check GitHub token is available for git push operations
               if (!isGitHubTokenAvailable()) {
-                const tokenChoices = [
-                  { name: 'Yes, continue anyway (git push may fail)', value: 'continue' },
-                  { name: 'No, let me run gh auth login first', value: 'cancel' },
-                  { name: 'Switch to host mode instead', value: 'host' },
-                ]
                 const tokenMessage = 'GitHub token not found. Git push may fail. Continue without token?'
 
-                if (jsonMode) {
-                  outputPromptAsJson(
-                    buildPromptConfig('list', 'tokenAction', tokenMessage, tokenChoices),
-                    createMetadata('work spawn', flags)
+                // Use FlagResolver for token action prompt
+                const tokenResolver = new FlagResolver<{ tokenAction?: string }>({
+                  commandName: 'work spawn',
+                  baseCommand: 'prlt work spawn',
+                  jsonMode,
+                  flags: {},
+                })
+
+                tokenResolver.addPrompt({
+                  flagName: 'tokenAction',
+                  type: 'list',
+                  message: tokenMessage,
+                  default: 'continue',
+                  choices: () => [
+                    { name: 'Yes, continue anyway (git push may fail)', value: 'continue' },
+                    { name: 'No, let me run gh auth login first', value: 'cancel' },
+                    { name: 'Switch to host mode instead', value: 'host' },
+                  ],
+                })
+
+                // In JSON mode, this will output prompt and exit
+                // In interactive mode, show warning first
+                if (!jsonMode) {
+                  this.log('')
+                  this.warn(
+                    'GitHub token not found.\n' +
+                    'Git push operations may fail inside containers.\n' +
+                    'Run `gh auth login` to authenticate, or continue without token.'
                   )
-                  db.close()
-                  return
+                  this.log('')
                 }
 
-                this.log('')
-                this.warn(
-                  'GitHub token not found.\n' +
-                  'Git push operations may fail inside containers.\n' +
-                  'Run `gh auth login` to authenticate, or continue without token.'
-                )
-                this.log('')
-
                 // eslint-disable-next-line no-await-in-loop -- Interactive user prompt in loop
-                const { tokenAction } = await inquirer.prompt([
-                  {
-                    type: 'list',
-                    name: 'tokenAction',
-                    message: tokenMessage,
-                    choices: tokenChoices,
-                    default: 'continue',
-                  },
-                ])
+                const resolved = await tokenResolver.resolve()
+                const tokenAction = resolved.tokenAction
 
                 if (tokenAction === 'cancel') {
                   db.close()
@@ -880,30 +877,27 @@ export default class WorkSpawn extends PMOCommand {
 
         // Prompt for display mode if not already set (for host mode without devcontainer)
         if (!batchDisplay) {
-          const displayChoices = [
-            { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-            { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
-          ]
+          // Use FlagResolver for display mode
+          const displayResolver = new FlagResolver<{ selectedMode?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+          })
 
-          // In JSON mode, output the display mode prompt
-          if (jsonMode) {
-            outputPromptAsJson(
-              buildPromptConfig('list', 'selectedMode', 'How should agent output be displayed?', displayChoices, 'terminal'),
-              createMetadata('work spawn', flags)
-            )
-            db.close()
-            return
-          }
+          displayResolver.addPrompt({
+            flagName: 'selectedMode',
+            type: 'list',
+            message: 'How should agent output be displayed?',
+            default: 'terminal',
+            choices: () => [
+              { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+              { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+            ],
+          })
 
-          const { selectedMode } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedMode',
-              message: 'How should agent output be displayed?',
-              choices: displayChoices,
-            },
-          ])
-          batchDisplay = selectedMode
+          const displayResult = await displayResolver.resolve()
+          batchDisplay = displayResult.selectedMode
         }
 
         // Default to interactive output mode (streaming UI)
@@ -914,31 +908,27 @@ export default class WorkSpawn extends PMOCommand {
 
         // Prompt for permissions mode if not explicitly set via --skip-permissions flag
         if (!flags['skip-permissions']) {
-          const permissionChoices = [
-            { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
-            { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
-          ]
+          // Use FlagResolver for permission mode
+          const permissionResolver = new FlagResolver<{ permissionMode?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+          })
 
-          // In JSON mode, output the permissions prompt
-          if (jsonMode) {
-            outputPromptAsJson(
-              buildPromptConfig('list', 'permissionMode', 'Permission mode for Claude Code:', permissionChoices, 'danger'),
-              createMetadata('work spawn', flags)
-            )
-            db.close()
-            return
-          }
+          permissionResolver.addPrompt({
+            flagName: 'permissionMode',
+            type: 'list',
+            message: 'Permission mode for Claude Code:',
+            default: 'danger',
+            choices: () => [
+              { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
+              { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+            ],
+          })
 
-          const { permissionMode } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'permissionMode',
-              message: 'Permission mode for Claude Code:',
-              choices: permissionChoices,
-              default: 'danger',
-            },
-          ])
-          batchPermissionMode = permissionMode as PermissionMode
+          const permissionResult = await permissionResolver.resolve()
+          batchPermissionMode = permissionResult.permissionMode as PermissionMode
         }
 
         // Prompt for PR creation if not provided AND action modifies code
@@ -946,32 +936,28 @@ export default class WorkSpawn extends PMOCommand {
         const actionModifiesCode = selectedActionDetails?.modifiesCode ?? true
         if (!batchCreatePr && !batchNoPr) {
           if (actionModifiesCode) {
-            const prChoices = [
-              { name: '✓ Yes - Create PR for each ticket', value: 'yes' },
-              { name: '✗ No  - Just move tickets to review', value: 'no' },
-            ]
+            // Use FlagResolver for PR choice
+            const prResolver = new FlagResolver<{ prChoice?: string }>({
+              commandName: 'work spawn',
+              baseCommand: 'prlt work spawn',
+              jsonMode,
+              flags: {},
+            })
 
-            // In JSON mode, output the PR creation prompt
-            if (jsonMode) {
-              outputPromptAsJson(
-                buildPromptConfig('list', 'prChoice', 'Create pull requests when work is ready?', prChoices, 'yes'),
-                createMetadata('work spawn', flags)
-              )
-              db.close()
-              return
-            }
+            prResolver.addPrompt({
+              flagName: 'prChoice',
+              type: 'list',
+              message: 'Create pull requests when work is ready?',
+              default: 'yes',
+              choices: () => [
+                { name: '✓ Yes - Create PR for each ticket', value: 'yes' },
+                { name: '✗ No  - Just move tickets to review', value: 'no' },
+              ],
+            })
 
-            const { prChoice } = await inquirer.prompt([
-              {
-                type: 'list',
-                name: 'prChoice',
-                message: 'Create pull requests when work is ready?',
-                choices: prChoices,
-                default: 'yes',
-              },
-            ])
-            batchCreatePr = prChoice === 'yes'
-            batchNoPr = prChoice === 'no'
+            const prResult = await prResolver.resolve()
+            batchCreatePr = prResult.prChoice === 'yes'
+            batchNoPr = prResult.prChoice === 'no'
           } else {
             // Non-code-modifying action - no PR needed
             batchCreatePr = false

@@ -7,11 +7,10 @@ import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js'
+import { FlagResolver } from '../../lib/flags/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { StateCategory, WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
@@ -310,35 +309,27 @@ export default class WorkStart extends PMOCommand {
         }
         this.log('')
 
-        const blockedChoices = [
-          { name: 'No, cancel', value: 'no' },
-          { name: 'Yes, start despite blockers', value: 'yes' },
-        ]
+        // Use FlagResolver for blocked ticket confirmation
+        const blockedResolver = new FlagResolver<{ startAnyway?: string }>({
+          commandName: 'work start',
+          baseCommand: `prlt work start ${ticketId}`,
+          jsonMode,
+          flags: {},
+        })
 
-        // In JSON mode, output the blocked prompt
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'startAnyway', 'Start anyway?', blockedChoices, 'no'),
-            createMetadata('work start', flags)
-          )
-          db.close()
-          return
-        }
+        blockedResolver.addPrompt({
+          flagName: 'startAnyway',
+          type: 'list',
+          message: 'Start anyway?',
+          default: 'no',
+          choices: () => [
+            { name: 'No, cancel', value: 'no' },
+            { name: 'Yes, start despite blockers', value: 'yes' },
+          ],
+        })
 
-        const { startAnyway } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'startAnyway',
-            message: 'Start anyway?',
-            choices: [
-              { name: 'No, cancel', value: false },
-              { name: 'Yes, start despite blockers', value: true },
-            ],
-            default: false,
-          },
-        ])
-
-        if (!startAnyway) {
+        const blockedResult = await blockedResolver.resolve()
+        if (blockedResult.startAnyway !== 'yes') {
           db.close()
           this.log(styles.muted('Cancelled.'))
           return
@@ -351,31 +342,28 @@ export default class WorkStart extends PMOCommand {
         this.log('')
         this.log(styles.warning(`Ticket ${ticketId} has an active tmux session (${existingSession.agent})`))
 
-        const sessionChoices = [
-          { name: 'Attach to existing session', value: 'attach' },
-          { name: 'Spawn new agent (keeps existing session)', value: 'spawn' },
-          { name: 'Kill session and respawn', value: 'kill' },
-          { name: 'Cancel', value: 'cancel' },
-        ]
+        // Use FlagResolver for session action
+        const sessionResolver = new FlagResolver<{ sessionAction?: string }>({
+          commandName: 'work start',
+          baseCommand: `prlt work start ${ticketId}`,
+          jsonMode,
+          flags: {},
+        })
 
-        // In JSON mode, output the session action prompt
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'sessionAction', 'What would you like to do?', sessionChoices),
-            createMetadata('work start', flags)
-          )
-          db.close()
-          return
-        }
+        sessionResolver.addPrompt({
+          flagName: 'sessionAction',
+          type: 'list',
+          message: 'What would you like to do?',
+          choices: () => [
+            { name: 'Attach to existing session', value: 'attach' },
+            { name: 'Spawn new agent (keeps existing session)', value: 'spawn' },
+            { name: 'Kill session and respawn', value: 'kill' },
+            { name: 'Cancel', value: 'cancel' },
+          ],
+        })
 
-        const { sessionAction } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'sessionAction',
-            message: 'What would you like to do?',
-            choices: sessionChoices,
-          },
-        ])
+        const sessionResult = await sessionResolver.resolve()
+        const sessionAction = sessionResult.sessionAction
 
         if (sessionAction === 'cancel') {
           db.close()
@@ -442,56 +430,42 @@ export default class WorkStart extends PMOCommand {
             }
           }
 
-          // Prompt to assign an agent
-          const agentChoices: Array<{ name: string; value: string; disabled?: string } | inquirer.Separator> = []
-          // Also build flat choices for JSON mode (without separators)
-          const flatAgentChoices: Array<{ name: string; value: string; disabled?: boolean }> = []
-
-          // Add ephemeral option first
-          agentChoices.push({ name: 'Create new ephemeral agent (recommended)', value: '__ephemeral__' })
-          flatAgentChoices.push({ name: 'Create new ephemeral agent (recommended)', value: '__ephemeral__' })
-          agentChoices.push(new inquirer.Separator())
-
-          // Only show staff agents that exist on disk
+          // Build agent choices
           const availableAgents = activeStaffAgents.filter(a => !busyAgentNames.has(a.name))
           const busyAgents = activeStaffAgents.filter(a => busyAgentNames.has(a.name))
 
-          if (availableAgents.length > 0) {
-            agentChoices.push(new inquirer.Separator('── Available Staff Agents ──'))
-            for (const a of availableAgents) {
-              agentChoices.push({ name: a.name, value: a.name })
-              flatAgentChoices.push({ name: a.name, value: a.name })
-            }
+          const agentChoiceList: Array<{ name: string; value: string; disabled?: boolean }> = [
+            { name: 'Create new ephemeral agent (recommended)', value: '__ephemeral__' },
+          ]
+
+          for (const a of availableAgents) {
+            agentChoiceList.push({ name: a.name, value: a.name })
           }
 
-          if (busyAgents.length > 0) {
-            agentChoices.push(new inquirer.Separator('── Busy (already working) ──'))
-            for (const a of busyAgents) {
-              const runningExecs = executionStorage.getAgentRunningExecutions(a.name)
-              const ticketIds = runningExecs.map(e => e.ticketId).join(', ')
-              agentChoices.push({ name: `${a.name} (working on ${ticketIds})`, value: a.name, disabled: 'busy' })
-              flatAgentChoices.push({ name: `${a.name} (working on ${ticketIds})`, value: a.name, disabled: true })
-            }
+          for (const a of busyAgents) {
+            const runningExecs = executionStorage.getAgentRunningExecutions(a.name)
+            const ticketIds = runningExecs.map(e => e.ticketId).join(', ')
+            agentChoiceList.push({ name: `${a.name} (working on ${ticketIds})`, value: a.name, disabled: true })
           }
 
-          // In JSON mode, output the agent selection prompt
-          if (jsonMode) {
-            outputPromptAsJson(
-              buildPromptConfig('list', 'selectedAgent', `Select agent for ${ticketId}:`, flatAgentChoices, '__ephemeral__'),
-              createMetadata('work start', flags)
-            )
-            db.close()
-            return
-          }
+          // Use FlagResolver for agent selection
+          const agentResolver = new FlagResolver<{ selectedAgent?: string }>({
+            commandName: 'work start',
+            baseCommand: `prlt work start ${ticketId}`,
+            jsonMode,
+            flags: {},
+          })
 
-          const { selectedAgent } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedAgent',
-              message: `Select agent for ${ticketId}:`,
-              choices: agentChoices,
-            },
-          ])
+          agentResolver.addPrompt({
+            flagName: 'selectedAgent',
+            type: 'list',
+            message: `Select agent for ${ticketId}:`,
+            default: '__ephemeral__',
+            choices: () => agentChoiceList,
+          })
+
+          const agentResult = await agentResolver.resolve()
+          const selectedAgent = agentResult.selectedAgent
 
           if (selectedAgent === '__ephemeral__') {
             // Create ephemeral agent
@@ -602,30 +576,27 @@ export default class WorkStart extends PMOCommand {
           }
           this.log('')
 
-          const unsavedChoices = [
-            { name: 'Push existing work and continue', value: 'push' },
-            { name: 'Continue anyway (existing work may conflict)', value: 'continue' },
-            { name: 'Cancel', value: 'cancel' },
-          ]
+          // Use FlagResolver for unsaved work action
+          const unsavedResolver = new FlagResolver<{ unsavedAction?: string }>({
+            commandName: 'work start',
+            baseCommand: `prlt work start ${ticketId}`,
+            jsonMode,
+            flags: {},
+          })
 
-          // In JSON mode, output the unsaved work prompt
-          if (jsonMode) {
-            outputPromptAsJson(
-              buildPromptConfig('list', 'action', 'How would you like to proceed?', unsavedChoices),
-              createMetadata('work start', flags)
-            )
-            db.close()
-            return
-          }
+          unsavedResolver.addPrompt({
+            flagName: 'unsavedAction',
+            type: 'list',
+            message: 'How would you like to proceed?',
+            choices: () => [
+              { name: 'Push existing work and continue', value: 'push' },
+              { name: 'Continue anyway (existing work may conflict)', value: 'continue' },
+              { name: 'Cancel', value: 'cancel' },
+            ],
+          })
 
-          const { action } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'action',
-              message: 'How would you like to proceed?',
-              choices: unsavedChoices,
-            },
-          ])
+          const unsavedResult = await unsavedResolver.resolve()
+          const action = unsavedResult.unsavedAction
 
           if (action === 'cancel') {
             db.close()
@@ -714,66 +685,55 @@ export default class WorkStart extends PMOCommand {
         const allActions = await this.storage.listActions()
 
         // Build choices with suggested action at top
-        const actionChoices: Array<{ name: string; value: string } | inquirer.Separator> = []
-        // Also build flat choices for JSON mode (without separators)
-        const flatActionChoices: Array<{ name: string; value: string }> = []
+        const actionChoiceList: Array<{ name: string; value: string }> = []
 
         if (suggestedAction) {
-          const suggestedChoice = {
+          actionChoiceList.push({
             name: `${suggestedAction.name} - ${suggestedAction.description || 'Suggested for ' + currentCategory} (Recommended)`,
             value: suggestedAction.id,
-          }
-          actionChoices.push(suggestedChoice)
-          flatActionChoices.push(suggestedChoice)
-          actionChoices.push(new inquirer.Separator('── Other Actions ──'))
+          })
         }
 
         for (const action of allActions) {
           if (suggestedAction && action.id === suggestedAction.id) continue
-          const actionChoice = {
+          actionChoiceList.push({
             name: `${action.name}${action.description ? ' - ' + action.description : ''}`,
             value: action.id,
-          }
-          actionChoices.push(actionChoice)
-          flatActionChoices.push(actionChoice)
+          })
         }
 
-        actionChoices.push(new inquirer.Separator('── Custom ──'))
-        actionChoices.push({ name: 'Custom prompt...', value: '__custom__' })
-        actionChoices.push({ name: 'Ad-hoc session - unstructured exploration/debugging', value: '__adhoc__' })
-        flatActionChoices.push({ name: 'Custom prompt...', value: '__custom__' })
-        flatActionChoices.push({ name: 'Ad-hoc session - unstructured exploration/debugging', value: '__adhoc__' })
+        actionChoiceList.push({ name: 'Custom prompt...', value: '__custom__' })
+        actionChoiceList.push({ name: 'Ad-hoc session - unstructured exploration/debugging', value: '__adhoc__' })
 
-        // In JSON mode, output the action selection prompt
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'selectedActionId', `What should the agent do with ${ticket.id}?`, flatActionChoices, suggestedAction?.id),
-            createMetadata('work start', flags)
-          )
-          db.close()
-          return
-        }
+        // Use FlagResolver for action selection
+        const actionResolver = new FlagResolver<{ selectedActionId?: string; customInput?: string }>({
+          commandName: 'work start',
+          baseCommand: `prlt work start ${ticketId}`,
+          jsonMode,
+          flags: {},
+        })
 
-        const { selectedActionId } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedActionId',
-            message: `What should the agent do with ${ticket.id}?`,
-            choices: actionChoices,
-          },
-        ])
+        actionResolver.addPrompt({
+          flagName: 'selectedActionId',
+          type: 'list',
+          message: `What should the agent do with ${ticket.id}?`,
+          default: suggestedAction?.id,
+          choices: () => actionChoiceList,
+        })
+
+        actionResolver.addPrompt({
+          flagName: 'customInput',
+          type: 'input',
+          message: 'Enter custom prompt:',
+          when: (ctx) => ctx.flags.selectedActionId === '__custom__',
+          validate: (value) => (value as string).trim() ? true : 'Prompt cannot be empty',
+        })
+
+        const actionResult = await actionResolver.resolve()
+        const selectedActionId = actionResult.selectedActionId
 
         if (selectedActionId === '__custom__') {
-          // In JSON mode, output the custom prompt input (this shouldn't happen as we exit above, but for completeness)
-          const { customInput } = await inquirer.prompt([
-            {
-              type: 'input',
-              name: 'customInput',
-              message: 'Enter custom prompt:',
-              validate: (input: string) => input.trim() ? true : 'Prompt cannot be empty',
-            },
-          ])
-          customPrompt = customInput.trim()
+          customPrompt = (actionResult.customInput as string).trim()
         } else if (selectedActionId === '__adhoc__') {
           // Ad-hoc session - no specific action, just launch Claude for exploration
           selectedAction = {
@@ -786,7 +746,7 @@ export default class WorkStart extends PMOCommand {
             isBuiltin: false,
             createdAt: new Date(),
           }
-        } else {
+        } else if (selectedActionId) {
           selectedAction = await this.storage.getAction(selectedActionId)
         }
       }
@@ -855,12 +815,25 @@ export default class WorkStart extends PMOCommand {
           { name: '✗  cancel', value: 'cancel' },
         ]
 
-        // In JSON mode, output the environment selection prompt
+        // In JSON mode, use FlagResolver (outputs prompt and exits)
         if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'selectedEnvironment', 'Where should the agent run?', envChoices, devcontainerReady ? 'devcontainer' : 'host'),
-            createMetadata('work start', flags)
-          )
+          const envResolver = new FlagResolver<{ selectedEnvironment?: string }>({
+            commandName: 'work start',
+            baseCommand: `prlt work start ${ticketId}`,
+            jsonMode,
+            flags: {},
+          })
+
+          envResolver.addPrompt({
+            flagName: 'selectedEnvironment',
+            type: 'list',
+            message: 'Where should the agent run?',
+            default: devcontainerReady ? 'devcontainer' : 'host',
+            choices: () => envChoices,
+          })
+
+          await envResolver.resolve()
+          // FlagResolver exits in JSON mode, so we never reach here
           db.close()
           return
         }
@@ -912,40 +885,43 @@ export default class WorkStart extends PMOCommand {
 
             // Check GitHub token is available for git push operations
             if (!isGitHubTokenAvailable()) {
-              const tokenChoices = [
-                { name: 'Yes, continue anyway (git push may fail)', value: 'continue' },
-                { name: 'No, let me run gh auth login first', value: 'cancel' },
-                { name: 'Switch to host mode instead', value: 'host' },
-              ]
               const tokenMessage = 'GitHub token not found. Git push may fail. Continue without token?'
 
-              if (jsonMode) {
-                outputPromptAsJson(
-                  buildPromptConfig('list', 'tokenAction', tokenMessage, tokenChoices),
-                  createMetadata('work start', flags)
+              // Use FlagResolver for token action prompt
+              const tokenResolver = new FlagResolver<{ tokenAction?: string }>({
+                commandName: 'work start',
+                baseCommand: `prlt work start ${ticketId}`,
+                jsonMode,
+                flags: {},
+              })
+
+              tokenResolver.addPrompt({
+                flagName: 'tokenAction',
+                type: 'list',
+                message: tokenMessage,
+                default: 'continue',
+                choices: () => [
+                  { name: 'Yes, continue anyway (git push may fail)', value: 'continue' },
+                  { name: 'No, let me run gh auth login first', value: 'cancel' },
+                  { name: 'Switch to host mode instead', value: 'host' },
+                ],
+              })
+
+              // In JSON mode, this will output prompt and exit
+              // In interactive mode, show warning first then prompt
+              if (!jsonMode) {
+                this.log('')
+                this.warn(
+                  'GitHub token not found.\n' +
+                  'Git push operations may fail inside the container.\n' +
+                  'Run `gh auth login` to authenticate, or continue without token.'
                 )
-                db.close()
-                return
+                this.log('')
               }
 
-              this.log('')
-              this.warn(
-                'GitHub token not found.\n' +
-                'Git push operations may fail inside the container.\n' +
-                'Run `gh auth login` to authenticate, or continue without token.'
-              )
-              this.log('')
-
               // eslint-disable-next-line no-await-in-loop -- Interactive user prompt in loop
-              const { tokenAction } = await inquirer.prompt([
-                {
-                  type: 'list',
-                  name: 'tokenAction',
-                  message: tokenMessage,
-                  choices: tokenChoices,
-                  default: 'continue',
-                },
-              ])
+              const resolved = await tokenResolver.resolve()
+              const tokenAction = resolved.tokenAction
 
               if (tokenAction === 'cancel') {
                 db.close()
@@ -1036,32 +1012,28 @@ export default class WorkStart extends PMOCommand {
             ? 'Select display mode (--run-on-host: bypassing devcontainer):'
             : 'Select display mode (no devcontainer - running on host):'
 
-          const displayChoices = [
-            { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-            { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
-            { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
-          ]
+          // Use FlagResolver for display mode selection
+          const displayResolver = new FlagResolver<{ selectedMode?: string }>({
+            commandName: 'work start',
+            baseCommand: `prlt work start ${ticketId}`,
+            jsonMode,
+            flags: {},
+          })
 
-          // In JSON mode, output the display mode prompt
-          if (jsonMode) {
-            outputPromptAsJson(
-              buildPromptConfig('list', 'selectedMode', warningMsg, displayChoices, 'terminal'),
-              createMetadata('work start', flags)
-            )
-            db.close()
-            return
-          }
+          displayResolver.addPrompt({
+            flagName: 'selectedMode',
+            type: 'list',
+            message: warningMsg,
+            default: 'terminal',
+            choices: () => [
+              { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+              { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
+              { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+            ],
+          })
 
-          const { selectedMode } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedMode',
-              message: warningMsg,
-              choices: displayChoices,
-              default: 'terminal',
-            },
-          ])
-          displayMode = selectedMode as DisplayMode
+          const displayResult = await displayResolver.resolve()
+          displayMode = displayResult.selectedMode as DisplayMode
         }
       }
 
@@ -1080,31 +1052,28 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.muted('   Agents will fail with 401 authentication errors without credentials.'))
           this.log('')
 
-          const authChoices = [
-            { name: `🔐 Run ${this.config.bin} agent auth now (one-time setup)`, value: 'auth' },
-            { name: '💻 Switch to host environment instead', value: 'host' },
-            { name: '⏩ Continue anyway (must run /login in first agent)', value: 'continue' },
-            { name: '✗  Cancel', value: 'cancel' },
-          ]
+          // Use FlagResolver for auth action
+          const authResolver = new FlagResolver<{ authAction?: string }>({
+            commandName: 'work start',
+            baseCommand: `prlt work start ${ticketId}`,
+            jsonMode,
+            flags: {},
+          })
 
-          // In JSON mode, output the auth action prompt
-          if (jsonMode) {
-            outputPromptAsJson(
-              buildPromptConfig('list', 'authAction', 'What would you like to do?', authChoices),
-              createMetadata('work start', flags)
-            )
-            db.close()
-            return
-          }
+          authResolver.addPrompt({
+            flagName: 'authAction',
+            type: 'list',
+            message: 'What would you like to do?',
+            choices: () => [
+              { name: `🔐 Run ${this.config.bin} agent auth now (one-time setup)`, value: 'auth' },
+              { name: '💻 Switch to host environment instead', value: 'host' },
+              { name: '⏩ Continue anyway (must run /login in first agent)', value: 'continue' },
+              { name: '✗  Cancel', value: 'cancel' },
+            ],
+          })
 
-          const { authAction } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'authAction',
-              message: 'What would you like to do?',
-              choices: authChoices,
-            },
-          ])
+          const authResult = await authResolver.resolve()
+          const authAction = authResult.authAction
 
           if (authAction === 'cancel') {
             db.close()
@@ -1174,38 +1143,36 @@ export default class WorkStart extends PMOCommand {
       }
 
       // Prompt for permissions mode (all environments)
-      // Skip prompt if --permission-mode flag is set
+      // Use FlagResolver to handle both JSON mode and interactive prompts consistently
       if (flags['permission-mode']) {
         sandboxed = flags['permission-mode'] === 'safe'
       } else {
         const containerNote = environment === 'devcontainer'
           ? ' (container provides additional isolation)'
           : ''
-        const permissionChoices = [
-          { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger', command: `prlt work start ${ticketId} --skip-permissions` },
-          { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
-        ]
 
-        // Handle JSON mode
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'permissionMode', `Permission mode for Claude Code${containerNote}:`, permissionChoices, 'danger'),
-            createMetadata('work start', flags as Record<string, unknown>)
-          )
-          db.close()
-          return
-        }
+        // Create resolver for permission-mode flag
+        const permissionResolver = new FlagResolver<{ 'permission-mode'?: string }>({
+          commandName: 'work start',
+          baseCommand: `prlt work start ${ticketId}`,
+          jsonMode,
+          flags: { 'permission-mode': flags['permission-mode'] },
+        })
 
-        const { permissionMode } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'permissionMode',
-            message: `Permission mode for Claude Code${containerNote}:`,
-            choices: permissionChoices,
-            default: 'danger',
-          },
-        ])
-        sandboxed = permissionMode === 'safe'
+        permissionResolver.addPrompt({
+          flagName: 'permission-mode',
+          type: 'list',
+          message: `Permission mode for Claude Code${containerNote}:`,
+          default: 'danger',
+          choices: () => [
+            { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
+            { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+          ],
+          when: (ctx) => !ctx.flags['permission-mode'],
+        })
+
+        const resolvedPermission = await permissionResolver.resolve()
+        sandboxed = resolvedPermission['permission-mode'] === 'safe'
       }
 
       // Prompt for PR creation when work is complete
@@ -1218,31 +1185,27 @@ export default class WorkStart extends PMOCommand {
       } else if (flags['no-pr']) {
         createPR = false
       } else if (ghAvailable) {
-        const prChoices = [
-          { name: '✓ Yes - Create PR when running `prlt work ready`', value: 'yes' },
-          { name: '✗ No  - Just move ticket to review (can create PR later)', value: 'no' },
-        ]
+        // Use FlagResolver for PR choice
+        const prResolver = new FlagResolver<{ prChoice?: string }>({
+          commandName: 'work start',
+          baseCommand: `prlt work start ${ticketId}`,
+          jsonMode,
+          flags: {},
+        })
 
-        // In JSON mode, output the PR choice prompt
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'prChoice', 'Create a pull request when work is ready?', prChoices, 'yes'),
-            createMetadata('work start', flags)
-          )
-          db.close()
-          return
-        }
+        prResolver.addPrompt({
+          flagName: 'prChoice',
+          type: 'list',
+          message: 'Create a pull request when work is ready?',
+          default: 'yes',
+          choices: () => [
+            { name: '✓ Yes - Create PR when running `prlt work ready`', value: 'yes' },
+            { name: '✗ No  - Just move ticket to review (can create PR later)', value: 'no' },
+          ],
+        })
 
-        const { prChoice } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'prChoice',
-            message: 'Create a pull request when work is ready?',
-            choices: prChoices,
-            default: 'yes',
-          },
-        ])
-        createPR = prChoice === 'yes'
+        const prResult = await prResolver.resolve()
+        createPR = prResult.prChoice === 'yes'
       }
 
       // Show execution info
@@ -1303,30 +1266,28 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.muted(`Branch: ${finalBranch}`))
         } else {
           // No branch in DB - ask user if one already exists
-          const branchChoices = [
-            { name: 'No, create new branch (Recommended)', value: 'create' },
-            { name: 'Yes, I\'ll enter the branch name', value: 'enter' },
-            { name: 'Search for matching branches', value: 'search' },
-          ]
+          // Use FlagResolver for branch choice
+          const branchResolver = new FlagResolver<{ branchChoice?: string }>({
+            commandName: 'work start',
+            baseCommand: `prlt work start ${ticketId}`,
+            jsonMode,
+            flags: {},
+          })
 
-          // In JSON mode, output the branch choice prompt
-          if (jsonMode) {
-            outputPromptAsJson(
-              buildPromptConfig('list', 'branchChoice', `Does a branch already exist for ${ticket.id}?`, branchChoices, 'create'),
-              createMetadata('work start', flags)
-            )
-            db.close()
-            return
-          }
+          branchResolver.addPrompt({
+            flagName: 'branchChoice',
+            type: 'list',
+            message: `Does a branch already exist for ${ticket.id}?`,
+            default: 'create',
+            choices: () => [
+              { name: 'No, create new branch (Recommended)', value: 'create' },
+              { name: 'Yes, I\'ll enter the branch name', value: 'enter' },
+              { name: 'Search for matching branches', value: 'search' },
+            ],
+          })
 
-          const { branchChoice } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'branchChoice',
-              message: `Does a branch already exist for ${ticket.id}?`,
-              choices: branchChoices,
-            },
-          ])
+          const branchResult = await branchResolver.resolve()
+          const branchChoice = branchResult.branchChoice
 
           if (branchChoice === 'enter') {
             // User enters existing branch name

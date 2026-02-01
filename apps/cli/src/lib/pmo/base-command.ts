@@ -4,20 +4,34 @@ import { getPMOContext, type PMOContext } from './pmo-context.js';
 import { styles } from '../styles.js';
 import {
   shouldOutputJson,
+  isAgentMode,
   outputPromptAsJson,
   createMetadata,
+  normalizeChoices,
   type JsonFlags,
 } from '../prompt-json.js';
 
 /**
+ * Base flags for JSON/agent mode support
+ * Include these in your command's flags by spreading: ...jsonModeFlags
+ */
+export const jsonModeFlags = {
+  json: Flags.boolean({
+    description: 'Output prompts as JSON for AI agents/scripts',
+    default: false,
+  }),
+};
+
+/**
  * Base flags shared by all PMO commands
- * Include these in your command's flags by spreading: ...PMOCommand.baseFlags
+ * Include these in your command's flags by spreading: ...pmoBaseFlags
  */
 export const pmoBaseFlags = {
   project: Flags.string({
     char: 'P',
     description: 'Project ID (uses first project if only one exists)',
   }),
+  ...jsonModeFlags,
 };
 
 /**
@@ -364,6 +378,93 @@ export abstract class PMOCommand extends Command {
     }]);
 
     return value;
+  }
+
+  /**
+   * Agent-aware prompt wrapper - drop-in replacement for inquirer.prompt
+   *
+   * In agent mode (--agent or --json): outputs first prompt as structured JSON and exits
+   * In interactive mode: calls inquirer.prompt normally
+   *
+   * This is the simplest way to make any inquirer.prompt call agent-compatible.
+   * Just replace `await inquirer.prompt(questions)` with `await this.agentPrompt(questions, agentConfig)`
+   *
+   * @param questions - Inquirer question config(s)
+   * @param agentConfig - Agent mode configuration (null to disable agent mode handling)
+   * @returns Answers object (only in interactive mode)
+   *
+   * @example
+   * ```typescript
+   * // Before (breaks in agent mode):
+   * const { column } = await inquirer.prompt([{
+   *   type: 'list',
+   *   name: 'column',
+   *   message: 'Select column:',
+   *   choices: columns.map(c => ({ name: c, value: c })),
+   * }]);
+   *
+   * // After (works in both modes):
+   * const { column } = await this.agentPrompt([{
+   *   type: 'list',
+   *   name: 'column',
+   *   message: 'Select column:',
+   *   choices: columns.map(c => ({
+   *     name: c,
+   *     value: c,
+   *     command: `prlt ticket move --column "${c}" --agent`,
+   *   })),
+   * }], {
+   *   flags,
+   *   commandName: 'ticket move',
+   * });
+   * ```
+   */
+  protected async agentPrompt<T extends Record<string, unknown>>(
+    questions: Array<{
+      type: string;
+      name: string;
+      message: string;
+      choices?: Array<
+        | string
+        | { name: string; value: unknown; disabled?: boolean | string; command?: string }
+        | unknown
+      >;
+      default?: unknown;
+      validate?: (input: unknown) => boolean | string;
+      when?: boolean | ((answers: Record<string, unknown>) => boolean);
+    }>,
+    agentConfig?: {
+      flags: JsonFlags & Record<string, unknown>;
+      commandName: string;
+    } | null
+  ): Promise<T> {
+    // Check for agent mode
+    if (agentConfig && isAgentMode(agentConfig.flags)) {
+      // Find first question that should be shown (respecting 'when' conditions)
+      const firstQuestion = questions[0];
+      if (firstQuestion) {
+        // Convert choices to agent-compatible format
+        const choices = firstQuestion.choices
+          ? normalizeChoices(firstQuestion.choices)
+          : undefined;
+
+        outputPromptAsJson(
+          {
+            type: firstQuestion.type as 'list' | 'checkbox' | 'input' | 'confirm' | 'editor',
+            name: firstQuestion.name,
+            message: firstQuestion.message,
+            choices,
+            default: firstQuestion.default as string | boolean | string[] | undefined,
+          },
+          createMetadata(agentConfig.commandName, agentConfig.flags)
+        );
+        // outputPromptAsJson calls process.exit, never returns
+      }
+      return {} as T;
+    }
+
+    // Interactive mode: just call inquirer
+    return inquirer.prompt(questions as Parameters<typeof inquirer.prompt>[0]) as Promise<T>;
   }
 
   /**

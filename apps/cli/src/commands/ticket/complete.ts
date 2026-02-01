@@ -91,7 +91,7 @@ export default class TicketComplete extends PMOCommand {
 
     // Bulk mode
     if (flags.bulk) {
-      await this.executeBulk(incompleteTickets, doneColumn.name, flags.force);
+      await this.executeBulk(incompleteTickets, doneColumn.name, flags);
       return;
     }
 
@@ -134,20 +134,27 @@ export default class TicketComplete extends PMOCommand {
   private async executeBulk(
     incompleteTickets: Awaited<ReturnType<typeof this.storage.listTickets>>,
     doneColumnName: string,
-    force: boolean
+    flags: { force: boolean; json: boolean; bulk: boolean; project?: string }
   ): Promise<void> {
-    this.log(styles.emphasis('✅ Complete Multiple Tickets\n'));
+    // Only show header in interactive mode
+    if (!flags.json) {
+      this.log(styles.emphasis('✅ Complete Multiple Tickets\n'));
+    }
 
-    // Select tickets to complete
-    const { selectedTickets } = await inquirer.prompt([{
+    // Agent mode config for prompts
+    const agentConfig = flags.json ? { flags, commandName: 'ticket complete --bulk' } : null;
+
+    // Select tickets to complete (now agent-compatible!)
+    const { selectedTickets } = await this.agentPrompt<{ selectedTickets: string[] }>([{
       type: 'checkbox',
       name: 'selectedTickets',
       message: 'Select tickets to mark as COMPLETE:',
       choices: incompleteTickets.map(t => ({
         name: `${t.id} - ${t.title} (${t.statusName})`,
         value: t.id,
+        command: `prlt ticket complete ${t.id} --json`,  // For agent: complete single ticket
       })),
-    }]);
+    }], agentConfig);
 
     if (selectedTickets.length === 0) {
       this.log(styles.muted('No tickets selected.'));
@@ -155,7 +162,7 @@ export default class TicketComplete extends PMOCommand {
     }
 
     // Confirmation
-    if (!force) {
+    if (!flags.force) {
       this.log(styles.primary('\nWill mark as complete:'));
       for (const ticketId of selectedTickets) {
         const ticket = incompleteTickets.find(t => t.id === ticketId);
@@ -163,16 +170,15 @@ export default class TicketComplete extends PMOCommand {
       }
       this.log(styles.primary(`  → Move to: ${doneColumnName}\n`));
 
-      const { confirm } = await inquirer.prompt([{
+      const { confirm } = await this.agentPrompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: 'Continue?',
         choices: [
-          { name: 'No, cancel', value: false },
-          { name: 'Yes, complete tickets', value: true }
+          { name: 'No, cancel', value: 'false', command: '' },
+          { name: 'Yes, complete tickets', value: 'true', command: `prlt ticket complete ${selectedTickets.join(' ')} --force --json` }
         ],
-        default: 1
-      }]);
+      }], agentConfig);
 
       if (!confirm) {
         this.log(styles.muted('Operation cancelled.'));

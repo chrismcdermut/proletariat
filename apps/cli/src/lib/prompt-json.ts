@@ -140,7 +140,7 @@ export interface ErrorJsonOutput {
 export type JsonOutput = PromptJsonOutput | SuccessJsonOutput | ErrorJsonOutput
 
 /**
- * Flags interface for shouldOutputJson
+ * Flags interface for JSON mode detection
  */
 export interface JsonFlags {
   json?: boolean
@@ -156,14 +156,14 @@ export function isNonTTY(): boolean {
 }
 
 /**
- * Determine if JSON output should be used
+ * Determine if JSON output mode is active (for AI agents)
  *
  * Returns true if:
  * - The --json flag is explicitly set
  * - The environment is non-TTY (piped output)
  *
  * @param flags - Command flags object
- * @returns true if JSON output should be used
+ * @returns true if JSON mode should be used
  */
 export function shouldOutputJson(flags: JsonFlags): boolean {
   // Explicit flag takes precedence
@@ -174,6 +174,11 @@ export function shouldOutputJson(flags: JsonFlags): boolean {
   // Automatic detection for non-TTY environments
   return isNonTTY()
 }
+
+/**
+ * Alias for shouldOutputJson - clearer name for agent-focused code
+ */
+export const isAgentMode = shouldOutputJson
 
 /**
  * Create metadata object for JSON output
