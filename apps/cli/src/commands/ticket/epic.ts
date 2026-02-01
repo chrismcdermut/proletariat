@@ -122,7 +122,7 @@ export default class TicketEpic extends PMOCommand {
         items: ticketChoices,
         getName: (t) => t.name,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket epic ${t.id} --json`,
+        getCommand: (t) => `prlt ticket epic ${t.id} -P ${projectId} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket epic' } : null,
       });
 
@@ -185,7 +185,7 @@ export default class TicketEpic extends PMOCommand {
         items: epicChoices,
         getName: (e) => e.name,
         getValue: (e) => e.id,
-        getCommand: (e) => e.id === '__none__' ? `prlt ticket epic ${ticketId} --unlink --json` : `prlt ticket epic ${ticketId} ${e.id} --json`,
+        getCommand: (e) => e.id === '__none__' ? `prlt ticket epic ${ticketId} --unlink -P ${projectId} --json` : `prlt ticket epic ${ticketId} ${e.id} -P ${projectId} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket epic' } : null,
       });
 

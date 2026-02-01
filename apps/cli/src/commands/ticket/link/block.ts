@@ -76,7 +76,7 @@ export default class TicketLinkBlock extends PMOCommand {
         items: otherTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName || t.status})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket link block ${args.id} ${t.id} --json`,
+        getCommand: (t) => `prlt ticket link block ${args.id} ${t.id}${projectId ? ` -P ${projectId}` : ''} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket link block' } : null,
       })
 

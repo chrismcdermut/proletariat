@@ -63,7 +63,7 @@ export default class TicketStatus extends PMOCommand {
         items: allTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket status ${t.id} --json`,
+        getCommand: (t) => `prlt ticket status ${t.id}${projectId ? ` -P ${projectId}` : ''} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket status' } : null,
       });
 

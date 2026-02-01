@@ -488,4 +488,4 @@ export function createFlagResolver<TFlags extends Record<string, unknown>>(
  * Helper to check if we should use JSON mode
  * Re-exported from prompt-json for convenience
  */
-export { shouldOutputJson } from '../prompt-json.js';
+export { shouldOutputJson, isMachineOutput } from '../prompt-json.js';
