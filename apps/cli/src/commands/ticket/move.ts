@@ -101,7 +101,7 @@ export default class TicketMove extends PMOCommand {
         items: allTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket move ${t.id} --json`,
+        getCommand: (t) => `prlt ticket move ${t.id} -P ${projectId} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket move' } : null,
       });
 
@@ -133,7 +133,7 @@ export default class TicketMove extends PMOCommand {
         items: project.columns as { name: string }[],
         getName: (col) => col.name === ticket.statusName ? `${col.name} (current)` : col.name,
         getValue: (col) => col.name,
-        getCommand: (col) => `prlt ticket move ${ticketId} "${col.name}" --json`,
+        getCommand: (col) => `prlt ticket move ${ticketId} "${col.name}" -P ${projectId} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket move' } : null,
       });
 
@@ -192,7 +192,7 @@ export default class TicketMove extends PMOCommand {
       choices: allTickets.map(t => ({
         name: `${t.id} - ${t.title} (${t.statusName})`,
         value: t.id,
-        command: `prlt ticket move ${t.id} --json`,  // For agent: select single ticket
+        command: `prlt ticket move ${t.id} -P ${projectId} --json`,  // For agent: select single ticket
       })),
     }], jsonModeConfig);
 
@@ -209,7 +209,7 @@ export default class TicketMove extends PMOCommand {
       choices: columns.map(c => ({
         name: c,
         value: c,
-        command: `prlt ticket move ${selectedTickets.join(' ')} "${c}" --json`,
+        command: `prlt ticket move ${selectedTickets.join(' ')} "${c}" -P ${projectId} --json`,
       })),
     }], jsonModeConfig);
 
@@ -228,7 +228,7 @@ export default class TicketMove extends PMOCommand {
         message: 'Continue?',
         choices: [
           { name: 'No, cancel', value: 'false', command: '' },
-          { name: 'Yes, move tickets', value: 'true', command: `prlt ticket move ${selectedTickets.join(' ')} "${targetColumn}" --force --json` }
+          { name: 'Yes, move tickets', value: 'true', command: `prlt ticket move ${selectedTickets.join(' ')} "${targetColumn}" -P ${projectId} --force --json` }
         ],
       }], jsonModeConfig);
 
