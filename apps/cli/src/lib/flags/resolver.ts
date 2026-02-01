@@ -41,13 +41,10 @@
 
 import inquirer from 'inquirer';
 import {
-  shouldOutputJson,
   outputPromptAsJson,
   createMetadata,
-  buildPromptConfig,
   PromptChoice,
   PromptConfig,
-  FormField,
 } from '../prompt-json.js';
 
 /**
