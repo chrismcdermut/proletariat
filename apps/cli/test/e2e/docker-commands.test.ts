@@ -177,6 +177,14 @@ describe('Docker Commands E2E Tests', () => {
         output.includes('Removed')
       expect(validOutput).to.be.true
     })
+
+    it('should accept --json flag for JSON mode support', () => {
+      const output = exec('docker clean --json --help')
+
+      // Should show --json flag in help
+      expect(output).to.contain('--json')
+      expect(output).to.contain('JSON')
+    })
   })
 
   /**
@@ -261,6 +269,14 @@ describe('Docker Commands E2E Tests', () => {
         output.includes('Docker is not running')
       expect(validOutput).to.be.true
     })
+
+    it('should accept --json flag for JSON mode support', () => {
+      const output = exec('docker stop --json --help')
+
+      // Should show --json flag in help
+      expect(output).to.contain('--json')
+      expect(output).to.contain('JSON')
+    })
   })
 
   /**
@@ -326,6 +342,14 @@ describe('Docker Commands E2E Tests', () => {
         output.includes('target') ||
         output.includes('Docker is not running')
       expect(validOutput).to.be.true
+    })
+
+    it('should accept --json flag for JSON mode support', () => {
+      const output = exec('docker restart --json --help')
+
+      // Should show --json flag in help
+      expect(output).to.contain('--json')
+      expect(output).to.contain('JSON')
     })
   })
 
@@ -431,6 +455,14 @@ describe('Docker Commands E2E Tests', () => {
         output.includes('Docker Prune') ||
         output.includes('prune completed')
       expect(validOutput).to.be.true
+    })
+
+    it('should accept --json flag for JSON mode support', () => {
+      const output = exec('docker prune --json --help')
+
+      // Should show --json flag in help
+      expect(output).to.contain('--json')
+      expect(output).to.contain('JSON')
     })
   })
 
