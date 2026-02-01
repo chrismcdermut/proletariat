@@ -6,6 +6,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class PhaseMove extends PMOCommand {
   static description = 'Change the position of a phase within its category';
@@ -64,19 +65,28 @@ export default class PhaseMove extends PMOCommand {
         return handleError('NO_PHASES', 'No phases found. Create a phase first with "prlt phase create".');
       }
 
-      const selected = await this.selectFromList({
-        message: 'Select phase to move:',
-        items: phases,
-        getName: (p) => `${p.name} (${p.category}, position ${p.position})`,
-        getValue: (p) => p.id,
-        getCommand: (p) => `prlt phase move ${p.id} --json`,
-        jsonMode: jsonMode ? { flags, commandName: 'phase move' } : null,
+      const idResolver = new FlagResolver<{ phaseId?: string }>({
+        commandName: 'phase move',
+        baseCommand: 'prlt phase move',
+        jsonMode,
+        flags: {},
       });
 
-      if (!selected) {
-        return; // Cancelled or JSON mode (already exited)
+      idResolver.addPrompt({
+        flagName: 'phaseId',
+        type: 'list',
+        message: 'Select phase to move:',
+        choices: () => phases.map(p => ({
+          name: `${p.name} (${p.category}, position ${p.position})`,
+          value: p.id,
+        })),
+      });
+
+      const resolved = await idResolver.resolve();
+      if (!resolved.phaseId) {
+        return; // Cancelled
       }
-      phaseId = selected;
+      phaseId = resolved.phaseId;
     }
 
     const phase = await this.storage.getPhase(phaseId!);
@@ -92,25 +102,29 @@ export default class PhaseMove extends PMOCommand {
       const phases = await this.storage.listPhases();
       const categoryPhases = phases.filter(p => p.category === phase.category);
 
-      // Create position items for selectFromList
-      const positionItems = categoryPhases.map((_, idx) => ({
-        idx,
-        label: `Position ${idx}${idx === phase.position ? ' (current)' : ''}`,
-      }));
-
-      const selected = await this.selectFromList({
-        message: `New position within ${phase.category} (currently ${phase.position}):`,
-        items: positionItems,
-        getName: (p) => p.label,
-        getValue: (p) => String(p.idx),
-        getCommand: (p) => `prlt phase move ${phaseId} --position ${p.idx} --json`,
-        jsonMode: jsonMode ? { flags, commandName: 'phase move' } : null,
+      const posResolver = new FlagResolver<{ position?: string }>({
+        commandName: 'phase move',
+        baseCommand: `prlt phase move ${phaseId}`,
+        jsonMode,
+        flags: {},
       });
 
-      if (!selected) {
-        return; // Cancelled or JSON mode (already exited)
+      posResolver.addPrompt({
+        flagName: 'position',
+        type: 'list',
+        message: `New position within ${phase.category} (currently ${phase.position}):`,
+        choices: () => categoryPhases.map((_, idx) => ({
+          name: `Position ${idx}${idx === phase.position ? ' (current)' : ''}`,
+          value: String(idx),
+        })),
+        default: String(phase.position),
+      });
+
+      const resolved = await posResolver.resolve();
+      if (!resolved.position) {
+        return; // Cancelled
       }
-      newPosition = parseInt(selected, 10);
+      newPosition = parseInt(resolved.position, 10);
     }
 
     if (newPosition! < 0) {

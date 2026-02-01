@@ -1,14 +1,12 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class PhaseDelete extends PMOCommand {
   static description = 'Delete a project lifecycle phase';
@@ -63,30 +61,30 @@ export default class PhaseDelete extends PMOCommand {
     }
 
     if (!flags.force) {
-      // In JSON mode, output confirmation prompt
-      if (jsonMode) {
-        const confirmChoices = [
-          { name: 'No', value: 'false' },
-          { name: 'Yes', value: 'true' },
-        ];
-        outputPromptAsJson(
-          buildPromptConfig('list', 'confirmed', `Delete phase "${phase.name}"?`, confirmChoices),
-          createMetadata('phase delete', flags)
-        );
-        return;
-      }
+      // Use FlagResolver for confirmation
+      const resolver = new FlagResolver<{ confirmed?: boolean }>({
+        commandName: 'phase delete',
+        baseCommand: `prlt phase delete ${args.id}`,
+        jsonMode,
+        flags: {},
+      });
 
-      const { confirm } = await inquirer.prompt<{ confirm: boolean }>([{
+      resolver.addPrompt({
+        flagName: 'confirmed',
         type: 'list',
-        name: 'confirm',
         message: `Delete phase "${phase.name}"?`,
-        choices: [
+        choices: () => [
           { name: 'No', value: false },
           { name: 'Yes', value: true },
         ],
-      }]);
+        getCommand: (value) => value
+          ? `prlt phase delete ${args.id} --force --json`
+          : '',
+      });
 
-      if (!confirm) {
+      const resolved = await resolver.resolve();
+
+      if (!resolved.confirmed) {
         this.log(styles.muted('Cancelled.'));
         return;
       }
