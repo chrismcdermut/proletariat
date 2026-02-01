@@ -182,10 +182,10 @@ export default class TicketMove extends PMOCommand {
     const columns = board.columns.map(col => col.name);
 
     // Agent mode config for prompts
-    const agentConfig = flags.json ? { flags, commandName: 'ticket move --bulk' } : null;
+    const jsonModeConfig = flags.json ? { flags, commandName: 'ticket move --bulk' } : null;
 
     // Select tickets to move (now agent-compatible!)
-    const { selectedTickets } = await this.agentPrompt<{ selectedTickets: string[] }>([{
+    const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{
       type: 'checkbox',
       name: 'selectedTickets',
       message: 'Select tickets to move:',
@@ -194,7 +194,7 @@ export default class TicketMove extends PMOCommand {
         value: t.id,
         command: `prlt ticket move ${t.id} --json`,  // For agent: select single ticket
       })),
-    }], agentConfig);
+    }], jsonModeConfig);
 
     if (selectedTickets.length === 0) {
       this.log(styles.muted('No tickets selected.'));
@@ -202,7 +202,7 @@ export default class TicketMove extends PMOCommand {
     }
 
     // Select target column (now agent-compatible!)
-    const { targetColumn } = await this.agentPrompt<{ targetColumn: string }>([{
+    const { targetColumn } = await this.prompt<{ targetColumn: string }>([{
       type: 'list',
       name: 'targetColumn',
       message: 'Move selected tickets to:',
@@ -211,7 +211,7 @@ export default class TicketMove extends PMOCommand {
         value: c,
         command: `prlt ticket move ${selectedTickets.join(' ')} "${c}" --json`,
       })),
-    }], agentConfig);
+    }], jsonModeConfig);
 
     // Confirmation
     if (!flags.force) {
@@ -222,7 +222,7 @@ export default class TicketMove extends PMOCommand {
       }
       this.log(styles.primary(`  → to column: ${targetColumn}\n`));
 
-      const { confirm } = await this.agentPrompt<{ confirm: boolean }>([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: 'Continue?',
@@ -230,7 +230,7 @@ export default class TicketMove extends PMOCommand {
           { name: 'No, cancel', value: 'false', command: '' },
           { name: 'Yes, move tickets', value: 'true', command: `prlt ticket move ${selectedTickets.join(' ')} "${targetColumn}" --force --json` }
         ],
-      }], agentConfig);
+      }], jsonModeConfig);
 
       if (!confirm) {
         this.log(styles.muted('Move cancelled.'));

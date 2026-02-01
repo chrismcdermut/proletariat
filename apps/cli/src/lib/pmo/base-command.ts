@@ -381,21 +381,22 @@ export abstract class PMOCommand extends Command {
   }
 
   /**
-   * Agent-aware prompt wrapper - drop-in replacement for inquirer.prompt
+   * Prompt wrapper - drop-in replacement for inquirer.prompt
    *
-   * In agent mode (--agent or --json): outputs first prompt as structured JSON and exits
-   * In interactive mode: calls inquirer.prompt normally
+   * Works in BOTH modes:
+   * - Interactive mode: calls inquirer.prompt normally (human sees menu)
+   * - JSON/Agent mode: outputs prompt as structured JSON and exits
    *
-   * This is the simplest way to make any inquirer.prompt call agent-compatible.
-   * Just replace `await inquirer.prompt(questions)` with `await this.agentPrompt(questions, agentConfig)`
+   * This is the simplest way to make any inquirer.prompt call work for both humans and agents.
+   * Just replace `await inquirer.prompt(questions)` with `await this.prompt(questions, jsonModeConfig)`
    *
    * @param questions - Inquirer question config(s)
-   * @param agentConfig - Agent mode configuration (null to disable agent mode handling)
+   * @param jsonModeConfig - JSON mode configuration (null to disable JSON mode handling)
    * @returns Answers object (only in interactive mode)
    *
    * @example
    * ```typescript
-   * // Before (breaks in agent mode):
+   * // Before (breaks in JSON mode):
    * const { column } = await inquirer.prompt([{
    *   type: 'list',
    *   name: 'column',
@@ -404,14 +405,14 @@ export abstract class PMOCommand extends Command {
    * }]);
    *
    * // After (works in both modes):
-   * const { column } = await this.agentPrompt([{
+   * const { column } = await this.prompt([{
    *   type: 'list',
    *   name: 'column',
    *   message: 'Select column:',
    *   choices: columns.map(c => ({
    *     name: c,
    *     value: c,
-   *     command: `prlt ticket move --column "${c}" --agent`,
+   *     command: `prlt ticket move --column "${c}" --json`,
    *   })),
    * }], {
    *   flags,
@@ -419,7 +420,7 @@ export abstract class PMOCommand extends Command {
    * });
    * ```
    */
-  protected async agentPrompt<T extends Record<string, unknown>>(
+  protected async prompt<T extends Record<string, unknown>>(
     questions: Array<{
       type: string;
       name: string;
@@ -433,13 +434,13 @@ export abstract class PMOCommand extends Command {
       validate?: (input: unknown) => boolean | string;
       when?: boolean | ((answers: Record<string, unknown>) => boolean);
     }>,
-    agentConfig?: {
+    jsonModeConfig?: {
       flags: JsonFlags & Record<string, unknown>;
       commandName: string;
     } | null
   ): Promise<T> {
-    // Check for agent mode
-    if (agentConfig && isAgentMode(agentConfig.flags)) {
+    // Check for JSON/agent mode
+    if (jsonModeConfig && isAgentMode(jsonModeConfig.flags)) {
       // Find first question that should be shown (respecting 'when' conditions)
       const firstQuestion = questions[0];
       if (firstQuestion) {
@@ -456,7 +457,7 @@ export abstract class PMOCommand extends Command {
             choices,
             default: firstQuestion.default as string | boolean | string[] | undefined,
           },
-          createMetadata(agentConfig.commandName, agentConfig.flags)
+          createMetadata(jsonModeConfig.commandName, jsonModeConfig.flags)
         );
         // outputPromptAsJson calls process.exit, never returns
       }

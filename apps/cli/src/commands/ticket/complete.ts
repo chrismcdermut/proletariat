@@ -142,10 +142,10 @@ export default class TicketComplete extends PMOCommand {
     }
 
     // Agent mode config for prompts
-    const agentConfig = flags.json ? { flags, commandName: 'ticket complete --bulk' } : null;
+    const jsonModeConfig = flags.json ? { flags, commandName: 'ticket complete --bulk' } : null;
 
     // Select tickets to complete (now agent-compatible!)
-    const { selectedTickets } = await this.agentPrompt<{ selectedTickets: string[] }>([{
+    const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{
       type: 'checkbox',
       name: 'selectedTickets',
       message: 'Select tickets to mark as COMPLETE:',
@@ -154,7 +154,7 @@ export default class TicketComplete extends PMOCommand {
         value: t.id,
         command: `prlt ticket complete ${t.id} --json`,  // For agent: complete single ticket
       })),
-    }], agentConfig);
+    }], jsonModeConfig);
 
     if (selectedTickets.length === 0) {
       this.log(styles.muted('No tickets selected.'));
@@ -170,7 +170,7 @@ export default class TicketComplete extends PMOCommand {
       }
       this.log(styles.primary(`  → Move to: ${doneColumnName}\n`));
 
-      const { confirm } = await this.agentPrompt<{ confirm: boolean }>([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: 'Continue?',
@@ -178,7 +178,7 @@ export default class TicketComplete extends PMOCommand {
           { name: 'No, cancel', value: 'false', command: '' },
           { name: 'Yes, complete tickets', value: 'true', command: `prlt ticket complete ${selectedTickets.join(' ')} --force --json` }
         ],
-      }], agentConfig);
+      }], jsonModeConfig);
 
       if (!confirm) {
         this.log(styles.muted('Operation cancelled.'));
