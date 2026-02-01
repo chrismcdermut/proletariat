@@ -5,6 +5,7 @@ export {
   FlagResolver,
   createFlagResolver,
   shouldOutputJson,
+  isMachineOutput,
   type FlagResolverOptions,
   type PromptDefinition,
   type ResolverChoice,
