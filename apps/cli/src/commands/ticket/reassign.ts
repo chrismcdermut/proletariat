@@ -107,7 +107,7 @@ export default class TicketReassign extends PMOCommand {
         items: allTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket reassign ${t.id} --json`,
+        getCommand: (t) => `prlt ticket reassign ${t.id}${projectId ? ` -P ${projectId}` : ''} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket reassign' } : null,
       });
 
