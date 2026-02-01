@@ -2,7 +2,6 @@ import { Args, Flags } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';
-import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
@@ -14,10 +13,8 @@ import {
 } from '../../lib/execution/runners.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class Login extends PMOCommand {
@@ -81,46 +78,33 @@ export default class Login extends PMOCommand {
 
     let agentName = args.name;
 
+    // Agent mode config for prompts
+    const agentConfig = jsonMode ? { flags, commandName: 'agent login' } : null;
+
     // Interactive mode if no agent specified
     if (!agentName) {
-      // In JSON mode, output agent selection prompt
-      if (jsonMode) {
-        const agentChoices = workspaceInfo.agents.map((agent) => ({ name: agent.name, value: agent.name }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'name', 'Select agent to authenticate:', agentChoices),
-          createMetadata('agent login', flags)
-        );
-        return;
-      }
-
       // Group agents by type
       const staffAgents = workspaceInfo.agents.filter(a => a.type === 'persistent');
       const tempAgents = workspaceInfo.agents.filter(a => a.type === 'ephemeral');
 
-      const choices: Array<{ name: string; value: string } | inquirer.Separator> = [];
+      // Build choices with command field for JSON mode
+      const choices: Array<{ name: string; value: string; command: string }> = [];
 
-      if (staffAgents.length > 0) {
-        choices.push(new inquirer.Separator('── Staff Agents ──'));
-        for (const agent of staffAgents) {
-          choices.push({ name: `👔 ${agent.name}`, value: agent.name });
-        }
+      for (const agent of staffAgents) {
+        choices.push({ name: `👔 ${agent.name}`, value: agent.name, command: `prlt agent login ${agent.name} --json` });
       }
 
-      if (tempAgents.length > 0) {
-        choices.push(new inquirer.Separator('── Temp Agents ──'));
-        for (const agent of tempAgents) {
-          choices.push({ name: `⏱️  ${agent.name}`, value: agent.name });
-        }
+      for (const agent of tempAgents) {
+        choices.push({ name: `⏱️  ${agent.name}`, value: agent.name, command: `prlt agent login ${agent.name} --json` });
       }
 
-      const { selected } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'selected',
-          message: 'Select agent to authenticate:',
-          choices
-        }
-      ]);
+      const { selected } = await this.agentPrompt<{ selected: string }>([{
+        type: 'list',
+        name: 'selected',
+        message: 'Select agent to authenticate:',
+        choices,
+      }], agentConfig);
+
       agentName = selected;
     }
 

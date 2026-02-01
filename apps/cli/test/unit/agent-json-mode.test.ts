@@ -83,7 +83,8 @@ describe('Agent Command JSON Mode (TKT-741)', () => {
     it('should have --json flag in help', async () => {
       const { stdout } = await runCommand(['agent', 'list', '--help'], { root });
       expect(stdout).to.include('--json');
-      expect(stdout).to.include('Output prompt configuration as JSON');
+      // Now uses pmoBaseFlags so check for either description pattern
+      expect(stdout).to.match(/Output.*JSON/);
     });
   });
 
