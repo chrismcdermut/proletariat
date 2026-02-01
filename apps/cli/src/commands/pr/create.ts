@@ -23,6 +23,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class PRCreate extends PMOCommand {
   static description = 'Create a GitHub pull request from the current branch';
@@ -63,9 +64,8 @@ export default class PRCreate extends PMOCommand {
     body: Flags.string({
       description: 'PR body/description',
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
+    ticket: Flags.string({
+      description: 'Ticket ID to link (alternative to positional arg)',
     }),
   };
 
@@ -135,8 +135,8 @@ export default class PRCreate extends PMOCommand {
       this.log(styles.muted('   No workspace found - creating PR without ticket linking'));
     }
 
-    // Determine ticket ID
-    let ticketId = args.ticketId;
+    // Determine ticket ID from args or flags
+    let ticketId = args.ticketId || flags.ticket;
 
     if (!ticketId && !flags['no-link'] && this.hasPMO) {
       // Try to extract ticket ID from branch name (e.g., feat/agent/TKT-001-description)
@@ -166,30 +166,32 @@ export default class PRCreate extends PMOCommand {
       );
 
       if (inProgressTickets.length > 0) {
-        // Create items for ticket selection
-        const ticketItems = [
-          ...inProgressTickets.map(t => ({
-            id: t.id,
-            title: t.title,
-            isSkip: false,
-          })),
-          { id: '__skip__', title: 'Skip - create PR without linking', isSkip: true },
-        ];
-
-        // Use selectFromList helper for JSON mode support
-        const selectedTicketId = await this.selectFromList({
-          message: 'Link PR to a ticket?',
-          items: ticketItems,
-          getName: (item) => item.isSkip ? item.title : `${item.id} - ${item.title}`,
-          getValue: (item) => item.id,
-          getCommand: (item) => item.isSkip
-            ? `prlt pr create --no-link --json`
-            : `prlt pr create ${item.id} --json`,
-          jsonMode: jsonMode ? { flags, commandName: 'pr create' } : null,
+        // Use FlagResolver for ticket selection
+        const resolver = new FlagResolver<{ ticket?: string }>({
+          commandName: 'pr create',
+          baseCommand: 'prlt pr create',
+          jsonMode,
+          flags: { ticket: ticketId },
         });
 
-        if (selectedTicketId && selectedTicketId !== '__skip__') {
-          ticketId = selectedTicketId;
+        resolver.addPrompt({
+          flagName: 'ticket',
+          type: 'list',
+          message: 'Link PR to a ticket?',
+          choices: () => [
+            ...inProgressTickets.map(t => ({
+              name: `${t.id} - ${t.title}`,
+              value: t.id,
+            })),
+            { name: 'Skip - create PR without linking', value: '__skip__' },
+          ],
+          when: (ctx) => !ctx.flags.ticket,
+        });
+
+        const resolved = await resolver.resolve();
+
+        if (resolved.ticket && resolved.ticket !== '__skip__') {
+          ticketId = resolved.ticket;
           ticket = await this.storage.getTicket(ticketId!);
         }
       }

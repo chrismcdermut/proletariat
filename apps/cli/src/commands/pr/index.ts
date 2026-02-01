@@ -8,6 +8,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class PR extends PMOCommand {
   static description = 'Interactive menu for pull request operations';
@@ -18,9 +19,10 @@ export default class PR extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
+    action: Flags.string({
+      char: 'a',
+      description: 'Action to perform (create, link, status)',
+      options: ['create', 'link', 'status'],
     }),
   };
 
@@ -40,35 +42,39 @@ export default class PR extends PMOCommand {
     };
 
     // PMOCommand base class ensures PMO context is available
-    // Check if we have storage access
     if (!this.storage) {
       return handleError('PMO_NOT_FOUND', 'PMO not found. Run "prlt pmo init" first.');
     }
 
-    // Define menu items
-    const menuItems = [
-      { id: 'create', label: 'Create PR from current branch' },
-      { id: 'link', label: 'Link existing PR to ticket' },
-      { id: 'status', label: 'View PR status for ticket' },
-      { id: 'cancel', label: 'Cancel' },
-    ];
-
-    // Use selectFromList helper for JSON mode support
-    const action = await this.selectFromList({
-      message: 'Pull Request Operations - What would you like to do?',
-      items: menuItems,
-      getName: (item) => item.label,
-      getValue: (item) => item.id,
-      getCommand: (item) => `prlt pr ${item.id} --json`,
-      jsonMode: jsonMode ? { flags, commandName: 'pr' } : null,
+    // Use FlagResolver for action selection
+    const resolver = new FlagResolver<{ action?: string }>({
+      commandName: 'pr',
+      baseCommand: 'prlt pr',
+      jsonMode,
+      flags: { action: flags.action },
     });
 
-    if (!action || action === 'cancel') {
+    resolver.addPrompt({
+      flagName: 'action',
+      type: 'list',
+      message: 'Pull Request Operations - What would you like to do?',
+      choices: () => [
+        { name: 'Create PR from current branch', value: 'create' },
+        { name: 'Link existing PR to ticket', value: 'link' },
+        { name: 'View PR status for ticket', value: 'status' },
+        { name: 'Cancel', value: 'cancel' },
+      ],
+      when: (ctx) => !ctx.flags.action,
+    });
+
+    const resolved = await resolver.resolve();
+
+    if (!resolved.action || resolved.action === 'cancel') {
       return;
     }
 
     // Run the selected subcommand
-    switch (action) {
+    switch (resolved.action) {
       case 'create':
         await this.config.runCommand('pr:create', []);
         break;

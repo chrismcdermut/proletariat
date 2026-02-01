@@ -15,6 +15,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class PRLink extends PMOCommand {
   static description = 'Link an existing GitHub pull request to a ticket';
@@ -43,8 +44,11 @@ export default class PRLink extends PMOCommand {
       char: 'u',
       description: 'PR URL to link',
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+    ticket: Flags.string({
+      description: 'Ticket ID to link (alternative to positional arg)',
+    }),
+    confirm: Flags.boolean({
+      description: 'Confirm overwriting existing PR link',
       default: false,
     }),
   };
@@ -78,8 +82,8 @@ export default class PRLink extends PMOCommand {
       return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt init" first.');
     }
 
-    // Get ticket ID
-    let ticketId = args.ticketId;
+    // Get ticket ID from args or flags
+    let ticketId = args.ticketId || flags.ticket;
 
     if (!ticketId) {
       const projectId = flags.project;
@@ -97,20 +101,27 @@ export default class PRLink extends PMOCommand {
         return;
       }
 
-      // Use selectFromList helper for ticket selection
-      const selectedTicketId = await this.selectFromList({
-        message: 'Select ticket to link PR to:',
-        items: activeTickets,
-        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
-        getValue: (t) => t.id,
-        getCommand: (t) => `prlt pr link ${t.id} --json`,
-        jsonMode: jsonMode ? { flags, commandName: 'pr link' } : null,
+      // Use FlagResolver for ticket selection
+      const resolver = new FlagResolver<{ ticket?: string }>({
+        commandName: 'pr link',
+        baseCommand: 'prlt pr link',
+        jsonMode,
+        flags: { ticket: ticketId },
       });
 
-      if (!selectedTicketId) {
-        return;
-      }
-      ticketId = selectedTicketId;
+      resolver.addPrompt({
+        flagName: 'ticket',
+        type: 'list',
+        message: 'Select ticket to link PR to:',
+        choices: () => activeTickets.map(t => ({
+          name: `${t.id} - ${t.title} (${t.statusName})`,
+          value: t.id,
+        })),
+        when: (ctx) => !ctx.flags.ticket,
+      });
+
+      const resolved = await resolver.resolve();
+      ticketId = resolved.ticket;
     }
 
     // Get ticket
@@ -120,28 +131,31 @@ export default class PRLink extends PMOCommand {
     }
 
     // Check if ticket already has a PR linked
-    if (ticket.metadata?.pr_url) {
-      // Use selectFromList for overwrite confirmation
-      const confirmItems = [
-        { id: 'no', label: 'No' },
-        { id: 'yes', label: 'Yes' },
-      ];
-
+    if (ticket.metadata?.pr_url && !flags.confirm) {
       this.log(styles.info(`Ticket ${ticketId} already has a linked PR:`));
       this.log(styles.muted(`   URL: ${ticket.metadata.pr_url}`));
 
-      const selection = await this.selectFromList({
-        message: 'Replace with a different PR?',
-        items: confirmItems,
-        getName: (item) => item.label,
-        getValue: (item) => item.id,
-        getCommand: (item) => item.id === 'yes'
-          ? `prlt pr link ${ticketId} --json`
-          : `echo "Cancelled"`,
-        jsonMode: jsonMode ? { flags, commandName: 'pr link' } : null,
+      // Use FlagResolver for confirmation
+      const confirmResolver = new FlagResolver<{ confirm?: string }>({
+        commandName: 'pr link',
+        baseCommand: `prlt pr link ${ticketId}`,
+        jsonMode,
+        flags: {},
       });
 
-      if (!selection || selection === 'no') {
+      confirmResolver.addPrompt({
+        flagName: 'confirm',
+        type: 'list',
+        message: 'Replace with a different PR?',
+        choices: () => [
+          { name: 'No', value: 'no' },
+          { name: 'Yes', value: 'yes' },
+        ],
+      });
+
+      const confirmResolved = await confirmResolver.resolve();
+
+      if (confirmResolved.confirm !== 'yes') {
         return;
       }
     }
@@ -172,20 +186,26 @@ export default class PRLink extends PMOCommand {
         this.error('No open PRs found. Create one first with "prlt pr create".');
       }
 
-      // Use selectFromList helper for PR selection
-      const selectedPR = await this.selectFromList({
-        message: 'Select PR to link:',
-        items: openPRs,
-        getName: (pr) => `#${pr.number} - ${pr.title} (${pr.headBranch})`,
-        getValue: (pr) => String(pr.number),
-        getCommand: (pr) => `prlt pr link ${ticketId} --pr ${pr.number} --json`,
-        jsonMode: jsonMode ? { flags, commandName: 'pr link' } : null,
+      // Use FlagResolver for PR selection
+      const prResolver = new FlagResolver<{ pr?: string }>({
+        commandName: 'pr link',
+        baseCommand: `prlt pr link ${ticketId}`,
+        jsonMode,
+        flags: {},
       });
 
-      if (!selectedPR) {
-        return;
-      }
-      prNumber = parseInt(selectedPR, 10);
+      prResolver.addPrompt({
+        flagName: 'pr',
+        type: 'list',
+        message: 'Select PR to link:',
+        choices: () => openPRs.map(pr => ({
+          name: `#${pr.number} - ${pr.title} (${pr.headBranch})`,
+          value: String(pr.number),
+        })),
+      });
+
+      const prResolved = await prResolver.resolve();
+      prNumber = parseInt(prResolved.pr!, 10);
     }
 
     // Get PR info

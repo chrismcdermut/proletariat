@@ -14,6 +14,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class PRStatus extends PMOCommand {
   static description = 'View PR status for a ticket';
@@ -32,9 +33,8 @@ export default class PRStatus extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
+    ticket: Flags.string({
+      description: 'Ticket ID to check (alternative to positional arg)',
     }),
   };
 
@@ -58,8 +58,8 @@ export default class PRStatus extends PMOCommand {
       return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt init" first.');
     }
 
-    // Get ticket ID
-    let ticketId = args.ticketId;
+    // Get ticket ID from args or flags
+    let ticketId = args.ticketId || flags.ticket;
 
     if (!ticketId) {
       const projectId = flags.project;
@@ -74,7 +74,7 @@ export default class PRStatus extends PMOCommand {
       }
 
       // Combine tickets for selection - prioritize those with PRs
-      const ticketItems = [
+      const allSelectableTickets = [
         ...ticketsWithPR.map(t => ({
           id: t.id,
           title: t.title,
@@ -89,22 +89,29 @@ export default class PRStatus extends PMOCommand {
         })),
       ];
 
-      // Use selectFromList helper for ticket selection
-      const selectedTicketId = await this.selectFromList({
-        message: 'Select ticket to check PR status:',
-        items: ticketItems,
-        getName: (item) => item.hasPR
-          ? `${item.id} - ${item.title} [PR linked]`
-          : `${item.id} - ${item.title} (${item.statusName})`,
-        getValue: (item) => item.id,
-        getCommand: (item) => `prlt pr status ${item.id} --json`,
-        jsonMode: jsonMode ? { flags, commandName: 'pr status' } : null,
+      // Use FlagResolver for ticket selection
+      const resolver = new FlagResolver<{ ticket?: string }>({
+        commandName: 'pr status',
+        baseCommand: 'prlt pr status',
+        jsonMode,
+        flags: { ticket: ticketId },
       });
 
-      if (!selectedTicketId) {
-        return;
-      }
-      ticketId = selectedTicketId;
+      resolver.addPrompt({
+        flagName: 'ticket',
+        type: 'list',
+        message: 'Select ticket to check PR status:',
+        choices: () => allSelectableTickets.map(item => ({
+          name: item.hasPR
+            ? `${item.id} - ${item.title} [PR linked]`
+            : `${item.id} - ${item.title} (${item.statusName})`,
+          value: item.id,
+        })),
+        when: (ctx) => !ctx.flags.ticket,
+      });
+
+      const resolved = await resolver.resolve();
+      ticketId = resolved.ticket;
     }
 
     // Get ticket
