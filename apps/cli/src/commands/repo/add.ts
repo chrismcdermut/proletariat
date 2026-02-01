@@ -10,10 +10,8 @@ import {
 import { getWorkspaceRepositories } from '../../lib/database/index.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class Add extends PMOCommand {
@@ -46,10 +44,6 @@ export default class Add extends PMOCommand {
       description: 'Add multiple repositories interactively',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -79,14 +73,18 @@ export default class Add extends PMOCommand {
 
     // Bulk mode: add multiple repositories interactively
     if (flags.bulk) {
-      // In JSON mode, output info about bulk mode
+      // In JSON mode, output guidance
       if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('checkbox', 'paths', 'Select repositories to add:', [
-            { name: 'Use --path flag to specify paths directly', value: '' },
-          ]),
-          createMetadata('repo add', flags)
-        );
+        const agentConfig = { flags, commandName: 'repo add --bulk' };
+        await this.agentPrompt<{ method: string }>([{
+          type: 'list',
+          name: 'method',
+          message: 'Bulk mode requires interactive selection. Use one of these instead:',
+          choices: [
+            { name: 'Add single repository by path', value: 'path', command: 'prlt repo add <path> --json' },
+            { name: 'Add by Git URL', value: 'url', command: 'prlt repo add <git-url> --json' },
+          ],
+        }], agentConfig);
         return;
       }
       await this.executeBulk(hqPath);
@@ -110,15 +108,16 @@ export default class Add extends PMOCommand {
     } else {
       // In JSON mode, output prompt for method selection
       if (jsonMode) {
-        const methodChoices = [
-          { name: 'Enter path or Git URL', value: 'manual', command: 'prlt repo add <path> --json' },
-          { name: 'Search for repositories', value: 'search', command: 'prlt repo add --bulk --json' },
-          { name: 'Create new repository', value: 'create', command: 'prlt repo add <name> --json' },
-        ];
-        outputPromptAsJson(
-          buildPromptConfig('list', 'method', 'How would you like to add a repository?', methodChoices),
-          createMetadata('repo add', flags)
-        );
+        const agentConfig = { flags, commandName: 'repo add' };
+        await this.agentPrompt<{ method: string }>([{
+          type: 'list',
+          name: 'method',
+          message: 'How would you like to add a repository?',
+          choices: [
+            { name: 'Enter path or Git URL', value: 'manual', command: 'prlt repo add <path> --json' },
+            { name: 'Search for repositories (bulk)', value: 'search', command: 'prlt repo add --bulk --json' },
+          ],
+        }], agentConfig);
         return;
       }
 
