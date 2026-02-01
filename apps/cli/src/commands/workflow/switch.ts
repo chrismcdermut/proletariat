@@ -2,6 +2,13 @@ import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  buildPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class WorkflowSwitch extends PMOCommand {
   static description = 'Switch a project to use a different workflow';
@@ -26,18 +33,55 @@ export default class WorkflowSwitch extends PMOCommand {
       description: 'Skip confirmation prompt',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkflowSwitch);
-    const projectId = await this.requireProject();
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('workflow switch', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
+    const projectId = await this.requireProject({
+      jsonMode: {
+        flags,
+        commandName: 'workflow switch',
+        baseCommand: 'prlt workflow switch',
+      },
+    });
 
     // Get workflow - prompt for selection if not provided
     let workflowId = args.workflow;
     if (!workflowId) {
       const workflows = await this.storage.listWorkflows();
       if (workflows.length === 0) {
-        this.error('No workflows found.\nCreate one with: prlt workflow create "Workflow Name"');
+        return handleError('NO_WORKFLOWS', 'No workflows found. Create one with: prlt workflow create "Workflow Name"');
+      }
+
+      // In JSON mode, output workflow selection prompt
+      if (jsonMode) {
+        const workflowChoices = workflows.map(w => ({
+          name: `${w.name}${w.description ? ` - ${w.description}` : ''}`,
+          value: w.id,
+          command: `prlt workflow switch ${w.id} --json`,
+        }));
+        outputPromptAsJson(
+          buildPromptConfig('list', 'workflow', 'Select a workflow:', workflowChoices),
+          createMetadata('workflow switch', flags)
+        );
+        return;
       }
 
       const { selectedWorkflow } = await inquirer.prompt([{
@@ -55,7 +99,7 @@ export default class WorkflowSwitch extends PMOCommand {
     // Verify workflow exists
     const workflow = await this.storage.getWorkflow(workflowId!);
     if (!workflow) {
-      this.error(`Workflow not found: ${workflowId}\nRun 'prlt workflow list' to see available workflows.`);
+      return handleError('WORKFLOW_NOT_FOUND', `Workflow not found: ${workflowId}. Run 'prlt workflow list' to see available workflows.`);
     }
 
     // Get current project info
@@ -73,6 +117,24 @@ export default class WorkflowSwitch extends PMOCommand {
 
     if (tickets.length > 0 && !flags.force) {
       const projectName = await this.getProjectName(projectId);
+
+      // In JSON mode, output confirmation prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig(
+            'list',
+            'confirm',
+            `Switch project "${projectName}" (${tickets.length} ticket(s)) to workflow "${workflow.name}"?`,
+            [
+              { name: 'No', value: 'false' },
+              { name: 'Yes, switch workflow', value: 'true' },
+            ]
+          ),
+          createMetadata('workflow switch', flags)
+        );
+        return;
+      }
+
       this.log(styles.warning(`\nProject "${projectName}" has ${tickets.length} ticket(s).`));
       this.log(styles.warning('Tickets will be mapped to matching status categories in the new workflow.'));
       this.log('');
