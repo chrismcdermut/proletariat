@@ -1,13 +1,11 @@
-import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
+import { Args } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags, Subtask } from '../../lib/pmo/index.js';
 import { styles, getColumnStyle, getColumnEmoji, formatPriority, formatCategory } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
+  outputSuccessAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class ProjectView extends PMOCommand {
@@ -27,10 +25,6 @@ export default class ProjectView extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -62,31 +56,49 @@ export default class ProjectView extends PMOCommand {
         return handleError('NO_PROJECTS', 'No projects found. Create a project first with "prlt project create".');
       }
 
-      // In JSON mode, output project selection prompt
-      if (jsonMode) {
-        const projectChoices = projects.map(p => ({ name: `${p.id} - ${p.name}`, value: p.id }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select project to view:', projectChoices),
-          createMetadata('project view', flags)
-        );
-        return;
-      }
-
-      const { selectedProjectId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedProjectId',
+      // Use selectFromList helper (handles JSON mode automatically)
+      const selected = await this.selectFromList({
         message: 'Select project to view:',
-        choices: projects.map(p => ({
-          name: `${p.id} - ${p.name}`,
-          value: p.id,
-        })),
-      }]);
-      projectId = selectedProjectId;
+        items: projects,
+        getName: (p) => `${p.id} - ${p.name}`,
+        getValue: (p) => p.id,
+        getCommand: (p) => `prlt project view ${p.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'project view' } : null,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      projectId = selected;
     }
 
     const project = await this.storage.getProjectBoard(projectId!);
     if (!project) {
       return handleError('PROJECT_NOT_FOUND', `Project "${projectId}" not found.`);
+    }
+
+    // In JSON mode, output project board as structured data
+    if (jsonMode) {
+      outputSuccessAsJson(
+        {
+          id: project.id,
+          name: project.name,
+          columns: project.columns.map(col => ({
+            name: col.name,
+            ticketCount: col.tickets.length,
+            tickets: col.tickets.map(t => ({
+              id: t.id,
+              title: t.title,
+              priority: t.priority,
+              category: t.category,
+              subtasksDone: t.subtasks.filter((s: Subtask) => s.done).length,
+              subtasksTotal: t.subtasks.length,
+            })),
+          })),
+        },
+        createMetadata('project view', flags)
+      );
+      return;
     }
 
     this.log(styles.title(`\n${project.name}`));

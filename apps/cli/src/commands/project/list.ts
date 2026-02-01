@@ -28,10 +28,6 @@ export default class ProjectList extends PMOCommand {
       description: 'Show all projects (including archived)',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
