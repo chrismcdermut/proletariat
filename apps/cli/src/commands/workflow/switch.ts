@@ -1,13 +1,10 @@
-import { Flags, Args } from '@oclif/core';
-import inquirer from 'inquirer';
+import { Args, Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class WorkflowSwitch extends PMOCommand {
@@ -33,10 +30,6 @@ export default class WorkflowSwitch extends PMOCommand {
       description: 'Skip confirmation prompt',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
@@ -54,6 +47,9 @@ export default class WorkflowSwitch extends PMOCommand {
       this.error(message);
     };
 
+    // Agent mode config for prompts
+    const agentConfig = jsonMode ? { flags, commandName: 'workflow switch' } : null;
+
     const projectId = await this.requireProject({
       jsonMode: {
         flags,
@@ -70,30 +66,20 @@ export default class WorkflowSwitch extends PMOCommand {
         return handleError('NO_WORKFLOWS', 'No workflows found. Create one with: prlt workflow create "Workflow Name"');
       }
 
-      // In JSON mode, output workflow selection prompt
-      if (jsonMode) {
-        const workflowChoices = workflows.map(w => ({
-          name: `${w.name}${w.description ? ` - ${w.description}` : ''}`,
-          value: w.id,
-          command: `prlt workflow switch ${w.id} --json`,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'workflow', 'Select a workflow:', workflowChoices),
-          createMetadata('workflow switch', flags)
-        );
-        return;
-      }
-
-      const { selectedWorkflow } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedWorkflow',
+      // Use selectFromList for workflow selection (handles JSON mode automatically)
+      const selected = await this.selectFromList({
         message: 'Select a workflow:',
-        choices: workflows.map(w => ({
-          name: `${w.name}${w.description ? ` - ${w.description}` : ''}`,
-          value: w.id,
-        })),
-      }]);
-      workflowId = selectedWorkflow;
+        items: workflows,
+        getName: (w) => `${w.name}${w.description ? ` - ${w.description}` : ''}`,
+        getValue: (w) => w.id,
+        getCommand: (w) => `prlt workflow switch ${w.id} --json`,
+        jsonMode: agentConfig,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      workflowId = selected;
     }
 
     // Verify workflow exists
@@ -118,38 +104,20 @@ export default class WorkflowSwitch extends PMOCommand {
     if (tickets.length > 0 && !flags.force) {
       const projectName = await this.getProjectName(projectId);
 
-      // In JSON mode, output confirmation prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig(
-            'list',
-            'confirm',
-            `Switch project "${projectName}" (${tickets.length} ticket(s)) to workflow "${workflow.name}"?`,
-            [
-              { name: 'No', value: 'false' },
-              { name: 'Yes, switch workflow', value: 'true' },
-            ]
-          ),
-          createMetadata('workflow switch', flags)
-        );
-        return;
-      }
-
       this.log(styles.warning(`\nProject "${projectName}" has ${tickets.length} ticket(s).`));
       this.log(styles.warning('Tickets will be mapped to matching status categories in the new workflow.'));
       this.log('');
 
-      const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
-        {
-          type: 'list',
-          name: 'confirm',
-          message: `Switch to workflow "${workflow.name}"?`,
-          choices: [
-            { name: 'No', value: false },
-            { name: 'Yes, switch workflow', value: true },
-          ],
-        },
-      ]);
+      // Use agentPrompt for confirmation (handles JSON mode automatically)
+      const { confirm } = await this.agentPrompt<{ confirm: boolean }>([{
+        type: 'list',
+        name: 'confirm',
+        message: `Switch to workflow "${workflow.name}"?`,
+        choices: [
+          { name: 'No', value: false, command: '' },
+          { name: 'Yes, switch workflow', value: true, command: `prlt workflow switch ${workflowId} --force --json` },
+        ],
+      }], agentConfig);
 
       if (!confirm) {
         this.log(styles.muted('Cancelled'));

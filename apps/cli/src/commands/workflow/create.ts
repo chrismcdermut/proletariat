@@ -37,10 +37,6 @@ export default class WorkflowCreate extends PMOCommand {
       char: 's',
       description: 'Comma-separated list of status names (uses default categories)',
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -62,6 +58,7 @@ export default class WorkflowCreate extends PMOCommand {
         { type: 'input', name: 'description', message: 'Description (optional):', default: flags.description },
       ];
 
+      // In JSON mode, output form prompt and exit
       if (jsonMode) {
         outputPromptAsJson(
           buildFormPromptConfig(fields),
