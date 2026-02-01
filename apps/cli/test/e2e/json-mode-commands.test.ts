@@ -384,6 +384,88 @@ describe('JSON Mode Flag Accumulation', () => {
     });
   });
 
+  describe('--machine flag (semantic alias for --json)', () => {
+    beforeEach(() => {
+      createTestTicket('TKT-M01', 'Machine mode ticket 1');
+      createTestTicket('TKT-M02', 'Machine mode ticket 2');
+    });
+
+    it('should output valid JSON with --machine flag', () => {
+      const output = exec('ticket move -P test-project --machine');
+      const json = extractJson<{ prompt: { type: string; name: string; choices: unknown[] }; metadata: { flags: { machine: boolean } } }>(output);
+
+      expect(json.prompt).to.exist;
+      expect(json.prompt.type).to.equal('list');
+      expect(json.prompt.choices).to.be.an('array');
+      expect(json.metadata.flags.machine).to.equal(true);
+    });
+
+    it('should produce same structure as --json flag', () => {
+      const jsonOutput = exec('ticket move -P test-project --json');
+      const machineOutput = exec('ticket move -P test-project --machine');
+
+      const jsonResult = extractJson<{ prompt: { type: string; name: string; choices: Array<{ value: string }> } }>(jsonOutput);
+      const machineResult = extractJson<{ prompt: { type: string; name: string; choices: Array<{ value: string }> } }>(machineOutput);
+
+      // Same prompt structure
+      expect(machineResult.prompt.type).to.equal(jsonResult.prompt.type);
+      expect(machineResult.prompt.name).to.equal(jsonResult.prompt.name);
+      expect(machineResult.prompt.choices.length).to.equal(jsonResult.prompt.choices.length);
+
+      // Same ticket choices
+      const jsonValues = jsonResult.prompt.choices.map(c => c.value).sort();
+      const machineValues = machineResult.prompt.choices.map(c => c.value).sort();
+      expect(machineValues).to.deep.equal(jsonValues);
+    });
+
+    it('should include project flag in commands with --machine', () => {
+      const output = exec('ticket move -P test-project --machine');
+      const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
+
+      for (const choice of json.prompt.choices) {
+        expect(choice.command).to.include('-P test-project');
+        // Commands should still use --json for stateless navigation
+        expect(choice.command).to.include('--json');
+      }
+    });
+
+    it('should work with -m shorthand', () => {
+      const output = exec('ticket move -P test-project -m');
+      const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
+
+      expect(json.prompt).to.exist;
+      expect(json.prompt.type).to.equal('list');
+      expect(json.metadata.flags.machine).to.equal(true);
+    });
+
+    it('should work for ticket complete with --machine', () => {
+      const output = exec('ticket complete -P test-project --machine');
+      const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
+
+      for (const choice of json.prompt.choices) {
+        expect(choice.command).to.include('-P test-project');
+      }
+    });
+
+    it('should work for ticket view with --machine', () => {
+      const output = exec('ticket view -P test-project --machine');
+      const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
+
+      for (const choice of json.prompt.choices) {
+        expect(choice.command).to.include('-P test-project');
+      }
+    });
+
+    it('should work for ticket delete with --machine', () => {
+      const output = exec('ticket delete -P test-project --machine');
+      const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
+
+      for (const choice of json.prompt.choices) {
+        expect(choice.command).to.include('-P test-project');
+      }
+    });
+  });
+
   describe('End-to-end stateless flow', () => {
     beforeEach(() => {
       createTestTicket('TKT-E2E', 'E2E Test Ticket');
