@@ -1,8 +1,14 @@
-import { Command } from '@oclif/core';
+import { Command, Flags } from '@oclif/core';
 import { spawn } from 'node:child_process';
 import chalk from 'chalk';
 import { styles } from '../../lib/styles.js';
 import { isGHInstalled, isGHAuthenticated, getGHUsername } from '../../lib/pr/index.js';
+import {
+  shouldOutputJson,
+  outputErrorAsJson,
+  outputSuccessAsJson,
+  createMetadata,
+} from '../../lib/prompt-json.js';
 
 export default class GHLogin extends Command {
   static description = 'Login to GitHub CLI for PR workflow';
@@ -11,9 +17,32 @@ export default class GHLogin extends Command {
     '<%= config.bin %> <%= command.id %>',
   ];
 
+  static flags = {
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+  };
+
   async run(): Promise<void> {
+    const { flags } = await this.parse(GHLogin);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('gh login', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
     // Check if gh is installed
     if (!isGHInstalled()) {
+      if (jsonMode) {
+        return handleError('GH_NOT_INSTALLED', 'gh CLI not installed. Install with: brew install gh');
+      }
       this.log(chalk.red('  ✗ gh CLI not installed'));
       this.log(styles.muted(''));
       this.log(styles.muted('    Install with Homebrew:'));
@@ -26,11 +55,27 @@ export default class GHLogin extends Command {
     // Check if already authenticated
     if (isGHAuthenticated()) {
       const username = getGHUsername();
+      if (jsonMode) {
+        outputSuccessAsJson(
+          {
+            authenticated: true,
+            username: username || null,
+            message: 'Already authenticated',
+          },
+          createMetadata('gh login', flags)
+        );
+        return;
+      }
       this.log(chalk.green(`Already authenticated${username ? ` as ${chalk.bold(username)}` : ''}`));
       this.log(styles.muted(''));
       this.log(styles.muted('To re-authenticate or switch accounts, run directly:'));
       this.log(chalk.cyan('  gh auth login'));
       return;
+    }
+
+    // In JSON mode, we can't run interactive login - return error
+    if (jsonMode) {
+      return handleError('REQUIRES_INTERACTIVE', 'gh login requires interactive authentication. Run: gh auth login');
     }
 
     this.log(styles.muted('Starting GitHub authentication...\n'));
