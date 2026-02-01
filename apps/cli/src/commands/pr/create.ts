@@ -1,10 +1,9 @@
-import { Command, Args, Flags } from '@oclif/core';
-import * as path from 'node:path';
-import Database from 'better-sqlite3';
-import inquirer from 'inquirer';
-import { getPMOContext } from '../../lib/pmo/index.js';
+import { Args, Flags } from '@oclif/core';
+import {
+  PMOCommand,
+  pmoBaseFlags,
+} from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
-import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import {
   isGHInstalled,
   isGHAuthenticated,
@@ -21,13 +20,11 @@ import {
 } from '../../lib/pr/index.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
-export default class PRCreate extends Command {
+export default class PRCreate extends PMOCommand {
   static description = 'Create a GitHub pull request from the current branch';
 
   static examples = [
@@ -45,6 +42,7 @@ export default class PRCreate extends Command {
   };
 
   static flags = {
+    ...pmoBaseFlags,
     base: Flags.string({
       char: 'b',
       description: 'Base branch for the PR (defaults to main/master)',
@@ -71,7 +69,23 @@ export default class PRCreate extends Command {
     }),
   };
 
-  async run(): Promise<void> {
+  // Flag to track if PMO is available (for graceful degradation)
+  private hasPMO = true;
+
+  /**
+   * Override init to gracefully handle missing PMO
+   * PR creation should work even without PMO (just without ticket linking)
+   */
+  async init(): Promise<void> {
+    try {
+      await super.init();
+    } catch {
+      // PMO not available - that's fine, we can still create PRs
+      this.hasPMO = false;
+    }
+  }
+
+  async execute(): Promise<void> {
     const { args, flags } = await this.parse(PRCreate);
 
     // Check if JSON output mode is active
@@ -116,175 +130,145 @@ export default class PRCreate extends Command {
       return;
     }
 
-    // Get workspace and PMO context (optional - PR creation works without it)
-    let workspaceInfo;
-    let storage: Awaited<ReturnType<typeof getPMOContext>>['storage'] | null = null;
-    let db: Database.Database | null = null;
-
-    try {
-      workspaceInfo = getWorkspaceInfo();
-      const pmoContext = await getPMOContext({
-        logger: (msg) => this.log(styles.muted(msg)),
-      });
-      storage = pmoContext.storage;
-      db = new Database(path.join(workspaceInfo.path, '.proletariat', 'workspace.db'));
-    } catch {
-      // No workspace - that's fine, we can still create PRs
+    // Log if PMO is not available
+    if (!this.hasPMO) {
       this.log(styles.muted('   No workspace found - creating PR without ticket linking'));
     }
 
-    try {
-      // Determine ticket ID
-      let ticketId = args.ticketId;
+    // Determine ticket ID
+    let ticketId = args.ticketId;
 
-      if (!ticketId && !flags['no-link'] && storage) {
-        // Try to extract ticket ID from branch name (e.g., feat/agent/TKT-001-description)
-        const ticketMatch = currentBranch.match(/(TKT-\d+)/i);
-        if (ticketMatch) {
-          ticketId = ticketMatch[1].toUpperCase();
-          this.log(styles.muted(`   Auto-detected ticket: ${ticketId}`));
-        }
+    if (!ticketId && !flags['no-link'] && this.hasPMO) {
+      // Try to extract ticket ID from branch name (e.g., feat/agent/TKT-001-description)
+      const ticketMatch = currentBranch.match(/(TKT-\d+)/i);
+      if (ticketMatch) {
+        ticketId = ticketMatch[1].toUpperCase();
+        this.log(styles.muted(`   Auto-detected ticket: ${ticketId}`));
       }
+    }
 
-      // Get ticket info if available
-      let ticket: { id: string; title: string; description?: string } | null = null;
-      if (ticketId && storage) {
-        ticket = await storage.getTicket(ticketId);
-        if (!ticket) {
-          this.warn(`Ticket "${ticketId}" not found. Continuing without ticket link.`);
-          ticketId = undefined;
-        }
+    // Get ticket info if available
+    let ticket: { id: string; title: string; description?: string } | null = null;
+    if (ticketId && this.hasPMO) {
+      ticket = await this.storage.getTicket(ticketId);
+      if (!ticket) {
+        this.warn(`Ticket "${ticketId}" not found. Continuing without ticket link.`);
+        ticketId = undefined;
       }
+    }
 
-      // If no ticket, prompt for selection (only if we have storage)
-      if (!ticketId && !flags['no-link'] && storage) {
-        const projectId = (flags as { project?: string }).project
-        const allTickets = await storage.listTickets(projectId);
-        const inProgressTickets = allTickets.filter(t =>
-          t.statusName && t.statusName.toLowerCase().includes('progress')
-        );
+    // If no ticket, prompt for selection (only if we have PMO)
+    if (!ticketId && !flags['no-link'] && this.hasPMO) {
+      const projectId = flags.project;
+      const allTickets = await this.storage.listTickets(projectId);
+      const inProgressTickets = allTickets.filter(t =>
+        t.statusName && t.statusName.toLowerCase().includes('progress')
+      );
 
-        if (inProgressTickets.length > 0) {
-          // Build choices once, use for both JSON and interactive modes
-          const ticketChoices = [
-            ...inProgressTickets.map(t => ({
-              name: `${t.id} - ${t.title}`,
-              value: t.id,
-            })),
-            { name: 'Skip - create PR without linking', value: '__skip__' },
-          ];
-          const message = 'Link PR to a ticket?';
+      if (inProgressTickets.length > 0) {
+        // Create items for ticket selection
+        const ticketItems = [
+          ...inProgressTickets.map(t => ({
+            id: t.id,
+            title: t.title,
+            isSkip: false,
+          })),
+          { id: '__skip__', title: 'Skip - create PR without linking', isSkip: true },
+        ];
 
-          // In JSON mode, output ticket selection prompt and exit
-          if (jsonMode) {
-            outputPromptAsJson(
-              buildPromptConfig('list', 'ticketId', message, ticketChoices),
-              createMetadata('pr create', flags)
-            );
-          }
-
-          const { selectedTicketId } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedTicketId',
-              message,
-              choices: [
-                ...ticketChoices.slice(0, -1),
-                new inquirer.Separator(),
-                ticketChoices[ticketChoices.length - 1],
-              ],
-            },
-          ]);
-
-          if (selectedTicketId !== '__skip__') {
-            ticketId = selectedTicketId;
-            ticket = await storage.getTicket(ticketId!);
-          }
-        }
-      }
-
-      // Generate PR title and body
-      let prTitle = flags.title;
-      let prBody = flags.body;
-
-      if (!prTitle) {
-        if (ticket) {
-          prTitle = generatePRTitle(ticket.id, ticket.title);
-        } else {
-          // Use branch name as title
-          const branchParts = currentBranch.split('/');
-          prTitle = branchParts[branchParts.length - 1].replace(/-/g, ' ');
-        }
-      }
-
-      if (!prBody && ticket) {
-        const commits = getCommitLog(baseBranch);
-        prBody = generatePRBody({
-          ticketId: ticket.id,
-          ticketTitle: ticket.title,
-          ticketDescription: ticket.description,
-          commits: commits.slice(0, 10), // Limit to 10 commits
+        // Use selectFromList helper for JSON mode support
+        const selectedTicketId = await this.selectFromList({
+          message: 'Link PR to a ticket?',
+          items: ticketItems,
+          getName: (item) => item.isSkip ? item.title : `${item.id} - ${item.title}`,
+          getValue: (item) => item.id,
+          getCommand: (item) => item.isSkip
+            ? `prlt pr create --no-link --json`
+            : `prlt pr create ${item.id} --json`,
+          jsonMode: jsonMode ? { flags, commandName: 'pr create' } : null,
         });
-      }
 
-      // Push branch if not pushed
-      if (!hasBranchBeenPushed(currentBranch)) {
-        this.log(styles.muted(`   Pushing branch to origin...`));
-        if (!pushBranch(currentBranch)) {
-          this.error('Failed to push branch to origin.');
-        }
-      } else if (hasUnpushedCommits(currentBranch)) {
-        this.log(styles.muted(`   Pushing unpushed commits...`));
-        if (!pushBranch(currentBranch)) {
-          this.error('Failed to push commits to origin.');
+        if (selectedTicketId && selectedTicketId !== '__skip__') {
+          ticketId = selectedTicketId;
+          ticket = await this.storage.getTicket(ticketId!);
         }
       }
+    }
 
-      // Create PR
-      this.log('');
-      this.log(styles.header('Creating Pull Request'));
-      this.log(styles.muted(`   Branch: ${currentBranch}`));
-      this.log(styles.muted(`   Base: ${baseBranch}`));
-      this.log(styles.muted(`   Title: ${prTitle}`));
-      if (flags.draft) {
-        this.log(styles.muted(`   Draft: yes`));
-      }
+    // Generate PR title and body
+    let prTitle = flags.title;
+    let prBody = flags.body;
 
-      const result = createPR({
-        title: prTitle,
-        body: prBody,
-        base: baseBranch,
-        draft: flags.draft,
-      });
-
-      if (!result.success) {
-        this.error(`Failed to create PR: ${result.error}`);
-      }
-
-      // Store PR URL in ticket metadata
-      if (ticket && result.url && storage) {
-        await storage.updateTicket(ticket.id, {
-          metadata: {
-            pr_url: result.url,
-            pr_number: String(result.number),
-          },
-        });
-      }
-
-      if (storage) await storage.close();
-      if (db) db.close();
-
-      this.log('');
-      this.log(styles.success(`Pull request created!`));
-      this.log(styles.muted(`   PR #${result.number}`));
-      this.log(styles.muted(`   URL: ${result.url}`));
+    if (!prTitle) {
       if (ticket) {
-        this.log(styles.muted(`   Linked to: ${ticket.id}`));
+        prTitle = generatePRTitle(ticket.id, ticket.title);
+      } else {
+        // Use branch name as title
+        const branchParts = currentBranch.split('/');
+        prTitle = branchParts[branchParts.length - 1].replace(/-/g, ' ');
       }
-    } catch (error) {
-      if (storage) await storage.close();
-      if (db) db.close();
-      throw error;
+    }
+
+    if (!prBody && ticket) {
+      const commits = getCommitLog(baseBranch);
+      prBody = generatePRBody({
+        ticketId: ticket.id,
+        ticketTitle: ticket.title,
+        ticketDescription: ticket.description,
+        commits: commits.slice(0, 10), // Limit to 10 commits
+      });
+    }
+
+    // Push branch if not pushed
+    if (!hasBranchBeenPushed(currentBranch)) {
+      this.log(styles.muted(`   Pushing branch to origin...`));
+      if (!pushBranch(currentBranch)) {
+        this.error('Failed to push branch to origin.');
+      }
+    } else if (hasUnpushedCommits(currentBranch)) {
+      this.log(styles.muted(`   Pushing unpushed commits...`));
+      if (!pushBranch(currentBranch)) {
+        this.error('Failed to push commits to origin.');
+      }
+    }
+
+    // Create PR
+    this.log('');
+    this.log(styles.header('Creating Pull Request'));
+    this.log(styles.muted(`   Branch: ${currentBranch}`));
+    this.log(styles.muted(`   Base: ${baseBranch}`));
+    this.log(styles.muted(`   Title: ${prTitle}`));
+    if (flags.draft) {
+      this.log(styles.muted(`   Draft: yes`));
+    }
+
+    const result = createPR({
+      title: prTitle,
+      body: prBody,
+      base: baseBranch,
+      draft: flags.draft,
+    });
+
+    if (!result.success) {
+      this.error(`Failed to create PR: ${result.error}`);
+    }
+
+    // Store PR URL in ticket metadata
+    if (ticket && result.url && this.hasPMO) {
+      await this.storage.updateTicket(ticket.id, {
+        metadata: {
+          pr_url: result.url,
+          pr_number: String(result.number),
+        },
+      });
+    }
+
+    this.log('');
+    this.log(styles.success(`Pull request created!`));
+    this.log(styles.muted(`   PR #${result.number}`));
+    this.log(styles.muted(`   URL: ${result.url}`));
+    if (ticket) {
+      this.log(styles.muted(`   Linked to: ${ticket.id}`));
     }
   }
 }

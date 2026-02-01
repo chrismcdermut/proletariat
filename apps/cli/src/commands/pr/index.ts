@@ -1,15 +1,15 @@
-import { Command, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
-import { findPMO } from '../../lib/pmo/index.js';
+import { Flags } from '@oclif/core';
+import {
+  PMOCommand,
+  pmoBaseFlags,
+} from '../../lib/pmo/index.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
-export default class PR extends Command {
+export default class PR extends PMOCommand {
   static description = 'Interactive menu for pull request operations';
 
   static examples = [
@@ -17,58 +17,53 @@ export default class PR extends Command {
   ];
 
   static flags = {
+    ...pmoBaseFlags,
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
   };
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { flags } = await this.parse(PR);
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    const pmoPath = findPMO();
-    if (!pmoPath) {
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
       if (jsonMode) {
-        outputErrorAsJson('PMO_NOT_FOUND', 'PMO not found. Run "prlt pmo init" first.', createMetadata('pr', flags));
+        outputErrorAsJson(code, message, createMetadata('pr', flags));
         this.exit(1);
       }
-      this.error('PMO not found. Run "prlt pmo init" first.');
+      this.error(message);
+    };
+
+    // PMOCommand base class ensures PMO context is available
+    // Check if we have storage access
+    if (!this.storage) {
+      return handleError('PMO_NOT_FOUND', 'PMO not found. Run "prlt pmo init" first.');
     }
 
-    // Define choices once, use for both JSON and interactive modes
-    const menuChoices = [
-      { name: 'Create PR from current branch', value: 'create' },
-      { name: 'Link existing PR to ticket', value: 'link' },
-      { name: 'View PR status for ticket', value: 'status' },
-      { name: 'Cancel', value: 'cancel' },
+    // Define menu items
+    const menuItems = [
+      { id: 'create', label: 'Create PR from current branch' },
+      { id: 'link', label: 'Link existing PR to ticket' },
+      { id: 'status', label: 'View PR status for ticket' },
+      { id: 'cancel', label: 'Cancel' },
     ];
-    const message = 'Pull Request Operations - What would you like to do?';
 
-    // In JSON mode, output menu prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('pr', flags)
-      );
-      return;
-    }
+    // Use selectFromList helper for JSON mode support
+    const action = await this.selectFromList({
+      message: 'Pull Request Operations - What would you like to do?',
+      items: menuItems,
+      getName: (item) => item.label,
+      getValue: (item) => item.id,
+      getCommand: (item) => `prlt pr ${item.id} --json`,
+      jsonMode: jsonMode ? { flags, commandName: 'pr' } : null,
+    });
 
-    // Show interactive menu (with separator before Cancel)
-    const { action } = await inquirer.prompt([{
-      type: 'list',
-      name: 'action',
-      message,
-      choices: [
-        ...menuChoices.slice(0, -1),
-        new inquirer.Separator('──────────────'),
-        menuChoices[menuChoices.length - 1],
-      ],
-    }]);
-
-    if (action === 'cancel') {
+    if (!action || action === 'cancel') {
       return;
     }
 
