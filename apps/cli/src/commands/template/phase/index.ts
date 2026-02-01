@@ -1,12 +1,6 @@
 import { Command, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { styles } from '../../../lib/styles.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../../lib/prompt-json.js';
+import { FlagResolver, shouldOutputJson } from '../../../lib/flags/index.js';
 
 export default class TemplatePhase extends Command {
   static description = 'Manage phase templates (project lifecycle phases)';
@@ -32,35 +26,36 @@ export default class TemplatePhase extends Command {
 
     const jsonMode = shouldOutputJson(flags);
 
-    const menuChoices = [
-      { name: 'List phase templates', value: 'list' },
-      { name: 'Apply a phase template to project', value: 'apply' },
-      { name: 'Create a new phase template', value: 'create' },
-      { name: 'Update a phase template', value: 'update' },
-      { name: 'Delete a phase template', value: 'delete' },
-    ];
-    const message = 'What would you like to do?';
+    // Create resolver for action selection
+    const resolver = new FlagResolver<{ action?: string }>({
+      commandName: 'template phase',
+      baseCommand: 'prlt template phase',
+      jsonMode,
+      flags: {} as { action?: string },
+    });
 
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('template phase', flags)
-      );
-      return;
-    }
+    resolver.addPrompt({
+      flagName: 'action',
+      type: 'list',
+      message: 'What would you like to do?',
+      choices: () => [
+        { name: 'List phase templates', value: 'list', command: 'prlt template phase list --json' },
+        { name: 'Apply a phase template to project', value: 'apply', command: 'prlt phase template apply --json' },
+        { name: 'Create a new phase template', value: 'create', command: 'prlt phase template create --json' },
+        { name: 'Update a phase template', value: 'update', command: 'prlt phase template update --json' },
+        { name: 'Delete a phase template', value: 'delete', command: 'prlt phase template delete --json' },
+      ],
+    });
 
+    // In JSON mode, this outputs the prompt and exits
+    const resolved = await resolver.resolve();
+
+    // Only reached in interactive mode
     this.log('');
     this.log(styles.header('Phase Templates'));
     this.log('');
 
-    const { action } = await inquirer.prompt([{
-      type: 'list',
-      name: 'action',
-      message,
-      choices: menuChoices.map(c => ({ name: c.name, value: c.value })),
-    }]);
-
-    switch (action) {
+    switch (resolved.action) {
       case 'list':
         await this.config.runCommand('template:phase:list', []);
         break;
