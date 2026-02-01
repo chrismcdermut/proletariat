@@ -1,16 +1,25 @@
 import { Flags, Args } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
 import {
-  shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildFormPromptConfig,
-  FormField,
 } from '../../lib/prompt-json.js';
+
+interface UpdateFlags {
+  id?: string;
+  name?: string;
+  category?: StateCategory;
+  color?: string;
+  description?: string;
+  default?: boolean;
+  project?: string;
+  json?: boolean;
+  interactive?: boolean;
+  [key: string]: unknown;
+}
 
 export default class StatusUpdate extends PMOCommand {
   static description = 'Update a workflow status';
@@ -92,36 +101,50 @@ export default class StatusUpdate extends PMOCommand {
       return handleError('NO_WORKFLOW', `Project "${projectId}" has no workflow assigned.`);
     }
 
-    // Get status ID - prompt if not provided
-    let statusId = args.id;
-
-    if (!statusId) {
-      const statuses = await this.storage.listStatuses(project.workflowId);
-      if (statuses.length === 0) {
-        return handleError('NO_STATUSES', 'No statuses found. Create a status first with "prlt status create".');
-      }
-
-      // Use helper for status selection (handles JSON mode automatically)
-      const selected = await this.selectFromList({
-        message: 'Select status to update:',
-        items: statuses,
-        getName: (s) => `${s.name} (${s.category})`,
-        getValue: (s) => s.id,
-        getCommand: (s) => `prlt status update ${s.id} --json`,
-        jsonMode: jsonMode ? { flags, commandName: 'status update' } : null,
-      });
-
-      if (!selected) {
-        return; // Cancelled or JSON mode (already exited)
-      }
-      statusId = selected;
+    // Get all statuses for this workflow
+    const statuses = await this.storage.listStatuses(project.workflowId);
+    if (statuses.length === 0) {
+      return handleError('NO_STATUSES', 'No statuses found. Create a status first with "prlt status create".');
     }
+
+    // Create FlagResolver for status selection
+    const resolver = new FlagResolver<UpdateFlags>({
+      commandName: 'status update',
+      baseCommand: 'prlt status update',
+      jsonMode,
+      flags: { ...flags, id: args.id, category: flags.category as StateCategory | undefined },
+      context: { projectId },
+    });
+
+    // Add status selection prompt
+    resolver.addPrompt({
+      flagName: 'id',
+      type: 'list',
+      message: 'Select status to update:',
+      choices: () => statuses.map(s => ({
+        name: `${s.name} (${s.category})`,
+        value: s.id,
+        command: `prlt status update ${s.id} --json`,
+      })),
+      when: (ctx) => !ctx.flags.id,
+    });
+
+    // Resolve status ID
+    const resolved = await resolver.resolve();
+    const statusId = resolved.id;
 
     // Get existing status
     const existing = await this.storage.getStatus(statusId!);
     if (!existing) {
       return handleError('STATUS_NOT_FOUND', `Status not found: ${statusId}`);
     }
+
+    // Check if any change flags were provided
+    const hasChangeFlags = flags.name !== undefined ||
+                            flags.category !== undefined ||
+                            flags.color !== undefined ||
+                            flags.description !== undefined ||
+                            flags.default !== undefined;
 
     let changes: Partial<{
       name: string;
@@ -131,36 +154,81 @@ export default class StatusUpdate extends PMOCommand {
       isDefault: boolean;
     }>;
 
-    // Check if any change flags were provided
-    const hasChangeFlags = flags.name !== undefined ||
-                            flags.category !== undefined ||
-                            flags.color !== undefined ||
-                            flags.description !== undefined ||
-                            flags.default !== undefined;
-
     // Auto-enter interactive mode if no change flags provided
     if (flags.interactive || !hasChangeFlags) {
-      // Build choices once - single source of truth
-      const categoryChoices = STATE_CATEGORY_ORDER.map(cat => ({ name: cat, value: cat }));
+      // Create FlagResolver for field updates
+      const updateResolver = new FlagResolver<UpdateFlags>({
+        commandName: 'status update',
+        baseCommand: `prlt status update ${statusId}`,
+        jsonMode,
+        flags: { ...flags, id: statusId, category: flags.category as StateCategory | undefined },
+        context: { projectId, statusId, existing },
+      });
 
-      // Define fields once - single source of truth for both JSON and interactive modes
-      const fields: FormField[] = [
-        { type: 'input', name: 'name', message: 'Status name:', default: existing.name },
-        { type: 'list', name: 'category', message: 'Category:', choices: categoryChoices, default: existing.category },
-        { type: 'input', name: 'color', message: 'Color (hex, optional):', default: existing.color || '' },
-        { type: 'input', name: 'description', message: 'Description (optional):', default: existing.description || '' },
-        { type: 'confirm', name: 'isDefault', message: 'Set as default status for new tickets?', default: existing.isDefault || false },
-      ];
+      // Add prompts for each field
+      updateResolver.addPrompt({
+        flagName: 'name',
+        type: 'input',
+        message: 'Status name:',
+        default: existing.name,
+        validate: (value) => (value as string).length > 0 || 'Name is required',
+        when: (ctx) => ctx.flags.name === undefined,
+      });
 
-      // In JSON mode, output form prompts
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildFormPromptConfig(fields),
-          createMetadata('status update', flags)
-        );
-      }
+      updateResolver.addPrompt({
+        flagName: 'category',
+        type: 'list',
+        message: 'Category:',
+        choices: () => STATE_CATEGORY_ORDER.map(cat => ({
+          name: cat,
+          value: cat,
+          command: `prlt status update ${statusId} --category ${cat} --json`,
+        })),
+        default: existing.category,
+        when: (ctx) => ctx.flags.category === undefined,
+      });
 
-      changes = await this.promptChanges(fields, existing);
+      updateResolver.addPrompt({
+        flagName: 'color',
+        type: 'input',
+        message: 'Color (hex, optional):',
+        default: existing.color || '',
+        validate: (value) => {
+          const v = value as string;
+          if (!v) return true;
+          return /^#[0-9A-Fa-f]{6}$/.test(v) || 'Invalid hex color (e.g., #FF0000)';
+        },
+        when: (ctx) => ctx.flags.color === undefined,
+      });
+
+      updateResolver.addPrompt({
+        flagName: 'description',
+        type: 'input',
+        message: 'Description (optional):',
+        default: existing.description || '',
+        when: (ctx) => ctx.flags.description === undefined,
+      });
+
+      updateResolver.addPrompt({
+        flagName: 'default',
+        type: 'list',
+        message: 'Set as default status for new tickets?',
+        choices: () => [
+          { name: 'Yes', value: true, command: `prlt status update ${statusId} --default --json` },
+          { name: 'No', value: false, command: `prlt status update ${statusId} --no-default --json` },
+        ],
+        default: existing.isDefault || false,
+        when: (ctx) => ctx.flags.default === undefined,
+      });
+
+      const updateResolved = await updateResolver.resolve();
+
+      changes = {};
+      if (updateResolved.name !== existing.name) changes.name = updateResolved.name;
+      if (updateResolved.category !== existing.category) changes.category = updateResolved.category;
+      if (updateResolved.color !== (existing.color || '')) changes.color = updateResolved.color || undefined;
+      if (updateResolved.description !== (existing.description || '')) changes.description = updateResolved.description || undefined;
+      if (updateResolved.default !== (existing.isDefault || false)) changes.isDefault = updateResolved.default;
     } else {
       changes = {};
       if (flags.name !== undefined) changes.name = flags.name;
@@ -181,57 +249,5 @@ export default class StatusUpdate extends PMOCommand {
     if (updated.isDefault) {
       this.log(styles.muted(`  Default: yes`));
     }
-  }
-
-  private async promptChanges(
-    fields: FormField[],
-    existing: {
-      name: string;
-      category: StateCategory;
-      color?: string;
-      description?: string;
-      isDefault?: boolean;
-    }
-  ): Promise<Partial<{
-    name: string;
-    category: StateCategory;
-    color: string;
-    description: string;
-    isDefault: boolean;
-  }>> {
-    // Build inquirer prompts from fields, adding validators
-    const answers = await inquirer.prompt<{
-      name: string;
-      category: StateCategory;
-      color: string;
-      description: string;
-      isDefault: boolean;
-    }>(fields.map(field => ({
-      ...field,
-      validate: field.name === 'name'
-        ? ((input: string) => input.length > 0 || 'Name is required')
-        : field.name === 'color'
-        ? ((input: string) => {
-            if (!input) return true;
-            return /^#[0-9A-Fa-f]{6}$/.test(input) || 'Invalid hex color (e.g., #FF0000)';
-          })
-        : undefined,
-    })));
-
-    const changes: Partial<{
-      name: string;
-      category: StateCategory;
-      color: string;
-      description: string;
-      isDefault: boolean;
-    }> = {};
-
-    if (answers.name !== existing.name) changes.name = answers.name;
-    if (answers.category !== existing.category) changes.category = answers.category;
-    if (answers.color !== (existing.color || '')) changes.color = answers.color || undefined;
-    if (answers.description !== (existing.description || '')) changes.description = answers.description || undefined;
-    if (answers.isDefault !== (existing.isDefault || false)) changes.isDefault = answers.isDefault;
-
-    return changes;
   }
 }
