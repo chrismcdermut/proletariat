@@ -132,11 +132,18 @@ export default class WorkSpawn extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags, argv } = await this.parse(WorkSpawn)
-    // This command requires project context
-    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
+
+    // This command requires project context (pass JSON mode config for AI agents)
+    const projectId = await this.requireProject({
+      jsonMode: {
+        flags,
+        commandName: 'work spawn',
+        baseCommand: 'prlt work spawn',
+      },
+    });
 
     // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
