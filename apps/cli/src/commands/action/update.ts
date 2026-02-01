@@ -1,16 +1,13 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildFormPromptConfig,
-  FormField,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class ActionUpdate extends PMOCommand {
   static description = 'Update a work action';
@@ -109,53 +106,99 @@ export default class ActionUpdate extends PMOCommand {
         ...STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
       ];
 
-      // Define fields once - single source of truth for both JSON and interactive modes
-      const fields: FormField[] = [
-        { type: 'input', name: 'name', message: 'Name:', default: existingAction.name },
-        { type: 'input', name: 'description', message: 'Description:', default: existingAction.description || '' },
-        { type: 'editor', name: 'prompt', message: 'Prompt (opens editor):', default: existingAction.prompt },
-        { type: 'checkbox', name: 'suggestedFor', message: 'Suggested for categories:', choices: suggestedForChoices, default: existingAction.suggestedForCategories || [] },
-        { type: 'list', name: 'moveTo', message: 'Move ticket to category after action:', choices: moveToChoices, default: existingAction.defaultMoveToCategory || '__none__' },
-      ];
+      // Use FlagResolver for prompts - works in both JSON and interactive modes
+      const resolver = new FlagResolver<{
+        name?: string;
+        description?: string;
+        prompt?: string;
+        suggestedFor?: StateCategory[];
+        moveTo?: string;
+      }>({
+        commandName: 'action update',
+        baseCommand: `prlt action update ${args.id}`,
+        jsonMode,
+        flags: {},
+      });
 
-      // In JSON mode, output form prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildFormPromptConfig(fields),
-          createMetadata('action update', flags)
-        );
-      }
+      // Name input
+      resolver.addPrompt({
+        flagName: 'name',
+        type: 'input',
+        message: 'Name:',
+        default: existingAction.name,
+        context: {
+          hint: `Provide with: prlt action update ${args.id} --name "New Name"`,
+          currentValue: existingAction.name,
+        },
+      });
+
+      // Description input
+      resolver.addPrompt({
+        flagName: 'description',
+        type: 'input',
+        message: 'Description:',
+        default: existingAction.description || '',
+        when: (ctx) => ctx.flags.name !== undefined,
+        context: {
+          currentValue: existingAction.description || '',
+        },
+      });
+
+      // Prompt input (editor)
+      resolver.addPrompt({
+        flagName: 'prompt',
+        type: 'editor',
+        message: 'Prompt (opens editor):',
+        default: existingAction.prompt,
+        when: (ctx) => ctx.flags.name !== undefined && ctx.flags.description !== undefined,
+        context: {
+          hint: `Current prompt length: ${existingAction.prompt.length} chars`,
+        },
+      });
+
+      // Suggested-for checkbox
+      resolver.addPrompt({
+        flagName: 'suggestedFor',
+        type: 'checkbox',
+        message: 'Suggested for categories:',
+        choices: () => suggestedForChoices.map(c => ({
+          ...c,
+          // Pre-select current values
+          checked: existingAction.suggestedForCategories?.includes(c.value as StateCategory),
+        })),
+        when: (ctx) => ctx.flags.prompt !== undefined,
+      });
+
+      // Move-to list
+      resolver.addPrompt({
+        flagName: 'moveTo',
+        type: 'list',
+        message: 'Move ticket to category after action:',
+        choices: () => moveToChoices,
+        default: existingAction.defaultMoveToCategory || '__none__',
+        when: (ctx) => ctx.flags.suggestedFor !== undefined,
+      });
 
       this.log('');
       this.log(styles.header(`Updating action: ${existingAction.name}`));
       this.log(styles.muted('Press Enter to keep current value, or enter new value.'));
       this.log('');
 
-      // Build inquirer prompts from fields, adding checkbox 'checked' state
-      const answers = await inquirer.prompt(fields.map(field => ({
-        ...field,
-        // For checkbox, convert default array to checked property on choices
-        choices: field.type === 'checkbox' && field.choices
-          ? field.choices.map(c => ({
-              ...c,
-              checked: (field.default as string[] | undefined)?.includes(c.value),
-            }))
-          : field.choices,
-      })));
+      const resolved = await resolver.resolve();
 
-      if (answers.name !== existingAction.name) changes.name = answers.name;
-      if (answers.description !== (existingAction.description || '')) changes.description = answers.description;
-      if (answers.prompt !== existingAction.prompt) changes.prompt = answers.prompt;
+      if (resolved.name !== existingAction.name) changes.name = resolved.name;
+      if (resolved.description !== (existingAction.description || '')) changes.description = resolved.description;
+      if (resolved.prompt !== existingAction.prompt) changes.prompt = resolved.prompt;
 
       const currentSuggested = existingAction.suggestedForCategories?.sort().join(',') || '';
-      const newSuggested = answers.suggestedFor.sort().join(',');
+      const newSuggested = (resolved.suggestedFor || []).sort().join(',');
       if (newSuggested !== currentSuggested) {
-        changes.suggestedForCategories = answers.suggestedFor;
+        changes.suggestedForCategories = resolved.suggestedFor;
       }
 
       const currentMoveTo = existingAction.defaultMoveToCategory || '__none__';
-      if (answers.moveTo !== currentMoveTo) {
-        changes.defaultMoveToCategory = answers.moveTo === '__none__' ? null : answers.moveTo;
+      if (resolved.moveTo !== currentMoveTo) {
+        changes.defaultMoveToCategory = resolved.moveTo === '__none__' ? null : resolved.moveTo as StateCategory;
       }
     } else {
       // Flag-based update

@@ -1,15 +1,9 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildFormPromptConfig,
-  FormField,
-} from '../../lib/prompt-json.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class ActionCreate extends PMOCommand {
   static description = 'Create a new work action';
@@ -73,52 +67,98 @@ export default class ActionCreate extends PMOCommand {
 
     // Interactive mode if name or prompt is missing
     if (!name || !prompt || flags.interactive) {
-      // Build choices once, use for both JSON and interactive modes
+      // Build choices for list/checkbox prompts
       const suggestedForChoices = STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c }));
       const moveToChoices = [
         { name: '(no automatic move)', value: '' },
         ...STATE_CATEGORY_ORDER.map(c => ({ name: c, value: c })),
       ];
 
-      // Define fields once - single source of truth for both JSON and interactive modes
-      const fields: FormField[] = [
-        { type: 'input', name: 'name', message: 'Action name:', default: name },
-        { type: 'input', name: 'description', message: 'Description (optional):', default: description || '' },
-        { type: 'editor', name: 'prompt', message: 'Prompt (opens editor):', default: prompt || 'Enter the prompt that will be sent to the agent...' },
-        { type: 'checkbox', name: 'suggestedFor', message: 'Suggested for categories (optional):', choices: suggestedForChoices },
-        { type: 'list', name: 'moveTo', message: 'Move ticket to category after action:', choices: moveToChoices, default: moveTo || '' },
-      ];
+      // Use FlagResolver for prompts - works in both JSON and interactive modes
+      const resolver = new FlagResolver<{
+        name?: string;
+        description?: string;
+        prompt?: string;
+        suggestedFor?: StateCategory[];
+        moveTo?: string;
+      }>({
+        commandName: 'action create',
+        baseCommand: 'prlt action create',
+        jsonMode,
+        flags: {
+          name,
+          prompt,
+          description,
+          moveTo: moveTo || '',
+        },
+      });
 
-      // In JSON mode, output form prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildFormPromptConfig(fields),
-          createMetadata('action create', flags)
-        );
+      // Name input
+      resolver.addPrompt({
+        flagName: 'name',
+        type: 'input',
+        message: 'Action name:',
+        default: name,
+        when: (ctx) => !ctx.flags.name,
+        validate: (value) => (value as string).trim() ? true : 'Name is required',
+        context: {
+          hint: 'Provide with: prlt action create "Action Name" --prompt "..."',
+          requiredFields: ['name (as first argument)', '--prompt'],
+        },
+      });
+
+      // Prompt input (editor type in interactive, but input for JSON mode context)
+      resolver.addPrompt({
+        flagName: 'prompt',
+        type: 'editor',
+        message: 'Prompt (opens editor):',
+        default: prompt || 'Enter the prompt that will be sent to the agent...',
+        when: (ctx) => !ctx.flags.prompt && ctx.flags.name !== undefined,
+        validate: (value) => (value as string).trim() ? true : 'Prompt is required',
+        context: (ctx) => ({
+          hint: `Provide with: prlt action create "${ctx.flags.name}" --prompt "Your prompt here"`,
+          requiredFields: ['--prompt'],
+          optionalFields: ['--description', '--suggested-for', '--move-to'],
+        }),
+      });
+
+      // Description input (optional, only in full interactive mode)
+      if (flags.interactive) {
+        resolver.addPrompt({
+          flagName: 'description',
+          type: 'input',
+          message: 'Description (optional):',
+          default: description || '',
+          when: (ctx) => ctx.flags.name !== undefined && ctx.flags.prompt !== undefined,
+        });
+
+        // Suggested-for checkbox (optional)
+        resolver.addPrompt({
+          flagName: 'suggestedFor',
+          type: 'checkbox',
+          message: 'Suggested for categories (optional):',
+          choices: () => suggestedForChoices,
+          when: (ctx) => ctx.flags.name !== undefined && ctx.flags.prompt !== undefined,
+        });
+
+        // Move-to list (optional)
+        resolver.addPrompt({
+          flagName: 'moveTo',
+          type: 'list',
+          message: 'Move ticket to category after action:',
+          choices: () => moveToChoices,
+          default: moveTo || '',
+          when: (ctx) => ctx.flags.name !== undefined && ctx.flags.prompt !== undefined,
+        });
       }
 
-      this.log('');
-      this.log(styles.header('Create Custom Action'));
-      this.log('');
+      const resolved = await resolver.resolve();
 
-      // Build inquirer prompts from fields, adding validators and conditionals
-      const answers = await inquirer.prompt(fields.map(field => ({
-        ...field,
-        // Add validators for required fields
-        validate: field.name === 'name' ? ((input: string) => input.trim() ? true : 'Name is required')
-          : field.name === 'prompt' ? ((input: string) => input.trim() ? true : 'Prompt is required')
-          : undefined,
-        // Skip fields that already have values
-        when: field.name === 'name' ? !name
-          : field.name === 'prompt' ? !prompt
-          : true,
-      })));
-
-      name = answers.name || name;
-      prompt = answers.prompt || prompt;
-      description = answers.description || description;
-      suggestedFor = answers.suggestedFor?.length ? answers.suggestedFor : undefined;
-      moveTo = answers.moveTo || undefined;
+      name = resolved.name || name;
+      prompt = resolved.prompt || prompt;
+      description = resolved.description || description;
+      suggestedFor = resolved.suggestedFor?.length ? resolved.suggestedFor : undefined;
+      moveTo = (resolved.moveTo || undefined) as StateCategory | undefined;
     } else {
       // Parse flags
       suggestedFor = flags['suggested-for']
