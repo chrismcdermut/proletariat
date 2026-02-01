@@ -44,6 +44,10 @@ export default class Add extends PMOCommand {
       description: 'Add multiple repositories interactively',
       default: false,
     }),
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
