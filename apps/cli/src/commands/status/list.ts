@@ -2,6 +2,7 @@ import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER, WorkflowStatus } from '../../lib/pmo/types.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 
 export default class StatusList extends PMOCommand {
   static description = 'List all workflow statuses for a project';
@@ -27,8 +28,18 @@ export default class StatusList extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(StatusList);
-    // This command requires project context
-    const projectId = await this.requireProject();
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // This command requires project context - get projectId (with JSON mode support)
+    const projectId = await this.requireProject({
+      jsonMode: jsonMode ? {
+        flags,
+        commandName: 'status list',
+        baseCommand: 'prlt status list',
+      } : undefined,
+    });
 
     // Get the project's workflow ID
     const project = await this.storage.getProject(projectId);

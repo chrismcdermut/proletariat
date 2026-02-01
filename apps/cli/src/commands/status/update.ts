@@ -8,7 +8,6 @@ import {
   outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
   buildFormPromptConfig,
   FormField,
 } from '../../lib/prompt-json.js';
@@ -65,11 +64,18 @@ export default class StatusUpdate extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusUpdate);
-    // This command requires project context
-    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
+
+    // This command requires project context - get projectId (with JSON mode support)
+    const projectId = await this.requireProject({
+      jsonMode: jsonMode ? {
+        flags,
+        commandName: 'status update',
+        baseCommand: 'prlt status update',
+      } : undefined,
+    });
 
     // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
@@ -95,29 +101,20 @@ export default class StatusUpdate extends PMOCommand {
         return handleError('NO_STATUSES', 'No statuses found. Create a status first with "prlt status create".');
       }
 
-      // In JSON mode, output status selection prompt
-      if (jsonMode) {
-        const statusChoices = statuses.map(s => ({
-          name: `${s.name} (${s.category})`,
-          value: s.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select status to update:', statusChoices),
-          createMetadata('status update', flags)
-        );
-        return;
-      }
-
-      const { selectedId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedId',
+      // Use helper for status selection (handles JSON mode automatically)
+      const selected = await this.selectFromList({
         message: 'Select status to update:',
-        choices: statuses.map(s => ({
-          name: `${s.name} (${s.category})`,
-          value: s.id,
-        })),
-      }]);
-      statusId = selectedId;
+        items: statuses,
+        getName: (s) => `${s.name} (${s.category})`,
+        getValue: (s) => s.id,
+        getCommand: (s) => `prlt status update ${s.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'status update' } : null,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      statusId = selected;
     }
 
     // Get existing status

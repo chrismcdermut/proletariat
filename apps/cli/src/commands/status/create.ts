@@ -62,10 +62,18 @@ export default class StatusCreate extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusCreate);
-    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
+
+    // This command requires project context - get projectId (with JSON mode support)
+    const projectId = await this.requireProject({
+      jsonMode: jsonMode ? {
+        flags,
+        commandName: 'status create',
+        baseCommand: 'prlt status create',
+      } : undefined,
+    });
 
     let statusData: {
       name: string;
@@ -93,12 +101,13 @@ export default class StatusCreate extends PMOCommand {
         { type: 'confirm', name: 'isDefault', message: 'Set as default status for new tickets?', default: flags.default || false },
       ];
 
-      // In JSON mode, output form prompts
+      // In JSON mode, output form prompts and exit
       if (jsonMode) {
         outputPromptAsJson(
           buildFormPromptConfig(fields),
           createMetadata('status create', flags)
         );
+        // outputPromptAsJson calls process.exit, this is unreachable but explicit for clarity
       }
 
       statusData = await this.promptStatusData(fields);

@@ -1,13 +1,10 @@
 import { Flags, Args } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class StatusMove extends PMOCommand {
@@ -41,11 +38,18 @@ export default class StatusMove extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusMove);
-    // This command requires project context
-    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
+
+    // This command requires project context - get projectId (with JSON mode support)
+    const projectId = await this.requireProject({
+      jsonMode: jsonMode ? {
+        flags,
+        commandName: 'status move',
+        baseCommand: 'prlt status move',
+      } : undefined,
+    });
 
     // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
@@ -71,29 +75,20 @@ export default class StatusMove extends PMOCommand {
         return handleError('NO_STATUSES', 'No statuses found. Create a status first with "prlt status create".');
       }
 
-      // In JSON mode, output status selection prompt
-      if (jsonMode) {
-        const statusChoices = statuses.map(s => ({
-          name: `${s.name} (${s.category}, position ${s.position})`,
-          value: s.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select status to move:', statusChoices),
-          createMetadata('status move', flags)
-        );
-        return;
-      }
-
-      const { selectedId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedId',
+      // Use helper for status selection (handles JSON mode automatically)
+      const selected = await this.selectFromList({
         message: 'Select status to move:',
-        choices: statuses.map(s => ({
-          name: `${s.name} (${s.category}, position ${s.position})`,
-          value: s.id,
-        })),
-      }]);
-      statusId = selectedId;
+        items: statuses,
+        getName: (s) => `${s.name} (${s.category}, position ${s.position})`,
+        getValue: (s) => s.id,
+        getCommand: (s) => `prlt status move ${s.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'status move' } : null,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      statusId = selected;
     }
 
     // Get existing status
@@ -110,30 +105,25 @@ export default class StatusMove extends PMOCommand {
       const statuses = await this.storage.listStatuses(project.workflowId);
       const categoryStatuses = statuses.filter(s => s.category === existing.category);
 
-      // In JSON mode, output position selection prompt
-      if (jsonMode) {
-        const positionChoices = categoryStatuses.map((_, idx) => ({
-          name: `Position ${idx}${idx === existing.position ? ' (current)' : ''}`,
-          value: String(idx),
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'position', `New position within ${existing.category} (currently ${existing.position}):`, positionChoices),
-          createMetadata('status move', flags)
-        );
-        return;
-      }
+      // Use helper for position selection (handles JSON mode automatically)
+      const positionItems = categoryStatuses.map((_, idx) => ({
+        position: idx,
+        label: `Position ${idx}${idx === existing.position ? ' (current)' : ''}`,
+      }));
 
-      const { position } = await inquirer.prompt([{
-        type: 'list',
-        name: 'position',
+      const selected = await this.selectFromList({
         message: `New position within ${existing.category} (currently ${existing.position}):`,
-        choices: categoryStatuses.map((_, idx) => ({
-          name: `Position ${idx}${idx === existing.position ? ' (current)' : ''}`,
-          value: idx,
-        })),
-        default: existing.position,
-      }]);
-      newPosition = position;
+        items: positionItems,
+        getName: (p) => p.label,
+        getValue: (p) => String(p.position),
+        getCommand: (p) => `prlt status move ${statusId} --position ${p.position} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'status move' } : null,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      newPosition = parseInt(selected, 10);
     }
 
     if (newPosition! < 0) {
