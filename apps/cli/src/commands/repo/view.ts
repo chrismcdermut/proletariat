@@ -1,12 +1,16 @@
-import { Args } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { colors, format } from '../../lib/colors.js';
 import {
   findHQRoot,
-  promptSelectRepo,
   getWorkspaceRepoInfo,
 } from '../../lib/repos/index.js';
 import { openWorkspaceDatabase } from '../../lib/database/index.js';
+import {
+  shouldOutputJson,
+  outputErrorAsJson,
+  createMetadata,
+} from '../../lib/prompt-json.js';
 
 export default class View extends PMOCommand {
   static description = 'View detailed information about a repository';
@@ -25,6 +29,10 @@ export default class View extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
   };
 
   protected getPMOOptions() {
@@ -32,23 +40,52 @@ export default class View extends PMOCommand {
   }
 
   async execute(): Promise<void> {
-    const { args } = await this.parse(View);
+    const { args, flags } = await this.parse(View);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('repo view', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
 
     // Find HQ root
     const hqPath = findHQRoot();
     if (!hqPath) {
-      this.error('Not in an HQ directory. Run "prlt init" first.');
+      return handleError('NOT_IN_HQ', 'Not in an HQ directory. Run "prlt init" first.');
     }
 
     let repoName: string | null = args.name || null;
 
     // Interactive selection if no name provided
     if (!repoName) {
-      repoName = await promptSelectRepo('Select repository to view:');
-      if (!repoName) {
+      const { repositories } = getWorkspaceRepoInfo();
+
+      if (repositories.length === 0) {
+        return handleError('NO_REPOSITORIES', 'No repositories found. Add one with "prlt repo add"');
+      }
+
+      // Use selectFromList helper for JSON mode support
+      const selected = await this.selectFromList({
+        message: 'Select repository to view:',
+        items: repositories,
+        getName: (r) => `${r.name} (${r.status}${r.commitsAhead > 0 ? `, ${r.commitsAhead} ahead` : ''})`,
+        getValue: (r) => r.name,
+        getCommand: (r) => `prlt repo view ${r.name} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'repo view' } : null,
+        allowCancel: true,
+      });
+
+      if (!selected) {
         this.log(colors.textMuted('Operation cancelled.'));
         return;
       }
+      repoName = selected;
     }
 
     // Get repository info
