@@ -50,7 +50,7 @@ export default class List extends PMOCommand {
       let typeFilter = flags.type as 'staff' | 'temp' | 'all' | undefined;
 
       if (!typeFilter) {
-        const { selectedType } = await this.agentPrompt<{ selectedType: 'staff' | 'temp' | 'all' }>([{
+        const { selectedType } = await this.prompt<{ selectedType: 'staff' | 'temp' | 'all' }>([{
           type: 'list',
           name: 'selectedType',
           message: 'Which agents do you want to list?',

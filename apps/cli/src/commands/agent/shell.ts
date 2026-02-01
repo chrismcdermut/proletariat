@@ -55,22 +55,15 @@ export default class Shell extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
-      if (jsonMode) {
-        outputErrorAsJson(code, message, createMetadata('agent shell', flags));
-        this.exit(1);
-      }
-      this.error(message);
-    };
+    // Error handling config
+    const errorConfig = { jsonMode, commandName: 'agent shell', flags };
 
     // Get workspace information
     const workspaceInfo = getWorkspaceInfo();
 
     if (workspaceInfo.agents.length === 0) {
       if (jsonMode) {
-        outputErrorAsJson('NO_AGENTS', 'No agents found. Add agents with "prlt agent add"', createMetadata('agent shell', flags));
-        return;
+        this.handleError('NO_AGENTS', 'No agents found. Add agents with "prlt agent add"', errorConfig);
       }
       this.log(colors.warning('No agents found. Add agents with "prlt agent add"'));
       return;
@@ -98,7 +91,7 @@ export default class Shell extends PMOCommand {
         choices.push({ name: `⏱️  ${agent.name}`, value: agent.name, command: `prlt agent shell ${agent.name} --json` });
       }
 
-      const { selected } = await this.agentPrompt<{ selected: string }>([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select agent to open shell in:',
@@ -111,7 +104,7 @@ export default class Shell extends PMOCommand {
     // Validate agent exists
     const agent = workspaceInfo.agents.find(a => a.name === agentName);
     if (!agent) {
-      return handleError('AGENT_NOT_FOUND', `Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map(a => a.name).join(', ')}`);
+      this.handleError('AGENT_NOT_FOUND', `Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map(a => a.name).join(', ')}`, errorConfig);
     }
 
     // Check for existing tmux sessions (skip in JSON mode - can't handle interactive tmux)
@@ -123,7 +116,7 @@ export default class Shell extends PMOCommand {
       }
       this.log('');
 
-      const { sessionAction } = await this.agentPrompt<{ sessionAction: string }>([{
+      const { sessionAction } = await this.prompt<{ sessionAction: string }>([{
         type: 'list',
         name: 'sessionAction',
         message: 'What would you like to do?',
@@ -173,7 +166,7 @@ export default class Shell extends PMOCommand {
         { name: 'foreground - danger - host', value: 'foreground-danger-host', command: '' },
       ];
 
-      const { config } = await this.agentPrompt<{ config: string }>([{
+      const { config } = await this.prompt<{ config: string }>([{
         type: 'list',
         name: 'config',
         message: 'Select shell configuration (displayMode-permissionMode-environment):',
@@ -195,7 +188,7 @@ export default class Shell extends PMOCommand {
     // Interactive mode: Prompt for environment
     let environment: 'devcontainer' | 'host' = 'host';
     if (hasDevcontainer) {
-      const { selectedEnvironment } = await this.agentPrompt<{ selectedEnvironment: 'devcontainer' | 'host' }>([{
+      const { selectedEnvironment } = await this.prompt<{ selectedEnvironment: 'devcontainer' | 'host' }>([{
         type: 'list',
         name: 'selectedEnvironment',
         message: 'Where should the shell run?',
@@ -208,7 +201,7 @@ export default class Shell extends PMOCommand {
     }
 
     // Interactive mode: Prompt for display mode
-    const { displayMode } = await this.agentPrompt<{ displayMode: 'terminal' | 'foreground' }>([{
+    const { displayMode } = await this.prompt<{ displayMode: 'terminal' | 'foreground' }>([{
       type: 'list',
       name: 'displayMode',
       message: 'How should the shell be opened?',
@@ -219,7 +212,7 @@ export default class Shell extends PMOCommand {
     }], null);
 
     // Interactive mode: Prompt for permission mode
-    const { permissionMode } = await this.agentPrompt<{ permissionMode: 'safe' | 'danger' }>([{
+    const { permissionMode } = await this.prompt<{ permissionMode: 'safe' | 'danger' }>([{
       type: 'list',
       name: 'permissionMode',
       message: 'Permission mode for Claude Code:',

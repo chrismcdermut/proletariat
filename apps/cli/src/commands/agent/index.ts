@@ -47,7 +47,7 @@ export default class Agent extends PMOCommand {
     const agentConfig = jsonMode ? { flags, commandName: 'agent' } : null;
 
     // Use agentPrompt for unified JSON/interactive handling
-    const { action } = await this.agentPrompt<{ action: string }>([{
+    const { action } = await this.prompt<{ action: string }>([{
       type: 'list',
       name: 'action',
       message: 'What would you like to do?',

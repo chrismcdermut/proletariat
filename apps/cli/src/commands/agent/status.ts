@@ -79,7 +79,7 @@ export default class Status extends PMOCommand {
         choices.push({ name: `⏱️  ${agent.name}`, value: agent.name, command: `prlt agent status ${agent.name} --json` });
       }
 
-      const { selected } = await this.agentPrompt<{ selected: string }>([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select agent to view status:',

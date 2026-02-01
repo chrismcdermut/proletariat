@@ -85,7 +85,7 @@ export default class Visit extends PMOCommand {
         choices.push({ name: `⏱️  ${agent.name}`, value: agent.name, command: `prlt agent visit ${agent.name} --json` });
       }
 
-      const { selected } = await this.agentPrompt<{ selected: string }>([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select agent to visit:',

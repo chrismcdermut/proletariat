@@ -267,7 +267,7 @@ describe('Agent Command Choice Structure', () => {
   });
 
   describe('agentPrompt usage pattern', () => {
-    it('migrated files should use this.agentPrompt instead of inquirer.prompt', async () => {
+    it('migrated files should use this.prompt instead of inquirer.prompt', async () => {
       const fs = await import('node:fs');
 
       const filesToCheck = [
@@ -283,8 +283,8 @@ describe('Agent Command Choice Structure', () => {
         const filePath = path.resolve(__dirname, file);
         const content = fs.readFileSync(filePath, 'utf-8');
 
-        // Should use this.agentPrompt
-        expect(content, `${file} should use this.agentPrompt`).to.include('this.agentPrompt');
+        // Should use this.prompt
+        expect(content, `${file} should use this.prompt`).to.include('this.prompt');
 
         // Should NOT have standalone inquirer.prompt calls (but may import inquirer for Separator)
         const promptCalls = content.match(/await\s+inquirer\.prompt\(/g) || [];

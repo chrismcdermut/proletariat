@@ -50,18 +50,12 @@ export default class Login extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
-      if (jsonMode) {
-        outputErrorAsJson(code, message, createMetadata('agent login', flags));
-        this.exit(1);
-      }
-      this.error(message);
-    };
+    // Error handling config
+    const errorConfig = { jsonMode, commandName: 'agent login', flags };
 
     // Check Docker is running
     if (!isDockerRunning()) {
-      return handleError('DOCKER_NOT_RUNNING', 'Docker is not running. Please start Docker Desktop and try again.');
+      this.handleError('DOCKER_NOT_RUNNING', 'Docker is not running. Please start Docker Desktop and try again.', errorConfig);
     }
 
     // Get workspace information
@@ -98,7 +92,7 @@ export default class Login extends PMOCommand {
         choices.push({ name: `⏱️  ${agent.name}`, value: agent.name, command: `prlt agent login ${agent.name} --json` });
       }
 
-      const { selected } = await this.agentPrompt<{ selected: string }>([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select agent to authenticate:',
