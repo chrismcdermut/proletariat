@@ -83,10 +83,13 @@ export default class ActionDelete extends PMOCommand {
 
       const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
         {
-          type: 'confirm',
+          type: 'list',
           name: 'confirm',
           message: `Delete action "${action.name}"?`,
-          default: false,
+          choices: [
+            { name: 'No', value: false },
+            { name: 'Yes', value: true },
+          ],
         },
       ]);
 
