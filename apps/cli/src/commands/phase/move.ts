@@ -1,13 +1,10 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class PhaseMove extends PMOCommand {
@@ -67,29 +64,19 @@ export default class PhaseMove extends PMOCommand {
         return handleError('NO_PHASES', 'No phases found. Create a phase first with "prlt phase create".');
       }
 
-      // In JSON mode, output phase selection prompt
-      if (jsonMode) {
-        const phaseChoices = phases.map(p => ({
-          name: `${p.name} (${p.category}, position ${p.position})`,
-          value: p.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'phaseId', 'Select phase to move:', phaseChoices),
-          createMetadata('phase move', flags)
-        );
-        return;
-      }
-
-      const { selectedId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedId',
+      const selected = await this.selectFromList({
         message: 'Select phase to move:',
-        choices: phases.map(p => ({
-          name: `${p.name} (${p.category}, position ${p.position})`,
-          value: p.id,
-        })),
-      }]);
-      phaseId = selectedId;
+        items: phases,
+        getName: (p) => `${p.name} (${p.category}, position ${p.position})`,
+        getValue: (p) => p.id,
+        getCommand: (p) => `prlt phase move ${p.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'phase move' } : null,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      phaseId = selected;
     }
 
     const phase = await this.storage.getPhase(phaseId!);
@@ -105,30 +92,25 @@ export default class PhaseMove extends PMOCommand {
       const phases = await this.storage.listPhases();
       const categoryPhases = phases.filter(p => p.category === phase.category);
 
-      // In JSON mode, output position selection prompt
-      if (jsonMode) {
-        const positionChoices = categoryPhases.map((_, idx) => ({
-          name: `Position ${idx}${idx === phase.position ? ' (current)' : ''}`,
-          value: String(idx),
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'position', `New position within ${phase.category} (currently ${phase.position}):`, positionChoices),
-          createMetadata('phase move', flags)
-        );
-        return;
-      }
+      // Create position items for selectFromList
+      const positionItems = categoryPhases.map((_, idx) => ({
+        idx,
+        label: `Position ${idx}${idx === phase.position ? ' (current)' : ''}`,
+      }));
 
-      const { position } = await inquirer.prompt([{
-        type: 'list',
-        name: 'position',
+      const selected = await this.selectFromList({
         message: `New position within ${phase.category} (currently ${phase.position}):`,
-        choices: categoryPhases.map((_, idx) => ({
-          name: `Position ${idx}${idx === phase.position ? ' (current)' : ''}`,
-          value: idx,
-        })),
-        default: phase.position,
-      }]);
-      newPosition = position;
+        items: positionItems,
+        getName: (p) => p.label,
+        getValue: (p) => String(p.idx),
+        getCommand: (p) => `prlt phase move ${phaseId} --position ${p.idx} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'phase move' } : null,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      newPosition = parseInt(selected, 10);
     }
 
     if (newPosition! < 0) {

@@ -163,6 +163,7 @@ export default class PhaseUpdate extends PMOCommand {
           buildFormPromptConfig(fields),
           createMetadata('phase update', flags)
         );
+        return;
       }
 
       updates = await this.promptUpdates(fields, existing);

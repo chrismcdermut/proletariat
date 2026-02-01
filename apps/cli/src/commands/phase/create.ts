@@ -103,6 +103,7 @@ export default class PhaseCreate extends PMOCommand {
             buildFormPromptConfig(fields),
             createMetadata('phase create', flags)
           );
+          return;
         }
 
         phaseData = await this.promptPhaseData(fields);
