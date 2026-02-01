@@ -98,6 +98,55 @@ else
     exit 1
 fi
 
+# Test 6: Project list JSON output
+echo -e "\n${GREEN}Test 6: Project list JSON output${NC}"
+cd $TEST_DIR/test-pmo-hq-hq
+
+OUTPUT=$(node "$CLI_PATH" project list --json)
+if echo "$OUTPUT" | grep -q '"projects"'; then
+    echo -e "${GREEN}✓ project list --json returns projects array${NC}"
+else
+    echo -e "${RED}✗ project list --json output incorrect${NC}"
+    echo "Output was: $OUTPUT"
+    exit 1
+fi
+
+if echo "$OUTPUT" | grep -q '"success": true'; then
+    echo -e "${GREEN}✓ project list --json returns success${NC}"
+else
+    echo -e "${RED}✗ project list --json missing success field${NC}"
+    echo "Output was: $OUTPUT"
+    exit 1
+fi
+
+# Test 7: Project archive/unarchive JSON mode
+echo -e "\n${GREEN}Test 7: Project archive JSON mode${NC}"
+cd $TEST_DIR/test-pmo-hq-hq
+
+# Archive the default project with force flag
+OUTPUT=$(node "$CLI_PATH" project archive default --force --json 2>&1 || true)
+if echo "$OUTPUT" | grep -q '"error"' || echo "$OUTPUT" | grep -q 'Archived'; then
+    echo -e "${GREEN}✓ project archive --json works${NC}"
+else
+    echo -e "${RED}✗ project archive --json output incorrect${NC}"
+    echo "Output was: $OUTPUT"
+    exit 1
+fi
+
+# Test 8: Project unarchive JSON error handling
+echo -e "\n${GREEN}Test 8: Project unarchive JSON error handling${NC}"
+cd $TEST_DIR/test-pmo-hq-hq
+
+# Try to unarchive non-existent project
+OUTPUT=$(node "$CLI_PATH" project unarchive nonexistent --json 2>&1 || true)
+if echo "$OUTPUT" | grep -q '"error"' && echo "$OUTPUT" | grep -q 'PROJECT_NOT_FOUND'; then
+    echo -e "${GREEN}✓ project unarchive --json returns proper error${NC}"
+else
+    echo -e "${RED}✗ project unarchive --json error handling incorrect${NC}"
+    echo "Output was: $OUTPUT"
+    exit 1
+fi
+
 # Clean up
 cd $OLDPWD
 rm -rf $TEST_DIR
