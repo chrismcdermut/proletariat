@@ -101,7 +101,7 @@ export default class TicketMove extends PMOCommand {
         items: allTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
-        getCommand: (t) => `prlt ticket move ${t.id} --json`,
+        getCommand: (t) => `prlt ticket move ${t.id} -P ${projectId} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket move' } : null,
       });
 
@@ -133,7 +133,7 @@ export default class TicketMove extends PMOCommand {
         items: project.columns as { name: string }[],
         getName: (col) => col.name === ticket.statusName ? `${col.name} (current)` : col.name,
         getValue: (col) => col.name,
-        getCommand: (col) => `prlt ticket move ${ticketId} "${col.name}" --json`,
+        getCommand: (col) => `prlt ticket move ${ticketId} "${col.name}" -P ${projectId} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'ticket move' } : null,
       });
 
@@ -182,19 +182,19 @@ export default class TicketMove extends PMOCommand {
     const columns = board.columns.map(col => col.name);
 
     // Agent mode config for prompts
-    const agentConfig = flags.json ? { flags, commandName: 'ticket move --bulk' } : null;
+    const jsonModeConfig = flags.json ? { flags, commandName: 'ticket move --bulk' } : null;
 
     // Select tickets to move (now agent-compatible!)
-    const { selectedTickets } = await this.agentPrompt<{ selectedTickets: string[] }>([{
+    const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{
       type: 'checkbox',
       name: 'selectedTickets',
       message: 'Select tickets to move:',
       choices: allTickets.map(t => ({
         name: `${t.id} - ${t.title} (${t.statusName})`,
         value: t.id,
-        command: `prlt ticket move ${t.id} --json`,  // For agent: select single ticket
+        command: `prlt ticket move ${t.id} -P ${projectId} --json`,  // For agent: select single ticket
       })),
-    }], agentConfig);
+    }], jsonModeConfig);
 
     if (selectedTickets.length === 0) {
       this.log(styles.muted('No tickets selected.'));
@@ -202,16 +202,16 @@ export default class TicketMove extends PMOCommand {
     }
 
     // Select target column (now agent-compatible!)
-    const { targetColumn } = await this.agentPrompt<{ targetColumn: string }>([{
+    const { targetColumn } = await this.prompt<{ targetColumn: string }>([{
       type: 'list',
       name: 'targetColumn',
       message: 'Move selected tickets to:',
       choices: columns.map(c => ({
         name: c,
         value: c,
-        command: `prlt ticket move ${selectedTickets.join(' ')} "${c}" --json`,
+        command: `prlt ticket move ${selectedTickets.join(' ')} "${c}" -P ${projectId} --json`,
       })),
-    }], agentConfig);
+    }], jsonModeConfig);
 
     // Confirmation
     if (!flags.force) {
@@ -222,15 +222,15 @@ export default class TicketMove extends PMOCommand {
       }
       this.log(styles.primary(`  → to column: ${targetColumn}\n`));
 
-      const { confirm } = await this.agentPrompt<{ confirm: boolean }>([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: 'Continue?',
         choices: [
           { name: 'No, cancel', value: 'false', command: '' },
-          { name: 'Yes, move tickets', value: 'true', command: `prlt ticket move ${selectedTickets.join(' ')} "${targetColumn}" --force --json` }
+          { name: 'Yes, move tickets', value: 'true', command: `prlt ticket move ${selectedTickets.join(' ')} "${targetColumn}" -P ${projectId} --force --json` }
         ],
-      }], agentConfig);
+      }], jsonModeConfig);
 
       if (!confirm) {
         this.log(styles.muted('Move cancelled.'));
