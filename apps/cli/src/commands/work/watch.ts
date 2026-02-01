@@ -18,11 +18,10 @@ import { DisplayMode, ExecutionEnvironment, ExecutionConfig } from '../../lib/ex
 import { promptExecutionSettings } from '../../lib/execution/config.js'
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js'
+import { FlagResolver } from '../../lib/flags/index.js'
 
 export default class WorkWatch extends PMOCommand {
   static description = 'Watch a column and auto-spawn agents for new tickets'
@@ -157,39 +156,32 @@ export default class WorkWatch extends PMOCommand {
       // Prompt for column if not provided
       this.columnName = flags.column || ''
       if (!this.columnName) {
-        // In JSON mode, output column selection prompt
-        if (jsonMode) {
-          const columnChoices = columns.map(col => {
-            const ticketCount = board.columns.find(c => c.name === col)?.tickets?.length || 0
-            return {
-              name: `${col} (${ticketCount} tickets)`,
-              value: col,
-            }
-          })
-          outputPromptAsJson(
-            buildPromptConfig('list', 'column', 'Select column to watch for new tickets:', columnChoices),
-            createMetadata('work watch', flags)
-          )
-          db.close()
-          return
-        }
+        // Build column choices with ticket counts
+        const columnChoices = columns.map(col => {
+          const ticketCount = board.columns.find(c => c.name === col)?.tickets?.length || 0
+          return {
+            name: `${col} (${ticketCount} tickets)`,
+            value: col,
+          }
+        })
 
-        const { selectedColumn } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedColumn',
-            message: 'Select column to watch for new tickets:',
-            choices: columns.map(col => {
-              // Get ticket count for each column
-              const ticketCount = board.columns.find(c => c.name === col)?.tickets?.length || 0
-              return {
-                name: `${col} (${ticketCount} tickets)`,
-                value: col,
-              }
-            }),
-          },
-        ])
-        this.columnName = selectedColumn
+        // Use FlagResolver for column selection
+        const columnResolver = new FlagResolver<{ column?: string }>({
+          commandName: 'work watch',
+          baseCommand: 'prlt work watch',
+          jsonMode,
+          flags: {},
+        })
+
+        columnResolver.addPrompt({
+          flagName: 'column',
+          type: 'list',
+          message: 'Select column to watch for new tickets:',
+          choices: () => columnChoices,
+        })
+
+        const columnResult = await columnResolver.resolve()
+        this.columnName = columnResult.column || ''
       }
 
       // Check if any agent has devcontainer
@@ -222,60 +214,50 @@ export default class WorkWatch extends PMOCommand {
 
       if (!flags.mode) {
         if (hasDevcontainer && dockerRunning && devcontainerCliInstalled) {
-          const envChoices = [
-            { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
-            { name: '💻 host (runs directly on your machine)', value: 'host' },
-          ]
+          // Use FlagResolver for environment selection
+          const envResolver = new FlagResolver<{ selectedEnvironment?: string }>({
+            commandName: 'work watch',
+            baseCommand: 'prlt work watch',
+            jsonMode,
+            flags: {},
+          })
 
-          // In JSON mode, output the environment selection prompt
-          if (jsonMode) {
-            outputPromptAsJson(
-              buildPromptConfig('list', 'selectedEnvironment', 'Where should agents run?', envChoices, 'devcontainer'),
-              createMetadata('work watch', flags)
-            )
-            db.close()
-            return
-          }
-
-          // Prompt for environment choice
-          const { selectedEnvironment } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedEnvironment',
-              message: 'Where should agents run?',
-              choices: envChoices,
-              default: 'devcontainer',
-            },
-          ])
-          this.environment = selectedEnvironment
-        }
-
-        const displayChoices = [
-          { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-          { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
-        ]
-
-        // In JSON mode, output the display mode prompt
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'selectedDisplay', 'How should agent output be displayed?', displayChoices, 'terminal'),
-            createMetadata('work watch', flags)
-          )
-          db.close()
-          return
-        }
-
-        // Prompt for display mode
-        const { selectedDisplay } = await inquirer.prompt([
-          {
+          envResolver.addPrompt({
+            flagName: 'selectedEnvironment',
             type: 'list',
-            name: 'selectedDisplay',
-            message: 'How should agent output be displayed?',
-            choices: displayChoices,
-            default: 'terminal',
-          },
-        ])
-        this.displayMode = selectedDisplay as DisplayMode
+            message: 'Where should agents run?',
+            default: 'devcontainer',
+            choices: () => [
+              { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
+              { name: '💻 host (runs directly on your machine)', value: 'host' },
+            ],
+          })
+
+          const envResult = await envResolver.resolve()
+          this.environment = envResult.selectedEnvironment as ExecutionEnvironment
+        }
+
+        // Use FlagResolver for display mode
+        const displayResolver = new FlagResolver<{ selectedDisplay?: string }>({
+          commandName: 'work watch',
+          baseCommand: 'prlt work watch',
+          jsonMode,
+          flags: {},
+        })
+
+        displayResolver.addPrompt({
+          flagName: 'selectedDisplay',
+          type: 'list',
+          message: 'How should agent output be displayed?',
+          default: 'terminal',
+          choices: () => [
+            { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+            { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+          ],
+        })
+
+        const displayResult = await displayResolver.resolve()
+        this.displayMode = displayResult.selectedDisplay as DisplayMode
       } else {
         this.displayMode = flags.mode as DisplayMode
         this.environment = hasDevcontainer && dockerRunning ? 'devcontainer' : 'host'
