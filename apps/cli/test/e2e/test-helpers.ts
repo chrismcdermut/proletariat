@@ -17,6 +17,9 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import Database from 'better-sqlite3';
+import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
+import { PMO_TABLES } from '../../src/lib/pmo/schema.js';
 
 /**
  * Error type for execSync failures, which include stdout/stderr from the child process.
@@ -135,6 +138,269 @@ export function createEpicDirectories(pmoPath: string, projectId: string = 'test
   for (const status of statuses) {
     fs.mkdirSync(path.join(epicsDir, status), { recursive: true });
   }
+}
+
+// =============================================================================
+// Production Schema Setup
+// =============================================================================
+// These helpers use the production PMO schema to ensure tests accurately
+// reflect production behavior and prevent schema drift.
+
+const T = PMO_TABLES;
+
+/**
+ * Sets up a test database using the production PMO schema.
+ *
+ * This is the recommended way to set up test databases as it:
+ * - Uses the exact same schema as production (PMO_SCHEMA_SQL)
+ * - Seeds all builtin data (workflows, phases, actions, templates)
+ * - Prevents schema drift between tests and production
+ *
+ * Usage:
+ *   const db = setupProductionSchema(env.dbPath, env.pmoPath);
+ *   // db is ready to use with production schema and builtin data
+ *
+ * @param dbPath - Path to the SQLite database file
+ * @param pmoPath - Path to the PMO directory (stored in settings)
+ * @returns Database instance with production schema initialized
+ */
+export function setupProductionSchema(dbPath: string, pmoPath: string): Database.Database {
+  const db = new Database(dbPath);
+  db.pragma('foreign_keys = ON');
+
+  // Initialize PMO tables using production schema and seeding
+  // This runs migrations, creates tables, and seeds builtin data
+  initializePMOTables(db);
+
+  // Store PMO path in settings
+  db.prepare(`INSERT OR REPLACE INTO ${T.settings} (key, value) VALUES ('pmo_path', ?)`).run(pmoPath);
+
+  return db;
+}
+
+/**
+ * Creates a test project in the database.
+ *
+ * @param db - Database instance
+ * @param options - Project options
+ * @returns The project ID
+ */
+export function createTestProject(
+  db: Database.Database,
+  options: {
+    id?: string;
+    name?: string;
+    description?: string;
+    workflowId?: string;
+  } = {}
+): string {
+  const id = options.id ?? 'test-project';
+  const name = options.name ?? 'Test Project';
+  const description = options.description ?? 'E2E test project';
+  const workflowId = options.workflowId ?? 'default';
+
+  db.prepare(`
+    INSERT INTO ${T.projects} (id, name, description, workflow_id)
+    VALUES (?, ?, ?, ?)
+  `).run(id, name, description, workflowId);
+
+  // Set as current project
+  db.prepare(`INSERT OR REPLACE INTO ${T.settings} (key, value) VALUES ('current_project', ?)`).run(id);
+
+  return id;
+}
+
+/**
+ * Creates a test ticket in the database.
+ *
+ * @param db - Database instance
+ * @param projectId - Project ID
+ * @param options - Ticket options
+ * @returns The ticket ID
+ */
+export function createTestTicket(
+  db: Database.Database,
+  projectId: string,
+  options: {
+    id?: string;
+    title?: string;
+    description?: string;
+    status?: string;
+    statusId?: string;
+    priority?: string;
+    category?: string;
+  } = {}
+): string {
+  const id = options.id ?? `TKT-${Date.now()}`;
+  const title = options.title ?? 'Test Ticket';
+  const description = options.description ?? null;
+  const status = options.status ?? 'Backlog';
+  const statusId = options.statusId ?? 'default-backlog';
+  const priority = options.priority ?? null;
+  const category = options.category ?? null;
+
+  db.prepare(`
+    INSERT INTO ${T.tickets} (id, project_id, title, description, status, status_id, priority, category)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, projectId, title, description, status, statusId, priority, category);
+
+  return id;
+}
+
+/**
+ * Creates a custom workflow in the database.
+ *
+ * @param db - Database instance
+ * @param options - Workflow options
+ * @returns The workflow ID
+ */
+export function createTestWorkflow(
+  db: Database.Database,
+  options: {
+    id?: string;
+    name?: string;
+    description?: string;
+  } = {}
+): string {
+  const id = options.id ?? `test-workflow-${Date.now()}`;
+  const name = options.name ?? 'Test Workflow';
+  const description = options.description ?? null;
+
+  db.prepare(`
+    INSERT INTO ${T.workflows} (id, name, description, is_builtin)
+    VALUES (?, ?, ?, 0)
+  `).run(id, name, description);
+
+  return id;
+}
+
+/**
+ * Adds a status to a workflow.
+ *
+ * @param db - Database instance
+ * @param workflowId - Workflow ID
+ * @param options - Status options
+ * @returns The status ID
+ */
+export function addTestWorkflowStatus(
+  db: Database.Database,
+  workflowId: string,
+  options: {
+    id?: string;
+    name: string;
+    category: string;
+    position: number;
+    isDefault?: boolean;
+  }
+): string {
+  const id = options.id ?? `${workflowId}-${options.name.toLowerCase().replace(/\s+/g, '-')}`;
+
+  db.prepare(`
+    INSERT INTO ${T.workflow_statuses} (id, workflow_id, name, category, position, is_default)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, workflowId, options.name, options.category, options.position, options.isDefault ? 1 : 0);
+
+  return id;
+}
+
+/**
+ * Creates a test spec in the database.
+ *
+ * @param db - Database instance
+ * @param options - Spec options
+ * @returns The spec ID
+ */
+export function createTestSpec(
+  db: Database.Database,
+  options: {
+    id?: string;
+    title?: string;
+    status?: string;
+  } = {}
+): string {
+  const id = options.id ?? `SPEC-${Date.now()}`;
+  const title = options.title ?? 'Test Spec';
+  const status = options.status ?? 'draft';
+
+  db.prepare(`
+    INSERT INTO ${T.specs} (id, title, status)
+    VALUES (?, ?, ?)
+  `).run(id, title, status);
+
+  return id;
+}
+
+/**
+ * Creates a test epic in the database.
+ *
+ * @param db - Database instance
+ * @param projectId - Project ID
+ * @param options - Epic options
+ * @returns The epic ID
+ */
+export function createTestEpic(
+  db: Database.Database,
+  projectId: string,
+  options: {
+    id?: string;
+    title?: string;
+    description?: string;
+    status?: string;
+    position?: number;
+  } = {}
+): string {
+  const id = options.id ?? `EPIC-${Date.now()}`;
+  const title = options.title ?? 'Test Epic';
+  const description = options.description ?? null;
+  const status = options.status ?? 'active';
+  const position = options.position ?? 0;
+
+  db.prepare(`
+    INSERT INTO ${T.epics} (id, project_id, title, description, status, position)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, projectId, title, description, status, position);
+
+  return id;
+}
+
+/**
+ * Gets the default status ID for a workflow.
+ * Useful for creating tickets with the correct status_id.
+ *
+ * @param db - Database instance
+ * @param workflowId - Workflow ID (defaults to 'default')
+ * @returns The default status ID or first status if no default
+ */
+export function getDefaultStatusId(db: Database.Database, workflowId: string = 'default'): string {
+  const result = db.prepare(`
+    SELECT id FROM ${T.workflow_statuses}
+    WHERE workflow_id = ?
+    ORDER BY is_default DESC, position ASC
+    LIMIT 1
+  `).get(workflowId) as { id: string } | undefined;
+
+  return result?.id ?? 'default-backlog';
+}
+
+/**
+ * Gets a status ID by name for a workflow.
+ *
+ * @param db - Database instance
+ * @param workflowId - Workflow ID
+ * @param statusName - Status name to find
+ * @returns The status ID or undefined if not found
+ */
+export function getStatusIdByName(
+  db: Database.Database,
+  workflowId: string,
+  statusName: string
+): string | undefined {
+  const result = db.prepare(`
+    SELECT id FROM ${T.workflow_statuses}
+    WHERE workflow_id = ? AND name = ?
+  `).get(workflowId, statusName) as { id: string } | undefined;
+
+  return result?.id;
 }
 
 /**
