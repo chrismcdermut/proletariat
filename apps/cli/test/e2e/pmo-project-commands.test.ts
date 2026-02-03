@@ -1,39 +1,47 @@
 import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { exec } from './test-helpers.js';
+import {
+  exec,
+  createTestEnvironment,
+  cleanupTestEnvironment,
+  setupProductionSchema,
+  createTestProject,
+  createHQConfig,
+  createPMODirectories,
+  type TestEnvironment,
+} from './test-helpers.js';
 
 /**
  * End-to-end tests for PMO Project Commands
  * Tests: prlt project create, list, view, delete
  */
 describe('PMO Project Commands E2E Tests', () => {
-  let testDir: string;
-  let originalCwd: string;
-  let dbPath: string;
+  let env: TestEnvironment;
   let db: Database.Database;
+  const pmoPath = 'pmo'; // relative path for settings
 
   beforeEach(() => {
-    originalCwd = process.cwd();
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmo-project-e2e-'));
-    process.chdir(testDir);
+    env = createTestEnvironment('pmo-project-e2e-');
 
-    const proletariatDir = path.join(testDir, '.proletariat');
-    fs.mkdirSync(proletariatDir, { recursive: true });
-    dbPath = path.join(proletariatDir, 'workspace.db');
+    // Use production schema
+    db = setupProductionSchema(env.dbPath, pmoPath);
 
-    db = new Database(dbPath);
-    setupTestDatabase(db);
+    // Create default project (production schema doesn't seed a default project)
+    createTestProject(db, { id: 'default', name: 'Default Project' });
+
+    // Create HQ config and PMO directories
+    createHQConfig(env.proletariatDir);
+    createPMODirectories(env.pmoPath, 'default');
+
+    // Create specs directory (needed for some tests)
+    fs.mkdirSync(path.join(env.pmoPath, 'specs'), { recursive: true });
   });
 
   afterEach(() => {
     if (db) db.close();
-    process.chdir(originalCwd);
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
+    cleanupTestEnvironment(env);
   });
 
   describe('prlt project create', () => {
@@ -73,14 +81,14 @@ describe('PMO Project Commands E2E Tests', () => {
     it('should create project folder structure', () => {
       exec('project create --name "Folder Test"');
 
-      const projectPath = path.join(testDir, 'pmo/projects/folder-test');
+      const projectPath = path.join(env.testDir, 'pmo/projects/folder-test');
       expect(fs.existsSync(projectPath)).to.be.true;
     });
 
     it('should create kanban.md board file', () => {
       exec('project create --name "Board Test"');
 
-      const boardPath = path.join(testDir, 'pmo/projects/board-test/kanban.md');
+      const boardPath = path.join(env.testDir, 'pmo/projects/board-test/kanban.md');
       expect(fs.existsSync(boardPath)).to.be.true;
 
       const content = fs.readFileSync(boardPath, 'utf-8');
@@ -90,7 +98,7 @@ describe('PMO Project Commands E2E Tests', () => {
     it('should create epics folders', () => {
       exec('project create --name "Epic Folders"');
 
-      const epicsPath = path.join(testDir, 'pmo/projects/epic-folders/epics');
+      const epicsPath = path.join(env.testDir, 'pmo/projects/epic-folders/epics');
       expect(fs.existsSync(path.join(epicsPath, 'draft'))).to.be.true;
       expect(fs.existsSync(path.join(epicsPath, 'active'))).to.be.true;
       expect(fs.existsSync(path.join(epicsPath, 'complete'))).to.be.true;
@@ -99,7 +107,7 @@ describe('PMO Project Commands E2E Tests', () => {
     it('should use kanban template by default', () => {
       exec('project create --name "Default Template"');
 
-      const boardPath = path.join(testDir, 'pmo/projects/default-template/kanban.md');
+      const boardPath = path.join(env.testDir, 'pmo/projects/default-template/kanban.md');
       const content = fs.readFileSync(boardPath, 'utf-8');
 
       // Kanban template has Backlog, In Progress, Done
@@ -111,7 +119,7 @@ describe('PMO Project Commands E2E Tests', () => {
     it('should use linear template when specified', () => {
       exec('project create --name "Linear Project" --template linear');
 
-      const boardPath = path.join(testDir, 'pmo/projects/linear-project/kanban.md');
+      const boardPath = path.join(env.testDir, 'pmo/projects/linear-project/kanban.md');
       const content = fs.readFileSync(boardPath, 'utf-8');
 
       // Linear template has Canceled column (unlike kanban)
@@ -136,8 +144,8 @@ describe('PMO Project Commands E2E Tests', () => {
 
   describe('prlt project list', () => {
     it('should list all projects', () => {
-      createTestProject(db, 'proj-1', 'Project One');
-      createTestProject(db, 'proj-2', 'Project Two');
+      createLocalTestProject(db, 'proj-1', 'Project One');
+      createLocalTestProject(db, 'proj-2', 'Project Two');
 
       const output = exec('project list');
 
@@ -148,10 +156,10 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should show project ticket counts', () => {
-      createTestProject(db, 'proj-with-tickets', 'Project With Tickets');
-      createTestColumns(db, 'proj-with-tickets');
-      createTestTicket(db, 'TKT-001', 'Ticket 1', 'proj-with-tickets');
-      createTestTicket(db, 'TKT-002', 'Ticket 2', 'proj-with-tickets');
+      createLocalTestProject(db, 'proj-with-tickets', 'Project With Tickets');
+      createLocalTestColumns(db, 'proj-with-tickets');
+      createLocalTestTicket(db, 'TKT-001', 'Ticket 1', 'proj-with-tickets');
+      createLocalTestTicket(db, 'TKT-002', 'Ticket 2', 'proj-with-tickets');
 
       const output = exec('project list');
 
@@ -188,8 +196,8 @@ describe('PMO Project Commands E2E Tests', () => {
 
   describe('prlt project view', () => {
     beforeEach(() => {
-      createTestProject(db, 'view-project', 'View Test Project');
-      createTestColumns(db, 'view-project');
+      createLocalTestProject(db, 'view-project', 'View Test Project');
+      createLocalTestColumns(db, 'view-project');
     });
 
     it('should display project name and id', () => {
@@ -208,8 +216,8 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should show tickets in columns', () => {
-      createTestTicket(db, 'TKT-001', 'First Ticket', 'view-project', 'backlog');
-      createTestTicket(db, 'TKT-002', 'Second Ticket', 'view-project', 'in_progress');
+      createLocalTestTicket(db, 'TKT-001', 'First Ticket', 'view-project', 'backlog');
+      createLocalTestTicket(db, 'TKT-002', 'Second Ticket', 'view-project', 'in_progress');
 
       const output = exec('project view view-project');
 
@@ -227,8 +235,8 @@ describe('PMO Project Commands E2E Tests', () => {
 
     it('should show ticket priority and category', () => {
       db.prepare(`
-        INSERT INTO pmo_tickets (id, project_id, title, priority, category, status)
-        VALUES ('TKT-001', 'view-project', 'Prioritized', 'HIGH', 'feature', 'backlog')
+        INSERT INTO pmo_tickets (id, project_id, title, priority, category, status, status_id)
+        VALUES ('TKT-001', 'view-project', 'Prioritized', 'HIGH', 'feature', 'backlog', 'default-backlog')
       `).run();
       db.prepare(`
         INSERT INTO pmo_board_tickets (project_id, ticket_id, column_id, position)
@@ -242,7 +250,7 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should show subtask count', () => {
-      createTestTicket(db, 'TKT-001', 'With Subtasks', 'view-project', 'backlog');
+      createLocalTestTicket(db, 'TKT-001', 'With Subtasks', 'view-project', 'backlog');
       db.prepare(`
         INSERT INTO pmo_subtasks (id, ticket_id, title, done, position)
         VALUES ('sub-1', 'TKT-001', 'Subtask 1', 0, 0)
@@ -267,11 +275,11 @@ describe('PMO Project Commands E2E Tests', () => {
 
   describe('prlt project delete', () => {
     beforeEach(() => {
-      createTestProject(db, 'delete-project', 'Delete Test Project');
-      createTestColumns(db, 'delete-project');
+      createLocalTestProject(db, 'delete-project', 'Delete Test Project');
+      createLocalTestColumns(db, 'delete-project');
 
       // Create project folder
-      const projectPath = path.join(testDir, 'pmo/projects/delete-project');
+      const projectPath = path.join(env.testDir, 'pmo/projects/delete-project');
       fs.mkdirSync(projectPath, { recursive: true });
       fs.writeFileSync(path.join(projectPath, 'kanban.md'), 'test board');
     });
@@ -286,13 +294,13 @@ describe('PMO Project Commands E2E Tests', () => {
     it('should delete project folder', () => {
       exec('project delete delete-project --force');
 
-      const projectPath = path.join(testDir, 'pmo/projects/delete-project');
+      const projectPath = path.join(env.testDir, 'pmo/projects/delete-project');
       expect(fs.existsSync(projectPath)).to.be.false;
     });
 
     it('should cascade delete tickets', () => {
-      createTestTicket(db, 'TKT-001', 'Ticket 1', 'delete-project', 'backlog');
-      createTestTicket(db, 'TKT-002', 'Ticket 2', 'delete-project', 'in_progress');
+      createLocalTestTicket(db, 'TKT-001', 'Ticket 1', 'delete-project', 'backlog');
+      createLocalTestTicket(db, 'TKT-002', 'Ticket 2', 'delete-project', 'in_progress');
 
       exec('project delete delete-project --force');
 
@@ -316,8 +324,8 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should show ticket count in output', () => {
-      createTestTicket(db, 'TKT-001', 'Ticket 1', 'delete-project', 'backlog');
-      createTestTicket(db, 'TKT-002', 'Ticket 2', 'delete-project', 'in_progress');
+      createLocalTestTicket(db, 'TKT-001', 'Ticket 1', 'delete-project', 'backlog');
+      createLocalTestTicket(db, 'TKT-002', 'Ticket 2', 'delete-project', 'in_progress');
 
       const output = exec('project delete delete-project --force');
 
@@ -334,8 +342,8 @@ describe('PMO Project Commands E2E Tests', () => {
 
   describe('prlt project archive', () => {
     beforeEach(() => {
-      createTestProject(db, 'archive-project', 'Archive Test Project');
-      createTestColumns(db, 'archive-project');
+      createLocalTestProject(db, 'archive-project', 'Archive Test Project');
+      createLocalTestColumns(db, 'archive-project');
     });
 
     it('should archive a project', () => {
@@ -368,8 +376,8 @@ describe('PMO Project Commands E2E Tests', () => {
 
   describe('prlt project unarchive', () => {
     beforeEach(() => {
-      createTestProject(db, 'unarchive-project', 'Unarchive Test Project');
-      createTestColumns(db, 'unarchive-project');
+      createLocalTestProject(db, 'unarchive-project', 'Unarchive Test Project');
+      createLocalTestColumns(db, 'unarchive-project');
       // Archive the project
       db.prepare('UPDATE pmo_projects SET is_archived = 1 WHERE id = ?').run('unarchive-project');
     });
@@ -404,8 +412,8 @@ describe('PMO Project Commands E2E Tests', () => {
 
   describe('prlt project list --archived', () => {
     beforeEach(() => {
-      createTestProject(db, 'active-proj', 'Active Project');
-      createTestProject(db, 'archived-proj', 'Archived Project');
+      createLocalTestProject(db, 'active-proj', 'Active Project');
+      createLocalTestProject(db, 'archived-proj', 'Archived Project');
       // Archive one project
       db.prepare('UPDATE pmo_projects SET is_archived = 1 WHERE id = ?').run('archived-proj');
     });
@@ -455,389 +463,16 @@ describe('PMO Project Commands E2E Tests', () => {
   });
 });
 
-// Helper functions
+// Helper functions for this test file
 
-function setupTestDatabase(db: Database.Database) {
-  // Use the complete schema from the actual codebase (matches schema.ts)
-  db.exec(`
-    -- Settings table
-    CREATE TABLE IF NOT EXISTS pmo_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    -- Phases table (project lifecycle states)
-    CREATE TABLE IF NOT EXISTS pmo_phases (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Projects table
-    CREATE TABLE IF NOT EXISTS pmo_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      template TEXT,
-      description TEXT,
-      status TEXT DEFAULT 'active',
-      phase_id TEXT,
-      is_archived INTEGER NOT NULL DEFAULT 0,
-      target_date TEXT,
-      initiative_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (phase_id) REFERENCES pmo_phases(id) ON DELETE SET NULL
-    );
-
-    -- Initiatives table
-    CREATE TABLE IF NOT EXISTS pmo_initiatives (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      objective TEXT,
-      key_results TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Columns table
-    CREATE TABLE IF NOT EXISTS pmo_columns (
-      id TEXT NOT NULL,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      name TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, id)
-    );
-
-    -- Statuses table (must be before tickets due to FK)
-    CREATE TABLE IF NOT EXISTS pmo_statuses (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      UNIQUE(project_id, name)
-    );
-
-    -- Specs table (must be before tickets and epics due to FK)
-    CREATE TABLE IF NOT EXISTS pmo_specs (
-      id TEXT PRIMARY KEY,
-      path TEXT NOT NULL,
-      title TEXT,
-      overview TEXT,
-      status TEXT DEFAULT 'active',
-      spec_type TEXT DEFAULT 'domain',
-      domain TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Spec abilities table
-    CREATE TABLE IF NOT EXISTS pmo_spec_abilities (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      description TEXT,
-      position INTEGER NOT NULL DEFAULT 0,
-      UNIQUE(spec_id, name)
-    );
-
-    -- Spec implementations table
-    CREATE TABLE IF NOT EXISTS pmo_spec_implementations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ability_id INTEGER NOT NULL REFERENCES pmo_spec_abilities(id) ON DELETE CASCADE,
-      modality TEXT NOT NULL,
-      signature TEXT NOT NULL,
-      UNIQUE(ability_id, modality)
-    );
-
-    -- Spec fields table
-    CREATE TABLE IF NOT EXISTS pmo_spec_fields (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      field_type TEXT NOT NULL,
-      required TEXT DEFAULT 'optional',
-      default_value TEXT,
-      description TEXT,
-      position INTEGER NOT NULL DEFAULT 0,
-      UNIQUE(spec_id, name)
-    );
-
-    -- Spec rules table
-    CREATE TABLE IF NOT EXISTS pmo_spec_rules (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0
-    );
-
-    -- Spec relations table
-    CREATE TABLE IF NOT EXISTS pmo_spec_relations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-      related_domain TEXT NOT NULL,
-      relationship TEXT,
-      UNIQUE(spec_id, related_domain)
-    );
-
-    -- Epics table (must be before tickets due to FK)
-    CREATE TABLE IF NOT EXISTS pmo_epics (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT,
-      status TEXT NOT NULL DEFAULT 'active',
-      position INTEGER NOT NULL DEFAULT 0,
-      file_path TEXT,
-      spec_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (spec_id) REFERENCES pmo_specs(id) ON DELETE SET NULL
-    );
-
-    -- Tickets table
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      title TEXT NOT NULL,
-      description TEXT,
-      priority TEXT,
-      category TEXT,
-      status TEXT NOT NULL DEFAULT 'backlog',
-      status_id TEXT,
-      branch TEXT,
-      owner TEXT,
-      assignee TEXT,
-      spec_id TEXT,
-      epic_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      last_synced_from_spec TIMESTAMP,
-      last_synced_from_board TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (spec_id) REFERENCES pmo_specs(id) ON DELETE SET NULL,
-      FOREIGN KEY (epic_id) REFERENCES pmo_epics(id) ON DELETE SET NULL,
-      FOREIGN KEY (status_id) REFERENCES pmo_statuses(id)
-    );
-
-    -- Board tickets table
-    CREATE TABLE IF NOT EXISTS pmo_board_tickets (
-      project_id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL,
-      column_id TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      PRIMARY KEY (project_id, ticket_id),
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      FOREIGN KEY (project_id, column_id) REFERENCES pmo_columns(project_id, id) ON DELETE CASCADE
-    );
-
-    -- Subtasks table
-    CREATE TABLE IF NOT EXISTS pmo_subtasks (
-      id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      title TEXT NOT NULL,
-      done INTEGER DEFAULT 0,
-      position INTEGER NOT NULL,
-      PRIMARY KEY (ticket_id, id)
-    );
-
-    -- Ticket metadata table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_metadata (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      key TEXT NOT NULL,
-      value TEXT,
-      PRIMARY KEY (ticket_id, key)
-    );
-
-    -- Ticket dependencies table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_dependencies (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      blocked_by_ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (ticket_id, blocked_by_ticket_id),
-      CHECK (ticket_id != blocked_by_ticket_id)
-    );
-
-    -- Ticket affected paths table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_affected_paths (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      path_pattern TEXT NOT NULL,
-      path_type TEXT NOT NULL DEFAULT 'file',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Ticket acceptance criteria table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_acceptance_criteria (
-      id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      criterion TEXT NOT NULL,
-      verifiable INTEGER DEFAULT 1,
-      verified INTEGER DEFAULT 0,
-      verified_at TIMESTAMP,
-      verified_by TEXT,
-      position INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (ticket_id, id)
-    );
-
-    -- Ticket specs table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_specs (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-      PRIMARY KEY (ticket_id, spec_id)
-    );
-
-    -- Ticket assignments table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_assignments (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      agent_name TEXT NOT NULL,
-      assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (ticket_id, agent_name)
-    );
-
-    -- Cache metadata table
-    CREATE TABLE IF NOT EXISTS pmo_cache_metadata (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    -- Agent work table
-    CREATE TABLE IF NOT EXISTS agent_work (
-      id TEXT PRIMARY KEY,
-      ticket_id TEXT NOT NULL,
-      agent_name TEXT NOT NULL,
-      executor TEXT NOT NULL,
-      mode TEXT NOT NULL,
-      environment TEXT NOT NULL DEFAULT 'host',
-      display_mode TEXT NOT NULL DEFAULT 'terminal',
-      sandboxed INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'starting',
-      branch TEXT,
-      pid TEXT,
-      container_id TEXT,
-      session_id TEXT,
-      host TEXT,
-      log_path TEXT,
-      started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      completed_at TIMESTAMP,
-      exit_code INTEGER,
-      FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE
-    );
-
-    -- Workflow templates table
-    CREATE TABLE IF NOT EXISTS pmo_templates (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      description TEXT,
-      is_builtin INTEGER NOT NULL DEFAULT 0,
-      statuses TEXT NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Indexes
-    CREATE INDEX IF NOT EXISTS idx_pmo_columns_project ON pmo_columns(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_project ON pmo_tickets(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status ON pmo_tickets(status);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_epic ON pmo_tickets(epic_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_epics_project ON pmo_epics(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_spec_abilities_spec ON pmo_spec_abilities(spec_id);
-  `);
-
-  // Seed default phases
-  const defaultPhases = [
-    { id: 'idea', name: 'Idea', category: 'backlog', position: 0, description: 'Project concept', isDefault: 1 },
-    { id: 'planned', name: 'Planned', category: 'unstarted', position: 0, description: 'Scheduled for work' },
-    { id: 'active', name: 'Active', category: 'started', position: 0, description: 'Work in progress' },
-    { id: 'completed', name: 'Completed', category: 'completed', position: 0, description: 'Finished' },
-    { id: 'canceled', name: 'Canceled', category: 'canceled', position: 0, description: 'Won\'t be done' },
-  ];
-
-  for (const phase of defaultPhases) {
-    db.prepare(`
-      INSERT INTO pmo_phases (id, name, category, position, description, is_default)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(phase.id, phase.name, phase.category, phase.position, phase.description, phase.isDefault || 0);
-  }
-
-  // Create default project
+function createLocalTestProject(db: Database.Database, id: string, name: string, description?: string) {
   db.prepare(`
-    INSERT INTO pmo_projects (id, name, phase_id, is_archived)
-    VALUES ('default', 'Default Project', 'idea', 0)
-  `).run();
-
-  db.prepare(`INSERT INTO pmo_settings (key, value) VALUES ('pmo_path', 'pmo')`).run();
-  db.prepare(`INSERT INTO pmo_settings (key, value) VALUES ('current_project', 'default')`).run();
-
-  // Create default columns
-  const columns = [
-    { id: 'backlog', name: 'Backlog', position: 0 },
-    { id: 'in_progress', name: 'In Progress', position: 1 },
-    { id: 'done', name: 'Done', position: 2 },
-  ];
-
-  for (const col of columns) {
-    db.prepare(`
-      INSERT INTO pmo_columns (id, project_id, name, position)
-      VALUES (?, 'default', ?, ?)
-    `).run(col.id, col.name, col.position);
-  }
-
-  // Seed default statuses
-  const statuses = [
-    { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
-    { id: 'status-todo', name: 'Todo', category: 'unstarted', position: 0 },
-    { id: 'status-in-progress', name: 'In Progress', category: 'started', position: 0 },
-    { id: 'status-done', name: 'Done', category: 'completed', position: 0 },
-    { id: 'status-canceled', name: 'Canceled', category: 'canceled', position: 0 },
-  ];
-
-  for (const status of statuses) {
-    db.prepare(`
-      INSERT INTO pmo_statuses (id, project_id, name, category, position, is_default)
-      VALUES (?, 'default', ?, ?, ?, ?)
-    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
-  }
-
-  // Create HQ config file (required for findPMO to work)
-  const proletariatDir = path.join(process.cwd(), '.proletariat');
-  const configPath = path.join(proletariatDir, 'config.json');
-  fs.writeFileSync(configPath, JSON.stringify({
-    type: 'hq',
-    name: 'test-hq',
-    hasPmo: true,
-  }), 'utf-8');
-
-  // Create PMO directory structure
-  const pmoPath = path.join(process.cwd(), 'pmo/projects/default');
-  fs.mkdirSync(pmoPath, { recursive: true });
-
-  // Create specs directory
-  const specsPath = path.join(process.cwd(), 'pmo/specs');
-  fs.mkdirSync(specsPath, { recursive: true });
-}
-
-function createTestProject(db: Database.Database, id: string, name: string, description?: string) {
-  db.prepare(`
-    INSERT INTO pmo_projects (id, name, description, is_archived)
-    VALUES (?, ?, ?, 0)
+    INSERT INTO pmo_projects (id, name, description, is_archived, workflow_id)
+    VALUES (?, ?, ?, 0, 'default')
   `).run(id, name, description || null);
 }
 
-function createTestColumns(db: Database.Database, projectId: string) {
+function createLocalTestColumns(db: Database.Database, projectId: string) {
   const columns = [
     { id: 'backlog', name: 'Backlog', position: 0 },
     { id: 'in_progress', name: 'In Progress', position: 1 },
@@ -852,11 +487,19 @@ function createTestColumns(db: Database.Database, projectId: string) {
   }
 }
 
-function createTestTicket(db: Database.Database, id: string, title: string, projectId: string, columnId: string = 'backlog') {
+function createLocalTestTicket(db: Database.Database, id: string, title: string, projectId: string, columnId: string = 'backlog') {
+  // Map column names to production status_id format
+  const statusIdMap: Record<string, string> = {
+    'backlog': 'default-backlog',
+    'in_progress': 'default-in-progress',
+    'done': 'default-done',
+  };
+  const statusId = statusIdMap[columnId] || 'default-backlog';
+
   db.prepare(`
-    INSERT INTO pmo_tickets (id, project_id, title, status)
-    VALUES (?, ?, ?, ?)
-  `).run(id, projectId, title, columnId);
+    INSERT INTO pmo_tickets (id, project_id, title, status, status_id)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(id, projectId, title, columnId, statusId);
 
   db.prepare(`
     INSERT INTO pmo_board_tickets (project_id, ticket_id, column_id, position)
