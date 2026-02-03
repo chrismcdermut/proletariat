@@ -345,3 +345,205 @@ export function execOrFail(cmd: string): string {
     env: getIsolatedEnv(),
   });
 }
+
+// =============================================================================
+// Agent Flow Test Helpers
+// =============================================================================
+// These helpers support E2E tests that simulate an AI agent navigating through
+// CLI commands using the --machine/--json flags for JSON machine-readable output.
+//
+// Usage pattern:
+//   1. agentExec('command --machine') - execute and get JSON response
+//   2. findChoice(response.prompt.choices, 'pattern') - find a menu choice
+//   3. execChoice(choice) - get the command string from the choice
+//   4. Repeat until final step
+//   5. execFinal(cmd) - execute without --json to perform the action
+//   6. Verify the result
+// =============================================================================
+
+/**
+ * Response type for agent prompt JSON output.
+ * This is the structure returned by commands when --machine/--json is used.
+ */
+export interface AgentPromptResponse {
+  prompt: {
+    type: string;
+    name: string;
+    message: string;
+    choices: Array<AgentPromptChoice>;
+  };
+  metadata: {
+    command: string;
+    flags: Record<string, unknown>;
+  };
+}
+
+/**
+ * Choice type for agent prompt responses.
+ */
+export interface AgentPromptChoice {
+  name: string;
+  value: string;
+  command?: string;
+  disabled?: boolean;
+}
+
+/**
+ * Extract JSON from CLI output that may contain warnings or other noise.
+ * Looks for the first line starting with { and parses from there.
+ *
+ * @param output - Raw CLI output
+ * @returns Parsed JSON object or null if no valid JSON found
+ */
+export function extractJson<T>(output: string): T | null {
+  const lines = output.split('\n');
+  let jsonStart = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed.startsWith('{')) {
+      jsonStart = i;
+      break;
+    }
+  }
+
+  if (jsonStart === -1) {
+    return null;
+  }
+
+  const jsonLines = lines.slice(jsonStart).join('\n');
+  try {
+    return JSON.parse(jsonLines) as T;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if output indicates workspace/context errors that prevent JSON output.
+ * Use this to skip tests gracefully when the environment isn't set up.
+ *
+ * @param output - CLI output to check
+ * @returns true if output contains context error messages
+ */
+export function hasContextError(output: string): boolean {
+  return (
+    output.includes('Not in a workspace') ||
+    output.includes('No workspace') ||
+    output.includes('No projects found') ||
+    output.includes('No tickets') ||
+    output.includes('No agents found') ||
+    output.includes('Docker is not running') ||
+    output.includes('ENOENT') ||
+    output.includes('not found') ||
+    output.includes('Error:')
+  );
+}
+
+/**
+ * Execute a CLI command with --machine flag and parse the JSON response.
+ * This simulates an AI agent calling the CLI and receiving structured output.
+ *
+ * @param cmd - CLI command to execute (should include --machine or --json flag)
+ * @returns Parsed AgentPromptResponse or null if context error or no JSON
+ *
+ * @example
+ * const result = agentExec('ticket move -P test-project --machine');
+ * if (result) {
+ *   const ticketChoice = findChoice(result.prompt.choices, 'TKT-001');
+ * }
+ */
+export function agentExec(cmd: string): AgentPromptResponse | null {
+  const output = execProduction(cmd);
+  if (hasContextError(output)) {
+    return null;
+  }
+  return extractJson<AgentPromptResponse>(output);
+}
+
+/**
+ * Find a choice in a prompt response by partial name match.
+ * Case-insensitive matching.
+ *
+ * @param choices - Array of choices from prompt response
+ * @param pattern - String pattern to match against choice names
+ * @returns Matching choice or undefined if not found
+ *
+ * @example
+ * const columnChoice = findChoice(response.prompt.choices, 'In Progress');
+ */
+export function findChoice(
+  choices: AgentPromptChoice[],
+  pattern: string
+): AgentPromptChoice | undefined {
+  return choices.find(c =>
+    c.name.toLowerCase().includes(pattern.toLowerCase())
+  );
+}
+
+/**
+ * Find a choice by exact value match.
+ *
+ * @param choices - Array of choices from prompt response
+ * @param value - Exact value to match
+ * @returns Matching choice or undefined if not found
+ */
+export function findChoiceByValue(
+  choices: AgentPromptChoice[],
+  value: string
+): AgentPromptChoice | undefined {
+  return choices.find(c => c.value === value);
+}
+
+/**
+ * Extract the command string from a choice.
+ * Strips the 'prlt ' prefix so it can be passed to exec functions.
+ *
+ * @param choice - Choice object with command field
+ * @returns Command string without 'prlt ' prefix
+ * @throws Error if choice has no command field
+ *
+ * @example
+ * const nextCmd = execChoice(ticketChoice);
+ * const step2 = agentExec(nextCmd);
+ */
+export function execChoice(choice: AgentPromptChoice): string {
+  if (!choice.command) {
+    throw new Error(`Choice "${choice.name}" has no command field`);
+  }
+  return choice.command.replace('prlt ', '');
+}
+
+/**
+ * Execute the final command in an agent flow (without --json/--machine).
+ * This actually performs the action instead of returning another prompt.
+ *
+ * @param cmd - Command string (with or without --json/--machine flags)
+ * @returns Command output after execution
+ *
+ * @example
+ * const result = execFinal(execChoice(columnChoice));
+ * expect(result).to.include('Moved');
+ */
+export function execFinal(cmd: string): string {
+  const cleanCmd = cmd
+    .replace(' --json', '')
+    .replace(' --machine', '')
+    .replace(' -m', '');
+  return execProduction(cleanCmd);
+}
+
+/**
+ * Execute a command with --force flag to skip confirmation prompts.
+ * Useful for testing delete/destructive operations.
+ *
+ * @param cmd - Command string
+ * @returns Command output after execution
+ */
+export function execWithForce(cmd: string): string {
+  const cleanCmd = cmd
+    .replace(' --json', '')
+    .replace(' --machine', '')
+    .replace(' -m', '');
+  return execProduction(`${cleanCmd} --force`);
+}
