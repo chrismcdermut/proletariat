@@ -3,6 +3,7 @@ import { execSync } from 'node:child_process'
 import { styles } from '../../lib/styles.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
+import { machineOutputFlags } from '../../lib/pmo/base-command.js'
 
 export default class DockerPrune extends Command {
   static description = 'Remove unused Docker resources (containers, images, volumes, networks)'
@@ -35,10 +36,7 @@ export default class DockerPrune extends Command {
       description: 'Also prune volumes (dangerous - data loss possible)',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
+    ...machineOutputFlags,
   }
 
   async run(): Promise<void> {
@@ -91,11 +89,11 @@ export default class DockerPrune extends Command {
         ? 'This will remove unused resources INCLUDING VOLUMES. Data may be lost. Continue?'
         : 'Remove unused Docker resources?'
 
-      const resolver = new FlagResolver<{ confirmed?: boolean }>({
+      const resolver = new FlagResolver<{ confirmed?: boolean; machine?: boolean; json?: boolean }>({
         commandName: 'docker prune',
         baseCommand: 'prlt docker prune',
         jsonMode: shouldOutputJson(flags),
-        flags: {},
+        flags,
       })
 
       resolver.addPrompt({

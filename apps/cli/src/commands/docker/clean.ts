@@ -8,6 +8,7 @@ import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { sanitizeContainerId } from '../../lib/docker/resolve.js'
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
+import { machineOutputFlags } from '../../lib/pmo/base-command.js'
 
 interface OrphanedContainer {
   id: string
@@ -43,10 +44,7 @@ export default class DockerClean extends Command {
       description: 'Remove all stopped devcontainers (not just orphaned)',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
+    ...machineOutputFlags,
   }
 
   async run(): Promise<void> {
@@ -120,11 +118,11 @@ export default class DockerClean extends Command {
 
       // Confirm removal
       if (!flags.force) {
-        const resolver = new FlagResolver<{ confirmed?: boolean }>({
+        const resolver = new FlagResolver<{ confirmed?: boolean; machine?: boolean; json?: boolean }>({
           commandName: 'docker clean',
           baseCommand: 'prlt docker clean',
           jsonMode: shouldOutputJson(flags),
-          flags: {},
+          flags,
         })
 
         resolver.addPrompt({

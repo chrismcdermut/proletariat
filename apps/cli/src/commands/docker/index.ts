@@ -8,6 +8,7 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
+import { machineOutputFlags } from '../../lib/pmo/base-command.js'
 
 export default class Docker extends Command {
   static description = 'Manage Docker containers used by agents'
@@ -27,10 +28,7 @@ export default class Docker extends Command {
   ]
 
   static flags = {
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
+    ...machineOutputFlags,
   }
 
   async run(): Promise<void> {
@@ -50,14 +48,14 @@ export default class Docker extends Command {
       { name: 'Sync containers from Docker', value: 'sync', command: 'prlt docker sync --json' },
       { name: 'Clean orphaned containers', value: 'clean', command: 'prlt docker clean --json' },
       { name: 'Prune unused resources', value: 'prune', command: 'prlt docker prune --json' },
-      { name: 'Exit', value: 'exit' },
+      { name: 'Exit', value: 'exit', command: 'prlt docker --exit' },
     ]
 
-    const resolver = new FlagResolver<{ action?: string }>({
+    const resolver = new FlagResolver<{ action?: string; machine?: boolean; json?: boolean }>({
       commandName: 'docker',
       baseCommand: 'prlt docker',
       jsonMode,
-      flags: {},
+      flags,
     })
 
     resolver.addPrompt({

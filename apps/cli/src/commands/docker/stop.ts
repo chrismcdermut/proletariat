@@ -8,6 +8,7 @@ import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { resolveContainerId, isContainerRunning, sanitizeContainerId } from '../../lib/docker/resolve.js'
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
+import { machineOutputFlags } from '../../lib/pmo/base-command.js'
 
 export default class DockerStop extends Command {
   static description = 'Stop a running container (by execution ID, agent name, or container ID)'
@@ -30,10 +31,7 @@ export default class DockerStop extends Command {
       description: 'Seconds to wait before killing the container',
       default: 10,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
+    ...machineOutputFlags,
   }
 
   static args = {
@@ -90,11 +88,11 @@ export default class DockerStop extends Command {
 
       // Confirm
       if (!flags.force) {
-        const resolver = new FlagResolver<{ confirmed?: boolean }>({
+        const resolver = new FlagResolver<{ confirmed?: boolean; machine?: boolean; json?: boolean }>({
           commandName: 'docker stop',
           baseCommand: `prlt docker stop ${args.target}`,
           jsonMode: shouldOutputJson(flags),
-          flags: {},
+          flags,
         })
 
         resolver.addPrompt({

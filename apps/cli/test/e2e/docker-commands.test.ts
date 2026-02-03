@@ -178,12 +178,12 @@ describe('Docker Commands E2E Tests', () => {
       expect(validOutput).to.be.true
     })
 
-    it('should accept --json flag for JSON mode support', () => {
-      const output = exec('docker clean --json --help')
+    it('should accept --machine flag for JSON mode support', () => {
+      const output = exec('docker clean --machine --help')
 
-      // Should show --json flag in help
-      expect(output).to.contain('--json')
-      expect(output).to.contain('JSON')
+      // Should show --machine flag in help
+      expect(output).to.contain('--machine')
+      expect(output).to.contain('machine-readable')
     })
   })
 
@@ -270,12 +270,12 @@ describe('Docker Commands E2E Tests', () => {
       expect(validOutput).to.be.true
     })
 
-    it('should accept --json flag for JSON mode support', () => {
-      const output = exec('docker stop --json --help')
+    it('should accept --machine flag for JSON mode support', () => {
+      const output = exec('docker stop --machine --help')
 
-      // Should show --json flag in help
-      expect(output).to.contain('--json')
-      expect(output).to.contain('JSON')
+      // Should show --machine flag in help
+      expect(output).to.contain('--machine')
+      expect(output).to.contain('machine-readable')
     })
   })
 
@@ -344,12 +344,12 @@ describe('Docker Commands E2E Tests', () => {
       expect(validOutput).to.be.true
     })
 
-    it('should accept --json flag for JSON mode support', () => {
-      const output = exec('docker restart --json --help')
+    it('should accept --machine flag for JSON mode support', () => {
+      const output = exec('docker restart --machine --help')
 
-      // Should show --json flag in help
-      expect(output).to.contain('--json')
-      expect(output).to.contain('JSON')
+      // Should show --machine flag in help
+      expect(output).to.contain('--machine')
+      expect(output).to.contain('machine-readable')
     })
   })
 
@@ -457,12 +457,12 @@ describe('Docker Commands E2E Tests', () => {
       expect(validOutput).to.be.true
     })
 
-    it('should accept --json flag for JSON mode support', () => {
-      const output = exec('docker prune --json --help')
+    it('should accept --machine flag for JSON mode support', () => {
+      const output = exec('docker prune --machine --help')
 
-      // Should show --json flag in help
-      expect(output).to.contain('--json')
-      expect(output).to.contain('JSON')
+      // Should show --machine flag in help
+      expect(output).to.contain('--machine')
+      expect(output).to.contain('machine-readable')
     })
   })
 
