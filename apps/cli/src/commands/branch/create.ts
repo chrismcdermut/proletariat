@@ -254,8 +254,8 @@ export default class BranchCreate extends PMOCommand {
       const autoCommit = this._autoCommit
       let createCommit = flags['empty-commit'] || autoCommit
 
-      if (!createCommit && !args.name) {
-        // Only prompt in interactive mode (non-quick)
+      if (!createCommit && !args.name && !jsonMode) {
+        // Only prompt in interactive mode (non-quick, not JSON mode)
         const { wantCommit } = await inquirer.prompt([
           {
             type: 'list',
@@ -278,9 +278,9 @@ export default class BranchCreate extends PMOCommand {
           ? `${selectedTicket.id}: ${selectedTicket.title}`
           : branchName
 
-        // In autoCommit mode, skip the prompt
+        // In autoCommit mode or JSON mode, skip the prompt
         let commitMessage = defaultCommitMessage
-        if (!autoCommit) {
+        if (!autoCommit && !jsonMode) {
           const result = await inquirer.prompt([
             {
               type: 'input',
