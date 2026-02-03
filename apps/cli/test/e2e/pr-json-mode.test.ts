@@ -356,7 +356,11 @@ describe('PR Commands JSON Mode', () => {
     }
 
     describe('pr index → subcommand - menu navigation flow', () => {
-      it('should complete flow: main menu → select action → proceed', () => {
+      beforeEach(() => {
+        createTestTicket('TKT-MENU-1', 'Menu navigation test', 'in-progress', 'https://github.com/test/repo/pull/99');
+      });
+
+      it('should complete full flow: main menu → status → select ticket → view result', () => {
         // Agent Step 1: Main menu
         const step1 = agentExec('pr -P test-project --machine');
         expect(step1.prompt).to.exist;
@@ -368,8 +372,68 @@ describe('PR Commands JSON Mode', () => {
         expect(statusChoice).to.exist;
         expect(statusChoice!.command).to.include('--json');
 
-        // Verify the command structure
-        expect(statusChoice!.command).to.include('prlt pr');
+        // Agent Step 2: Execute status action command
+        // Note: The pr index command runs subcommands directly, so we need to
+        // call pr status separately (the menu selection runs the subcommand)
+        const step2 = agentExec('pr status -P test-project --machine');
+        expect(step2.prompt).to.exist;
+        expect(step2.prompt!.type).to.equal('list');
+        expect(step2.prompt!.name).to.equal('ticket');
+
+        // Find the test ticket
+        const ticketChoice = findChoice(step2.prompt!.choices!, 'TKT-MENU-1');
+        expect(ticketChoice).to.exist;
+
+        // Agent Step 3: View ticket status
+        const result = execFinal(execChoice(ticketChoice!));
+
+        // Verify ticket info shown
+        expect(result).to.include('TKT-MENU-1');
+      });
+
+      it('should complete flow: main menu → link → select ticket → select PR', () => {
+        // Create a ticket WITHOUT a PR link for this test
+        // (TKT-MENU-1 has a PR, so we need a fresh ticket)
+        createTestTicket('TKT-MENU-LINK', 'Menu link test ticket', 'in-progress');
+
+        // Agent Step 1: Main menu
+        const step1 = agentExec('pr -P test-project --machine');
+        expect(step1.prompt).to.exist;
+
+        // Find link action
+        const linkChoice = findChoice(step1.prompt!.choices!, 'link');
+        expect(linkChoice).to.exist;
+        expect(linkChoice!.command).to.include('--json');
+
+        // Agent Step 2: Execute link command
+        const step2 = agentExec('pr link -P test-project --machine');
+
+        // If gh not installed, skip rest
+        if (step2.error) {
+          expect(step2.error.code).to.be.oneOf(['GH_NOT_INSTALLED', 'GH_NOT_AUTHENTICATED']);
+          return;
+        }
+
+        expect(step2.prompt).to.exist;
+        expect(step2.prompt!.type).to.equal('list');
+        expect(step2.prompt!.name).to.equal('ticket');
+
+        // Find the test ticket (the one WITHOUT a PR link)
+        const ticketChoice = findChoice(step2.prompt!.choices!, 'TKT-MENU-LINK');
+        expect(ticketChoice).to.exist;
+
+        // Agent Step 3: Select ticket, get PR selection
+        const step3 = agentExec(execChoice(ticketChoice!));
+
+        // Either PR selection or no PRs error
+        if (step3.error) {
+          expect(step3.error.code).to.equal('NO_OPEN_PRS');
+          return;
+        }
+
+        expect(step3.prompt).to.exist;
+        expect(step3.prompt!.type).to.equal('list');
+        expect(step3.prompt!.name).to.equal('pr');
       });
 
       it('should provide cancel option in menu', () => {
@@ -421,11 +485,11 @@ describe('PR Commands JSON Mode', () => {
         createTestTicket('TKT-LINK-FLOW-1', 'Agent link test', 'in-progress');
       });
 
-      it('should complete flow: select ticket → proceed to next step', () => {
+      it('should complete flow: select ticket → select PR → verify link in database', () => {
         // Agent Step 1: Get ticket choices (or gh error)
         const step1 = agentExec('pr link -P test-project --machine');
 
-        // If gh not installed, we get an error
+        // If gh not installed, we get an error - skip test
         if (step1.error) {
           expect(step1.error.code).to.be.oneOf(['GH_NOT_INSTALLED', 'GH_NOT_AUTHENTICATED']);
           return;
@@ -441,16 +505,95 @@ describe('PR Commands JSON Mode', () => {
         const ticketChoice = findChoice(step1.prompt!.choices!, 'TKT-LINK-FLOW-1');
         expect(ticketChoice).to.exist;
         expect(ticketChoice!.command).to.include('--json');
+
+        // Agent Step 2: Select ticket, get PR selection prompt
+        const step2 = agentExec(execChoice(ticketChoice!));
+
+        // If no open PRs, we get an error
+        if (step2.error) {
+          expect(step2.error.code).to.equal('NO_OPEN_PRS');
+          return;
+        }
+
+        // Should have PR selection prompt
+        expect(step2.prompt).to.exist;
+        expect(step2.prompt!.type).to.equal('list');
+        expect(step2.prompt!.name).to.equal('pr');
+        expect(step2.prompt!.choices).to.be.an('array');
+        expect(step2.prompt!.choices!.length).to.be.greaterThan(0);
+
+        // Select the first available PR
+        const prChoice = step2.prompt!.choices![0];
+        expect(prChoice).to.exist;
+        expect(prChoice.command).to.include('--json');
+
+        // Agent Step 3: Execute the link (final step)
+        const result = execFinal(execChoice(prChoice));
+
+        // Verify link succeeded
+        expect(result.toLowerCase()).to.include('linked');
+
+        // Verify in database
+        const metadata = db.prepare(`
+          SELECT value FROM pmo_ticket_metadata
+          WHERE ticket_id = 'TKT-LINK-FLOW-1' AND key = 'pr_url'
+        `).get() as { value: string } | undefined;
+        expect(metadata).to.exist;
+        expect(metadata!.value).to.include('github.com');
       });
 
-      it('should handle ticket ID provided directly', () => {
+      it('should complete flow with ticket ID provided directly → select PR → verify link', () => {
         // Agent provides ticket ID - skips ticket selection
         const step1 = agentExec('pr link TKT-LINK-FLOW-1 -P test-project --machine');
 
-        // Should proceed to PR selection or show gh error
-        expect(step1).to.exist;
-        // Either has prompt for PR selection or error about gh
-        expect(step1.prompt || step1.error).to.exist;
+        // If gh not installed or no PRs, skip
+        if (step1.error) {
+          expect(step1.error.code).to.be.oneOf(['GH_NOT_INSTALLED', 'GH_NOT_AUTHENTICATED', 'NO_OPEN_PRS']);
+          return;
+        }
+
+        // Should have PR selection prompt
+        expect(step1.prompt).to.exist;
+        expect(step1.prompt!.type).to.equal('list');
+        expect(step1.prompt!.name).to.equal('pr');
+        expect(step1.prompt!.choices).to.be.an('array');
+        expect(step1.prompt!.choices!.length).to.be.greaterThan(0);
+
+        // Select the first available PR
+        const prChoice = step1.prompt!.choices![0];
+        expect(prChoice).to.exist;
+
+        // Execute the link
+        const result = execFinal(execChoice(prChoice));
+
+        // Verify link succeeded
+        expect(result.toLowerCase()).to.include('linked');
+
+        // Verify in database
+        const metadata = db.prepare(`
+          SELECT value FROM pmo_ticket_metadata
+          WHERE ticket_id = 'TKT-LINK-FLOW-1' AND key = 'pr_url'
+        `).get() as { value: string } | undefined;
+        expect(metadata).to.exist;
+        expect(metadata!.value).to.include('github.com');
+      });
+
+      it('should handle --pr flag to skip PR selection entirely', () => {
+        // Agent provides both ticket and PR number - no prompts needed
+        // Use PR #221 which exists on this repo
+        const result = exec('pr link TKT-LINK-FLOW-1 --pr 221 -P test-project');
+
+        // Should either succeed or show error if PR not found
+        expect(result).to.be.a('string');
+
+        // If successful, verify in database
+        if (result.toLowerCase().includes('linked')) {
+          const metadata = db.prepare(`
+            SELECT value FROM pmo_ticket_metadata
+            WHERE ticket_id = 'TKT-LINK-FLOW-1' AND key = 'pr_url'
+          `).get() as { value: string } | undefined;
+          expect(metadata).to.exist;
+        }
       });
     });
 
