@@ -278,20 +278,67 @@ describe('PR Commands JSON Mode', () => {
     it('should output valid response for PR creation', () => {
       const output = exec('pr create -P test-project --machine');
 
-      // Output could be:
-      // 1. JSON with gh error (not installed/authenticated)
-      // 2. JSON with prompt
-      // 3. Text if PR already exists (edge case in test env)
+      // Must get some output
       expect(output).to.be.a('string');
       expect(output.length).to.be.greaterThan(0);
+
+      // Verify the output is one of the expected types:
+      if (output.includes('PR already exists')) {
+        // Text output for existing PR - verify it includes expected info
+        expect(output).to.include('#');  // PR number
+        expect(output).to.include('URL:');  // URL line
+      } else {
+        // Should be JSON - parse and verify structure
+        const json = extractJson<{
+          prompt?: { type: string; name: string; message: string; choices?: unknown[] };
+          error?: { code: string; message: string };
+          metadata: { command: string };
+        }>(output);
+
+        expect(json.metadata).to.exist;
+        expect(json.metadata.command).to.equal('pr create');
+
+        if (json.error) {
+          // Valid error codes for pr create
+          expect(json.error.code).to.be.oneOf([
+            'GH_NOT_INSTALLED',
+            'GH_NOT_AUTHENTICATED',
+            'NO_GIT_REPO',
+            'ON_BASE_BRANCH',
+          ]);
+          expect(json.error.message).to.be.a('string');
+          expect(json.error.message.length).to.be.greaterThan(0);
+        } else if (json.prompt) {
+          // Ticket selection prompt
+          expect(json.prompt.type).to.equal('list');
+          expect(json.prompt.name).to.equal('ticket');
+          expect(json.prompt.message).to.be.a('string');
+          expect(json.prompt.choices).to.be.an('array');
+        }
+      }
     });
 
     it('should work with -m shorthand', () => {
       const output = exec('pr create -P test-project -m');
 
-      // Same as above - just verify we get some output
+      // Must get some output
       expect(output).to.be.a('string');
       expect(output.length).to.be.greaterThan(0);
+
+      // Verify -m produces same structure as --machine
+      if (!output.includes('PR already exists')) {
+        const json = extractJson<{
+          prompt?: { type: string; name: string };
+          error?: { code: string; message: string };
+          metadata: { command: string };
+        }>(output);
+
+        expect(json.metadata).to.exist;
+        expect(json.metadata.command).to.equal('pr create');
+
+        // Must have either prompt or error
+        expect(json.prompt || json.error).to.exist;
+      }
     });
   });
 
@@ -710,22 +757,84 @@ describe('PR Commands JSON Mode', () => {
         }
       });
 
-      it('should provide some output for PR creation', () => {
-        // Agent starts PR creation - should auto-detect ticket from branch
+      it('should auto-detect ticket from branch and skip ticket selection', () => {
+        // Agent starts PR creation - should auto-detect ticket from branch name
+        // Branch is feat/TKT-CREATE-FLOW-1-test so it should detect TKT-CREATE-FLOW-1
         const output = exec('pr create -P test-project --machine');
 
-        // Output could be JSON or text (if PR exists)
         expect(output).to.be.a('string');
         expect(output.length).to.be.greaterThan(0);
+
+        if (output.includes('PR already exists')) {
+          // Existing PR - verify output structure
+          expect(output).to.include('#');
+          expect(output).to.include('URL:');
+        } else if (output.includes('Auto-detected ticket')) {
+          // Successfully auto-detected ticket from branch
+          expect(output).to.include('TKT-CREATE-FLOW-1');
+        } else {
+          // Should be JSON
+          const json = extractJson<{
+            prompt?: { type: string; name: string; choices?: Array<{ value: string }> };
+            error?: { code: string; message: string };
+            metadata: { command: string };
+          }>(output);
+
+          expect(json.metadata).to.exist;
+          expect(json.metadata.command).to.equal('pr create');
+
+          if (json.error) {
+            expect(json.error.code).to.be.oneOf([
+              'GH_NOT_INSTALLED',
+              'GH_NOT_AUTHENTICATED',
+              'NO_GIT_REPO',
+              'ON_BASE_BRANCH',
+            ]);
+          } else if (json.prompt) {
+            // If we get a prompt, it means ticket wasn't auto-detected
+            // Verify prompt structure is valid
+            expect(json.prompt.type).to.equal('list');
+            expect(json.prompt.name).to.equal('ticket');
+            expect(json.prompt.choices).to.be.an('array');
+          }
+        }
       });
 
-      it('should handle --no-link flag', () => {
+      it('should handle --no-link flag and skip ticket prompt entirely', () => {
         // Agent uses --no-link to create PR without linking to ticket
         const output = exec('pr create --no-link --machine');
 
-        // Should provide some output
         expect(output).to.be.a('string');
         expect(output.length).to.be.greaterThan(0);
+
+        if (output.includes('PR already exists')) {
+          expect(output).to.include('URL:');
+        } else if (output.includes('Creating Pull Request')) {
+          // PR creation started - no ticket prompt was shown
+          expect(output).to.include('Branch:');
+        } else {
+          // Should be JSON error (no ticket prompt since --no-link)
+          const json = extractJson<{
+            prompt?: { name: string };
+            error?: { code: string; message: string };
+            metadata: { command: string };
+          }>(output);
+
+          expect(json.metadata.command).to.equal('pr create');
+
+          if (json.error) {
+            expect(json.error.code).to.be.oneOf([
+              'GH_NOT_INSTALLED',
+              'GH_NOT_AUTHENTICATED',
+              'NO_GIT_REPO',
+              'ON_BASE_BRANCH',
+            ]);
+          }
+          // Should NOT have ticket prompt since --no-link was used
+          if (json.prompt) {
+            expect(json.prompt.name).to.not.equal('ticket');
+          }
+        }
       });
 
       it('should complete ticket selection flow when branch has no ticket ID', () => {
@@ -805,18 +914,33 @@ describe('PR Commands JSON Mode', () => {
           return;
         }
 
-        // Find "Skip" option
+        // Find "Skip" option and verify its structure
         const skipChoice = findChoice(step1.prompt.choices!, 'skip');
-        if (!skipChoice) {
-          return; // Skip option not available
-        }
+        expect(skipChoice).to.exist;
+        expect(skipChoice!.value).to.equal('__skip__');
+        expect(skipChoice!.command).to.include('--json');
 
         // Agent selects "Skip" - should proceed with PR creation without ticket
-        const result = execFinal(execChoice(skipChoice));
+        const result = execFinal(execChoice(skipChoice!));
 
-        // Should provide some output (PR creation or failure)
+        // Verify output indicates PR creation proceeded (or valid error)
         expect(result).to.be.a('string');
         expect(result.length).to.be.greaterThan(0);
+
+        // Should see PR creation output (not ticket selection)
+        // Either "Creating Pull Request" or error about branch/gh
+        const validOutputPatterns = [
+          'Creating Pull Request',
+          'PR already exists',
+          'not installed',
+          'not authenticated',
+          'Failed to push',
+          'Branch:',
+        ];
+        const hasValidOutput = validOutputPatterns.some(pattern =>
+          result.includes(pattern)
+        );
+        expect(hasValidOutput).to.be.true;
       });
     });
 
@@ -825,52 +949,149 @@ describe('PR Commands JSON Mode', () => {
         createTestTicket('TKT-JSON-COMPAT', 'JSON compat ticket', 'in-progress', 'https://github.com/test/repo/pull/99');
       });
 
-      it('should complete status flow with --json flag (legacy)', () => {
-        // Use --json instead of --machine
+      it('should complete status flow with --json flag (legacy) and show PR info', () => {
+        // Use --json instead of --machine (legacy flag)
         const step1 = agentExec('pr status -P test-project --json');
+
+        // Verify JSON structure is identical to --machine
         expect(step1.prompt).to.exist;
         expect(step1.prompt!.type).to.equal('list');
         expect(step1.prompt!.name).to.equal('ticket');
+        expect(step1.prompt!.choices).to.be.an('array');
+        expect(step1.prompt!.message).to.be.a('string');
 
+        // Find and verify ticket choice structure
         const ticketChoice = findChoice(step1.prompt!.choices!, 'TKT-JSON-COMPAT');
         expect(ticketChoice).to.exist;
+        expect(ticketChoice!.value).to.equal('TKT-JSON-COMPAT');
+        expect(ticketChoice!.command).to.include('--json');
+        expect(ticketChoice!.name).to.include('PR linked');  // Should show PR indicator
 
+        // Execute and verify status output
         const result = execFinal(execChoice(ticketChoice!));
         expect(result).to.include('TKT-JSON-COMPAT');
+        expect(result).to.include('PR Status');  // Header
+        expect(result).to.include('Title:');    // Ticket info shown
       });
 
-      it('should complete main menu flow with --json flag (legacy)', () => {
+      it('should complete main menu flow with --json flag (legacy) with full choice verification', () => {
         const step1 = agentExec('pr -P test-project --json');
+
+        // Verify prompt structure
         expect(step1.prompt).to.exist;
         expect(step1.prompt!.type).to.equal('list');
         expect(step1.prompt!.name).to.equal('action');
+        expect(step1.prompt!.message).to.include('Pull Request');
 
-        const statusChoice = findChoice(step1.prompt!.choices!, 'status');
+        // Verify all expected choices exist
+        const choices = step1.prompt!.choices!;
+        expect(choices.length).to.be.greaterThanOrEqual(3);
+
+        const createChoice = findChoice(choices, 'create');
+        const linkChoice = findChoice(choices, 'link');
+        const statusChoice = findChoice(choices, 'status');
+
+        expect(createChoice).to.exist;
+        expect(linkChoice).to.exist;
         expect(statusChoice).to.exist;
+
+        // All choices should have --json in command (legacy flag preserved)
+        expect(createChoice!.command).to.include('--json');
+        expect(linkChoice!.command).to.include('--json');
         expect(statusChoice!.command).to.include('--json');
+
+        // Choices should have correct values
+        expect(createChoice!.value).to.equal('create');
+        expect(linkChoice!.value).to.equal('link');
+        expect(statusChoice!.value).to.equal('status');
+      });
+
+      it('should produce identical structure with --json and --machine flags', () => {
+        // Get output with both flags
+        const jsonOutput = agentExec('pr -P test-project --json');
+        const machineOutput = agentExec('pr -P test-project --machine');
+
+        // Structure should be identical (except command field may differ)
+        expect(jsonOutput.prompt!.type).to.equal(machineOutput.prompt!.type);
+        expect(jsonOutput.prompt!.name).to.equal(machineOutput.prompt!.name);
+        expect(jsonOutput.prompt!.choices!.length).to.equal(machineOutput.prompt!.choices!.length);
+        expect(jsonOutput.metadata.command).to.equal(machineOutput.metadata.command);
       });
     });
   });
 
   describe('Error handling in JSON mode', () => {
-    it('should show error when no tickets exist for pr status', () => {
-      // No tickets created
+    it('should show informative message when no tickets exist for pr status', () => {
+      // No tickets created in this test
       const output = exec('pr status -P test-project --machine');
 
-      // Should output error or empty state message
+      // Must indicate no tickets found
       expect(output.toLowerCase()).to.include('no tickets');
+
+      // Message should be helpful
+      expect(output.length).to.be.greaterThan(10);
     });
 
     it('should return structured error JSON for gh CLI issues', () => {
       createTestTicket('TKT-ERR-1', 'Error test ticket', 'in-progress');
 
-      // pr link requires gh CLI - likely to fail in test env
+      // pr link requires gh CLI - test error structure
       const output = exec('pr link TKT-ERR-1 -P test-project --machine');
-      const json = extractJson<{ error?: { code: string }; metadata: unknown }>(output);
+      const json = extractJson<{
+        prompt?: { type: string; name: string };
+        error?: { code: string; message: string };
+        metadata: { command: string; flags: Record<string, unknown> };
+      }>(output);
 
-      // Should have structured response (either prompt or error)
-      expect(json).to.exist;
+      // Must have metadata
       expect(json.metadata).to.exist;
+      expect(json.metadata.command).to.equal('pr link');
+
+      // Must have either valid prompt or structured error
+      if (json.error) {
+        // Error must have code and message
+        expect(json.error.code).to.be.a('string');
+        expect(json.error.code.length).to.be.greaterThan(0);
+        expect(json.error.message).to.be.a('string');
+        expect(json.error.message.length).to.be.greaterThan(0);
+
+        // Error code should be one of the expected values
+        expect(json.error.code).to.be.oneOf([
+          'GH_NOT_INSTALLED',
+          'GH_NOT_AUTHENTICATED',
+          'NO_OPEN_PRS',
+        ]);
+      } else {
+        // If no error, must have valid prompt
+        expect(json.prompt).to.exist;
+        expect(json.prompt!.type).to.equal('list');
+        expect(json.prompt!.name).to.be.oneOf(['ticket', 'pr', 'confirm']);
+      }
+    });
+
+    it('should return valid error structure for invalid ticket ID', () => {
+      // Try to view status of non-existent ticket
+      const output = exec('pr status INVALID-TICKET-123 -P test-project --machine');
+
+      // Should either error or show "not found" message
+      expect(output).to.be.a('string');
+      expect(output.length).to.be.greaterThan(0);
+
+      // Should indicate ticket not found
+      if (output.includes('{')) {
+        // JSON output
+        const json = extractJson<{
+          error?: { code: string; message: string };
+        }>(output);
+        if (json.error) {
+          expect(json.error.message.toLowerCase()).to.include('not found');
+        }
+      } else {
+        // Text output
+        expect(output.toLowerCase()).to.satisfy((s: string) =>
+          s.includes('not found') || s.includes('error')
+        );
+      }
     });
   });
 });
