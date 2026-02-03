@@ -22,9 +22,15 @@ export default class Discover extends Command {
       description: 'Show what would be discovered without making changes',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output discovery results as JSON (for AI agents/scripts)',
+    machine: Flags.boolean({
+      char: 'm',
+      description: 'Output as JSON for AI agents/scripts (machine-readable mode)',
       default: false,
+    }),
+    json: Flags.boolean({
+      description: 'Output as JSON (deprecated, use --machine)',
+      default: false,
+      hidden: true,
     }),
   };
 

@@ -29,9 +29,15 @@ export default class Auth extends Command {
       description: 'Force re-authentication even if credentials exist',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output status as JSON (for AI agents/scripts)',
+    machine: Flags.boolean({
+      char: 'm',
+      description: 'Output as JSON for AI agents/scripts (machine-readable mode)',
       default: false,
+    }),
+    json: Flags.boolean({
+      description: 'Output as JSON (deprecated, use --machine)',
+      default: false,
+      hidden: true,
     }),
   };
 
