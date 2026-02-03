@@ -1,5 +1,6 @@
-import { Command, Flags } from '@oclif/core';
+import { Command } from '@oclif/core';
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 
 export default class GH extends Command {
   static description = 'GitHub CLI setup and status for PR workflow';
@@ -12,10 +13,7 @@ export default class GH extends Command {
   ];
 
   static flags = {
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
+    ...machineOutputFlags,
   };
 
   async run(): Promise<void> {

@@ -1,12 +1,13 @@
-import { Command, Flags } from '@oclif/core';
+import { Command } from '@oclif/core';
 import chalk from 'chalk';
 import { styles } from '../../lib/styles.js';
 import { isGHInstalled, isGHAuthenticated, getGHUsername, isGHTokenInEnv } from '../../lib/pr/index.js';
 import {
-  shouldOutputJson,
+  isMachineOutput,
   outputSuccessAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 
 export default class GHStatus extends Command {
   static description = 'Check GitHub CLI status for PR workflow';
@@ -16,17 +17,14 @@ export default class GHStatus extends Command {
   ];
 
   static flags = {
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
+    ...machineOutputFlags,
   };
 
   async run(): Promise<void> {
     const { flags } = await this.parse(GHStatus);
 
-    // Check if JSON output mode is active
-    const jsonMode = shouldOutputJson(flags);
+    // Check if machine output mode is active
+    const jsonMode = isMachineOutput(flags);
 
     // Gather status information
     const ghInstalled = isGHInstalled();

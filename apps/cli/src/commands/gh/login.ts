@@ -1,14 +1,15 @@
-import { Command, Flags } from '@oclif/core';
+import { Command } from '@oclif/core';
 import { spawn } from 'node:child_process';
 import chalk from 'chalk';
 import { styles } from '../../lib/styles.js';
 import { isGHInstalled, isGHAuthenticated, getGHUsername } from '../../lib/pr/index.js';
 import {
-  shouldOutputJson,
+  isMachineOutput,
   outputErrorAsJson,
   outputSuccessAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 
 export default class GHLogin extends Command {
   static description = 'Login to GitHub CLI for PR workflow';
@@ -18,17 +19,14 @@ export default class GHLogin extends Command {
   ];
 
   static flags = {
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
+    ...machineOutputFlags,
   };
 
   async run(): Promise<void> {
     const { flags } = await this.parse(GHLogin);
 
-    // Check if JSON output mode is active
-    const jsonMode = shouldOutputJson(flags);
+    // Check if machine output mode is active
+    const jsonMode = isMachineOutput(flags);
 
     // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
