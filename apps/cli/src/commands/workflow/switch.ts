@@ -67,12 +67,14 @@ export default class WorkflowSwitch extends PMOCommand {
       }
 
       // Use selectFromList for workflow selection (handles JSON mode automatically)
+      // Include project flag if specified to maintain stateless navigation
+      const projectFlag = flags.project ? ` -P ${flags.project}` : '';
       const selected = await this.selectFromList({
         message: 'Select a workflow:',
         items: workflows,
         getName: (w) => `${w.name}${w.description ? ` - ${w.description}` : ''}`,
         getValue: (w) => w.id,
-        getCommand: (w) => `prlt workflow switch ${w.id} --json`,
+        getCommand: (w) => `prlt workflow switch ${w.id}${projectFlag} --json`,
         jsonMode: agentConfig,
       });
 
@@ -109,13 +111,15 @@ export default class WorkflowSwitch extends PMOCommand {
       this.log('');
 
       // Use prompt for confirmation (handles JSON mode automatically)
+      // Include project flag if specified to maintain stateless navigation
+      const confirmProjectFlag = flags.project ? ` -P ${flags.project}` : '';
       const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: `Switch to workflow "${workflow.name}"?`,
         choices: [
           { name: 'No', value: false, command: '' },
-          { name: 'Yes, switch workflow', value: true, command: `prlt workflow switch ${workflowId} --force --json` },
+          { name: 'Yes, switch workflow', value: true, command: `prlt workflow switch ${workflowId}${confirmProjectFlag} --force --json` },
         ],
       }], agentConfig);
 
