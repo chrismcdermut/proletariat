@@ -8,10 +8,10 @@ const __dirname = path.dirname(__filename);
 const CLI_PATH = path.resolve(__dirname, '../../bin/run.js');
 
 /**
- * Unit tests for template/* command FlagResolver JSON mode support
- * Verifies that all template commands properly use FlagResolver for JSON mode
+ * Unit tests for template/* command machine-readable output mode support
+ * Verifies that all template commands properly use machineOutputFlags for JSON mode
  */
-describe('Template Commands FlagResolver JSON Mode Support', () => {
+describe('Template Commands Machine Output Mode Support', () => {
   // Helper to run CLI and get output
   function runCli(args: string): string {
     try {
@@ -26,68 +26,94 @@ describe('Template Commands FlagResolver JSON Mode Support', () => {
     }
   }
 
-  describe('template index (FlagResolver)', () => {
-    it('should have --json flag in help', () => {
+  // Helper to parse JSON from CLI output (handles warnings/noise)
+  function parseJson(output: string): Record<string, unknown> | null {
+    const lines = output.split('\n');
+    let jsonStart = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].trim().startsWith('{')) {
+        jsonStart = i;
+        break;
+      }
+    }
+    if (jsonStart === -1) return null;
+    try {
+      return JSON.parse(lines.slice(jsonStart).join('\n'));
+    } catch {
+      return null;
+    }
+  }
+
+  describe('template index (machineOutputFlags)', () => {
+    it('should have --machine flag in help', () => {
       const output = runCli('template --help');
-      expect(output).to.include('--json');
+      expect(output).to.include('--machine');
+      expect(output).to.include('-m');
     });
 
     it('should output JSON with command field for each choice', () => {
-      const output = runCli('template --json');
-      const json = JSON.parse(output);
+      const output = runCli('template --machine');
+      const json = parseJson(output) as { prompt: { type: string; choices: Array<{ command?: string }> } };
+      expect(json).to.not.be.null;
       expect(json.prompt.type).to.equal('list');
       expect(json.prompt.choices).to.be.an('array');
-      expect(json.prompt.choices.every((c: { command?: string }) => c.command)).to.be.true;
+      expect(json.prompt.choices.every((c) => c.command)).to.be.true;
     });
 
     it('should include navigation commands in choices', () => {
-      const output = runCli('template --json');
-      const json = JSON.parse(output);
-      const commands = json.prompt.choices.map((c: { command: string }) => c.command);
+      const output = runCli('template --machine');
+      const json = parseJson(output) as { prompt: { choices: Array<{ command: string }> } };
+      expect(json).to.not.be.null;
+      const commands = json.prompt.choices.map((c) => c.command);
       expect(commands).to.include('prlt template list --json');
       expect(commands).to.include('prlt template ticket --json');
       expect(commands).to.include('prlt template phase --json');
     });
   });
 
-  describe('template phase index (FlagResolver)', () => {
-    it('should have --json flag in help', () => {
+  describe('template phase index (machineOutputFlags)', () => {
+    it('should have --machine flag in help', () => {
       const output = runCli('template phase --help');
-      expect(output).to.include('--json');
+      expect(output).to.include('--machine');
+      expect(output).to.include('-m');
     });
 
     it('should output JSON with command field for each choice', () => {
-      const output = runCli('template phase --json');
-      const json = JSON.parse(output);
+      const output = runCli('template phase --machine');
+      const json = parseJson(output) as { prompt: { type: string; choices: Array<{ command?: string }> } };
+      expect(json).to.not.be.null;
       expect(json.prompt.type).to.equal('list');
       expect(json.prompt.choices).to.be.an('array');
-      expect(json.prompt.choices.every((c: { command?: string }) => c.command)).to.be.true;
+      expect(json.prompt.choices.every((c) => c.command)).to.be.true;
     });
   });
 
-  describe('template ticket index (FlagResolver)', () => {
-    it('should have --json flag in help', () => {
+  describe('template ticket index (machineOutputFlags)', () => {
+    it('should have --machine flag in help', () => {
       const output = runCli('template ticket --help');
-      expect(output).to.include('--json');
+      expect(output).to.include('--machine');
+      expect(output).to.include('-m');
     });
 
     it('should output JSON with command field for each choice', () => {
-      const output = runCli('template ticket --json');
-      const json = JSON.parse(output);
+      const output = runCli('template ticket --machine');
+      const json = parseJson(output) as { prompt: { type: string; choices: Array<{ command?: string }> } };
+      expect(json).to.not.be.null;
       expect(json.prompt.type).to.equal('list');
       expect(json.prompt.choices).to.be.an('array');
-      expect(json.prompt.choices.every((c: { command?: string }) => c.command)).to.be.true;
+      expect(json.prompt.choices.every((c) => c.command)).to.be.true;
     });
   });
 
-  describe('template delete (FlagResolver)', () => {
-    it('should have --json flag in help', () => {
+  describe('template delete (machineOutputFlags via pmoBaseFlags)', () => {
+    it('should have --machine flag in help', () => {
       const output = runCli('template delete --help');
-      expect(output).to.include('--json');
+      expect(output).to.include('--machine');
+      expect(output).to.include('-m');
     });
   });
 
-  // Passthrough commands still need --json flag
+  // Passthrough commands - verify they have --json flag for backward compatibility
   describe('template phase create', () => {
     it('should have --json flag in help', () => {
       const output = runCli('template phase create --help');

@@ -1,6 +1,7 @@
-import { Command, Flags } from '@oclif/core';
+import { Command } from '@oclif/core';
 import { styles } from '../../lib/styles.js';
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 
 export default class Template extends Command {
   static description = 'Manage templates (ticket and phase)';
@@ -16,10 +17,7 @@ export default class Template extends Command {
   ];
 
   static flags = {
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
+    ...machineOutputFlags,
   };
 
   async run(): Promise<void> {

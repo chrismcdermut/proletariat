@@ -123,7 +123,7 @@ export default class TemplateDelete extends PMOCommand {
 
     // Confirm deletion (using agentPrompt for confirmation)
     if (!flags.force) {
-      const { confirm } = await this.agentPrompt<{ confirm: boolean }>([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: `Delete ${selected.length} ${typeName} template(s)?`,
