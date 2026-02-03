@@ -630,6 +630,175 @@ describe('Agent Commands JSON Mode', () => {
         expect(step2!.prompt.type).to.equal('list');
       });
     });
+
+    describe('agent index → staff submenu flow', () => {
+      beforeEach(() => {
+        createTestAgent('staff-flow-agent', 'persistent');
+      });
+
+      it('should complete flow: agent index → staff → get submenu', () => {
+        // Step 1: Agent index menu
+        const step1 = agentExec('agent --machine');
+        expect(step1).to.exist;
+
+        // Find 'staff' choice
+        const staffChoice = findChoice(step1!.prompt.choices!, 'staff');
+        expect(staffChoice).to.exist;
+        expect(staffChoice!.command).to.include('agent staff');
+
+        // Step 2: Execute staff command, get submenu
+        const step2 = agentExec(execChoice(staffChoice!));
+        expect(step2).to.exist;
+        expect(step2!.prompt.type).to.equal('list');
+        expect(step2!.prompt.name).to.equal('action');
+
+        // Verify submenu choices have command fields
+        const listChoice = findChoice(step2!.prompt.choices!, 'List');
+        expect(listChoice).to.exist;
+        expect(listChoice!.command).to.include('agent staff list');
+        expect(listChoice!.command).to.include('--machine');
+      });
+    });
+
+    describe('agent index → temp submenu flow', () => {
+      beforeEach(() => {
+        createTestAgent('temp-flow-agent', 'ephemeral');
+      });
+
+      it('should complete flow: agent index → temp → get submenu', () => {
+        // Step 1: Agent index menu
+        const step1 = agentExec('agent --machine');
+        expect(step1).to.exist;
+
+        // Find 'temp' choice
+        const tempChoice = findChoice(step1!.prompt.choices!, 'temp');
+        expect(tempChoice).to.exist;
+        expect(tempChoice!.command).to.include('agent temp');
+
+        // Step 2: Execute temp command, get submenu
+        const step2 = agentExec(execChoice(tempChoice!));
+        expect(step2).to.exist;
+        expect(step2!.prompt.type).to.equal('list');
+        expect(step2!.prompt.name).to.equal('action');
+
+        // Verify submenu choices have command fields
+        const listChoice = findChoice(step2!.prompt.choices!, 'List');
+        expect(listChoice).to.exist;
+        expect(listChoice!.command).to.include('agent temp list');
+        expect(listChoice!.command).to.include('--machine');
+      });
+    });
+
+    describe('agent index → themes submenu flow', () => {
+      it('should complete flow: agent index → themes → get submenu', () => {
+        // Step 1: Agent index menu
+        const step1 = agentExec('agent --machine');
+        expect(step1).to.exist;
+
+        // Find 'themes' choice
+        const themesChoice = findChoice(step1!.prompt.choices!, 'themes');
+        expect(themesChoice).to.exist;
+        expect(themesChoice!.command).to.include('agent themes');
+
+        // Step 2: Execute themes command, get submenu
+        const step2 = agentExec(execChoice(themesChoice!));
+        expect(step2).to.exist;
+        expect(step2!.prompt.type).to.equal('list');
+        expect(step2!.prompt.name).to.equal('action');
+
+        // Verify submenu choices have command fields
+        const listChoice = findChoice(step2!.prompt.choices!, 'List');
+        expect(listChoice).to.exist;
+        expect(listChoice!.command).to.include('themes list');
+      });
+    });
+
+    describe('agent index → shell flow', () => {
+      beforeEach(() => {
+        createTestAgent('shell-flow-agent', 'persistent');
+      });
+
+      it('should complete flow: agent index → shell → get agent selection', () => {
+        // Step 1: Agent index menu
+        const step1 = agentExec('agent --machine');
+        expect(step1).to.exist;
+
+        // Find 'shell' choice
+        const shellChoice = findChoice(step1!.prompt.choices!, 'shell');
+        expect(shellChoice).to.exist;
+        expect(shellChoice!.command).to.include('agent shell');
+
+        // Step 2: Execute shell command, get agent selection
+        const step2 = agentExec(execChoice(shellChoice!));
+        expect(step2).to.exist;
+        expect(step2!.prompt.type).to.equal('list');
+        expect(step2!.prompt.name).to.equal('selected');
+
+        // Find our test agent
+        const agentChoice = findChoice(step2!.prompt.choices!, 'shell-flow-agent');
+        expect(agentChoice).to.exist;
+        expect(agentChoice!.command).to.include('agent shell shell-flow-agent');
+        expect(agentChoice!.command).to.include('--machine');
+      });
+    });
+
+    describe('agent index → restart flow', () => {
+      beforeEach(() => {
+        createTestAgent('restart-flow-agent', 'persistent');
+      });
+
+      it('should complete flow: agent index → restart → get agent selection', () => {
+        // Step 1: Agent index menu
+        const step1 = agentExec('agent --machine');
+        expect(step1).to.exist;
+
+        // Find 'restart' choice
+        const restartChoice = findChoice(step1!.prompt.choices!, 'Restart');
+        expect(restartChoice).to.exist;
+        expect(restartChoice!.command).to.include('agent restart');
+
+        // Step 2: Execute restart command
+        // Note: This may fail with Docker error, but we verify the command path is correct
+        const output = exec(execChoice(restartChoice!));
+
+        // Either get agent selection prompt OR Docker not running error
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Docker is not running') ||
+          o.includes('Select agent') ||
+          o.includes('restart-flow-agent') ||
+          o.includes('"prompt"')
+        );
+      });
+    });
+
+    describe('agent index → rebuild flow', () => {
+      beforeEach(() => {
+        createTestAgent('rebuild-flow-agent', 'persistent');
+      });
+
+      it('should complete flow: agent index → rebuild → get agent selection', () => {
+        // Step 1: Agent index menu
+        const step1 = agentExec('agent --machine');
+        expect(step1).to.exist;
+
+        // Find 'rebuild' choice
+        const rebuildChoice = findChoice(step1!.prompt.choices!, 'Rebuild');
+        expect(rebuildChoice).to.exist;
+        expect(rebuildChoice!.command).to.include('agent rebuild');
+
+        // Step 2: Execute rebuild command
+        // Note: This may fail with Docker error, but we verify the command path is correct
+        const output = exec(execChoice(rebuildChoice!));
+
+        // Either get agent selection prompt OR Docker not running error
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Docker is not running') ||
+          o.includes('Select agent') ||
+          o.includes('rebuild-flow-agent') ||
+          o.includes('"prompt"')
+        );
+      });
+    });
   });
 });
 
