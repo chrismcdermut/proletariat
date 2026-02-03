@@ -108,8 +108,8 @@ export default class WorkflowSwitch extends PMOCommand {
       this.log(styles.warning('Tickets will be mapped to matching status categories in the new workflow.'));
       this.log('');
 
-      // Use agentPrompt for confirmation (handles JSON mode automatically)
-      const { confirm } = await this.agentPrompt<{ confirm: boolean }>([{
+      // Use prompt for confirmation (handles JSON mode automatically)
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: `Switch to workflow "${workflow.name}"?`,

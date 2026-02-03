@@ -110,8 +110,8 @@ export default class WorkflowDelete extends PMOCommand {
       this.log(styles.warning('This action cannot be undone.'));
       this.log('');
 
-      // Use agentPrompt for confirmation (handles JSON mode automatically)
-      const { confirm } = await this.agentPrompt<{ confirm: boolean }>([{
+      // Use prompt for confirmation (handles JSON mode automatically)
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: `Delete workflow "${workflow.name}"?`,
