@@ -1,4 +1,3 @@
-import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { WorkAction } from '../../lib/pmo/types.js';
@@ -15,10 +14,6 @@ export default class Action extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -34,11 +29,11 @@ export default class Action extends PMOCommand {
     // Define choices once, use for both JSON and interactive modes
     // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { id: 'list', name: 'List all actions', command: 'prlt action list --format json' },
-      { id: 'show', name: 'View action details', command: 'prlt action show --json' },
-      { id: 'create', name: 'Create custom action', command: 'prlt action create --json' },
-      { id: 'update', name: 'Update action', command: 'prlt action update --json' },
-      { id: 'delete', name: 'Delete action', command: 'prlt action delete --json' },
+      { id: 'list', name: 'List all actions', command: 'prlt action list --json' },
+      { id: 'show', name: 'View action details', command: 'prlt action show --machine' },
+      { id: 'create', name: 'Create custom action', command: 'prlt action create --machine' },
+      { id: 'update', name: 'Update action', command: 'prlt action update --machine' },
+      { id: 'delete', name: 'Delete action', command: 'prlt action delete --machine' },
       { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'Work Actions - What would you like to do?';
