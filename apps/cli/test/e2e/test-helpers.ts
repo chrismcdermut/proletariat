@@ -175,8 +175,7 @@ export function filterOutput(output: string): string {
     !line.includes('Warning:') &&
     !line.includes('module: @oclif') &&
     !line.includes('task: findCommand') &&
-    !line.includes('plugin: @chrismcdermut') &&
-    !line.includes('plugin: @proletariat') &&
+    !line.includes('plugin: @') &&  // Filter all plugin: lines (e.g., plugin: @proletariat/cli)
     !line.includes('root: /') &&
     !line.includes('code: ERR_') &&
     !line.includes('message: Unknown file extension') &&
@@ -310,17 +309,25 @@ export function execWithFilter(cmd: string): string {
 
 /**
  * Executes a CLI command in production mode from CLI directory.
- * Used by docker-commands tests that need compiled JS.
+ * Used by docker-commands tests and agent flow tests that need compiled JS.
+ *
+ * Sets PRLT_HQ_PATH to the current working directory (which should be the test
+ * directory) so commands use the test database, not a real one.
  */
 export function execProduction(cmd: string): string {
   try {
     const cliDir = path.join(__dirname, '../..');
     const binPath = path.join(cliDir, 'bin/run.js');
 
+    // Get isolated env and set HQ path to current test directory
+    const env = getIsolatedEnv('production');
+    env.PRLT_HQ_PATH = process.cwd();
+    env.PRLT_TEST_ENV = 'true'; // Required for PRLT_HQ_PATH to be respected
+
     const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: getIsolatedEnv('production'),
+      env,
       cwd: cliDir, // Run from CLI directory for proper module resolution
     });
     return filterNodeWarnings(result);
@@ -448,6 +455,7 @@ export function hasContextError(output: string): boolean {
   return (
     output.includes('Not in a workspace') ||
     output.includes('No workspace') ||
+    output.includes('Not in an HQ') ||
     output.includes('No projects found') ||
     output.includes('No tickets') ||
     output.includes('No agents found') ||
