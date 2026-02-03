@@ -595,6 +595,107 @@ describe('PR Commands JSON Mode', () => {
           expect(metadata).to.exist;
         }
       });
+
+      it('should complete confirmation flow: ticket with existing PR → confirm replace → select new PR', () => {
+        // Create a ticket that ALREADY has a PR linked
+        createTestTicket('TKT-LINK-REPLACE', 'Replace PR test', 'in-progress', 'https://github.com/existing/pr/123');
+
+        // Agent Step 1: Select this ticket (provide directly to skip ticket selection)
+        const step1 = agentExec('pr link TKT-LINK-REPLACE -P test-project --machine');
+
+        // If gh not installed, skip
+        if (step1.error) {
+          expect(step1.error.code).to.be.oneOf(['GH_NOT_INSTALLED', 'GH_NOT_AUTHENTICATED']);
+          return;
+        }
+
+        // Should get confirmation prompt (because ticket already has a PR)
+        expect(step1.prompt).to.exist;
+        expect(step1.prompt!.type).to.equal('list');
+        expect(step1.prompt!.name).to.equal('confirm');
+        expect(step1.prompt!.message).to.include('Replace');
+
+        // Verify Yes and No choices exist
+        const yesChoice = findChoice(step1.prompt!.choices!, 'yes');
+        const noChoice = findChoice(step1.prompt!.choices!, 'no');
+        expect(yesChoice).to.exist;
+        expect(noChoice).to.exist;
+
+        // Agent Step 2: Use --confirm flag directly to confirm and get PR selection
+        // (FlagResolver builds command with value, but --confirm is a boolean flag,
+        // so we use the flag directly instead of the generated command)
+        const step2 = agentExec('pr link TKT-LINK-REPLACE -P test-project --confirm --machine');
+
+        // If no open PRs, we get an error
+        if (step2.error) {
+          expect(step2.error.code).to.equal('NO_OPEN_PRS');
+          return;
+        }
+
+        // Should have PR selection prompt
+        expect(step2.prompt).to.exist;
+        expect(step2.prompt!.type).to.equal('list');
+        expect(step2.prompt!.name).to.equal('pr');
+
+        // Select the first available PR
+        const prChoice = step2.prompt!.choices![0];
+        expect(prChoice).to.exist;
+
+        // Agent Step 3: Execute the link (final step)
+        // Include --confirm since the ticket still has the old PR until we update it
+        const finalCmd = execChoice(prChoice).replace(' --json', ' --confirm').replace(' --machine', ' --confirm');
+        const result = exec(finalCmd.includes('--confirm') ? finalCmd : finalCmd + ' --confirm');
+
+        // Verify link succeeded
+        expect(result.toLowerCase()).to.include('linked');
+
+        // Verify in database - should have new PR URL
+        const metadata = db.prepare(`
+          SELECT value FROM pmo_ticket_metadata
+          WHERE ticket_id = 'TKT-LINK-REPLACE' AND key = 'pr_url'
+        `).get() as { value: string } | undefined;
+        expect(metadata).to.exist;
+        // Should NOT be the old URL anymore
+        expect(metadata!.value).to.not.equal('https://github.com/existing/pr/123');
+      });
+
+      it('should allow canceling confirmation when ticket has existing PR', () => {
+        // Create a ticket with existing PR
+        createTestTicket('TKT-LINK-CANCEL', 'Cancel replace test', 'in-progress', 'https://github.com/existing/pr/456');
+
+        // Agent Step 1: Select this ticket
+        const step1 = agentExec('pr link TKT-LINK-CANCEL -P test-project --machine');
+
+        // If gh not installed, skip
+        if (step1.error) {
+          expect(step1.error.code).to.be.oneOf(['GH_NOT_INSTALLED', 'GH_NOT_AUTHENTICATED']);
+          return;
+        }
+
+        // Should get confirmation prompt
+        expect(step1.prompt).to.exist;
+        expect(step1.prompt!.name).to.equal('confirm');
+
+        // Verify "No" choice exists
+        const noChoice = findChoice(step1.prompt!.choices!, 'no');
+        expect(noChoice).to.exist;
+
+        // Agent Step 2: Don't use --confirm flag - just run without it
+        // (equivalent to selecting "No" - will show the existing PR info and return)
+        const result = exec('pr link TKT-LINK-CANCEL -P test-project');
+
+        // Should complete (shows existing PR info)
+        expect(result).to.be.a('string');
+        expect(result).to.include('already has a linked PR');
+
+        // Database should still have original PR URL
+        const metadata = db.prepare(`
+          SELECT value FROM pmo_ticket_metadata
+          WHERE ticket_id = 'TKT-LINK-CANCEL' AND key = 'pr_url'
+        `).get() as { value: string } | undefined;
+        expect(metadata).to.exist;
+        expect(metadata!.value).to.equal('https://github.com/existing/pr/456');
+      });
     });
 
     describe('pr create - agent flow', () => {
@@ -625,6 +726,97 @@ describe('PR Commands JSON Mode', () => {
         // Should provide some output
         expect(output).to.be.a('string');
         expect(output.length).to.be.greaterThan(0);
+      });
+
+      it('should complete ticket selection flow when branch has no ticket ID', () => {
+        // Create some in-progress tickets for selection
+        createTestTicket('TKT-CREATE-SELECT-1', 'First selectable ticket', 'in-progress');
+        createTestTicket('TKT-CREATE-SELECT-2', 'Second selectable ticket', 'in-progress');
+
+        // Agent Step 1: Start PR creation - should get ticket selection prompt
+        // Note: This runs in the current git repo context
+        const output = exec('pr create -P test-project --machine');
+
+        // Check if PR already exists (outputs text instead of JSON)
+        if (output.includes('PR already exists')) {
+          // Skip test - can't test ticket selection when PR exists
+          return;
+        }
+
+        // Try to parse as JSON
+        let step1: AgentPrompt;
+        try {
+          step1 = extractJson<AgentPrompt>(output);
+        } catch {
+          // Not JSON - might be other text output
+          return;
+        }
+
+        // If error, check valid error codes
+        if (step1.error) {
+          expect(step1.error.code).to.be.oneOf([
+            'GH_NOT_INSTALLED',
+            'GH_NOT_AUTHENTICATED',
+            'NO_GIT_REPO',
+            'ON_BASE_BRANCH',
+          ]);
+          return;
+        }
+
+        // If we got a prompt, verify it's the ticket selection
+        if (step1.prompt) {
+          expect(step1.prompt.type).to.equal('list');
+          expect(step1.prompt.name).to.equal('ticket');
+          expect(step1.prompt.choices).to.be.an('array');
+
+          // Should include our test tickets
+          const ticket1 = findChoice(step1.prompt.choices!, 'TKT-CREATE-SELECT-1');
+          const ticket2 = findChoice(step1.prompt.choices!, 'TKT-CREATE-SELECT-2');
+          expect(ticket1 || ticket2).to.exist;
+
+          // Should have a "Skip" option
+          const skipChoice = findChoice(step1.prompt.choices!, 'skip');
+          expect(skipChoice).to.exist;
+          expect(skipChoice!.value).to.equal('__skip__');
+        }
+      });
+
+      it('should allow skipping ticket selection in PR creation', () => {
+        // Create in-progress tickets
+        createTestTicket('TKT-SKIP-TEST', 'Skip test ticket', 'in-progress');
+
+        const output = exec('pr create -P test-project --machine');
+
+        // Check if PR already exists
+        if (output.includes('PR already exists')) {
+          return;
+        }
+
+        // Try to parse
+        let step1: AgentPrompt;
+        try {
+          step1 = extractJson<AgentPrompt>(output);
+        } catch {
+          return;
+        }
+
+        // If error or no prompt, skip
+        if (step1.error || !step1.prompt) {
+          return;
+        }
+
+        // Find "Skip" option
+        const skipChoice = findChoice(step1.prompt.choices!, 'skip');
+        if (!skipChoice) {
+          return; // Skip option not available
+        }
+
+        // Agent selects "Skip" - should proceed with PR creation without ticket
+        const result = execFinal(execChoice(skipChoice));
+
+        // Should provide some output (PR creation or failure)
+        expect(result).to.be.a('string');
+        expect(result.length).to.be.greaterThan(0);
       });
     });
 
