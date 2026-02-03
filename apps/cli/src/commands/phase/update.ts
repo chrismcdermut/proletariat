@@ -52,10 +52,6 @@ export default class PhaseUpdate extends PMOCommand {
       description: 'Interactive mode',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -86,11 +82,11 @@ export default class PhaseUpdate extends PMOCommand {
         return handleError('NO_PHASES', 'No phases found. Create a phase first with "prlt phase create".');
       }
 
-      const idResolver = new FlagResolver<{ phaseId?: string }>({
+      const idResolver = new FlagResolver<{ phaseId?: string; machine?: boolean; json?: boolean }>({
         commandName: 'phase update',
         baseCommand: 'prlt phase update',
         jsonMode,
-        flags: {},
+        flags: { machine: flags.machine, json: flags.json },
       });
 
       idResolver.addPrompt({
@@ -101,6 +97,8 @@ export default class PhaseUpdate extends PMOCommand {
           name: `${p.name} (${p.category})`,
           value: p.id,
         })),
+        // Use positional arg format for phase ID
+        getCommand: (value) => `prlt phase update ${value} --json`,
       });
 
       const resolved = await idResolver.resolve();
@@ -146,11 +144,13 @@ export default class PhaseUpdate extends PMOCommand {
         color?: string;
         description?: string;
         isDefault?: boolean;
+        machine?: boolean;
+        json?: boolean;
       }>({
         commandName: 'phase update',
         baseCommand: `prlt phase update ${phaseId}`,
         jsonMode,
-        flags: {},
+        flags: { machine: flags.machine, json: flags.json },
       });
 
       resolver.addPrompt({

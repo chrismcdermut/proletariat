@@ -30,10 +30,6 @@ export default class PhaseDelete extends PMOCommand {
       description: 'Skip confirmation',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -62,11 +58,11 @@ export default class PhaseDelete extends PMOCommand {
 
     if (!flags.force) {
       // Use FlagResolver for confirmation
-      const resolver = new FlagResolver<{ confirmed?: boolean }>({
+      const resolver = new FlagResolver<{ confirmed?: boolean; machine?: boolean; json?: boolean }>({
         commandName: 'phase delete',
         baseCommand: `prlt phase delete ${args.id}`,
         jsonMode,
-        flags: {},
+        flags: { machine: flags.machine, json: flags.json },
       });
 
       resolver.addPrompt({

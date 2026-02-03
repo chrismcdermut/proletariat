@@ -44,10 +44,6 @@ export default class PhaseCreate extends PMOCommand {
       description: 'Interactive mode',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -70,38 +66,51 @@ export default class PhaseCreate extends PMOCommand {
       canceled: 'Canceled - Work won\'t be done',
     };
 
+    // Build base command with positional arg if name provided
+    const baseCmd = args.name
+      ? `prlt phase create "${args.name}"`
+      : 'prlt phase create';
+
     // Use FlagResolver for unified JSON mode and interactive handling
     const resolver = new FlagResolver<{
-      name?: string;
       category?: string;
       color?: string;
       description?: string;
       default?: boolean;
+      machine?: boolean;
+      json?: boolean;
     }>({
       commandName: 'phase create',
-      baseCommand: 'prlt phase create',
+      baseCommand: baseCmd,
       jsonMode,
       flags: {
-        name: args.name,
         category: flags.category,
         color: flags.color,
         description: flags.description,
         default: flags.default,
+        machine: flags.machine,
+        json: flags.json,
       },
     });
 
-    // Name prompt - required
-    resolver.addPrompt({
-      flagName: 'name',
-      type: 'input',
-      message: 'Phase name:',
-      when: (ctx) => !ctx.flags.name,
-      validate: (value) => (value as string).length > 0 || 'Name is required',
-      context: {
-        hint: 'Provide name with: prlt phase create "Phase Name" --category <category>',
-        example: 'prlt phase create "In Review" --category started',
-      },
-    });
+    // Store name in context for later use
+    let phaseName = args.name;
+
+    // Name prompt - required (only if not provided as positional arg)
+    if (!args.name) {
+      resolver.addPrompt({
+        flagName: 'name',
+        type: 'input',
+        message: 'Phase name:',
+        validate: (value) => (value as string).length > 0 || 'Name is required',
+        context: {
+          hint: 'Provide name with: prlt phase create "Phase Name" --category <category>',
+          example: 'prlt phase create "In Review" --category started',
+        },
+        // For input prompts, the agent will re-run with the positional arg
+        getCommand: (value) => `prlt phase create "${value}" --json`,
+      });
+    }
 
     // Category prompt - required
     resolver.addPrompt({
@@ -112,7 +121,7 @@ export default class PhaseCreate extends PMOCommand {
         name: categoryLabels[cat],
         value: cat,
       })),
-      when: (ctx) => !ctx.flags.category && ctx.flags.name !== undefined,
+      when: () => !!args.name && !flags.category,
     });
 
     // Color prompt - optional (only in interactive mode)
@@ -148,8 +157,11 @@ export default class PhaseCreate extends PMOCommand {
     // Resolve missing flags
     const resolved = await resolver.resolve();
 
+    // Get name from args or resolved (for interactive mode)
+    phaseName = phaseName || (resolved as { name?: string }).name;
+
     // Validate required fields
-    if (!resolved.name) {
+    if (!phaseName) {
       this.error('Name is required. Use positional arg or --interactive mode.');
     }
     if (!resolved.category) {
@@ -158,7 +170,7 @@ export default class PhaseCreate extends PMOCommand {
 
     // Create the phase
     const phase = await this.storage.createPhase({
-      name: resolved.name,
+      name: phaseName,
       category: resolved.category as StateCategory,
       color: resolved.color || undefined,
       description: resolved.description || undefined,

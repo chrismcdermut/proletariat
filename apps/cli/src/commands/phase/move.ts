@@ -31,10 +31,6 @@ export default class PhaseMove extends PMOCommand {
       description: 'New position (0-indexed)',
       required: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -65,11 +61,11 @@ export default class PhaseMove extends PMOCommand {
         return handleError('NO_PHASES', 'No phases found. Create a phase first with "prlt phase create".');
       }
 
-      const idResolver = new FlagResolver<{ phaseId?: string }>({
+      const idResolver = new FlagResolver<{ phaseId?: string; machine?: boolean; json?: boolean }>({
         commandName: 'phase move',
         baseCommand: 'prlt phase move',
         jsonMode,
-        flags: {},
+        flags: { machine: flags.machine, json: flags.json },
       });
 
       idResolver.addPrompt({
@@ -80,6 +76,8 @@ export default class PhaseMove extends PMOCommand {
           name: `${p.name} (${p.category}, position ${p.position})`,
           value: p.id,
         })),
+        // Use positional arg format for phase ID
+        getCommand: (value) => `prlt phase move ${value} --json`,
       });
 
       const resolved = await idResolver.resolve();
@@ -102,11 +100,11 @@ export default class PhaseMove extends PMOCommand {
       const phases = await this.storage.listPhases();
       const categoryPhases = phases.filter(p => p.category === phase.category);
 
-      const posResolver = new FlagResolver<{ position?: string }>({
+      const posResolver = new FlagResolver<{ position?: string; machine?: boolean; json?: boolean }>({
         commandName: 'phase move',
         baseCommand: `prlt phase move ${phaseId}`,
         jsonMode,
-        flags: {},
+        flags: { machine: flags.machine, json: flags.json },
       });
 
       posResolver.addPrompt({

@@ -2,6 +2,7 @@ import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER, ProjectPhase } from '../../lib/pmo/types.js';
+import { isMachineOutput } from '../../lib/prompt-json.js';
 
 export default class PhaseList extends PMOCommand {
   static description = 'List all project lifecycle phases';
@@ -9,6 +10,7 @@ export default class PhaseList extends PMOCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --category started',
+    '<%= config.bin %> <%= command.id %> --machine',
     '<%= config.bin %> <%= command.id %> --json',
   ];
 
@@ -19,10 +21,6 @@ export default class PhaseList extends PMOCommand {
       description: 'Filter by category',
       options: ['backlog', 'unstarted', 'started', 'completed', 'canceled'],
     }),
-    json: Flags.boolean({
-      description: 'Output as JSON',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
@@ -32,7 +30,7 @@ export default class PhaseList extends PMOCommand {
       flags.category ? { category: flags.category as StateCategory } : undefined
     );
 
-    if (flags.json) {
+    if (isMachineOutput(flags)) {
       this.log(JSON.stringify(phases, null, 2));
       return;
     }
