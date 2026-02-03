@@ -121,7 +121,7 @@ export default class Remove extends PMOCommand {
       this.log(colors.text('  • Remove agent worktrees for this repo'));
       this.log(colors.text('  • Update database\n'));
 
-      const { confirm } = await this.agentPrompt<{ confirm: string }>([{
+      const { confirm } = await this.prompt<{ confirm: string }>([{
         type: 'list',
         name: 'confirm',
         message: `Are you sure you want to remove "${repoName}"?`,
@@ -167,10 +167,10 @@ export default class Remove extends PMOCommand {
       this.log(colors.primary('📦 Remove Repositories (Bulk Mode)\n'));
     }
 
-    // Use agentPrompt for JSON mode support
+    // Use prompt for JSON mode support
     const agentConfig = jsonMode ? { flags, commandName: 'repo remove --bulk' } : null;
 
-    const { selectedRepos } = await this.agentPrompt<{ selectedRepos: string[] }>([{
+    const { selectedRepos } = await this.prompt<{ selectedRepos: string[] }>([{
       type: 'checkbox',
       name: 'selectedRepos',
       message: 'Select repositories to remove:',
@@ -194,7 +194,7 @@ export default class Remove extends PMOCommand {
       }
       this.log(colors.text('  • Agent worktrees for these repos\n'));
 
-      const { confirm } = await this.agentPrompt<{ confirm: string }>([{
+      const { confirm } = await this.prompt<{ confirm: string }>([{
         type: 'list',
         name: 'confirm',
         message: 'Are you sure?',

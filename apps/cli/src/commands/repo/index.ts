@@ -43,17 +43,17 @@ export default class Repo extends PMOCommand {
       this.log('');
     }
 
-    // Use agentPrompt for JSON mode support
+    // Use prompt for JSON mode support
     const agentConfig = jsonMode ? { flags, commandName: 'repo' } : null;
 
-    const { action } = await this.agentPrompt<{ action: string }>([{
+    const { action } = await this.prompt<{ action: string }>([{
       type: 'list',
       name: 'action',
       message: 'What would you like to do?',
       choices: menuChoices,
     }], agentConfig);
 
-    // In JSON mode, agentPrompt exits after outputting - this is never reached
+    // In JSON mode, prompt exits after outputting - this is never reached
     if (!action || action === 'cancel') {
       this.log(colors.textMuted('Operation cancelled.'));
       return;
