@@ -150,9 +150,9 @@ export default class BranchCreate extends PMOCommand {
         ]
         const confirmMessage = `Branch name doesn't follow conventional format. ${validation.error} Continue anyway?`
 
-        // Use agentPrompt for JSON mode support
+        // Use prompt for JSON mode support
         const agentConfig = jsonMode ? { flags, commandName: 'branch create' } : null
-        const { proceed } = await this.agentPrompt<{ proceed: string }>([{
+        const { proceed } = await this.prompt<{ proceed: string }>([{
           type: 'list',
           name: 'proceed',
           message: confirmMessage,
@@ -428,16 +428,16 @@ export default class BranchCreate extends PMOCommand {
       this.log('')
     }
 
-    // Use agentPrompt for JSON mode support
+    // Use prompt for JSON mode support
     const agentConfig = jsonMode ? { flags, commandName: 'branch create' } : null
-    const { mode } = await this.agentPrompt<{ mode: string }>([{
+    const { mode } = await this.prompt<{ mode: string }>([{
       type: 'list',
       name: 'mode',
       message: modeMessage,
       choices: modeChoices,
     }], agentConfig)
 
-    // In JSON mode, agentPrompt exits - this is never reached
+    // In JSON mode, prompt exits - this is never reached
     if (!mode) {
       return null
     }

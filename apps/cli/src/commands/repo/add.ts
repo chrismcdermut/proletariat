@@ -76,7 +76,7 @@ export default class Add extends PMOCommand {
       // In JSON mode, output guidance
       if (jsonMode) {
         const agentConfig = { flags, commandName: 'repo add --bulk' };
-        await this.agentPrompt<{ method: string }>([{
+        await this.prompt<{ method: string }>([{
           type: 'list',
           name: 'method',
           message: 'Bulk mode requires interactive selection. Use one of these instead:',
@@ -109,7 +109,7 @@ export default class Add extends PMOCommand {
       // In JSON mode, output prompt for method selection
       if (jsonMode) {
         const agentConfig = { flags, commandName: 'repo add' };
-        await this.agentPrompt<{ method: string }>([{
+        await this.prompt<{ method: string }>([{
           type: 'list',
           name: 'method',
           message: 'How would you like to add a repository?',
