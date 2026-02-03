@@ -12,6 +12,7 @@ interface CreateFlags {
   default?: boolean;
   project?: string;
   json?: boolean;
+  machine?: boolean;
   interactive?: boolean;
   [key: string]: unknown;
 }
@@ -57,10 +58,6 @@ export default class StatusCreate extends PMOCommand {
     interactive: Flags.boolean({
       char: 'i',
       description: 'Interactive mode',
-      default: false,
-    }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
   };
@@ -110,7 +107,7 @@ export default class StatusCreate extends PMOCommand {
       choices: () => STATE_CATEGORY_ORDER.map(cat => ({
         name: `${cat} - ${this.getCategoryDescription(cat)}`,
         value: cat,
-        command: `prlt status create --category ${cat} --json`,
+        command: `prlt status create --category ${cat} --machine`,
       })),
       default: flags.category || 'backlog',
       when: (ctx) => !ctx.flags.category || flags.interactive,

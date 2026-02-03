@@ -20,10 +20,6 @@ export default class StatusList extends PMOCommand {
       description: 'Filter by category',
       options: ['backlog', 'unstarted', 'started', 'completed', 'canceled'],
     }),
-    json: Flags.boolean({
-      description: 'Output as JSON',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
@@ -49,7 +45,7 @@ export default class StatusList extends PMOCommand {
 
     const statuses = await this.storage.listStatuses(project.workflowId);
 
-    if (flags.json) {
+    if (jsonMode) {
       this.log(JSON.stringify(statuses, null, 2));
       return;
     }

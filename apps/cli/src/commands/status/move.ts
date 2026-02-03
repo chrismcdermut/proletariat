@@ -12,6 +12,7 @@ interface MoveFlags {
   position?: number;
   project?: string;
   json?: boolean;
+  machine?: boolean;
   [key: string]: unknown;
 }
 
@@ -33,10 +34,6 @@ export default class StatusMove extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     position: Flags.integer({
       char: 'p',
       description: 'New position (0-indexed) within the category',
@@ -97,7 +94,7 @@ export default class StatusMove extends PMOCommand {
       choices: () => statuses.map(s => ({
         name: `${s.name} (${s.category}, position ${s.position})`,
         value: s.id,
-        command: `prlt status move ${s.id} --json`,
+        command: `prlt status move ${s.id} --machine`,
       })),
       when: (ctx) => !ctx.flags.id,
     });
@@ -132,7 +129,7 @@ export default class StatusMove extends PMOCommand {
       choices: () => categoryStatuses.map((_, idx) => ({
         name: `Position ${idx}${idx === existing.position ? ' (current)' : ''}`,
         value: idx,
-        command: `prlt status move ${statusId} --position ${idx} --json`,
+        command: `prlt status move ${statusId} --position ${idx} --machine`,
       })),
       when: (ctx) => ctx.flags.position === undefined,
     });

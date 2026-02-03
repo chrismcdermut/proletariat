@@ -17,6 +17,7 @@ interface UpdateFlags {
   default?: boolean;
   project?: string;
   json?: boolean;
+  machine?: boolean;
   interactive?: boolean;
   [key: string]: unknown;
 }
@@ -40,10 +41,6 @@ export default class StatusUpdate extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     name: Flags.string({
       char: 'n',
       description: 'New status name',
@@ -124,7 +121,7 @@ export default class StatusUpdate extends PMOCommand {
       choices: () => statuses.map(s => ({
         name: `${s.name} (${s.category})`,
         value: s.id,
-        command: `prlt status update ${s.id} --json`,
+        command: `prlt status update ${s.id} --machine`,
       })),
       when: (ctx) => !ctx.flags.id,
     });
@@ -182,7 +179,7 @@ export default class StatusUpdate extends PMOCommand {
         choices: () => STATE_CATEGORY_ORDER.map(cat => ({
           name: cat,
           value: cat,
-          command: `prlt status update ${statusId} --category ${cat} --json`,
+          command: `prlt status update ${statusId} --category ${cat} --machine`,
         })),
         default: existing.category,
         when: (ctx) => ctx.flags.category === undefined,

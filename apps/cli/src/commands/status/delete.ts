@@ -1,5 +1,5 @@
 import { Flags, Args } from '@oclif/core';
-import { PMOCommand } from '../../lib/pmo/index.js';
+import { PMOCommand, machineOutputFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
 import {
@@ -11,6 +11,7 @@ interface DeleteFlags {
   force?: boolean;
   confirm?: boolean;
   json?: boolean;
+  machine?: boolean;
   [key: string]: unknown;
 }
 
@@ -30,10 +31,7 @@ export default class StatusDelete extends PMOCommand {
   };
 
   static flags = {
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
+    ...machineOutputFlags,
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation prompt',
@@ -80,7 +78,7 @@ export default class StatusDelete extends PMOCommand {
         message: `Delete status "${existing.name}" (${existing.category})?`,
         choices: () => [
           { name: 'No, cancel', value: false, command: '' },
-          { name: 'Yes, delete', value: true, command: `prlt status delete ${args.id} --force --json` },
+          { name: 'Yes, delete', value: true, command: `prlt status delete ${args.id} --force --machine` },
         ],
         when: (ctx) => ctx.flags.confirm === undefined,
       });

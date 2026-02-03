@@ -7,6 +7,7 @@ interface MenuFlags {
   action?: string;
   project?: string;
   json?: boolean;
+  machine?: boolean;
   [key: string]: unknown;
 }
 
@@ -21,10 +22,6 @@ export default class Status extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -40,11 +37,11 @@ export default class Status extends PMOCommand {
     // Define choices once, use for both JSON and interactive modes
     // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { id: 'list', name: 'List all statuses', command: 'prlt status list --json' },
-      { id: 'create', name: 'Create new status', command: 'prlt status create --json' },
-      { id: 'update', name: 'Update status', command: 'prlt status update --json' },
-      { id: 'move', name: 'Move status (change order)', command: 'prlt status move --json' },
-      { id: 'delete', name: 'Delete status', command: 'prlt status delete --json' },
+      { id: 'list', name: 'List all statuses', command: 'prlt status list --machine' },
+      { id: 'create', name: 'Create new status', command: 'prlt status create --machine' },
+      { id: 'update', name: 'Update status', command: 'prlt status update --machine' },
+      { id: 'move', name: 'Move status (change order)', command: 'prlt status move --machine' },
+      { id: 'delete', name: 'Delete status', command: 'prlt status delete --machine' },
       { id: 'cancel', name: 'Cancel', command: '' },
     ];
 
