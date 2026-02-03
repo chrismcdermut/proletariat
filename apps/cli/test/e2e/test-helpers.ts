@@ -248,7 +248,7 @@ export function exec(cmd: string): string {
     // Get isolated env (production mode for oclif) and set HQ path to current test directory
     const env = getIsolatedEnv('production');
     env.PRLT_HQ_PATH = process.cwd();
-    env.DEVCONTAINER = 'true'; // Required for PRLT_HQ_PATH to be respected
+    env.PRLT_TEST_ENV = 'true'; // Required for PRLT_HQ_PATH to be respected in tests
 
     const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',

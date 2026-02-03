@@ -7,7 +7,7 @@ import chalk from 'chalk';
  * Central headquarters resolution utilities.
  *
  * Search priority:
- * 1. PRLT_HQ_PATH env var (ONLY when DEVCONTAINER=true - for devcontainer mounts)
+ * 1. PRLT_HQ_PATH env var (ONLY when DEVCONTAINER=true or PRLT_TEST_ENV=true)
  * 2. Walk up directory tree looking for .proletariat/config.json with type='hq'
  *    - If found but not registered, emit warning to register
  * 3. ~/.proletariat/config.json activeHeadquarters (fallback when NOT in any HQ)
@@ -17,8 +17,9 @@ import chalk from 'chalk';
  * working in different HQs simultaneously. Each agent uses the HQ
  * they're physically in, not a global env var that could cause conflicts.
  *
- * For testing HQ isolation, see TKT-400.
- * For CI/CD HQ isolation, see TKT-401.
+ * Environment variables:
+ * - DEVCONTAINER=true: Enables PRLT_HQ_PATH (for devcontainer mounts)
+ * - PRLT_TEST_ENV=true: Enables PRLT_HQ_PATH (for E2E test isolation)
  */
 
 export interface WorkspaceLocation {
@@ -47,12 +48,12 @@ export function findHQRoot(startDir: string = process.cwd()): string | null {
  * Useful for debugging and logging where the workspace was resolved from.
  */
 export function findHQRootWithSource(startDir: string = process.cwd()): WorkspaceLocation | null {
-  // 1. Check PRLT_HQ_PATH environment variable (only in devcontainers)
+  // 1. Check PRLT_HQ_PATH environment variable (only in devcontainers or test environments)
   // On host machines, we use directory walk to support multiple workspaces/agents
   const envHqPath = process.env.PRLT_HQ_PATH;
-  const isDevcontainer = process.env.DEVCONTAINER === 'true';
+  const allowEnvHqPath = process.env.DEVCONTAINER === 'true' || process.env.PRLT_TEST_ENV === 'true';
 
-  if (envHqPath && isDevcontainer) {
+  if (envHqPath && allowEnvHqPath) {
     const resolvedPath = path.resolve(envHqPath);
     // Validate it's actually an HQ
     if (isValidHQ(resolvedPath)) {
