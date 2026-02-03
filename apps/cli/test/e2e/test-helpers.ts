@@ -141,14 +141,22 @@ export function createEpicDirectories(pmoPath: string, projectId: string = 'test
  * Gets the isolated environment variables for running CLI commands.
  * This ensures that environment variables that could bypass test isolation
  * are explicitly cleared.
+ *
+ * NOTE: We use 'production' as the default NODE_ENV because when NODE_ENV=test,
+ * oclif tries to load TypeScript source files directly from src/commands instead
+ * of the compiled dist/commands. Since the spawned child process doesn't have
+ * ts-node configured, this causes ERR_UNKNOWN_FILE_EXTENSION errors.
  */
-export function getIsolatedEnv(nodeEnv: string = 'test'): NodeJS.ProcessEnv {
+export function getIsolatedEnv(nodeEnv: string = 'production'): NodeJS.ProcessEnv {
   const env = { ...process.env };
 
   // Clear environment variables that could bypass test isolation
   for (const varName of ISOLATION_ENV_VARS) {
     delete env[varName];
   }
+
+  // Clear DEBUG to prevent oclif debug output that pollutes JSON
+  delete env.DEBUG;
 
   // Set NODE_ENV
   env.NODE_ENV = nodeEnv;
