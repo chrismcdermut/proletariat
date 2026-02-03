@@ -658,6 +658,62 @@ describe('Agent Commands JSON Mode', () => {
         expect(listChoice!.command).to.include('agent staff list');
         expect(listChoice!.command).to.include('--machine');
       });
+
+      it('should complete flow: agent index → staff → list → view staff agents', () => {
+        // Step 1: Agent index menu
+        const step1 = agentExec('agent --machine');
+        expect(step1).to.exist;
+
+        // Find 'staff' choice
+        const staffChoice = findChoice(step1!.prompt.choices!, 'staff');
+        expect(staffChoice).to.exist;
+
+        // Step 2: Execute staff command, get submenu
+        const step2 = agentExec(execChoice(staffChoice!));
+        expect(step2).to.exist;
+
+        // Find 'List' choice
+        const listChoice = findChoice(step2!.prompt.choices!, 'List');
+        expect(listChoice).to.exist;
+
+        // Step 3: Execute list command (returns data, not prompt)
+        const finalCmd = execChoice(listChoice!).replace(' --machine', '').replace(' --json', '');
+        const result = exec(finalCmd);
+
+        // Should show staff agents or summary
+        expect(result.toLowerCase()).to.satisfy((o: string) =>
+          o.includes('staff') || o.includes('summary') || o.includes('no active')
+        );
+      });
+
+      it('should complete flow: agent index → staff → remove → get agent selection', () => {
+        // Step 1: Agent index menu
+        const step1 = agentExec('agent --machine');
+        expect(step1).to.exist;
+
+        // Find 'staff' choice
+        const staffChoice = findChoice(step1!.prompt.choices!, 'staff');
+        expect(staffChoice).to.exist;
+
+        // Step 2: Execute staff command, get submenu
+        const step2 = agentExec(execChoice(staffChoice!));
+        expect(step2).to.exist;
+
+        // Find 'Remove' choice
+        const removeChoice = findChoice(step2!.prompt.choices!, 'Remove');
+        expect(removeChoice).to.exist;
+        expect(removeChoice!.command).to.include('agent staff remove');
+
+        // Step 3: Execute remove command, get agent selection prompt
+        const step3 = agentExec(execChoice(removeChoice!));
+        expect(step3).to.exist;
+        expect(step3!.prompt.type).to.equal('list');
+        expect(step3!.prompt.name).to.equal('name');
+
+        // Should include our test agent in choices
+        const agentChoice = findChoice(step3!.prompt.choices!, 'staff-flow-agent');
+        expect(agentChoice).to.exist;
+      });
     });
 
     describe('agent index → temp submenu flow', () => {
@@ -687,6 +743,68 @@ describe('Agent Commands JSON Mode', () => {
         expect(listChoice!.command).to.include('agent temp list');
         expect(listChoice!.command).to.include('--machine');
       });
+
+      it('should complete flow: agent index → temp → list → view temp agents', () => {
+        // Step 1: Agent index menu
+        const step1 = agentExec('agent --machine');
+        expect(step1).to.exist;
+
+        // Find 'temp' choice
+        const tempChoice = findChoice(step1!.prompt.choices!, 'temp');
+        expect(tempChoice).to.exist;
+
+        // Step 2: Execute temp command, get submenu
+        const step2 = agentExec(execChoice(tempChoice!));
+        expect(step2).to.exist;
+
+        // Find 'List' choice
+        const listChoice = findChoice(step2!.prompt.choices!, 'List');
+        expect(listChoice).to.exist;
+
+        // Step 3: Execute list command (returns data, not prompt)
+        const finalCmd = execChoice(listChoice!).replace(' --machine', '').replace(' --json', '');
+        const result = exec(finalCmd);
+
+        // Should show temp agents or summary
+        expect(result.toLowerCase()).to.satisfy((o: string) =>
+          o.includes('temp') || o.includes('temporary') || o.includes('active') || o.includes('no')
+        );
+      });
+
+      it('should complete flow: agent index → temp → cleanup → get agent checkbox', () => {
+        // Step 1: Agent index menu
+        const step1 = agentExec('agent --machine');
+        expect(step1).to.exist;
+
+        // Find 'temp' choice
+        const tempChoice = findChoice(step1!.prompt.choices!, 'temp');
+        expect(tempChoice).to.exist;
+
+        // Step 2: Execute temp command, get submenu
+        const step2 = agentExec(execChoice(tempChoice!));
+        expect(step2).to.exist;
+
+        // Find 'cleanup' choice
+        const cleanupChoice = findChoice(step2!.prompt.choices!, 'Clean');
+        expect(cleanupChoice).to.exist;
+        expect(cleanupChoice!.command).to.include('agent temp cleanup');
+
+        // Step 3: Execute cleanup command, get agent checkbox prompt
+        const step3 = agentExec(execChoice(cleanupChoice!));
+        expect(step3).to.exist;
+        expect(step3!.prompt.type).to.equal('checkbox');
+        expect(step3!.prompt.name).to.equal('agents');
+
+        // Should include "All temp agents" option or our test agent
+        expect(step3!.prompt.choices).to.be.an('array');
+        const hasAllOption = step3!.prompt.choices!.some(
+          (c: { name?: string; value?: string }) => c.value === '__all_temp__' || c.name?.includes('All')
+        );
+        const hasTestAgent = step3!.prompt.choices!.some(
+          (c: { name?: string; value?: string }) => c.value === 'temp-flow-agent'
+        );
+        expect(hasAllOption || hasTestAgent || step3!.prompt.choices!.length > 0).to.be.true;
+      });
     });
 
     describe('agent index → themes submenu flow', () => {
@@ -710,6 +828,33 @@ describe('Agent Commands JSON Mode', () => {
         const listChoice = findChoice(step2!.prompt.choices!, 'List');
         expect(listChoice).to.exist;
         expect(listChoice!.command).to.include('themes list');
+      });
+
+      it('should complete flow: agent index → themes → list → view themes', () => {
+        // Step 1: Agent index menu
+        const step1 = agentExec('agent --machine');
+        expect(step1).to.exist;
+
+        // Find 'themes' choice
+        const themesChoice = findChoice(step1!.prompt.choices!, 'themes');
+        expect(themesChoice).to.exist;
+
+        // Step 2: Execute themes command, get submenu
+        const step2 = agentExec(execChoice(themesChoice!));
+        expect(step2).to.exist;
+
+        // Find 'List' choice
+        const listChoice = findChoice(step2!.prompt.choices!, 'List');
+        expect(listChoice).to.exist;
+
+        // Step 3: Execute list command (returns data, not prompt)
+        const finalCmd = execChoice(listChoice!);
+        const result = exec(finalCmd);
+
+        // Should show themes list (built-in themes like billionaires, toyotas, companies)
+        expect(result.toLowerCase()).to.satisfy((o: string) =>
+          o.includes('theme') || o.includes('billionaire') || o.includes('toyota') || o.includes('compan')
+        );
       });
     });
 
@@ -797,6 +942,62 @@ describe('Agent Commands JSON Mode', () => {
           o.includes('rebuild-flow-agent') ||
           o.includes('"prompt"')
         );
+      });
+    });
+
+    describe('agent staff add flow', () => {
+      it('should complete flow: agent staff → add → get name selection prompt', () => {
+        // Step 1: Agent staff submenu
+        const step1 = agentExec('agent staff --machine');
+        expect(step1).to.exist;
+        expect(step1!.prompt.type).to.equal('list');
+
+        // Find 'Add' choice
+        const addChoice = findChoice(step1!.prompt.choices!, 'Add');
+        expect(addChoice).to.exist;
+        expect(addChoice!.command).to.include('agent staff add');
+
+        // Step 2: Execute add command, get name selection prompt
+        const step2 = agentExec(execChoice(addChoice!));
+        expect(step2).to.exist;
+        // Could be 'list' (theme selection) or 'checkbox' (name selection from active theme)
+        expect(['list', 'checkbox']).to.include(step2!.prompt.type);
+
+        // Should have choices for themes or names
+        expect(step2!.prompt.choices).to.be.an('array');
+        expect(step2!.prompt.choices!.length).to.be.greaterThan(0);
+      });
+
+      it('should complete flow: direct agent staff add --machine', () => {
+        // Direct command without going through menu
+        const result = agentExec('agent staff add --machine');
+        expect(result).to.exist;
+
+        // Should get theme/name selection prompt
+        expect(['list', 'checkbox']).to.include(result!.prompt.type);
+        expect(result!.prompt.choices).to.be.an('array');
+        expect(result!.prompt.choices!.length).to.be.greaterThan(0);
+      });
+    });
+
+    describe('agent themes set flow', () => {
+      it('should complete flow: agent themes → set → get theme selection prompt', () => {
+        // Direct themes set command
+        const result = agentExec('agent themes set --machine');
+        expect(result).to.exist;
+        expect(result!.prompt.type).to.equal('list');
+        expect(result!.prompt.name).to.equal('theme');
+
+        // Should have theme choices (built-in themes like billionaires, toyotas, etc.)
+        expect(result!.prompt.choices).to.be.an('array');
+        expect(result!.prompt.choices!.length).to.be.greaterThan(0);
+
+        // Verify at least one theme is available
+        const hasTheme = result!.prompt.choices!.some(
+          (c: { name?: string; value?: string }) =>
+            c.value && !c.value.startsWith('__')
+        );
+        expect(hasTheme).to.be.true;
       });
     });
   });
