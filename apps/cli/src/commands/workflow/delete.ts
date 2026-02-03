@@ -14,6 +14,7 @@ export default class WorkflowDelete extends PMOCommand {
     '<%= config.bin %> <%= command.id %> my-workflow',
     '<%= config.bin %> <%= command.id %> my-workflow --force  # Skip confirmation',
     '<%= config.bin %> <%= command.id %>  # Interactive selection',
+    '<%= config.bin %> <%= command.id %> --machine  # JSON output for AI agents',
   ];
 
   static args = {

@@ -13,7 +13,7 @@ export default class WorkflowView extends PMOCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %> default',
     '<%= config.bin %> <%= command.id %>  # Interactive selection',
-    '<%= config.bin %> <%= command.id %> --json',
+    '<%= config.bin %> <%= command.id %> --machine  # JSON output for AI agents',
   ];
 
   static args = {

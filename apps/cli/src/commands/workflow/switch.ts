@@ -14,6 +14,7 @@ export default class WorkflowSwitch extends PMOCommand {
     '<%= config.bin %> <%= command.id %> kanban',
     '<%= config.bin %> <%= command.id %> linear --project my-project',
     '<%= config.bin %> <%= command.id %> --force  # Skip confirmation',
+    '<%= config.bin %> <%= command.id %> --machine  # JSON output for AI agents',
   ];
 
   static args = {

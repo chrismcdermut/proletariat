@@ -18,6 +18,7 @@ export default class WorkflowCreate extends PMOCommand {
     '<%= config.bin %> <%= command.id %> "My Workflow"',
     '<%= config.bin %> <%= command.id %> "Sprint Board" --description "Agile sprint workflow"',
     '<%= config.bin %> <%= command.id %> "Simple" --statuses "Todo,In Progress,Done"',
+    '<%= config.bin %> <%= command.id %> --machine  # JSON output for AI agents',
   ];
 
   static args = {
