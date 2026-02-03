@@ -242,10 +242,11 @@ describe('Phase Commands JSON Mode', () => {
     it('should include force flag in Yes choice command', () => {
       const output = exec('phase delete delete-phase --machine');
       const json = extractJson<{
-        prompt: { choices: Array<{ name: string; command?: string; value: boolean }> };
+        prompt: { choices: Array<{ name: string; command?: string; value: string }> };
       }>(output);
 
-      const yesChoice = json.prompt.choices.find(c => c.value === true);
+      // FlagResolver converts boolean values to strings in JSON output
+      const yesChoice = json.prompt.choices.find(c => c.value === 'true');
       expect(yesChoice).to.exist;
       expect(yesChoice!.command).to.include('--force');
       expect(yesChoice!.command).to.include('--json');
@@ -317,6 +318,7 @@ describe('Phase Commands JSON Mode', () => {
 
 /**
  * Helper function to set up test database with phase schema.
+ * Schema matches production schema from src/lib/pmo/schema.ts
  */
 function setupTestDatabase(db: Database.Database, pmoPath: string) {
   db.exec(`
@@ -333,8 +335,7 @@ function setupTestDatabase(db: Database.Database, pmoPath: string) {
       color TEXT,
       description TEXT,
       is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS pmo_workflows (
@@ -365,10 +366,15 @@ function setupTestDatabase(db: Database.Database, pmoPath: string) {
       name TEXT NOT NULL,
       template TEXT,
       description TEXT,
-      initiative_id TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      phase_id TEXT,
       workflow_id TEXT,
+      is_archived INTEGER NOT NULL DEFAULT 0,
+      target_date TIMESTAMP,
+      initiative_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (phase_id) REFERENCES pmo_phases(id) ON DELETE SET NULL,
       FOREIGN KEY (workflow_id) REFERENCES pmo_workflows(id) ON DELETE SET NULL
     );
 
@@ -395,12 +401,19 @@ function setupTestDatabase(db: Database.Database, pmoPath: string) {
       branch TEXT,
       spec_id TEXT,
       epic_id TEXT,
+      labels TEXT NOT NULL DEFAULT '[]',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      last_synced_from_spec TIMESTAMP,
+      last_synced_from_board TIMESTAMP
     );
 
     CREATE INDEX IF NOT EXISTS idx_pmo_phases_category ON pmo_phases(category);
-    CREATE INDEX IF NOT EXISTS idx_pmo_phases_position ON pmo_phases(position);
+    CREATE INDEX IF NOT EXISTS idx_pmo_phases_position ON pmo_phases(category, position);
+    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status ON pmo_tickets(status);
+    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_id ON pmo_tickets(status_id);
+    CREATE INDEX IF NOT EXISTS idx_pmo_projects_phase ON pmo_projects(phase_id);
+    CREATE INDEX IF NOT EXISTS idx_pmo_projects_workflow ON pmo_projects(workflow_id);
   `);
 
   // Insert workflow

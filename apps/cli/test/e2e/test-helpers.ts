@@ -167,6 +167,7 @@ export function filterOutput(output: string): string {
     !line.includes('module: @oclif') &&
     !line.includes('task: findCommand') &&
     !line.includes('plugin: @chrismcdermut') &&
+    !line.includes('plugin: @proletariat') &&
     !line.includes('root: /') &&
     !line.includes('code: ERR_') &&
     !line.includes('message: Unknown file extension') &&
@@ -241,11 +242,18 @@ export function getBinPath(): string {
  */
 export function exec(cmd: string): string {
   try {
-    const binPath = getBinPath();
-    const result = execSync(`${binPath} ${cmd}`, {
+    const cliDir = path.join(__dirname, '../..');
+    const binPath = path.join(cliDir, 'bin/run.js');
+
+    // Get isolated env (production mode for oclif) and set HQ path to current test directory
+    const env = getIsolatedEnv('production');
+    env.PRLT_HQ_PATH = process.cwd();
+    env.DEVCONTAINER = 'true'; // Required for PRLT_HQ_PATH to be respected
+
+    const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
-      cwd: process.cwd(),
-      env: getIsolatedEnv(),
+      cwd: cliDir, // Run from CLI dir so oclif finds commands
+      env,
     });
     return result;
   } catch (error: unknown) {
