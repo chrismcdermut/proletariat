@@ -1,9 +1,17 @@
 import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { exec } from './test-helpers.js';
+import {
+  exec,
+  createTestEnvironment,
+  cleanupTestEnvironment,
+  setupProductionSchema,
+  createTestProject,
+  createHQConfig,
+  createPMODirectories,
+  type TestEnvironment,
+} from './test-helpers.js';
 
 /**
  * End-to-end tests for PMO Epic Commands
@@ -11,38 +19,39 @@ import { exec } from './test-helpers.js';
  * Spec: pmo-epic-commands.md
  */
 describe('PMO Epic Commands E2E Tests', () => {
-  let testDir: string;
-  let originalCwd: string;
-  let dbPath: string;
+  let env: TestEnvironment;
   let db: Database.Database;
   let epicsDir: string;
+  const pmoPath = 'pmo'; // relative path for settings
 
   beforeEach(() => {
-    originalCwd = process.cwd();
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmo-epic-e2e-'));
-    process.chdir(testDir);
+    env = createTestEnvironment('pmo-epic-e2e-');
 
-    const proletariatDir = path.join(testDir, '.proletariat');
-    fs.mkdirSync(proletariatDir, { recursive: true });
-    dbPath = path.join(proletariatDir, 'workspace.db');
+    // Use production schema
+    db = setupProductionSchema(env.dbPath, pmoPath);
 
-    epicsDir = path.join(testDir, 'pmo/projects/test-project/epics');
+    // Create test project
+    createTestProject(db, { id: 'test-project', name: 'Test Project' });
+
+    // Set next_epic_id for epic creation
+    db.prepare(`INSERT OR REPLACE INTO pmo_settings (key, value) VALUES ('next_epic_id', '1')`).run();
+
+    // Create HQ config and PMO directories
+    createHQConfig(env.proletariatDir);
+    createPMODirectories(env.pmoPath, 'test-project');
+
+    // Create epic status directories
+    epicsDir = path.join(env.pmoPath, 'projects/test-project/epics');
     fs.mkdirSync(path.join(epicsDir, 'active'), { recursive: true });
     fs.mkdirSync(path.join(epicsDir, 'draft'), { recursive: true });
     fs.mkdirSync(path.join(epicsDir, 'complete'), { recursive: true });
     fs.mkdirSync(path.join(epicsDir, 'dropped'), { recursive: true });
     fs.mkdirSync(path.join(epicsDir, 'future'), { recursive: true });
-
-    db = new Database(dbPath);
-    setupTestDatabase(db);
   });
 
   afterEach(() => {
     if (db) db.close();
-    process.chdir(originalCwd);
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
+    cleanupTestEnvironment(env);
   });
 
   describe('prlt epic create', () => {
@@ -404,14 +413,14 @@ describe('PMO Epic Commands E2E Tests', () => {
 
     afterEach(() => {
       // Re-open db for parent afterEach cleanup
-      db = new Database(dbPath);
+      db = new Database(env.dbPath);
     });
 
     it('should link ticket to epic via ticket create --epic', () => {
       exec('ticket create --title "Linked Ticket" --epic EPIC-001 --column Backlog');
 
       // Open fresh connection after CLI subprocess completes
-      const freshDb = new Database(dbPath);
+      const freshDb = new Database(env.dbPath);
       const tickets = freshDb.prepare('SELECT * FROM pmo_tickets WHERE epic_id = ?').all('EPIC-001') as Array<{ title: string }>;
       freshDb.close();
 
@@ -432,221 +441,7 @@ describe('PMO Epic Commands E2E Tests', () => {
 
 // Helper functions
 
-function setupTestDatabase(db: Database.Database) {
-  // Use the complete schema from the actual codebase
-  db.exec(`
-    -- Settings table
-    CREATE TABLE IF NOT EXISTS pmo_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    -- Projects table
-    CREATE TABLE IF NOT EXISTS pmo_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      template TEXT,
-      description TEXT,
-      initiative_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Initiatives table
-    CREATE TABLE IF NOT EXISTS pmo_initiatives (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      objective TEXT,
-      key_results TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Columns table
-    CREATE TABLE IF NOT EXISTS pmo_columns (
-      id TEXT NOT NULL,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      name TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, id)
-    );
-
-    -- Specs table (must be before tickets due to FK)
-    CREATE TABLE IF NOT EXISTS pmo_specs (
-      id TEXT PRIMARY KEY,
-      path TEXT NOT NULL,
-      title TEXT,
-      status TEXT DEFAULT 'active',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Epics table (must be before tickets due to FK)
-    CREATE TABLE IF NOT EXISTS pmo_epics (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT,
-      status TEXT NOT NULL DEFAULT 'active',
-      position INTEGER NOT NULL DEFAULT 0,
-      file_path TEXT,
-      spec_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE
-    );
-
-    -- Workflow statuses table
-    CREATE TABLE IF NOT EXISTS pmo_statuses (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      UNIQUE(project_id, name)
-    );
-
-    -- Tickets table
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      title TEXT NOT NULL,
-      description TEXT,
-      priority TEXT,
-      category TEXT,
-      status TEXT NOT NULL DEFAULT 'backlog',
-      status_id TEXT,
-      owner TEXT,
-      assignee TEXT,
-      branch TEXT,
-      spec_id TEXT,
-      epic_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      last_synced_from_spec TIMESTAMP,
-      last_synced_from_board TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (status_id) REFERENCES pmo_statuses(id),
-      FOREIGN KEY (spec_id) REFERENCES pmo_specs(id) ON DELETE SET NULL,
-      FOREIGN KEY (epic_id) REFERENCES pmo_epics(id) ON DELETE SET NULL
-    );
-
-    -- Board tickets table
-    CREATE TABLE IF NOT EXISTS pmo_board_tickets (
-      project_id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL,
-      column_id TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      PRIMARY KEY (project_id, ticket_id),
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      FOREIGN KEY (project_id, column_id) REFERENCES pmo_columns(project_id, id) ON DELETE CASCADE
-    );
-
-    -- Subtasks table
-    CREATE TABLE IF NOT EXISTS pmo_subtasks (
-      id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      title TEXT NOT NULL,
-      done INTEGER DEFAULT 0,
-      position INTEGER NOT NULL,
-      PRIMARY KEY (ticket_id, id)
-    );
-
-    -- Ticket metadata table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_metadata (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      key TEXT NOT NULL,
-      value TEXT,
-      PRIMARY KEY (ticket_id, key)
-    );
-
-    -- Ticket specs table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_specs (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-      PRIMARY KEY (ticket_id, spec_id)
-    );
-
-    -- Ticket assignments table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_assignments (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      agent_name TEXT NOT NULL,
-      assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (ticket_id, agent_name)
-    );
-
-    -- Cache metadata table
-    CREATE TABLE IF NOT EXISTS pmo_cache_metadata (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    -- Indexes
-    CREATE INDEX IF NOT EXISTS idx_pmo_columns_project ON pmo_columns(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_project ON pmo_tickets(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status ON pmo_tickets(status);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_epic ON pmo_tickets(epic_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_epics_project ON pmo_epics(project_id);
-  `);
-
-  db.prepare(`
-    INSERT INTO pmo_projects (id, name)
-    VALUES ('test-project', 'Test Project')
-  `).run();
-
-  db.prepare(`INSERT INTO pmo_settings (key, value) VALUES ('pmo_path', 'pmo')`).run();
-  db.prepare(`INSERT INTO pmo_settings (key, value) VALUES ('current_project', 'test-project')`).run();
-  db.prepare(`INSERT INTO pmo_settings (key, value) VALUES ('next_epic_id', '1')`).run();
-
-  const columns = [
-    { id: 'backlog', name: 'Backlog', position: 0 },
-    { id: 'in_progress', name: 'In Progress', position: 1 },
-    { id: 'done', name: 'Done', position: 2 },
-  ];
-
-  for (const col of columns) {
-    db.prepare(`
-      INSERT INTO pmo_columns (id, project_id, name, position)
-      VALUES (?, 'test-project', ?, ?)
-    `).run(col.id, col.name, col.position);
-  }
-
-  // Workflow statuses (kanban template)
-  const statuses = [
-    { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
-    { id: 'status-todo', name: 'Todo', category: 'unstarted', position: 0 },
-    { id: 'status-in-progress', name: 'In Progress', category: 'started', position: 0 },
-    { id: 'status-done', name: 'Done', category: 'completed', position: 0 },
-    { id: 'status-canceled', name: 'Canceled', category: 'canceled', position: 0 },
-  ];
-
-  for (const status of statuses) {
-    db.prepare(`
-      INSERT INTO pmo_statuses (id, project_id, name, category, position, is_default)
-      VALUES (?, 'test-project', ?, ?, ?, ?)
-    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
-  }
-
-  // Create HQ config file (required for findPMO to work)
-  const proletariatDir = path.join(process.cwd(), '.proletariat');
-  const configPath = path.join(proletariatDir, 'config.json');
-  fs.writeFileSync(configPath, JSON.stringify({
-    type: 'hq',
-    name: 'test-hq',
-    hasPmo: true,
-  }), 'utf-8');
-
-  // Create PMO directory structure
-  const pmoPath = path.join(process.cwd(), 'pmo/projects/test-project');
-  fs.mkdirSync(pmoPath, { recursive: true });
-}
+// Local helper functions for this test file
 
 let epicCounter = 0;
 function createTestEpic(db: Database.Database, id: string, title: string, status: string) {
@@ -658,24 +453,18 @@ function createTestEpic(db: Database.Database, id: string, title: string, status
 }
 
 function createTestTicket(db: Database.Database, id: string, title: string, epicId: string, status: string) {
-  // Map status to status_id
+  // Map status to production status_id naming convention
   const statusToId: Record<string, string> = {
-    'backlog': 'status-backlog',
-    'in_progress': 'status-in-progress',
-    'done': 'status-done',
+    'backlog': 'default-backlog',
+    'in_progress': 'default-in-progress',
+    'done': 'default-done',
   };
-  const statusId = statusToId[status] || 'status-backlog';
+  const statusId = statusToId[status] || 'default-backlog';
 
   db.prepare(`
     INSERT INTO pmo_tickets (id, project_id, title, epic_id, status, status_id)
     VALUES (?, 'test-project', ?, ?, ?, ?)
   `).run(id, title, epicId, status, statusId);
-
-  // Also add to board_tickets for proper board integration
-  db.prepare(`
-    INSERT INTO pmo_board_tickets (project_id, ticket_id, column_id, position)
-    VALUES ('test-project', ?, ?, 0)
-  `).run(id, status === 'done' ? 'done' : status === 'in_progress' ? 'in_progress' : 'backlog');
 }
 
 function createEpicMarkdownFile(epicsDir: string, id: string, status: string, title: string) {
