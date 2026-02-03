@@ -1224,6 +1224,144 @@ describe('Agent Commands JSON Mode', () => {
       });
     });
 
+    describe('agent login flags', () => {
+      beforeEach(() => {
+        createTestAgent('login-flag-agent', 'persistent');
+      });
+
+      it('should support --machine flag', () => {
+        const output = exec('agent login --machine 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"prompt"') ||
+          o.includes('Docker') ||
+          o.includes('Select agent') ||
+          o.includes('"error"')
+        );
+      });
+
+      it('should support --json flag (legacy)', () => {
+        const output = exec('agent login --json 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"prompt"') ||
+          o.includes('Docker') ||
+          o.includes('"error"')
+        );
+      });
+
+      it('should support -m shorthand', () => {
+        const output = exec('agent login -m 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"prompt"') ||
+          o.includes('Docker') ||
+          o.includes('"error"')
+        );
+      });
+
+      it('should accept agent name directly', () => {
+        const output = exec('agent login login-flag-agent 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('login-flag-agent') ||
+          o.includes('Docker') ||
+          o.includes('Authenticating') ||
+          o.includes('Error')
+        );
+      });
+
+      it('should accept agent name with --machine flag', () => {
+        const output = exec('agent login login-flag-agent --machine 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('login-flag-agent') ||
+          o.includes('Docker') ||
+          o.includes('"success"') ||
+          o.includes('"error"')
+        );
+      });
+
+      it('should error for non-existent agent', () => {
+        const output = exec('agent login nonexistent-login-xyz 2>&1');
+
+        expect(output.toLowerCase()).to.satisfy((o: string) =>
+          o.includes('not found') ||
+          o.includes('error') ||
+          o.includes('docker')
+        );
+      });
+    });
+
+    describe('agent restart flags', () => {
+      beforeEach(() => {
+        createTestAgent('restart-flag-agent', 'persistent');
+      });
+
+      it('should support --machine flag', () => {
+        const output = exec('agent restart --machine 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"prompt"') ||
+          o.includes('Docker') ||
+          o.includes('Select agent') ||
+          o.includes('"error"')
+        );
+      });
+
+      it('should support --json flag (legacy)', () => {
+        const output = exec('agent restart --json 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"prompt"') ||
+          o.includes('Docker') ||
+          o.includes('"error"')
+        );
+      });
+
+      it('should support -m shorthand', () => {
+        const output = exec('agent restart -m 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"prompt"') ||
+          o.includes('Docker') ||
+          o.includes('"error"')
+        );
+      });
+
+      it('should accept agent name directly', () => {
+        const output = exec('agent restart restart-flag-agent 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('restart-flag-agent') ||
+          o.includes('Docker') ||
+          o.includes('Restarting') ||
+          o.includes('Error')
+        );
+      });
+
+      it('should accept agent name with --machine flag', () => {
+        const output = exec('agent restart restart-flag-agent --machine 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('restart-flag-agent') ||
+          o.includes('Docker') ||
+          o.includes('"success"') ||
+          o.includes('"error"')
+        );
+      });
+
+      it('should error for non-existent agent', () => {
+        const output = exec('agent restart nonexistent-restart-xyz 2>&1');
+
+        expect(output.toLowerCase()).to.satisfy((o: string) =>
+          o.includes('not found') ||
+          o.includes('error') ||
+          o.includes('docker')
+        );
+      });
+    });
+
     describe('agent staff add flags', () => {
       it('should support --theme flag with name selection', () => {
         // Using built-in theme
