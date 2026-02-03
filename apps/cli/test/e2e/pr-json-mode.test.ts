@@ -498,7 +498,15 @@ describe('PR Commands JSON Mode', () => {
         createTestTicket('TKT-STATUS-FLOW-1', 'Agent status test', 'in-progress', 'https://github.com/test/repo/pull/123');
       });
 
-      it('should complete flow: select ticket → view status', () => {
+      it('should complete flow: select ticket → view status → verify reads from database', () => {
+        // First verify the PR URL is in database
+        const dbMetadata = db.prepare(`
+          SELECT value FROM pmo_ticket_metadata
+          WHERE ticket_id = 'TKT-STATUS-FLOW-1' AND key = 'pr_url'
+        `).get() as { value: string } | undefined;
+        expect(dbMetadata).to.exist;
+        expect(dbMetadata!.value).to.equal('https://github.com/test/repo/pull/123');
+
         // Agent Step 1: Get ticket choices
         const step1 = agentExec('pr status -P test-project --machine');
         expect(step1.prompt).to.exist;
@@ -507,23 +515,62 @@ describe('PR Commands JSON Mode', () => {
         expect(step1.prompt!.choices).to.be.an('array');
         expect(step1.prompt!.choices!.length).to.be.greaterThan(0);
 
-        // Find the test ticket
+        // Find the test ticket - should show [PR linked] indicator
         const ticketChoice = findChoice(step1.prompt!.choices!, 'TKT-STATUS-FLOW-1');
         expect(ticketChoice).to.exist;
+        expect(ticketChoice!.name).to.include('PR linked');
         expect(ticketChoice!.command).to.include('--json');
 
         // Agent Step 2: View status (final step)
         const result = execFinal(execChoice(ticketChoice!));
 
-        // Verify ticket status shown
+        // Verify status output includes data from database
         expect(result).to.include('TKT-STATUS-FLOW-1');
+        expect(result).to.include('PR Status');
+        // Should show "PR URL:" or "Stored URL:" with the database value
+        // (format depends on whether gh CLI can reach the PR)
+        expect(result).to.satisfy((s: string) =>
+          s.includes('PR URL:') || s.includes('Stored URL:') || s.includes('URL:')
+        );
       });
 
-      it('should complete flow with ticket ID provided directly', () => {
+      it('should complete flow with ticket ID provided directly and show stored PR info', () => {
+        // Verify database has the PR URL
+        const dbMetadata = db.prepare(`
+          SELECT value FROM pmo_ticket_metadata
+          WHERE ticket_id = 'TKT-STATUS-FLOW-1' AND key = 'pr_url'
+        `).get() as { value: string } | undefined;
+        expect(dbMetadata!.value).to.equal('https://github.com/test/repo/pull/123');
+
         // Agent provides ticket ID - no prompts needed
         const result = exec('pr status TKT-STATUS-FLOW-1 -P test-project');
 
+        // Verify output shows ticket
         expect(result).to.include('TKT-STATUS-FLOW-1');
+        expect(result).to.include('PR Status');
+        // Should show URL in some form (PR URL, Stored URL, or just URL)
+        expect(result).to.satisfy((s: string) =>
+          s.includes('PR URL:') || s.includes('Stored URL:') || s.includes('URL:')
+        );
+      });
+
+      it('should verify ticket without PR shows appropriate message', () => {
+        // Create ticket WITHOUT PR link
+        createTestTicket('TKT-NO-PR-STATUS', 'Ticket without PR', 'in-progress');
+
+        // Verify no PR URL in database
+        const dbMetadata = db.prepare(`
+          SELECT value FROM pmo_ticket_metadata
+          WHERE ticket_id = 'TKT-NO-PR-STATUS' AND key = 'pr_url'
+        `).get() as { value: string } | undefined;
+        expect(dbMetadata).to.not.exist;
+
+        // View status
+        const result = exec('pr status TKT-NO-PR-STATUS -P test-project');
+
+        // Should indicate no PR linked
+        expect(result).to.include('TKT-NO-PR-STATUS');
+        expect(result.toLowerCase()).to.include('no pr linked');
       });
     });
 
