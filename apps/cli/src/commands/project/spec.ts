@@ -75,7 +75,7 @@ export default class ProjectSpec extends PMOCommand {
 
     // If no project ID provided, prompt for selection
     if (!projectId) {
-      const { selected } = await this.agentPrompt<{ selected: string }>([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select project:',

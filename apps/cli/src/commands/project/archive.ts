@@ -72,7 +72,7 @@ export default class ProjectArchive extends PMOCommand {
     const agentConfig = jsonMode ? { flags, commandName: 'project archive' } : null;
 
     if (!flags.force) {
-      const { confirm } = await this.agentPrompt<{ confirm: boolean }>([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: `Archive project "${project.name}"? It will be hidden from default views.`,

@@ -72,7 +72,7 @@ export default class ProjectDelete extends PMOCommand {
         return handleError('NO_DELETABLE_PROJECTS', 'No deletable projects found. Cannot delete the default project.');
       }
 
-      const { selectedProjectId } = await this.agentPrompt<{ selectedProjectId: string }>([{
+      const { selectedProjectId } = await this.prompt<{ selectedProjectId: string }>([{
         type: 'list',
         name: 'selectedProjectId',
         message: 'Select project to delete:',
@@ -105,7 +105,7 @@ export default class ProjectDelete extends PMOCommand {
         ? `Delete project "${project.name}" and its ${ticketCount} ticket(s)?`
         : `Delete project "${project.name}"?`;
 
-      const { confirm } = await this.agentPrompt<{ confirm: boolean }>([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message,
