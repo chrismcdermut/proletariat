@@ -453,6 +453,7 @@ export function hasContextError(output: string): boolean {
   return (
     output.includes('Not in a workspace') ||
     output.includes('No workspace') ||
+    output.includes('Not in an HQ') ||
     output.includes('No projects found') ||
     output.includes('No tickets') ||
     output.includes('No agents found') ||
