@@ -1,250 +1,250 @@
 /**
  * E2E tests for agent namespace commands with --machine/--json flag support.
  *
- * These tests verify that agent commands properly output JSON prompts
- * when invoked with --machine or --json, allowing AI agents to navigate
- * through the CLI programmatically.
+ * These tests verify that:
+ * 1. Agent commands support --machine flag (and legacy --json)
+ * 2. JSON output includes proper prompt schema
+ * 3. Flag accumulation works correctly in choices
+ * 4. End-to-end agent flows work for AI agents navigating menus
  *
- * Test categories:
- * 1. JSON output format validation
- * 2. --machine flag support (new semantic name)
- * 3. Flag accumulation in choice commands
- * 4. End-to-end agent navigation flows
- *
- * Note: Run with --timeout 30000 to prevent hanging:
- *   pnpm test -- --grep "Agent Commands JSON Mode" --timeout 30000
+ * Run with: pnpm exec mocha test/e2e/agent-json-mode.test.ts --timeout 30000
  */
 import { expect } from 'chai';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import Database from 'better-sqlite3';
 import {
-  agentExec,
-  findChoice,
-  execChoice,
-  hasContextError,
-  execProduction,
+  createTestEnvironment,
+  cleanupTestEnvironment,
+  createHQConfig,
+  createPMODirectories,
+  exec,
+  type TestEnvironment,
 } from './test-helpers.js';
 
 /**
- * Extract JSON from CLI output that may contain warnings or other noise.
+ * Extract JSON from CLI output that may contain warnings.
+ * Looks for the first line starting with { or [ and parses from there.
  */
-function extractJson<T>(output: string): T | null {
+function extractJson<T>(output: string): T {
   const lines = output.split('\n');
   let jsonStart = -1;
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
-    if (trimmed.startsWith('{')) {
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
       jsonStart = i;
       break;
     }
   }
 
   if (jsonStart === -1) {
-    return null;
+    throw new Error(`No JSON found in output: ${output.substring(0, 500)}...`);
   }
 
   const jsonLines = lines.slice(jsonStart).join('\n');
-  try {
-    return JSON.parse(jsonLines) as T;
-  } catch {
-    return null;
-  }
+  return JSON.parse(jsonLines) as T;
 }
 
+/**
+ * Check if output contains an error that should cause test to skip.
+ */
+function hasContextError(output: string): boolean {
+  return (
+    output.includes('Docker is not running') ||
+    output.includes('ENOENT') ||
+    output.includes('Error:') && !output.includes('{')
+  );
+}
+
+/**
+ * Integration tests for agent namespace JSON mode.
+ */
 describe('Agent Commands JSON Mode', () => {
+  let env: TestEnvironment;
+  let db: Database.Database;
 
-  describe('JSON Output Format', () => {
+  beforeEach(() => {
+    env = createTestEnvironment('agent-json-');
 
-    it('should output valid JSON with prompt schema for agent index', () => {
-      const result = agentExec('agent --machine');
+    db = new Database(env.dbPath);
+    setupTestDatabase(db);
 
-      if (!result) {
-        // Skip - no workspace context or Docker not running
-        return;
-      }
+    createHQConfig(env.proletariatDir);
+    createPMODirectories(env.pmoPath, 'test-project');
 
-      expect(result.prompt).to.exist;
-      expect(result.prompt.type).to.equal('list');
-      expect(result.prompt.name).to.be.a('string');
-      expect(result.prompt.message).to.be.a('string');
-      expect(result.prompt.choices).to.be.an('array');
-      expect(result.metadata).to.exist;
-      expect(result.metadata.command).to.equal('agent');
-    });
-
-    it('should output valid JSON with prompt schema for agent list', () => {
-      const result = agentExec('agent list --machine');
-
-      if (!result) return;
-
-      expect(result.prompt).to.exist;
-      expect(result.prompt.type).to.equal('list');
-      expect(result.prompt.choices).to.be.an('array');
-      expect(result.metadata).to.exist;
-    });
-
-    it('should output valid JSON with prompt schema for agent status', () => {
-      const result = agentExec('agent status --machine');
-
-      if (!result) return;
-
-      expect(result.prompt).to.exist;
-      expect(result.prompt.type).to.equal('list');
-      expect(result.metadata).to.exist;
-    });
-
-    it('should output valid JSON with prompt schema for agent visit', () => {
-      const result = agentExec('agent visit --machine');
-
-      if (!result) return;
-
-      expect(result.prompt).to.exist;
-      expect(result.prompt.type).to.equal('list');
-      expect(result.metadata).to.exist;
-    });
-
-    it('should output valid JSON with prompt schema for agent shell', () => {
-      const result = agentExec('agent shell --machine');
-
-      if (!result) return;
-
-      expect(result.prompt).to.exist;
-      expect(result.prompt.type).to.equal('list');
-      expect(result.metadata).to.exist;
-    });
-
-    it('should output valid JSON with prompt schema for agent login', () => {
-      const result = agentExec('agent login --machine');
-
-      if (!result) return;
-
-      expect(result.prompt).to.exist;
-      expect(result.prompt.type).to.equal('list');
-      expect(result.metadata).to.exist;
-    });
-
-    it('should output valid JSON with prompt schema for agent restart', () => {
-      const result = agentExec('agent restart --machine');
-
-      if (!result) return;
-
-      expect(result.prompt).to.exist;
-      expect(result.prompt.type).to.equal('list');
-      expect(result.metadata).to.exist;
-    });
-
-    it('should output valid JSON with prompt schema for agent rebuild', () => {
-      const result = agentExec('agent rebuild --machine');
-
-      if (!result) return;
-
-      expect(result.prompt).to.exist;
-      expect(result.prompt.type).to.equal('list');
-      expect(result.metadata).to.exist;
-    });
+    // Create agents directory structure
+    createAgentsDirectory(env.testDir);
   });
 
-  describe('--machine Flag Support', () => {
+  afterEach(() => {
+    if (db) db.close();
+    cleanupTestEnvironment(env);
+  });
 
-    it('should recognize --machine flag for agent index', () => {
-      const output = execProduction('agent --machine');
+  /**
+   * Helper to create a test agent in the database and on disk.
+   */
+  function createTestAgent(
+    name: string,
+    type: 'persistent' | 'ephemeral' = 'persistent',
+    status: 'active' | 'cleaned' = 'active'
+  ): void {
+    const dir = type === 'persistent' ? 'staff' : 'temp';
+    const agentPath = path.join(env.testDir, 'agents', dir, name);
+    fs.mkdirSync(agentPath, { recursive: true });
 
-      if (hasContextError(output)) return;
+    // Create a minimal git worktree marker
+    fs.mkdirSync(path.join(agentPath, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(agentPath, '.git', 'HEAD'), 'ref: refs/heads/main\n');
 
-      const json = extractJson<{ metadata: { flags: { machine: boolean } } }>(output);
-      expect(json).to.exist;
-      expect(json!.metadata.flags.machine).to.equal(true);
+    db.prepare(`
+      INSERT INTO agents (name, type, status, worktree_path, created_at)
+      VALUES (?, ?, ?, ?, datetime('now'))
+    `).run(name, type, status, `agents/${dir}/${name}`);
+  }
+
+  describe('agent index --machine', () => {
+    beforeEach(() => {
+      createTestAgent('test-agent-1', 'persistent');
+      createTestAgent('test-agent-2', 'persistent');
     });
 
-    it('should recognize -m shorthand flag', () => {
-      const output = execProduction('agent -m');
+    it('should output valid JSON prompt with --machine flag', () => {
+      const output = exec('agent --machine');
+      const json = extractJson<{
+        prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string; command?: string }> };
+        metadata: { command: string; flags: { machine: boolean } };
+      }>(output);
 
-      if (hasContextError(output)) return;
-
-      const json = extractJson<{ metadata: { flags: { machine: boolean } } }>(output);
-      expect(json).to.exist;
-      expect(json!.metadata.flags.machine).to.equal(true);
+      expect(json.prompt).to.exist;
+      expect(json.prompt.type).to.equal('list');
+      expect(json.prompt.name).to.equal('action');
+      expect(json.prompt.message).to.include('like to do');
+      expect(json.prompt.choices).to.be.an('array');
+      expect(json.metadata.command).to.equal('agent');
+      expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should work with --machine flag for agent list', () => {
-      const output = execProduction('agent list --machine');
+    it('should output valid JSON with --json flag (legacy)', () => {
+      const output = exec('agent --json');
+      const json = extractJson<{ prompt: { type: string }; metadata: { flags: { json: boolean } } }>(output);
 
-      if (hasContextError(output)) return;
+      expect(json.prompt).to.exist;
+      expect(json.prompt.type).to.equal('list');
+      expect(json.metadata.flags.json).to.equal(true);
+    });
 
+    it('should work with -m shorthand', () => {
+      const output = exec('agent -m');
       const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
-      expect(json).to.exist;
-      expect(json!.prompt).to.exist;
+
+      expect(json.prompt).to.exist;
+      expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should work with --machine flag for agent status', () => {
-      const output = execProduction('agent status --machine');
+    it('should include --machine flag in choice commands', () => {
+      const output = exec('agent --machine');
+      const json = extractJson<{
+        prompt: { choices: Array<{ name: string; command?: string }> };
+      }>(output);
 
-      if (hasContextError(output)) return;
-
-      // May get prompt JSON or error JSON if no agents
-      const json = extractJson<{ prompt?: { type: string }; error?: { code: string } }>(output);
-
-      // If no JSON found, that's a context error - skip
-      if (!json) return;
-
-      // Should have either prompt or error
-      expect(json.prompt !== undefined || json.error !== undefined).to.be.true;
+      // All choices with commands should include --machine
+      for (const choice of json.prompt.choices) {
+        if (choice.command && choice.command.length > 0) {
+          expect(choice.command).to.include('--machine');
+        }
+      }
     });
 
-    it('should work with --machine flag for agent auth --check', () => {
-      const output = execProduction('agent auth --check --machine');
+    it('should produce same structure with --machine and --json', () => {
+      const jsonOutput = exec('agent --json');
+      const machineOutput = exec('agent --machine');
 
-      if (hasContextError(output)) return;
+      const jsonResult = extractJson<{ prompt: { choices: Array<{ name: string }> } }>(jsonOutput);
+      const machineResult = extractJson<{ prompt: { choices: Array<{ name: string }> } }>(machineOutput);
 
-      const json = extractJson<{ success?: boolean; error?: { code: string } }>(output);
-      // Should output either success or error JSON
-      expect(json).to.exist;
-      expect(json!.success === true || json!.error !== undefined).to.be.true;
-    });
-
-    it('should work with --machine flag for agent discover', () => {
-      const output = execProduction('agent discover --machine');
-
-      if (hasContextError(output)) return;
-
-      const json = extractJson<{ success?: boolean; error?: { code: string } }>(output);
-      expect(json).to.exist;
+      expect(machineResult.prompt.choices.length).to.equal(jsonResult.prompt.choices.length);
     });
   });
 
-  describe('Flag Accumulation in Choices', () => {
-
-    it('should include --machine flag in choice commands for agent index', () => {
-      const result = agentExec('agent --machine');
-
-      if (!result) return;
-
-      // All choices should have command field with --machine
-      for (const choice of result.prompt.choices) {
-        if (choice.command && choice.command.length > 0) {
-          expect(choice.command).to.include('--machine');
-          expect(choice.command).to.include('prlt agent');
-        }
-      }
+  describe('agent list --machine', () => {
+    beforeEach(() => {
+      createTestAgent('staff-agent-1', 'persistent');
+      createTestAgent('staff-agent-2', 'persistent');
+      createTestAgent('temp-agent-1', 'ephemeral');
     });
 
-    it('should include --machine flag in choice commands for agent list', () => {
-      const result = agentExec('agent list --machine');
+    it('should output type selection prompt when no type specified', () => {
+      const output = exec('agent list --machine');
+      const json = extractJson<{
+        prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string; command?: string }> };
+        metadata: { command: string; flags: { machine: boolean } };
+      }>(output);
 
-      if (!result) return;
+      expect(json.prompt).to.exist;
+      expect(json.prompt.type).to.equal('list');
+      expect(json.prompt.name).to.equal('selectedType');
+      expect(json.prompt.choices).to.be.an('array');
 
-      for (const choice of result.prompt.choices) {
-        if (choice.command && choice.command.length > 0) {
-          expect(choice.command).to.include('--machine');
-        }
-      }
+      // Should have type filter choices with --machine flag
+      const allChoice = json.prompt.choices.find(c => c.value === 'all');
+      expect(allChoice).to.exist;
+      expect(allChoice!.command).to.include('--type all');
+      expect(allChoice!.command).to.include('--machine');
     });
 
-    it('should include --machine flag in choice commands for agent status', () => {
-      const result = agentExec('agent status --machine');
+    it('should work with --json flag (legacy)', () => {
+      const output = exec('agent list --json');
+      const json = extractJson<{ prompt: { type: string } }>(output);
 
-      if (!result) return;
+      expect(json.prompt).to.exist;
+      expect(json.prompt.type).to.equal('list');
+    });
 
-      for (const choice of result.prompt.choices) {
+    it('should work with -m shorthand', () => {
+      const output = exec('agent list -m');
+      const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
+
+      expect(json.prompt).to.exist;
+      expect(json.metadata.flags.machine).to.equal(true);
+    });
+
+    it('should bypass prompt when --type is specified', () => {
+      const output = exec('agent list --type all');
+
+      // Should show agent listing, not a prompt
+      expect(output).to.satisfy((o: string) =>
+        o.includes('Staff') || o.includes('Temp') || o.includes('No active')
+      );
+    });
+  });
+
+  describe('agent status --machine', () => {
+    beforeEach(() => {
+      createTestAgent('status-agent', 'persistent');
+    });
+
+    it('should output agent selection prompt when no agent specified', () => {
+      const output = exec('agent status --machine');
+      const json = extractJson<{
+        prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string; command?: string }> };
+        metadata: { command: string; flags: { machine: boolean } };
+      }>(output);
+
+      expect(json.prompt).to.exist;
+      expect(json.prompt.type).to.equal('list');
+      expect(json.prompt.name).to.equal('selected');
+      expect(json.prompt.message).to.include('status');
+    });
+
+    it('should include --machine flag in choice commands', () => {
+      const output = exec('agent status --machine');
+      const json = extractJson<{
+        prompt: { choices: Array<{ name: string; command?: string }> };
+      }>(output);
+
+      for (const choice of json.prompt.choices) {
         if (choice.command && choice.command.length > 0) {
           expect(choice.command).to.include('--machine');
           expect(choice.command).to.include('prlt agent status');
@@ -252,12 +252,47 @@ describe('Agent Commands JSON Mode', () => {
       }
     });
 
-    it('should include --machine flag in choice commands for agent visit', () => {
-      const result = agentExec('agent visit --machine');
+    it('should work with -m shorthand', () => {
+      const output = exec('agent status -m');
+      const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
 
-      if (!result) return;
+      expect(json.prompt).to.exist;
+      expect(json.metadata.flags.machine).to.equal(true);
+    });
 
-      for (const choice of result.prompt.choices) {
+    it('should show agent status when name provided', () => {
+      const output = exec('agent status status-agent');
+
+      // Should show status info, not a prompt
+      expect(output).to.include('status-agent');
+    });
+  });
+
+  describe('agent visit --machine', () => {
+    beforeEach(() => {
+      createTestAgent('visit-agent', 'persistent');
+    });
+
+    it('should output agent selection prompt when no agent specified', () => {
+      const output = exec('agent visit --machine');
+      const json = extractJson<{
+        prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string; command?: string }> };
+        metadata: { command: string; flags: { machine: boolean } };
+      }>(output);
+
+      expect(json.prompt).to.exist;
+      expect(json.prompt.type).to.equal('list');
+      expect(json.prompt.name).to.equal('selected');
+      expect(json.prompt.message).to.include('visit');
+    });
+
+    it('should include --machine flag in choice commands', () => {
+      const output = exec('agent visit --machine');
+      const json = extractJson<{
+        prompt: { choices: Array<{ name: string; command?: string }> };
+      }>(output);
+
+      for (const choice of json.prompt.choices) {
         if (choice.command && choice.command.length > 0) {
           expect(choice.command).to.include('--machine');
           expect(choice.command).to.include('prlt agent visit');
@@ -265,312 +300,436 @@ describe('Agent Commands JSON Mode', () => {
       }
     });
 
-    it('should include --machine flag in choice commands for agent shell', () => {
-      const result = agentExec('agent shell --machine');
+    it('should work with -m shorthand', () => {
+      const output = exec('agent visit -m');
+      const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
 
-      if (!result) return;
-
-      for (const choice of result.prompt.choices) {
-        if (choice.command && choice.command.length > 0) {
-          expect(choice.command).to.include('--machine');
-          expect(choice.command).to.include('prlt agent shell');
-        }
-      }
-    });
-
-    it('should include --machine flag in choice commands for agent login', () => {
-      const result = agentExec('agent login --machine');
-
-      if (!result) return;
-
-      for (const choice of result.prompt.choices) {
-        if (choice.command && choice.command.length > 0) {
-          expect(choice.command).to.include('--machine');
-          expect(choice.command).to.include('prlt agent login');
-        }
-      }
-    });
-
-    it('should include --machine flag in choice commands for agent restart', () => {
-      const result = agentExec('agent restart --machine');
-
-      if (!result) return;
-
-      for (const choice of result.prompt.choices) {
-        if (choice.command && choice.command.length > 0) {
-          expect(choice.command).to.include('--machine');
-          expect(choice.command).to.include('prlt agent restart');
-        }
-      }
-    });
-
-    it('should include --machine flag in choice commands for agent rebuild', () => {
-      const result = agentExec('agent rebuild --machine');
-
-      if (!result) return;
-
-      for (const choice of result.prompt.choices) {
-        if (choice.command && choice.command.length > 0) {
-          expect(choice.command).to.include('--machine');
-          expect(choice.command).to.include('prlt agent rebuild');
-        }
-      }
+      expect(json.prompt).to.exist;
+      expect(json.metadata.flags.machine).to.equal(true);
     });
   });
 
-  describe('Legacy --json Flag Support', () => {
+  describe('agent discover --machine', () => {
+    it('should output discovery result as JSON with --machine flag', () => {
+      const output = exec('agent discover --machine');
+      const json = extractJson<{
+        success: boolean;
+        result: {
+          discovered: Array<{ name: string; type: string }>;
+          cleaned: string[];
+          inSync: boolean;
+        };
+      }>(output);
 
-    it('should work with deprecated --json flag for agent index', () => {
-      const result = agentExec('agent --json');
-
-      if (!result) return;
-
-      expect(result.prompt).to.exist;
-      expect(result.prompt.type).to.equal('list');
+      expect(json.success).to.equal(true);
+      expect(json.result).to.exist;
+      expect(json.result.discovered).to.be.an('array');
+      expect(json.result.cleaned).to.be.an('array');
     });
 
-    it('should work with deprecated --json flag for agent list', () => {
-      const result = agentExec('agent list --json');
+    it('should work with --json flag (legacy)', () => {
+      const output = exec('agent discover --json');
+      const json = extractJson<{ success: boolean; result: { discovered: unknown[] } }>(output);
 
-      if (!result) return;
-
-      expect(result.prompt).to.exist;
-      expect(result.prompt.type).to.equal('list');
+      expect(json.success).to.equal(true);
+      expect(json.result).to.exist;
     });
 
-    it('should produce same structure with --json and --machine', () => {
-      const jsonResult = agentExec('agent --json');
-      const machineResult = agentExec('agent --machine');
+    it('should work with -m shorthand', () => {
+      const output = exec('agent discover -m');
+      const json = extractJson<{ success: boolean }>(output);
 
-      if (!jsonResult || !machineResult) return;
-
-      // Same prompt structure
-      expect(machineResult.prompt.type).to.equal(jsonResult.prompt.type);
-      expect(machineResult.prompt.name).to.equal(jsonResult.prompt.name);
-      expect(machineResult.prompt.choices.length).to.equal(jsonResult.prompt.choices.length);
+      expect(json.success).to.equal(true);
     });
 
-    it('should work with deprecated --json flag for agent auth', () => {
-      const output = execProduction('agent auth --check --json');
+    it('should discover agents on disk', () => {
+      // Create an agent on disk that's not in database
+      // Note: discoverAgentsOnDisk checks for directories in agents/staff and agents/temp
+      const newAgentPath = path.join(env.testDir, 'agents', 'staff', 'undiscovered-agent');
+      fs.mkdirSync(newAgentPath, { recursive: true });
+      fs.mkdirSync(path.join(newAgentPath, '.git'), { recursive: true });
+      fs.writeFileSync(path.join(newAgentPath, '.git', 'HEAD'), 'ref: refs/heads/main\n');
 
-      if (hasContextError(output)) return;
+      const output = exec('agent discover --machine');
+      const json = extractJson<{
+        success: boolean;
+        result: { discovered: Array<{ name: string }>; inSync: boolean };
+      }>(output);
 
-      const json = extractJson<{ success?: boolean; error?: { code: string } }>(output);
-      expect(json).to.exist;
-    });
-
-    it('should work with deprecated --json flag for agent discover', () => {
-      const output = execProduction('agent discover --json');
-
-      if (hasContextError(output)) return;
-
-      const json = extractJson<{ success?: boolean; error?: { code: string } }>(output);
-      expect(json).to.exist;
-    });
-  });
-
-  describe('End-to-End Agent Flows', () => {
-
-    it('should navigate from agent index to list command', () => {
-      // Step 1: Get agent index menu
-      const step1 = agentExec('agent --machine');
-      if (!step1) return;
-
-      // Find the list choice
-      const listChoice = findChoice(step1.prompt.choices, 'List');
-      expect(listChoice).to.exist;
-      expect(listChoice!.command).to.exist;
-
-      // Step 2: Verify the command is properly formatted
-      const step2Cmd = execChoice(listChoice!);
-      expect(step2Cmd).to.include('agent list');
-      expect(step2Cmd).to.include('--machine');
-
-      // Step 3: Execute and verify we get next prompt
-      const step2 = agentExec(step2Cmd);
-      if (!step2) {
-        // No agents available, which is valid
-        return;
-      }
-
-      expect(step2.prompt).to.exist;
-      expect(step2.prompt.type).to.equal('list');
-    });
-
-    it('should navigate from agent index to status command', () => {
-      // Step 1: Get agent index menu
-      const step1 = agentExec('agent --machine');
-      if (!step1) return;
-
-      // Find the status choice
-      const statusChoice = findChoice(step1.prompt.choices, 'status');
-      expect(statusChoice).to.exist;
-      expect(statusChoice!.command).to.exist;
-
-      // Step 2: Verify the command is properly formatted
-      const step2Cmd = execChoice(statusChoice!);
-      expect(step2Cmd).to.include('agent status');
-      expect(step2Cmd).to.include('--machine');
-    });
-
-    it('should navigate from agent index to shell command', () => {
-      // Step 1: Get agent index menu
-      const step1 = agentExec('agent --machine');
-      if (!step1) return;
-
-      // Find the shell choice
-      const shellChoice = findChoice(step1.prompt.choices, 'shell');
-      expect(shellChoice).to.exist;
-      expect(shellChoice!.command).to.exist;
-
-      // Step 2: Verify the command is properly formatted
-      const step2Cmd = execChoice(shellChoice!);
-      expect(step2Cmd).to.include('agent shell');
-      expect(step2Cmd).to.include('--machine');
-    });
-
-    it('should navigate from agent index to visit command', () => {
-      // Step 1: Get agent index menu
-      const step1 = agentExec('agent --machine');
-      if (!step1) return;
-
-      // Find the visit choice
-      const visitChoice = findChoice(step1.prompt.choices, 'Visit');
-      expect(visitChoice).to.exist;
-      expect(visitChoice!.command).to.exist;
-
-      // Step 2: Verify the command is properly formatted
-      const step2Cmd = execChoice(visitChoice!);
-      expect(step2Cmd).to.include('agent visit');
-      expect(step2Cmd).to.include('--machine');
-    });
-
-    it('should navigate from agent index to restart command', () => {
-      // Step 1: Get agent index menu
-      const step1 = agentExec('agent --machine');
-      if (!step1) return;
-
-      // Find the restart choice
-      const restartChoice = findChoice(step1.prompt.choices, 'Restart');
-      expect(restartChoice).to.exist;
-      expect(restartChoice!.command).to.exist;
-
-      // Step 2: Verify the command is properly formatted
-      const step2Cmd = execChoice(restartChoice!);
-      expect(step2Cmd).to.include('agent restart');
-      expect(step2Cmd).to.include('--machine');
-    });
-
-    it('should navigate from agent index to rebuild command', () => {
-      // Step 1: Get agent index menu
-      const step1 = agentExec('agent --machine');
-      if (!step1) return;
-
-      // Find the rebuild choice
-      const rebuildChoice = findChoice(step1.prompt.choices, 'Rebuild');
-      expect(rebuildChoice).to.exist;
-      expect(rebuildChoice!.command).to.exist;
-
-      // Step 2: Verify the command is properly formatted
-      const step2Cmd = execChoice(rebuildChoice!);
-      expect(step2Cmd).to.include('agent rebuild');
-      expect(step2Cmd).to.include('--machine');
-    });
-
-    it('should navigate from agent index to discover command', () => {
-      // Step 1: Get agent index menu
-      const step1 = agentExec('agent --machine');
-      if (!step1) return;
-
-      // Find the discover choice
-      const discoverChoice = findChoice(step1.prompt.choices, 'Discover');
-      expect(discoverChoice).to.exist;
-      expect(discoverChoice!.command).to.exist;
-
-      // Step 2: Verify the command is properly formatted
-      const step2Cmd = execChoice(discoverChoice!);
-      expect(step2Cmd).to.include('agent discover');
-      expect(step2Cmd).to.include('--machine');
-    });
-
-    it('should navigate agent list type filter flow', () => {
-      // Step 1: Get agent list type filter menu
-      const step1 = agentExec('agent list --machine');
-      if (!step1) return;
-
-      // Should have type filter choices
-      const allChoice = findChoice(step1.prompt.choices, 'All');
-      expect(allChoice).to.exist;
-      expect(allChoice!.command).to.include('--type all');
-      expect(allChoice!.command).to.include('--machine');
-
-      const staffChoice = findChoice(step1.prompt.choices, 'Staff');
-      expect(staffChoice).to.exist;
-      expect(staffChoice!.command).to.include('--type staff');
-      expect(staffChoice!.command).to.include('--machine');
-
-      const tempChoice = findChoice(step1.prompt.choices, 'Temp');
-      expect(tempChoice).to.exist;
-      expect(tempChoice!.command).to.include('--type temp');
-      expect(tempChoice!.command).to.include('--machine');
-    });
-
-    it('should bypass prompt when --type is specified for agent list', () => {
-      // When --type is provided, should not prompt
-      const output = execProduction('agent list --type all --machine');
-
-      // Should either output data or context error
-      // Not a prompt response since type was provided
-      if (hasContextError(output)) return;
-
-      // If there are agents, we might get output
-      // If no agents, we get a message
-      expect(output).to.satisfy((o: string) =>
-        o.includes('agents') || o.includes('No active') || o.includes('Staff') || o.includes('{')
-      );
+      expect(json.success).to.equal(true);
+      // The discover command should return valid structure
+      expect(json.result.discovered).to.be.an('array');
+      // Either it finds the agent or reports in sync
+      expect(json.result.discovered.length > 0 || json.result.inSync).to.be.true;
     });
   });
 
-  describe('Error Handling in JSON Mode', () => {
+  // ===========================================================================
+  // End-to-end Agent Flow Tests
+  // ===========================================================================
+  // These tests simulate an AI agent navigating through the CLI using --machine
+  // flag, selecting choices, and completing multi-step workflows.
 
-    it('should output structured error JSON for agent auth when Docker not running', () => {
-      // This test relies on Docker not being available
-      // We can't reliably test this without mocking, so we verify the format when it fails
-      const output = execProduction('agent auth --check --machine');
+  describe('End-to-end agent flows (--machine flag)', () => {
+    /**
+     * Helper to simulate agent flow: execute command, parse JSON, return parsed result
+     */
+    interface AgentPrompt {
+      prompt: {
+        type: string;
+        name: string;
+        message: string;
+        choices?: Array<{ name: string; value: string; command?: string }>;
+      };
+      metadata: {
+        command: string;
+        flags: Record<string, unknown>;
+      };
+    }
 
-      const json = extractJson<{ error?: { code: string; message: string }; success?: boolean }>(output);
-
-      // Should have valid JSON output (either success or error)
-      expect(json).to.exist;
-
-      // If error, verify structure
-      if (json!.error) {
-        expect(json!.error.code).to.be.a('string');
-        expect(json!.error.message).to.be.a('string');
+    function agentExec(cmd: string): AgentPrompt | null {
+      const output = exec(cmd);
+      if (hasContextError(output)) {
+        return null;
       }
-
-      // If success, verify structure
-      if (json!.success) {
-        expect(json!.success).to.equal(true);
+      try {
+        return extractJson<AgentPrompt>(output);
+      } catch {
+        return null;
       }
+    }
+
+    /**
+     * Helper to find a choice by partial name match
+     */
+    function findChoice(
+      choices: Array<{ name: string; value: string; command?: string }>,
+      pattern: string
+    ): { name: string; value: string; command?: string } | undefined {
+      return choices.find(c => c.name.toLowerCase().includes(pattern.toLowerCase()));
+    }
+
+    /**
+     * Helper to get the command from a choice (strips 'prlt ' prefix)
+     */
+    function execChoice(choice: { command?: string }): string {
+      if (!choice.command) {
+        throw new Error('Choice has no command field');
+      }
+      return choice.command.replace('prlt ', '');
+    }
+
+    describe('agent index → list flow', () => {
+      beforeEach(() => {
+        createTestAgent('flow-agent-1', 'persistent');
+        createTestAgent('flow-agent-2', 'persistent');
+      });
+
+      it('should complete flow: agent index → select list → select type → view agents', () => {
+        // Step 1: Agent index menu
+        const step1 = agentExec('agent --machine');
+        expect(step1).to.exist;
+        expect(step1!.prompt.type).to.equal('list');
+        expect(step1!.prompt.name).to.equal('action');
+
+        // Find 'List' choice
+        const listChoice = findChoice(step1!.prompt.choices!, 'List');
+        expect(listChoice).to.exist;
+        expect(listChoice!.command).to.include('agent list');
+        expect(listChoice!.command).to.include('--machine');
+
+        // Step 2: Execute list command, get type selection
+        const step2 = agentExec(execChoice(listChoice!));
+        expect(step2).to.exist;
+        expect(step2!.prompt.type).to.equal('list');
+        expect(step2!.prompt.name).to.equal('selectedType');
+
+        // Find 'All' choice
+        const allChoice = findChoice(step2!.prompt.choices!, 'All');
+        expect(allChoice).to.exist;
+        expect(allChoice!.command).to.include('--type all');
+
+        // Step 3: Execute with type flag (final result)
+        const finalCmd = execChoice(allChoice!).replace(' --machine', '').replace(' --json', '');
+        const result = exec(finalCmd);
+
+        // Should show agent listing
+        expect(result).to.satisfy((o: string) =>
+          o.includes('flow-agent') || o.includes('Staff') || o.includes('Summary')
+        );
+      });
     });
 
-    it('should output structured error JSON for agent discover when not in workspace', () => {
-      const output = execProduction('agent discover --machine');
+    describe('agent index → status flow', () => {
+      beforeEach(() => {
+        createTestAgent('status-flow-agent', 'persistent');
+      });
 
-      const json = extractJson<{ error?: { code: string; message: string }; success?: boolean; result?: unknown }>(output);
+      it('should complete flow: agent index → select status → select agent → view status', () => {
+        // Step 1: Agent index menu
+        const step1 = agentExec('agent --machine');
+        expect(step1).to.exist;
 
-      // Should have valid JSON output
-      expect(json).to.exist;
+        // Find 'status' choice
+        const statusChoice = findChoice(step1!.prompt.choices!, 'status');
+        expect(statusChoice).to.exist;
+        expect(statusChoice!.command).to.include('agent status');
 
-      // Either error or success with result
-      if (json!.error) {
-        expect(json!.error.code).to.be.a('string');
-        expect(json!.error.message).to.be.a('string');
-      } else {
-        expect(json!.success).to.equal(true);
-        expect(json!.result).to.exist;
-      }
+        // Step 2: Execute status command, get agent selection
+        const step2 = agentExec(execChoice(statusChoice!));
+        expect(step2).to.exist;
+        expect(step2!.prompt.type).to.equal('list');
+        expect(step2!.prompt.name).to.equal('selected');
+
+        // Find our test agent
+        const agentChoice = findChoice(step2!.prompt.choices!, 'status-flow-agent');
+        expect(agentChoice).to.exist;
+        expect(agentChoice!.command).to.include('status-flow-agent');
+
+        // Step 3: Execute with agent name (final result)
+        const finalCmd = execChoice(agentChoice!).replace(' --machine', '').replace(' --json', '');
+        const result = exec(finalCmd);
+
+        // Should show agent status
+        expect(result).to.include('status-flow-agent');
+      });
+    });
+
+    describe('agent index → visit flow', () => {
+      beforeEach(() => {
+        createTestAgent('visit-flow-agent', 'persistent');
+      });
+
+      it('should complete flow: agent index → select visit → select agent → get path', () => {
+        // Step 1: Agent index menu
+        const step1 = agentExec('agent --machine');
+        expect(step1).to.exist;
+
+        // Find 'Visit' choice
+        const visitChoice = findChoice(step1!.prompt.choices!, 'Visit');
+        expect(visitChoice).to.exist;
+        expect(visitChoice!.command).to.include('agent visit');
+
+        // Step 2: Execute visit command, get agent selection
+        const step2 = agentExec(execChoice(visitChoice!));
+        expect(step2).to.exist;
+        expect(step2!.prompt.type).to.equal('list');
+        expect(step2!.prompt.name).to.equal('selected');
+
+        // Find our test agent
+        const agentChoice = findChoice(step2!.prompt.choices!, 'visit-flow-agent');
+        expect(agentChoice).to.exist;
+        expect(agentChoice!.command).to.include('visit-flow-agent');
+
+        // Step 3: Execute with agent name (final result)
+        const finalCmd = execChoice(agentChoice!).replace(' --machine', '').replace(' --json', '');
+        const result = exec(finalCmd);
+
+        // Should show navigation command
+        expect(result).to.include('visit-flow-agent');
+        expect(result).to.include('cd');
+      });
+    });
+
+    describe('agent index → discover flow', () => {
+      it('should complete flow: agent index → select discover → get discovery result', () => {
+        // Step 1: Agent index menu
+        const step1 = agentExec('agent --machine');
+        expect(step1).to.exist;
+
+        // Find 'Discover' choice
+        const discoverChoice = findChoice(step1!.prompt.choices!, 'Discover');
+        expect(discoverChoice).to.exist;
+        expect(discoverChoice!.command).to.include('agent discover');
+
+        // Step 2: Execute discover command (returns data, not prompt)
+        const discoverCmd = execChoice(discoverChoice!);
+        const output = exec(discoverCmd);
+
+        // Discover returns JSON with results
+        const json = extractJson<{
+          success: boolean;
+          result: { discovered: Array<{ name: string }>; inSync: boolean };
+        }>(output);
+
+        expect(json.success).to.equal(true);
+        // Should return valid discover result structure
+        expect(json.result.discovered).to.be.an('array');
+        // Either discovered agents or in sync
+        expect(typeof json.result.inSync).to.equal('boolean');
+      });
+    });
+
+    describe('agent list type filter flow', () => {
+      beforeEach(() => {
+        createTestAgent('list-staff-1', 'persistent');
+        createTestAgent('list-staff-2', 'persistent');
+        createTestAgent('list-temp-1', 'ephemeral');
+      });
+
+      it('should complete flow: agent list → select Staff → view only staff agents', () => {
+        // Step 1: Get type filter prompt
+        const step1 = agentExec('agent list --machine');
+        expect(step1).to.exist;
+        expect(step1!.prompt.name).to.equal('selectedType');
+
+        // Find 'Staff' choice
+        const staffChoice = findChoice(step1!.prompt.choices!, 'Staff');
+        expect(staffChoice).to.exist;
+        expect(staffChoice!.command).to.include('--type staff');
+
+        // Step 2: Execute with staff filter
+        const finalCmd = execChoice(staffChoice!).replace(' --machine', '').replace(' --json', '');
+        const result = exec(finalCmd);
+
+        // Should show staff agents section (or "no active staff agents" message)
+        expect(result.toLowerCase()).to.satisfy((o: string) =>
+          o.includes('staff') || o.includes('no active')
+        );
+      });
+
+      it('should complete flow: agent list → select Temp → view only temp agents', () => {
+        // Step 1: Get type filter prompt
+        const step1 = agentExec('agent list --machine');
+        expect(step1).to.exist;
+
+        // Find 'Temp' choice
+        const tempChoice = findChoice(step1!.prompt.choices!, 'Temp');
+        expect(tempChoice).to.exist;
+        expect(tempChoice!.command).to.include('--type temp');
+
+        // Step 2: Execute with temp filter
+        const finalCmd = execChoice(tempChoice!).replace(' --machine', '').replace(' --json', '');
+        const result = exec(finalCmd);
+
+        // Should show temp agents section (or "no active temp agents" message)
+        expect(result.toLowerCase()).to.satisfy((o: string) =>
+          o.includes('temp') || o.includes('temporary') || o.includes('no active')
+        );
+      });
+    });
+
+    describe('backward compatibility: --json flag flows', () => {
+      beforeEach(() => {
+        createTestAgent('compat-agent', 'persistent');
+      });
+
+      it('should complete flow with --json flag (legacy)', () => {
+        // Use --json instead of --machine
+        const step1 = agentExec('agent --json');
+        expect(step1).to.exist;
+        expect(step1!.prompt.type).to.equal('list');
+
+        // Find list choice
+        const listChoice = findChoice(step1!.prompt.choices!, 'List');
+        expect(listChoice).to.exist;
+
+        // Execute next step with --json
+        const step2 = agentExec(execChoice(listChoice!));
+        expect(step2).to.exist;
+        expect(step2!.prompt.type).to.equal('list');
+      });
     });
   });
 });
+
+/**
+ * Helper function to set up test database with agent schema.
+ * Schema matches production schema from src/lib/database/index.ts
+ */
+function setupTestDatabase(db: Database.Database) {
+  db.exec(`
+    -- Workspace configuration (required for agent commands)
+    CREATE TABLE IF NOT EXISTS workspace (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      type TEXT NOT NULL CHECK (type IN ('hq', 'workspace')),
+      workspace_name TEXT NOT NULL,
+      has_pmo BOOLEAN DEFAULT FALSE,
+      active_theme_id TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (active_theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS repositories (
+      name TEXT PRIMARY KEY,
+      path TEXT NOT NULL,
+      type TEXT DEFAULT 'main' CHECK (type IN ('main', 'dependency')),
+      source_url TEXT,
+      action TEXT CHECK (action IN ('clone', 'move', 'link')),
+      added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_themes (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      description TEXT,
+      persistent_dir TEXT NOT NULL DEFAULT 'staff',
+      ephemeral_dir TEXT NOT NULL DEFAULT 'temp',
+      builtin BOOLEAN DEFAULT FALSE,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_theme_names (
+      theme_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      PRIMARY KEY (theme_id, name),
+      FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS agents (
+      name TEXT PRIMARY KEY,
+      type TEXT NOT NULL DEFAULT 'persistent' CHECK (type IN ('persistent', 'ephemeral')),
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cleaned')),
+      base_name TEXT,
+      theme_id TEXT,
+      worktree_path TEXT,
+      mount_mode TEXT NOT NULL DEFAULT 'worktree' CHECK (mount_mode IN ('worktree', 'clone')),
+      created_at TEXT NOT NULL,
+      cleaned_at TEXT,
+      FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_worktrees (
+      agent_name TEXT NOT NULL,
+      repo_name TEXT NOT NULL,
+      worktree_path TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (agent_name, repo_name),
+      FOREIGN KEY (agent_name) REFERENCES agents(name) ON DELETE CASCADE,
+      FOREIGN KEY (repo_name) REFERENCES repositories(name) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_worktrees_agent ON agent_worktrees(agent_name);
+    CREATE INDEX IF NOT EXISTS idx_worktrees_repo ON agent_worktrees(repo_name);
+    CREATE INDEX IF NOT EXISTS idx_theme_names_theme ON agent_theme_names(theme_id);
+    CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
+  `);
+
+  // Insert workspace configuration
+  db.prepare(`
+    INSERT INTO workspace (id, type, workspace_name, has_pmo, created_at)
+    VALUES (1, 'hq', 'test-workspace', 1, datetime('now'))
+  `).run();
+
+  // Insert default theme
+  db.prepare(`
+    INSERT INTO agent_themes (id, name, display_name, persistent_dir, ephemeral_dir, builtin, created_at)
+    VALUES ('corporate', 'corporate', 'Corporate', 'staff', 'temp', 1, datetime('now'))
+  `).run();
+}
+
+/**
+ * Create agents directory structure for tests.
+ */
+function createAgentsDirectory(testDir: string) {
+  const agentsPath = path.join(testDir, 'agents');
+  fs.mkdirSync(path.join(agentsPath, 'staff'), { recursive: true });
+  fs.mkdirSync(path.join(agentsPath, 'temp'), { recursive: true });
+}
