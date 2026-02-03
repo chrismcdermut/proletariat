@@ -1072,6 +1072,379 @@ describe('Agent Commands JSON Mode', () => {
       });
     });
   });
+
+  describe('Flag-specific tests', () => {
+    let env: TestEnvironment;
+    let db: Database.Database;
+
+    beforeEach(() => {
+      env = createTestEnvironment('agent-flags-');
+      db = new Database(env.dbPath);
+      setupTestDatabase(db);
+      createHQConfig(env.proletariatDir);
+      createPMODirectories(env.pmoPath, 'test-project');
+      createAgentsDirectory(env.testDir);
+    });
+
+    afterEach(() => {
+      db.close();
+      cleanupTestEnvironment(env);
+    });
+
+    function createTestAgent(name: string, type: 'persistent' | 'ephemeral' = 'persistent', status: 'active' | 'cleaned' = 'active') {
+      const dir = type === 'persistent' ? 'staff' : 'temp';
+      const agentPath = path.join(env.testDir, 'agents', dir, name);
+      fs.mkdirSync(agentPath, { recursive: true });
+      fs.mkdirSync(path.join(agentPath, '.git'), { recursive: true });
+      fs.writeFileSync(path.join(agentPath, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+
+      db.prepare(`
+        INSERT INTO agents (name, type, status, worktree_path, created_at)
+        VALUES (?, ?, ?, ?, datetime('now'))
+      `).run(name, type, status, `agents/${dir}/${name}`);
+    }
+
+    interface AgentPrompt {
+      prompt: {
+        type: string;
+        name: string;
+        message: string;
+        choices?: Array<{ name: string; value: string; command?: string }>;
+        context?: Record<string, unknown>;
+      };
+      metadata: {
+        command: string;
+        flags: Record<string, unknown>;
+      };
+    }
+
+    function agentExec(cmd: string): AgentPrompt | null {
+      const output = exec(cmd);
+      if (hasContextError(output)) {
+        return null;
+      }
+      try {
+        return extractJson<AgentPrompt>(output);
+      } catch {
+        return null;
+      }
+    }
+
+    describe('agent auth flags', () => {
+      it('should support --machine flag', () => {
+        const output = exec('agent auth --machine');
+
+        // Either Docker error or success/error response
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Docker is not running') ||
+          o.includes('"success"') ||
+          o.includes('"error"') ||
+          o.includes('DOCKER_NOT_RUNNING')
+        );
+
+        // If it contains JSON with success or error, verify structure
+        if (output.includes('"success"') || output.includes('"error"')) {
+          try {
+            const json = extractJson<{ success?: boolean; error?: { code: string } }>(output);
+            expect(json.success !== undefined || json.error !== undefined).to.be.true;
+          } catch {
+            // JSON parsing failed, but we already verified the output contains expected strings
+          }
+        }
+      });
+
+      it('should support --check flag with --machine', () => {
+        const output = exec('agent auth --check --machine');
+
+        // Either Docker error or check response
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Docker is not running') ||
+          o.includes('"authenticated"') ||
+          o.includes('NO_CREDENTIALS')
+        );
+      });
+
+      it('should support --json flag (legacy)', () => {
+        const output = exec('agent auth --json');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Docker is not running') ||
+          o.includes('"success"') ||
+          o.includes('"error"')
+        );
+      });
+
+      it('should support -m shorthand', () => {
+        const output = exec('agent auth -m');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Docker is not running') ||
+          o.includes('"success"') ||
+          o.includes('"error"')
+        );
+      });
+
+      it('should report INTERACTIVE_REQUIRED when trying to authenticate in JSON mode', () => {
+        // Force flag requires interactive, so should get error in JSON mode
+        const output = exec('agent auth --force --machine');
+
+        // Either Docker error or interactive required error
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Docker is not running') ||
+          o.includes('INTERACTIVE_REQUIRED')
+        );
+      });
+    });
+
+    describe('agent rebuild flags', () => {
+      beforeEach(() => {
+        createTestAgent('rebuild-flag-agent', 'persistent');
+      });
+
+      it('should support --no-cache flag', () => {
+        const output = exec('agent rebuild rebuild-flag-agent --no-cache --machine');
+
+        // Either Docker error or rebuild attempt
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Docker is not running') ||
+          o.includes('Rebuilding') ||
+          o.includes('devcontainer')
+        );
+      });
+
+      it('should accept --no-cache with agent selection prompt', () => {
+        // Without agent name, should get selection prompt
+        const output = exec('agent rebuild --no-cache --machine');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Docker is not running') ||
+          o.includes('"prompt"') ||
+          o.includes('Select agent')
+        );
+      });
+    });
+
+    describe('agent staff add flags', () => {
+      it('should support --theme flag with name selection', () => {
+        // Using built-in theme
+        const result = agentExec('agent staff add --theme billionaires --machine');
+        expect(result).to.exist;
+        expect(result!.prompt.type).to.equal('checkbox');
+        expect(result!.prompt.name).to.equal('names');
+
+        // Should have name choices from the theme
+        expect(result!.prompt.choices).to.be.an('array');
+        expect(result!.prompt.choices!.length).to.be.greaterThan(0);
+      });
+
+      it('should support --theme flag with different themes', () => {
+        // Try toyotas theme
+        const result = agentExec('agent staff add --theme toyotas --machine');
+        expect(result).to.exist;
+        expect(result!.prompt.type).to.equal('checkbox');
+
+        // Try companies theme
+        const result2 = agentExec('agent staff add --theme companies --machine');
+        expect(result2).to.exist;
+        expect(result2!.prompt.type).to.equal('checkbox');
+      });
+
+      it('should error on invalid theme', () => {
+        const output = exec('agent staff add --theme nonexistent-theme --machine');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('not found') || o.includes('THEME_NOT_FOUND')
+        );
+      });
+    });
+
+    describe('agent temp cleanup flags', () => {
+      beforeEach(() => {
+        createTestAgent('cleanup-temp-1', 'ephemeral');
+        createTestAgent('cleanup-temp-2', 'ephemeral');
+      });
+
+      it('should support --temp flag (cleanup idle temp agents)', () => {
+        const output = exec('agent temp cleanup --temp --machine');
+
+        // Should either show confirmation prompt or no agents message
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"prompt"') ||
+          o.includes('NO_AGENTS') ||
+          o.includes('confirmed') ||
+          o.includes('Clean up')
+        );
+      });
+
+      it('should support --all flag (cleanup all temp agents)', () => {
+        const output = exec('agent temp cleanup --all --machine');
+
+        // Should either show confirmation prompt or no agents message
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"prompt"') ||
+          o.includes('NO_AGENTS') ||
+          o.includes('confirmed')
+        );
+      });
+
+      it('should support --dry-run flag (show what would be cleaned)', () => {
+        const output = exec('agent temp cleanup cleanup-temp-1 --dry-run --machine');
+
+        // Dry run should show results without prompting
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"success"') ||
+          o.includes('dryRun') ||
+          o.includes('Would clean') ||
+          o.includes('AGENT_NOT_FOUND')
+        );
+      });
+
+      it('should support --yes flag (skip confirmation)', () => {
+        const output = exec('agent temp cleanup cleanup-temp-1 --yes --machine');
+
+        // Should skip confirmation and proceed (or fail to find agent)
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"success"') ||
+          o.includes('cleaned') ||
+          o.includes('AGENT_NOT_FOUND') ||
+          o.includes('Cleaning up')
+        );
+      });
+
+      it('should support -y shorthand for --yes', () => {
+        const output = exec('agent temp cleanup cleanup-temp-1 -y --machine');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"success"') ||
+          o.includes('cleaned') ||
+          o.includes('AGENT_NOT_FOUND') ||
+          o.includes('Cleaning up')
+        );
+      });
+
+      it('should support --force flag (force cleanup with uncommitted work)', () => {
+        const output = exec('agent temp cleanup cleanup-temp-1 --force --machine');
+
+        // Should proceed with force flag
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"prompt"') ||
+          o.includes('"success"') ||
+          o.includes('confirmed') ||
+          o.includes('AGENT_NOT_FOUND')
+        );
+      });
+
+      it('should support -f shorthand for --force', () => {
+        const output = exec('agent temp cleanup cleanup-temp-1 -f --machine');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"prompt"') ||
+          o.includes('"success"') ||
+          o.includes('confirmed') ||
+          o.includes('AGENT_NOT_FOUND')
+        );
+      });
+
+      it('should support combined flags --temp --dry-run', () => {
+        const output = exec('agent temp cleanup --temp --dry-run --machine');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"success"') ||
+          o.includes('NO_AGENTS') ||
+          o.includes('dryRun')
+        );
+      });
+
+      it('should support combined flags --all --yes', () => {
+        const output = exec('agent temp cleanup --all --yes --machine');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"success"') ||
+          o.includes('NO_AGENTS') ||
+          o.includes('cleaned')
+        );
+      });
+    });
+
+    describe('agent themes create flags', () => {
+      it('should support --description flag', () => {
+        const output = exec('agent themes create test-theme-1 --description "A test theme" 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Created theme') ||
+          o.includes('test-theme-1') ||
+          o.includes('A test theme')
+        );
+      });
+
+      it('should support -d shorthand for --description', () => {
+        const output = exec('agent themes create test-theme-2 -d "Another test theme" 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Created theme') ||
+          o.includes('test-theme-2')
+        );
+      });
+
+      it('should support --display-name flag', () => {
+        const output = exec('agent themes create test-theme-3 --display-name "Custom Display Name" 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Created theme') ||
+          o.includes('Custom Display Name')
+        );
+      });
+
+      it('should support combined --description and --display-name flags', () => {
+        const output = exec('agent themes create test-theme-4 --display-name "Combined Test" --description "Testing both flags" 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Created theme') ||
+          o.includes('Combined Test')
+        );
+      });
+    });
+
+    describe('agent list flags', () => {
+      beforeEach(() => {
+        createTestAgent('list-staff', 'persistent');
+        createTestAgent('list-temp', 'ephemeral');
+      });
+
+      it('should support --type staff flag', () => {
+        const output = exec('agent list --type staff');
+
+        expect(output.toLowerCase()).to.satisfy((o: string) =>
+          o.includes('staff') || o.includes('no active')
+        );
+      });
+
+      it('should support --type temp flag', () => {
+        const output = exec('agent list --type temp');
+
+        expect(output.toLowerCase()).to.satisfy((o: string) =>
+          o.includes('temp') || o.includes('temporary') || o.includes('no active')
+        );
+      });
+
+      it('should support --type all flag', () => {
+        const output = exec('agent list --type all');
+
+        // Should show summary or agents
+        expect(output.toLowerCase()).to.satisfy((o: string) =>
+          o.includes('summary') || o.includes('staff') || o.includes('temp') || o.includes('no active')
+        );
+      });
+
+      it('should support --type flag with --machine', () => {
+        // With --type specified, should bypass prompt and show results
+        const output = exec('agent list --type staff --machine');
+
+        // No prompt expected when type is specified
+        expect(output).to.not.include('"prompt"');
+      });
+    });
+  });
 });
 
 /**
