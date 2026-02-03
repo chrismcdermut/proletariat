@@ -51,10 +51,6 @@ export default class ActionUpdate extends PMOCommand {
       description: 'Interactive mode - prompt for all fields',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {

@@ -54,10 +54,6 @@ export default class ActionRun extends PMOCommand {
       description: 'Skip confirmation prompt',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {

@@ -30,10 +30,6 @@ export default class ActionDelete extends PMOCommand {
       description: 'Skip confirmation',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
