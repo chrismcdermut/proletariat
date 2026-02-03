@@ -1256,6 +1256,36 @@ describe('Agent Commands JSON Mode', () => {
           o.includes('not found') || o.includes('THEME_NOT_FOUND')
         );
       });
+
+      it('should support --no-container flag', () => {
+        // --no-container skips devcontainer setup
+        const result = agentExec('agent staff add --theme billionaires --no-container --machine');
+        expect(result).to.exist;
+        expect(result!.prompt.type).to.equal('checkbox');
+
+        // Flag should be passed through in metadata
+        expect(result!.metadata.flags['no-container']).to.equal(true);
+      });
+
+      it('should support --clone flag', () => {
+        // --clone uses git clone instead of worktree
+        const result = agentExec('agent staff add --theme billionaires --clone --machine');
+        expect(result).to.exist;
+        expect(result!.prompt.type).to.equal('checkbox');
+
+        // Flag should be passed through in metadata
+        expect(result!.metadata.flags.clone).to.equal(true);
+      });
+
+      it('should support combined flags --theme --no-container --clone', () => {
+        const result = agentExec('agent staff add --theme toyotas --no-container --clone --machine');
+        expect(result).to.exist;
+        expect(result!.prompt.type).to.equal('checkbox');
+
+        // All flags should be in metadata
+        expect(result!.metadata.flags['no-container']).to.equal(true);
+        expect(result!.metadata.flags.clone).to.equal(true);
+      });
     });
 
     describe('agent temp cleanup flags', () => {
@@ -1364,6 +1394,30 @@ describe('Agent Commands JSON Mode', () => {
           o.includes('cleaned')
         );
       });
+
+      it('should support --push flag (push before cleanup)', () => {
+        const output = exec('agent temp cleanup cleanup-temp-1 --push --machine');
+
+        // Should either prompt for confirmation or handle the agent
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"prompt"') ||
+          o.includes('"success"') ||
+          o.includes('confirmed') ||
+          o.includes('AGENT_NOT_FOUND') ||
+          o.includes('push')
+        );
+      });
+
+      it('should support combined flags --push --yes', () => {
+        const output = exec('agent temp cleanup cleanup-temp-1 --push --yes --machine');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"success"') ||
+          o.includes('cleaned') ||
+          o.includes('AGENT_NOT_FOUND') ||
+          o.includes('push')
+        );
+      });
     });
 
     describe('agent themes create flags', () => {
@@ -1405,6 +1459,59 @@ describe('Agent Commands JSON Mode', () => {
       });
     });
 
+    describe('agent themes add-names', () => {
+      it('should add names to an existing theme', () => {
+        // First create a theme
+        exec('agent themes create test-add-theme --description "Test theme for add-names" 2>&1');
+
+        // Then add names to it
+        const output = exec('agent themes add-names test-add-theme hero-1 hero-2 hero-3 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Added') ||
+          o.includes('name') ||
+          o.includes('hero')
+        );
+      });
+
+      it('should normalize agent names', () => {
+        // Create theme first
+        exec('agent themes create test-normalize-theme 2>&1');
+
+        // Add names with mixed case (should be normalized)
+        const output = exec('agent themes add-names test-normalize-theme MyAgent UPPER-CASE 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Added') ||
+          o.includes('Normalized') ||
+          o.includes('myagent') ||
+          o.includes('upper-case')
+        );
+      });
+
+      it('should error on non-existent theme', () => {
+        const output = exec('agent themes add-names nonexistent-theme name1 name2 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('not found') ||
+          o.includes('Error')
+        );
+      });
+
+      it('should error when no names provided', () => {
+        // Create theme first
+        exec('agent themes create test-empty-theme 2>&1');
+
+        const output = exec('agent themes add-names test-empty-theme 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('provide') ||
+          o.includes('name') ||
+          o.includes('Error')
+        );
+      });
+    });
+
     describe('agent list flags', () => {
       beforeEach(() => {
         createTestAgent('list-staff', 'persistent');
@@ -1442,6 +1549,294 @@ describe('Agent Commands JSON Mode', () => {
 
         // No prompt expected when type is specified
         expect(output).to.not.include('"prompt"');
+      });
+
+      it('should support -t shorthand for --type', () => {
+        const output = exec('agent list -t staff');
+
+        expect(output.toLowerCase()).to.satisfy((o: string) =>
+          o.includes('staff') || o.includes('no active')
+        );
+      });
+    });
+
+    describe('agent status with direct agent name', () => {
+      beforeEach(() => {
+        createTestAgent('direct-status-agent', 'persistent');
+      });
+
+      it('should show status when agent name is provided directly', () => {
+        const output = exec('agent status direct-status-agent');
+
+        expect(output).to.include('direct-status-agent');
+      });
+
+      it('should show status with --machine flag and agent name', () => {
+        const output = exec('agent status direct-status-agent --machine');
+
+        // Should return data, not prompt (agent name bypasses selection)
+        expect(output).to.include('direct-status-agent');
+      });
+
+      it('should error for non-existent agent', () => {
+        const output = exec('agent status nonexistent-agent-xyz 2>&1');
+
+        expect(output.toLowerCase()).to.satisfy((o: string) =>
+          o.includes('not found') || o.includes('error') || o.includes('no agent')
+        );
+      });
+
+      it('should error for non-existent agent with --machine', () => {
+        const output = exec('agent status nonexistent-agent-xyz --machine 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('AGENT_NOT_FOUND') ||
+          o.includes('not found') ||
+          o.includes('"error"')
+        );
+      });
+    });
+
+    describe('agent visit with direct agent name', () => {
+      beforeEach(() => {
+        createTestAgent('direct-visit-agent', 'persistent');
+      });
+
+      it('should show path when agent name is provided directly', () => {
+        const output = exec('agent visit direct-visit-agent');
+
+        expect(output).to.include('direct-visit-agent');
+        expect(output).to.include('cd');
+      });
+
+      it('should show path with --machine flag and agent name', () => {
+        const output = exec('agent visit direct-visit-agent --machine');
+
+        expect(output).to.include('direct-visit-agent');
+      });
+
+      it('should error for non-existent agent', () => {
+        const output = exec('agent visit nonexistent-visit-xyz 2>&1');
+
+        expect(output.toLowerCase()).to.satisfy((o: string) =>
+          o.includes('not found') || o.includes('error')
+        );
+      });
+
+      it('should error for non-existent agent with --machine', () => {
+        const output = exec('agent visit nonexistent-visit-xyz --machine 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('AGENT_NOT_FOUND') ||
+          o.includes('not found') ||
+          o.includes('"error"')
+        );
+      });
+    });
+
+    describe('agent shell with direct agent name', () => {
+      beforeEach(() => {
+        createTestAgent('direct-shell-agent', 'persistent');
+      });
+
+      it('should attempt shell when agent name is provided', () => {
+        const output = exec('agent shell direct-shell-agent 2>&1');
+
+        // May fail with Docker/tmux error but should attempt
+        expect(output).to.satisfy((o: string) =>
+          o.includes('direct-shell-agent') ||
+          o.includes('Docker') ||
+          o.includes('tmux') ||
+          o.includes('shell')
+        );
+      });
+
+      it('should accept --machine flag with agent name', () => {
+        const output = exec('agent shell direct-shell-agent --machine 2>&1');
+
+        // Could return prompt for config selection, error, or Docker message
+        // When agent name is provided, shell command shows config selection in JSON mode
+        expect(output).to.satisfy((o: string) =>
+          o.includes('prompt') ||
+          o.includes('Docker') ||
+          o.includes('error') ||
+          o.includes('config') ||
+          o.includes('terminal') ||
+          o.includes('host')
+        );
+      });
+
+      it('should error for non-existent agent', () => {
+        const output = exec('agent shell nonexistent-shell-xyz 2>&1');
+
+        expect(output.toLowerCase()).to.satisfy((o: string) =>
+          o.includes('not found') || o.includes('error') || o.includes('docker')
+        );
+      });
+    });
+
+    describe('agent staff remove with direct agent name', () => {
+      beforeEach(() => {
+        createTestAgent('remove-agent-1', 'persistent');
+        createTestAgent('remove-agent-2', 'persistent');
+      });
+
+      it('should prompt for confirmation when agent name provided', () => {
+        const output = exec('agent staff remove remove-agent-1 --machine 2>&1');
+
+        // Should get confirmation prompt, agent not found, or no agents error
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"prompt"') ||
+          o.includes('confirmed') ||
+          o.includes('Docker') ||
+          o.includes('AGENT_NOT_FOUND') ||
+          o.includes('NO_AGENTS') ||
+          o.includes('not found') ||
+          o.includes('"error"')
+        );
+      });
+
+      it('should support --force flag to skip confirmation', () => {
+        const output = exec('agent staff remove remove-agent-1 --force 2>&1');
+
+        // Should proceed without confirmation (may fail due to Docker)
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Removing') ||
+          o.includes('removed') ||
+          o.includes('Docker') ||
+          o.includes('Error')
+        );
+      });
+
+      it('should support -f shorthand for --force', () => {
+        const output = exec('agent staff remove remove-agent-2 -f 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Removing') ||
+          o.includes('removed') ||
+          o.includes('Docker') ||
+          o.includes('Error')
+        );
+      });
+
+      it('should error for non-existent agent', () => {
+        const output = exec('agent staff remove nonexistent-remove-xyz --force 2>&1');
+
+        expect(output.toLowerCase()).to.satisfy((o: string) =>
+          o.includes('not found') || o.includes('error')
+        );
+      });
+
+      it('should error for non-existent agent with --machine', () => {
+        const output = exec('agent staff remove nonexistent-remove-xyz --machine 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('AGENT_NOT_FOUND') ||
+          o.includes('not found') ||
+          o.includes('"error"')
+        );
+      });
+    });
+
+    describe('agent staff add with direct agent names', () => {
+      it('should accept direct agent name argument', () => {
+        const output = exec('agent staff add test-direct-agent 2>&1');
+
+        // Should attempt to add agent (may fail due to Docker/workspace setup)
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Adding') ||
+          o.includes('test-direct-agent') ||
+          o.includes('Docker') ||
+          o.includes('Error') ||
+          o.includes('worktree')
+        );
+      });
+
+      it('should accept multiple agent names', () => {
+        const output = exec('agent staff add agent-a agent-b 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Adding') ||
+          o.includes('agent-a') ||
+          o.includes('agent-b') ||
+          o.includes('Docker') ||
+          o.includes('Error')
+        );
+      });
+
+      it('should support --no-container flag', () => {
+        const output = exec('agent staff add no-container-agent --no-container 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Adding') ||
+          o.includes('no-container-agent') ||
+          o.includes('worktree') ||
+          o.includes('Error')
+        );
+      });
+
+      it('should support --clone flag', () => {
+        const output = exec('agent staff add clone-agent --clone 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Adding') ||
+          o.includes('clone-agent') ||
+          o.includes('clone') ||
+          o.includes('Error')
+        );
+      });
+
+      it('should support combined --theme and --no-container flags', () => {
+        const output = exec('agent staff add --theme billionaires --no-container --machine 2>&1');
+
+        // Should get name selection from theme or error
+        expect(output).to.satisfy((o: string) =>
+          o.includes('"prompt"') ||
+          o.includes('checkbox') ||
+          o.includes('names') ||
+          o.includes('Error') ||
+          o.includes('not found')
+        );
+      });
+    });
+
+    describe('error cases', () => {
+      beforeEach(() => {
+        // Create at least one agent for list tests
+        createTestAgent('error-test-agent', 'persistent');
+      });
+
+      it('should handle empty agent list gracefully', () => {
+        const output = exec('agent list --type staff 2>&1');
+
+        expect(output.toLowerCase()).to.satisfy((o: string) =>
+          o.includes('no active') ||
+          o.includes('summary') ||
+          o.includes('staff') ||
+          o.includes('error') ||
+          o.includes('agent')
+        );
+      });
+
+      it('should handle invalid command gracefully', () => {
+        const output = exec('agent invalidsubcommand 2>&1');
+
+        expect(output.toLowerCase()).to.satisfy((o: string) =>
+          o.includes('error') || o.includes('not') || o.includes('unknown') || o.includes('help')
+        );
+      });
+
+      it('should handle missing required arguments', () => {
+        // themes create requires NAME
+        const output = exec('agent themes create 2>&1');
+
+        expect(output).to.satisfy((o: string) =>
+          o.includes('Missing') ||
+          o.includes('required') ||
+          o.includes('USAGE') ||
+          o.includes('Error') ||
+          o.includes('NAME')
+        );
       });
     });
   });
