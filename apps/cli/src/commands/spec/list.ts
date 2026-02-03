@@ -19,10 +19,6 @@ export default class SpecList extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     status: Flags.string({
       char: 's',
       description: 'Filter by status',

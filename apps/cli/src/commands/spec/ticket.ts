@@ -31,10 +31,6 @@ export default class SpecTicket extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     ticket: Flags.string({
       char: 't',
       description: 'Ticket ID',

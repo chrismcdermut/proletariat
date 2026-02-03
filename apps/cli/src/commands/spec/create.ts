@@ -46,10 +46,6 @@ export default class SpecCreate extends PMOCommand {
       description: 'Interactive mode',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
