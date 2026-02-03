@@ -380,6 +380,7 @@ describe('Agent Commands JSON Mode', () => {
         name: string;
         message: string;
         choices?: Array<{ name: string; value: string; command?: string }>;
+        context?: Record<string, unknown>;
       };
       metadata: {
         command: string;
@@ -714,6 +715,34 @@ describe('Agent Commands JSON Mode', () => {
         const agentChoice = findChoice(step3!.prompt.choices!, 'staff-flow-agent');
         expect(agentChoice).to.exist;
       });
+
+      it('should complete flow: staff remove → select agent → get confirmation prompt', () => {
+        // Step 1: Direct staff remove command
+        const step1 = agentExec('agent staff remove --machine');
+        expect(step1).to.exist;
+        expect(step1!.prompt.type).to.equal('list');
+        expect(step1!.prompt.name).to.equal('name');
+
+        // Find our test agent
+        const agentChoice = findChoice(step1!.prompt.choices!, 'staff-flow-agent');
+        expect(agentChoice).to.exist;
+
+        // Step 2: Select agent, get confirmation prompt
+        // The command would be: agent staff remove staff-flow-agent --machine
+        const step2 = agentExec('agent staff remove staff-flow-agent --machine');
+        expect(step2).to.exist;
+        expect(step2!.prompt.type).to.equal('list');
+        expect(step2!.prompt.name).to.equal('confirmed');
+
+        // Verify confirmation choices
+        expect(step2!.prompt.choices).to.be.an('array');
+        const noChoice = findChoice(step2!.prompt.choices!, 'No');
+        const yesChoice = findChoice(step2!.prompt.choices!, 'Yes');
+        expect(noChoice || yesChoice).to.exist;
+
+        // Verify the message mentions the agent name
+        expect(step2!.prompt.message).to.include('staff-flow-agent');
+      });
     });
 
     describe('agent index → temp submenu flow', () => {
@@ -805,6 +834,25 @@ describe('Agent Commands JSON Mode', () => {
         );
         expect(hasAllOption || hasTestAgent || step3!.prompt.choices!.length > 0).to.be.true;
       });
+
+      it('should complete flow: temp cleanup → select agent → get confirmation prompt', () => {
+        // Step 1: Direct cleanup with specific agent
+        // Using the agent name directly triggers the confirmation prompt
+        const step1 = agentExec('agent temp cleanup temp-flow-agent --machine');
+        expect(step1).to.exist;
+        expect(step1!.prompt.type).to.equal('list');
+        expect(step1!.prompt.name).to.equal('confirmed');
+
+        // Verify confirmation choices
+        expect(step1!.prompt.choices).to.be.an('array');
+        const noChoice = findChoice(step1!.prompt.choices!, 'No');
+        const yesChoice = findChoice(step1!.prompt.choices!, 'Yes');
+        expect(noChoice || yesChoice).to.exist;
+
+        // Verify context includes the agent to cleanup
+        expect(step1!.prompt.context).to.exist;
+        expect((step1!.prompt.context as { agentsToCleanup: string[] }).agentsToCleanup).to.include('temp-flow-agent');
+      });
     });
 
     describe('agent index → themes submenu flow', () => {
@@ -884,6 +932,29 @@ describe('Agent Commands JSON Mode', () => {
         expect(agentChoice).to.exist;
         expect(agentChoice!.command).to.include('agent shell shell-flow-agent');
         expect(agentChoice!.command).to.include('--machine');
+      });
+
+      it('should complete flow: shell → select agent → get config selection prompt', () => {
+        // Step 1: Direct shell command with agent name
+        // In JSON mode, this shows the combined config prompt
+        const step1 = agentExec('agent shell shell-flow-agent --machine');
+        expect(step1).to.exist;
+        expect(step1!.prompt.type).to.equal('list');
+        expect(step1!.prompt.name).to.equal('config');
+
+        // Verify config choices include various combinations
+        expect(step1!.prompt.choices).to.be.an('array');
+        expect(step1!.prompt.choices!.length).to.be.greaterThan(0);
+
+        // Should have host options (devcontainer options depend on agent having devcontainer config)
+        const hasHostOption = step1!.prompt.choices!.some(
+          (c: { name?: string; value?: string }) => c.value?.includes('host')
+        );
+        expect(hasHostOption).to.be.true;
+
+        // Verify choice values are in the expected format: displayMode-permissionMode-environment
+        const firstChoice = step1!.prompt.choices![0] as { value?: string };
+        expect(firstChoice.value).to.match(/^(terminal|foreground)-(safe|danger)-(devcontainer|host)$/);
       });
     });
 
