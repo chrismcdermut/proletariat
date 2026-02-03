@@ -21,9 +21,15 @@ export default class Themes extends Command {
   ];
 
   static flags = {
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+    machine: Flags.boolean({
+      char: 'm',
+      description: 'Output as JSON for AI agents/scripts (machine-readable mode)',
       default: false,
+    }),
+    json: Flags.boolean({
+      description: 'Output as JSON (deprecated, use --machine)',
+      default: false,
+      hidden: true,
     }),
   };
 
@@ -37,8 +43,8 @@ export default class Themes extends Command {
     // Each choice includes the full command for AI agents to execute
     const menuChoices = [
       { id: 'list', name: 'List themes', command: 'prlt agent themes list --format json' },
-      { id: 'create', name: 'Create a new theme', command: 'prlt agent themes create --json' },
-      { id: 'add-names', name: 'Add names to a theme', command: 'prlt agent themes add-names --json' },
+      { id: 'create', name: 'Create a new theme', command: 'prlt agent themes create --machine' },
+      { id: 'add-names', name: 'Add names to a theme', command: 'prlt agent themes add-names --machine' },
       { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'What would you like to do?';
