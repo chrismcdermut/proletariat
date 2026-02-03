@@ -6,6 +6,9 @@ import {
   createHQConfig,
   createPMODirectories,
   exec,
+  setupProductionSchema,
+  createTestProject,
+  createTestPhase,
   type TestEnvironment,
 } from './test-helpers.js';
 
@@ -48,8 +51,11 @@ describe('Phase Commands JSON Mode', () => {
   beforeEach(() => {
     env = createTestEnvironment('phase-json-');
 
-    db = new Database(env.dbPath);
-    setupTestDatabase(db, env.pmoPath);
+    // Use production schema - includes all builtin phases, workflows, actions, etc.
+    db = setupProductionSchema(env.dbPath, env.pmoPath);
+
+    // Create test project
+    createTestProject(db, { id: 'test-project', name: 'Test Project' });
 
     createHQConfig(env.proletariatDir);
     createPMODirectories(env.pmoPath, 'test-project');
@@ -60,25 +66,12 @@ describe('Phase Commands JSON Mode', () => {
     cleanupTestEnvironment(env);
   });
 
-  /**
-   * Helper to create a test phase directly in the database.
-   */
-  function createTestPhase(
-    id: string,
-    name: string,
-    category: string = 'started',
-    position: number = 0
-  ): void {
-    db.prepare(`
-      INSERT INTO pmo_phases (id, name, category, position, is_default)
-      VALUES (?, ?, ?, ?, 0)
-    `).run(id, name, category, position);
-  }
+  // Using shared createTestPhase helper from test-helpers.ts
 
   describe('phase list --machine', () => {
     beforeEach(() => {
-      createTestPhase('phase-1', 'In Progress', 'started', 0);
-      createTestPhase('phase-2', 'Review', 'started', 1);
+      createTestPhase(db, { id: 'phase-1', name: 'In Progress', category: 'started', position: 0 });
+      createTestPhase(db, { id: 'phase-2', name: 'Review', category: 'started', position: 1 });
     });
 
     it('should output valid JSON with --machine flag', () => {
@@ -174,7 +167,7 @@ describe('Phase Commands JSON Mode', () => {
 
   describe('phase update --machine', () => {
     beforeEach(() => {
-      createTestPhase('test-phase', 'Test Phase', 'started', 0);
+      createTestPhase(db, { id: 'test-phase', name: 'Test Phase', category: 'started', position: 0 });
     });
 
     it('should output prompt JSON when phase ID not provided', () => {
@@ -222,7 +215,7 @@ describe('Phase Commands JSON Mode', () => {
 
   describe('phase delete --machine', () => {
     beforeEach(() => {
-      createTestPhase('delete-phase', 'Delete Me', 'started', 0);
+      createTestPhase(db, { id: 'delete-phase', name: 'Delete Me', category: 'started', position: 0 });
     });
 
     it('should output confirmation prompt JSON', () => {
@@ -270,8 +263,8 @@ describe('Phase Commands JSON Mode', () => {
 
   describe('phase move --machine', () => {
     beforeEach(() => {
-      createTestPhase('move-phase-1', 'Phase One', 'started', 0);
-      createTestPhase('move-phase-2', 'Phase Two', 'started', 1);
+      createTestPhase(db, { id: 'move-phase-1', name: 'Phase One', category: 'started', position: 0 });
+      createTestPhase(db, { id: 'move-phase-2', name: 'Phase Two', category: 'started', position: 1 });
     });
 
     it('should output phase selection prompt when ID not provided', () => {
@@ -414,7 +407,7 @@ describe('Phase Commands JSON Mode', () => {
 
     describe('phase update - full agent flow', () => {
       beforeEach(() => {
-        createTestPhase('update-flow-phase', 'Update Flow Phase', 'backlog', 0);
+        createTestPhase(db, { id: 'update-flow-phase', name: 'Update Flow Phase', category: 'backlog', position: 0 });
       });
 
       it('should complete flow: select phase → update with flags', () => {
@@ -455,7 +448,7 @@ describe('Phase Commands JSON Mode', () => {
 
     describe('phase delete - full agent flow', () => {
       beforeEach(() => {
-        createTestPhase('delete-flow-phase', 'Delete Flow Phase', 'canceled', 0);
+        createTestPhase(db, { id: 'delete-flow-phase', name: 'Delete Flow Phase', category: 'canceled', position: 0 });
       });
 
       it('should complete flow: provide ID → confirm deletion → phase deleted', () => {
@@ -497,9 +490,9 @@ describe('Phase Commands JSON Mode', () => {
     describe('phase move - full agent flow', () => {
       beforeEach(() => {
         // Create multiple phases in same category for reordering
-        createTestPhase('move-flow-1', 'Move Flow First', 'started', 0);
-        createTestPhase('move-flow-2', 'Move Flow Second', 'started', 1);
-        createTestPhase('move-flow-3', 'Move Flow Third', 'started', 2);
+        createTestPhase(db, { id: 'move-flow-1', name: 'Move Flow First', category: 'started', position: 0 });
+        createTestPhase(db, { id: 'move-flow-2', name: 'Move Flow Second', category: 'started', position: 1 });
+        createTestPhase(db, { id: 'move-flow-3', name: 'Move Flow Third', category: 'started', position: 2 });
       });
 
       it('should complete flow: select phase → select position → phase moved', () => {
@@ -555,9 +548,9 @@ describe('Phase Commands JSON Mode', () => {
 
     describe('phase list - agent data retrieval', () => {
       beforeEach(() => {
-        createTestPhase('list-flow-1', 'List Phase One', 'backlog', 0);
-        createTestPhase('list-flow-2', 'List Phase Two', 'started', 0);
-        createTestPhase('list-flow-3', 'List Phase Three', 'completed', 0);
+        createTestPhase(db, { id: 'list-flow-1', name: 'List Phase One', category: 'backlog', position: 0 });
+        createTestPhase(db, { id: 'list-flow-2', name: 'List Phase Two', category: 'started', position: 0 });
+        createTestPhase(db, { id: 'list-flow-3', name: 'List Phase Three', category: 'completed', position: 0 });
       });
 
       it('should return all phases as JSON array for agent processing', () => {
@@ -586,7 +579,7 @@ describe('Phase Commands JSON Mode', () => {
 
     describe('backward compatibility: --json flag flows', () => {
       beforeEach(() => {
-        createTestPhase('json-compat-phase', 'JSON Compat Phase', 'unstarted', 0);
+        createTestPhase(db, { id: 'json-compat-phase', name: 'JSON Compat Phase', category: 'unstarted', position: 0 });
       });
 
       it('should complete create flow with --json flag (legacy)', () => {
@@ -615,163 +608,3 @@ describe('Phase Commands JSON Mode', () => {
   });
 });
 
-/**
- * Helper function to set up test database with phase schema.
- * Schema matches production schema from src/lib/pmo/schema.ts
- */
-function setupTestDatabase(db: Database.Database, pmoPath: string) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS pmo_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_phases (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_workflows (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      description TEXT,
-      is_builtin INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_workflow_statuses (
-      id TEXT PRIMARY KEY,
-      workflow_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (workflow_id) REFERENCES pmo_workflows(id) ON DELETE CASCADE,
-      UNIQUE(workflow_id, name)
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      template TEXT,
-      description TEXT,
-      status TEXT NOT NULL DEFAULT 'active',
-      phase_id TEXT,
-      workflow_id TEXT,
-      is_archived INTEGER NOT NULL DEFAULT 0,
-      target_date TIMESTAMP,
-      initiative_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (phase_id) REFERENCES pmo_phases(id) ON DELETE SET NULL,
-      FOREIGN KEY (workflow_id) REFERENCES pmo_workflows(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_columns (
-      id TEXT NOT NULL,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      name TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, id)
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      title TEXT NOT NULL,
-      description TEXT,
-      priority TEXT,
-      category TEXT,
-      status TEXT NOT NULL DEFAULT 'backlog',
-      status_id TEXT,
-      owner TEXT,
-      assignee TEXT,
-      branch TEXT,
-      spec_id TEXT,
-      epic_id TEXT,
-      labels TEXT NOT NULL DEFAULT '[]',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      last_synced_from_spec TIMESTAMP,
-      last_synced_from_board TIMESTAMP
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_pmo_phases_category ON pmo_phases(category);
-    CREATE INDEX IF NOT EXISTS idx_pmo_phases_position ON pmo_phases(category, position);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status ON pmo_tickets(status);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_id ON pmo_tickets(status_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_projects_phase ON pmo_projects(phase_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_projects_workflow ON pmo_projects(workflow_id);
-  `);
-
-  // Insert workflow
-  db.prepare(`
-    INSERT INTO pmo_workflows (id, name, description, is_builtin)
-    VALUES ('default', 'Default', 'Default kanban workflow', 1)
-  `).run();
-
-  // Insert workflow statuses
-  const statuses = [
-    { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
-    { id: 'status-in-progress', name: 'In Progress', category: 'started', position: 1 },
-    { id: 'status-done', name: 'Done', category: 'completed', position: 2 },
-  ];
-
-  for (const status of statuses) {
-    db.prepare(`
-      INSERT INTO pmo_workflow_statuses (id, workflow_id, name, category, position, is_default)
-      VALUES (?, 'default', ?, ?, ?, ?)
-    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
-  }
-
-  // Insert test project
-  db.prepare(`
-    INSERT INTO pmo_projects (id, name, description, workflow_id)
-    VALUES ('test-project', 'Test Project', 'E2E test project', 'default')
-  `).run();
-
-  db.prepare(`
-    INSERT INTO pmo_settings (key, value)
-    VALUES ('pmo_path', ?), ('current_project', 'test-project')
-  `).run(pmoPath);
-
-  // Insert columns
-  const columns = [
-    { id: 'backlog', name: 'Backlog', position: 0 },
-    { id: 'in-progress', name: 'In Progress', position: 1 },
-    { id: 'done', name: 'Done', position: 2 },
-  ];
-
-  for (const col of columns) {
-    db.prepare(`
-      INSERT INTO pmo_columns (id, project_id, name, position)
-      VALUES (?, 'test-project', ?, ?)
-    `).run(col.id, col.name, col.position);
-  }
-
-  // Insert default phases
-  const phases = [
-    { id: 'idea', name: 'Idea', category: 'backlog', position: 0 },
-    { id: 'planned', name: 'Planned', category: 'unstarted', position: 0 },
-    { id: 'active', name: 'Active', category: 'started', position: 0 },
-    { id: 'complete', name: 'Complete', category: 'completed', position: 0 },
-  ];
-
-  for (const phase of phases) {
-    db.prepare(`
-      INSERT OR IGNORE INTO pmo_phases (id, name, category, position, is_default)
-      VALUES (?, ?, ?, ?, 0)
-    `).run(phase.id, phase.name, phase.category, phase.position);
-  }
-}

@@ -304,6 +304,37 @@ export function addTestWorkflowStatus(
 }
 
 /**
+ * Creates a test phase in the database.
+ * Note: Production schema seeds default phases (idea, planned, active, completed, canceled).
+ * Use this for creating additional custom phases for testing.
+ *
+ * @param db - Database instance
+ * @param options - Phase options
+ * @returns The phase ID
+ */
+export function createTestPhase(
+  db: Database.Database,
+  options: {
+    id?: string;
+    name: string;
+    category: string;
+    position?: number;
+    description?: string;
+    isDefault?: boolean;
+  }
+): string {
+  const id = options.id ?? `phase-${options.name.toLowerCase().replace(/\s+/g, '-')}`;
+  const position = options.position ?? 0;
+
+  db.prepare(`
+    INSERT INTO ${T.phases} (id, name, category, position, description, is_default)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, options.name, options.category, position, options.description ?? null, options.isDefault ? 1 : 0);
+
+  return id;
+}
+
+/**
  * Creates a test spec in the database.
  *
  * @param db - Database instance
