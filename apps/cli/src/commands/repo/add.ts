@@ -8,6 +8,11 @@ import {
   addRepository
 } from '../../lib/repos/index.js';
 import { getWorkspaceRepositories } from '../../lib/database/index.js';
+import {
+  shouldOutputJson,
+  outputErrorAsJson,
+  createMetadata,
+} from '../../lib/prompt-json.js';
 
 export default class Add extends PMOCommand {
   static description = 'Add a repository to the HQ';
@@ -48,14 +53,40 @@ export default class Add extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(Add);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('repo add', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Find HQ root
     const hqPath = findHQRoot();
     if (!hqPath) {
-      this.error('Not in an HQ directory. Run "prlt init" first.');
+      return handleError('NOT_IN_HQ', 'Not in an HQ directory. Run "prlt init" first.');
     }
 
     // Bulk mode: add multiple repositories interactively
     if (flags.bulk) {
+      // In JSON mode, output guidance
+      if (jsonMode) {
+        const agentConfig = { flags, commandName: 'repo add --bulk' };
+        await this.prompt<{ method: string }>([{
+          type: 'list',
+          name: 'method',
+          message: 'Bulk mode requires interactive selection. Use one of these instead:',
+          choices: [
+            { name: 'Add single repository by path', value: 'path', command: 'prlt repo add <path> --json' },
+            { name: 'Add by Git URL', value: 'url', command: 'prlt repo add <git-url> --json' },
+          ],
+        }], agentConfig);
+        return;
+      }
       await this.executeBulk(hqPath);
       return;
     }
@@ -75,6 +106,21 @@ export default class Add extends PMOCommand {
         action = 'clone';
       }
     } else {
+      // In JSON mode, output prompt for method selection
+      if (jsonMode) {
+        const agentConfig = { flags, commandName: 'repo add' };
+        await this.prompt<{ method: string }>([{
+          type: 'list',
+          name: 'method',
+          message: 'How would you like to add a repository?',
+          choices: [
+            { name: 'Enter path or Git URL', value: 'manual', command: 'prlt repo add <path> --json' },
+            { name: 'Search for repositories (bulk)', value: 'search', command: 'prlt repo add --bulk --json' },
+          ],
+        }], agentConfig);
+        return;
+      }
+
       // Interactive mode
       const result = await promptAddSingleRepo();
       if (!result) {
