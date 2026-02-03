@@ -1,12 +1,7 @@
 import { Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-} from '../../lib/prompt-json.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 
 export default class Agent extends PMOCommand {
   static description = 'Manage agents in the workspace';
@@ -42,68 +37,38 @@ export default class Agent extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // Define choices for JSON mode (flat list with commands)
-    const menuChoices = [
-      { id: 'list', name: 'List all agents', command: 'prlt agent list --format json' },
-      { id: 'status', name: 'Show status', command: 'prlt agent status --json' },
-      { id: 'visit', name: 'Visit directory', command: 'prlt agent visit --json' },
-      { id: 'staff', name: 'Manage staff agents', command: 'prlt agent staff --json' },
-      { id: 'temp', name: 'Manage temp agents', command: 'prlt agent temp --json' },
-      { id: 'themes', name: 'Manage themes', command: 'prlt agent themes --json' },
-      { id: 'shell', name: 'Open shell', command: 'prlt agent shell --json' },
-      { id: 'restart', name: 'Restart', command: 'prlt agent restart --json' },
-      { id: 'rebuild', name: 'Rebuild', command: 'prlt agent rebuild --json' },
-      { id: 'discover', name: 'Discover agents on disk', command: 'prlt agent discover' },
-      { id: 'cancel', name: 'Cancel', command: '' },
-    ];
-    const message = 'What would you like to do?';
-
     this.log(colors.primary('🤖 Agent Management'));
     this.log('');
     this.log(colors.textMuted('Note: Agent pre-registration is no longer required!'));
     this.log(colors.textMuted('Use "prlt work spawn" to create ephemeral agents automatically.'));
     this.log('');
 
-    // In JSON mode, output flat list with commands
-    if (jsonMode) {
-      outputPromptAsJson(
-        {
-          type: 'list',
-          name: 'action',
-          message,
-          choices: menuChoices.map(c => ({ name: c.name, value: c.id, command: c.command })),
-        },
-        createMetadata('agent', flags)
-      );
-      return;
-    }
+    // Agent mode config for prompts
+    const agentConfig = jsonMode ? { flags, commandName: 'agent' } : null;
 
-    // Interactive mode with separators for logical groupings
-    const { action } = await inquirer.prompt([{
+    // Use agentPrompt for unified JSON/interactive handling
+    const { action } = await this.prompt<{ action: string }>([{
       type: 'list',
       name: 'action',
-      message,
+      message: 'What would you like to do?',
       choices: [
         // View/Info group
-        { name: '📋 List all agents', value: 'list' },
-        { name: '📊 Show status', value: 'status' },
-        { name: '📂 Visit directory', value: 'visit' },
-        new inquirer.Separator(),
+        { name: '📋 List all agents', value: 'list', command: 'prlt agent list --machine' },
+        { name: '📊 Show status', value: 'status', command: 'prlt agent status --machine' },
+        { name: '📂 Visit directory', value: 'visit', command: 'prlt agent visit --machine' },
         // Management group
-        { name: '👔 Manage staff agents', value: 'staff' },
-        { name: '⏱️  Manage temp agents', value: 'temp' },
-        { name: '🎨 Manage themes', value: 'themes' },
-        new inquirer.Separator(),
+        { name: '👔 Manage staff agents', value: 'staff', command: 'prlt agent staff --machine' },
+        { name: '⏱️  Manage temp agents', value: 'temp', command: 'prlt agent temp --machine' },
+        { name: '🎨 Manage themes', value: 'themes', command: 'prlt agent themes --machine' },
         // Operations group
-        { name: '🐚 Open shell', value: 'shell' },
-        { name: '🔄 Restart', value: 'restart' },
-        { name: '🔨 Rebuild', value: 'rebuild' },
-        { name: '🔍 Discover agents on disk', value: 'discover' },
-        new inquirer.Separator(),
+        { name: '🐚 Open shell', value: 'shell', command: 'prlt agent shell --machine' },
+        { name: '🔄 Restart', value: 'restart', command: 'prlt agent restart --machine' },
+        { name: '🔨 Rebuild', value: 'rebuild', command: 'prlt agent rebuild --machine' },
+        { name: '🔍 Discover agents on disk', value: 'discover', command: 'prlt agent discover --machine' },
         // Cancel
-        { name: '❌ Cancel', value: 'cancel' },
+        { name: '❌ Cancel', value: 'cancel', command: '' },
       ],
-    }]);
+    }], agentConfig);
 
     if (action === 'cancel') {
       this.log(colors.textMuted('Operation cancelled.'));

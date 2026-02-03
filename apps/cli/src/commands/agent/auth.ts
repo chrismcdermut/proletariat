@@ -2,6 +2,12 @@ import { Command, Flags } from '@oclif/core';
 import { execSync, spawnSync } from 'node:child_process';
 import { colors } from '../../lib/colors.js';
 import { isDockerRunning } from '../../lib/execution/runners.js';
+import {
+  shouldOutputJson,
+  outputSuccessAsJson,
+  outputErrorAsJson,
+  createMetadata,
+} from '../../lib/prompt-json.js';
 
 const CLAUDE_CREDENTIALS_VOLUME = 'claude-credentials';
 
@@ -22,6 +28,16 @@ export default class Auth extends Command {
     force: Flags.boolean({
       description: 'Force re-authentication even if credentials exist',
       default: false,
+    }),
+    machine: Flags.boolean({
+      char: 'm',
+      description: 'Output as JSON for AI agents/scripts (machine-readable mode)',
+      default: false,
+    }),
+    json: Flags.boolean({
+      description: 'Output as JSON (deprecated, use --machine)',
+      default: false,
+      hidden: true,
     }),
   };
 
@@ -136,30 +152,49 @@ export default class Auth extends Command {
   async run(): Promise<void> {
     const { flags } = await this.parse(Auth);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
     // Check Docker is running
     if (!isDockerRunning()) {
+      if (jsonMode) {
+        outputErrorAsJson('DOCKER_NOT_RUNNING', 'Docker is not running. Please start Docker Desktop and try again.', createMetadata('agent auth', flags));
+      }
       this.error('Docker is not running. Please start Docker Desktop and try again.');
     }
 
     // Ensure volume exists
     if (!this.volumeExists()) {
-      this.log(colors.textSecondary(`Creating Docker volume: ${CLAUDE_CREDENTIALS_VOLUME}`));
+      if (!jsonMode) {
+        this.log(colors.textSecondary(`Creating Docker volume: ${CLAUDE_CREDENTIALS_VOLUME}`));
+      }
       this.createVolume();
     }
 
     // Check for existing credentials
     const hasCredentials = this.credentialsExist();
+    const info = hasCredentials ? this.getCredentialInfo() : null;
 
     if (flags.check) {
       // Just report status
       if (hasCredentials) {
-        const info = this.getCredentialInfo();
+        if (jsonMode) {
+          outputSuccessAsJson({
+            authenticated: true,
+            subscriptionType: info?.subscriptionType || 'unknown',
+            expiresAt: info?.expiresAt.toISOString(),
+          }, createMetadata('agent auth', flags));
+          return;
+        }
         this.log(colors.success('✓ Claude Code credentials are configured'));
         if (info) {
           this.log(colors.textSecondary(`  Subscription: ${info.subscriptionType || 'unknown'}`));
           this.log(colors.textSecondary(`  Expires: ${info.expiresAt.toLocaleDateString()}`));
         }
       } else {
+        if (jsonMode) {
+          outputErrorAsJson('NO_CREDENTIALS', 'No Claude Code credentials found. Run "prlt agent auth" to authenticate.', createMetadata('agent auth', flags));
+        }
         this.log(colors.warning('✗ No Claude Code credentials found'));
         this.log(colors.textSecondary('  Run "prlt agent auth" to authenticate'));
         this.exit(1);
@@ -168,7 +203,15 @@ export default class Auth extends Command {
     }
 
     if (hasCredentials && !flags.force) {
-      const info = this.getCredentialInfo();
+      if (jsonMode) {
+        outputSuccessAsJson({
+          authenticated: true,
+          subscriptionType: info?.subscriptionType || 'unknown',
+          expiresAt: info?.expiresAt.toISOString(),
+          message: 'Credentials already configured. Use --force to re-authenticate.',
+        }, createMetadata('agent auth', flags));
+        return;
+      }
       this.log(colors.success('✓ Claude Code credentials already configured'));
       if (info) {
         this.log(colors.textSecondary(`  Subscription: ${info.subscriptionType || 'unknown'}`));
@@ -177,6 +220,11 @@ export default class Auth extends Command {
       this.log('');
       this.log(colors.text('Use --force to re-authenticate.'));
       return;
+    }
+
+    // JSON mode cannot handle interactive login flow
+    if (jsonMode) {
+      outputErrorAsJson('INTERACTIVE_REQUIRED', 'Authentication requires interactive login. Run without --json flag to authenticate.', createMetadata('agent auth', flags));
     }
 
     // Run the login flow

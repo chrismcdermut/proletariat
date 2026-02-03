@@ -64,7 +64,8 @@ export interface TestEnvironment {
  */
 export function createTestEnvironment(prefix: string): TestEnvironment {
   const originalCwd = process.cwd();
-  const testDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  // Use realpath to resolve symlinks (important on macOS where /var -> /private/var)
+  const testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   process.chdir(testDir);
 
   const proletariatDir = path.join(testDir, '.proletariat');
@@ -262,6 +263,7 @@ export function exec(cmd: string): string {
       encoding: 'utf-8',
       cwd: cliDir, // Run from CLI dir so oclif finds commands
       env,
+      maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large JSON output
     });
     return result;
   } catch (error: unknown) {
