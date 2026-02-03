@@ -84,11 +84,11 @@ export default class Shell extends PMOCommand {
       const choices: Array<{ name: string; value: string; command: string }> = [];
 
       for (const agent of staffAgents) {
-        choices.push({ name: `👔 ${agent.name}`, value: agent.name, command: `prlt agent shell ${agent.name} --json` });
+        choices.push({ name: `👔 ${agent.name}`, value: agent.name, command: `prlt agent shell ${agent.name} --machine` });
       }
 
       for (const agent of tempAgents) {
-        choices.push({ name: `⏱️  ${agent.name}`, value: agent.name, command: `prlt agent shell ${agent.name} --json` });
+        choices.push({ name: `⏱️  ${agent.name}`, value: agent.name, command: `prlt agent shell ${agent.name} --machine` });
       }
 
       const { selected } = await this.prompt<{ selected: string }>([{
@@ -122,7 +122,7 @@ export default class Shell extends PMOCommand {
         message: 'What would you like to do?',
         choices: [
           { name: '🔗 Attach to existing session', value: 'attach', command: '' },
-          { name: '⚠️  Open new shell anyway (may cause conflicts)', value: 'continue', command: `prlt agent shell ${agentName} --json` },
+          { name: '⚠️  Open new shell anyway (may cause conflicts)', value: 'continue', command: `prlt agent shell ${agentName} --machine` },
           { name: '❌ Cancel', value: 'cancel', command: '' },
         ],
       }], agentConfig);

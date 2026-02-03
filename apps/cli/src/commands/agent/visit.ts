@@ -78,11 +78,11 @@ export default class Visit extends PMOCommand {
       const choices: Array<{ name: string; value: string; command: string }> = [];
 
       for (const agent of staffAgents) {
-        choices.push({ name: `👔 ${agent.name}`, value: agent.name, command: `prlt agent visit ${agent.name} --json` });
+        choices.push({ name: `👔 ${agent.name}`, value: agent.name, command: `prlt agent visit ${agent.name} --machine` });
       }
 
       for (const agent of tempAgents) {
-        choices.push({ name: `⏱️  ${agent.name}`, value: agent.name, command: `prlt agent visit ${agent.name} --json` });
+        choices.push({ name: `⏱️  ${agent.name}`, value: agent.name, command: `prlt agent visit ${agent.name} --machine` });
       }
 
       const { selected } = await this.prompt<{ selected: string }>([{

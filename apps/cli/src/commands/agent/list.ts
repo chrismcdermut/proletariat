@@ -55,9 +55,9 @@ export default class List extends PMOCommand {
           name: 'selectedType',
           message: 'Which agents do you want to list?',
           choices: [
-            { name: '📋 All agents', value: 'all', command: 'prlt agent list --type all --json' },
-            { name: '👔 Staff agents only', value: 'staff', command: 'prlt agent list --type staff --json' },
-            { name: '⏱️  Temp agents only', value: 'temp', command: 'prlt agent list --type temp --json' },
+            { name: '📋 All agents', value: 'all', command: 'prlt agent list --type all --machine' },
+            { name: '👔 Staff agents only', value: 'staff', command: 'prlt agent list --type staff --machine' },
+            { name: '⏱️  Temp agents only', value: 'temp', command: 'prlt agent list --type temp --machine' },
           ],
         }], agentConfig);
         typeFilter = selectedType;

@@ -212,10 +212,10 @@ describe('Agent Command Choice Structure', () => {
       const indexPath = path.resolve(__dirname, '../../src/commands/agent/index.ts');
       const content = fs.readFileSync(indexPath, 'utf-8');
 
-      // Verify choices have command field
-      expect(content).to.include("command: 'prlt agent list --json'");
-      expect(content).to.include("command: 'prlt agent status --json'");
-      expect(content).to.include("command: 'prlt agent shell --json'");
+      // Verify choices have command field with --machine flag
+      expect(content).to.include("command: 'prlt agent list --machine'");
+      expect(content).to.include("command: 'prlt agent status --machine'");
+      expect(content).to.include("command: 'prlt agent shell --machine'");
     });
 
     it('agent shell choices should include command field in code', async () => {
@@ -223,8 +223,8 @@ describe('Agent Command Choice Structure', () => {
       const shellPath = path.resolve(__dirname, '../../src/commands/agent/shell.ts');
       const content = fs.readFileSync(shellPath, 'utf-8');
 
-      // Verify agent selection choices have command field
-      expect(content).to.include('command: `prlt agent shell ${agent.name} --json`');
+      // Verify agent selection choices have command field with --machine flag
+      expect(content).to.include('command: `prlt agent shell ${agent.name} --machine`');
     });
 
     it('agent status choices should include command field in code', async () => {
@@ -232,8 +232,8 @@ describe('Agent Command Choice Structure', () => {
       const statusPath = path.resolve(__dirname, '../../src/commands/agent/status.ts');
       const content = fs.readFileSync(statusPath, 'utf-8');
 
-      // Verify choices have command field
-      expect(content).to.include('command: `prlt agent status ${agent.name} --json`');
+      // Verify choices have command field with --machine flag
+      expect(content).to.include('command: `prlt agent status ${agent.name} --machine`');
     });
 
     it('agent visit choices should include command field in code', async () => {
@@ -241,8 +241,8 @@ describe('Agent Command Choice Structure', () => {
       const visitPath = path.resolve(__dirname, '../../src/commands/agent/visit.ts');
       const content = fs.readFileSync(visitPath, 'utf-8');
 
-      // Verify choices have command field
-      expect(content).to.include('command: `prlt agent visit ${agent.name} --json`');
+      // Verify choices have command field with --machine flag
+      expect(content).to.include('command: `prlt agent visit ${agent.name} --machine`');
     });
 
     it('agent login choices should include command field in code', async () => {
@@ -250,8 +250,8 @@ describe('Agent Command Choice Structure', () => {
       const loginPath = path.resolve(__dirname, '../../src/commands/agent/login.ts');
       const content = fs.readFileSync(loginPath, 'utf-8');
 
-      // Verify choices have command field
-      expect(content).to.include('command: `prlt agent login ${agent.name} --json`');
+      // Verify choices have command field with --machine flag
+      expect(content).to.include('command: `prlt agent login ${agent.name} --machine`');
     });
 
     it('agent list choices should include command field in code', async () => {
@@ -259,10 +259,10 @@ describe('Agent Command Choice Structure', () => {
       const listPath = path.resolve(__dirname, '../../src/commands/agent/list.ts');
       const content = fs.readFileSync(listPath, 'utf-8');
 
-      // Verify choices have command field
-      expect(content).to.include("command: 'prlt agent list --type all --json'");
-      expect(content).to.include("command: 'prlt agent list --type staff --json'");
-      expect(content).to.include("command: 'prlt agent list --type temp --json'");
+      // Verify choices have command field with --machine flag
+      expect(content).to.include("command: 'prlt agent list --type all --machine'");
+      expect(content).to.include("command: 'prlt agent list --type staff --machine'");
+      expect(content).to.include("command: 'prlt agent list --type temp --machine'");
     });
   });
 
@@ -292,7 +292,7 @@ describe('Agent Command Choice Structure', () => {
       }
     });
 
-    it('migrated files should pass agentConfig to agentPrompt', async () => {
+    it('migrated files should pass agentConfig to prompt', async () => {
       const fs = await import('node:fs');
 
       const filesToCheck = [
@@ -311,9 +311,9 @@ describe('Agent Command Choice Structure', () => {
         // Should define agentConfig
         expect(content, `${file} should define agentConfig`).to.include('agentConfig');
 
-        // Should pass agentConfig to agentPrompt (or null for interactive-only prompts)
-        expect(content, `${file} should pass agentConfig to agentPrompt`).to.match(
-          /this\.agentPrompt.*\],\s*(agentConfig|null)\)/s
+        // Should pass agentConfig to prompt (or null for interactive-only prompts)
+        expect(content, `${file} should pass agentConfig to prompt`).to.match(
+          /this\.prompt.*\],\s*(agentConfig|null)\)/s
         );
       }
     });

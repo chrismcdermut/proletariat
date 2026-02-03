@@ -53,18 +53,18 @@ export default class Agent extends PMOCommand {
       message: 'What would you like to do?',
       choices: [
         // View/Info group
-        { name: '📋 List all agents', value: 'list', command: 'prlt agent list --json' },
-        { name: '📊 Show status', value: 'status', command: 'prlt agent status --json' },
-        { name: '📂 Visit directory', value: 'visit', command: 'prlt agent visit --json' },
+        { name: '📋 List all agents', value: 'list', command: 'prlt agent list --machine' },
+        { name: '📊 Show status', value: 'status', command: 'prlt agent status --machine' },
+        { name: '📂 Visit directory', value: 'visit', command: 'prlt agent visit --machine' },
         // Management group
-        { name: '👔 Manage staff agents', value: 'staff', command: 'prlt agent staff --json' },
-        { name: '⏱️  Manage temp agents', value: 'temp', command: 'prlt agent temp --json' },
-        { name: '🎨 Manage themes', value: 'themes', command: 'prlt agent themes --json' },
+        { name: '👔 Manage staff agents', value: 'staff', command: 'prlt agent staff --machine' },
+        { name: '⏱️  Manage temp agents', value: 'temp', command: 'prlt agent temp --machine' },
+        { name: '🎨 Manage themes', value: 'themes', command: 'prlt agent themes --machine' },
         // Operations group
-        { name: '🐚 Open shell', value: 'shell', command: 'prlt agent shell --json' },
-        { name: '🔄 Restart', value: 'restart', command: 'prlt agent restart --json' },
-        { name: '🔨 Rebuild', value: 'rebuild', command: 'prlt agent rebuild --json' },
-        { name: '🔍 Discover agents on disk', value: 'discover', command: 'prlt agent discover --json' },
+        { name: '🐚 Open shell', value: 'shell', command: 'prlt agent shell --machine' },
+        { name: '🔄 Restart', value: 'restart', command: 'prlt agent restart --machine' },
+        { name: '🔨 Rebuild', value: 'rebuild', command: 'prlt agent rebuild --machine' },
+        { name: '🔍 Discover agents on disk', value: 'discover', command: 'prlt agent discover --machine' },
         // Cancel
         { name: '❌ Cancel', value: 'cancel', command: '' },
       ],
