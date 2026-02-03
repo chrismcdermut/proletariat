@@ -5,13 +5,11 @@ import { styles } from '../styles.js';
 import {
   shouldOutputJson,
   isAgentMode,
-  isMachineOutput,
   outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
   normalizeChoices,
   type JsonFlags,
-  type MachineOutputFlags,
 } from '../prompt-json.js';
 
 /**
