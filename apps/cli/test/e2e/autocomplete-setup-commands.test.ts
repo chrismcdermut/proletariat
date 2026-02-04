@@ -448,6 +448,35 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(fs.readFileSync(zshrcPath, 'utf-8')).to.include('autocomplete:script zsh');
     });
 
+    it('should complete flow for powershell: menu → install → verify file', function () {
+      // Step 1: Get menu
+      const menuOutput = execAutocomplete('autocomplete setup --machine', { home: fakeHome });
+      const menu = extractJson<MachinePromptResponse>(menuOutput);
+      expect(menu).to.not.be.null;
+
+      // Step 2: Find powershell choice
+      const psChoice = menu!.prompt.choices!.find(c => c.value === 'powershell');
+      expect(psChoice).to.exist;
+      expect(psChoice!.command).to.include('--shell powershell');
+
+      // Step 3: Execute install command from the choice
+      const installCmd = psChoice!.command!.replace('prlt ', '');
+      const installOutput = execAutocomplete(installCmd, { home: fakeHome });
+      const result = extractJson<MachineSuccessResponse>(installOutput);
+
+      expect(result).to.not.be.null;
+      expect(result!.success).to.equal(true);
+      expect(result!.result.shell).to.equal('powershell');
+      expect(result!.result.installed).to.equal(true);
+
+      // Step 4: Verify file was created with correct content
+      const configFile = result!.result.configFile as string;
+      expect(fs.existsSync(configFile)).to.equal(true);
+      const content = fs.readFileSync(configFile, 'utf-8');
+      expect(content).to.include('prlt autocomplete');
+      expect(content).to.include('powershell');
+    });
+
     it('should handle info flow: menu → shell info without install', function () {
       // Step 1: Get the menu
       const menuOutput = execAutocomplete('autocomplete setup --machine', { home: fakeHome });
