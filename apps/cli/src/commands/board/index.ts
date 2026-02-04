@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';
+import { Flags } from '@oclif/core';
 import chalk from 'chalk';
 import {
   Ticket,
@@ -30,6 +31,14 @@ export default class Board extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    action: Flags.string({
+      description: 'Action to execute directly (view, markdown, export, sync)',
+      options: ['view', 'open', 'markdown', 'export', 'sync'],
+    }),
+    force: Flags.boolean({
+      description: 'Skip confirmation prompts',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
@@ -38,18 +47,24 @@ export default class Board extends PMOCommand {
     // Board operations require project context
     const projectId = await this.requireProject();
 
+    // If --action flag provided, execute directly without menu
+    if (flags.action) {
+      await this.executeAction(flags.action, projectId, flags);
+      return;
+    }
+
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
     const agentConfig = jsonMode ? { flags, commandName: 'board' } : null;
 
     // Define choices once, use for both JSON and interactive modes
     const menuChoices = [
-      { name: 'View board in terminal', value: 'view', command: `prlt board view -P ${projectId} --json` },
-      { name: 'Open board in Obsidian', value: 'open', command: `prlt board open -P ${projectId} --json` },
-      { name: 'Show as markdown', value: 'markdown', command: `prlt board markdown -P ${projectId} --json` },
-      { name: 'Export board', value: 'export', command: `prlt board export -P ${projectId} --json` },
-      { name: 'Sync board', value: 'sync', command: `prlt board sync -P ${projectId} --json` },
-      { name: 'Watch for changes', value: 'watch', command: `prlt board watch -P ${projectId} --json` },
+      { name: 'View board in terminal', value: 'view', command: `prlt board --action view -P ${projectId} --json` },
+      { name: 'Open board in Obsidian', value: 'open', command: `prlt board --action open -P ${projectId} --json` },
+      { name: 'Show as markdown', value: 'markdown', command: `prlt board --action markdown -P ${projectId} --json` },
+      { name: 'Export board', value: 'export', command: `prlt board --action export -P ${projectId} --json` },
+      { name: 'Sync board', value: 'sync', command: `prlt board --action sync -P ${projectId} --force --json` },
+      { name: 'Watch for changes', value: 'watch', command: `prlt board watch -P ${projectId}` },
       { name: 'Cancel', value: 'cancel', command: '' },
     ];
     const projectName = await this.getProjectName(projectId);
@@ -67,6 +82,14 @@ export default class Board extends PMOCommand {
       return;
     }
 
+    await this.executeAction(action, projectId, flags);
+  }
+
+  private async executeAction(
+    action: string,
+    projectId: string,
+    flags: { force?: boolean },
+  ): Promise<void> {
     switch (action) {
       case 'view':
         await this.viewBoard(projectId, { all: false, compact: false });
@@ -85,7 +108,7 @@ export default class Board extends PMOCommand {
         break;
 
       case 'sync':
-        await this.syncFromMarkdown(projectId, { force: false, 'dry-run': false });
+        await this.syncFromMarkdown(projectId, { force: flags.force ?? false, 'dry-run': false });
         break;
 
       case 'watch':
