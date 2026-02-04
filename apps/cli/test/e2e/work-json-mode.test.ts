@@ -502,16 +502,17 @@ describe('Work Commands JSON Mode', () => {
   //
   // PROMPT FLOW: ticket → agent → action → environment → display → permissions
   //
-  // TESTED (first 2 steps):
+  // TESTED:
   //   1. Ticket selection prompt (no ticket ID provided)
   //   2. Agent selection prompt (ticket ID provided, shows ephemeral option)
+  //   3. Blocked ticket confirmation (ticket with unresolved blockers) ✓
+  //   4. --force flag bypasses blocked confirmation ✓
   //
   // NOT TESTED (requires infrastructure or specific state):
   //   - Action selection prompt (requires completing agent selection step)
   //   - Environment selection (requires hasDevcontainerConfig to return true)
   //   - Display mode selection (requires devcontainer environment selected)
   //   - Permission mode selection (requires devcontainer environment selected)
-  //   - Blocked ticket confirmation (requires ticket with unresolved blockers)
   //   - Existing tmux session handling (requires active tmux session for ticket)
   //   - Unsaved work handling (requires agent with uncommitted git changes)
   //   - Branch creation/switching (requires git worktree setup)
@@ -618,6 +619,67 @@ describe('Work Commands JSON Mode', () => {
       expect(json.error).to.exist;
       expect(json.error.code).to.equal('TICKET_NOT_FOUND');
       expect(json.metadata.command).to.equal('work start');
+    });
+
+    describe('blocked ticket handling', () => {
+      beforeEach(() => {
+        // Create a blocker ticket (not done)
+        createTestTicket('TKT-BLOCKER', 'Blocker ticket', 'status-in-progress');
+        // Create a blocked ticket
+        createTestTicket('TKT-BLOCKED', 'Blocked ticket', 'status-backlog');
+        // Add dependency: TKT-BLOCKED is blocked by TKT-BLOCKER
+        db.prepare(`
+          INSERT INTO pmo_ticket_dependencies (ticket_id, depends_on_ticket_id, dependency_type)
+          VALUES ('TKT-BLOCKED', 'TKT-BLOCKER', 'blocks')
+        `).run();
+      });
+
+      it('should output blocked confirmation prompt when ticket has unresolved blockers', () => {
+        const output = exec('work start TKT-BLOCKED -P test-project --json');
+        const json = extractJson<{
+          prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
+          metadata: { command: string };
+        }>(output);
+
+        expect(json.prompt).to.exist;
+        expect(json.prompt.type).to.equal('list');
+        expect(json.prompt.name).to.equal('startAnyway');
+        expect(json.prompt.message.toLowerCase()).to.include('start anyway');
+        expect(json.metadata.command).to.equal('work start');
+
+        // Choices should include yes/no options
+        const choiceValues = json.prompt.choices.map(c => c.value);
+        expect(choiceValues).to.include('yes');
+        expect(choiceValues).to.include('no');
+      });
+
+      it('should skip blocked prompt when blocker is done', () => {
+        // Mark blocker as done
+        db.prepare(`
+          UPDATE pmo_tickets SET status = 'Done', status_id = 'status-done'
+          WHERE id = 'TKT-BLOCKER'
+        `).run();
+
+        const output = exec('work start TKT-BLOCKED -P test-project --json');
+        const json = extractJson<{
+          prompt: { type: string; name: string };
+        }>(output);
+
+        // Should skip to agent selection, not blocked confirmation
+        expect(json.prompt.name).to.not.equal('startAnyway');
+        expect(json.prompt.name).to.equal('selectedAgent');
+      });
+
+      it('should skip blocked prompt with --force flag', () => {
+        const output = exec('work start TKT-BLOCKED -P test-project --force --json');
+        const json = extractJson<{
+          prompt: { type: string; name: string };
+        }>(output);
+
+        // Should skip to agent selection, not blocked confirmation
+        expect(json.prompt.name).to.not.equal('startAnyway');
+        expect(json.prompt.name).to.equal('selectedAgent');
+      });
     });
   });
 
