@@ -494,6 +494,134 @@ describe('Work Commands JSON Mode', () => {
   });
 
   // ===========================================================================
+  // work start command tests (initial prompts only)
+  // ===========================================================================
+  //
+  // NOTE: work start is a complex multi-step command. This test suite only
+  // covers the INITIAL prompts that can be tested without infrastructure.
+  //
+  // PROMPT FLOW: ticket → agent → action → environment → display → permissions
+  //
+  // TESTED (first 2 steps):
+  //   1. Ticket selection prompt (no ticket ID provided)
+  //   2. Agent selection prompt (ticket ID provided, shows ephemeral option)
+  //
+  // NOT TESTED (requires infrastructure or specific state):
+  //   - Action selection prompt (requires completing agent selection step)
+  //   - Environment selection (requires hasDevcontainerConfig to return true)
+  //   - Display mode selection (requires devcontainer environment selected)
+  //   - Permission mode selection (requires devcontainer environment selected)
+  //   - Blocked ticket confirmation (requires ticket with unresolved blockers)
+  //   - Existing tmux session handling (requires active tmux session for ticket)
+  //   - Unsaved work handling (requires agent with uncommitted git changes)
+  //   - Branch creation/switching (requires git worktree setup)
+  //   - Actual execution spawning (requires full agent infrastructure)
+  //
+  // To test these later steps, you would need:
+  //   - Mock agents directory structure with devcontainer configs
+  //   - Mock git state (worktrees, branches, uncommitted changes)
+  //   - Mock tmux sessions
+  //   - Or integration tests with real infrastructure
+  //
+
+  describe('work start --json (initial prompts)', () => {
+    beforeEach(() => {
+      // Create tickets for selection
+      createTestTicket('TKT-030', 'Start ticket 1', 'status-backlog');
+      createTestTicket('TKT-031', 'Start ticket 2', 'status-backlog');
+      createTestTicket('TKT-032', 'In progress ticket', 'status-in-progress');
+    });
+
+    it('should output ticket selection prompt when no ticket ID provided', () => {
+      const output = exec('work start -P test-project --json');
+      const json = extractJson<{
+        prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
+        metadata: { command: string; flags: Record<string, unknown> };
+      }>(output);
+
+      expect(json.prompt).to.exist;
+      expect(json.prompt.type).to.equal('list');
+      expect(json.prompt.message.toLowerCase()).to.include('ticket');
+      expect(json.metadata.command).to.equal('work start');
+
+      // Choices should include tickets
+      const choiceValues = json.prompt.choices.map(c => c.value);
+      expect(choiceValues).to.include('TKT-030');
+      expect(choiceValues).to.include('TKT-031');
+      expect(choiceValues).to.include('TKT-032');
+    });
+
+    it('should include ticket info in choice names', () => {
+      const output = exec('work start -P test-project --json');
+      const json = extractJson<{
+        prompt: { choices: Array<{ name: string; value: string }> };
+      }>(output);
+
+      // Each choice name should include ticket ID and title
+      for (const choice of json.prompt.choices) {
+        expect(choice.name).to.include(choice.value); // Contains ticket ID
+      }
+    });
+
+    it('should output agent selection prompt when ticket ID provided', () => {
+      // When ticket ID is provided, next prompt is agent selection
+      // (action selection comes after agent is selected)
+      const output = exec('work start TKT-030 -P test-project --json');
+      const json = extractJson<{
+        prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
+        metadata: { command: string; flags: Record<string, unknown> };
+      }>(output);
+
+      expect(json.prompt).to.exist;
+      expect(json.prompt.type).to.equal('list');
+      expect(json.prompt.name).to.equal('selectedAgent');
+      expect(json.metadata.command).to.equal('work start');
+
+      // Choices should include ephemeral agent option
+      const choiceValues = json.prompt.choices.map(c => c.value);
+      expect(choiceValues).to.include('__ephemeral__');
+    });
+
+    it('should include ephemeral agent option in agent choices', () => {
+      const output = exec('work start TKT-030 -P test-project --json');
+      const json = extractJson<{
+        prompt: { choices: Array<{ name: string; value: string }> };
+      }>(output);
+
+      // Ephemeral agent option should always be present
+      const ephemeralChoice = json.prompt.choices.find(c => c.value === '__ephemeral__');
+      expect(ephemeralChoice).to.exist;
+      expect(ephemeralChoice!.name.toLowerCase()).to.include('ephemeral');
+    });
+
+    it('should include --json flag in ticket selection commands', () => {
+      const output = exec('work start -P test-project --json');
+      const json = extractJson<{
+        prompt: { choices: Array<{ command?: string }> };
+      }>(output);
+
+      for (const choice of json.prompt.choices) {
+        if (choice.command) {
+          expect(choice.command).to.include('--json');
+          expect(choice.command).to.include('work start');
+        }
+      }
+    });
+
+    it('should output error when ticket not found', () => {
+      const output = exec('work start NONEXISTENT -P test-project --json');
+      const json = extractJson<{
+        error: { code: string; message: string };
+        metadata: { command: string };
+      }>(output);
+
+      expect(json.error).to.exist;
+      expect(json.error.code).to.equal('TICKET_NOT_FOUND');
+      expect(json.metadata.command).to.equal('work start');
+    });
+  });
+
+  // ===========================================================================
   // work complete command tests
   // ===========================================================================
 
