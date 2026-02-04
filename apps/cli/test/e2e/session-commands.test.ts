@@ -1,0 +1,536 @@
+import { expect } from 'chai';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import Database from 'better-sqlite3';
+import {
+  execProduction,
+  extractJson,
+  agentExec,
+  findChoiceByValue,
+  type AgentPromptResponse,
+} from './test-helpers.js';
+
+/**
+ * End-to-end tests for Session Commands (TKT-758)
+ * Tests: prlt session, session list, session attach
+ *
+ * These commands manage tmux sessions. Since tmux/docker are not available
+ * in the test environment:
+ * - session list: uses --all flag to show stale DB records (no tmux verification needed)
+ * - session attach: always returns NO_SESSIONS (requires real tmux for selection prompt)
+ * - session (menu): fully testable via JSON mode
+ *
+ * Each subcommand is tested through the interactive menu flow AND directly with flags.
+ */
+describe('Session Commands E2E Tests', () => {
+  let testDir: string;
+  let originalCwd: string;
+  let dbPath: string;
+
+  /**
+   * Seed execution records into the DB for testing session list/attach.
+   * Creates project → ticket → agent_work chain (FKs enforced).
+   */
+  function seedExecutionRecords(records: Array<{
+    id: string;
+    ticketId: string;
+    ticketTitle: string;
+    agentName: string;
+    sessionId: string;
+    status?: string;
+    environment?: string;
+  }>): void {
+    const db = new Database(dbPath);
+    try {
+      db.pragma('foreign_keys = OFF');
+
+      // Ensure project exists
+      db.prepare(`
+        INSERT OR IGNORE INTO pmo_projects (id, name)
+        VALUES (?, ?)
+      `).run('test-project', 'Test Project');
+
+      for (const rec of records) {
+        // Create ticket
+        db.prepare(`
+          INSERT OR IGNORE INTO pmo_tickets (id, project_id, title, status)
+          VALUES (?, ?, ?, ?)
+        `).run(rec.ticketId, 'test-project', rec.ticketTitle, 'started');
+
+        // Create execution record
+        db.prepare(`
+          INSERT INTO agent_work (id, ticket_id, agent_name, executor, environment, status, session_id, started_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `).run(
+          rec.id,
+          rec.ticketId,
+          rec.agentName,
+          'claude',
+          rec.environment || 'host',
+          rec.status || 'running',
+          rec.sessionId,
+        );
+      }
+
+      db.pragma('foreign_keys = ON');
+    } finally {
+      db.close();
+    }
+  }
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'session-e2e-')));
+    process.chdir(testDir);
+
+    const proletariatDir = path.join(testDir, '.proletariat');
+    fs.mkdirSync(proletariatDir, { recursive: true });
+    dbPath = path.join(proletariatDir, 'workspace.db');
+
+    // Create blank DB - let the CLI's ensurePMOTables() create all tables
+    // with the correct schema on first access
+    const db = new Database(dbPath);
+    db.close();
+
+    // Create HQ config file (required for findPMO)
+    const configPath = path.join(proletariatDir, 'config.json');
+    fs.writeFileSync(configPath, JSON.stringify({
+      type: 'hq',
+      name: 'test-hq',
+      hasPmo: true,
+    }), 'utf-8');
+
+    // Create PMO directory structure
+    fs.mkdirSync(path.join(testDir, 'pmo', 'projects', 'default'), { recursive: true });
+
+    // Run a safe command to trigger PMO table initialization
+    // The CLI's PMOCommand.init() creates all PMO tables via ensurePMOTables()
+    execProduction('session --machine');
+
+    // Create workspace tables needed by getWorkspaceInfo() (used by session list/attach)
+    // These are separate from PMO tables and created by the workspace init flow
+    const initDb = new Database(dbPath);
+    initDb.exec(`
+      CREATE TABLE IF NOT EXISTS agent_themes (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL,
+        description TEXT,
+        builtin BOOLEAN DEFAULT FALSE,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS workspace (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        type TEXT NOT NULL CHECK (type IN ('hq', 'workspace')),
+        workspace_name TEXT NOT NULL,
+        has_pmo BOOLEAN DEFAULT FALSE,
+        active_theme_id TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (active_theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
+      );
+      CREATE TABLE IF NOT EXISTS repositories (
+        name TEXT PRIMARY KEY,
+        path TEXT NOT NULL,
+        type TEXT DEFAULT 'main' CHECK (type IN ('main', 'dependency')),
+        source_url TEXT,
+        action TEXT CHECK (action IN ('clone', 'move', 'link')),
+        added_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS agents (
+        name TEXT PRIMARY KEY,
+        type TEXT NOT NULL DEFAULT 'persistent' CHECK (type IN ('persistent', 'ephemeral')),
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cleaned')),
+        base_name TEXT,
+        theme_id TEXT,
+        worktree_path TEXT,
+        mount_mode TEXT NOT NULL DEFAULT 'worktree' CHECK (mount_mode IN ('worktree', 'clone')),
+        created_at TEXT NOT NULL,
+        cleaned_at TEXT,
+        FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
+      );
+      CREATE TABLE IF NOT EXISTS agent_worktrees (
+        agent_name TEXT NOT NULL,
+        repo_name TEXT NOT NULL,
+        worktree_path TEXT NOT NULL,
+        branch TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (agent_name, repo_name),
+        FOREIGN KEY (agent_name) REFERENCES agents(name) ON DELETE CASCADE,
+        FOREIGN KEY (repo_name) REFERENCES repositories(name) ON DELETE CASCADE
+      );
+      INSERT OR IGNORE INTO workspace (id, type, workspace_name, has_pmo, created_at)
+      VALUES (1, 'hq', 'test-hq', 1, datetime('now'));
+    `);
+    initDb.close();
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  // =========================================================================
+  // prlt session (index command) - menu prompt via JSON mode
+  // =========================================================================
+  describe('prlt session --machine (JSON mode)', () => {
+    it('should output JSON menu prompt with list type and action field', () => {
+      const result = agentExec('session --machine');
+
+      expect(result).to.not.be.null;
+      expect(result!.prompt).to.exist;
+      expect(result!.prompt.type).to.equal('list');
+      expect(result!.prompt.name).to.equal('action');
+      expect(result!.prompt.message).to.include('Session Management');
+      expect(result!.prompt.choices).to.be.an('array');
+      expect(result!.prompt.choices.length).to.equal(3); // list, attach, cancel
+    });
+
+    it('should include List choice with correct value and command', () => {
+      const result = agentExec('session --machine');
+      expect(result).to.not.be.null;
+
+      const listChoice = findChoiceByValue(result!.prompt.choices, 'list');
+      expect(listChoice).to.not.be.undefined;
+      expect(listChoice!.name).to.include('List');
+      expect(listChoice!.command).to.equal('prlt session list --json');
+    });
+
+    it('should include Attach choice with correct value and command', () => {
+      const result = agentExec('session --machine');
+      expect(result).to.not.be.null;
+
+      const attachChoice = findChoiceByValue(result!.prompt.choices, 'attach');
+      expect(attachChoice).to.not.be.undefined;
+      expect(attachChoice!.name).to.include('Attach');
+      expect(attachChoice!.command).to.equal('prlt session attach --json');
+    });
+
+    it('should include Cancel choice without a command field', () => {
+      const result = agentExec('session --machine');
+      expect(result).to.not.be.null;
+
+      const cancelChoice = findChoiceByValue(result!.prompt.choices, 'cancel');
+      expect(cancelChoice).to.not.be.undefined;
+      expect(cancelChoice!.name).to.include('Cancel');
+      // Cancel should not have a command - it's a terminal action
+      expect(cancelChoice!.command).to.be.undefined;
+    });
+
+    it('should include metadata with command name "session"', () => {
+      const result = agentExec('session --machine');
+      expect(result).to.not.be.null;
+
+      expect(result!.metadata).to.exist;
+      expect(result!.metadata.command).to.equal('session');
+    });
+  });
+
+  // =========================================================================
+  // Backward compatibility: --json flag produces same output as --machine
+  // =========================================================================
+  describe('prlt session --json (backward compatibility)', () => {
+    it('should produce identical prompt structure as --machine', () => {
+      const machineResult = agentExec('session --machine');
+      const jsonResult = agentExec('session --json');
+
+      expect(machineResult).to.not.be.null;
+      expect(jsonResult).to.not.be.null;
+
+      expect(jsonResult!.prompt.type).to.equal(machineResult!.prompt.type);
+      expect(jsonResult!.prompt.name).to.equal(machineResult!.prompt.name);
+      expect(jsonResult!.prompt.message).to.equal(machineResult!.prompt.message);
+      expect(jsonResult!.prompt.choices.length).to.equal(machineResult!.prompt.choices.length);
+
+      // Verify same choice values
+      for (let i = 0; i < jsonResult!.prompt.choices.length; i++) {
+        expect(jsonResult!.prompt.choices[i].value).to.equal(machineResult!.prompt.choices[i].value);
+        expect(jsonResult!.prompt.choices[i].command).to.equal(machineResult!.prompt.choices[i].command);
+      }
+    });
+  });
+
+  // =========================================================================
+  // prlt session list - direct invocation with flags
+  // =========================================================================
+  describe('prlt session list', () => {
+    it('should show "No active sessions" when DB has no execution records', () => {
+      const output = execProduction('session list');
+      expect(output).to.include('No active sessions');
+    });
+
+    it('should show "No active sessions" when DB has executions but no tmux (default mode)', () => {
+      // Seed a running execution - but no tmux session exists to verify it
+      seedExecutionRecords([{
+        id: 'exec-001',
+        ticketId: 'TKT-100',
+        ticketTitle: 'Implement auth',
+        agentName: 'bold-turing',
+        sessionId: 'TKT-100-implement-bold-turing',
+      }]);
+
+      // Without --all, only verified (tmux-backed) sessions are shown
+      const output = execProduction('session list');
+      expect(output).to.include('No active sessions');
+    });
+
+    it('should show stale sessions with --all flag including ticket ID and agent name', () => {
+      seedExecutionRecords([{
+        id: 'exec-001',
+        ticketId: 'TKT-100',
+        ticketTitle: 'Implement auth',
+        agentName: 'bold-turing',
+        sessionId: 'TKT-100-implement-bold-turing',
+      }]);
+
+      const output = execProduction('session list --all');
+
+      // Verify the session data is displayed
+      expect(output).to.include('Active Sessions');
+      expect(output).to.include('TKT-100');
+      expect(output).to.include('bold-turing');
+      expect(output).to.include('stale');
+    });
+
+    it('should show stale sessions warning with count when using --all', () => {
+      seedExecutionRecords([{
+        id: 'exec-001',
+        ticketId: 'TKT-100',
+        ticketTitle: 'Implement auth',
+        agentName: 'bold-turing',
+        sessionId: 'TKT-100-implement-bold-turing',
+      }]);
+
+      const output = execProduction('session list --all');
+      expect(output).to.include('1 stale session(s)');
+    });
+
+    it('should show multiple stale sessions with --all when multiple executions exist', () => {
+      seedExecutionRecords([
+        {
+          id: 'exec-001',
+          ticketId: 'TKT-100',
+          ticketTitle: 'Implement auth',
+          agentName: 'bold-turing',
+          sessionId: 'TKT-100-implement-bold-turing',
+        },
+        {
+          id: 'exec-002',
+          ticketId: 'TKT-200',
+          ticketTitle: 'Fix bug',
+          agentName: 'clever-lovelace',
+          sessionId: 'TKT-200-implement-clever-lovelace',
+        },
+      ]);
+
+      const output = execProduction('session list --all');
+
+      // Both sessions should appear
+      expect(output).to.include('TKT-100');
+      expect(output).to.include('bold-turing');
+      expect(output).to.include('TKT-200');
+      expect(output).to.include('clever-lovelace');
+      expect(output).to.include('2 stale session(s)');
+    });
+
+    it('should show session ID in the output', () => {
+      seedExecutionRecords([{
+        id: 'exec-001',
+        ticketId: 'TKT-100',
+        ticketTitle: 'Implement auth',
+        agentName: 'bold-turing',
+        sessionId: 'TKT-100-implement-bold-turing',
+      }]);
+
+      const output = execProduction('session list --all');
+      expect(output).to.include('TKT-100-implement-bold-turing');
+    });
+
+    it('should show host type indicator for host sessions', () => {
+      seedExecutionRecords([{
+        id: 'exec-001',
+        ticketId: 'TKT-100',
+        ticketTitle: 'Implement auth',
+        agentName: 'bold-turing',
+        sessionId: 'TKT-100-implement-bold-turing',
+        environment: 'host',
+      }]);
+
+      const output = execProduction('session list --all');
+      expect(output).to.include('host');
+    });
+  });
+
+  // =========================================================================
+  // prlt session attach - direct invocation with flags
+  // Note: attach requires real tmux sessions. Without tmux, getVerifiedSessions()
+  // returns empty, so we can only test the no-sessions and not-found error paths.
+  // The session selection prompt (selectFromList) is tested via the menu flow
+  // since it's already migrated using this.selectFromList() in base-command.ts.
+  // =========================================================================
+  describe('prlt session attach', () => {
+    it('should output JSON error NO_SESSIONS when no sessions exist (--json)', () => {
+      const output = execProduction('session attach --json');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      expect(json!.error.code).to.equal('NO_SESSIONS');
+      expect(json!.error.message).to.include('No active sessions');
+    });
+
+    it('should output JSON error NO_SESSIONS when no sessions exist (--machine)', () => {
+      const output = execProduction('session attach --machine');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      expect(json!.error.code).to.equal('NO_SESSIONS');
+    });
+
+    it('should output NO_SESSIONS even when execution records exist (tmux verification fails)', () => {
+      // Seed execution records - but no tmux sessions exist
+      seedExecutionRecords([{
+        id: 'exec-001',
+        ticketId: 'TKT-100',
+        ticketTitle: 'Implement auth',
+        agentName: 'bold-turing',
+        sessionId: 'TKT-100-implement-bold-turing',
+      }]);
+
+      const output = execProduction('session attach --json');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      // Still NO_SESSIONS because getVerifiedSessions() checks tmux
+      expect(json!.error.code).to.equal('NO_SESSIONS');
+    });
+
+    it('should output NO_SESSIONS for named session arg when no tmux sessions exist', () => {
+      const output = execProduction('session attach TKT-100-implement --json');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      // NO_SESSIONS because getVerifiedSessions() returns empty before name lookup
+      expect(json!.error.code).to.equal('NO_SESSIONS');
+    });
+
+    // Note: Non-JSON text mode cannot be tested in piped exec environment
+    // because shouldOutputJson() detects non-TTY and auto-enables JSON output.
+    // The text-mode path works in real interactive terminals.
+  });
+
+  // =========================================================================
+  // Agent flow: Navigate through session menu to each subcommand
+  // Tests the COMPLETE agentic flow: get menu → pick choice → follow command → verify result
+  // =========================================================================
+  describe('Agent flow: session menu → session list (with data)', () => {
+    it('should navigate menu → list choice → execute → verify session data appears', () => {
+      // Seed execution data first
+      seedExecutionRecords([{
+        id: 'exec-001',
+        ticketId: 'TKT-300',
+        ticketTitle: 'Deploy service',
+        agentName: 'swift-hopper',
+        sessionId: 'TKT-300-implement-swift-hopper',
+      }]);
+
+      // Step 1: Agent gets session menu
+      const menuResult = agentExec('session --machine');
+      expect(menuResult).to.not.be.null;
+      expect(menuResult!.prompt.type).to.equal('list');
+
+      // Step 2: Agent finds "list" choice
+      const listChoice = findChoiceByValue(menuResult!.prompt.choices, 'list');
+      expect(listChoice).to.not.be.undefined;
+      expect(listChoice!.command).to.equal('prlt session list --json');
+
+      // Step 3: Agent executes the list command (strip prlt prefix, remove --json for display output)
+      // Use --all to see stale sessions since there's no real tmux
+      const listOutput = execProduction('session list --all');
+
+      // Step 4: Verify END RESULT - the seeded session data actually appears
+      expect(listOutput).to.include('Active Sessions');
+      expect(listOutput).to.include('TKT-300');
+      expect(listOutput).to.include('swift-hopper');
+      expect(listOutput).to.include('TKT-300-implement-swift-hopper');
+      expect(listOutput).to.include('stale');
+    });
+  });
+
+  describe('Agent flow: session menu → session attach (error path)', () => {
+    it('should navigate menu → attach choice → execute → verify NO_SESSIONS JSON error', () => {
+      // Step 1: Agent gets session menu
+      const menuResult = agentExec('session --machine');
+      expect(menuResult).to.not.be.null;
+
+      // Step 2: Agent finds "attach" choice and extracts command
+      const attachChoice = findChoiceByValue(menuResult!.prompt.choices, 'attach');
+      expect(attachChoice).to.not.be.undefined;
+      expect(attachChoice!.command).to.equal('prlt session attach --json');
+
+      // Step 3: Agent executes the attach command from the choice
+      const attachCmd = attachChoice!.command!.replace('prlt ', '');
+      const attachOutput = execProduction(attachCmd);
+
+      // Step 4: Verify END RESULT - structured JSON error returned
+      const json = extractJson<{ error: { code: string; message: string } }>(attachOutput);
+      expect(json).to.not.be.null;
+      expect(json!.error.code).to.equal('NO_SESSIONS');
+      expect(json!.error.message).to.include('No active sessions');
+    });
+
+    it('should navigate menu → attach choice → with seeded data → still NO_SESSIONS (tmux required)', () => {
+      // Seed execution records
+      seedExecutionRecords([{
+        id: 'exec-001',
+        ticketId: 'TKT-400',
+        ticketTitle: 'Add caching',
+        agentName: 'quiet-dijkstra',
+        sessionId: 'TKT-400-implement-quiet-dijkstra',
+      }]);
+
+      // Step 1: Agent gets session menu
+      const menuResult = agentExec('session --machine');
+      expect(menuResult).to.not.be.null;
+
+      // Step 2: Navigate to attach
+      const attachChoice = findChoiceByValue(menuResult!.prompt.choices, 'attach');
+      const attachCmd = attachChoice!.command!.replace('prlt ', '');
+      const attachOutput = execProduction(attachCmd);
+
+      // Step 3: Verify - still NO_SESSIONS because tmux verification fails
+      const json = extractJson<{ error: { code: string } }>(attachOutput);
+      expect(json).to.not.be.null;
+      expect(json!.error.code).to.equal('NO_SESSIONS');
+    });
+  });
+
+  describe('Agent flow: command fields enable correct navigation', () => {
+    it('every non-cancel choice should have a --json command for agent chaining', () => {
+      const result = agentExec('session --machine');
+      expect(result).to.not.be.null;
+
+      const actionableChoices = result!.prompt.choices.filter(c => c.value !== 'cancel');
+      expect(actionableChoices.length).to.equal(2); // list and attach
+
+      for (const choice of actionableChoices) {
+        expect(choice.command).to.exist;
+        expect(choice.command).to.include('--json');
+        expect(choice.command).to.match(/^prlt session (list|attach) --json$/);
+      }
+    });
+
+    it('cancel choice should NOT have a command field', () => {
+      const result = agentExec('session --machine');
+      expect(result).to.not.be.null;
+
+      const cancelChoice = findChoiceByValue(result!.prompt.choices, 'cancel');
+      expect(cancelChoice!.command).to.be.undefined;
+    });
+  });
+});
