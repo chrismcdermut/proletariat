@@ -399,105 +399,222 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
   });
 
   // ===========================================================================
-  // End-to-end agent flows
+  // End-to-end agent flows - Complete multi-step chains
   // ===========================================================================
 
   describe('End-to-end agent flows', function () {
-    it('should complete action index → list flow', function () {
+    it('should complete action index → list flow and return valid actions', function () {
       // Step 1: Get the main menu
       const menuOutput = exec('action --machine');
       const menu = extractJson<MachinePromptResponse>(menuOutput);
 
       expect(menu).to.not.be.null;
+      expect(menu!.prompt.type).to.equal('list');
 
       // Step 2: Find the list choice and get its command
       const listChoice = menu!.prompt.choices!.find(c => c.value === 'list');
       expect(listChoice).to.exist;
       expect(listChoice!.command).to.include('action list');
+      expect(listChoice!.command).to.include('--machine');
 
-      // Step 3: Execute the list command
+      // Step 3: Execute the list command from the choice
       const listCmd = listChoice!.command!.replace('prlt ', '');
       const listOutput = exec(listCmd);
 
-      // Step 4: Since action list --machine returns array, verify it's valid
-      expect(listOutput).to.not.include('Error:');
+      // Step 4: Verify valid JSON array is returned with built-in actions
+      const actions = extractJson<Array<{ id: string; name: string; isBuiltin: boolean }>>(listOutput);
+      expect(actions).to.be.an('array');
+      expect(actions!.length).to.be.greaterThan(0);
+
+      // Verify built-in actions are present
+      const groomAction = actions!.find(a => a.id === 'groom');
+      expect(groomAction).to.exist;
+      expect(groomAction!.isBuiltin).to.equal(true);
     });
 
-    it('should complete action index → create → action flow', function () {
+    it('should complete full create flow: menu → name prompt → prompt prompt → verify creation', function () {
       // Step 1: Get the main menu
       const menuOutput = exec('action --machine');
       const menu = extractJson<MachinePromptResponse>(menuOutput);
-
       expect(menu).to.not.be.null;
 
       // Step 2: Find the create choice
       const createChoice = menu!.prompt.choices!.find(c => c.value === 'create');
       expect(createChoice).to.exist;
+      expect(createChoice!.command).to.equal('prlt action create --machine');
 
-      // Step 3: Execute create command with --machine
-      const createOutput = exec('action create --machine');
-      const createPrompt = extractJson<MachinePromptResponse>(createOutput);
+      // Step 3: Execute create command - should prompt for name
+      const step1Output = exec('action create --machine');
+      const step1Prompt = extractJson<MachinePromptResponse>(step1Output);
 
-      expect(createPrompt).to.not.be.null;
-      expect(createPrompt!.prompt.name).to.equal('name');
+      expect(step1Prompt).to.not.be.null;
+      expect(step1Prompt!.prompt.type).to.equal('input');
+      expect(step1Prompt!.prompt.name).to.equal('name');
+      expect(step1Prompt!.prompt.message).to.include('name');
+      expect(step1Prompt!.prompt.context!.hint).to.include('prlt action create');
 
-      // Step 4: Provide name and get next prompt
-      const step2Output = exec('action create "Flow Test" --machine');
+      // Step 4: Provide name - should prompt for prompt text
+      const step2Output = exec('action create "E2E Test Action" --machine');
       const step2Prompt = extractJson<MachinePromptResponse>(step2Output);
 
       expect(step2Prompt).to.not.be.null;
+      expect(step2Prompt!.prompt.type).to.equal('editor');
       expect(step2Prompt!.prompt.name).to.equal('prompt');
+      expect(step2Prompt!.prompt.context!.hint).to.include('E2E Test Action');
+      expect(step2Prompt!.prompt.context!.requiredFields).to.include('--prompt');
 
-      // Step 5: Complete the flow
-      const finalOutput = exec('action create "Flow Test Complete" --prompt "Final prompt"');
+      // Step 5: Provide prompt - action should be created
+      const finalOutput = exec('action create "E2E Test Action" --prompt "This is the agent prompt text"');
       expect(finalOutput).to.include('Created action');
+      expect(finalOutput).to.include('e2e-test-action');
+
+      // Step 6: Verify action was created correctly in database
+      const action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('e2e-test-action') as {
+        id: string;
+        name: string;
+        prompt: string;
+        is_builtin: number;
+      };
+      expect(action).to.exist;
+      expect(action.name).to.equal('E2E Test Action');
+      expect(action.prompt).to.equal('This is the agent prompt text');
+      expect(action.is_builtin).to.equal(0);
     });
 
-    it('should complete action index → delete → confirm flow', function () {
-      // Setup: Create a custom action
-      exec('action create "To Delete" --prompt "Delete me"');
+    it('should complete delete flow: confirmation prompt → execute Yes command → verify deletion', function () {
+      // Setup: Create a custom action to delete
+      exec('action create "Delete Target" --prompt "Will be deleted"');
+
+      // Verify it was created
+      let action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('delete-target');
+      expect(action).to.exist;
 
       // Step 1: Get delete confirmation prompt
-      const deleteOutput = exec('action delete to-delete --machine');
+      const deleteOutput = exec('action delete delete-target --machine');
       const deletePrompt = extractJson<MachinePromptResponse>(deleteOutput);
 
       expect(deletePrompt).to.not.be.null;
       expect(deletePrompt!.prompt.type).to.equal('list');
+      expect(deletePrompt!.prompt.name).to.equal('confirmed');
+      expect(deletePrompt!.prompt.message).to.include('Delete');
+      expect(deletePrompt!.prompt.message).to.include('Delete Target');
       expect(deletePrompt!.prompt.choices).to.have.lengthOf(2);
 
-      // Step 2: Find Yes choice and extract force command
+      // Step 2: Verify choices have proper structure
+      const noChoice = deletePrompt!.prompt.choices!.find(c => c.name === 'No');
       const yesChoice = deletePrompt!.prompt.choices!.find(c => c.name === 'Yes');
+
+      expect(noChoice).to.exist;
       expect(yesChoice).to.exist;
       expect(yesChoice!.command).to.include('--force');
+      expect(yesChoice!.command).to.include('delete-target');
 
-      // Step 3: Execute with force
+      // Step 3: Execute the Yes command from the prompt
       const forceCmd = yesChoice!.command!.replace('prlt ', '');
-      exec(forceCmd);
+      const confirmOutput = exec(forceCmd);
+      expect(confirmOutput).to.include('Deleted');
 
-      // Step 4: Verify deletion
-      const action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('to-delete');
+      // Step 4: Verify action was deleted from database
+      action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('delete-target');
       expect(action).to.be.undefined;
     });
 
-    it('should complete action index → update → edit flow', function () {
-      // Setup: Create a custom action
-      exec('action create "Update Flow" --prompt "Original"');
+    it('should complete update flow: prompt for name → apply update → verify changes', function () {
+      // Setup: Create a custom action to update
+      exec('action create "Update Target" --prompt "Original prompt" --description "Original desc"');
 
-      // Step 1: Get update prompt
-      const updateOutput = exec('action update update-flow --machine');
+      // Verify it was created
+      const original = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('update-target') as {
+        name: string;
+        prompt: string;
+        description: string;
+      };
+      expect(original).to.exist;
+      expect(original.name).to.equal('Update Target');
+
+      // Step 1: Get update prompt (interactive mode without flags)
+      const updateOutput = exec('action update update-target --machine');
       const updatePrompt = extractJson<MachinePromptResponse>(updateOutput);
 
       expect(updatePrompt).to.not.be.null;
+      expect(updatePrompt!.prompt.type).to.equal('input');
       expect(updatePrompt!.prompt.name).to.equal('name');
-      expect(updatePrompt!.prompt.context!.currentValue).to.equal('Update Flow');
+      expect(updatePrompt!.prompt.default).to.equal('Update Target');
+      expect(updatePrompt!.prompt.context!.currentValue).to.equal('Update Target');
+      expect(updatePrompt!.prompt.context!.hint).to.include('--name');
 
-      // Step 2: Update with direct flags
-      exec('action update update-flow --name "Updated Flow" --prompt "New prompt"');
+      // Step 2: Apply update with direct flags
+      const applyOutput = exec('action update update-target --name "Renamed Action" --prompt "Updated prompt" --description "New description"');
+      expect(applyOutput).to.include('Updated');
 
-      // Step 3: Verify update
-      const action = db.prepare('SELECT name, prompt FROM pmo_actions WHERE id = ?').get('update-flow') as { name: string; prompt: string };
-      expect(action.name).to.equal('Updated Flow');
-      expect(action.prompt).to.equal('New prompt');
+      // Step 3: Verify all changes were applied
+      const updated = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('update-target') as {
+        name: string;
+        prompt: string;
+        description: string;
+      };
+      expect(updated.name).to.equal('Renamed Action');
+      expect(updated.prompt).to.equal('Updated prompt');
+      expect(updated.description).to.equal('New description');
+    });
+
+    it('should complete create with all optional flags and verify all fields', function () {
+      // Create action with all optional fields
+      const output = exec('action create "Full Options Action" --prompt "Full prompt" --description "Full description" --suggested-for started,backlog --move-to completed');
+      expect(output).to.include('Created action');
+
+      // Verify all fields were saved correctly
+      const action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('full-options-action') as {
+        name: string;
+        prompt: string;
+        description: string;
+        suggested_for_categories: string;
+        default_move_to_category: string;
+        is_builtin: number;
+      };
+
+      expect(action).to.exist;
+      expect(action.name).to.equal('Full Options Action');
+      expect(action.prompt).to.equal('Full prompt');
+      expect(action.description).to.equal('Full description');
+      expect(action.default_move_to_category).to.equal('completed');
+      expect(action.is_builtin).to.equal(0);
+
+      // suggested_for_categories is stored as JSON
+      const categories = JSON.parse(action.suggested_for_categories);
+      expect(categories).to.include('started');
+      expect(categories).to.include('backlog');
+    });
+
+    it('should handle error flow: update non-existent action returns error JSON', function () {
+      const output = exec('action update nonexistent-action --machine');
+      const errorJson = extractJson<{ error: { code: string; message: string }; metadata: object }>(output);
+
+      expect(errorJson).to.not.be.null;
+      expect(errorJson!.error).to.exist;
+      expect(errorJson!.error.code).to.equal('ACTION_NOT_FOUND');
+      expect(errorJson!.error.message).to.include('not found');
+      expect(errorJson!.metadata).to.exist;
+    });
+
+    it('should handle error flow: delete built-in action returns error JSON', function () {
+      const output = exec('action delete groom --force --machine');
+      const errorJson = extractJson<{ error: { code: string; message: string }; metadata: object }>(output);
+
+      expect(errorJson).to.not.be.null;
+      expect(errorJson!.error).to.exist;
+      expect(errorJson!.error.code).to.equal('CANNOT_DELETE_BUILTIN');
+      expect(errorJson!.error.message).to.include('built-in');
+    });
+
+    it('should handle error flow: update built-in action returns error JSON', function () {
+      const output = exec('action update groom --name "New Groom" --machine');
+      const errorJson = extractJson<{ error: { code: string; message: string }; metadata: object }>(output);
+
+      expect(errorJson).to.not.be.null;
+      expect(errorJson!.error).to.exist;
+      expect(errorJson!.error.code).to.equal('CANNOT_UPDATE_BUILTIN');
+      expect(errorJson!.error.message).to.include('built-in');
     });
   });
 
