@@ -2,6 +2,13 @@ import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import { styles } from '../../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputErrorAsJson,
+  outputSuccessAsJson,
+  createMetadata,
+} from '../../../lib/prompt-json.js';
+import { FlagResolver } from '../../../lib/flags/index.js';
 
 export default class PhaseTemplateUpdate extends PMOCommand {
   static description = 'Update a phase template';
@@ -37,25 +44,46 @@ export default class PhaseTemplateUpdate extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(PhaseTemplateUpdate);
 
+    const jsonMode = shouldOutputJson(flags);
+
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('phase template update', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Get template ID - prompt for selection if not provided
     let templateId = args.id;
     if (!templateId) {
       const templates = await this.storage.listPhaseTemplates();
       const editableTemplates = templates.filter(t => !t.isBuiltin);
       if (editableTemplates.length === 0) {
-        this.error('No editable phase templates found (built-in templates cannot be updated).');
+        return handleError('NO_EDITABLE_TEMPLATES', 'No editable phase templates found (built-in templates cannot be updated).');
       }
 
-      const { selectedTemplate } = await inquirer.prompt([{
+      const idResolver = new FlagResolver<{ id?: string }>({
+        commandName: 'phase template update',
+        baseCommand: 'prlt phase template update',
+        jsonMode,
+        flags: {},
+      });
+
+      idResolver.addPrompt({
+        flagName: 'id',
         type: 'list',
-        name: 'selectedTemplate',
         message: 'Select a template to update:',
-        choices: editableTemplates.map(t => ({
+        choices: () => editableTemplates.map(t => ({
           name: `${t.name}${t.description ? ` - ${t.description}` : ''}`,
           value: t.id,
         })),
-      }]);
-      templateId = selectedTemplate;
+        getCommand: (value) => `prlt phase template update ${value} --json`,
+        when: () => true,
+      });
+
+      const idResolved = await idResolver.resolve();
+      templateId = idResolved.id;
     }
 
     // If no flags provided, prompt for what to update
@@ -63,19 +91,30 @@ export default class PhaseTemplateUpdate extends PMOCommand {
     let newDescription = flags.description;
 
     if (!newName && newDescription === undefined) {
-      const { updateName } = await inquirer.prompt([{
-        type: 'input',
-        name: 'updateName',
-        message: 'New name (leave empty to keep current):',
-      }]);
-      if (updateName) newName = updateName;
+      const updateResolver = new FlagResolver<{ name?: string; description?: string }>({
+        commandName: 'phase template update',
+        baseCommand: `prlt phase template update ${templateId}`,
+        jsonMode,
+        flags: {},
+      });
 
-      const { updateDesc } = await inquirer.prompt([{
+      updateResolver.addPrompt({
+        flagName: 'name',
         type: 'input',
-        name: 'updateDesc',
+        message: 'New name (leave empty to keep current):',
+        when: () => true,
+      });
+
+      updateResolver.addPrompt({
+        flagName: 'description',
+        type: 'input',
         message: 'New description (leave empty to keep current):',
-      }]);
-      if (updateDesc) newDescription = updateDesc;
+        when: () => true,
+      });
+
+      const updateResolved = await updateResolver.resolve();
+      if (updateResolved.name) newName = updateResolved.name;
+      if (updateResolved.description) newDescription = updateResolved.description;
 
       if (!newName && !newDescription) {
         this.log(styles.muted('No changes made.'));
@@ -88,6 +127,15 @@ export default class PhaseTemplateUpdate extends PMOCommand {
     if (newDescription !== undefined) changes.description = newDescription;
 
     const template = await this.storage.updatePhaseTemplate(templateId!, changes);
+
+    if (jsonMode) {
+      outputSuccessAsJson({
+        id: template.id,
+        name: template.name,
+        description: template.description,
+      }, createMetadata('phase template update', flags));
+      return;
+    }
 
     this.log(styles.success(`\nUpdated phase template "${styles.emphasis(template.name)}"`));
     if (flags.name) {

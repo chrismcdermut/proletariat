@@ -2,6 +2,13 @@ import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import { styles } from '../../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputErrorAsJson,
+  outputSuccessAsJson,
+  createMetadata,
+} from '../../../lib/prompt-json.js';
+import { FlagResolver } from '../../../lib/flags/index.js';
 
 export default class TicketTemplateSave extends PMOCommand {
   static description = 'Create a template from an existing ticket';
@@ -33,63 +40,112 @@ export default class TicketTemplateSave extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(TicketTemplateSave);
 
+    const jsonMode = shouldOutputJson(flags);
+
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('ticket template save', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
     // Get ticket ID - prompt with picker if not provided
     let ticketId = args.ticket;
     if (!ticketId) {
       const projectId = await this.requireProject();
       const tickets = await this.storage.listTickets(projectId);
       if (tickets.length === 0) {
-        this.error('No tickets found in this project.\nCreate a ticket first: prlt ticket create');
+        return handleError('NO_TICKETS', 'No tickets found in this project.\nCreate a ticket first: prlt ticket create');
       }
 
-      const { selectedTicket } = await inquirer.prompt([{
+      const ticketResolver = new FlagResolver<{ ticket?: string }>({
+        commandName: 'ticket template save',
+        baseCommand: 'prlt ticket template save',
+        jsonMode,
+        flags: {},
+      });
+
+      ticketResolver.addPrompt({
+        flagName: 'ticket',
         type: 'list',
-        name: 'selectedTicket',
         message: 'Select a ticket to save as template:',
-        choices: tickets.slice(0, 20).map(t => ({
+        choices: () => tickets.slice(0, 20).map(t => ({
           name: `${t.id} - ${t.title}`,
           value: t.id,
         })),
-      }]);
-      ticketId = selectedTicket;
+        getCommand: (value) => {
+          let cmd = `prlt ticket template save ${value}`;
+          if (flags.project) cmd += ` -P ${flags.project}`;
+          cmd += ' --json';
+          return cmd;
+        },
+        when: () => true,
+      });
+
+      const ticketResolved = await ticketResolver.resolve();
+      ticketId = ticketResolved.ticket;
     }
 
     // Verify ticket exists
     const ticket = await this.storage.getTicket(ticketId!);
     if (!ticket) {
-      this.error(`Ticket not found: ${ticketId}\nRun 'prlt ticket list' to see available tickets.`);
+      return handleError('TICKET_NOT_FOUND', `Ticket not found: ${ticketId}\nRun 'prlt ticket list' to see available tickets.`);
     }
 
-    // Get template name - prompt if not provided
-    let templateName = args.name;
-    if (!templateName) {
-      const { name } = await inquirer.prompt([{
-        type: 'input',
-        name: 'name',
-        message: 'Template name:',
-        default: ticket.category || ticket.title.split(' ')[0],
-        validate: (input: string) => input.length > 0 || 'Name is required',
-      }]);
-      templateName = name;
-    }
+    // Get template name and description
+    const nameDescResolver = new FlagResolver<{ name?: string; description?: string }>({
+      commandName: 'ticket template save',
+      baseCommand: `prlt ticket template save ${ticketId}`,
+      jsonMode,
+      flags: { name: args.name, description: flags.description },
+    });
 
-    // Get description if not provided
-    let description = flags.description;
-    if (description === undefined) {
-      const { desc } = await inquirer.prompt([{
-        type: 'input',
-        name: 'desc',
-        message: 'Description (optional):',
-      }]);
-      description = desc || undefined;
-    }
+    nameDescResolver.addPrompt({
+      flagName: 'name',
+      type: 'input',
+      message: 'Template name:',
+      default: ticket.category || ticket.title.split(' ')[0],
+      validate: (input: string) => (input as string).length > 0 || 'Name is required',
+      when: (ctx) => !ctx.flags.name,
+    });
+
+    nameDescResolver.addPrompt({
+      flagName: 'description',
+      type: 'input',
+      message: 'Description (optional):',
+      when: (ctx) => ctx.flags.description === undefined,
+    });
+
+    const resolved = await nameDescResolver.resolve();
+
+    const templateName = resolved.name!;
+    const description = resolved.description || undefined;
 
     // Create template from ticket
     const template = await this.storage.createTicketTemplateFromTicket(
       ticketId!,
-      templateName!,
+      templateName,
       description
     );
+
+    if (jsonMode) {
+      outputSuccessAsJson({
+        id: template.id,
+        name: template.name,
+        description: template.description,
+        ticketId,
+        titlePattern: template.titlePattern,
+        defaultPriority: template.defaultPriority,
+        defaultCategory: template.defaultCategory,
+        defaultStatusId: template.defaultStatusId,
+        defaultAssignee: template.defaultAssignee,
+        defaultOwner: template.defaultOwner,
+        defaultLabels: template.defaultLabels,
+        suggestedSubtasks: template.suggestedSubtasks.length,
+      }, createMetadata('ticket template save', flags));
+      return;
+    }
 
     this.log(styles.success(`\nCreated template "${styles.emphasis(template.name)}" from ticket ${ticketId}`));
     this.log(styles.muted(`  ID: ${template.id}`));

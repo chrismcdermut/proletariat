@@ -2,6 +2,12 @@ import { Flags, Args } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import { styles } from '../../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputSuccessAsJson,
+  createMetadata,
+} from '../../../lib/prompt-json.js';
+import { FlagResolver } from '../../../lib/flags/index.js';
 
 export default class PhaseTemplateCreate extends PMOCommand {
   static description = 'Create a new phase template from current workspace phases';
@@ -33,30 +39,51 @@ export default class PhaseTemplateCreate extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(PhaseTemplateCreate);
 
-    // Get template name - prompt if not provided
-    let templateName = args.name;
-    if (!templateName) {
-      const { name } = await inquirer.prompt([{
-        type: 'input',
-        name: 'name',
-        message: 'Template name:',
-        validate: (input: string) => input.length > 0 || 'Name is required',
-      }]);
-      templateName = name;
-    }
+    const jsonMode = shouldOutputJson(flags);
 
-    // Get description if not provided
-    let description = flags.description;
-    if (description === undefined) {
-      const { desc } = await inquirer.prompt([{
-        type: 'input',
-        name: 'desc',
-        message: 'Description (optional):',
-      }]);
-      description = desc || undefined;
-    }
+    const resolver = new FlagResolver<{ name?: string; description?: string }>({
+      commandName: 'phase template create',
+      baseCommand: 'prlt phase template create',
+      jsonMode,
+      flags: { name: args.name, description: flags.description },
+    });
 
-    const template = await this.storage.savePhaseTemplate(templateName!, description);
+    resolver.addPrompt({
+      flagName: 'name',
+      type: 'input',
+      message: 'Template name:',
+      validate: (input: string) => (input as string).length > 0 || 'Name is required',
+      when: (ctx) => !ctx.flags.name,
+    });
+
+    resolver.addPrompt({
+      flagName: 'description',
+      type: 'input',
+      message: 'Description (optional):',
+      when: (ctx) => ctx.flags.description === undefined,
+    });
+
+    const resolved = await resolver.resolve();
+
+    const templateName = resolved.name!;
+    const description = resolved.description || undefined;
+
+    const template = await this.storage.savePhaseTemplate(templateName, description);
+
+    if (jsonMode) {
+      outputSuccessAsJson({
+        id: template.id,
+        name: template.name,
+        description: template.description,
+        phaseCount: template.phases.length,
+        phases: template.phases.map(p => ({
+          name: p.name,
+          category: p.category,
+          isDefault: p.isDefault,
+        })),
+      }, createMetadata('phase template create', flags));
+      return;
+    }
 
     this.log(styles.success(`\nCreated phase template "${styles.emphasis(template.name)}" (${template.id})`));
     this.log(styles.muted(`Saved ${template.phases.length} phases:`));
