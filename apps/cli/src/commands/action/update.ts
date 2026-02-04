@@ -113,7 +113,13 @@ export default class ActionUpdate extends PMOCommand {
         commandName: 'action update',
         baseCommand: `prlt action update ${args.id}`,
         jsonMode,
-        flags: {},
+        flags: {
+          name: flags.name,
+          description: flags.description,
+          prompt: flags.prompt,
+          suggestedFor: flags['suggested-for'] ? flags['suggested-for'].split(',').map(s => s.trim()) as StateCategory[] : undefined,
+          moveTo: flags['move-to'] || '',
+        },
       });
 
       // Name input
@@ -162,7 +168,7 @@ export default class ActionUpdate extends PMOCommand {
           // Pre-select current values
           checked: existingAction.suggestedForCategories?.includes(c.value as StateCategory),
         })),
-        when: (ctx) => ctx.flags.prompt !== undefined,
+        when: (ctx) => ctx.flags.prompt !== undefined && ctx.flags.suggestedFor === undefined,
       });
 
       // Move-to list
