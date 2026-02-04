@@ -64,7 +64,8 @@ export interface TestEnvironment {
  */
 export function createTestEnvironment(prefix: string): TestEnvironment {
   const originalCwd = process.cwd();
-  const testDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  // Use realpath to resolve symlinks (important on macOS where /var -> /private/var)
+  const testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   process.chdir(testDir);
 
   const proletariatDir = path.join(testDir, '.proletariat');
@@ -141,14 +142,22 @@ export function createEpicDirectories(pmoPath: string, projectId: string = 'test
  * Gets the isolated environment variables for running CLI commands.
  * This ensures that environment variables that could bypass test isolation
  * are explicitly cleared.
+ *
+ * NOTE: We use 'production' as the default NODE_ENV because when NODE_ENV=test,
+ * oclif tries to load TypeScript source files directly from src/commands instead
+ * of the compiled dist/commands. Since the spawned child process doesn't have
+ * ts-node configured, this causes ERR_UNKNOWN_FILE_EXTENSION errors.
  */
-export function getIsolatedEnv(nodeEnv: string = 'test'): NodeJS.ProcessEnv {
+export function getIsolatedEnv(nodeEnv: string = 'production'): NodeJS.ProcessEnv {
   const env = { ...process.env };
 
   // Clear environment variables that could bypass test isolation
   for (const varName of ISOLATION_ENV_VARS) {
     delete env[varName];
   }
+
+  // Clear DEBUG to prevent oclif debug output that pollutes JSON
+  delete env.DEBUG;
 
   // Set NODE_ENV
   env.NODE_ENV = nodeEnv;
@@ -166,7 +175,7 @@ export function filterOutput(output: string): string {
     !line.includes('Warning:') &&
     !line.includes('module: @oclif') &&
     !line.includes('task: findCommand') &&
-    !line.includes('plugin: @chrismcdermut') &&
+    !line.includes('plugin: @') &&  // Filter all plugin: lines (e.g., plugin: @proletariat/cli)
     !line.includes('root: /') &&
     !line.includes('code: ERR_') &&
     !line.includes('message: Unknown file extension') &&
@@ -241,11 +250,19 @@ export function getBinPath(): string {
  */
 export function exec(cmd: string): string {
   try {
-    const binPath = getBinPath();
-    const result = execSync(`${binPath} ${cmd}`, {
+    const cliDir = path.join(__dirname, '../..');
+    const binPath = path.join(cliDir, 'bin/run.js');
+
+    // Get isolated env (production mode for oclif) and set HQ path to current test directory
+    const env = getIsolatedEnv('production');
+    env.PRLT_HQ_PATH = process.cwd();
+    env.PRLT_TEST_ENV = 'true'; // Required for PRLT_HQ_PATH to be respected in tests
+
+    const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
-      cwd: process.cwd(),
-      env: getIsolatedEnv(),
+      cwd: cliDir, // Run from CLI dir so oclif finds commands
+      env,
+      maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large JSON output
     });
     return result;
   } catch (error: unknown) {
@@ -292,17 +309,25 @@ export function execWithFilter(cmd: string): string {
 
 /**
  * Executes a CLI command in production mode from CLI directory.
- * Used by docker-commands tests that need compiled JS.
+ * Used by docker-commands tests and agent flow tests that need compiled JS.
+ *
+ * Sets PRLT_HQ_PATH to the current working directory (which should be the test
+ * directory) so commands use the test database, not a real one.
  */
 export function execProduction(cmd: string): string {
   try {
     const cliDir = path.join(__dirname, '../..');
     const binPath = path.join(cliDir, 'bin/run.js');
 
+    // Get isolated env and set HQ path to current test directory
+    const env = getIsolatedEnv('production');
+    env.PRLT_HQ_PATH = process.cwd();
+    env.PRLT_TEST_ENV = 'true'; // Required for PRLT_HQ_PATH to be respected
+
     const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: getIsolatedEnv('production'),
+      env,
       cwd: cliDir, // Run from CLI directory for proper module resolution
     });
     return filterNodeWarnings(result);
@@ -430,6 +455,7 @@ export function hasContextError(output: string): boolean {
   return (
     output.includes('Not in a workspace') ||
     output.includes('No workspace') ||
+    output.includes('Not in an HQ') ||
     output.includes('No projects found') ||
     output.includes('No tickets') ||
     output.includes('No agents found') ||
