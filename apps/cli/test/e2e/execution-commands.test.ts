@@ -234,6 +234,101 @@ describe('Execution Commands E2E Tests', () => {
         expect(rows.length).to.equal(2);
       });
     });
+
+    describe('full agent workflow with --machine', () => {
+      it('should navigate menu → list → verify output using --machine', () => {
+        createExecution(db, 'TKT-001', 'agent-1', 'running');
+
+        // Step 1: Get the main menu prompt via --machine
+        const menuOutput = exec('execution --machine');
+        const menu = extractJson<AgentPromptResponse>(menuOutput);
+        expect(menu).to.not.be.null;
+
+        // Step 2: Find the "list" choice and extract its command
+        const listChoice = findChoiceByValue(menu!.prompt.choices, 'list');
+        expect(listChoice).to.exist;
+        const listCmd = execChoice(listChoice!);
+
+        // Step 3: Execute the extracted command
+        const listOutput = execFinal(listCmd);
+
+        // Step 4: Verify end result
+        expect(listOutput).to.contain('agent-1');
+        expect(listOutput).to.contain('TKT-001');
+        expect(listOutput).to.contain('WORK-001');
+      });
+
+      it('should navigate menu → logs → select execution → verify logs using --machine', () => {
+        const logPath = path.join(testDir, '.proletariat', 'logs', 'work-WORK-001.log');
+        fs.writeFileSync(logPath, 'Machine mode log output\n');
+        createExecution(db, 'TKT-001', 'agent-1', 'running', { log_path: logPath });
+
+        // Step 1: Get menu via --machine, find logs choice
+        const menuOutput = exec('execution --machine');
+        const menu = extractJson<AgentPromptResponse>(menuOutput);
+        const logsChoice = findChoiceByValue(menu!.prompt.choices, 'logs');
+        expect(logsChoice).to.exist;
+
+        // Step 2: Execute logs command (prompts for execution selection)
+        const logsPromptOutput = exec(execChoice(logsChoice!));
+        const logsPrompt = extractJson<AgentPromptResponse>(logsPromptOutput);
+        expect(logsPrompt).to.not.be.null;
+        expect(logsPrompt!.prompt.name).to.equal('selectedId');
+
+        // Step 3: Find the execution choice and execute it
+        const execChoice1 = logsPrompt!.prompt.choices[0];
+        expect(execChoice1.command).to.include('WORK-001');
+        const logsOutput = execFinal(execChoice(execChoice1));
+
+        // Step 4: Verify the actual logs are shown
+        expect(logsOutput).to.contain('Machine mode log output');
+      });
+
+      it('should navigate menu → stop → select execution → verify stopped using --machine', () => {
+        createExecution(db, 'TKT-001', 'agent-1', 'running');
+
+        // Step 1: Get menu via --machine, find stop choice
+        const menuOutput = exec('execution --machine');
+        const menu = extractJson<AgentPromptResponse>(menuOutput);
+        const stopMenuChoice = findChoiceByValue(menu!.prompt.choices, 'stop');
+        expect(stopMenuChoice).to.exist;
+
+        // Step 2: Execute stop command (prompts for execution selection)
+        const stopPromptOutput = exec(execChoice(stopMenuChoice!));
+        const stopPrompt = extractJson<AgentPromptResponse>(stopPromptOutput);
+        expect(stopPrompt).to.not.be.null;
+        expect(stopPrompt!.prompt.name).to.equal('selectedId');
+
+        // Step 3: Find the execution and execute the stop
+        const execStopChoice = stopPrompt!.prompt.choices[0];
+        expect(execStopChoice.command).to.include('WORK-001');
+        const stopOutput = execFinal(execStopChoice.command!.replace('prlt ', ''));
+
+        // Step 4: Verify DB state
+        expect(stopOutput).to.contain('Stopped');
+        const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
+        expect(row.status).to.equal('stopped');
+      });
+
+      it('should navigate menu → stop-all → verify all stopped using --machine', () => {
+        createExecution(db, 'TKT-001', 'agent-1', 'running');
+        createExecution(db, 'TKT-002', 'agent-2', 'running');
+
+        // Step 1: Get menu via --machine, find stop-all choice
+        const menuOutput = exec('execution --machine');
+        const menu = extractJson<AgentPromptResponse>(menuOutput);
+        const stopAllChoice = findChoiceByValue(menu!.prompt.choices, 'stop-all');
+        expect(stopAllChoice).to.exist;
+
+        // Step 2: Execute the stop-all command directly
+        const stopOutput = execFinal(execChoice(stopAllChoice!));
+
+        // Step 3: Verify all stopped in DB
+        expect(stopOutput).to.contain('Stopping 2 execution(s)');
+        const rows = db.prepare('SELECT status FROM agent_work WHERE status = ?').all('stopped') as { status: string }[];
+        expect(rows.length).to.equal(2);
+      });
+    });
   });
 
   // ===========================================================================
@@ -507,6 +602,27 @@ describe('Execution Commands E2E Tests', () => {
         // Step 4: Verify actual log content is displayed
         expect(logsOutput).to.contain('Agent output: task completed successfully');
       });
+
+      it('should complete workflow with --machine flag', () => {
+        const logPath = path.join(testDir, '.proletariat', 'logs', 'work-WORK-001.log');
+        fs.writeFileSync(logPath, 'Machine workflow log content\n');
+        createExecution(db, 'TKT-001', 'agent-1', 'running', { log_path: logPath });
+
+        // Step 1: Agent requests execution selection via --machine
+        const promptOutput = exec('execution logs --machine');
+        const prompt = extractJson<AgentPromptResponse>(promptOutput);
+        expect(prompt).to.not.be.null;
+
+        // Step 2: Agent picks the execution
+        const selectedExec = prompt!.prompt.choices[0];
+        expect(selectedExec.command).to.include('WORK-001');
+
+        // Step 3: Execute the command without --json
+        const logsOutput = execFinal(execChoice(selectedExec));
+
+        // Step 4: Verify actual log content
+        expect(logsOutput).to.contain('Machine workflow log content');
+      });
     });
   });
 
@@ -756,6 +872,28 @@ describe('Execution Commands E2E Tests', () => {
         expect(json!.prompt.choices.length).to.equal(1);
         expect(json!.prompt.choices[0].command).to.include('prlt execution stop');
         expect(json!.prompt.choices[0].command).to.include('WORK-001');
+      });
+    });
+
+    describe('--json/--machine with no active executions', () => {
+      it('should show no running executions message with --json when all completed', () => {
+        createExecution(db, 'TKT-001', 'agent-1', 'completed');
+        createExecution(db, 'TKT-002', 'agent-2', 'failed');
+
+        const output = exec('execution stop --json');
+        expect(output).to.contain('No running executions');
+      });
+
+      it('should show no running executions message with --machine when all completed', () => {
+        createExecution(db, 'TKT-001', 'agent-1', 'completed');
+
+        const output = exec('execution stop --machine');
+        expect(output).to.contain('No running executions');
+      });
+
+      it('should show no running executions message with --json when no executions at all', () => {
+        const output = exec('execution stop --json');
+        expect(output).to.contain('No running executions');
       });
     });
 
