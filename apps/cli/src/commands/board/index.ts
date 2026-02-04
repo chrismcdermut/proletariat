@@ -290,7 +290,7 @@ export default class Board extends PMOCommand {
         name: 'confirm',
         message: 'Apply these changes to the database?',
         choices: [
-          { name: 'Yes, apply changes', value: true, command: `prlt board sync -P ${projectId} --force --json` },
+          { name: 'Yes, apply changes', value: true, command: `prlt board --action sync -P ${projectId} --force --json` },
           { name: 'No, cancel', value: false, command: '' },
         ],
       }], null);
