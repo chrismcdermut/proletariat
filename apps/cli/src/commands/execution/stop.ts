@@ -141,7 +141,7 @@ export default class ExecutionStop extends PMOCommand {
   private async singleStop(
     executionStorage: ExecutionStorage,
     execId: string | undefined,
-    flags: { force?: boolean; json?: boolean }
+    flags: { force?: boolean; json?: boolean; machine?: boolean }
   ): Promise<void> {
     // Get execution ID - prompt if not provided
     let id = execId
@@ -165,7 +165,7 @@ export default class ExecutionStop extends PMOCommand {
         return
       }
 
-      const jsonModeConfig = flags.json ? { flags: flags as Record<string, unknown>, commandName: 'execution stop' } : null
+      const jsonModeConfig = (flags.json || flags.machine) ? { flags: flags as Record<string, unknown>, commandName: 'execution stop' } : null
 
       const { selectedId } = await this.prompt<{ selectedId: string }>([
         {
