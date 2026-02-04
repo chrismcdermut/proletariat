@@ -1,12 +1,6 @@
 import { Flags } from '@oclif/core'
 import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js'
 
 export default class Execution extends PMOCommand {
   static description = 'Single execution operations (logs, stop)'
@@ -32,43 +26,23 @@ export default class Execution extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(Execution)
 
-    // Check if JSON output mode is active
-    const jsonMode = shouldOutputJson(flags)
+    const jsonModeConfig = flags.json ? { flags, commandName: 'execution' } : null
 
-    // Define choices once, use for both JSON and interactive modes
-    const menuChoices = [
-      { name: 'List all executions', value: 'list' },
-      { name: 'View logs for an execution', value: 'logs' },
-      { name: 'Stop an execution', value: 'stop' },
-      { name: 'Stop all running', value: 'stop-all' },
-      { name: 'Cancel', value: 'cancel' },
-    ]
-    const message = 'What would you like to do?'
-
-    // In JSON mode, output menu prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('execution', flags)
-      )
-      return
-    }
-
-    const { action } = await inquirer.prompt([
+    const { action } = await this.prompt<{ action: string }>([
       {
         type: 'list',
         name: 'action',
-        message,
+        message: 'What would you like to do?',
         choices: [
-          { name: '📋 ' + menuChoices[0].name, value: menuChoices[0].value },
-          { name: '📜 ' + menuChoices[1].name, value: menuChoices[1].value },
-          { name: '🛑 ' + menuChoices[2].name, value: menuChoices[2].value },
-          { name: '🛑 ' + menuChoices[3].name, value: menuChoices[3].value },
+          { name: '📋 List all executions', value: 'list', command: 'prlt execution list --json' },
+          { name: '📜 View logs for an execution', value: 'logs', command: 'prlt execution logs --json' },
+          { name: '🛑 Stop an execution', value: 'stop', command: 'prlt execution stop --json' },
+          { name: '🛑 Stop all running', value: 'stop-all', command: 'prlt execution stop --all --json' },
           new inquirer.Separator(),
-          { name: '❌ ' + menuChoices[4].name, value: menuChoices[4].value },
+          { name: '❌ Cancel', value: 'cancel', command: '' },
         ],
       },
-    ])
+    ], jsonModeConfig)
 
     if (action === 'cancel') {
       return

@@ -2,18 +2,15 @@ import { Args, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { spawn } from 'node:child_process'
-import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import {
-  shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
+  shouldOutputJson,
 } from '../../lib/prompt-json.js'
 
 export default class ExecutionLogs extends PMOCommand {
@@ -77,10 +74,8 @@ export default class ExecutionLogs extends PMOCommand {
       if (!execId) {
         const executions = executionStorage.listExecutions({ limit: 20 })
 
-        // Check if JSON output mode is active
-        const jsonMode = shouldOutputJson(flags)
-
         if (executions.length === 0) {
+          const jsonMode = shouldOutputJson(flags)
           if (jsonMode) {
             outputErrorAsJson('NO_EXECUTIONS', 'No executions found.', createMetadata('execution logs', flags))
             db.close()
@@ -89,21 +84,9 @@ export default class ExecutionLogs extends PMOCommand {
           this.error('No executions found.')
         }
 
-        // In JSON mode, output execution selection prompt
-        if (jsonMode) {
-          const execChoices = executions.map((e) => ({
-            name: `${e.id} - ${e.ticketId} (${e.agentName}, ${e.status})`,
-            value: e.id,
-          }))
-          outputPromptAsJson(
-            buildPromptConfig('list', 'executionId', 'Select execution to view logs:', execChoices),
-            createMetadata('execution logs', flags)
-          )
-          db.close()
-          return
-        }
+        const jsonModeConfig = flags.json ? { flags, commandName: 'execution logs' } : null
 
-        const { selectedId } = await inquirer.prompt([
+        const { selectedId } = await this.prompt<{ selectedId: string }>([
           {
             type: 'list',
             name: 'selectedId',
@@ -111,9 +94,10 @@ export default class ExecutionLogs extends PMOCommand {
             choices: executions.map((e) => ({
               name: `${e.id} - ${e.ticketId} (${e.agentName}, ${e.status})`,
               value: e.id,
+              command: `prlt execution logs ${e.id} --json`,
             })),
           },
-        ])
+        ], jsonModeConfig)
         execId = selectedId
       }
 
