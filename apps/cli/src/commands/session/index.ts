@@ -1,12 +1,6 @@
 import { Flags } from '@oclif/core'
-import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js'
+import { shouldOutputJson } from '../../lib/prompt-json.js'
 
 export default class Session extends PMOCommand {
   static description = 'Manage agent tmux sessions (list, attach, detach)'
@@ -32,39 +26,18 @@ export default class Session extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(Session)
 
-    // Check if JSON output mode is active
-    const jsonMode = shouldOutputJson(flags)
+    const jsonModeConfig = shouldOutputJson(flags) ? { flags, commandName: 'session' } : null
 
-    // Define choices
-    const menuChoices = [
-      { name: 'List active sessions', value: 'list' },
-      { name: 'Attach to a session', value: 'attach' },
-      { name: 'Cancel', value: 'cancel' },
-    ]
-    const message = 'Session Management - What would you like to do?'
-
-    // In JSON mode, output menu prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('session', flags)
-      )
-      return
-    }
-
-    const { action } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'action',
-        message: '🖥️  ' + message,
-        choices: [
-          { name: '📋 ' + menuChoices[0].name, value: menuChoices[0].value },
-          { name: '🔗 ' + menuChoices[1].name, value: menuChoices[1].value },
-          new inquirer.Separator(),
-          { name: '❌ ' + menuChoices[2].name, value: menuChoices[2].value },
-        ],
-      },
-    ])
+    const { action } = await this.prompt<{ action: string }>([{
+      type: 'list',
+      name: 'action',
+      message: 'Session Management - What would you like to do?',
+      choices: [
+        { name: 'List active sessions', value: 'list', command: 'prlt session list --json' },
+        { name: 'Attach to a session', value: 'attach', command: 'prlt session attach --json' },
+        { name: 'Cancel', value: 'cancel' },
+      ],
+    }], jsonModeConfig)
 
     if (action === 'cancel') {
       return
