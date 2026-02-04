@@ -2,13 +2,12 @@ import { Command, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { getPMOContext, type PMOContext } from './pmo-context.js';
 import { styles } from '../styles.js';
+import { PromptCommand } from '../prompt-command.js';
 import {
   shouldOutputJson,
-  isAgentMode,
   outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  normalizeChoices,
   type JsonFlags,
 } from '../prompt-json.js';
 
@@ -89,7 +88,7 @@ export const pmoBaseFlags = {
  * }
  * ```
  */
-export abstract class PMOCommand extends Command {
+export abstract class PMOCommand extends PromptCommand {
   /**
    * PMO context with storage, pmoPath, etc.
    * Available after init() runs (before execute())
@@ -398,94 +397,6 @@ export abstract class PMOCommand extends Command {
     }]);
 
     return value;
-  }
-
-  /**
-   * Prompt wrapper - drop-in replacement for inquirer.prompt
-   *
-   * Works in BOTH modes:
-   * - Interactive mode: calls inquirer.prompt normally (human sees menu)
-   * - JSON/Agent mode: outputs prompt as structured JSON and exits
-   *
-   * This is the simplest way to make any inquirer.prompt call work for both humans and agents.
-   * Just replace `await inquirer.prompt(questions)` with `await this.prompt(questions, jsonModeConfig)`
-   *
-   * @param questions - Inquirer question config(s)
-   * @param jsonModeConfig - JSON mode configuration (null to disable JSON mode handling)
-   * @returns Answers object (only in interactive mode)
-   *
-   * @example
-   * ```typescript
-   * // Before (breaks in JSON mode):
-   * const { column } = await inquirer.prompt([{
-   *   type: 'list',
-   *   name: 'column',
-   *   message: 'Select column:',
-   *   choices: columns.map(c => ({ name: c, value: c })),
-   * }]);
-   *
-   * // After (works in both modes):
-   * const { column } = await this.prompt([{
-   *   type: 'list',
-   *   name: 'column',
-   *   message: 'Select column:',
-   *   choices: columns.map(c => ({
-   *     name: c,
-   *     value: c,
-   *     command: `prlt ticket move --column "${c}" --json`,
-   *   })),
-   * }], {
-   *   flags,
-   *   commandName: 'ticket move',
-   * });
-   * ```
-   */
-  protected async prompt<T extends Record<string, unknown>>(
-    questions: Array<{
-      type: string;
-      name: string;
-      message: string;
-      choices?: Array<
-        | string
-        | { name: string; value: unknown; disabled?: boolean | string; command?: string }
-        | unknown
-      >;
-      default?: unknown;
-      validate?: (input: unknown) => boolean | string;
-      when?: boolean | ((answers: Record<string, unknown>) => boolean);
-    }>,
-    jsonModeConfig?: {
-      flags: JsonFlags & Record<string, unknown>;
-      commandName: string;
-    } | null
-  ): Promise<T> {
-    // Check for JSON/agent mode
-    if (jsonModeConfig && isAgentMode(jsonModeConfig.flags)) {
-      // Find first question that should be shown (respecting 'when' conditions)
-      const firstQuestion = questions[0];
-      if (firstQuestion) {
-        // Convert choices to agent-compatible format
-        const choices = firstQuestion.choices
-          ? normalizeChoices(firstQuestion.choices)
-          : undefined;
-
-        outputPromptAsJson(
-          {
-            type: firstQuestion.type as 'list' | 'checkbox' | 'input' | 'confirm' | 'editor',
-            name: firstQuestion.name,
-            message: firstQuestion.message,
-            choices,
-            default: firstQuestion.default as string | boolean | string[] | undefined,
-          },
-          createMetadata(jsonModeConfig.commandName, jsonModeConfig.flags)
-        );
-        // outputPromptAsJson calls process.exit, never returns
-      }
-      return {} as T;
-    }
-
-    // Interactive mode: just call inquirer
-    return inquirer.prompt(questions as Parameters<typeof inquirer.prompt>[0]) as Promise<T>;
   }
 
   /**
