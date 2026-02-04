@@ -180,10 +180,11 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
   });
 
   // ===========================================================================
-  // STATUS CREATE - Complete Flow Tests
+  // STATUS CREATE - Complete Flow Tests (All 5 Prompts)
+  // Prompts: name → category → color → description → default
   // ===========================================================================
-  describe('status create - complete interactive flow', () => {
-    it('Step 1: initial command returns name input prompt', () => {
+  describe('status create - complete interactive flow (all 5 prompts)', () => {
+    it('Step 1/5: initial command returns name input prompt', () => {
       const output = exec(`status create -P ${TEST_PROJECT_ID} --machine`);
 
       if (hasSchemaError(output)) return;
@@ -195,7 +196,7 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(result!.prompt.message.toLowerCase()).to.include('name');
     });
 
-    it('Step 2: with --name, returns category list prompt', () => {
+    it('Step 2/5: with --name, returns category list prompt', () => {
       const output = exec(`status create -P ${TEST_PROJECT_ID} --name "Test Status" --machine`);
 
       if (hasSchemaError(output)) return;
@@ -205,7 +206,7 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(result!.prompt.type).to.equal('list');
       expect(result!.prompt.name).to.equal('category');
 
-      // Verify category choices exist
+      // Verify category choices exist with commands
       const choices = result!.prompt.choices;
       expect(choices.length).to.be.greaterThan(0);
 
@@ -216,7 +217,7 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(startedChoice!.command).to.include('--machine');
     });
 
-    it('Step 3: with --name and --category, returns color input prompt', () => {
+    it('Step 3/5: with --name --category, returns color input prompt', () => {
       const output = exec(`status create -P ${TEST_PROJECT_ID} --name "Test Status" --category started --machine`);
 
       if (hasSchemaError(output)) return;
@@ -225,74 +226,110 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(result).to.exist;
       expect(result!.prompt.type).to.equal('input');
       expect(result!.prompt.name).to.equal('color');
+      expect(result!.prompt.message.toLowerCase()).to.include('color');
     });
 
-    it('Complete flow: create status and verify in database', () => {
-      const statusName = 'Flow Created Status';
-      const statusCategory = 'started';
+    it('Step 4/5: with --name --category --color, returns description input prompt', () => {
+      const output = exec(`status create -P ${TEST_PROJECT_ID} --name "Test Status" --category started --color "#FF0000" --machine`);
 
-      // Execute with all required flags to complete the action
+      if (hasSchemaError(output)) return;
+
+      const result = extractJson<AgentPromptResponse>(output);
+      expect(result).to.exist;
+      expect(result!.prompt.type).to.equal('input');
+      expect(result!.prompt.name).to.equal('description');
+      expect(result!.prompt.message.toLowerCase()).to.include('description');
+    });
+
+    it('Step 5/5: with --name --category --color --description, returns default list prompt', () => {
+      const output = exec(`status create -P ${TEST_PROJECT_ID} --name "Test Status" --category started --color "#FF0000" --description "Test desc" --machine`);
+
+      if (hasSchemaError(output)) return;
+
+      const result = extractJson<AgentPromptResponse>(output);
+      expect(result).to.exist;
+      expect(result!.prompt.type).to.equal('list');
+      expect(result!.prompt.name).to.equal('default');
+
+      // Verify Yes/No choices
+      const yesChoice = result!.prompt.choices.find(c => c.name.toLowerCase().includes('yes'));
+      const noChoice = result!.prompt.choices.find(c => c.name.toLowerCase().includes('no'));
+      expect(yesChoice).to.exist;
+      expect(noChoice).to.exist;
+    });
+
+    it('Complete flow: all flags provided → creates status → verify in DB', () => {
+      const statusName = 'Complete Flow Status';
+      const statusCategory = 'started';
+      const statusColor = '#00FF00';
+      const statusDesc = 'Created via complete flow';
+
+      // Execute with ALL flags to complete the action
       const output = exec(
-        `status create -P ${TEST_PROJECT_ID} --name "${statusName}" --category ${statusCategory} --color "" --description "" --machine`
+        `status create -P ${TEST_PROJECT_ID} --name "${statusName}" --category ${statusCategory} --color "${statusColor}" --description "${statusDesc}" --default --machine`
       );
 
       if (hasSchemaError(output)) return;
 
-      // Verify status was created in database
+      // Verify status was created in database with all fields
       const created = getStatusByName(statusName);
       expect(created).to.exist;
       expect(created!.name).to.equal(statusName);
       expect(created!.category).to.equal(statusCategory);
+      expect(created!.color).to.equal(statusColor);
+      expect(created!.description).to.equal(statusDesc);
+      expect(created!.is_default).to.equal(1);
     });
 
-    it('Full navigation: follow choice commands through entire flow', () => {
-      // Step 1: Get initial prompt
+    it('Full navigation: step through all 5 prompts sequentially', () => {
+      // Step 1: name prompt
       const step1 = exec(`status create -P ${TEST_PROJECT_ID} --machine`);
       if (hasSchemaError(step1)) return;
-
       const result1 = extractJson<AgentPromptResponse>(step1);
       if (!result1) return;
-
-      expect(result1.prompt.type).to.equal('input');
       expect(result1.prompt.name).to.equal('name');
 
-      // Step 2: Provide name, get category prompt
-      const step2 = exec(`status create -P ${TEST_PROJECT_ID} --name "Navigation Test" --machine`);
+      // Step 2: category prompt
+      const step2 = exec(`status create -P ${TEST_PROJECT_ID} --name "Nav Test" --machine`);
       if (hasSchemaError(step2)) return;
-
       const result2 = extractJson<AgentPromptResponse>(step2);
       if (!result2) return;
-
-      expect(result2.prompt.type).to.equal('list');
       expect(result2.prompt.name).to.equal('category');
 
-      // Step 3: Find "started" category and follow its command
-      const startedChoice = result2.prompt.choices.find(c => c.value === 'started');
-      expect(startedChoice).to.exist;
-      expect(startedChoice!.command).to.include('--category started');
-
-      // Step 4: Execute with category (will get color prompt)
-      const step3 = exec(`status create -P ${TEST_PROJECT_ID} --name "Navigation Test" --category started --machine`);
+      // Step 3: color prompt
+      const step3 = exec(`status create -P ${TEST_PROJECT_ID} --name "Nav Test" --category backlog --machine`);
       if (hasSchemaError(step3)) return;
-
       const result3 = extractJson<AgentPromptResponse>(step3);
       if (!result3) return;
-
-      expect(result3.prompt.type).to.equal('input');
       expect(result3.prompt.name).to.equal('color');
+
+      // Step 4: description prompt
+      const step4 = exec(`status create -P ${TEST_PROJECT_ID} --name "Nav Test" --category backlog --color "" --machine`);
+      if (hasSchemaError(step4)) return;
+      const result4 = extractJson<AgentPromptResponse>(step4);
+      if (!result4) return;
+      expect(result4.prompt.name).to.equal('description');
+
+      // Step 5: default prompt
+      const step5 = exec(`status create -P ${TEST_PROJECT_ID} --name "Nav Test" --category backlog --color "" --description "" --machine`);
+      if (hasSchemaError(step5)) return;
+      const result5 = extractJson<AgentPromptResponse>(step5);
+      if (!result5) return;
+      expect(result5.prompt.name).to.equal('default');
     });
   });
 
   // ===========================================================================
-  // STATUS UPDATE - Complete Flow Tests
+  // STATUS UPDATE - Complete Flow Tests (All 6 Prompts)
+  // Prompts: status selection → name → category → color → description → default
   // ===========================================================================
-  describe('status update - complete interactive flow', () => {
+  describe('status update - complete interactive flow (all 6 prompts)', () => {
     beforeEach(() => {
       createTestStatus('update-target', 'Status To Update', 'backlog', 0);
       createTestStatus('update-other', 'Other Status', 'started', 1);
     });
 
-    it('Step 1: initial command returns status selection list', () => {
+    it('Step 1/6: initial command returns status selection list', () => {
       const output = exec(`status update -P ${TEST_PROJECT_ID} --machine`);
 
       if (hasSchemaError(output)) return;
@@ -315,7 +352,7 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       }
     });
 
-    it('Step 2: with status ID, returns name input prompt', () => {
+    it('Step 2/6: with status ID, returns name input prompt', () => {
       const output = exec(`status update update-target -P ${TEST_PROJECT_ID} --machine`);
 
       if (hasSchemaError(output)) return;
@@ -324,9 +361,10 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(result).to.exist;
       expect(result!.prompt.type).to.equal('input');
       expect(result!.prompt.name).to.equal('name');
+      expect(result!.prompt.message.toLowerCase()).to.include('name');
     });
 
-    it('Step 3: with ID and --name, returns category list prompt', () => {
+    it('Step 3/6: with ID --name, returns category list prompt', () => {
       const output = exec(`status update update-target -P ${TEST_PROJECT_ID} --name "Updated Name" --machine`);
 
       if (hasSchemaError(output)) return;
@@ -343,46 +381,116 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       }
     });
 
-    it('Complete flow: update status name and verify in database', () => {
-      const newName = 'Renamed Status';
+    it('Step 4/6: with ID --name --category, returns color input prompt', () => {
+      const output = exec(`status update update-target -P ${TEST_PROJECT_ID} --name "Updated" --category started --machine`);
 
-      // Execute update with all flags
+      if (hasSchemaError(output)) return;
+
+      const result = extractJson<AgentPromptResponse>(output);
+      expect(result).to.exist;
+      expect(result!.prompt.type).to.equal('input');
+      expect(result!.prompt.name).to.equal('color');
+      expect(result!.prompt.message.toLowerCase()).to.include('color');
+    });
+
+    it('Step 5/6: with ID --name --category --color, returns description input prompt', () => {
+      const output = exec(`status update update-target -P ${TEST_PROJECT_ID} --name "Updated" --category started --color "#FF0000" --machine`);
+
+      if (hasSchemaError(output)) return;
+
+      const result = extractJson<AgentPromptResponse>(output);
+      expect(result).to.exist;
+      expect(result!.prompt.type).to.equal('input');
+      expect(result!.prompt.name).to.equal('description');
+      expect(result!.prompt.message.toLowerCase()).to.include('description');
+    });
+
+    it('Step 6/6: with ID --name --category --color --description, returns default list prompt', () => {
+      const output = exec(`status update update-target -P ${TEST_PROJECT_ID} --name "Updated" --category started --color "#FF0000" --description "New desc" --machine`);
+
+      if (hasSchemaError(output)) return;
+
+      const result = extractJson<AgentPromptResponse>(output);
+      expect(result).to.exist;
+      expect(result!.prompt.type).to.equal('list');
+      expect(result!.prompt.name).to.equal('default');
+
+      // Verify Yes/No choices
+      const yesChoice = result!.prompt.choices.find(c => c.name.toLowerCase().includes('yes'));
+      const noChoice = result!.prompt.choices.find(c => c.name.toLowerCase().includes('no'));
+      expect(yesChoice).to.exist;
+      expect(noChoice).to.exist;
+    });
+
+    it('Complete flow: all flags provided → updates status → verify in DB', () => {
+      const newName = 'Fully Updated Status';
+      const newCategory = 'completed';
+      const newColor = '#00FF00';
+      const newDesc = 'Updated via complete flow';
+
+      // Execute update with ALL flags
       const output = exec(
-        `status update update-target -P ${TEST_PROJECT_ID} --name "${newName}" --category backlog --color "" --description "" --machine`
+        `status update update-target -P ${TEST_PROJECT_ID} --name "${newName}" --category ${newCategory} --color "${newColor}" --description "${newDesc}" --default --machine`
       );
 
       if (hasSchemaError(output)) return;
 
-      // Verify status was updated in database
+      // Verify status was updated in database with all fields
       const updated = getStatus('update-target');
       expect(updated).to.exist;
       expect(updated!.name).to.equal(newName);
+      expect(updated!.category).to.equal(newCategory);
+      expect(updated!.color).to.equal(newColor);
+      expect(updated!.description).to.equal(newDesc);
+      expect(updated!.is_default).to.equal(1);
     });
 
-    it('Full navigation: select status → update → verify', () => {
-      // Step 1: Get status selection
+    it('Full navigation: step through all 6 prompts sequentially', () => {
+      // Step 1: status selection
       const step1 = exec(`status update -P ${TEST_PROJECT_ID} --machine`);
       if (hasSchemaError(step1)) return;
-
       const result1 = extractJson<AgentPromptResponse>(step1);
       if (!result1) return;
+      expect(result1.prompt.name).to.equal('id');
 
-      expect(result1.prompt.type).to.equal('list');
-
-      // Step 2: Find our target status choice
+      // Find target and get its command
       const targetChoice = result1.prompt.choices.find(c => c.value === 'update-target');
       expect(targetChoice).to.exist;
 
-      // Step 3: Execute the command from the choice
-      const cmd2 = targetChoice!.command!.replace('prlt ', '');
-      const step2 = exec(cmd2);
+      // Step 2: name prompt (using command from choice)
+      const step2 = exec(targetChoice!.command!.replace('prlt ', ''));
       if (hasSchemaError(step2)) return;
-
       const result2 = extractJson<AgentPromptResponse>(step2);
       if (!result2) return;
-
-      expect(result2.prompt.type).to.equal('input');
       expect(result2.prompt.name).to.equal('name');
+
+      // Step 3: category prompt
+      const step3 = exec(`status update update-target -P ${TEST_PROJECT_ID} --name "Nav Update" --machine`);
+      if (hasSchemaError(step3)) return;
+      const result3 = extractJson<AgentPromptResponse>(step3);
+      if (!result3) return;
+      expect(result3.prompt.name).to.equal('category');
+
+      // Step 4: color prompt
+      const step4 = exec(`status update update-target -P ${TEST_PROJECT_ID} --name "Nav Update" --category started --machine`);
+      if (hasSchemaError(step4)) return;
+      const result4 = extractJson<AgentPromptResponse>(step4);
+      if (!result4) return;
+      expect(result4.prompt.name).to.equal('color');
+
+      // Step 5: description prompt
+      const step5 = exec(`status update update-target -P ${TEST_PROJECT_ID} --name "Nav Update" --category started --color "" --machine`);
+      if (hasSchemaError(step5)) return;
+      const result5 = extractJson<AgentPromptResponse>(step5);
+      if (!result5) return;
+      expect(result5.prompt.name).to.equal('description');
+
+      // Step 6: default prompt
+      const step6 = exec(`status update update-target -P ${TEST_PROJECT_ID} --name "Nav Update" --category started --color "" --description "" --machine`);
+      if (hasSchemaError(step6)) return;
+      const result6 = extractJson<AgentPromptResponse>(step6);
+      if (!result6) return;
+      expect(result6.prompt.name).to.equal('default');
     });
   });
 
