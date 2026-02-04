@@ -1,8 +1,6 @@
 import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';
-import { Flags } from '@oclif/core';
 import chalk from 'chalk';
-import inquirer from 'inquirer';
 import {
   Ticket,
   parseBoard,
@@ -21,12 +19,7 @@ import {
   getColumnEmoji,
   divider,
 } from '../../lib/styles.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 
 export default class Board extends PMOCommand {
   static description = 'Interactive menu for board operations';
@@ -37,10 +30,6 @@ export default class Board extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
@@ -51,40 +40,28 @@ export default class Board extends PMOCommand {
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
+    const agentConfig = jsonMode ? { flags, commandName: 'board' } : null;
 
     // Define choices once, use for both JSON and interactive modes
     const menuChoices = [
-      { name: 'View board in terminal', value: 'view' },
-      { name: 'Open board in Obsidian', value: 'open' },
-      { name: 'Show as markdown', value: 'markdown' },
-      { name: 'Export board', value: 'export' },
-      { name: 'Sync board', value: 'sync' },
-      { name: 'Watch for changes', value: 'watch' },
-      { name: 'Cancel', value: 'cancel' },
+      { name: 'View board in terminal', value: 'view', command: `prlt board view -P ${projectId} --json` },
+      { name: 'Open board in Obsidian', value: 'open', command: `prlt board open -P ${projectId} --json` },
+      { name: 'Show as markdown', value: 'markdown', command: `prlt board markdown -P ${projectId} --json` },
+      { name: 'Export board', value: 'export', command: `prlt board export -P ${projectId} --json` },
+      { name: 'Sync board', value: 'sync', command: `prlt board sync -P ${projectId} --json` },
+      { name: 'Watch for changes', value: 'watch', command: `prlt board watch -P ${projectId} --json` },
+      { name: 'Cancel', value: 'cancel', command: '' },
     ];
     const projectName = await this.getProjectName(projectId);
     const message = `Board Operations - ${projectName} - What would you like to do?`;
 
-    // In JSON mode, output menu prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('board', flags)
-      );
-      return;
-    }
-
-    // Show interactive menu (with separator before Cancel)
-    const { action } = await inquirer.prompt([{
+    // Use this.prompt for both JSON and interactive modes
+    const { action } = await this.prompt<{ action: string }>([{
       type: 'list',
       name: 'action',
       message: '📋 ' + message,
-      choices: [
-        ...menuChoices.slice(0, -1),
-        new inquirer.Separator(),
-        menuChoices[menuChoices.length - 1],
-      ],
-    }]);
+      choices: menuChoices,
+    }], agentConfig);
 
     if (action === 'cancel') {
       return;
@@ -285,16 +262,15 @@ export default class Board extends PMOCommand {
 
     // Confirm before applying
     if (!flags.force) {
-      const { confirm } = await inquirer.prompt([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: 'Apply these changes to the database?',
         choices: [
-          { name: 'Yes, apply changes', value: true },
-          { name: 'No, cancel', value: false },
+          { name: 'Yes, apply changes', value: true, command: `prlt board sync -P ${projectId} --force --json` },
+          { name: 'No, cancel', value: false, command: '' },
         ],
-        default: 0,
-      }]);
+      }], null);
 
       if (!confirm) {
         this.log(chalk.yellow('Sync cancelled.'));
