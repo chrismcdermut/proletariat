@@ -830,6 +830,253 @@ describe('JSON Mode Flag Accumulation', () => {
         expect(result).to.include('Moved');
       });
     });
+
+    describe('workflow view - full agent flow', () => {
+      it('should output JSON data when workflow ID is provided with --json', () => {
+        const output = exec('workflow view default --json');
+        const json = extractJson<{ workflow: { id: string; name: string; description: string; isBuiltin: boolean }; statuses: unknown[] }>(output);
+
+        expect(json.workflow.id).to.equal('default');
+        expect(json.workflow.name).to.equal('Default');
+        expect(json.workflow.isBuiltin).to.equal(true);
+        expect(json.statuses).to.be.an('array');
+      });
+
+      it('should prompt for workflow selection when no ID provided', () => {
+        const step1 = agentExec('workflow view --machine');
+        expect(step1.prompt.type).to.equal('list');
+        expect(step1.prompt.message).to.include('workflow');
+
+        const workflowChoice = findChoice(step1.prompt.choices, 'Default');
+        expect(workflowChoice).to.exist;
+        expect(workflowChoice!.command).to.include('--json');
+      });
+
+      it('should complete flow: select workflow → view details', () => {
+        // Agent Step 1: Get available workflows
+        const step1 = agentExec('workflow view --machine');
+        expect(step1.prompt.type).to.equal('list');
+
+        const workflowChoice = findChoice(step1.prompt.choices, 'Default');
+        expect(workflowChoice).to.exist;
+
+        // Agent Step 2: View the workflow (executes directly, no more prompts)
+        const viewCmd = execChoice(workflowChoice!);
+        const result = execFinal(viewCmd);
+
+        // Verify workflow details are shown
+        expect(result).to.include('Default');
+      });
+    });
+
+    describe('workflow switch - full agent flow', () => {
+      beforeEach(() => {
+        // Create an additional workflow to switch to
+        db.prepare(`
+          INSERT INTO pmo_workflows (id, name, description, is_builtin)
+          VALUES ('kanban', 'Kanban', 'Kanban workflow', 1)
+        `).run();
+
+        // Add statuses for the new workflow
+        const statuses = [
+          { id: 'kanban-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
+          { id: 'kanban-doing', name: 'Doing', category: 'started', position: 1 },
+          { id: 'kanban-done', name: 'Done', category: 'completed', position: 2 },
+        ];
+        for (const status of statuses) {
+          db.prepare(`
+            INSERT INTO pmo_workflow_statuses (id, workflow_id, name, category, position, is_default)
+            VALUES (?, 'kanban', ?, ?, ?, ?)
+          `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
+        }
+      });
+
+      it('should prompt for workflow selection when no workflow specified', () => {
+        const step1 = agentExec('workflow switch -P test-project --machine');
+        expect(step1.prompt.type).to.equal('list');
+        expect(step1.prompt.message).to.include('workflow');
+
+        // Should show available workflows
+        const kanbanChoice = findChoice(step1.prompt.choices, 'Kanban');
+        expect(kanbanChoice).to.exist;
+        expect(kanbanChoice!.command).to.include('-P test-project');
+        expect(kanbanChoice!.command).to.include('--json');
+      });
+
+      it('should prompt for confirmation when switching workflow', () => {
+        const step1 = agentExec('workflow switch kanban -P test-project --machine');
+        expect(step1.prompt.type).to.equal('list');
+
+        // Should show confirmation choices
+        const yesChoice = findChoice(step1.prompt.choices, 'Yes');
+        expect(yesChoice).to.exist;
+        expect(yesChoice!.command).to.include('--force');
+      });
+
+      it('should complete flow: select workflow → confirm → switch', () => {
+        // Agent Step 1: Get available workflows
+        const step1 = agentExec('workflow switch -P test-project --machine');
+        expect(step1.prompt.type).to.equal('list');
+
+        const workflowChoice = findChoice(step1.prompt.choices, 'Kanban');
+        expect(workflowChoice).to.exist;
+
+        // Agent Step 2: Select workflow, get confirmation
+        const step2 = agentExec(execChoice(workflowChoice!));
+        expect(step2.prompt.type).to.equal('list');
+
+        const yesChoice = findChoice(step2.prompt.choices, 'Yes');
+        expect(yesChoice).to.exist;
+
+        // Agent Step 3: Confirm the switch
+        const result = execFinal(execChoice(yesChoice!));
+
+        // Verify switch
+        expect(result.toLowerCase()).to.match(/switch|kanban/);
+
+        // Verify in database
+        const project = db.prepare('SELECT workflow_id FROM pmo_projects WHERE id = ?').get('test-project') as { workflow_id: string };
+        expect(project.workflow_id).to.equal('kanban');
+      });
+
+      it('should skip confirmation with --force flag', () => {
+        const result = exec('workflow switch kanban -P test-project --force');
+        expect(result.toLowerCase()).to.match(/switch|kanban/);
+
+        // Verify in database
+        const project = db.prepare('SELECT workflow_id FROM pmo_projects WHERE id = ?').get('test-project') as { workflow_id: string };
+        expect(project.workflow_id).to.equal('kanban');
+      });
+    });
+
+    describe('workflow delete - full agent flow', () => {
+      beforeEach(() => {
+        // Create a custom workflow that can be deleted
+        db.prepare(`
+          INSERT INTO pmo_workflows (id, name, description, is_builtin)
+          VALUES ('custom-wf', 'Custom Workflow', 'A custom workflow for testing', 0)
+        `).run();
+
+        // Add statuses for the custom workflow
+        const statuses = [
+          { id: 'custom-todo', name: 'To Do', category: 'backlog', position: 0, isDefault: 1 },
+          { id: 'custom-done', name: 'Done', category: 'completed', position: 1 },
+        ];
+        for (const status of statuses) {
+          db.prepare(`
+            INSERT INTO pmo_workflow_statuses (id, workflow_id, name, category, position, is_default)
+            VALUES (?, 'custom-wf', ?, ?, ?, ?)
+          `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
+        }
+      });
+
+      it('should prompt for workflow selection when no ID provided', () => {
+        const step1 = agentExec('workflow delete --machine');
+        expect(step1.prompt.type).to.equal('list');
+        expect(step1.prompt.message).to.include('workflow');
+
+        // Should only show custom workflows (not built-in)
+        const customChoice = findChoice(step1.prompt.choices, 'Custom Workflow');
+        expect(customChoice).to.exist;
+
+        const defaultChoice = findChoice(step1.prompt.choices, 'Default');
+        expect(defaultChoice).to.be.undefined; // Built-in should not appear
+      });
+
+      it('should prompt for confirmation when deleting workflow', () => {
+        const step1 = agentExec('workflow delete custom-wf --machine');
+        expect(step1.prompt.type).to.equal('list');
+
+        // Should show confirmation choices
+        const yesChoice = findChoice(step1.prompt.choices, 'Yes');
+        expect(yesChoice).to.exist;
+        expect(yesChoice!.command).to.include('--force');
+      });
+
+      it('should complete flow: select workflow → confirm → delete', () => {
+        // Agent Step 1: Get available workflows to delete
+        const step1 = agentExec('workflow delete --machine');
+        expect(step1.prompt.type).to.equal('list');
+
+        const workflowChoice = findChoice(step1.prompt.choices, 'Custom Workflow');
+        expect(workflowChoice).to.exist;
+
+        // Agent Step 2: Select workflow, get confirmation
+        const step2 = agentExec(execChoice(workflowChoice!));
+        expect(step2.prompt.type).to.equal('list');
+
+        const yesChoice = findChoice(step2.prompt.choices, 'Yes');
+        expect(yesChoice).to.exist;
+
+        // Agent Step 3: Confirm the delete
+        const result = execFinal(execChoice(yesChoice!));
+
+        // Verify delete
+        expect(result.toLowerCase()).to.match(/delete|custom workflow/i);
+
+        // Verify in database
+        const workflow = db.prepare('SELECT id FROM pmo_workflows WHERE id = ?').get('custom-wf');
+        expect(workflow).to.be.undefined;
+      });
+
+      it('should skip confirmation with --force flag', () => {
+        const result = exec('workflow delete custom-wf --force');
+        expect(result.toLowerCase()).to.match(/delete|custom workflow/i);
+
+        // Verify in database
+        const workflow = db.prepare('SELECT id FROM pmo_workflows WHERE id = ?').get('custom-wf');
+        expect(workflow).to.be.undefined;
+      });
+
+      it('should reject deletion of built-in workflows', () => {
+        const output = exec('workflow delete default --force');
+        expect(output.toLowerCase()).to.include('cannot delete');
+      });
+
+      it('should reject deletion of workflow in use by project', () => {
+        // First, switch the test project to use custom-wf
+        db.prepare(`UPDATE pmo_projects SET workflow_id = 'custom-wf' WHERE id = 'test-project'`).run();
+
+        const output = exec('workflow delete custom-wf --force');
+        expect(output.toLowerCase()).to.include('in use');
+      });
+    });
+
+    describe('workflow list --json', () => {
+      it('should output JSON array of workflows', () => {
+        const output = exec('workflow list --json');
+        const json = extractJson<Array<{ id: string; name: string; isBuiltin: boolean }>>(output);
+
+        expect(json).to.be.an('array');
+        expect(json.length).to.be.greaterThan(0);
+
+        const defaultWf = json.find(w => w.id === 'default');
+        expect(defaultWf).to.exist;
+        expect(defaultWf!.name).to.equal('Default');
+        expect(defaultWf!.isBuiltin).to.equal(true);
+      });
+    });
+
+    describe('workflow create --json (form prompt)', () => {
+      it('should output form prompt configuration when --json flag is used', () => {
+        const output = exec('workflow create --json');
+        const json = extractJson<{ prompt: { type: string; name: string; questions: unknown[] } }>(output);
+
+        expect(json.prompt).to.exist;
+        expect(json.prompt.type).to.equal('form');
+        expect(json.prompt.questions).to.be.an('array');
+      });
+
+      it('should create workflow with direct args (no prompts)', () => {
+        const result = exec('workflow create "Test Workflow" --description "A test workflow"');
+        expect(result.toLowerCase()).to.match(/create|test workflow/i);
+
+        // Verify in database
+        const workflow = db.prepare('SELECT * FROM pmo_workflows WHERE name = ?').get('Test Workflow') as { id: string; name: string } | undefined;
+        expect(workflow).to.exist;
+        expect(workflow!.name).to.equal('Test Workflow');
+      });
+    });
   });
 });
 

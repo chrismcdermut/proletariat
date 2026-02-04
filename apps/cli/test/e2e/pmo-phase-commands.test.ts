@@ -245,6 +245,177 @@ describe('PMO Phase Commands E2E Tests', () => {
       expect(output.toLowerCase()).to.contain('not found');
     });
   });
+
+  describe('JSON Mode Tests', () => {
+    describe('prlt phase list --json', () => {
+      it('should output phases as JSON array', () => {
+        const output = exec('phase list --json');
+        const phases = JSON.parse(output);
+
+        expect(phases).to.be.an('array');
+        expect(phases.length).to.be.greaterThan(0);
+        expect(phases[0]).to.have.property('id');
+        expect(phases[0]).to.have.property('name');
+        expect(phases[0]).to.have.property('category');
+      });
+    });
+
+    describe('prlt phase create --json', () => {
+      it('should output name input prompt as JSON when name is missing', () => {
+        const output = exec('phase create --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('prompt');
+        expect(json.prompt).to.have.property('type', 'input');
+        expect(json.prompt).to.have.property('name', 'name');
+        expect(json.prompt).to.have.property('message');
+        expect(json).to.have.property('metadata');
+        expect(json.metadata).to.have.property('command', 'phase create');
+      });
+
+      it('should output category list prompt as JSON when name is provided but category is missing', () => {
+        const output = exec('phase create "New Phase" --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('prompt');
+        expect(json.prompt).to.have.property('type', 'list');
+        expect(json.prompt).to.have.property('name', 'category');
+        expect(json.prompt).to.have.property('choices');
+        expect(json.prompt.choices).to.be.an('array');
+        expect(json.prompt.choices.length).to.be.greaterThan(0);
+        // Each choice should have command field
+        expect(json.prompt.choices[0]).to.have.property('command');
+      });
+
+      it('should create phase when all required flags are provided', () => {
+        const output = exec('phase create "JSON Created" --category started --json');
+
+        // Command should complete successfully (no prompt output)
+        expect(output).to.contain('Created phase');
+        expect(output).to.contain('JSON Created');
+
+        const phase = db.prepare('SELECT * FROM pmo_phases WHERE name = ?').get('JSON Created') as { id: string };
+        expect(phase).to.not.be.undefined;
+      });
+    });
+
+    describe('prlt phase delete --json', () => {
+      beforeEach(() => {
+        exec('phase create "To Delete JSON" --category canceled');
+      });
+
+      it('should output confirmation prompt as JSON when --force is not used', () => {
+        const output = exec('phase delete to-delete-json --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('prompt');
+        expect(json.prompt).to.have.property('type', 'list');
+        expect(json.prompt).to.have.property('name', 'confirmed');
+        expect(json.prompt).to.have.property('choices');
+        expect(json.prompt.choices).to.be.an('array');
+        // Should have Yes/No options
+        expect(json.prompt.choices.some((c: { name: string }) => c.name === 'Yes')).to.be.true;
+        expect(json.prompt.choices.some((c: { name: string }) => c.name === 'No')).to.be.true;
+      });
+
+      it('should delete phase when --force is used with --json', () => {
+        const output = exec('phase delete to-delete-json --force --json');
+
+        expect(output).to.contain('Deleted phase');
+
+        const phase = db.prepare('SELECT * FROM pmo_phases WHERE id = ?').get('to-delete-json');
+        expect(phase).to.be.undefined;
+      });
+    });
+
+    describe('prlt phase update --json', () => {
+      it('should output phase selection prompt as JSON when no id is provided', () => {
+        const output = exec('phase update --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('prompt');
+        expect(json.prompt).to.have.property('type', 'list');
+        expect(json.prompt).to.have.property('name', 'phaseId');
+        expect(json.prompt).to.have.property('choices');
+        expect(json.prompt.choices).to.be.an('array');
+      });
+
+      it('should update phase when id and change flags are provided', () => {
+        const output = exec('phase update idea --name "Updated Idea" --json');
+
+        expect(output).to.contain('Updated phase');
+        expect(output).to.contain('Updated Idea');
+
+        const phase = db.prepare('SELECT name FROM pmo_phases WHERE id = ?').get('idea') as { name: string };
+        expect(phase.name).to.equal('Updated Idea');
+      });
+    });
+
+    describe('prlt phase move --json', () => {
+      beforeEach(() => {
+        exec('phase create "Move JSON A" --category started');
+        exec('phase create "Move JSON B" --category started');
+      });
+
+      it('should output phase selection prompt as JSON when no id is provided', () => {
+        const output = exec('phase move --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('prompt');
+        expect(json.prompt).to.have.property('type', 'list');
+        expect(json.prompt).to.have.property('name', 'phaseId');
+        expect(json.prompt).to.have.property('choices');
+      });
+
+      it('should output position selection prompt as JSON when id is provided but position is not', () => {
+        const output = exec('phase move move-json-a --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('prompt');
+        expect(json.prompt).to.have.property('type', 'list');
+        expect(json.prompt).to.have.property('name', 'position');
+        expect(json.prompt).to.have.property('choices');
+      });
+
+      it('should move phase when id and position are provided', () => {
+        const output = exec('phase move move-json-b --position 0 --json');
+
+        expect(output).to.contain('Moved phase');
+
+        const phase = db.prepare('SELECT position FROM pmo_phases WHERE id = ?').get('move-json-b') as { position: number };
+        expect(phase.position).to.equal(0);
+      });
+    });
+
+    describe('Error handling in JSON mode', () => {
+      it('should output error as JSON when phase not found in delete', () => {
+        const output = exec('phase delete non-existent --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('error');
+        expect(json.error).to.have.property('code', 'PHASE_NOT_FOUND');
+        expect(json.error).to.have.property('message');
+      });
+
+      it('should output error as JSON when phase not found in move', () => {
+        const output = exec('phase move non-existent --position 0 --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('error');
+        expect(json.error).to.have.property('code', 'PHASE_NOT_FOUND');
+        expect(json.error).to.have.property('message');
+      });
+
+      it('should output error as JSON when phase not found in update', () => {
+        const output = exec('phase update non-existent --name "New Name" --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('error');
+        expect(json.error).to.have.property('code', 'PHASE_NOT_FOUND');
+        expect(json.error).to.have.property('message');
+      });
+    });
+  });
 });
 
 // Helper functions

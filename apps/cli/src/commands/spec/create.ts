@@ -1,16 +1,10 @@
 import { Flags, Args } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { slugify } from '../../lib/pmo/utils.js';
 import { SpecType, SpecStatus } from '../../lib/pmo/types.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildFormPromptConfig,
-  FormField,
-} from '../../lib/prompt-json.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class SpecCreate extends PMOCommand {
   static description = 'Create a new spec';
@@ -52,10 +46,6 @@ export default class SpecCreate extends PMOCommand {
       description: 'Interactive mode',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
@@ -64,65 +54,90 @@ export default class SpecCreate extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // Get spec data
-    let specData: {
-      title: string;
-      status: SpecStatus;
-      type?: SpecType;
+    // Build choices for prompts
+    const typeChoices = [
+      { name: 'Product (user-facing feature)', value: 'product' },
+      { name: 'Platform (internal tooling)', value: 'platform' },
+      { name: 'Infra (technical infrastructure)', value: 'infra' },
+      { name: 'Integration (external service)', value: 'integration' },
+      { name: 'None', value: '' },
+    ];
+    const statusChoices = [
+      { name: 'Draft (planning)', value: 'draft' },
+      { name: 'Active (in progress)', value: 'active' },
+      { name: 'Implemented (complete)', value: 'implemented' },
+    ];
+
+    // Use FlagResolver for all fields
+    const resolver = new FlagResolver<{
+      title?: string;
+      type?: string;
+      status?: string;
       problem?: string;
-    };
-
-    if (flags.interactive || (!args.title && !flags.title)) {
-      // Build choices once - single source of truth
-      const typeChoices = [
-        { name: 'Product (user-facing feature)', value: 'product' },
-        { name: 'Platform (internal tooling)', value: 'platform' },
-        { name: 'Infra (technical infrastructure)', value: 'infra' },
-        { name: 'Integration (external service)', value: 'integration' },
-        { name: 'None', value: '' },
-      ];
-      const statusChoices = [
-        { name: 'Draft (planning)', value: 'draft' },
-        { name: 'Active (in progress)', value: 'active' },
-        { name: 'Implemented (complete)', value: 'implemented' },
-      ];
-
-      // Define fields once - single source of truth for both JSON and interactive modes
-      const fields: FormField[] = [
-        { type: 'input', name: 'title', message: 'Spec title:', default: flags.title },
-        { type: 'list', name: 'type', message: 'Spec type:', choices: typeChoices, default: flags.type },
-        { type: 'list', name: 'status', message: 'Status:', choices: statusChoices, default: flags.status || 'draft' },
-        { type: 'input', name: 'problem', message: 'Problem statement (optional):', default: flags.problem },
-      ];
-
-      // In JSON mode, output form prompts
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildFormPromptConfig(fields),
-          createMetadata('spec create', flags)
-        );
-      }
-
-      specData = await this.promptSpecData(fields);
-    } else {
-      specData = {
-        title: args.title || flags.title || 'Untitled Spec',
-        status: (flags.status as SpecStatus) || 'draft',
-        type: flags.type as SpecType | undefined,
+    }>({
+      commandName: 'spec create',
+      baseCommand: 'prlt spec create',
+      jsonMode,
+      flags: {
+        title: args.title || flags.title,
+        type: flags.type,
+        status: flags.status || 'draft',
         problem: flags.problem,
-      };
+      },
+    });
+
+    // Only prompt if interactive mode or no title provided
+    const needsPrompts = flags.interactive || (!args.title && !flags.title);
+
+    if (needsPrompts) {
+      resolver.addPrompt({
+        flagName: 'title',
+        type: 'input',
+        message: 'Spec title:',
+        validate: (value) => (value as string).length > 0 || 'Title is required',
+        when: (ctx) => !ctx.flags.title,
+      });
+
+      resolver.addPrompt({
+        flagName: 'type',
+        type: 'list',
+        message: 'Spec type:',
+        choices: () => typeChoices,
+        when: (ctx) => !ctx.flags.type && ctx.flags.title !== undefined,
+      });
+
+      resolver.addPrompt({
+        flagName: 'status',
+        type: 'list',
+        message: 'Status:',
+        choices: () => statusChoices,
+        default: 'draft',
+        when: (ctx) => ctx.flags.title !== undefined,
+      });
+
+      resolver.addPrompt({
+        flagName: 'problem',
+        type: 'input',
+        message: 'Problem statement (optional):',
+        when: (ctx) => ctx.flags.title !== undefined,
+      });
     }
 
+    const resolved = await resolver.resolve();
+
+    // Convert empty type to undefined
+    const specType = resolved.type === '' ? undefined : resolved.type as SpecType | undefined;
+
     // Generate ID from title
-    const specId = slugify(specData.title);
+    const specId = slugify(resolved.title!);
 
     // Create spec in database
     const spec = await this.storage.createSpec({
       id: specId,
-      title: specData.title,
-      status: specData.status,
-      type: specData.type,
-      problem: specData.problem,
+      title: resolved.title!,
+      status: (resolved.status as SpecStatus) || 'draft',
+      type: specType,
+      problem: resolved.problem || undefined,
     });
 
     this.log(styles.success(`\n✅ Created spec "${styles.emphasis(spec.title)}"`));
@@ -133,34 +148,5 @@ export default class SpecCreate extends PMOCommand {
     this.log(styles.muted(`  1. prlt spec view ${spec.id}`));
     this.log(styles.muted(`  2. prlt spec edit ${spec.id}  (to add details)`));
     this.log(styles.muted(`  3. prlt spec plan ${spec.id}  (to generate tickets)`));
-  }
-
-  private async promptSpecData(
-    fields: FormField[]
-  ): Promise<{
-    title: string;
-    status: SpecStatus;
-    type?: SpecType;
-    problem?: string;
-  }> {
-    // Build inquirer prompts from fields, adding validators
-    const answers = await inquirer.prompt(fields.map(field => ({
-      ...field,
-      // Convert empty string value to undefined for 'type' field
-      choices: field.name === 'type' && field.choices
-        ? field.choices.map(c => ({ ...c, value: c.value || undefined }))
-        : field.choices,
-      // Add validator for required title field
-      validate: field.name === 'title'
-        ? ((input: string) => input.length > 0 || 'Title is required')
-        : undefined,
-    })));
-
-    return {
-      title: answers.title,
-      status: answers.status,
-      type: answers.type,
-      problem: answers.problem || undefined,
-    };
   }
 }

@@ -18,10 +18,8 @@ import {
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class Shell extends PMOCommand {
@@ -57,22 +55,15 @@ export default class Shell extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
-      if (jsonMode) {
-        outputErrorAsJson(code, message, createMetadata('agent shell', flags));
-        this.exit(1);
-      }
-      this.error(message);
-    };
+    // Error handling config
+    const errorConfig = { jsonMode, commandName: 'agent shell', flags };
 
     // Get workspace information
     const workspaceInfo = getWorkspaceInfo();
 
     if (workspaceInfo.agents.length === 0) {
       if (jsonMode) {
-        outputErrorAsJson('NO_AGENTS', 'No agents found. Add agents with "prlt agent add"', createMetadata('agent shell', flags));
-        return;
+        this.handleError('NO_AGENTS', 'No agents found. Add agents with "prlt agent add"', errorConfig);
       }
       this.log(colors.warning('No agents found. Add agents with "prlt agent add"'));
       return;
@@ -80,57 +71,43 @@ export default class Shell extends PMOCommand {
 
     let agentName = args.name;
 
+    // Agent mode config for prompts
+    const agentConfig = jsonMode ? { flags, commandName: 'agent shell' } : null;
+
     // Interactive mode if no agent specified
     if (!agentName) {
-      const selectMessage = 'Select agent to open shell in:';
-
-      // In JSON mode, output agent selection prompt and exit
-      if (jsonMode) {
-        const agentChoices = workspaceInfo.agents.map((agent) => ({ name: agent.name, value: agent.name }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'name', selectMessage, agentChoices),
-          createMetadata('agent shell', flags)
-        );
-      }
-
-      // Group agents by type for interactive mode
+      // Group agents by type
       const staffAgents = workspaceInfo.agents.filter(a => a.type === 'persistent');
       const tempAgents = workspaceInfo.agents.filter(a => a.type === 'ephemeral');
 
-      const choices: Array<{ name: string; value: string } | inquirer.Separator> = [];
+      // Build choices with command field for JSON mode
+      const choices: Array<{ name: string; value: string; command: string }> = [];
 
-      if (staffAgents.length > 0) {
-        choices.push(new inquirer.Separator('── Staff Agents ──'));
-        for (const agent of staffAgents) {
-          choices.push({ name: `👔 ${agent.name}`, value: agent.name });
-        }
+      for (const agent of staffAgents) {
+        choices.push({ name: `👔 ${agent.name}`, value: agent.name, command: `prlt agent shell ${agent.name} --machine` });
       }
 
-      if (tempAgents.length > 0) {
-        choices.push(new inquirer.Separator('── Temp Agents ──'));
-        for (const agent of tempAgents) {
-          choices.push({ name: `⏱️  ${agent.name}`, value: agent.name });
-        }
+      for (const agent of tempAgents) {
+        choices.push({ name: `⏱️  ${agent.name}`, value: agent.name, command: `prlt agent shell ${agent.name} --machine` });
       }
 
-      const { selected } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'selected',
-          message: selectMessage,
-          choices
-        }
-      ]);
+      const { selected } = await this.prompt<{ selected: string }>([{
+        type: 'list',
+        name: 'selected',
+        message: 'Select agent to open shell in:',
+        choices,
+      }], agentConfig);
+
       agentName = selected;
     }
 
     // Validate agent exists
     const agent = workspaceInfo.agents.find(a => a.name === agentName);
     if (!agent) {
-      return handleError('AGENT_NOT_FOUND', `Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map(a => a.name).join(', ')}`);
+      this.handleError('AGENT_NOT_FOUND', `Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map(a => a.name).join(', ')}`, errorConfig);
     }
 
-    // Check for existing tmux sessions
+    // Check for existing tmux sessions (skip in JSON mode - can't handle interactive tmux)
     const existingSessions = getAgentTmuxSessions(agentName!);
     if (existingSessions.length > 0 && !jsonMode) {
       this.log(colors.warning(`\n⚠️  Agent "${agentName}" has ${existingSessions.length} active tmux session(s):`));
@@ -139,16 +116,16 @@ export default class Shell extends PMOCommand {
       }
       this.log('');
 
-      const { sessionAction } = await inquirer.prompt([{
+      const { sessionAction } = await this.prompt<{ sessionAction: string }>([{
         type: 'list',
         name: 'sessionAction',
         message: 'What would you like to do?',
         choices: [
-          { name: '🔗 Attach to existing session', value: 'attach' },
-          { name: '⚠️  Open new shell anyway (may cause conflicts)', value: 'continue' },
-          { name: '❌ Cancel', value: 'cancel' },
+          { name: '🔗 Attach to existing session', value: 'attach', command: '' },
+          { name: '⚠️  Open new shell anyway (may cause conflicts)', value: 'continue', command: `prlt agent shell ${agentName} --machine` },
+          { name: '❌ Cancel', value: 'cancel', command: '' },
         ],
-      }]);
+      }], agentConfig);
 
       if (sessionAction === 'cancel') {
         this.log(colors.textMuted('Operation cancelled.'));
@@ -176,69 +153,74 @@ export default class Shell extends PMOCommand {
     // Check if agent has devcontainer
     const hasDevcontainer = hasDevcontainerConfig(agentDir);
 
-    // In JSON mode with agent name provided, output config choices prompt and exit
+    // In JSON mode with agent name provided, output combined config prompt
     if (jsonMode) {
       const configChoices = [
-        { name: 'terminal - safe - devcontainer', value: 'terminal-safe-devcontainer' },
-        { name: 'terminal - safe - host', value: 'terminal-safe-host' },
-        { name: 'terminal - danger - devcontainer', value: 'terminal-danger-devcontainer' },
-        { name: 'terminal - danger - host', value: 'terminal-danger-host' },
-        { name: 'foreground - safe - devcontainer', value: 'foreground-safe-devcontainer' },
-        { name: 'foreground - safe - host', value: 'foreground-safe-host' },
-        { name: 'foreground - danger - devcontainer', value: 'foreground-danger-devcontainer' },
-        { name: 'foreground - danger - host', value: 'foreground-danger-host' },
+        { name: 'terminal - safe - devcontainer', value: 'terminal-safe-devcontainer', command: '' },
+        { name: 'terminal - safe - host', value: 'terminal-safe-host', command: '' },
+        { name: 'terminal - danger - devcontainer', value: 'terminal-danger-devcontainer', command: '' },
+        { name: 'terminal - danger - host', value: 'terminal-danger-host', command: '' },
+        { name: 'foreground - safe - devcontainer', value: 'foreground-safe-devcontainer', command: '' },
+        { name: 'foreground - safe - host', value: 'foreground-safe-host', command: '' },
+        { name: 'foreground - danger - devcontainer', value: 'foreground-danger-devcontainer', command: '' },
+        { name: 'foreground - danger - host', value: 'foreground-danger-host', command: '' },
       ];
-      outputPromptAsJson(
-        {
-          ...buildPromptConfig('list', 'config', 'Select shell configuration (displayMode-permissionMode-environment):',
-            hasDevcontainer ? configChoices : configChoices.filter(c => c.value.endsWith('-host'))),
-          context: { agentName, hasDevcontainer },
-        },
-        createMetadata('agent shell', flags)
-      );
+
+      const { config } = await this.prompt<{ config: string }>([{
+        type: 'list',
+        name: 'config',
+        message: 'Select shell configuration (displayMode-permissionMode-environment):',
+        choices: hasDevcontainer ? configChoices : configChoices.filter(c => c.value.endsWith('-host')),
+      }], agentConfig);
+
+      // Parse the config selection (this won't be reached in JSON mode as agentPrompt exits)
+      const [displayMode, permissionMode, environment] = config.split('-') as ['terminal' | 'foreground', 'safe' | 'danger', 'devcontainer' | 'host'];
+      const dangerMode = permissionMode === 'danger';
+
+      if (environment === 'devcontainer') {
+        await this.openDevcontainerShell(workspaceInfo.path, agentDir, agentName!, displayMode, dangerMode);
+      } else {
+        await this.openHostShell(workspaceInfo.path, agentDir, agentName!, displayMode, dangerMode);
+      }
+      return;
     }
 
-    // Prompt for environment
+    // Interactive mode: Prompt for environment
     let environment: 'devcontainer' | 'host' = 'host';
     if (hasDevcontainer) {
-      const { selectedEnvironment } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'selectedEnvironment',
-          message: 'Where should the shell run?',
-          choices: [
-            { name: '🐳 devcontainer (recommended)', value: 'devcontainer' },
-            { name: '💻 host (agent worktree on your machine)', value: 'host' },
-          ],
-          default: 'devcontainer',
-        },
-      ]);
+      const { selectedEnvironment } = await this.prompt<{ selectedEnvironment: 'devcontainer' | 'host' }>([{
+        type: 'list',
+        name: 'selectedEnvironment',
+        message: 'Where should the shell run?',
+        choices: [
+          { name: '🐳 devcontainer (recommended)', value: 'devcontainer', command: '' },
+          { name: '💻 host (agent worktree on your machine)', value: 'host', command: '' },
+        ],
+      }], null);
       environment = selectedEnvironment;
     }
 
-    // Prompt for display mode and permission mode
-    const { displayMode, permissionMode } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'displayMode',
-        message: 'How should the shell be opened?',
-        choices: [
-          { name: 'terminal     - New terminal window', value: 'terminal' },
-          { name: 'foreground   - Run in current terminal', value: 'foreground' },
-        ],
-        default: 'terminal',
-      },
-      {
-        type: 'list',
-        name: 'permissionMode',
-        message: 'Permission mode for Claude Code:',
-        choices: [
-          { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
-          { name: '⚠️  danger - Skip permission checks', value: 'danger' },
-        ],
-        default: 'safe',
-      },
-    ]);
+    // Interactive mode: Prompt for display mode
+    const { displayMode } = await this.prompt<{ displayMode: 'terminal' | 'foreground' }>([{
+      type: 'list',
+      name: 'displayMode',
+      message: 'How should the shell be opened?',
+      choices: [
+        { name: 'terminal     - New terminal window', value: 'terminal', command: '' },
+        { name: 'foreground   - Run in current terminal', value: 'foreground', command: '' },
+      ],
+    }], null);
+
+    // Interactive mode: Prompt for permission mode
+    const { permissionMode } = await this.prompt<{ permissionMode: 'safe' | 'danger' }>([{
+      type: 'list',
+      name: 'permissionMode',
+      message: 'Permission mode for Claude Code:',
+      choices: [
+        { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe', command: '' },
+        { name: '⚠️  danger - Skip permission checks', value: 'danger', command: '' },
+      ],
+    }], null);
 
     this.log('');
     this.log(colors.primary(`🐚 Opening shell for agent: ${agentName}`));

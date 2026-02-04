@@ -24,10 +24,6 @@ export default class SpecLinkRemove extends PMOCommand {
   }
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     type: Flags.string({ char: 't', description: 'Dependency type', options: ['depends_on', 'relates_to', 'duplicates'] }),
     all: Flags.boolean({ char: 'a', description: 'Remove all dependencies', default: false }),
   }
@@ -98,10 +94,14 @@ export default class SpecLinkRemove extends PMOCommand {
         return { name: `${dep.dependsOnSpecId} - ${depSpec?.title || 'Unknown'} (${dep.dependencyType})`, value: dep.dependsOnSpecId }
       }))
 
-      // In JSON mode, output dependency selection prompt
+      // In JSON mode, output dependency selection prompt with command fields
       if (jsonMode) {
+        const choicesWithCommands = choices.map(c => ({
+          ...c,
+          command: `prlt spec link remove ${args.id} ${c.value} --json`,
+        }))
         outputPromptAsJson(
-          buildPromptConfig('list', 'target', 'Select dependency to remove:', choices),
+          buildPromptConfig('list', 'target', 'Select dependency to remove:', choicesWithCommands),
           createMetadata('spec link remove', flags)
         )
         return
