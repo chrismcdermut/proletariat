@@ -15,11 +15,13 @@ import {
 import { TerminalApp, Shell } from '../../lib/execution/types.js'
 import {
   shouldOutputJson,
+  isAgentMode,
   outputPromptAsJson,
   outputSuccessAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
+  normalizeChoices,
+  type JsonFlags,
 } from '../../lib/prompt-json.js'
 
 export default class Config extends Command {
@@ -30,6 +32,7 @@ export default class Config extends Command {
     '<%= config.bin %> <%= command.id %> --json             # Output current config as JSON',
     '<%= config.bin %> <%= command.id %> --set terminal.app iTerm',
     '<%= config.bin %> <%= command.id %> --set terminal.openInBackground true',
+    '<%= config.bin %> <%= command.id %> --setting terminal.app --json  # Show terminal app choices',
   ]
 
   static flags = {
@@ -47,11 +50,63 @@ export default class Config extends Command {
       description: 'List all configuration values',
       default: false,
     }),
+    setting: Flags.string({
+      description: 'Navigate to a specific setting prompt (for agent navigation)',
+    }),
+  }
+
+  /**
+   * Prompt wrapper - drop-in replacement for inquirer.prompt
+   *
+   * Works in BOTH modes:
+   * - Interactive mode: calls inquirer.prompt normally (human sees menu)
+   * - JSON/Agent mode: outputs prompt as structured JSON and exits
+   */
+  private async promptUser<T extends Record<string, unknown>>(
+    questions: Array<{
+      type: string;
+      name: string;
+      message: string;
+      choices?: Array<
+        | string
+        | { name: string; value: unknown; disabled?: boolean | string; command?: string }
+        | unknown
+      >;
+      default?: unknown;
+    }>,
+    jsonModeConfig?: {
+      flags: JsonFlags & Record<string, unknown>;
+      commandName: string;
+    } | null
+  ): Promise<T> {
+    if (jsonModeConfig && isAgentMode(jsonModeConfig.flags)) {
+      const firstQuestion = questions[0];
+      if (firstQuestion) {
+        const choices = firstQuestion.choices
+          ? normalizeChoices(firstQuestion.choices)
+          : undefined;
+
+        outputPromptAsJson(
+          {
+            type: firstQuestion.type as 'list' | 'checkbox' | 'input' | 'confirm' | 'editor',
+            name: firstQuestion.name,
+            message: firstQuestion.message,
+            choices,
+            default: firstQuestion.default as string | boolean | string[] | undefined,
+          },
+          createMetadata(jsonModeConfig.commandName, jsonModeConfig.flags)
+        );
+      }
+      return {} as T;
+    }
+
+    return inquirer.prompt(questions as Parameters<typeof inquirer.prompt>[0]) as Promise<T>;
   }
 
   async run(): Promise<void> {
     const { flags } = await this.parse(Config)
     const jsonMode = shouldOutputJson(flags)
+    const jsonModeConfig = jsonMode ? { flags, commandName: 'config' } : null
 
     // Get workspace info
     let workspaceInfo
@@ -94,8 +149,8 @@ export default class Config extends Command {
         return
       }
 
-      // Handle --list or --json flag (just show config)
-      if (flags.list || flags.json) {
+      // Handle --list or --json flag without --setting (just show config)
+      if ((flags.list || flags.json) && !flags.setting) {
         if (jsonMode) {
           outputSuccessAsJson({
             terminal: {
@@ -137,29 +192,26 @@ export default class Config extends Command {
         return
       }
 
-      // Interactive menu
-      const settingChoices = [
-        { name: `Terminal App: ${config.terminal.app}`, value: 'terminal.app' },
-        { name: `Open Tabs in Background: ${config.terminal.openInBackground}`, value: 'terminal.openInBackground' },
-        { name: `Shell: ${config.shell}`, value: 'shell' },
-        { name: `Tmux Control Mode (iTerm -CC): ${config.tmux.controlMode}`, value: 'tmux.controlMode' },
-      ]
-      const settingMessage = 'Select setting to configure:'
-
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'setting', settingMessage, settingChoices),
-          createMetadata('config', flags)
-        )
+      // Handle --setting flag (navigate directly to a sub-prompt)
+      if (flags.setting) {
+        await this.handleSettingPrompt(db, config, flags.setting, jsonModeConfig)
         db.close()
         return
       }
 
-      const { setting } = await inquirer.prompt([
+      // Interactive menu
+      const settingChoices = [
+        { name: `Terminal App: ${config.terminal.app}`, value: 'terminal.app', command: 'prlt config --setting terminal.app --json' },
+        { name: `Open Tabs in Background: ${config.terminal.openInBackground}`, value: 'terminal.openInBackground', command: 'prlt config --setting terminal.openInBackground --json' },
+        { name: `Shell: ${config.shell}`, value: 'shell', command: 'prlt config --setting shell --json' },
+        { name: `Tmux Control Mode (iTerm -CC): ${config.tmux.controlMode}`, value: 'tmux.controlMode', command: 'prlt config --setting tmux.controlMode --json' },
+      ]
+
+      const { setting } = await this.promptUser<{ setting: string }>([
         {
           type: 'list',
           name: 'setting',
-          message: settingMessage,
+          message: 'Select setting to configure:',
           choices: [
             new inquirer.Separator('── Terminal ──'),
             ...settingChoices.slice(0, 2),
@@ -171,103 +223,123 @@ export default class Config extends Command {
             { name: 'Exit', value: '__exit__' },
           ],
         },
-      ])
+      ], jsonModeConfig)
 
       if (setting === '__exit__') {
         db.close()
         return
       }
 
-      // Handle each setting
-      switch (setting) {
-        case 'terminal.app': {
-          const appChoices = [
-            { name: 'iTerm', value: 'iTerm' },
-            { name: 'Terminal.app (macOS default)', value: 'Terminal' },
-            { name: 'Ghostty', value: 'Ghostty' },
-            { name: 'Alacritty', value: 'Alacritty' },
-            { name: 'Kitty', value: 'Kitty' },
-            { name: 'WezTerm', value: 'WezTerm' },
-            { name: 'Warp', value: 'Warp' },
-            { name: 'tmux', value: 'tmux' },
-          ]
-          const { newApp } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'newApp',
-              message: 'Select terminal app:',
-              choices: appChoices,
-              default: config.terminal.app,
-            },
-          ])
-          saveTerminalApp(db, newApp as TerminalApp)
-          this.log(styles.success(`Terminal app set to: ${newApp}`))
-          break
-        }
-
-        case 'terminal.openInBackground': {
-          const bgChoices = [
-            { name: 'Yes - Open tabs in background (don\'t steal focus)', value: true },
-            { name: 'No - Bring terminal to foreground when opening tabs', value: false },
-          ]
-          const { openInBg } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'openInBg',
-              message: 'Open terminal tabs in background?',
-              choices: bgChoices,
-              default: config.terminal.openInBackground,
-            },
-          ])
-          saveTerminalOpenInBackground(db, openInBg)
-          this.log(styles.success(`Open in background set to: ${openInBg}`))
-          break
-        }
-
-        case 'shell': {
-          const shellChoices = [
-            { name: 'zsh (macOS default)', value: 'zsh' },
-            { name: 'bash', value: 'bash' },
-            { name: 'fish', value: 'fish' },
-          ]
-          const { newShell } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'newShell',
-              message: 'Select shell:',
-              choices: shellChoices,
-              default: config.shell,
-            },
-          ])
-          saveShell(db, newShell as Shell)
-          this.log(styles.success(`Shell set to: ${newShell}`))
-          break
-        }
-
-        case 'tmux.controlMode': {
-          const ccChoices = [
-            { name: 'Yes - Use tmux -CC for native iTerm integration', value: true },
-            { name: 'No - Standard tmux interface', value: false },
-          ]
-          const { controlMode } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'controlMode',
-              message: 'Enable tmux control mode (-CC)?',
-              choices: ccChoices,
-              default: config.tmux.controlMode,
-            },
-          ])
-          saveTmuxControlMode(db, controlMode)
-          this.log(styles.success(`Tmux control mode set to: ${controlMode}`))
-          break
-        }
-      }
+      // Handle the selected setting
+      await this.handleSettingPrompt(db, config, setting, jsonModeConfig)
 
       db.close()
     } catch (error) {
       db.close()
       throw error
+    }
+  }
+
+  /**
+   * Handle a specific setting's sub-prompt
+   */
+  private async handleSettingPrompt(
+    db: Database.Database,
+    config: ReturnType<typeof loadExecutionConfig>,
+    setting: string,
+    jsonModeConfig: { flags: JsonFlags & Record<string, unknown>; commandName: string } | null,
+  ): Promise<void> {
+    switch (setting) {
+      case 'terminal.app': {
+        const appChoices = [
+          { name: 'iTerm', value: 'iTerm', command: 'prlt config --set "terminal.app iTerm" --json' },
+          { name: 'Terminal.app (macOS default)', value: 'Terminal', command: 'prlt config --set "terminal.app Terminal" --json' },
+          { name: 'Ghostty', value: 'Ghostty', command: 'prlt config --set "terminal.app Ghostty" --json' },
+          { name: 'Alacritty', value: 'Alacritty', command: 'prlt config --set "terminal.app Alacritty" --json' },
+          { name: 'Kitty', value: 'Kitty', command: 'prlt config --set "terminal.app Kitty" --json' },
+          { name: 'WezTerm', value: 'WezTerm', command: 'prlt config --set "terminal.app WezTerm" --json' },
+          { name: 'Warp', value: 'Warp', command: 'prlt config --set "terminal.app Warp" --json' },
+          { name: 'tmux', value: 'tmux', command: 'prlt config --set "terminal.app tmux" --json' },
+        ]
+        const { newApp } = await this.promptUser<{ newApp: string }>([
+          {
+            type: 'list',
+            name: 'newApp',
+            message: 'Select terminal app:',
+            choices: appChoices,
+            default: config.terminal.app,
+          },
+        ], jsonModeConfig)
+        saveTerminalApp(db, newApp as TerminalApp)
+        this.log(styles.success(`Terminal app set to: ${newApp}`))
+        break
+      }
+
+      case 'terminal.openInBackground': {
+        const bgChoices = [
+          { name: 'Yes - Open tabs in background (don\'t steal focus)', value: 'true', command: 'prlt config --set "terminal.openInBackground true" --json' },
+          { name: 'No - Bring terminal to foreground when opening tabs', value: 'false', command: 'prlt config --set "terminal.openInBackground false" --json' },
+        ]
+        const { openInBg } = await this.promptUser<{ openInBg: string }>([
+          {
+            type: 'list',
+            name: 'openInBg',
+            message: 'Open terminal tabs in background?',
+            choices: bgChoices,
+            default: String(config.terminal.openInBackground),
+          },
+        ], jsonModeConfig)
+        saveTerminalOpenInBackground(db, openInBg === 'true')
+        this.log(styles.success(`Open in background set to: ${openInBg}`))
+        break
+      }
+
+      case 'shell': {
+        const shellChoices = [
+          { name: 'zsh (macOS default)', value: 'zsh', command: 'prlt config --set "shell zsh" --json' },
+          { name: 'bash', value: 'bash', command: 'prlt config --set "shell bash" --json' },
+          { name: 'fish', value: 'fish', command: 'prlt config --set "shell fish" --json' },
+        ]
+        const { newShell } = await this.promptUser<{ newShell: string }>([
+          {
+            type: 'list',
+            name: 'newShell',
+            message: 'Select shell:',
+            choices: shellChoices,
+            default: config.shell,
+          },
+        ], jsonModeConfig)
+        saveShell(db, newShell as Shell)
+        this.log(styles.success(`Shell set to: ${newShell}`))
+        break
+      }
+
+      case 'tmux.controlMode': {
+        const ccChoices = [
+          { name: 'Yes - Use tmux -CC for native iTerm integration', value: 'true', command: 'prlt config --set "tmux.controlMode true" --json' },
+          { name: 'No - Standard tmux interface', value: 'false', command: 'prlt config --set "tmux.controlMode false" --json' },
+        ]
+        const { controlMode } = await this.promptUser<{ controlMode: string }>([
+          {
+            type: 'list',
+            name: 'controlMode',
+            message: 'Enable tmux control mode (-CC)?',
+            choices: ccChoices,
+            default: String(config.tmux.controlMode),
+          },
+        ], jsonModeConfig)
+        saveTmuxControlMode(db, controlMode === 'true')
+        this.log(styles.success(`Tmux control mode set to: ${controlMode}`))
+        break
+      }
+
+      default: {
+        const jsonMode = shouldOutputJson(jsonModeConfig?.flags ?? {})
+        if (jsonMode) {
+          outputErrorAsJson('UNKNOWN_SETTING', `Unknown setting: ${setting}`, createMetadata('config', jsonModeConfig?.flags ?? {}))
+        }
+        this.error(`Unknown setting: ${setting}`)
+      }
     }
   }
 
