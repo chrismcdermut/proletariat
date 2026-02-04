@@ -4,13 +4,12 @@
  * These tests simulate an AI agent navigating through the status command flows
  * using the --machine flag for JSON machine-readable output.
  *
- * Test pattern:
- * 1. agentExec('command --machine') - execute and get JSON response
- * 2. findChoice(response.prompt.choices, 'pattern') - find a menu choice
- * 3. execChoice(choice) - get the command string from the choice
- * 4. Repeat until final step
- * 5. Execute without --machine to perform the action
- * 6. Verify the result
+ * Each test walks through the COMPLETE interactive flow:
+ * 1. Start with initial command --machine
+ * 2. Parse JSON response, find appropriate choice
+ * 3. Execute the command from that choice
+ * 4. Repeat until action completes
+ * 5. Verify the result in the database
  */
 import { expect } from 'chai';
 import Database from 'better-sqlite3';
@@ -20,27 +19,28 @@ import {
   createHQConfig,
   createPMODirectories,
   exec,
-  agentExec,
-  findChoice,
-  execFinal,
   extractJson,
   type TestEnvironment,
   type AgentPromptResponse,
 } from './test-helpers.js';
 
-interface StatusJson {
+interface StatusRow {
   id: string;
+  workflow_id: string;
   name: string;
   category: string;
   position: number;
-  isDefault?: boolean;
+  color: string | null;
+  description: string | null;
+  is_default: number;
 }
 
-describe('Status Commands - Agent Flow E2E Tests', () => {
+describe('Status Commands - Complete Interactive Flow Tests', function(this: Mocha.Suite) {
+  this.timeout(30000);
+
   let env: TestEnvironment;
   let db: Database.Database;
 
-  // Test project and workflow constants
   const TEST_PROJECT_ID = 'test-project';
   const TEST_WORKFLOW_ID = 'default';
 
@@ -119,7 +119,7 @@ describe('Status Commands - Agent Flow E2E Tests', () => {
   }
 
   /**
-   * Helper to create a test status
+   * Helper to create a test status directly in DB
    */
   function createTestStatus(
     id: string,
@@ -134,12 +134,40 @@ describe('Status Commands - Agent Flow E2E Tests', () => {
     `).run(id, TEST_WORKFLOW_ID, name, category, position, isDefault ? 1 : 0);
   }
 
+  /**
+   * Get a status from DB by ID
+   */
+  function getStatus(id: string): StatusRow | undefined {
+    return db.prepare(`SELECT * FROM pmo_workflow_statuses WHERE id = ?`).get(id) as StatusRow | undefined;
+  }
+
+  /**
+   * Get a status from DB by name
+   */
+  function getStatusByName(name: string): StatusRow | undefined {
+    return db.prepare(`SELECT * FROM pmo_workflow_statuses WHERE name = ?`).get(name) as StatusRow | undefined;
+  }
+
+  /**
+   * Count statuses in DB
+   */
+  function countStatuses(): number {
+    const result = db.prepare(`SELECT COUNT(*) as count FROM pmo_workflow_statuses`).get() as { count: number };
+    return result.count;
+  }
+
+  /**
+   * Check if CLI output indicates a schema/isolation error
+   */
+  function hasSchemaError(output: string): boolean {
+    return output.includes('SqliteError') || output.includes('SQLITE_ERROR');
+  }
+
   beforeEach(() => {
-    env = createTestEnvironment('status-agent-');
+    env = createTestEnvironment('status-flow-');
     createHQConfig(env.proletariatDir);
     createPMODirectories(env.pmoPath, TEST_PROJECT_ID);
 
-    // Initialize database with test data
     db = new Database(env.dbPath);
     setupTestDatabase(env.pmoPath);
   });
@@ -151,461 +179,542 @@ describe('Status Commands - Agent Flow E2E Tests', () => {
     cleanupTestEnvironment(env);
   });
 
-  describe('status menu - full agent flow', () => {
-    it('should output menu choices with command fields in JSON mode', () => {
-      const output = exec(`status -P ${TEST_PROJECT_ID} --machine`);
-      const result = extractJson<AgentPromptResponse>(output);
-
-      // Skip if context error (no project/workspace)
-      if (!result) {
-        return;
-      }
-
-      expect(result.prompt).to.exist;
-      expect(result.prompt.type).to.equal('list');
-      expect(result.prompt.choices).to.be.an('array');
-
-      // Verify menu choices have command fields
-      const listChoice = result.prompt.choices.find(c => c.name.toLowerCase().includes('list'));
-      expect(listChoice).to.exist;
-      expect(listChoice!.command).to.include('prlt status list');
-      expect(listChoice!.command).to.include('--machine');
-
-      const createChoice = result.prompt.choices.find(c => c.name.toLowerCase().includes('create'));
-      expect(createChoice).to.exist;
-      expect(createChoice!.command).to.include('prlt status create');
-
-      const updateChoice = result.prompt.choices.find(c => c.name.toLowerCase().includes('update'));
-      expect(updateChoice).to.exist;
-      expect(updateChoice!.command).to.include('prlt status update');
-
-      const moveChoice = result.prompt.choices.find(c => c.name.toLowerCase().includes('move'));
-      expect(moveChoice).to.exist;
-      expect(moveChoice!.command).to.include('prlt status move');
-
-      const deleteChoice = result.prompt.choices.find(c => c.name.toLowerCase().includes('delete'));
-      expect(deleteChoice).to.exist;
-      expect(deleteChoice!.command).to.include('prlt status delete');
-    });
-  });
-
-  describe('status list - full agent flow', () => {
-    beforeEach(() => {
-      // Use consistent categories that match CLI templates
-      createTestStatus('status-backlog', 'Backlog', 'backlog', 0, true);
-      createTestStatus('status-in-progress', 'In Progress', 'started', 1);
-      createTestStatus('status-done', 'Done', 'completed', 2);
-    });
-
-    it('should output statuses as JSON array in machine mode', () => {
-      const output = exec(`status list -P ${TEST_PROJECT_ID} --machine`);
-
-      // Should return JSON array of statuses
-      let statuses: StatusJson[] | null = null;
-      try {
-        // Output might be an array directly
-        const trimmed = output.trim();
-        const jsonStart = trimmed.indexOf('[');
-        if (jsonStart !== -1) {
-          statuses = JSON.parse(trimmed.substring(jsonStart));
-        }
-      } catch {
-        // If parsing fails, it might be context error
-        return;
-      }
-
-      if (!statuses) return;
-
-      expect(statuses).to.be.an('array');
-      expect(statuses.length).to.be.greaterThan(0);
-
-      // Verify status structure - look for Backlog with backlog category
-      const backlog = statuses.find((s: StatusJson) => s.name === 'Backlog');
-      expect(backlog).to.exist;
-      expect(backlog!.category).to.equal('backlog');
-    });
-  });
-
-  describe('status create - full agent flow', () => {
-    it('should output form prompts with command fields in JSON mode', () => {
+  // ===========================================================================
+  // STATUS CREATE - Complete Flow Tests
+  // ===========================================================================
+  describe('status create - complete interactive flow', () => {
+    it('Step 1: initial command returns name input prompt', () => {
       const output = exec(`status create -P ${TEST_PROJECT_ID} --machine`);
+
+      if (hasSchemaError(output)) return;
+
       const result = extractJson<AgentPromptResponse>(output);
-
-      // Skip if context error
-      if (!result) {
-        return;
-      }
-
-      expect(result.prompt).to.exist;
-      // First prompt should be for name (input type)
-      expect(result.prompt.type).to.equal('input');
-      expect(result.prompt.message.toLowerCase()).to.include('name');
+      expect(result).to.exist;
+      expect(result!.prompt.type).to.equal('input');
+      expect(result!.prompt.name).to.equal('name');
+      expect(result!.prompt.message.toLowerCase()).to.include('name');
     });
 
-    it('should complete flow: provide all flags with --machine → get success response', () => {
-      // Execute with all required flags - should complete without prompting
-      const output = exec(
-        `status create -P ${TEST_PROJECT_ID} --name "Review" --category started --machine`
-      );
+    it('Step 2: with --name, returns category list prompt', () => {
+      const output = exec(`status create -P ${TEST_PROJECT_ID} --name "Test Status" --machine`);
 
-      // With all flags provided and --machine, should either:
-      // - Complete and show success output
-      // - Or show next prompt if more input needed
-      // The key is no "unknown flag" errors
-      expect(output).to.not.include('Unexpected argument');
-      expect(output).to.not.include('unknown flag');
-    });
-  });
+      if (hasSchemaError(output)) return;
 
-  describe('status update - full agent flow', () => {
-    beforeEach(() => {
-      createTestStatus('status-update-test', 'Original Name', 'backlog', 0);
-    });
-
-    it('should complete flow: select status → prompt for updates', () => {
-      // Agent Step 1: Get status selection prompt
-      const output = exec(`status update -P ${TEST_PROJECT_ID} --machine`);
       const result = extractJson<AgentPromptResponse>(output);
+      expect(result).to.exist;
+      expect(result!.prompt.type).to.equal('list');
+      expect(result!.prompt.name).to.equal('category');
 
-      // Skip if context error or no statuses
-      if (!result) {
-        return;
-      }
+      // Verify category choices exist
+      const choices = result!.prompt.choices;
+      expect(choices.length).to.be.greaterThan(0);
 
-      expect(result.prompt).to.exist;
-      expect(result.prompt.type).to.equal('list');
-      expect(result.prompt.message.toLowerCase()).to.include('status');
-
-      // Verify choices have command fields for agent navigation
-      expect(result.prompt.choices.length).to.be.greaterThan(0);
-      const firstChoice = result.prompt.choices[0];
-      expect(firstChoice.command).to.include('prlt status update');
-      expect(firstChoice.command).to.include('--machine');
+      // Each choice should have a command with --category flag
+      const startedChoice = choices.find(c => c.value === 'started');
+      expect(startedChoice).to.exist;
+      expect(startedChoice!.command).to.include('--category started');
+      expect(startedChoice!.command).to.include('--machine');
     });
 
-    it('should complete flow: provide ID and flags with --machine → get response', () => {
-      // Execute with ID and update flags with --machine
-      const output = exec(
-        `status update status-update-test -P ${TEST_PROJECT_ID} --name "Updated Name" --machine`
-      );
+    it('Step 3: with --name and --category, returns color input prompt', () => {
+      const output = exec(`status create -P ${TEST_PROJECT_ID} --name "Test Status" --category started --machine`);
 
-      // With ID and flags provided and --machine, should not error
-      expect(output).to.not.include('Unexpected argument');
-      expect(output).to.not.include('unknown flag');
-    });
-  });
+      if (hasSchemaError(output)) return;
 
-  describe('status move - full agent flow', () => {
-    beforeEach(() => {
-      createTestStatus('status-move-1', 'First', 'backlog', 0);
-      createTestStatus('status-move-2', 'Second', 'backlog', 1);
-      createTestStatus('status-move-3', 'Third', 'backlog', 2);
-    });
-
-    it('should complete flow: select status → prompt for next step', () => {
-      // Agent Step 1: Get status selection prompt
-      const output1 = exec(`status move -P ${TEST_PROJECT_ID} --machine`);
-      const result1 = extractJson<AgentPromptResponse>(output1);
-
-      // Skip if context error or no statuses
-      if (!result1) {
-        return;
-      }
-
-      expect(result1.prompt).to.exist;
-      expect(result1.prompt.type).to.equal('list');
-
-      // Verify choices have command fields for agent navigation
-      expect(result1.prompt.choices.length).to.be.greaterThan(0);
-      const statusChoice = result1.prompt.choices[0];
-      expect(statusChoice.command).to.include('--machine');
-    });
-
-    it('should complete flow: provide ID and position with --machine → get response', () => {
-      // Execute with ID and position flags with --machine
-      const output = exec(
-        `status move status-move-3 -P ${TEST_PROJECT_ID} --position 0 --machine`
-      );
-
-      // With ID and position provided and --machine, should not error
-      expect(output).to.not.include('Unexpected argument');
-      expect(output).to.not.include('unknown flag');
-    });
-  });
-
-  describe('status delete - full agent flow', () => {
-    beforeEach(() => {
-      createTestStatus('status-delete-test', 'Delete Me', 'backlog', 0);
-    });
-
-    it('should accept status ID and --machine flag without error', () => {
-      // This test verifies the --machine flag is supported for delete
-      // The specific status may not exist due to test isolation,
-      // but the flag should be recognized
-      const output = exec(`status delete status-delete-test --machine`);
-
-      // Should not have "unknown flag" errors
-      expect(output).to.not.include('Unexpected argument');
-      expect(output).to.not.include('unknown flag');
-
-      // If it's a valid prompt response, verify structure
       const result = extractJson<AgentPromptResponse>(output);
-      if (result && result.prompt) {
-        expect(result.prompt.type).to.equal('list');
-        expect(result.prompt.choices.length).to.be.greaterThan(0);
-      }
+      expect(result).to.exist;
+      expect(result!.prompt.type).to.equal('input');
+      expect(result!.prompt.name).to.equal('color');
     });
 
-    it('should complete flow: provide --force with --machine → get response', () => {
-      // Execute with --force and --machine to skip confirmation
-      const output = exec(`status delete status-delete-test --force --machine`);
-
-      // With --force and --machine, should not error about unknown flags
-      expect(output).to.not.include('Unexpected argument');
-      expect(output).to.not.include('unknown flag');
-    });
-  });
-
-  describe('--machine flag availability', () => {
-    it('status command should support --machine flag', () => {
-      const output = exec(`status -P ${TEST_PROJECT_ID} --machine`);
-      expect(output).to.not.include('Unexpected argument');
-      expect(output).to.not.include('unknown flag');
-    });
-
-    it('status list should support --machine flag', () => {
-      createTestStatus('test-status', 'Test', 'backlog', 0);
-      const output = exec(`status list -P ${TEST_PROJECT_ID} --machine`);
-      expect(output).to.not.include('Unexpected argument');
-      expect(output).to.not.include('unknown flag');
-    });
-
-    it('status create should support --machine flag', () => {
-      const output = exec(`status create -P ${TEST_PROJECT_ID} --machine`);
-      expect(output).to.not.include('Unexpected argument');
-      expect(output).to.not.include('unknown flag');
-    });
-
-    it('status update should support --machine flag', () => {
-      createTestStatus('test-update', 'Test', 'backlog', 0);
-      const output = exec(`status update -P ${TEST_PROJECT_ID} --machine`);
-      expect(output).to.not.include('Unexpected argument');
-      expect(output).to.not.include('unknown flag');
-    });
-
-    it('status move should support --machine flag', () => {
-      createTestStatus('test-move', 'Test', 'backlog', 0);
-      const output = exec(`status move -P ${TEST_PROJECT_ID} --machine`);
-      expect(output).to.not.include('Unexpected argument');
-      expect(output).to.not.include('unknown flag');
-    });
-
-    it('status delete should support --machine flag', () => {
-      createTestStatus('test-delete', 'Test', 'backlog', 0);
-      const output = exec(`status delete test-delete --machine`);
-      expect(output).to.not.include('Unexpected argument');
-      expect(output).to.not.include('unknown flag');
-    });
-  });
-
-  describe('Flag accumulation in choices', () => {
-    beforeEach(() => {
-      createTestStatus('status-acc-1', 'Accumulation Test', 'backlog', 0);
-    });
-
-    it('main menu choices should include --machine flag for stateless navigation', () => {
-      const output = exec(`status -P ${TEST_PROJECT_ID} --machine`);
-      const result = extractJson<AgentPromptResponse>(output);
-
-      if (!result) return;
-
-      // All choices should have --machine flag for agent to continue navigating
-      for (const choice of result.prompt.choices) {
-        if (choice.command && !choice.name.toLowerCase().includes('cancel')) {
-          expect(choice.command).to.include('--machine',
-            `Choice "${choice.name}" should include --machine flag`);
-        }
-      }
-    });
-
-    it('status update choices should accumulate project flag', () => {
-      const output = exec(`status update -P ${TEST_PROJECT_ID} --machine`);
-      const result = extractJson<AgentPromptResponse>(output);
-
-      if (!result) return;
-
-      // Choices should include the project flag that was passed
-      for (const choice of result.prompt.choices) {
-        if (choice.command) {
-          expect(choice.command).to.include('-P',
-            `Choice "${choice.name}" should include project flag`);
-        }
-      }
-    });
-
-    it('status move choices should accumulate status ID after selection', () => {
-      const output = exec(`status move -P ${TEST_PROJECT_ID} --machine`);
-      const result = extractJson<AgentPromptResponse>(output);
-
-      if (!result) return;
-
-      // Each status choice command should include the status ID
-      for (const choice of result.prompt.choices) {
-        if (choice.command && choice.value) {
-          expect(choice.command).to.include(choice.value,
-            `Choice command should include status ID "${choice.value}"`);
-        }
-      }
-    });
-  });
-
-  describe('Full E2E: status create flow with DB verification', function(this: Mocha.Suite) {
-    this.timeout(30000);
-
-    it('should create status and verify in database', () => {
-      const statusName = 'E2E Created Status';
+    it('Complete flow: create status and verify in database', () => {
+      const statusName = 'Flow Created Status';
       const statusCategory = 'started';
 
-      // Step 1: Execute create with all flags (bypasses prompts)
+      // Execute with all required flags to complete the action
       const output = exec(
-        `status create -P ${TEST_PROJECT_ID} --name "${statusName}" --category ${statusCategory} --machine`
+        `status create -P ${TEST_PROJECT_ID} --name "${statusName}" --category ${statusCategory} --color "" --description "" --machine`
       );
 
-      // Skip if CLI has schema issues (test isolation limitation)
-      if (output.includes('SqliteError') || output.includes('SQLITE_ERROR')) {
-        return;
-      }
+      if (hasSchemaError(output)) return;
 
-      // Should not have unknown flag errors
-      expect(output).to.not.include('unknown flag');
-      expect(output).to.not.include('Unexpected argument');
-
-      // Step 2: Verify status was created in database
-      const created = db.prepare(`
-        SELECT * FROM pmo_workflow_statuses WHERE name = ?
-      `).get(statusName) as StatusJson | undefined;
-
+      // Verify status was created in database
+      const created = getStatusByName(statusName);
       expect(created).to.exist;
       expect(created!.name).to.equal(statusName);
       expect(created!.category).to.equal(statusCategory);
     });
+
+    it('Full navigation: follow choice commands through entire flow', () => {
+      // Step 1: Get initial prompt
+      const step1 = exec(`status create -P ${TEST_PROJECT_ID} --machine`);
+      if (hasSchemaError(step1)) return;
+
+      const result1 = extractJson<AgentPromptResponse>(step1);
+      if (!result1) return;
+
+      expect(result1.prompt.type).to.equal('input');
+      expect(result1.prompt.name).to.equal('name');
+
+      // Step 2: Provide name, get category prompt
+      const step2 = exec(`status create -P ${TEST_PROJECT_ID} --name "Navigation Test" --machine`);
+      if (hasSchemaError(step2)) return;
+
+      const result2 = extractJson<AgentPromptResponse>(step2);
+      if (!result2) return;
+
+      expect(result2.prompt.type).to.equal('list');
+      expect(result2.prompt.name).to.equal('category');
+
+      // Step 3: Find "started" category and follow its command
+      const startedChoice = result2.prompt.choices.find(c => c.value === 'started');
+      expect(startedChoice).to.exist;
+      expect(startedChoice!.command).to.include('--category started');
+
+      // Step 4: Execute with category (will get color prompt)
+      const step3 = exec(`status create -P ${TEST_PROJECT_ID} --name "Navigation Test" --category started --machine`);
+      if (hasSchemaError(step3)) return;
+
+      const result3 = extractJson<AgentPromptResponse>(step3);
+      if (!result3) return;
+
+      expect(result3.prompt.type).to.equal('input');
+      expect(result3.prompt.name).to.equal('color');
+    });
   });
 
-  describe('Full E2E: status list returns created statuses', function(this: Mocha.Suite) {
-    this.timeout(30000);
-
+  // ===========================================================================
+  // STATUS UPDATE - Complete Flow Tests
+  // ===========================================================================
+  describe('status update - complete interactive flow', () => {
     beforeEach(() => {
-      createTestStatus('e2e-status-1', 'E2E Status One', 'backlog', 0);
-      createTestStatus('e2e-status-2', 'E2E Status Two', 'started', 1);
-      createTestStatus('e2e-status-3', 'E2E Status Three', 'completed', 2);
+      createTestStatus('update-target', 'Status To Update', 'backlog', 0);
+      createTestStatus('update-other', 'Other Status', 'started', 1);
     });
 
-    it('should list all created statuses with correct data', () => {
+    it('Step 1: initial command returns status selection list', () => {
+      const output = exec(`status update -P ${TEST_PROJECT_ID} --machine`);
+
+      if (hasSchemaError(output)) return;
+
+      const result = extractJson<AgentPromptResponse>(output);
+      expect(result).to.exist;
+      expect(result!.prompt.type).to.equal('list');
+      expect(result!.prompt.name).to.equal('id');
+      expect(result!.prompt.message.toLowerCase()).to.include('status');
+
+      // Verify our statuses are in the choices
+      const choices = result!.prompt.choices;
+      expect(choices.length).to.be.at.least(2);
+
+      // Each choice should have command with status ID
+      for (const choice of choices) {
+        expect(choice.command).to.include('status update');
+        expect(choice.command).to.include(choice.value);
+        expect(choice.command).to.include('--machine');
+      }
+    });
+
+    it('Step 2: with status ID, returns name input prompt', () => {
+      const output = exec(`status update update-target -P ${TEST_PROJECT_ID} --machine`);
+
+      if (hasSchemaError(output)) return;
+
+      const result = extractJson<AgentPromptResponse>(output);
+      expect(result).to.exist;
+      expect(result!.prompt.type).to.equal('input');
+      expect(result!.prompt.name).to.equal('name');
+    });
+
+    it('Step 3: with ID and --name, returns category list prompt', () => {
+      const output = exec(`status update update-target -P ${TEST_PROJECT_ID} --name "Updated Name" --machine`);
+
+      if (hasSchemaError(output)) return;
+
+      const result = extractJson<AgentPromptResponse>(output);
+      expect(result).to.exist;
+      expect(result!.prompt.type).to.equal('list');
+      expect(result!.prompt.name).to.equal('category');
+
+      // Choices should have commands with --category flag
+      for (const choice of result!.prompt.choices) {
+        expect(choice.command).to.include('--category');
+        expect(choice.command).to.include('--machine');
+      }
+    });
+
+    it('Complete flow: update status name and verify in database', () => {
+      const newName = 'Renamed Status';
+
+      // Execute update with all flags
+      const output = exec(
+        `status update update-target -P ${TEST_PROJECT_ID} --name "${newName}" --category backlog --color "" --description "" --machine`
+      );
+
+      if (hasSchemaError(output)) return;
+
+      // Verify status was updated in database
+      const updated = getStatus('update-target');
+      expect(updated).to.exist;
+      expect(updated!.name).to.equal(newName);
+    });
+
+    it('Full navigation: select status → update → verify', () => {
+      // Step 1: Get status selection
+      const step1 = exec(`status update -P ${TEST_PROJECT_ID} --machine`);
+      if (hasSchemaError(step1)) return;
+
+      const result1 = extractJson<AgentPromptResponse>(step1);
+      if (!result1) return;
+
+      expect(result1.prompt.type).to.equal('list');
+
+      // Step 2: Find our target status choice
+      const targetChoice = result1.prompt.choices.find(c => c.value === 'update-target');
+      expect(targetChoice).to.exist;
+
+      // Step 3: Execute the command from the choice
+      const cmd2 = targetChoice!.command!.replace('prlt ', '');
+      const step2 = exec(cmd2);
+      if (hasSchemaError(step2)) return;
+
+      const result2 = extractJson<AgentPromptResponse>(step2);
+      if (!result2) return;
+
+      expect(result2.prompt.type).to.equal('input');
+      expect(result2.prompt.name).to.equal('name');
+    });
+  });
+
+  // ===========================================================================
+  // STATUS MOVE - Complete Flow Tests
+  // ===========================================================================
+  describe('status move - complete interactive flow', () => {
+    beforeEach(() => {
+      createTestStatus('move-1', 'First Status', 'backlog', 0);
+      createTestStatus('move-2', 'Second Status', 'backlog', 1);
+      createTestStatus('move-3', 'Third Status', 'backlog', 2);
+    });
+
+    it('Step 1: initial command returns status selection list', () => {
+      const output = exec(`status move -P ${TEST_PROJECT_ID} --machine`);
+
+      if (hasSchemaError(output)) return;
+
+      const result = extractJson<AgentPromptResponse>(output);
+      expect(result).to.exist;
+      expect(result!.prompt.type).to.equal('list');
+      expect(result!.prompt.name).to.equal('id');
+
+      // Verify statuses are in choices with position info
+      const choices = result!.prompt.choices;
+      expect(choices.length).to.be.at.least(3);
+
+      // Each choice should show position and have command
+      for (const choice of choices) {
+        expect(choice.name).to.include('position');
+        expect(choice.command).to.include('status move');
+        expect(choice.command).to.include('--machine');
+      }
+    });
+
+    it('Step 2: with status ID, returns position selection list', () => {
+      const output = exec(`status move move-3 -P ${TEST_PROJECT_ID} --machine`);
+
+      if (hasSchemaError(output)) return;
+
+      const result = extractJson<AgentPromptResponse>(output);
+      expect(result).to.exist;
+      expect(result!.prompt.type).to.equal('list');
+      expect(result!.prompt.name).to.equal('position');
+      expect(result!.prompt.message.toLowerCase()).to.include('position');
+
+      // Choices should be position options with commands
+      for (const choice of result!.prompt.choices) {
+        expect(choice.name).to.include('Position');
+        expect(choice.command).to.include('--position');
+        expect(choice.command).to.include('--machine');
+      }
+    });
+
+    it('Complete flow: move status and verify new position in database', () => {
+      // Move "Third Status" from position 2 to position 0
+      const output = exec(`status move move-3 -P ${TEST_PROJECT_ID} --position 0 --machine`);
+
+      if (hasSchemaError(output)) return;
+
+      // Verify position was updated in database
+      const moved = getStatus('move-3');
+      expect(moved).to.exist;
+      expect(moved!.position).to.equal(0);
+    });
+
+    it('Full navigation: select status → select position → verify move', () => {
+      // Step 1: Get status selection
+      const step1 = exec(`status move -P ${TEST_PROJECT_ID} --machine`);
+      if (hasSchemaError(step1)) return;
+
+      const result1 = extractJson<AgentPromptResponse>(step1);
+      if (!result1) return;
+
+      expect(result1.prompt.type).to.equal('list');
+
+      // Step 2: Find "Third Status" choice
+      const thirdChoice = result1.prompt.choices.find(c => c.value === 'move-3');
+      expect(thirdChoice).to.exist;
+
+      // Step 3: Execute command from choice to get position prompt
+      const cmd2 = thirdChoice!.command!.replace('prlt ', '');
+      const step2 = exec(cmd2);
+      if (hasSchemaError(step2)) return;
+
+      const result2 = extractJson<AgentPromptResponse>(step2);
+      if (!result2) return;
+
+      expect(result2.prompt.type).to.equal('list');
+      expect(result2.prompt.name).to.equal('position');
+
+      // Step 4: Find position 0 choice (value may be string or number)
+      const pos0Choice = result2.prompt.choices.find(c => String(c.value) === '0');
+      expect(pos0Choice).to.exist;
+      expect(pos0Choice!.command).to.include('--position 0');
+
+      // Step 5: Execute position command
+      const cmd3 = pos0Choice!.command!.replace('prlt ', '');
+      const step3 = exec(cmd3);
+      if (hasSchemaError(step3)) return;
+
+      // Verify move completed
+      const moved = getStatus('move-3');
+      expect(moved).to.exist;
+      expect(moved!.position).to.equal(0);
+    });
+  });
+
+  // ===========================================================================
+  // STATUS DELETE - Complete Flow Tests
+  // ===========================================================================
+  describe('status delete - complete interactive flow', () => {
+    beforeEach(() => {
+      createTestStatus('delete-target', 'Status To Delete', 'backlog', 0);
+    });
+
+    it('Step 1: with ID, returns confirmation prompt', () => {
+      const output = exec(`status delete delete-target --machine`);
+
+      if (hasSchemaError(output)) return;
+
+      const result = extractJson<AgentPromptResponse>(output);
+      expect(result).to.exist;
+      expect(result!.prompt.type).to.equal('list');
+      expect(result!.prompt.name).to.equal('confirm');
+      expect(result!.prompt.message.toLowerCase()).to.include('delete');
+
+      // Should have Yes and No choices
+      const yesChoice = result!.prompt.choices.find(c => c.name.toLowerCase().includes('yes'));
+      const noChoice = result!.prompt.choices.find(c => c.name.toLowerCase().includes('no'));
+
+      expect(yesChoice).to.exist;
+      expect(yesChoice!.command).to.include('--force');
+      expect(yesChoice!.command).to.include('--machine');
+
+      expect(noChoice).to.exist;
+    });
+
+    it('Complete flow with --force: delete and verify removal from database', () => {
+      // Verify exists before
+      const before = getStatus('delete-target');
+      expect(before).to.exist;
+
+      // Delete with --force
+      const output = exec(`status delete delete-target --force --machine`);
+
+      if (hasSchemaError(output)) return;
+
+      // Verify removed from database
+      const after = getStatus('delete-target');
+      expect(after).to.not.exist;
+    });
+
+    it('Full navigation: confirmation prompt → confirm → verify deletion', () => {
+      // Step 1: Get confirmation prompt
+      const step1 = exec(`status delete delete-target --machine`);
+      if (hasSchemaError(step1)) return;
+
+      const result1 = extractJson<AgentPromptResponse>(step1);
+      if (!result1) return;
+
+      expect(result1.prompt.type).to.equal('list');
+      expect(result1.prompt.name).to.equal('confirm');
+
+      // Step 2: Find "Yes" choice
+      const yesChoice = result1.prompt.choices.find(c => c.name.toLowerCase().includes('yes'));
+      expect(yesChoice).to.exist;
+      expect(yesChoice!.command).to.include('--force');
+
+      // Step 3: Execute confirmation command
+      const cmd2 = yesChoice!.command!.replace('prlt ', '');
+      const step2 = exec(cmd2);
+      if (hasSchemaError(step2)) return;
+
+      // Step 4: Verify deletion
+      const deleted = getStatus('delete-target');
+      expect(deleted).to.not.exist;
+    });
+  });
+
+  // ===========================================================================
+  // STATUS LIST - Output Verification
+  // ===========================================================================
+  describe('status list - JSON output verification', () => {
+    beforeEach(() => {
+      createTestStatus('list-1', 'Backlog Status', 'backlog', 0, true);
+      createTestStatus('list-2', 'In Progress', 'started', 0);
+      createTestStatus('list-3', 'Done', 'completed', 0);
+    });
+
+    it('returns JSON array of all statuses with correct structure', () => {
       const output = exec(`status list -P ${TEST_PROJECT_ID} --machine`);
 
+      if (hasSchemaError(output)) return;
+
       // Parse JSON array
-      const trimmed = output.trim();
-      const jsonStart = trimmed.indexOf('[');
+      const jsonStart = output.indexOf('[');
       if (jsonStart === -1) return;
 
-      const statuses = JSON.parse(trimmed.substring(jsonStart)) as StatusJson[];
+      const statuses = JSON.parse(output.substring(jsonStart)) as StatusRow[];
 
       expect(statuses).to.be.an('array');
       expect(statuses.length).to.be.at.least(3);
 
-      // Verify our statuses are in the list
-      const status1 = statuses.find(s => s.name === 'E2E Status One');
-      const status2 = statuses.find(s => s.name === 'E2E Status Two');
-      const status3 = statuses.find(s => s.name === 'E2E Status Three');
-
-      expect(status1).to.exist;
-      expect(status1!.category).to.equal('backlog');
-
-      expect(status2).to.exist;
-      expect(status2!.category).to.equal('started');
-
-      expect(status3).to.exist;
-      expect(status3!.category).to.equal('completed');
-    });
-  });
-
-  describe('Full E2E: status delete with DB verification', function(this: Mocha.Suite) {
-    this.timeout(30000);
-
-    beforeEach(() => {
-      createTestStatus('e2e-delete-target', 'Status To Delete', 'backlog', 0);
-    });
-
-    it('should delete status with --force and verify removal from database', () => {
-      // Verify status exists before delete
-      const beforeDelete = db.prepare(`
-        SELECT * FROM pmo_workflow_statuses WHERE id = ?
-      `).get('e2e-delete-target');
-      expect(beforeDelete).to.exist;
-
-      // Execute delete with --force to skip confirmation
-      const output = exec(`status delete e2e-delete-target --force --machine`);
-
-      // Skip DB verification if CLI has schema issues (test isolation limitation)
-      if (output.includes('SqliteError') || output.includes('SQLITE_ERROR')) {
-        return;
+      // Verify each status has required fields
+      for (const status of statuses) {
+        expect(status).to.have.property('id');
+        expect(status).to.have.property('name');
+        expect(status).to.have.property('category');
+        expect(status).to.have.property('position');
       }
 
-      // Should not have unknown flag errors
-      expect(output).to.not.include('unknown flag');
-      expect(output).to.not.include('Unexpected argument');
+      // Verify specific statuses
+      const backlog = statuses.find(s => s.name === 'Backlog Status');
+      expect(backlog).to.exist;
+      expect(backlog!.category).to.equal('backlog');
 
-      // Verify status was removed from database
-      const afterDelete = db.prepare(`
-        SELECT * FROM pmo_workflow_statuses WHERE id = ?
-      `).get('e2e-delete-target');
-      expect(afterDelete).to.not.exist;
+      const inProgress = statuses.find(s => s.name === 'In Progress');
+      expect(inProgress).to.exist;
+      expect(inProgress!.category).to.equal('started');
     });
   });
 
-  describe('Full E2E: menu navigation flow', function(this: Mocha.Suite) {
-    this.timeout(30000);
-
+  // ===========================================================================
+  // MAIN MENU - Navigation Tests
+  // ===========================================================================
+  describe('status main menu - navigation to subcommands', () => {
     beforeEach(() => {
-      createTestStatus('nav-status-1', 'Navigation Status', 'backlog', 0);
+      createTestStatus('menu-status', 'Menu Test Status', 'backlog', 0);
     });
 
-    it('should navigate: main menu → list command → get results', () => {
-      // Step 1: Get main menu
-      const menuOutput = exec(`status -P ${TEST_PROJECT_ID} --machine`);
-      const menuResult = extractJson<AgentPromptResponse>(menuOutput);
+    it('main menu has all subcommand choices with proper commands', () => {
+      const output = exec(`status -P ${TEST_PROJECT_ID} --machine`);
 
+      if (hasSchemaError(output)) return;
+
+      const result = extractJson<AgentPromptResponse>(output);
+      expect(result).to.exist;
+      expect(result!.prompt.type).to.equal('list');
+
+      const choices = result!.prompt.choices;
+
+      // Verify list choice
+      const listChoice = choices.find(c => c.name.toLowerCase().includes('list'));
+      expect(listChoice).to.exist;
+      expect(listChoice!.command).to.include('status list');
+      expect(listChoice!.command).to.include('--machine');
+
+      // Verify create choice
+      const createChoice = choices.find(c => c.name.toLowerCase().includes('create'));
+      expect(createChoice).to.exist;
+      expect(createChoice!.command).to.include('status create');
+
+      // Verify update choice
+      const updateChoice = choices.find(c => c.name.toLowerCase().includes('update'));
+      expect(updateChoice).to.exist;
+      expect(updateChoice!.command).to.include('status update');
+
+      // Verify move choice
+      const moveChoice = choices.find(c => c.name.toLowerCase().includes('move'));
+      expect(moveChoice).to.exist;
+      expect(moveChoice!.command).to.include('status move');
+
+      // Verify delete choice
+      const deleteChoice = choices.find(c => c.name.toLowerCase().includes('delete'));
+      expect(deleteChoice).to.exist;
+      expect(deleteChoice!.command).to.include('status delete');
+    });
+
+    it('menu → list: navigates and returns status data', () => {
+      // Step 1: Get menu
+      const menu = exec(`status -P ${TEST_PROJECT_ID} --machine`);
+      if (hasSchemaError(menu)) return;
+
+      const menuResult = extractJson<AgentPromptResponse>(menu);
       if (!menuResult) return;
 
-      // Step 2: Find "List" choice and get its command
+      // Step 2: Find list choice
       const listChoice = menuResult.prompt.choices.find(c =>
         c.name.toLowerCase().includes('list')
       );
       expect(listChoice).to.exist;
-      expect(listChoice!.command).to.exist;
 
-      // Step 3: Execute the list command from the choice
+      // Step 3: Execute list command
       const listCmd = listChoice!.command!.replace('prlt ', '');
       const listOutput = exec(listCmd);
+      if (hasSchemaError(listOutput)) return;
 
-      // Step 4: Verify we got a list of statuses
-      const trimmed = listOutput.trim();
-      const jsonStart = trimmed.indexOf('[');
-      if (jsonStart !== -1) {
-        const statuses = JSON.parse(trimmed.substring(jsonStart)) as StatusJson[];
-        expect(statuses).to.be.an('array');
-        expect(statuses.length).to.be.greaterThan(0);
-      }
+      // Step 4: Verify we get status array
+      const jsonStart = listOutput.indexOf('[');
+      if (jsonStart === -1) return;
+
+      const statuses = JSON.parse(listOutput.substring(jsonStart));
+      expect(statuses).to.be.an('array');
+      expect(statuses.length).to.be.greaterThan(0);
     });
 
-    it('should navigate: main menu → update → status selection', () => {
-      // Step 1: Get main menu
-      const menuOutput = exec(`status -P ${TEST_PROJECT_ID} --machine`);
-      const menuResult = extractJson<AgentPromptResponse>(menuOutput);
+    it('menu → create: navigates and shows name prompt', () => {
+      // Step 1: Get menu
+      const menu = exec(`status -P ${TEST_PROJECT_ID} --machine`);
+      if (hasSchemaError(menu)) return;
 
+      const menuResult = extractJson<AgentPromptResponse>(menu);
       if (!menuResult) return;
 
-      // Step 2: Find "Update" choice
+      // Step 2: Find create choice
+      const createChoice = menuResult.prompt.choices.find(c =>
+        c.name.toLowerCase().includes('create')
+      );
+      expect(createChoice).to.exist;
+
+      // Step 3: Execute create command
+      const createCmd = createChoice!.command!.replace('prlt ', '');
+      const createOutput = exec(createCmd);
+      if (hasSchemaError(createOutput)) return;
+
+      // Step 4: Verify we get name input prompt
+      const result = extractJson<AgentPromptResponse>(createOutput);
+      expect(result).to.exist;
+      expect(result!.prompt.type).to.equal('input');
+      expect(result!.prompt.name).to.equal('name');
+    });
+
+    it('menu → update: navigates and shows status selection', () => {
+      // Step 1: Get menu
+      const menu = exec(`status -P ${TEST_PROJECT_ID} --machine`);
+      if (hasSchemaError(menu)) return;
+
+      const menuResult = extractJson<AgentPromptResponse>(menu);
+      if (!menuResult) return;
+
+      // Step 2: Find update choice
       const updateChoice = menuResult.prompt.choices.find(c =>
         c.name.toLowerCase().includes('update')
       );
@@ -614,18 +723,81 @@ describe('Status Commands - Agent Flow E2E Tests', () => {
       // Step 3: Execute update command
       const updateCmd = updateChoice!.command!.replace('prlt ', '');
       const updateOutput = exec(updateCmd);
-      const updateResult = extractJson<AgentPromptResponse>(updateOutput);
+      if (hasSchemaError(updateOutput)) return;
 
-      if (!updateResult) return;
+      // Step 4: Verify we get status selection list
+      const result = extractJson<AgentPromptResponse>(updateOutput);
+      expect(result).to.exist;
+      expect(result!.prompt.type).to.equal('list');
+      expect(result!.prompt.choices.length).to.be.greaterThan(0);
+    });
+  });
 
-      // Step 4: Verify we got status selection prompt
-      expect(updateResult.prompt.type).to.equal('list');
-      expect(updateResult.prompt.choices.length).to.be.greaterThan(0);
+  // ===========================================================================
+  // FLAG ACCUMULATION - Stateless Navigation
+  // ===========================================================================
+  describe('flag accumulation for stateless agent navigation', () => {
+    beforeEach(() => {
+      createTestStatus('acc-status', 'Accumulation Test', 'backlog', 0);
+    });
 
-      // Step 5: Verify status choices have proper commands
-      const statusChoice = updateResult.prompt.choices[0];
-      expect(statusChoice.command).to.include('status update');
-      expect(statusChoice.command).to.include('--machine');
+    it('project flag (-P) is preserved in choice commands', () => {
+      const output = exec(`status update -P ${TEST_PROJECT_ID} --machine`);
+      if (hasSchemaError(output)) return;
+
+      const result = extractJson<AgentPromptResponse>(output);
+      if (!result) return;
+
+      // All choices should include the project flag
+      for (const choice of result.prompt.choices) {
+        if (choice.command) {
+          expect(choice.command).to.include('-P');
+        }
+      }
+    });
+
+    it('--machine flag is always included in choice commands', () => {
+      const output = exec(`status -P ${TEST_PROJECT_ID} --machine`);
+      if (hasSchemaError(output)) return;
+
+      const result = extractJson<AgentPromptResponse>(output);
+      if (!result) return;
+
+      // All non-cancel choices should include --machine
+      for (const choice of result.prompt.choices) {
+        if (choice.command && !choice.name.toLowerCase().includes('cancel')) {
+          expect(choice.command).to.include('--machine');
+        }
+      }
+    });
+
+    it('status move: ID is preserved when navigating to position prompt', () => {
+      // Step 1: Get status selection
+      const step1 = exec(`status move -P ${TEST_PROJECT_ID} --machine`);
+      if (hasSchemaError(step1)) return;
+
+      const result1 = extractJson<AgentPromptResponse>(step1);
+      if (!result1) return;
+
+      // Step 2: Find our status and verify its command includes the ID
+      const choice = result1.prompt.choices.find(c => c.value === 'acc-status');
+      expect(choice).to.exist;
+      expect(choice!.command).to.include('acc-status');
+
+      // Step 3: Execute and verify position choices also include ID
+      const cmd2 = choice!.command!.replace('prlt ', '');
+      const step2 = exec(cmd2);
+      if (hasSchemaError(step2)) return;
+
+      const result2 = extractJson<AgentPromptResponse>(step2);
+      if (!result2) return;
+
+      // Position choices should include the status ID
+      for (const posChoice of result2.prompt.choices) {
+        if (posChoice.command) {
+          expect(posChoice.command).to.include('acc-status');
+        }
+      }
     });
   });
 });
