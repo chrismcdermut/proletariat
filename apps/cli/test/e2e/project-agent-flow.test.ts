@@ -680,7 +680,11 @@ describe('Project Commands JSON Mode', () => {
   // End-to-end Agent Flow Tests
   // ===========================================================================
   // These tests simulate an AI agent navigating through the CLI using --machine
-  // flag, selecting choices, and completing multi-step workflows.
+  // flag, selecting choices from the top-level menu, and completing multi-step
+  // workflows for every menu-accessible subcommand.
+  //
+  // Menu items: Create, List, View, Spec, Delete
+  // Standalone (not in menu): Archive, Unarchive
 
   describe('End-to-end agent flows (--machine flag)', () => {
     /**
@@ -726,11 +730,37 @@ describe('Project Commands JSON Mode', () => {
       return choice.command.replace('prlt ', '');
     }
 
-    function execFinal(cmd: string): string {
-      return exec(cmd.replace(' --json', '').replace(' --machine', ''));
-    }
+    // =========================================================================
+    // Menu → List (full flow from menu)
+    // =========================================================================
+    describe('menu → list flow', () => {
+      it('should navigate: menu → select "List" → get project data', () => {
+        // Agent Step 1: Get menu
+        const step1 = agentExec('project --machine');
+        expect(step1.prompt.type).to.equal('list');
 
-    describe('menu → view project flow', () => {
+        const listChoice = findChoice(step1.prompt.choices!, 'list');
+        expect(listChoice).to.exist;
+        expect(listChoice!.command).to.include('project list');
+
+        // Agent Step 2: Execute the list command with --json
+        // (menu command uses --format json but --json is the working flag)
+        const output = exec('project list --json');
+        const result = extractJson<SuccessResult>(output);
+        expect(result.success).to.equal(true);
+        expect(result.result.projects).to.be.an('array');
+
+        const projects = result.result.projects as Array<{ id: string; name: string }>;
+        const testProject = projects.find(p => p.id === 'test-project');
+        expect(testProject).to.exist;
+        expect(testProject!.name).to.equal('Test Project');
+      });
+    });
+
+    // =========================================================================
+    // Menu → View (full flow from menu)
+    // =========================================================================
+    describe('menu → view flow', () => {
       it('should navigate: menu → select "View" → select project → get board data', () => {
         // Create a second project so view gets a selection prompt
         db.prepare(`
@@ -760,37 +790,75 @@ describe('Project Commands JSON Mode', () => {
         expect(result.result.id).to.equal('test-project');
         expect(result.result.columns).to.be.an('array');
       });
+
+      it('should return board with tickets when viewing project directly', () => {
+        db.prepare(`
+          INSERT INTO pmo_tickets (id, project_id, title, priority, status, status_id)
+          VALUES ('TKT-001', 'test-project', 'Test Ticket', 'high', 'backlog', 'status-backlog')
+        `).run();
+        db.prepare(`
+          INSERT INTO pmo_tickets (id, project_id, title, priority, status, status_id)
+          VALUES ('TKT-002', 'test-project', 'In Progress Ticket', 'medium', 'in-progress', 'status-in-progress')
+        `).run();
+
+        const output = exec('project view test-project --machine');
+        const json = extractJson<{
+          success: boolean;
+          result: {
+            id: string;
+            columns: Array<{
+              name: string;
+              ticketCount: number;
+              tickets: Array<{ id: string; title: string }>;
+            }>;
+          };
+        }>(output);
+
+        expect(json.success).to.equal(true);
+        expect(json.result.columns).to.be.an('array');
+        expect(json.result.columns.length).to.be.greaterThan(0);
+
+        const backlogCol = json.result.columns.find(c => c.name === 'Backlog');
+        expect(backlogCol).to.exist;
+        expect(backlogCol!.ticketCount).to.be.greaterThan(0);
+
+        const ticket = backlogCol!.tickets.find(t => t.id === 'TKT-001');
+        expect(ticket).to.exist;
+        expect(ticket!.title).to.equal('Test Ticket');
+      });
     });
 
-    describe('menu → create project flow', () => {
-      it('should navigate: menu → select "Create" → get form prompt', () => {
+    // =========================================================================
+    // Menu → Create (full flow from menu)
+    // =========================================================================
+    describe('menu → create flow', () => {
+      it('should navigate: menu → select "Create" → get form → provide flags → project created', () => {
         // Agent Step 1: Get menu
         const step1 = agentExec('project --machine');
         const createChoice = findChoice(step1.prompt.choices!, 'create');
         expect(createChoice).to.exist;
 
-        // Agent Step 2: Execute create command → get form
+        // Agent Step 2: Execute create command → get form prompt
         const step2 = agentExec(execChoice(createChoice!));
         expect(step2.prompt).to.exist;
-        // Form prompt has fields
-        expect(step2.prompt.fields || step2.prompt.type).to.exist;
-      });
+        expect(step2.prompt.fields).to.be.an('array');
 
-      it('should complete flow: get form → provide flags → project created', () => {
-        // Agent Step 1: Get form prompt
-        const step1 = agentExec('project create --machine');
-        expect(step1.prompt).to.exist;
+        // Verify form includes expected fields
+        const nameField = step2.prompt.fields!.find(f => f.name === 'name');
+        expect(nameField).to.exist;
+        const templateField = step2.prompt.fields!.find(f => f.name === 'template');
+        expect(templateField).to.exist;
 
-        // Agent Step 2: Provide name (agent fills in the form)
-        const output = exec('project create --name "Agent Flow Project" --machine');
+        // Agent Step 3: Agent fills in form by providing flags directly
+        const output = exec('project create --name "Menu Created Project" --machine');
         const result = extractJson<SuccessResult>(output);
         expect(result.success).to.equal(true);
-        expect(result.result.name).to.equal('Agent Flow Project');
+        expect(result.result.name).to.equal('Menu Created Project');
 
         // Verify in database
         const project = db.prepare(
           'SELECT name FROM pmo_projects WHERE name = ?'
-        ).get('Agent Flow Project');
+        ).get('Menu Created Project');
         expect(project).to.exist;
       });
 
@@ -805,7 +873,10 @@ describe('Project Commands JSON Mode', () => {
       });
     });
 
-    describe('delete - full agent flow', () => {
+    // =========================================================================
+    // Menu → Delete (full flow from menu)
+    // =========================================================================
+    describe('menu → delete flow', () => {
       beforeEach(() => {
         db.prepare(`
           INSERT INTO pmo_projects (id, name, description, workflow_id)
@@ -813,28 +884,35 @@ describe('Project Commands JSON Mode', () => {
         `).run();
       });
 
-      it('should complete flow: select project → confirm → deleted', () => {
-        // Agent Step 1: No ID → get project selection
-        const step1 = agentExec('project delete --machine');
+      it('should navigate: menu → select "Delete" → select project → confirm → deleted', () => {
+        // Agent Step 1: Get menu
+        const step1 = agentExec('project --machine');
         expect(step1.prompt.type).to.equal('list');
-        expect(step1.prompt.name).to.equal('selectedProjectId');
+
+        const deleteMenuChoice = findChoice(step1.prompt.choices!, 'delete');
+        expect(deleteMenuChoice).to.exist;
+
+        // Agent Step 2: Execute delete command → get project selection
+        const step2 = agentExec(execChoice(deleteMenuChoice!));
+        expect(step2.prompt.type).to.equal('list');
+        expect(step2.prompt.name).to.equal('selectedProjectId');
 
         // Find the project to delete
-        const projectChoice = findChoice(step1.prompt.choices!, 'Flow Delete');
+        const projectChoice = findChoice(step2.prompt.choices!, 'Flow Delete');
         expect(projectChoice).to.exist;
 
-        // Agent Step 2: Select project → get confirmation
-        const step2 = agentExec(execChoice(projectChoice!));
-        expect(step2.prompt.type).to.equal('list');
-        expect(step2.prompt.name).to.equal('confirm');
-        expect(step2.prompt.message).to.include('Flow Delete');
+        // Agent Step 3: Select project → get confirmation
+        const step3 = agentExec(execChoice(projectChoice!));
+        expect(step3.prompt.type).to.equal('list');
+        expect(step3.prompt.name).to.equal('confirm');
+        expect(step3.prompt.message).to.include('Flow Delete');
 
         // Find Yes choice with --force
-        const yesChoice = step2.prompt.choices!.find(c => c.value === 'true');
+        const yesChoice = step3.prompt.choices!.find(c => c.value === 'true');
         expect(yesChoice).to.exist;
         expect(yesChoice!.command).to.include('--force');
 
-        // Agent Step 3: Confirm deletion
+        // Agent Step 4: Confirm deletion
         const output = exec(execChoice(yesChoice!));
         const result = extractJson<SuccessResult>(output);
         expect(result.success).to.equal(true);
@@ -856,6 +934,60 @@ describe('Project Commands JSON Mode', () => {
       });
     });
 
+    // =========================================================================
+    // Menu → Spec (full flow from menu)
+    // =========================================================================
+    describe('menu → spec flow', () => {
+      beforeEach(() => {
+        db.prepare(`
+          INSERT INTO pmo_specs (id, path, title, status)
+          VALUES ('SPEC-FLOW', 'specs/flow.md', 'Flow Test Spec', 'active')
+        `).run();
+        // Need multiple projects for the spec project selection prompt
+        db.prepare(`
+          INSERT INTO pmo_projects (id, name, description, workflow_id)
+          VALUES ('spec-flow-proj', 'Spec Flow Project', 'For spec flow', 'default')
+        `).run();
+      });
+
+      it('should navigate: menu → select "Spec" → select project → get spec info with commands', () => {
+        // Agent Step 1: Get menu
+        const step1 = agentExec('project --machine');
+        expect(step1.prompt.type).to.equal('list');
+
+        const specMenuChoice = findChoice(step1.prompt.choices!, 'spec');
+        expect(specMenuChoice).to.exist;
+
+        // Agent Step 2: Execute spec command → get project selection
+        const step2 = agentExec(execChoice(specMenuChoice!));
+        expect(step2.prompt.type).to.equal('list');
+        expect(step2.prompt.name).to.equal('selected');
+
+        const projectChoice = findChoice(step2.prompt.choices!, 'test-project');
+        expect(projectChoice).to.exist;
+
+        // Agent Step 3: Select project → get spec info with add/remove commands
+        const output = exec(execChoice(projectChoice!));
+        const result = extractJson<SuccessResult>(output);
+        expect(result.success).to.equal(true);
+        expect(result.result.projectId).to.equal('test-project');
+        expect(result.result.commands).to.exist;
+
+        const commands = result.result.commands as { addSpec: string; removeSpec: string };
+        expect(commands.addSpec).to.include('--add');
+        expect(commands.removeSpec).to.include('--remove');
+
+        // Verify available specs are listed
+        const availableSpecs = result.result.availableSpecs as Array<{ id: string }>;
+        expect(availableSpecs).to.be.an('array');
+        const flowSpec = availableSpecs.find(s => s.id === 'SPEC-FLOW');
+        expect(flowSpec).to.exist;
+      });
+    });
+
+    // =========================================================================
+    // Archive flow (standalone command, not in menu)
+    // =========================================================================
     describe('archive → confirm → verify flow', () => {
       beforeEach(() => {
         db.prepare(`
@@ -864,7 +996,7 @@ describe('Project Commands JSON Mode', () => {
         `).run();
       });
 
-      it('should complete flow: confirm → archived', () => {
+      it('should complete flow: get confirmation → confirm → archived in DB', () => {
         // Agent Step 1: Get confirmation prompt
         const step1 = agentExec('project archive flow-archive --machine');
         expect(step1.prompt.type).to.equal('list');
@@ -888,75 +1020,28 @@ describe('Project Commands JSON Mode', () => {
       });
     });
 
-    describe('view → board data flow', () => {
-      beforeEach(() => {
-        // Add tickets so the board isn't empty
-        db.prepare(`
-          INSERT INTO pmo_tickets (id, project_id, title, priority, status, status_id)
-          VALUES ('TKT-001', 'test-project', 'Test Ticket', 'high', 'backlog', 'status-backlog')
-        `).run();
-        db.prepare(`
-          INSERT INTO pmo_tickets (id, project_id, title, priority, status, status_id)
-          VALUES ('TKT-002', 'test-project', 'In Progress Ticket', 'medium', 'in-progress', 'status-in-progress')
-        `).run();
-      });
-
-      it('should return board with tickets in columns', () => {
-        const output = exec('project view test-project --machine');
-        const json = extractJson<{
-          success: boolean;
-          result: {
-            id: string;
-            columns: Array<{
-              name: string;
-              ticketCount: number;
-              tickets: Array<{ id: string; title: string }>;
-            }>;
-          };
-        }>(output);
-
-        expect(json.success).to.equal(true);
-        expect(json.result.columns).to.be.an('array');
-        expect(json.result.columns.length).to.be.greaterThan(0);
-
-        // Find backlog column with the ticket
-        const backlogCol = json.result.columns.find(c => c.name === 'Backlog');
-        expect(backlogCol).to.exist;
-        expect(backlogCol!.ticketCount).to.be.greaterThan(0);
-
-        const ticket = backlogCol!.tickets.find(t => t.id === 'TKT-001');
-        expect(ticket).to.exist;
-        expect(ticket!.title).to.equal('Test Ticket');
-      });
-    });
-
-    describe('spec management flow', () => {
+    // =========================================================================
+    // Unarchive flow (standalone command, not in menu)
+    // =========================================================================
+    describe('unarchive flow', () => {
       beforeEach(() => {
         db.prepare(`
-          INSERT INTO pmo_specs (id, path, title, status)
-          VALUES ('SPEC-FLOW', 'specs/flow.md', 'Flow Test Spec', 'active')
+          INSERT INTO pmo_projects (id, name, description, workflow_id, is_archived)
+          VALUES ('flow-unarchive', 'Flow Unarchive Project', 'Archived project', 'default', 1)
         `).run();
       });
 
-      it('should complete flow: select project → view spec info', () => {
-        db.prepare(`
-          INSERT INTO pmo_projects (id, name, description, workflow_id)
-          VALUES ('spec-flow-proj', 'Spec Flow Project', 'For spec flow', 'default')
-        `).run();
-
-        // Agent Step 1: No project ID → get project selection
-        const step1 = agentExec('project spec --machine');
-        expect(step1.prompt.type).to.equal('list');
-
-        const projectChoice = findChoice(step1.prompt.choices!, 'test-project');
-        expect(projectChoice).to.exist;
-
-        // Agent Step 2: Select project → get spec info
-        const output = exec(execChoice(projectChoice!));
+      it('should complete flow: unarchive → verify restored in DB', () => {
+        const output = exec('project unarchive flow-unarchive --machine');
         const result = extractJson<SuccessResult>(output);
         expect(result.success).to.equal(true);
-        expect(result.result.projectId).to.equal('test-project');
-        expect(result.result.commands).to.exist;
+        expect(result.result.unarchived).to.equal(true);
+
+        // Verify in database
+        const project = db.prepare(
+          'SELECT is_archived FROM pmo_projects WHERE id = ?'
+        ).get('flow-unarchive') as { is_archived: number };
+        expect(project.is_archived).to.equal(0);
       });
     });
   });
