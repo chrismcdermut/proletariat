@@ -2,16 +2,21 @@ import { Flags } from '@oclif/core'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 
 export default class WorkSpawnAll extends PMOCommand {
-  static description = 'Spawn work on all backlog tickets (alias for "work start --all")'
+  static description = 'Spawn work on all backlog tickets (alias for "work spawn --all")'
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --skip-permissions',
     '<%= config.bin %> <%= command.id %> --create-pr',
+    '<%= config.bin %> <%= command.id %> --json',
   ]
 
   static flags = {
     ...pmoBaseFlags,
+    json: Flags.boolean({
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
     force: Flags.boolean({
       char: 'f',
       description: 'Start even if work already in progress',
@@ -45,16 +50,17 @@ export default class WorkSpawnAll extends PMOCommand {
     // This command requires project context
     const projectId = await this.requireProject();
 
-    // Build args for work start --all
+    // Build args for work spawn --all
     // Pass --project to avoid re-prompting for project selection
     const args = ['--all', '--project', projectId]
+    if (flags.json) args.push('--json')
     if (flags.force) args.push('--force')
     if (flags['run-on-host']) args.push('--run-on-host')
     if (flags['skip-permissions']) args.push('--skip-permissions')
     if (flags['create-pr']) args.push('--create-pr')
     if (flags.executor) args.push('--executor', flags.executor)
 
-    // Use oclif's run method to invoke work start
-    await this.config.runCommand('work:start', args)
+    // Use oclif's run method to invoke work spawn
+    await this.config.runCommand('work:spawn', args)
   }
 }
