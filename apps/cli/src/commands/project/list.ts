@@ -2,6 +2,11 @@ import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { ProjectPhase } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputSuccessAsJson,
+  createMetadata,
+} from '../../lib/prompt-json.js';
 
 export default class ProjectList extends PMOCommand {
   static description = 'List all projects in the PMO';
@@ -32,6 +37,9 @@ export default class ProjectList extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(ProjectList);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
     // Determine filter based on flags
     let isArchived: boolean | undefined;
     if (flags.archived) {
@@ -46,6 +54,29 @@ export default class ProjectList extends PMOCommand {
     // Get phases for display
     const phases = await this.storage.listPhases();
     const phaseMap = new Map<string, ProjectPhase>(phases.map(p => [p.id, p]));
+
+    // Get ticket counts using listProjectSummaries
+    const summaries = await this.storage.listProjectSummaries();
+    const ticketCountMap = new Map<string, number>(summaries.map(s => [s.id, s.ticketCount]));
+
+    // JSON mode: output structured data
+    if (jsonMode) {
+      const projectData = projects.map(p => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        isArchived: p.isArchived,
+        isDefault: p.id === 'default',
+        ticketCount: ticketCountMap.get(p.id) ?? 0,
+        phase: p.phaseId ? phaseMap.get(p.phaseId)?.name : undefined,
+        phaseId: p.phaseId,
+      }));
+      outputSuccessAsJson(
+        { projects: projectData },
+        createMetadata('project list', flags)
+      );
+      return;
+    }
 
     if (projects.length === 0) {
       if (flags.archived) {
@@ -65,10 +96,6 @@ export default class ProjectList extends PMOCommand {
 
     const title = flags.archived ? 'Archived Projects' : flags.all ? 'All Projects' : 'Projects';
     this.log(styles.title(`\n${title}\n`));
-
-    // Get ticket counts using listProjectSummaries
-    const summaries = await this.storage.listProjectSummaries();
-    const ticketCountMap = new Map<string, number>(summaries.map(s => [s.id, s.ticketCount]));
 
     for (const project of projects) {
       const isDefault = project.id === 'default';

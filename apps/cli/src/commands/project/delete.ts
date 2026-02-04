@@ -1,15 +1,13 @@
 import { Args, Flags } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
+  outputSuccessAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class ProjectDelete extends PMOCommand {
@@ -34,10 +32,6 @@ export default class ProjectDelete extends PMOCommand {
       description: 'Skip confirmation prompt',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -59,6 +53,9 @@ export default class ProjectDelete extends PMOCommand {
       this.error(message);
     };
 
+    // Agent mode config for prompts
+    const agentConfig = jsonMode ? { flags, commandName: 'project delete' } : null;
+
     // Get project ID - prompt if not provided
     let projectId = args.id;
 
@@ -75,25 +72,16 @@ export default class ProjectDelete extends PMOCommand {
         return handleError('NO_DELETABLE_PROJECTS', 'No deletable projects found. Cannot delete the default project.');
       }
 
-      // In JSON mode, output project selection prompt
-      if (jsonMode) {
-        const projectChoices = deletableProjects.map(p => ({ name: `${p.id} - ${p.name}`, value: p.id }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select project to delete:', projectChoices),
-          createMetadata('project delete', flags)
-        );
-        return;
-      }
-
-      const { selectedProjectId } = await inquirer.prompt([{
+      const { selectedProjectId } = await this.prompt<{ selectedProjectId: string }>([{
         type: 'list',
         name: 'selectedProjectId',
         message: 'Select project to delete:',
         choices: deletableProjects.map(p => ({
           name: `${p.id} - ${p.name}`,
           value: p.id,
+          command: `prlt project delete ${p.id} --json`,
         })),
-      }]);
+      }], agentConfig);
       projectId = selectedProjectId;
     }
 
@@ -117,29 +105,15 @@ export default class ProjectDelete extends PMOCommand {
         ? `Delete project "${project.name}" and its ${ticketCount} ticket(s)?`
         : `Delete project "${project.name}"?`;
 
-      // In JSON mode, output confirmation prompt
-      if (jsonMode) {
-        const confirmChoices = [
-          { name: 'No, cancel', value: 'false' },
-          { name: 'Yes, delete', value: 'true' },
-        ];
-        outputPromptAsJson(
-          buildPromptConfig('list', 'confirmed', message, confirmChoices),
-          createMetadata('project delete', flags)
-        );
-        return;
-      }
-
-      const { confirm } = await inquirer.prompt([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message,
         choices: [
-          { name: 'No, cancel', value: false },
-          { name: 'Yes, delete', value: true },
+          { name: 'No, cancel', value: false, command: '' },
+          { name: 'Yes, delete', value: true, command: `prlt project delete ${projectId} --force --json` },
         ],
-        default: 0,
-      }]);
+      }], agentConfig);
 
       if (!confirm) {
         this.log(styles.muted('Cancelled.'));
@@ -155,6 +129,14 @@ export default class ProjectDelete extends PMOCommand {
     const projectPath = path.join(this.pmoPath, 'projects', projectId!);
     if (fs.existsSync(projectPath)) {
       fs.rmSync(projectPath, { recursive: true, force: true });
+    }
+
+    if (jsonMode) {
+      outputSuccessAsJson(
+        { projectId: project.id, projectName: project.name, deleted: true, ticketsRemoved: ticketCount },
+        createMetadata('project delete', flags)
+      );
+      return;
     }
 
     this.log(styles.success(`Deleted project "${project.name}"`));
