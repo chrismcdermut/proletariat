@@ -196,12 +196,21 @@ export abstract class PMOCommand extends Command {
       return numA - numB;
     });
 
+    // Auto-detect non-TTY: switch to JSON mode when no TTY present
+    const effectiveJsonMode = options?.jsonMode ?? (!process.stdin.isTTY
+      ? {
+          flags: { json: true } as JsonFlags & Record<string, unknown>,
+          commandName: this.id ?? 'unknown',
+          baseCommand: `prlt ${(this.id ?? 'unknown').replace(/:/g, ' ')}`,
+        }
+      : null);
+
     // If JSON mode is active, output project choices as JSON
-    if (options?.jsonMode && shouldOutputJson(options.jsonMode.flags)) {
+    if (effectiveJsonMode && shouldOutputJson(effectiveJsonMode.flags)) {
       const choices = sortedProjects.map(p => ({
         name: `${p.name} (${p.id})`,
         value: p.id,
-        command: `${options.jsonMode!.baseCommand} -P ${p.id} --json`,
+        command: `${effectiveJsonMode.baseCommand} -P ${p.id} --json`,
       }));
       outputPromptAsJson(
         {
@@ -210,7 +219,7 @@ export abstract class PMOCommand extends Command {
           message: 'Select project:',
           choices,
         },
-        createMetadata(options.jsonMode.commandName, options.jsonMode.flags)
+        createMetadata(effectiveJsonMode.commandName, effectiveJsonMode.flags)
       );
       // outputPromptAsJson calls process.exit, so this is unreachable
       return '';
@@ -291,6 +300,11 @@ export abstract class PMOCommand extends Command {
       cancelValue,
     } = options;
 
+    // Auto-detect non-TTY: switch to JSON mode when no TTY present
+    const effectiveJsonMode = jsonMode ?? (!process.stdin.isTTY
+      ? { flags: { json: true } as JsonFlags & Record<string, unknown>, commandName: this.id ?? 'unknown' }
+      : null);
+
     // Build choices with command field
     const choices = items.map(item => ({
       name: getName(item),
@@ -299,7 +313,7 @@ export abstract class PMOCommand extends Command {
     }));
 
     // Check for JSON mode
-    if (jsonMode && shouldOutputJson(jsonMode.flags)) {
+    if (effectiveJsonMode && shouldOutputJson(effectiveJsonMode.flags)) {
       outputPromptAsJson(
         {
           type: 'list',
@@ -307,7 +321,7 @@ export abstract class PMOCommand extends Command {
           message,
           choices,
         },
-        createMetadata(jsonMode.commandName, jsonMode.flags)
+        createMetadata(effectiveJsonMode.commandName, effectiveJsonMode.flags)
       );
       // outputPromptAsJson exits, so this is unreachable
       return null;
@@ -370,8 +384,13 @@ export abstract class PMOCommand extends Command {
   }): Promise<string> {
     const { message, fieldName, defaultValue, validate, jsonMode } = options;
 
+    // Auto-detect non-TTY: switch to JSON mode when no TTY present
+    const effectiveJsonMode = jsonMode ?? (!process.stdin.isTTY
+      ? { flags: { json: true } as JsonFlags & Record<string, unknown>, commandName: this.id ?? 'unknown', commandHint: '', example: undefined as string | undefined }
+      : null);
+
     // Check for JSON mode
-    if (jsonMode && shouldOutputJson(jsonMode.flags)) {
+    if (effectiveJsonMode && shouldOutputJson(effectiveJsonMode.flags)) {
       outputPromptAsJson(
         {
           type: 'input',
@@ -379,11 +398,11 @@ export abstract class PMOCommand extends Command {
           message,
           default: defaultValue,
           context: {
-            hint: jsonMode.commandHint,
-            example: jsonMode.example,
+            hint: effectiveJsonMode.commandHint,
+            example: effectiveJsonMode.example,
           },
         },
-        createMetadata(jsonMode.commandName, jsonMode.flags)
+        createMetadata(effectiveJsonMode.commandName, effectiveJsonMode.flags)
       );
       // outputPromptAsJson exits, so this is unreachable
       return '';
@@ -460,6 +479,11 @@ export abstract class PMOCommand extends Command {
       commandName: string;
     } | null
   ): Promise<T> {
+    // Auto-detect non-TTY: switch to JSON mode when no TTY present
+    if (!jsonModeConfig && !process.stdin.isTTY) {
+      jsonModeConfig = { flags: { json: true }, commandName: this.id ?? 'unknown' };
+    }
+
     // Check for JSON/agent mode
     if (jsonModeConfig && isAgentMode(jsonModeConfig.flags)) {
       // Find first question that should be shown (respecting 'when' conditions)
