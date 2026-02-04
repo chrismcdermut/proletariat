@@ -619,6 +619,245 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
   });
 
   // ===========================================================================
+  // Multi-step interactive flows (--interactive --machine)
+  // ===========================================================================
+
+  describe('Multi-step interactive flows', function () {
+    describe('action create --interactive multi-step flow', function () {
+      it('Step 1: should prompt for name when no args provided', function () {
+        const output = exec('action create --interactive --machine');
+        const json = extractJson<MachinePromptResponse>(output);
+
+        expect(json).to.not.be.null;
+        expect(json!.prompt.type).to.equal('input');
+        expect(json!.prompt.name).to.equal('name');
+        expect(json!.prompt.message).to.include('name');
+        expect(json!.prompt.context!.hint).to.include('prlt action create');
+        expect(json!.prompt.context!.requiredFields).to.include('name (as first argument)');
+      });
+
+      it('Step 2: should prompt for prompt after name provided', function () {
+        const output = exec('action create "Step2 Test" --interactive --machine');
+        const json = extractJson<MachinePromptResponse>(output);
+
+        expect(json).to.not.be.null;
+        expect(json!.prompt.type).to.equal('editor');
+        expect(json!.prompt.name).to.equal('prompt');
+        expect(json!.prompt.context!.hint).to.include('Step2 Test');
+        expect(json!.prompt.context!.requiredFields).to.include('--prompt');
+        expect(json!.metadata.flags.name).to.equal('Step2 Test');
+      });
+
+      it('Step 3: should prompt for description after name and prompt provided', function () {
+        const output = exec('action create "Step3 Test" --prompt "Test prompt" --interactive --machine');
+        const json = extractJson<MachinePromptResponse>(output);
+
+        expect(json).to.not.be.null;
+        expect(json!.prompt.type).to.equal('input');
+        expect(json!.prompt.name).to.equal('description');
+        expect(json!.prompt.message).to.include('Description');
+        expect(json!.metadata.flags.name).to.equal('Step3 Test');
+        expect(json!.metadata.flags.prompt).to.equal('Test prompt');
+      });
+
+      it('Step 4: should show suggestedFor checkbox after description provided', function () {
+        const output = exec('action create "Step4 Test" --prompt "Test prompt" --description "Test desc" --interactive --machine');
+        const json = extractJson<MachinePromptResponse>(output);
+
+        expect(json).to.not.be.null;
+        expect(json!.prompt.type).to.equal('checkbox');
+        expect(json!.prompt.name).to.equal('suggestedFor');
+        expect(json!.prompt.choices).to.be.an('array');
+        expect(json!.prompt.choices!.length).to.be.greaterThan(0);
+
+        // Verify each choice has proper structure with command
+        for (const choice of json!.prompt.choices!) {
+          expect(choice.name).to.be.a('string');
+          expect(choice.value).to.be.a('string');
+          expect(choice.command).to.include('prlt action create');
+          expect(choice.command).to.include('Step4 Test');
+        }
+      });
+
+      it('should include all category options in suggestedFor choices', function () {
+        const output = exec('action create "Categories Test" --prompt "Test" --description "Test" --interactive --machine');
+        const json = extractJson<MachinePromptResponse>(output);
+
+        expect(json).to.not.be.null;
+        const values = json!.prompt.choices!.map(c => c.value);
+        expect(values).to.include('backlog');
+        expect(values).to.include('started');
+        expect(values).to.include('completed');
+      });
+
+      it('should complete full create flow and verify database', function () {
+        // Step 1: Get name prompt
+        const step1 = extractJson<MachinePromptResponse>(exec('action create --interactive --machine'));
+        expect(step1!.prompt.name).to.equal('name');
+
+        // Step 2: Get prompt prompt
+        const step2 = extractJson<MachinePromptResponse>(exec('action create "Full Flow" --interactive --machine'));
+        expect(step2!.prompt.name).to.equal('prompt');
+
+        // Step 3: Get description prompt
+        const step3 = extractJson<MachinePromptResponse>(exec('action create "Full Flow" --prompt "Flow prompt" --interactive --machine'));
+        expect(step3!.prompt.name).to.equal('description');
+
+        // Step 4: Get suggestedFor checkbox
+        const step4 = extractJson<MachinePromptResponse>(exec('action create "Full Flow" --prompt "Flow prompt" --description "Flow desc" --interactive --machine'));
+        expect(step4!.prompt.name).to.equal('suggestedFor');
+
+        // Final: Create with all flags (skip interactive prompts)
+        const finalOutput = exec('action create "Full Flow Final" --prompt "Final prompt" --description "Final desc" --suggested-for started --move-to completed');
+        expect(finalOutput).to.include('Created action');
+
+        // Verify in database
+        const action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('full-flow-final') as {
+          name: string;
+          prompt: string;
+          description: string;
+          default_move_to_category: string;
+        };
+        expect(action).to.exist;
+        expect(action.name).to.equal('Full Flow Final');
+        expect(action.prompt).to.equal('Final prompt');
+        expect(action.description).to.equal('Final desc');
+        expect(action.default_move_to_category).to.equal('completed');
+      });
+    });
+
+    describe('action update --interactive multi-step flow', function () {
+      beforeEach(function () {
+        // Create a custom action for update tests
+        exec('action create "Update Multi Step" --prompt "Original prompt" --description "Original desc"');
+      });
+
+      it('Step 1: should prompt for name with current value', function () {
+        const output = exec('action update update-multi-step --interactive --machine');
+        const json = extractJson<MachinePromptResponse>(output);
+
+        expect(json).to.not.be.null;
+        expect(json!.prompt.type).to.equal('input');
+        expect(json!.prompt.name).to.equal('name');
+        expect(json!.prompt.default).to.equal('Update Multi Step');
+        expect(json!.prompt.context!.currentValue).to.equal('Update Multi Step');
+      });
+
+      it('Step 2: should prompt for description after name provided', function () {
+        const output = exec('action update update-multi-step --name "New Name" --interactive --machine');
+        const json = extractJson<MachinePromptResponse>(output);
+
+        expect(json).to.not.be.null;
+        expect(json!.prompt.type).to.equal('input');
+        expect(json!.prompt.name).to.equal('description');
+        expect(json!.prompt.default).to.equal('Original desc');
+        expect(json!.metadata.flags.name).to.equal('New Name');
+      });
+
+      it('Step 3: should prompt for prompt (editor) after description provided', function () {
+        const output = exec('action update update-multi-step --name "New Name" --description "New desc" --interactive --machine');
+        const json = extractJson<MachinePromptResponse>(output);
+
+        expect(json).to.not.be.null;
+        expect(json!.prompt.type).to.equal('editor');
+        expect(json!.prompt.name).to.equal('prompt');
+        expect(json!.prompt.default).to.equal('Original prompt');
+        expect(json!.metadata.flags.name).to.equal('New Name');
+        expect(json!.metadata.flags.description).to.equal('New desc');
+      });
+
+      it('Step 4: should show suggestedFor checkbox after prompt provided', function () {
+        const output = exec('action update update-multi-step --name "New Name" --description "New desc" --prompt "New prompt" --interactive --machine');
+        const json = extractJson<MachinePromptResponse>(output);
+
+        expect(json).to.not.be.null;
+        expect(json!.prompt.type).to.equal('checkbox');
+        expect(json!.prompt.name).to.equal('suggestedFor');
+        expect(json!.prompt.choices).to.be.an('array');
+
+        // Verify choices have commands with accumulated flags
+        const choice = json!.prompt.choices![0];
+        expect(choice.command).to.include('update-multi-step');
+        expect(choice.command).to.include('New Name');
+      });
+
+      it('should complete multi-step update and verify database changes', function () {
+        // Verify original values
+        let action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('update-multi-step') as {
+          name: string;
+          description: string;
+          prompt: string;
+        };
+        expect(action.name).to.equal('Update Multi Step');
+
+        // Step through the flow
+        const step1 = extractJson<MachinePromptResponse>(exec('action update update-multi-step --interactive --machine'));
+        expect(step1!.prompt.name).to.equal('name');
+
+        const step2 = extractJson<MachinePromptResponse>(exec('action update update-multi-step --name "Step By Step" --interactive --machine'));
+        expect(step2!.prompt.name).to.equal('description');
+
+        const step3 = extractJson<MachinePromptResponse>(exec('action update update-multi-step --name "Step By Step" --description "Stepped desc" --interactive --machine'));
+        expect(step3!.prompt.name).to.equal('prompt');
+
+        // Apply final update with direct flags (without --interactive to skip remaining prompts)
+        exec('action update update-multi-step --name "Final Update" --description "Final desc" --prompt "Final prompt"');
+
+        // Verify all changes in database
+        action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('update-multi-step') as {
+          name: string;
+          description: string;
+          prompt: string;
+        };
+        expect(action.name).to.equal('Final Update');
+        expect(action.description).to.equal('Final desc');
+        expect(action.prompt).to.equal('Final prompt');
+      });
+    });
+
+    describe('action delete confirmation flow', function () {
+      it('should show confirmation with Yes/No choices', function () {
+        exec('action create "Confirm Delete" --prompt "To confirm"');
+
+        const output = exec('action delete confirm-delete --machine');
+        const json = extractJson<MachinePromptResponse>(output);
+
+        expect(json).to.not.be.null;
+        expect(json!.prompt.type).to.equal('list');
+        expect(json!.prompt.name).to.equal('confirmed');
+        expect(json!.prompt.choices).to.have.lengthOf(2);
+
+        const noChoice = json!.prompt.choices!.find(c => c.name === 'No');
+        const yesChoice = json!.prompt.choices!.find(c => c.name === 'Yes');
+
+        expect(noChoice).to.exist;
+        expect(noChoice!.command).to.equal(''); // No command for No choice
+
+        expect(yesChoice).to.exist;
+        expect(yesChoice!.command).to.include('--force');
+        expect(yesChoice!.command).to.include('--json');
+      });
+
+      it('should execute Yes command and delete action', function () {
+        exec('action create "Execute Yes" --prompt "Execute test"');
+
+        // Get confirmation prompt
+        const confirmOutput = exec('action delete execute-yes --machine');
+        const json = extractJson<MachinePromptResponse>(confirmOutput);
+
+        // Extract and execute Yes command
+        const yesChoice = json!.prompt.choices!.find(c => c.name === 'Yes');
+        const yesCmd = yesChoice!.command!.replace('prlt ', '');
+        exec(yesCmd);
+
+        // Verify deletion
+        const action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('execute-yes');
+        expect(action).to.be.undefined;
+      });
+    });
+  });
+
+  // ===========================================================================
   // Flag combinations and edge cases
   // ===========================================================================
 
