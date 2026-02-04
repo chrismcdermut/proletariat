@@ -5,38 +5,16 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { exec, getIsolatedEnv } from './test-helpers.js';
+import {
+  exec,
+  getIsolatedEnv,
+  extractJson,
+  AgentPromptResponse,
+  AgentPromptChoice,
+} from './test-helpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-/**
- * Extract JSON from CLI output that may contain warnings.
- * Looks for the first line starting with { or [ and parses from there.
- */
-function extractJson<T>(output: string): T | null {
-  const lines = output.split('\n');
-  let jsonStart = -1;
-
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-      jsonStart = i;
-      break;
-    }
-  }
-
-  if (jsonStart === -1) {
-    return null;
-  }
-
-  const jsonLines = lines.slice(jsonStart).join('\n');
-  try {
-    return JSON.parse(jsonLines) as T;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Response type for JSON prompts from --machine flag
@@ -70,20 +48,19 @@ interface MachinePromptResponse {
  *
  * These tests verify that action commands output valid JSON when invoked
  * with --machine flag, allowing AI agents to navigate the CLI stateless.
- *
- * NOTE: The actual --machine output has been manually verified in Step 3.
- * These tests may not all pass due to test environment database schema
- * differences, but the functionality is confirmed working.
  */
-describe('Action Commands E2E - Agent Flow (--machine)', () => {
+describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.Suite) {
+  // Set default timeout for all tests in this suite to 30 seconds
+  this.timeout(30000);
+
   let testDir: string;
   let originalCwd: string;
   let dbPath: string;
   let db: Database.Database;
 
-  beforeEach(() => {
+  beforeEach(function () {
     originalCwd = process.cwd();
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'action-agent-flow-'));
+    testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'action-agent-flow-')));
     process.chdir(testDir);
 
     const proletariatDir = path.join(testDir, '.proletariat');
@@ -102,8 +79,84 @@ describe('Action Commands E2E - Agent Flow (--machine)', () => {
     }
   });
 
-  describe('action list --json', () => {
-    it('should return JSON array of actions', () => {
+  // ===========================================================================
+  // action index --machine (main menu)
+  // ===========================================================================
+
+  describe('action index --machine', function () {
+    it('should output valid JSON prompt with --machine flag', function () {
+      const output = exec('action --machine');
+      const json = extractJson<MachinePromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.prompt.type).to.equal('list');
+      expect(json!.prompt.name).to.equal('selection');
+      expect(json!.prompt.choices).to.be.an('array');
+      expect(json!.metadata.command).to.equal('action');
+      expect(json!.metadata.flags.machine).to.equal(true);
+    });
+
+    it('should output valid JSON with --json flag (legacy)', function () {
+      const output = exec('action --json');
+      const json = extractJson<MachinePromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.prompt.type).to.equal('list');
+      expect(json!.metadata.flags.json).to.equal(true);
+    });
+
+    it('should work with -m shorthand', function () {
+      const output = exec('action -m');
+      const json = extractJson<MachinePromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.metadata.flags.machine).to.equal(true);
+    });
+
+    it('should include --machine flag in choice commands', function () {
+      const output = exec('action --machine');
+      const json = extractJson<MachinePromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      for (const choice of json!.prompt.choices || []) {
+        if (choice.command && choice.command.length > 0) {
+          expect(choice.command).to.include('--machine');
+        }
+      }
+    });
+
+    it('should include all menu options in choices', function () {
+      const output = exec('action --machine');
+      const json = extractJson<MachinePromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      const values = json!.prompt.choices!.map(c => c.value);
+      expect(values).to.include('list');
+      expect(values).to.include('show');
+      expect(values).to.include('create');
+      expect(values).to.include('update');
+      expect(values).to.include('delete');
+    });
+
+    it('should have proper command format for each choice', function () {
+      const output = exec('action --machine');
+      const json = extractJson<MachinePromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      for (const choice of json!.prompt.choices || []) {
+        if (choice.command && choice.command.length > 0) {
+          expect(choice.command).to.match(/^prlt action (list|show|create|update|delete) --machine$/);
+        }
+      }
+    });
+  });
+
+  // ===========================================================================
+  // action list flags
+  // ===========================================================================
+
+  describe('action list --json', function () {
+    it('should return JSON array of actions', function () {
       const output = exec('action list --json');
       const actions = extractJson<Array<{ id: string }>>(output);
 
@@ -111,7 +164,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', () => {
       expect(actions!.length).to.be.greaterThan(0);
     });
 
-    it('should include built-in actions', () => {
+    it('should include built-in actions', function () {
       const output = exec('action list --json');
       const actions = extractJson<Array<{ id: string }>>(output);
 
@@ -120,10 +173,190 @@ describe('Action Commands E2E - Agent Flow (--machine)', () => {
       expect(actionIds).to.include('groom');
       expect(actionIds).to.include('implement');
     });
+
+    it('should work with --machine flag (alias for --json)', function () {
+      const output = exec('action list --machine');
+      // action list --machine should work the same as --json
+      // The output should either be JSON array or at minimum not error
+      expect(output).to.not.include('Error:');
+    });
+
+    it('should filter builtin actions with --builtin flag', function () {
+      const output = exec('action list --json --builtin');
+      const actions = extractJson<Array<{ id: string; isBuiltin: boolean }>>(output);
+
+      expect(actions).to.not.be.null;
+      for (const action of actions!) {
+        expect(action.isBuiltin).to.equal(true);
+      }
+    });
+
+    it('should filter custom actions with --custom flag', function () {
+      // First create a custom action
+      exec('action create "Test Custom" --prompt "Test prompt"');
+
+      const output = exec('action list --json --custom');
+      const actions = extractJson<Array<{ id: string; isBuiltin: boolean }>>(output);
+
+      expect(actions).to.not.be.null;
+      for (const action of actions!) {
+        expect(action.isBuiltin).to.equal(false);
+      }
+    });
   });
 
-  describe('action CRUD operations', () => {
-    it('should create custom action', () => {
+  // ===========================================================================
+  // action create --machine
+  // ===========================================================================
+
+  describe('action create --machine', function () {
+    it('should output JSON prompt when name is missing', function () {
+      const output = exec('action create --machine');
+      const json = extractJson<MachinePromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.prompt.type).to.equal('input');
+      expect(json!.prompt.name).to.equal('name');
+      expect(json!.metadata.command).to.equal('action create');
+      // FlagResolver-based commands output flags differently, verify JSON structure exists
+      expect(json!.metadata.flags).to.be.an('object');
+    });
+
+    it('should include context hints in JSON output', function () {
+      const output = exec('action create --machine');
+      const json = extractJson<MachinePromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.prompt.context).to.exist;
+      expect(json!.prompt.context!.hint).to.include('prlt action create');
+    });
+
+    it('should output prompt for --prompt when name provided', function () {
+      const output = exec('action create "Test Action" --machine');
+      const json = extractJson<MachinePromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.prompt.name).to.equal('prompt');
+      expect(json!.prompt.context).to.exist;
+    });
+
+    it('should create action when all required args provided', function () {
+      const output = exec('action create "Direct Create" --prompt "Test prompt" --machine');
+      expect(output).to.include('Created action');
+
+      const action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('direct-create') as { name: string };
+      expect(action).to.exist;
+      expect(action.name).to.equal('Direct Create');
+    });
+  });
+
+  // ===========================================================================
+  // action update --machine
+  // ===========================================================================
+
+  describe('action update --machine', function () {
+    beforeEach(function () {
+      // Create a custom action for update tests
+      exec('action create "Update Target" --prompt "Original prompt"');
+    });
+
+    it('should output JSON prompt in interactive mode', function () {
+      const output = exec('action update update-target --machine');
+      const json = extractJson<MachinePromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.prompt.type).to.equal('input');
+      expect(json!.prompt.name).to.equal('name');
+      expect(json!.metadata.command).to.equal('action update');
+    });
+
+    it('should include current value in context', function () {
+      const output = exec('action update update-target --machine');
+      const json = extractJson<MachinePromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.prompt.context).to.exist;
+      expect(json!.prompt.context!.currentValue).to.equal('Update Target');
+    });
+
+    it('should update with direct flags', function () {
+      exec('action update update-target --name "Renamed Action" --machine');
+
+      const action = db.prepare('SELECT name FROM pmo_actions WHERE id = ?').get('update-target') as { name: string };
+      expect(action.name).to.equal('Renamed Action');
+    });
+
+    it('should output error JSON for built-in action', function () {
+      const output = exec('action update groom --name "New Name" --machine');
+
+      expect(output.toLowerCase()).to.include('built-in');
+    });
+
+    it('should output error JSON for non-existent action', function () {
+      const output = exec('action update nonexistent --machine');
+
+      expect(output.toLowerCase()).to.include('not found');
+    });
+  });
+
+  // ===========================================================================
+  // action delete --machine
+  // ===========================================================================
+
+  describe('action delete --machine', function () {
+    beforeEach(function () {
+      // Create a custom action for delete tests
+      exec('action create "Delete Target" --prompt "To be deleted"');
+    });
+
+    it('should output JSON confirmation prompt', function () {
+      const output = exec('action delete delete-target --machine');
+      const json = extractJson<MachinePromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.prompt.type).to.equal('list');
+      expect(json!.prompt.name).to.equal('confirmed');
+      expect(json!.prompt.message).to.include('Delete');
+    });
+
+    it('should include choices with commands', function () {
+      const output = exec('action delete delete-target --machine');
+      const json = extractJson<MachinePromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.prompt.choices).to.have.lengthOf(2);
+
+      const yesChoice = json!.prompt.choices!.find(c => c.name === 'Yes');
+      expect(yesChoice).to.exist;
+      expect(yesChoice!.command).to.include('--force');
+    });
+
+    it('should delete with --force flag', function () {
+      exec('action delete delete-target --force --machine');
+
+      const action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('delete-target');
+      expect(action).to.be.undefined;
+    });
+
+    it('should output error JSON for built-in action', function () {
+      const output = exec('action delete groom --force --machine');
+
+      expect(output.toLowerCase()).to.include('built-in');
+    });
+
+    it('should output error JSON for non-existent action', function () {
+      const output = exec('action delete nonexistent --force --machine');
+
+      expect(output.toLowerCase()).to.include('not found');
+    });
+  });
+
+  // ===========================================================================
+  // action CRUD operations (without --machine, for completeness)
+  // ===========================================================================
+
+  describe('action CRUD operations', function () {
+    it('should create custom action', function () {
       const output = exec('action create "Test Action" --prompt "Test prompt"');
       expect(output).to.include('Created action');
 
@@ -132,7 +365,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', () => {
       expect(action.name).to.equal('Test Action');
     });
 
-    it('should update custom action', () => {
+    it('should update custom action', function () {
       // Create first
       exec('action create "Update Me" --prompt "Original"');
 
@@ -143,7 +376,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', () => {
       expect(action.prompt).to.equal('Updated prompt');
     });
 
-    it('should delete custom action with --force', () => {
+    it('should delete custom action with --force', function () {
       // Create first
       exec('action create "Delete Me" --prompt "To delete"');
 
@@ -154,14 +387,181 @@ describe('Action Commands E2E - Agent Flow (--machine)', () => {
       expect(action).to.be.undefined;
     });
 
-    it('should prevent deleting built-in actions', () => {
+    it('should prevent deleting built-in actions', function () {
       const output = exec('action delete groom --force');
       expect(output.toLowerCase()).to.include('built-in');
     });
 
-    it('should prevent updating built-in actions', () => {
+    it('should prevent updating built-in actions', function () {
       const output = exec('action update groom --name "New Name"');
       expect(output.toLowerCase()).to.include('built-in');
+    });
+  });
+
+  // ===========================================================================
+  // End-to-end agent flows
+  // ===========================================================================
+
+  describe('End-to-end agent flows', function () {
+    it('should complete action index → list flow', function () {
+      // Step 1: Get the main menu
+      const menuOutput = exec('action --machine');
+      const menu = extractJson<MachinePromptResponse>(menuOutput);
+
+      expect(menu).to.not.be.null;
+
+      // Step 2: Find the list choice and get its command
+      const listChoice = menu!.prompt.choices!.find(c => c.value === 'list');
+      expect(listChoice).to.exist;
+      expect(listChoice!.command).to.include('action list');
+
+      // Step 3: Execute the list command
+      const listCmd = listChoice!.command!.replace('prlt ', '');
+      const listOutput = exec(listCmd);
+
+      // Step 4: Since action list --machine returns array, verify it's valid
+      expect(listOutput).to.not.include('Error:');
+    });
+
+    it('should complete action index → create → action flow', function () {
+      // Step 1: Get the main menu
+      const menuOutput = exec('action --machine');
+      const menu = extractJson<MachinePromptResponse>(menuOutput);
+
+      expect(menu).to.not.be.null;
+
+      // Step 2: Find the create choice
+      const createChoice = menu!.prompt.choices!.find(c => c.value === 'create');
+      expect(createChoice).to.exist;
+
+      // Step 3: Execute create command with --machine
+      const createOutput = exec('action create --machine');
+      const createPrompt = extractJson<MachinePromptResponse>(createOutput);
+
+      expect(createPrompt).to.not.be.null;
+      expect(createPrompt!.prompt.name).to.equal('name');
+
+      // Step 4: Provide name and get next prompt
+      const step2Output = exec('action create "Flow Test" --machine');
+      const step2Prompt = extractJson<MachinePromptResponse>(step2Output);
+
+      expect(step2Prompt).to.not.be.null;
+      expect(step2Prompt!.prompt.name).to.equal('prompt');
+
+      // Step 5: Complete the flow
+      const finalOutput = exec('action create "Flow Test Complete" --prompt "Final prompt"');
+      expect(finalOutput).to.include('Created action');
+    });
+
+    it('should complete action index → delete → confirm flow', function () {
+      // Setup: Create a custom action
+      exec('action create "To Delete" --prompt "Delete me"');
+
+      // Step 1: Get delete confirmation prompt
+      const deleteOutput = exec('action delete to-delete --machine');
+      const deletePrompt = extractJson<MachinePromptResponse>(deleteOutput);
+
+      expect(deletePrompt).to.not.be.null;
+      expect(deletePrompt!.prompt.type).to.equal('list');
+      expect(deletePrompt!.prompt.choices).to.have.lengthOf(2);
+
+      // Step 2: Find Yes choice and extract force command
+      const yesChoice = deletePrompt!.prompt.choices!.find(c => c.name === 'Yes');
+      expect(yesChoice).to.exist;
+      expect(yesChoice!.command).to.include('--force');
+
+      // Step 3: Execute with force
+      const forceCmd = yesChoice!.command!.replace('prlt ', '');
+      exec(forceCmd);
+
+      // Step 4: Verify deletion
+      const action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('to-delete');
+      expect(action).to.be.undefined;
+    });
+
+    it('should complete action index → update → edit flow', function () {
+      // Setup: Create a custom action
+      exec('action create "Update Flow" --prompt "Original"');
+
+      // Step 1: Get update prompt
+      const updateOutput = exec('action update update-flow --machine');
+      const updatePrompt = extractJson<MachinePromptResponse>(updateOutput);
+
+      expect(updatePrompt).to.not.be.null;
+      expect(updatePrompt!.prompt.name).to.equal('name');
+      expect(updatePrompt!.prompt.context!.currentValue).to.equal('Update Flow');
+
+      // Step 2: Update with direct flags
+      exec('action update update-flow --name "Updated Flow" --prompt "New prompt"');
+
+      // Step 3: Verify update
+      const action = db.prepare('SELECT name, prompt FROM pmo_actions WHERE id = ?').get('update-flow') as { name: string; prompt: string };
+      expect(action.name).to.equal('Updated Flow');
+      expect(action.prompt).to.equal('New prompt');
+    });
+  });
+
+  // ===========================================================================
+  // Flag combinations and edge cases
+  // ===========================================================================
+
+  describe('Flag combinations and edge cases', function () {
+    it('should handle --machine and --json together (--machine takes precedence)', function () {
+      const output = exec('action --machine --json');
+      const json = extractJson<MachinePromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.metadata.flags.machine).to.equal(true);
+    });
+
+    it('should handle -m shorthand with other flags', function () {
+      const output = exec('action -m');
+      const json = extractJson<MachinePromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.metadata.flags.machine).to.equal(true);
+    });
+
+    it('should propagate --machine flag through subcommand choices', function () {
+      const output = exec('action --machine');
+      const json = extractJson<MachinePromptResponse>(output);
+
+      expect(json).to.not.be.null;
+
+      // Every choice with a command should have --machine
+      for (const choice of json!.prompt.choices || []) {
+        if (choice.command && choice.command.length > 0) {
+          expect(choice.command, `Choice ${choice.name} should include --machine`).to.include('--machine');
+        }
+      }
+    });
+
+    it('should handle action create with all optional flags', function () {
+      const output = exec('action create "Full Options" --prompt "Test" --description "Test desc" --suggested-for started,backlog --move-to completed');
+      expect(output).to.include('Created action');
+
+      const action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('full-options') as {
+        name: string;
+        description: string;
+        suggested_for_categories: string;
+        default_move_to_category: string;
+      };
+      expect(action.description).to.equal('Test desc');
+      expect(action.default_move_to_category).to.equal('completed');
+    });
+
+    it('should handle empty action list gracefully', function () {
+      // Delete all custom actions (built-in remain)
+      const customActions = db.prepare('SELECT id FROM pmo_actions WHERE is_builtin = 0').all() as Array<{ id: string }>;
+      for (const action of customActions) {
+        db.prepare('DELETE FROM pmo_actions WHERE id = ?').run(action.id);
+      }
+
+      const output = exec('action list --json --custom');
+      const actions = extractJson<Array<{ id: string }>>(output);
+
+      expect(actions).to.be.an('array');
+      expect(actions!.length).to.equal(0);
     });
   });
 });

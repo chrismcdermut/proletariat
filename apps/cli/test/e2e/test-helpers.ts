@@ -415,7 +415,7 @@ export interface AgentPromptChoice {
 
 /**
  * Extract JSON from CLI output that may contain warnings or other noise.
- * Looks for the first line starting with { and parses from there.
+ * Looks for the first line starting with { or [ and parses from there.
  *
  * @param output - Raw CLI output
  * @returns Parsed JSON object or null if no valid JSON found
@@ -426,7 +426,7 @@ export function extractJson<T>(output: string): T | null {
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
-    if (trimmed.startsWith('{')) {
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
       jsonStart = i;
       break;
     }
