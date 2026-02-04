@@ -13,10 +13,11 @@ import {
 } from '../lib/agents/commands.js'
 import {
   shouldOutputJson,
+  isAgentMode,
   outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
+  normalizeChoices,
 } from '../lib/prompt-json.js'
 import { styles } from '../lib/styles.js'
 import {
@@ -117,6 +118,42 @@ export default class Claude extends Command {
     }),
   }
 
+  /**
+   * Prompt wrapper - handles both JSON mode and interactive mode.
+   * In JSON mode: outputs prompt as JSON and exits.
+   * In interactive mode: calls inquirer.prompt normally.
+   */
+  private async prompt<T extends Record<string, unknown>>(
+    questions: Array<{
+      type: string
+      name: string
+      message: string
+      choices?: Array<string | { name: string; value: unknown; disabled?: boolean | string; command?: string } | unknown>
+      default?: unknown
+      validate?: (input: unknown) => boolean | string
+    }>,
+    jsonModeConfig?: { flags: Record<string, unknown>; commandName: string } | null
+  ): Promise<T> {
+    if (jsonModeConfig && isAgentMode(jsonModeConfig.flags)) {
+      const firstQuestion = questions[0]
+      if (firstQuestion) {
+        const choices = firstQuestion.choices ? normalizeChoices(firstQuestion.choices) : undefined
+        outputPromptAsJson(
+          {
+            type: firstQuestion.type as 'list' | 'checkbox' | 'input' | 'confirm' | 'editor',
+            name: firstQuestion.name,
+            message: firstQuestion.message,
+            choices,
+            default: firstQuestion.default as string | boolean | string[] | undefined,
+          },
+          createMetadata(jsonModeConfig.commandName, jsonModeConfig.flags)
+        )
+      }
+      return {} as T
+    }
+    return inquirer.prompt(questions as Parameters<typeof inquirer.prompt>[0]) as Promise<T>
+  }
+
   async run(): Promise<void> {
     const { flags } = await this.parse(Claude)
     const jsonMode = shouldOutputJson(flags)
@@ -163,27 +200,18 @@ export default class Claude extends Command {
     this.log('')
 
     // Prompt for slug (session name)
+    const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'claude' } : null
     let slug = flags.slug
     if (!slug) {
-      if (jsonMode) {
-        outputPromptAsJson(
-          {
-            type: 'input',
-            name: 'slug',
-            message: 'Session name (for tab/pane title):',
-          },
-          createMetadata('claude', flags)
-        )
-      }
-      const { inputSlug } = await inquirer.prompt([
+      const { inputSlug } = await this.prompt<{ inputSlug: string }>([
         {
           type: 'input',
           name: 'inputSlug',
           message: 'Session name (for tab/pane title):',
           default: path.basename(workDir),
-          validate: (input: string) => input.trim() ? true : 'Session name required',
+          validate: (input: unknown) => (input as string).trim() ? true : 'Session name required',
         },
-      ])
+      ], jsonModeConfig)
       slug = inputSlug.trim()
     }
 
@@ -194,7 +222,7 @@ export default class Claude extends Command {
     let environment: ExecutionEnvironment = 'host'
     if (flags.environment) {
       environment = flags.environment as ExecutionEnvironment
-    } else if (!jsonMode) {
+    } else {
       // Check devcontainer prerequisites upfront
       const dockerRunning = isDockerRunning()
       const devcontainerCliInstalled = isDevcontainerCliInstalled()
@@ -211,11 +239,37 @@ export default class Claude extends Command {
         devcontainerLabel = `🐳 devcontainer (requires: ${missing.join(', ')})`
       }
 
-      // Loop to handle Docker not running
+      // In JSON mode, output environment prompt and exit
+      if (jsonMode) {
+        await this.prompt<{ selectedEnv: string }>([
+          {
+            type: 'list',
+            name: 'selectedEnv',
+            message: 'Where should Claude run?',
+            choices: [
+              {
+                name: devcontainerLabel,
+                value: 'devcontainer',
+                disabled: !devcontainerReady,
+                command: `prlt claude --slug "${slug}" --environment devcontainer --json`,
+              },
+              {
+                name: '💻 host (runs directly on your machine)',
+                value: 'host',
+                command: `prlt claude --slug "${slug}" --environment host --json`,
+              },
+            ],
+            default: devcontainerReady ? 'devcontainer' : 'host',
+          },
+        ], jsonModeConfig)
+        return // unreachable, but satisfies TypeScript
+      }
+
+      // Interactive mode: loop to handle Docker not running
       let environmentSelected = false
       while (!environmentSelected) {
         // eslint-disable-next-line no-await-in-loop -- Interactive user prompt in loop
-        const { selectedEnv } = await inquirer.prompt([
+        const { selectedEnv } = await this.prompt<{ selectedEnv: string }>([
           {
             type: 'list',
             name: 'selectedEnv',
@@ -230,7 +284,7 @@ export default class Claude extends Command {
             ],
             default: devcontainerReady ? 'devcontainer' : 'host',
           },
-        ])
+        ], null)
 
         if (selectedEnv === 'devcontainer') {
           // Double-check prerequisites (in case user retried after starting Docker)
@@ -255,19 +309,11 @@ export default class Claude extends Command {
           // Check GitHub token is available for git push operations
           if (!isGitHubTokenAvailable()) {
             const tokenChoices = [
-              { name: 'Yes, continue anyway (git push may fail)', value: 'continue' },
+              { name: 'Yes, continue anyway (git push may fail)', value: 'continue', command: `prlt claude --slug "${slug}" --environment devcontainer --json` },
               { name: 'No, let me run gh auth login first', value: 'cancel' },
-              { name: 'Switch to host mode instead', value: 'host' },
+              { name: 'Switch to host mode instead', value: 'host', command: `prlt claude --slug "${slug}" --environment host --json` },
             ]
             const tokenMessage = 'GitHub token not found. Git push may fail. Continue without token?'
-
-            if (jsonMode) {
-              outputPromptAsJson(
-                buildPromptConfig('list', 'tokenAction', tokenMessage, tokenChoices),
-                createMetadata('claude', flags)
-              )
-              return
-            }
 
             this.log('')
             this.warn(
@@ -278,7 +324,7 @@ export default class Claude extends Command {
             this.log('')
 
             // eslint-disable-next-line no-await-in-loop -- Interactive user prompt in loop
-            const { tokenAction } = await inquirer.prompt([
+            const { tokenAction } = await this.prompt<{ tokenAction: string }>([
               {
                 type: 'list',
                 name: 'tokenAction',
@@ -286,7 +332,7 @@ export default class Claude extends Command {
                 choices: tokenChoices,
                 default: 'continue',
               },
-            ])
+            ], null)
 
             if (tokenAction === 'cancel') {
               this.log(styles.muted('Run `gh auth login` and try again.'))
@@ -311,20 +357,20 @@ export default class Claude extends Command {
     let displayMode: DisplayMode = 'terminal'
     if (flags['display-mode']) {
       displayMode = flags['display-mode'] as DisplayMode
-    } else if (!jsonMode) {
-      const { selectedDisplay } = await inquirer.prompt([
+    } else {
+      const { selectedDisplay } = await this.prompt<{ selectedDisplay: string }>([
         {
           type: 'list',
           name: 'selectedDisplay',
           message: 'How should output be displayed?',
           choices: [
-            { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-            { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
-            { name: '📦 Background  - Runs detached, reattach later', value: 'background' },
+            { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal', command: `prlt claude --slug "${slug}" --environment ${environment} --display-mode terminal --json` },
+            { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground', command: `prlt claude --slug "${slug}" --environment ${environment} --display-mode foreground --json` },
+            { name: '📦 Background  - Runs detached, reattach later', value: 'background', command: `prlt claude --slug "${slug}" --environment ${environment} --display-mode background --json` },
           ],
           default: 'terminal',
         },
-      ])
+      ], jsonModeConfig)
       displayMode = selectedDisplay as DisplayMode
     }
 
@@ -332,19 +378,19 @@ export default class Claude extends Command {
     let sandboxed = true
     if (flags['permission-mode']) {
       sandboxed = flags['permission-mode'] === 'safe'
-    } else if (!jsonMode) {
-      const { permissionMode } = await inquirer.prompt([
+    } else {
+      const { permissionMode } = await this.prompt<{ permissionMode: string }>([
         {
           type: 'list',
           name: 'permissionMode',
           message: 'Permission mode:',
           choices: [
-            { name: '⚠️  danger - Skip permission checks (faster)', value: 'danger' },
-            { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+            { name: '⚠️  danger - Skip permission checks (faster)', value: 'danger', command: `prlt claude --slug "${slug}" --environment ${environment} --display-mode ${displayMode} --permission-mode danger --json` },
+            { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe', command: `prlt claude --slug "${slug}" --environment ${environment} --display-mode ${displayMode} --permission-mode safe --json` },
           ],
           default: 'danger',
         },
-      ])
+      ], jsonModeConfig)
       sandboxed = permissionMode === 'safe'
     }
 
@@ -355,23 +401,21 @@ export default class Claude extends Command {
       this.log(styles.muted('   Consider committing or stashing changes first.'))
       this.log('')
 
-      if (!jsonMode) {
-        const { proceed } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'proceed',
-            message: 'Continue anyway?',
-            choices: [
-              { name: 'Yes, proceed', value: true },
-              { name: 'No, cancel', value: false },
-            ],
-            default: true,
-          },
-        ])
-        if (!proceed) {
-          this.log(styles.muted('Cancelled.'))
-          return
-        }
+      const { proceed } = await this.prompt<{ proceed: string }>([
+        {
+          type: 'list',
+          name: 'proceed',
+          message: 'Continue anyway?',
+          choices: [
+            { name: 'Yes, proceed', value: 'true' },
+            { name: 'No, cancel', value: 'false' },
+          ],
+          default: 'true',
+        },
+      ], null)
+      if (proceed !== 'true') {
+        this.log(styles.muted('Cancelled.'))
+        return
       }
     }
 
@@ -557,6 +601,7 @@ export default class Claude extends Command {
       }
 
       // Select project
+      const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'claude' } : null
       let projectId = flags.project
       if (!projectId) {
         const projects = await storage.listProjects()
@@ -569,65 +614,50 @@ export default class Claude extends Command {
           this.error('No projects found. Create a project first.')
         }
 
-        if (jsonMode) {
-          outputPromptAsJson(
+        if (projects.length === 1) {
+          projectId = projects[0].id
+        } else {
+          const { selectedProject } = await this.prompt<{ selectedProject: string }>([
             {
               type: 'list',
-              name: 'project',
+              name: 'selectedProject',
               message: 'Select project for adhoc ticket:',
-              choices: projects.map((p: { name: string; id: string }) => ({ name: `${p.name} (${p.id})`, value: p.id })),
+              choices: projects.map((p: { name: string; id: string }) => ({
+                name: `${p.name} (${p.id})`,
+                value: p.id,
+                command: `prlt claude --project ${p.id} --json`,
+              })),
             },
-            createMetadata('claude', flags)
-          )
+          ], jsonModeConfig)
+          projectId = selectedProject
         }
-
-        const { selectedProject } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedProject',
-            message: 'Select project for adhoc ticket:',
-            choices: projects.map((p: { name: string; id: string }) => ({ name: `${p.name} (${p.id})`, value: p.id })),
-          },
-        ])
-        projectId = selectedProject
       }
 
       // Get ticket title
       let ticketTitle = flags.title
       if (!ticketTitle) {
-        if (jsonMode) {
-          outputPromptAsJson(
-            {
-              type: 'input',
-              name: 'title',
-              message: 'Ticket title:',
-            },
-            createMetadata('claude', flags)
-          )
-        }
-
-        const { inputTitle } = await inquirer.prompt([
+        const { inputTitle } = await this.prompt<{ inputTitle: string }>([
           {
             type: 'input',
             name: 'inputTitle',
             message: 'Ticket title:',
             default: `Ad-hoc session: ${path.basename(workDir)}`,
-            validate: (input: string) => input.trim() ? true : 'Title required',
+            validate: (input: unknown) => (input as string).trim() ? true : 'Title required',
           },
-        ])
+        ], jsonModeConfig)
         ticketTitle = inputTitle.trim()
       }
 
       // Get optional description
       let ticketDescription: string | undefined
       if (!jsonMode) {
-        const { inputDesc } = await inquirer.prompt([
+        const { inputDesc } = await this.prompt<{ inputDesc: string }>([
           {
             type: 'input',
             name: 'inputDesc',
             message: 'Description (optional):',
           },
-        ])
+        ], null)
         if (inputDesc.trim()) {
           ticketDescription = inputDesc.trim()
         }
@@ -655,11 +685,39 @@ export default class Claude extends Command {
       let environment: ExecutionEnvironment = 'host'
       if (flags.environment) {
         environment = flags.environment as ExecutionEnvironment
-      } else if (!jsonMode) {
+      } else {
+        // In JSON mode, output environment prompt and exit
+        if (jsonMode) {
+          await this.prompt<{ selectedEnv: string }>([
+            {
+              type: 'list',
+              name: 'selectedEnv',
+              message: 'Where should Claude run?',
+              choices: [
+                {
+                  name: devcontainerLabel,
+                  value: 'devcontainer',
+                  disabled: !devcontainerReady,
+                  command: `prlt claude --project ${projectId} --title "${ticketTitle}" --environment devcontainer --json`,
+                },
+                {
+                  name: '💻 host (runs directly on your machine)',
+                  value: 'host',
+                  command: `prlt claude --project ${projectId} --title "${ticketTitle}" --environment host --json`,
+                },
+              ],
+              default: devcontainerReady ? 'devcontainer' : 'host',
+            },
+          ], jsonModeConfig)
+          db.close()
+          return // unreachable, but satisfies TypeScript
+        }
+
+        // Interactive mode: loop to handle Docker not running
         let environmentSelected = false
         while (!environmentSelected) {
           // eslint-disable-next-line no-await-in-loop -- Interactive user prompt in loop
-          const { selectedEnv } = await inquirer.prompt([
+          const { selectedEnv } = await this.prompt<{ selectedEnv: string }>([
             {
               type: 'list',
               name: 'selectedEnv',
@@ -674,7 +732,7 @@ export default class Claude extends Command {
               ],
               default: devcontainerReady ? 'devcontainer' : 'host',
             },
-          ])
+          ], null)
 
           if (selectedEnv === 'devcontainer') {
             // Double-check prerequisites (in case user retried after starting Docker)
@@ -705,15 +763,6 @@ export default class Claude extends Command {
               ]
               const tokenMessage = 'GitHub token not found. Git push may fail. Continue without token?'
 
-              if (jsonMode) {
-                outputPromptAsJson(
-                  buildPromptConfig('list', 'tokenAction', tokenMessage, tokenChoices),
-                  createMetadata('claude', flags)
-                )
-                db.close()
-                return
-              }
-
               this.log('')
               this.warn(
                 'GitHub token not found.\n' +
@@ -723,7 +772,7 @@ export default class Claude extends Command {
               this.log('')
 
               // eslint-disable-next-line no-await-in-loop -- Interactive user prompt in loop
-              const { tokenAction } = await inquirer.prompt([
+              const { tokenAction } = await this.prompt<{ tokenAction: string }>([
                 {
                   type: 'list',
                   name: 'tokenAction',
@@ -731,7 +780,7 @@ export default class Claude extends Command {
                   choices: tokenChoices,
                   default: 'continue',
                 },
-              ])
+              ], null)
 
               if (tokenAction === 'cancel') {
                 db.close()
@@ -757,20 +806,20 @@ export default class Claude extends Command {
       let displayMode: DisplayMode = 'terminal'
       if (flags['display-mode']) {
         displayMode = flags['display-mode'] as DisplayMode
-      } else if (!jsonMode) {
-        const { selectedDisplay } = await inquirer.prompt([
+      } else {
+        const { selectedDisplay } = await this.prompt<{ selectedDisplay: string }>([
           {
             type: 'list',
             name: 'selectedDisplay',
             message: 'How should output be displayed?',
             choices: [
-              { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-              { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
-              { name: '📦 Background  - Runs detached, reattach later', value: 'background' },
+              { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal', command: `prlt claude --project ${projectId} --title "${ticketTitle}" --environment ${environment} --display-mode terminal --json` },
+              { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground', command: `prlt claude --project ${projectId} --title "${ticketTitle}" --environment ${environment} --display-mode foreground --json` },
+              { name: '📦 Background  - Runs detached, reattach later', value: 'background', command: `prlt claude --project ${projectId} --title "${ticketTitle}" --environment ${environment} --display-mode background --json` },
             ],
             default: 'terminal',
           },
-        ])
+        ], jsonModeConfig)
         displayMode = selectedDisplay as DisplayMode
       }
 
@@ -778,20 +827,20 @@ export default class Claude extends Command {
       let sandboxed = true
       if (flags['permission-mode']) {
         sandboxed = flags['permission-mode'] === 'safe'
-      } else if (!jsonMode) {
+      } else {
         const containerNote = environment === 'devcontainer' ? ' (container provides additional isolation)' : ''
-        const { permissionMode } = await inquirer.prompt([
+        const { permissionMode } = await this.prompt<{ permissionMode: string }>([
           {
             type: 'list',
             name: 'permissionMode',
             message: `Permission mode${containerNote}:`,
             choices: [
-              { name: '⚠️  danger - Skip permission checks (faster)', value: 'danger' },
-              { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+              { name: '⚠️  danger - Skip permission checks (faster)', value: 'danger', command: `prlt claude --project ${projectId} --title "${ticketTitle}" --environment ${environment} --display-mode ${displayMode} --permission-mode danger --json` },
+              { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe', command: `prlt claude --project ${projectId} --title "${ticketTitle}" --environment ${environment} --display-mode ${displayMode} --permission-mode safe --json` },
             ],
             default: 'danger',
           },
-        ])
+        ], jsonModeConfig)
         sandboxed = permissionMode === 'safe'
       }
 
@@ -802,24 +851,22 @@ export default class Claude extends Command {
         this.log(styles.muted('   Consider committing or stashing changes first.'))
         this.log('')
 
-        if (!jsonMode) {
-          const { proceed } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'proceed',
-              message: 'Continue anyway?',
-              choices: [
-                { name: 'Yes, proceed', value: true },
-                { name: 'No, cancel', value: false },
-              ],
-              default: true,
-            },
-          ])
-          if (!proceed) {
-            this.log(styles.muted('Cancelled.'))
-            db.close()
-            return
-          }
+        const { proceed } = await this.prompt<{ proceed: string }>([
+          {
+            type: 'list',
+            name: 'proceed',
+            message: 'Continue anyway?',
+            choices: [
+              { name: 'Yes, proceed', value: 'true' },
+              { name: 'No, cancel', value: 'false' },
+            ],
+            default: 'true',
+          },
+        ], null)
+        if (proceed !== 'true') {
+          this.log(styles.muted('Cancelled.'))
+          db.close()
+          return
         }
       }
 
