@@ -139,8 +139,8 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     describe('full agent workflow', () => {
-      it('should navigate menu → list → verify output', () => {
-        createExecution(db, 'TKT-001', 'agent-1', 'running');
+      it('should navigate menu → list → verify output with all key fields', () => {
+        createExecution(db, 'TKT-001', 'agent-1', 'running', { environment: 'host' });
 
         // Step 1: Get the main menu prompt
         const menuOutput = exec('execution --json');
@@ -155,10 +155,12 @@ describe('Execution Commands E2E Tests', () => {
         // Step 3: Execute the extracted command (strip --json for final execution)
         const listOutput = execFinal(listCmd);
 
-        // Step 4: Verify end result
-        expect(listOutput).to.contain('agent-1');
-        expect(listOutput).to.contain('TKT-001');
+        // Step 4: Verify all key fields are present in output
         expect(listOutput).to.contain('WORK-001');
+        expect(listOutput).to.contain('TKT-001');
+        expect(listOutput).to.contain('agent-1');
+        expect(listOutput).to.contain('running');
+        expect(listOutput).to.contain('host');
       });
 
       it('should navigate menu → logs → select execution → verify logs', () => {
@@ -236,8 +238,8 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     describe('full agent workflow with --machine', () => {
-      it('should navigate menu → list → verify output using --machine', () => {
-        createExecution(db, 'TKT-001', 'agent-1', 'running');
+      it('should navigate menu → list → verify output with all key fields using --machine', () => {
+        createExecution(db, 'TKT-001', 'agent-1', 'running', { environment: 'host' });
 
         // Step 1: Get the main menu prompt via --machine
         const menuOutput = exec('execution --machine');
@@ -252,10 +254,12 @@ describe('Execution Commands E2E Tests', () => {
         // Step 3: Execute the extracted command
         const listOutput = execFinal(listCmd);
 
-        // Step 4: Verify end result
-        expect(listOutput).to.contain('agent-1');
-        expect(listOutput).to.contain('TKT-001');
+        // Step 4: Verify all key fields are present in output
         expect(listOutput).to.contain('WORK-001');
+        expect(listOutput).to.contain('TKT-001');
+        expect(listOutput).to.contain('agent-1');
+        expect(listOutput).to.contain('running');
+        expect(listOutput).to.contain('host');
       });
 
       it('should navigate menu → logs → select execution → verify logs using --machine', () => {
@@ -581,47 +585,60 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     describe('full agent workflow for logs', () => {
-      it('should complete: get prompt → select execution → see logs', () => {
-        const logPath = path.join(testDir, '.proletariat', 'logs', 'work-WORK-001.log');
-        fs.writeFileSync(logPath, 'Agent output: task completed successfully\n');
-        createExecution(db, 'TKT-001', 'agent-1', 'running', { log_path: logPath });
+      it('should complete: get prompt → select specific execution → see correct logs (not other)', () => {
+        const logPath1 = path.join(testDir, '.proletariat', 'logs', 'work-WORK-001.log');
+        fs.writeFileSync(logPath1, 'Agent-1 output: building frontend\n');
+        createExecution(db, 'TKT-001', 'agent-1', 'running', { log_path: logPath1 });
+
+        const logPath2 = path.join(testDir, '.proletariat', 'logs', 'work-WORK-002.log');
+        fs.writeFileSync(logPath2, 'Agent-2 output: running migrations\n');
+        createExecution(db, 'TKT-002', 'agent-2', 'running', { log_path: logPath2 });
 
         // Step 1: Agent requests execution selection
         const promptOutput = exec('execution logs --json');
         const prompt = extractJson<AgentPromptResponse>(promptOutput);
         expect(prompt).to.not.be.null;
+        expect(prompt!.prompt.choices.length).to.equal(2);
 
-        // Step 2: Agent picks the execution from the choices
-        const selectedExec = findChoice(prompt!.prompt.choices, 'WORK-001');
+        // Step 2: Agent picks WORK-002 specifically
+        const selectedExec = findChoice(prompt!.prompt.choices, 'WORK-002');
         expect(selectedExec).to.exist;
-        expect(selectedExec!.command).to.exist;
+        expect(selectedExec!.command).to.include('WORK-002');
 
         // Step 3: Agent executes the selected command (without --json for final output)
         const logsOutput = execFinal(execChoice(selectedExec!));
 
-        // Step 4: Verify actual log content is displayed
-        expect(logsOutput).to.contain('Agent output: task completed successfully');
+        // Step 4: Verify the CORRECT log content is displayed (agent-2, not agent-1)
+        expect(logsOutput).to.contain('Agent-2 output: running migrations');
+        expect(logsOutput).not.to.contain('Agent-1 output: building frontend');
       });
 
-      it('should complete workflow with --machine flag', () => {
-        const logPath = path.join(testDir, '.proletariat', 'logs', 'work-WORK-001.log');
-        fs.writeFileSync(logPath, 'Machine workflow log content\n');
-        createExecution(db, 'TKT-001', 'agent-1', 'running', { log_path: logPath });
+      it('should complete workflow with --machine flag and show correct logs', () => {
+        const logPath1 = path.join(testDir, '.proletariat', 'logs', 'work-WORK-001.log');
+        fs.writeFileSync(logPath1, 'First execution logs\n');
+        createExecution(db, 'TKT-001', 'agent-1', 'running', { log_path: logPath1 });
+
+        const logPath2 = path.join(testDir, '.proletariat', 'logs', 'work-WORK-002.log');
+        fs.writeFileSync(logPath2, 'Second execution logs\n');
+        createExecution(db, 'TKT-002', 'agent-2', 'completed', { log_path: logPath2 });
 
         // Step 1: Agent requests execution selection via --machine
         const promptOutput = exec('execution logs --machine');
         const prompt = extractJson<AgentPromptResponse>(promptOutput);
         expect(prompt).to.not.be.null;
+        expect(prompt!.prompt.choices.length).to.equal(2);
 
-        // Step 2: Agent picks the execution
-        const selectedExec = prompt!.prompt.choices[0];
-        expect(selectedExec.command).to.include('WORK-001');
+        // Step 2: Agent picks WORK-001 specifically
+        const selectedExec = findChoice(prompt!.prompt.choices, 'WORK-001');
+        expect(selectedExec).to.exist;
+        expect(selectedExec!.command).to.include('WORK-001');
 
         // Step 3: Execute the command without --json
-        const logsOutput = execFinal(execChoice(selectedExec));
+        const logsOutput = execFinal(execChoice(selectedExec!));
 
-        // Step 4: Verify actual log content
-        expect(logsOutput).to.contain('Machine workflow log content');
+        // Step 4: Verify correct log content (first, not second)
+        expect(logsOutput).to.contain('First execution logs');
+        expect(logsOutput).not.to.contain('Second execution logs');
       });
     });
   });
@@ -653,6 +670,21 @@ describe('Execution Commands E2E Tests', () => {
         expect(output).to.contain('agent-1');
       });
 
+      it('should only stop the targeted execution, leaving others unchanged', () => {
+        createExecution(db, 'TKT-001', 'agent-1', 'running');
+        createExecution(db, 'TKT-002', 'agent-2', 'running');
+
+        const output = exec('execution stop WORK-001');
+
+        expect(output).to.contain('Stopped');
+        // Target execution stopped
+        const stopped = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
+        expect(stopped.status).to.equal('stopped');
+        // Other execution remains running
+        const untouched = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-002') as { status: string };
+        expect(untouched.status).to.equal('running');
+      });
+
       it('should stop a starting execution', () => {
         createExecution(db, 'TKT-001', 'agent-1', 'starting');
 
@@ -663,18 +695,24 @@ describe('Execution Commands E2E Tests', () => {
         expect(row.status).to.equal('stopped');
       });
 
-      it('should show message when execution is already stopped', () => {
+      it('should show message when execution is already stopped and not change DB', () => {
         createExecution(db, 'TKT-001', 'agent-1', 'stopped');
 
         const output = exec('execution stop WORK-001');
         expect(output).to.contain('not running');
+        // Verify DB status was NOT changed
+        const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
+        expect(row.status).to.equal('stopped');
       });
 
-      it('should show message when execution is completed', () => {
+      it('should show message when execution is completed and not change DB', () => {
         createExecution(db, 'TKT-001', 'agent-1', 'completed');
 
         const output = exec('execution stop WORK-001');
         expect(output).to.contain('not running');
+        // Verify DB status was NOT changed to 'stopped'
+        const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
+        expect(row.status).to.equal('completed');
       });
 
       it('should error when execution not found', () => {
@@ -694,15 +732,18 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     describe('bulk stop with --all', () => {
-      it('should stop all running executions', () => {
+      it('should stop all running executions and verify each by ID', () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
         const output = exec('execution stop --all');
 
         expect(output).to.contain('Stopping 2 execution(s)');
-        const rows = db.prepare('SELECT status FROM agent_work WHERE status = ?').all('stopped') as { status: string }[];
-        expect(rows.length).to.equal(2);
+        // Verify each specific execution was stopped
+        const row1 = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
+        expect(row1.status).to.equal('stopped');
+        const row2 = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-002') as { status: string };
+        expect(row2.status).to.equal('stopped');
       });
 
       it('should include starting executions in bulk stop', () => {
@@ -898,44 +939,59 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     describe('full agent workflow for stop', () => {
-      it('should complete: get prompt → select execution → stop → verify DB', () => {
+      it('should complete: get prompt → select specific execution → stop → verify only that one stopped', () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
+        createExecution(db, 'TKT-002', 'agent-2', 'running');
 
         // Step 1: Agent requests execution selection
         const promptOutput = exec('execution stop --json');
         const prompt = extractJson<AgentPromptResponse>(promptOutput);
         expect(prompt).to.not.be.null;
+        expect(prompt!.prompt.choices.length).to.equal(2);
 
-        // Step 2: Agent picks the execution
+        // Step 2: Agent picks WORK-001 specifically (not WORK-002)
         const selectedExec = findChoice(prompt!.prompt.choices, 'WORK-001');
         expect(selectedExec).to.exist;
         expect(selectedExec!.command).to.exist;
+        expect(selectedExec!.command).to.include('WORK-001');
 
         // Step 3: Agent executes the stop command (without --json for final execution)
         const stopOutput = execFinal(execChoice(selectedExec!));
 
-        // Step 4: Verify the execution was actually stopped
+        // Step 4: Verify ONLY the selected execution was stopped
         expect(stopOutput).to.contain('Stopped');
-        const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
-        expect(row.status).to.equal('stopped');
+        expect(stopOutput).to.contain('WORK-001');
+        const stoppedRow = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
+        expect(stoppedRow.status).to.equal('stopped');
+        // The other execution must remain running
+        const untouchedRow = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-002') as { status: string };
+        expect(untouchedRow.status).to.equal('running');
       });
 
-      it('should complete workflow with --machine flag', () => {
+      it('should complete workflow with --machine flag and verify correct execution stopped', () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
+        createExecution(db, 'TKT-002', 'agent-2', 'running');
 
         // Step 1: Use --machine flag
         const promptOutput = exec('execution stop --machine');
         const prompt = extractJson<AgentPromptResponse>(promptOutput);
         expect(prompt).to.not.be.null;
+        expect(prompt!.prompt.choices.length).to.equal(2);
 
-        // Step 2: Extract and execute the command
-        const selectedExec = prompt!.prompt.choices[0];
-        const stopOutput = execFinal(execChoice(selectedExec));
+        // Step 2: Agent picks WORK-002 specifically (second choice)
+        const selectedExec = findChoice(prompt!.prompt.choices, 'WORK-002');
+        expect(selectedExec).to.exist;
+        expect(selectedExec!.command).to.include('WORK-002');
+        const stopOutput = execFinal(execChoice(selectedExec!));
 
-        // Step 3: Verify stopped
+        // Step 3: Verify ONLY WORK-002 was stopped
         expect(stopOutput).to.contain('Stopped');
-        const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
-        expect(row.status).to.equal('stopped');
+        expect(stopOutput).to.contain('WORK-002');
+        const stoppedRow = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-002') as { status: string };
+        expect(stoppedRow.status).to.equal('stopped');
+        // WORK-001 must remain running
+        const untouchedRow = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
+        expect(untouchedRow.status).to.equal('running');
       });
     });
   });
