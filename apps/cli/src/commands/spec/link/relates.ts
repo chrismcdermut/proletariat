@@ -20,10 +20,6 @@ export default class SpecLinkRelates extends PMOCommand {
   }
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   }
 
   async execute(): Promise<void> {
@@ -59,7 +55,11 @@ export default class SpecLinkRelates extends PMOCommand {
 
       // In JSON mode, output spec selection prompt
       if (jsonMode) {
-        const specChoices = otherSpecs.map(s => ({ name: `${s.id} - ${s.title}`, value: s.id }))
+        const specChoices = otherSpecs.map(s => ({
+          name: `${s.id} - ${s.title}`,
+          value: s.id,
+          command: `prlt spec link relates ${args.id} ${s.id} --json`,
+        }))
         outputPromptAsJson(
           buildPromptConfig('list', 'target', `Select spec that ${args.id} relates to:`, specChoices),
           createMetadata('spec link relates', flags)

@@ -6,6 +6,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class SpecView extends PMOCommand {
   static description = 'View a spec and its linked tickets';
@@ -24,10 +25,6 @@ export default class SpecView extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     spec: Flags.string({
       char: 's',
       description: 'Spec ID',
@@ -41,11 +38,18 @@ export default class SpecView extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SpecView);
-    // This command requires project context for listing linked tickets
-    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
+
+    // This command requires project context for listing linked tickets (with JSON mode support)
+    const projectId = await this.requireProject({
+      jsonMode: jsonMode ? {
+        flags,
+        commandName: 'spec view',
+        baseCommand: 'prlt spec view',
+      } : undefined,
+    });
 
     // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
@@ -64,19 +68,26 @@ export default class SpecView extends PMOCommand {
         return handleError('NO_SPECS', 'No specs found. Create one first with: prlt spec create');
       }
 
-      const selected = await this.selectFromList({
-        message: 'Select spec to view:',
-        items: specs,
-        getName: (s) => `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
-        getValue: (s) => s.id,
-        getCommand: (s) => `prlt spec view ${s.id} --json`,
-        jsonMode: jsonMode ? { flags, commandName: 'spec view' } : null,
+      // Use FlagResolver for spec selection
+      const resolver = new FlagResolver<{ spec?: string }>({
+        commandName: 'spec view',
+        baseCommand: 'prlt spec view',
+        jsonMode,
+        flags: { spec: flags.spec },
       });
 
-      if (!selected) {
-        return;
-      }
-      specId = selected;
+      resolver.addPrompt({
+        flagName: 'spec',
+        type: 'list',
+        message: 'Select spec to view:',
+        choices: () => specs.map(s => ({
+          name: `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
+          value: s.id,
+        })),
+      });
+
+      const resolved = await resolver.resolve();
+      specId = resolved.spec;
     }
 
     // Get the spec

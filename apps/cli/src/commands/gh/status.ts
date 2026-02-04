@@ -2,6 +2,12 @@ import { Command } from '@oclif/core';
 import chalk from 'chalk';
 import { styles } from '../../lib/styles.js';
 import { isGHInstalled, isGHAuthenticated, getGHUsername, isGHTokenInEnv } from '../../lib/pr/index.js';
+import {
+  isMachineOutput,
+  outputSuccessAsJson,
+  createMetadata,
+} from '../../lib/prompt-json.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 
 export default class GHStatus extends Command {
   static description = 'Check GitHub CLI status for PR workflow';
@@ -10,11 +16,41 @@ export default class GHStatus extends Command {
     '<%= config.bin %> <%= command.id %>',
   ];
 
+  static flags = {
+    ...machineOutputFlags,
+  };
+
   async run(): Promise<void> {
+    const { flags } = await this.parse(GHStatus);
+
+    // Check if machine output mode is active
+    const jsonMode = isMachineOutput(flags);
+
+    // Gather status information
+    const ghInstalled = isGHInstalled();
+    const ghAuthenticated = ghInstalled && isGHAuthenticated();
+    const username = ghAuthenticated ? getGHUsername() : null;
+    const ghTokenSet = isGHTokenInEnv();
+
+    // In JSON mode, output status as JSON
+    if (jsonMode) {
+      outputSuccessAsJson(
+        {
+          ghInstalled,
+          ghAuthenticated,
+          username,
+          ghTokenSet,
+          ready: ghInstalled && ghAuthenticated && ghTokenSet,
+        },
+        createMetadata('gh status', flags)
+      );
+      return;
+    }
+
     this.log(styles.muted('Checking GitHub CLI status...\n'));
 
     // Check if gh is installed
-    if (!isGHInstalled()) {
+    if (!ghInstalled) {
       this.log(chalk.red('  ✗ gh CLI not installed'));
       this.log(styles.muted(''));
       this.log(styles.muted('    Install with Homebrew:'));
@@ -26,7 +62,7 @@ export default class GHStatus extends Command {
     this.log(chalk.green('  ✓ gh CLI installed'));
 
     // Check if gh is authenticated
-    if (!isGHAuthenticated()) {
+    if (!ghAuthenticated) {
       this.log(chalk.yellow('  ⚠ gh CLI not authenticated'));
       this.log(styles.muted(''));
       this.log(styles.muted('    Run to authenticate:'));
@@ -35,11 +71,10 @@ export default class GHStatus extends Command {
       return;
     }
 
-    const username = getGHUsername();
     this.log(chalk.green(`  ✓ Authenticated${username ? ` as ${chalk.bold(username)}` : ''}`));
 
     // Check if GH_TOKEN is available for devcontainers
-    if (isGHTokenInEnv()) {
+    if (ghTokenSet) {
       this.log(chalk.green('  ✓ GH_TOKEN available for devcontainers'));
       this.log(styles.muted(''));
       this.log(chalk.green('All set! PR creation will work in both host and devcontainers.'));

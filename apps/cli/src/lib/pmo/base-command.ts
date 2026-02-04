@@ -5,12 +5,11 @@ import { styles } from '../styles.js';
 import {
   shouldOutputJson,
   isAgentMode,
-  isMachineOutput,
   outputPromptAsJson,
+  outputErrorAsJson,
   createMetadata,
   normalizeChoices,
   type JsonFlags,
-  type MachineOutputFlags,
 } from '../prompt-json.js';
 
 /**
@@ -487,6 +486,48 @@ export abstract class PMOCommand extends Command {
 
     // Interactive mode: just call inquirer
     return inquirer.prompt(questions as Parameters<typeof inquirer.prompt>[0]) as Promise<T>;
+  }
+
+  /**
+   * Unified error handler for JSON/interactive modes.
+   *
+   * Consolidates error handling to avoid message drift between JSON and interactive modes.
+   * In JSON mode: outputs structured error JSON and exits
+   * In interactive mode: calls this.error() with the message
+   *
+   * @param code - Error code for JSON output (e.g., 'NOT_FOUND', 'DOCKER_NOT_RUNNING')
+   * @param message - Human-readable error message (used in both modes)
+   * @param options - Configuration for error handling
+   * @returns never - always throws or exits
+   *
+   * @example
+   * ```typescript
+   * // Instead of duplicating messages:
+   * // if (jsonMode) { outputErrorAsJson('CODE', 'msg', ...); }
+   * // this.error('msg');
+   *
+   * // Use:
+   * this.handleError('DOCKER_NOT_RUNNING', 'Docker is not running.', {
+   *   jsonMode,
+   *   commandName: 'agent auth',
+   *   flags,
+   * });
+   * ```
+   */
+  protected handleError(
+    code: string,
+    message: string,
+    options: {
+      jsonMode: boolean;
+      commandName: string;
+      flags: Record<string, unknown>;
+    }
+  ): never {
+    if (options.jsonMode) {
+      outputErrorAsJson(code, message, createMetadata(options.commandName, options.flags));
+      this.exit(1);
+    }
+    this.error(message);
   }
 
   /**

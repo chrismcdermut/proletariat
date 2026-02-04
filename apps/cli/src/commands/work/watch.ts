@@ -1,7 +1,6 @@
 import { Flags } from '@oclif/core'
 import * as path from 'node:path'
 import Database from 'better-sqlite3'
-import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
@@ -18,11 +17,10 @@ import { DisplayMode, ExecutionEnvironment, ExecutionConfig } from '../../lib/ex
 import { promptExecutionSettings } from '../../lib/execution/config.js'
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js'
+import { FlagResolver } from '../../lib/flags/index.js'
 
 export default class WorkWatch extends PMOCommand {
   static description = 'Watch a column and auto-spawn agents for new tickets'
@@ -157,39 +155,32 @@ export default class WorkWatch extends PMOCommand {
       // Prompt for column if not provided
       this.columnName = flags.column || ''
       if (!this.columnName) {
-        // In JSON mode, output column selection prompt
-        if (jsonMode) {
-          const columnChoices = columns.map(col => {
-            const ticketCount = board.columns.find(c => c.name === col)?.tickets?.length || 0
-            return {
-              name: `${col} (${ticketCount} tickets)`,
-              value: col,
-            }
-          })
-          outputPromptAsJson(
-            buildPromptConfig('list', 'column', 'Select column to watch for new tickets:', columnChoices),
-            createMetadata('work watch', flags)
-          )
-          db.close()
-          return
-        }
+        // Build column choices with ticket counts
+        const columnChoices = columns.map(col => {
+          const ticketCount = board.columns.find(c => c.name === col)?.tickets?.length || 0
+          return {
+            name: `${col} (${ticketCount} tickets)`,
+            value: col,
+          }
+        })
 
-        const { selectedColumn } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedColumn',
-            message: 'Select column to watch for new tickets:',
-            choices: columns.map(col => {
-              // Get ticket count for each column
-              const ticketCount = board.columns.find(c => c.name === col)?.tickets?.length || 0
-              return {
-                name: `${col} (${ticketCount} tickets)`,
-                value: col,
-              }
-            }),
-          },
-        ])
-        this.columnName = selectedColumn
+        // Use FlagResolver for column selection
+        const columnResolver = new FlagResolver<{ column?: string }>({
+          commandName: 'work watch',
+          baseCommand: 'prlt work watch',
+          jsonMode,
+          flags: {},
+        })
+
+        columnResolver.addPrompt({
+          flagName: 'column',
+          type: 'list',
+          message: 'Select column to watch for new tickets:',
+          choices: () => columnChoices,
+        })
+
+        const columnResult = await columnResolver.resolve()
+        this.columnName = columnResult.column || ''
       }
 
       // Check if any agent has devcontainer
@@ -222,36 +213,50 @@ export default class WorkWatch extends PMOCommand {
 
       if (!flags.mode) {
         if (hasDevcontainer && dockerRunning && devcontainerCliInstalled) {
-          // Prompt for environment choice
-          const { selectedEnvironment } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedEnvironment',
-              message: 'Where should agents run?',
-              choices: [
-                { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
-                { name: '💻 host (runs directly on your machine)', value: 'host' },
-              ],
-              default: 'devcontainer',
-            },
-          ])
-          this.environment = selectedEnvironment
+          // Use FlagResolver for environment selection
+          const envResolver = new FlagResolver<{ selectedEnvironment?: string }>({
+            commandName: 'work watch',
+            baseCommand: 'prlt work watch',
+            jsonMode,
+            flags: {},
+          })
+
+          envResolver.addPrompt({
+            flagName: 'selectedEnvironment',
+            type: 'list',
+            message: 'Where should agents run?',
+            default: 'devcontainer',
+            choices: () => [
+              { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
+              { name: '💻 host (runs directly on your machine)', value: 'host' },
+            ],
+          })
+
+          const envResult = await envResolver.resolve()
+          this.environment = envResult.selectedEnvironment as ExecutionEnvironment
         }
 
-        // Prompt for display mode
-        const { selectedDisplay } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedDisplay',
-            message: 'How should agent output be displayed?',
-            choices: [
-              { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-              { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
-            ],
-            default: 'terminal',
-          },
-        ])
-        this.displayMode = selectedDisplay as DisplayMode
+        // Use FlagResolver for display mode
+        const displayResolver = new FlagResolver<{ selectedDisplay?: string }>({
+          commandName: 'work watch',
+          baseCommand: 'prlt work watch',
+          jsonMode,
+          flags: {},
+        })
+
+        displayResolver.addPrompt({
+          flagName: 'selectedDisplay',
+          type: 'list',
+          message: 'How should agent output be displayed?',
+          default: 'terminal',
+          choices: () => [
+            { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+            { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+          ],
+        })
+
+        const displayResult = await displayResolver.resolve()
+        this.displayMode = displayResult.selectedDisplay as DisplayMode
       } else {
         this.displayMode = flags.mode as DisplayMode
         this.environment = hasDevcontainer && dockerRunning ? 'devcontainer' : 'host'
@@ -264,6 +269,7 @@ export default class WorkWatch extends PMOCommand {
         skipPermissions: flags['skip-permissions'] ? true : undefined,
         createPR: flags['create-pr'] ? true : undefined,
         log: (msg) => this.log(styles.header(msg)),
+        jsonMode: jsonMode ? { flags, commandName: 'work watch' } : undefined,
       })
       this.executionConfig = promptResult.executionConfig
       this.skipPermissions = promptResult.skipPermissions

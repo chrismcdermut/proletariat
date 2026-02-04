@@ -1,7 +1,15 @@
 import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
-import { shouldOutputJson } from '../../lib/prompt-json.js';
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
+
+interface MenuFlags {
+  action?: string;
+  project?: string;
+  json?: boolean;
+  machine?: boolean;
+  [key: string]: unknown;
+}
 
 export default class Status extends PMOCommand {
   static description = 'Interactive menu for workflow status operations';
@@ -14,10 +22,6 @@ export default class Status extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -33,23 +37,37 @@ export default class Status extends PMOCommand {
     // Define choices once, use for both JSON and interactive modes
     // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { id: 'list', name: 'List all statuses', command: 'prlt status list --format json' },
-      { id: 'create', name: 'Create new status', command: 'prlt status create --json' },
-      { id: 'update', name: 'Update status', command: 'prlt status update --json' },
-      { id: 'move', name: 'Move status (change order)', command: 'prlt status move --json' },
-      { id: 'delete', name: 'Delete status', command: 'prlt status delete --json' },
+      { id: 'list', name: 'List all statuses', command: 'prlt status list --machine' },
+      { id: 'create', name: 'Create new status', command: 'prlt status create --machine' },
+      { id: 'update', name: 'Update status', command: 'prlt status update --machine' },
+      { id: 'move', name: 'Move status (change order)', command: 'prlt status move --machine' },
+      { id: 'delete', name: 'Delete status', command: 'prlt status delete --machine' },
       { id: 'cancel', name: 'Cancel', command: '' },
     ];
-    const message = 'Workflow Statuses - What would you like to do?';
 
-    const action = await this.selectFromList({
-      message: '📊 ' + message,
-      items: menuChoices,
-      getName: (c) => c.name,
-      getValue: (c) => c.id,
-      getCommand: (c) => c.command,
-      jsonMode: jsonMode ? { flags, commandName: 'status' } : null,
+    // Create FlagResolver for menu selection
+    const resolver = new FlagResolver<MenuFlags>({
+      commandName: 'status',
+      baseCommand: 'prlt status',
+      jsonMode,
+      flags,
     });
+
+    // Add menu prompt
+    resolver.addPrompt({
+      flagName: 'action',
+      type: 'list',
+      message: '📊 Workflow Statuses - What would you like to do?',
+      choices: () => menuChoices.map(c => ({
+        name: c.name,
+        value: c.id,
+        command: c.command,
+      })),
+      when: (ctx) => !ctx.flags.action,
+    });
+
+    const resolved = await resolver.resolve();
+    const action = resolved.action;
 
     if (action === 'cancel' || !action) {
       return;

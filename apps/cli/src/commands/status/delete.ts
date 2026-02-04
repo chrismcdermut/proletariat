@@ -1,14 +1,19 @@
 import { Flags, Args } from '@oclif/core';
-import inquirer from 'inquirer';
-import { PMOCommand } from '../../lib/pmo/index.js';
+import { PMOCommand, machineOutputFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
 import {
-  shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
+
+interface DeleteFlags {
+  force?: boolean;
+  confirm?: boolean;
+  json?: boolean;
+  machine?: boolean;
+  [key: string]: unknown;
+}
 
 export default class StatusDelete extends PMOCommand {
   static description = 'Delete a workflow status';
@@ -26,10 +31,7 @@ export default class StatusDelete extends PMOCommand {
   };
 
   static flags = {
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
+    ...machineOutputFlags,
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation prompt',
@@ -58,27 +60,32 @@ export default class StatusDelete extends PMOCommand {
       return handleError('STATUS_NOT_FOUND', `Status not found: ${args.id}`);
     }
 
-    // Confirm deletion
+    // Confirm deletion if not forced
     if (!flags.force) {
-      // In JSON mode, output confirmation prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('confirm', 'confirm', `Delete status "${existing.name}" (${existing.category})?`),
-          createMetadata('status delete', flags)
-        );
-        return;
-      }
+      // Create FlagResolver for confirmation
+      const resolver = new FlagResolver<DeleteFlags>({
+        commandName: 'status delete',
+        baseCommand: `prlt status delete ${args.id}`,
+        jsonMode,
+        flags: { ...flags, confirm: flags.force ? true : undefined },
+        context: { statusId: args.id, existing },
+      });
 
-      const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
-        {
-          type: 'confirm',
-          name: 'confirm',
-          message: `Delete status "${existing.name}" (${existing.category})?`,
-          default: false,
-        },
-      ]);
+      // Add confirmation prompt (use list instead of confirm per CLAUDE.md guidelines)
+      resolver.addPrompt({
+        flagName: 'confirm',
+        type: 'list',
+        message: `Delete status "${existing.name}" (${existing.category})?`,
+        choices: () => [
+          { name: 'No, cancel', value: false, command: '' },
+          { name: 'Yes, delete', value: true, command: `prlt status delete ${args.id} --force --machine` },
+        ],
+        when: (ctx) => ctx.flags.confirm === undefined,
+      });
 
-      if (!confirm) {
+      const resolved = await resolver.resolve();
+
+      if (!resolved.confirm) {
         this.log(styles.muted('Cancelled'));
         return;
       }

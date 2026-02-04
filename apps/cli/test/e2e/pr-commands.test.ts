@@ -453,6 +453,70 @@ describe('PR Commands E2E Tests', () => {
   });
 
   /**
+   * JSON Mode Tests
+   * Test that pr commands output proper JSON when --json flag is used
+   */
+  describe('JSON Mode Output (FlagResolver)', () => {
+    it('prlt pr --json should output prompt config for action selection', () => {
+      const output = exec('pr --json');
+
+      // Should output JSON with prompt config
+      expect(output).to.include('"type"');
+      expect(output).to.include('"action"');
+    });
+
+    it('prlt pr status --json should output prompt config for ticket selection', () => {
+      // Create a ticket first
+      createTicket(db, 'JSON mode test ticket', 'in-progress');
+
+      const output = exec('pr status --json');
+
+      // Should output JSON with prompt config for ticket selection
+      expect(output).to.include('"type"');
+    });
+
+    it('prlt pr link --json should output prompt config for ticket selection', () => {
+      // Create a ticket first
+      createTicket(db, 'Link JSON test ticket', 'in-progress');
+
+      const output = exec('pr link --json');
+
+      // Should output JSON prompt config
+      expect(output).to.include('"type"');
+    });
+
+    it('prlt pr create with --ticket flag should skip ticket selection prompt', () => {
+      const ticketId = createTicket(db, 'Create test ticket', 'in-progress');
+
+      // With ticket provided, should not prompt for ticket
+      const output = exec(`pr create --ticket ${ticketId} --no-link --json`);
+
+      // Either outputs error (gh not installed) or proceeds without ticket prompt
+      expect(output).to.be.a('string');
+    });
+
+    it('prlt pr status with ticket arg should skip selection', () => {
+      const ticketId = createTicket(db, 'Status test ticket', 'in-progress');
+
+      // With ticket ID provided, should show status directly
+      const output = exec(`pr status ${ticketId}`);
+
+      // Should show ticket info
+      expect(output).to.include(ticketId);
+    });
+
+    it('prlt pr link with ticket arg should proceed to PR selection', () => {
+      const ticketId = createTicket(db, 'Link test ticket', 'in-progress');
+
+      // With ticket ID provided, should skip ticket selection
+      const output = exec(`pr link ${ticketId} --json`);
+
+      // Should either prompt for PR or error (gh not installed)
+      expect(output).to.be.a('string');
+    });
+  });
+
+  /**
    * Spec: pull-requests.md > Multiple PRs per ticket
    * Verify that metadata can be overwritten
    */

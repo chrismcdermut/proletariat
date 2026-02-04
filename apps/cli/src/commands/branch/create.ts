@@ -7,10 +7,8 @@ import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js'
 import {
   BRANCH_TYPES,
@@ -145,34 +143,23 @@ export default class BranchCreate extends PMOCommand {
       const validation = validateBranchName(branchName)
 
       if (!validation.valid) {
-        // Build choices once, use for both JSON and interactive modes
+        // Build choices for validation warning
         const confirmChoices = [
-          { name: 'No', value: 'false' },
-          { name: 'Yes', value: 'true' },
+          { name: 'No', value: 'false', command: '' },
+          { name: 'Yes', value: 'true', command: `prlt branch create "${args.name}" --force --json` },
         ]
         const confirmMessage = `Branch name doesn't follow conventional format. ${validation.error} Continue anyway?`
 
-        // In JSON mode, output validation warning prompt
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'proceed', confirmMessage, confirmChoices),
-            createMetadata('branch create', flags)
-          )
-          return
-        }
+        // Use prompt for JSON mode support
+        const agentConfig = jsonMode ? { flags, commandName: 'branch create' } : null
+        const { proceed } = await this.prompt<{ proceed: string }>([{
+          type: 'list',
+          name: 'proceed',
+          message: confirmMessage,
+          choices: confirmChoices,
+        }], agentConfig)
 
-        // Warn but allow creation
-        const { proceed } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'proceed',
-            message: confirmMessage.replace('. ', '.\n   ').replace('?', '?\n   '),
-            choices: confirmChoices.map(c => ({ name: c.name, value: c.value === 'true' })),
-            default: false,
-          },
-        ])
-
-        if (!proceed) {
+        if (proceed !== 'true') {
           return
         }
       }
@@ -267,8 +254,8 @@ export default class BranchCreate extends PMOCommand {
       const autoCommit = this._autoCommit
       let createCommit = flags['empty-commit'] || autoCommit
 
-      if (!createCommit && !args.name) {
-        // Only prompt in interactive mode (non-quick)
+      if (!createCommit && !args.name && !jsonMode) {
+        // Only prompt in interactive mode (non-quick, not JSON mode)
         const { wantCommit } = await inquirer.prompt([
           {
             type: 'list',
@@ -291,9 +278,9 @@ export default class BranchCreate extends PMOCommand {
           ? `${selectedTicket.id}: ${selectedTicket.title}`
           : branchName
 
-        // In autoCommit mode, skip the prompt
+        // In autoCommit mode or JSON mode, skip the prompt
         let commitMessage = defaultCommitMessage
-        if (!autoCommit) {
+        if (!autoCommit && !jsonMode) {
           const result = await inquirer.prompt([
             {
               type: 'input',
@@ -424,40 +411,36 @@ export default class BranchCreate extends PMOCommand {
     // First choice: from ticket or custom
     const hasTickets = tickets.length > 0
 
-    // Build choices once, use for both JSON and interactive modes
+    // Build choices with command hints for AI agents
     const modeChoices = [
       ...(hasTickets ? [
-        { name: 'From ticket - quick', value: 'ticket-quick' },
-        { name: 'From ticket - customize', value: 'ticket' },
+        { name: 'From ticket - quick', value: 'ticket-quick', command: 'prlt branch create -T <TICKET_ID> --json' },
+        { name: 'From ticket - customize', value: 'ticket', command: 'prlt branch create -T <TICKET_ID> --json' },
       ] : []),
-      { name: 'Custom branch name', value: 'custom' },
+      { name: 'Custom branch name', value: 'custom', command: 'prlt branch create -t <type> -d <description> --json' },
     ]
     const modeMessage = 'Create branch:'
 
-    // In JSON mode, output mode selection prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'mode', modeMessage, modeChoices),
-        createMetadata('branch create', flags)
-      )
-      return null
+    // Only show header in interactive mode
+    if (!jsonMode) {
+      this.log('')
+      this.log(styles.header('🌿 Create New Branch'))
+      this.log('')
     }
 
-    this.log('')
-    this.log(styles.header('🌿 Create New Branch'))
-    this.log('')
+    // Use prompt for JSON mode support
+    const agentConfig = jsonMode ? { flags, commandName: 'branch create' } : null
+    const { mode } = await this.prompt<{ mode: string }>([{
+      type: 'list',
+      name: 'mode',
+      message: modeMessage,
+      choices: modeChoices,
+    }], agentConfig)
 
-    const { mode } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'mode',
-        message: modeMessage,
-        choices: modeChoices.map((c, i) => ({
-          name: hasTickets && i < 2 ? `📋 ${c.name}` : (c.value === 'custom' ? `✏️  ${c.name}` : c.name),
-          value: c.value,
-        })),
-      },
-    ])
+    // In JSON mode, prompt exits - this is never reached
+    if (!mode) {
+      return null
+    }
 
     if (mode === 'ticket-quick' && hasTickets) {
       return this.runTicketQuickWizard(tickets, defaultOwnerName)

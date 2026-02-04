@@ -389,14 +389,23 @@ export default class WorkSpawn extends PMOCommand {
           })
         }
 
-        const { manyColumn } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'manyColumn',
-            message: 'Select from which column:',
-            choices: columnChoices,
-          },
-        ])
+        // Use FlagResolver for column selection (many mode)
+        const manyColumnResolver = new FlagResolver<{ manyColumn?: string }>({
+          commandName: 'work spawn',
+          baseCommand: 'prlt work spawn --many',
+          jsonMode,
+          flags: {},
+        })
+
+        manyColumnResolver.addPrompt({
+          flagName: 'manyColumn',
+          type: 'list',
+          message: 'Select from which column:',
+          choices: () => columnChoices,
+        })
+
+        const manyColumnResult = await manyColumnResolver.resolve()
+        const manyColumn = manyColumnResult.manyColumn
 
         // Filter tickets based on column selection
         const ticketsForSelection = manyColumn === '__ALL__'
@@ -425,34 +434,46 @@ export default class WorkSpawn extends PMOCommand {
 
         // Build choices with priority separators
         const choices: Array<{ name: string; value: string } | inquirer.Separator> = []
+        // Also build flat choices for JSON mode (without separators)
+        const flatChoices: Array<{ name: string; value: string }> = []
         for (const priority of PRIORITY_ORDER) {
           const tickets = ticketsByPriority.get(priority) || []
           if (tickets.length === 0) continue
           choices.push(new inquirer.Separator(`── ${priority} (${tickets.length}) ──`))
           for (const ticket of tickets) {
             const statusBadge = ticket.statusName ? ` [${ticket.statusName}]` : ''
-            choices.push({
+            const ticketChoice = {
               name: `[${priority}] ${ticket.id} - ${ticket.title}${statusBadge}`,
               value: ticket.id,
-            })
+            }
+            choices.push(ticketChoice)
+            flatChoices.push(ticketChoice)
           }
         }
 
-        const { selectedTicketIds } = await inquirer.prompt([
-          {
-            type: 'checkbox',
-            name: 'selectedTicketIds',
-            message: 'Select tickets to spawn (space to toggle, enter to confirm):',
-            choices,
-            validate: (input: string[]) => {
-              if (input.length === 0) {
-                return 'Please select at least one ticket'
-              }
-              return true
-            },
-          },
-        ])
+        // Use FlagResolver for ticket selection (checkbox)
+        const ticketSelectResolver = new FlagResolver<{ selectedTicketIds?: string[] }>({
+          commandName: 'work spawn',
+          baseCommand: 'prlt work spawn',
+          jsonMode,
+          flags: {},
+        })
 
+        ticketSelectResolver.addPrompt({
+          flagName: 'selectedTicketIds',
+          type: 'checkbox',
+          message: 'Select tickets to spawn (space to toggle, enter to confirm):',
+          choices: () => flatChoices,
+          validate: (input) => {
+            if ((input as unknown as string[]).length === 0) {
+              return 'Please select at least one ticket'
+            }
+            return true
+          },
+        })
+
+        const ticketSelectResult = await ticketSelectResolver.resolve()
+        const selectedTicketIds = ticketSelectResult.selectedTicketIds || []
         ticketsToSpawn = allTickets.filter(t => selectedTicketIds.includes(t.id))
 
         this.log('')
@@ -589,15 +610,24 @@ export default class WorkSpawn extends PMOCommand {
             value: '__adhoc__',
           })
 
-          const { selectedAction } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedAction',
-              message: 'What action should agents perform?',
-              choices: actionChoices,
-              default: 'implement',
-            },
-          ])
+          // Use FlagResolver for action selection
+          const actionResolver = new FlagResolver<{ selectedAction?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+          })
+
+          actionResolver.addPrompt({
+            flagName: 'selectedAction',
+            type: 'list',
+            message: 'What action should agents perform?',
+            default: 'implement',
+            choices: () => actionChoices,
+          })
+
+          const actionResult = await actionResolver.resolve()
+          const selectedAction = actionResult.selectedAction
           batchAction = selectedAction === '__adhoc__' ? 'adhoc' : selectedAction
         }
 
@@ -630,18 +660,27 @@ export default class WorkSpawn extends PMOCommand {
             ? 'devcontainer, terminal, interactive, safe permissions, create PRs'
             : 'devcontainer, terminal, interactive, safe permissions, no PRs'
 
-          const { useDefaults } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'useDefaults',
-              message: `Use default settings for "${actionName}"?`,
-              choices: [
-                { name: `✓ Yes - Use defaults (${defaultsDescription})`, value: true },
-                { name: '✗ No  - Configure each setting', value: false },
-              ],
-              default: true,
-            },
-          ])
+          // Use FlagResolver for defaults choice
+          const defaultsResolver = new FlagResolver<{ useDefaults?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+          })
+
+          defaultsResolver.addPrompt({
+            flagName: 'useDefaults',
+            type: 'list',
+            message: `Use default settings for "${actionName}"?`,
+            default: 'yes',
+            choices: () => [
+              { name: `✓ Yes - Use defaults (${defaultsDescription})`, value: 'yes' },
+              { name: '✗ No  - Configure each setting', value: 'no' },
+            ],
+          })
+
+          const defaultsResult = await defaultsResolver.resolve()
+          const useDefaults = defaultsResult.useDefaults === 'yes'
 
           if (useDefaults) {
             // Apply defaults
@@ -681,6 +720,35 @@ export default class WorkSpawn extends PMOCommand {
             devcontainerLabel = `🐳 devcontainer (requires: ${missing.join(', ')})`
           }
 
+          const envChoices = [
+            { name: devcontainerLabel, value: 'devcontainer', disabled: !devcontainerReady },
+            { name: '💻 host (runs directly on your machine)', value: 'host' },
+            { name: '✗  cancel', value: 'cancel' },
+          ]
+
+          // In JSON mode, use FlagResolver (outputs prompt and exits)
+          if (jsonMode) {
+            const envResolver = new FlagResolver<{ selectedEnvironment?: string }>({
+              commandName: 'work spawn',
+              baseCommand: 'prlt work spawn',
+              jsonMode,
+              flags: {},
+            })
+
+            envResolver.addPrompt({
+              flagName: 'selectedEnvironment',
+              type: 'list',
+              message: 'Where should agents run?',
+              default: devcontainerReady ? 'devcontainer' : 'host',
+              choices: () => envChoices,
+            })
+
+            await envResolver.resolve()
+            // FlagResolver exits in JSON mode, so we never reach here
+            db.close()
+            return
+          }
+
           let environmentSelected = false
           while (!environmentSelected) {
             // eslint-disable-next-line no-await-in-loop -- Interactive loop with retry on Docker check
@@ -689,11 +757,7 @@ export default class WorkSpawn extends PMOCommand {
                 type: 'list',
                 name: 'selectedEnvironment',
                 message: 'Where should agents run?',
-                choices: [
-                  { name: devcontainerLabel, value: 'devcontainer', disabled: !devcontainerReady },
-                  { name: '💻 host (runs directly on your machine)', value: 'host' },
-                  { name: '✗  cancel', value: 'cancel' },
-                ],
+                choices: envChoices,
                 default: devcontainerReady ? 'devcontainer' : 'host',
               },
             ])
@@ -813,18 +877,27 @@ export default class WorkSpawn extends PMOCommand {
 
         // Prompt for display mode if not already set (for host mode without devcontainer)
         if (!batchDisplay) {
-          const { selectedMode } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedMode',
-              message: 'How should agent output be displayed?',
-              choices: [
-                { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-                { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
-              ],
-            },
-          ])
-          batchDisplay = selectedMode
+          // Use FlagResolver for display mode
+          const displayResolver = new FlagResolver<{ selectedMode?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+          })
+
+          displayResolver.addPrompt({
+            flagName: 'selectedMode',
+            type: 'list',
+            message: 'How should agent output be displayed?',
+            default: 'terminal',
+            choices: () => [
+              { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+              { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+            ],
+          })
+
+          const displayResult = await displayResolver.resolve()
+          batchDisplay = displayResult.selectedMode
         }
 
         // Default to interactive output mode (streaming UI)
@@ -835,19 +908,27 @@ export default class WorkSpawn extends PMOCommand {
 
         // Prompt for permissions mode if not explicitly set via --skip-permissions flag
         if (!flags['skip-permissions']) {
-          const { permissionMode } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'permissionMode',
-              message: 'Permission mode for Claude Code:',
-              choices: [
-                { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
-                { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
-              ],
-              default: 'danger',
-            },
-          ])
-          batchPermissionMode = permissionMode as PermissionMode
+          // Use FlagResolver for permission mode
+          const permissionResolver = new FlagResolver<{ permissionMode?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+          })
+
+          permissionResolver.addPrompt({
+            flagName: 'permissionMode',
+            type: 'list',
+            message: 'Permission mode for Claude Code:',
+            default: 'danger',
+            choices: () => [
+              { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
+              { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+            ],
+          })
+
+          const permissionResult = await permissionResolver.resolve()
+          batchPermissionMode = permissionResult.permissionMode as PermissionMode
         }
 
         // Prompt for PR creation if not provided AND action modifies code
@@ -855,20 +936,28 @@ export default class WorkSpawn extends PMOCommand {
         const actionModifiesCode = selectedActionDetails?.modifiesCode ?? true
         if (!batchCreatePr && !batchNoPr) {
           if (actionModifiesCode) {
-            const { prChoice } = await inquirer.prompt([
-              {
-                type: 'list',
-                name: 'prChoice',
-                message: 'Create pull requests when work is ready?',
-                choices: [
-                  { name: '✓ Yes - Create PR for each ticket', value: 'yes' },
-                  { name: '✗ No  - Just move tickets to review', value: 'no' },
-                ],
-                default: 'yes',
-              },
-            ])
-            batchCreatePr = prChoice === 'yes'
-            batchNoPr = prChoice === 'no'
+            // Use FlagResolver for PR choice
+            const prResolver = new FlagResolver<{ prChoice?: string }>({
+              commandName: 'work spawn',
+              baseCommand: 'prlt work spawn',
+              jsonMode,
+              flags: {},
+            })
+
+            prResolver.addPrompt({
+              flagName: 'prChoice',
+              type: 'list',
+              message: 'Create pull requests when work is ready?',
+              default: 'yes',
+              choices: () => [
+                { name: '✓ Yes - Create PR for each ticket', value: 'yes' },
+                { name: '✗ No  - Just move tickets to review', value: 'no' },
+              ],
+            })
+
+            const prResult = await prResolver.resolve()
+            batchCreatePr = prResult.prChoice === 'yes'
+            batchNoPr = prResult.prChoice === 'no'
           } else {
             // Non-code-modifying action - no PR needed
             batchCreatePr = false

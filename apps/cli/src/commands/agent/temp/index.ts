@@ -41,10 +41,11 @@ export default class Temp extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices once, use for both JSON and interactive modes
+    // Include command field for AI agent navigation
     const menuChoices = [
-      { name: 'List temp agents', value: 'list' },
-      { name: 'Clean up temp agents', value: 'cleanup' },
-      { name: 'Cancel', value: 'cancel' },
+      { name: 'List temp agents', value: 'list', command: 'prlt agent temp list --machine' },
+      { name: 'Clean up temp agents', value: 'cleanup', command: 'prlt agent temp cleanup --machine' },
+      { name: 'Cancel', value: 'cancel', command: '' },
     ];
     const message = 'What would you like to do?';
 

@@ -309,20 +309,27 @@ export default class WorkStart extends PMOCommand {
         }
         this.log('')
 
-        const { startAnyway } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'startAnyway',
-            message: 'Start anyway?',
-            choices: [
-              { name: 'No, cancel', value: false },
-              { name: 'Yes, start despite blockers', value: true },
-            ],
-            default: false,
-          },
-        ])
+        // Use FlagResolver for blocked ticket confirmation
+        const blockedResolver = new FlagResolver<{ startAnyway?: string }>({
+          commandName: 'work start',
+          baseCommand: `prlt work start ${ticketId}`,
+          jsonMode,
+          flags: {},
+        })
 
-        if (!startAnyway) {
+        blockedResolver.addPrompt({
+          flagName: 'startAnyway',
+          type: 'list',
+          message: 'Start anyway?',
+          default: 'no',
+          choices: () => [
+            { name: 'No, cancel', value: 'no' },
+            { name: 'Yes, start despite blockers', value: 'yes' },
+          ],
+        })
+
+        const blockedResult = await blockedResolver.resolve()
+        if (blockedResult.startAnyway !== 'yes') {
           db.close()
           this.log(styles.muted('Cancelled.'))
           return
@@ -335,19 +342,28 @@ export default class WorkStart extends PMOCommand {
         this.log('')
         this.log(styles.warning(`Ticket ${ticketId} has an active tmux session (${existingSession.agent})`))
 
-        const { sessionAction } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'sessionAction',
-            message: 'What would you like to do?',
-            choices: [
-              { name: 'Attach to existing session', value: 'attach' },
-              { name: 'Spawn new agent (keeps existing session)', value: 'spawn' },
-              { name: 'Kill session and respawn', value: 'kill' },
-              { name: 'Cancel', value: 'cancel' },
-            ],
-          },
-        ])
+        // Use FlagResolver for session action
+        const sessionResolver = new FlagResolver<{ sessionAction?: string }>({
+          commandName: 'work start',
+          baseCommand: `prlt work start ${ticketId}`,
+          jsonMode,
+          flags: {},
+        })
+
+        sessionResolver.addPrompt({
+          flagName: 'sessionAction',
+          type: 'list',
+          message: 'What would you like to do?',
+          choices: () => [
+            { name: 'Attach to existing session', value: 'attach' },
+            { name: 'Spawn new agent (keeps existing session)', value: 'spawn' },
+            { name: 'Kill session and respawn', value: 'kill' },
+            { name: 'Cancel', value: 'cancel' },
+          ],
+        })
+
+        const sessionResult = await sessionResolver.resolve()
+        const sessionAction = sessionResult.sessionAction
 
         if (sessionAction === 'cancel') {
           db.close()
@@ -414,41 +430,42 @@ export default class WorkStart extends PMOCommand {
             }
           }
 
-          // Prompt to assign an agent
-          const agentChoices: Array<{ name: string; value: string; disabled?: string } | inquirer.Separator> = []
-
-          // Add ephemeral option first
-          agentChoices.push({ name: 'Create new ephemeral agent (recommended)', value: '__ephemeral__' })
-          agentChoices.push(new inquirer.Separator())
-
-          // Only show staff agents that exist on disk
+          // Build agent choices
           const availableAgents = activeStaffAgents.filter(a => !busyAgentNames.has(a.name))
           const busyAgents = activeStaffAgents.filter(a => busyAgentNames.has(a.name))
 
-          if (availableAgents.length > 0) {
-            agentChoices.push(new inquirer.Separator('── Available Staff Agents ──'))
-            for (const a of availableAgents) {
-              agentChoices.push({ name: a.name, value: a.name })
-            }
+          const agentChoiceList: Array<{ name: string; value: string; disabled?: boolean }> = [
+            { name: 'Create new ephemeral agent (recommended)', value: '__ephemeral__' },
+          ]
+
+          for (const a of availableAgents) {
+            agentChoiceList.push({ name: a.name, value: a.name })
           }
 
-          if (busyAgents.length > 0) {
-            agentChoices.push(new inquirer.Separator('── Busy (already working) ──'))
-            for (const a of busyAgents) {
-              const runningExecs = executionStorage.getAgentRunningExecutions(a.name)
-              const ticketIds = runningExecs.map(e => e.ticketId).join(', ')
-              agentChoices.push({ name: `${a.name} (working on ${ticketIds})`, value: a.name, disabled: 'busy' })
-            }
+          for (const a of busyAgents) {
+            const runningExecs = executionStorage.getAgentRunningExecutions(a.name)
+            const ticketIds = runningExecs.map(e => e.ticketId).join(', ')
+            agentChoiceList.push({ name: `${a.name} (working on ${ticketIds})`, value: a.name, disabled: true })
           }
 
-          const { selectedAgent } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedAgent',
-              message: `Select agent for ${ticketId}:`,
-              choices: agentChoices,
-            },
-          ])
+          // Use FlagResolver for agent selection
+          const agentResolver = new FlagResolver<{ selectedAgent?: string }>({
+            commandName: 'work start',
+            baseCommand: `prlt work start ${ticketId}`,
+            jsonMode,
+            flags: {},
+          })
+
+          agentResolver.addPrompt({
+            flagName: 'selectedAgent',
+            type: 'list',
+            message: `Select agent for ${ticketId}:`,
+            default: '__ephemeral__',
+            choices: () => agentChoiceList,
+          })
+
+          const agentResult = await agentResolver.resolve()
+          const selectedAgent = agentResult.selectedAgent
 
           if (selectedAgent === '__ephemeral__') {
             // Create ephemeral agent
@@ -559,18 +576,27 @@ export default class WorkStart extends PMOCommand {
           }
           this.log('')
 
-          const { action } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'action',
-              message: 'How would you like to proceed?',
-              choices: [
-                { name: 'Push existing work and continue', value: 'push' },
-                { name: 'Continue anyway (existing work may conflict)', value: 'continue' },
-                { name: 'Cancel', value: 'cancel' },
-              ],
-            },
-          ])
+          // Use FlagResolver for unsaved work action
+          const unsavedResolver = new FlagResolver<{ unsavedAction?: string }>({
+            commandName: 'work start',
+            baseCommand: `prlt work start ${ticketId}`,
+            jsonMode,
+            flags: {},
+          })
+
+          unsavedResolver.addPrompt({
+            flagName: 'unsavedAction',
+            type: 'list',
+            message: 'How would you like to proceed?',
+            choices: () => [
+              { name: 'Push existing work and continue', value: 'push' },
+              { name: 'Continue anyway (existing work may conflict)', value: 'continue' },
+              { name: 'Cancel', value: 'cancel' },
+            ],
+          })
+
+          const unsavedResult = await unsavedResolver.resolve()
+          const action = unsavedResult.unsavedAction
 
           if (action === 'cancel') {
             db.close()
@@ -659,47 +685,55 @@ export default class WorkStart extends PMOCommand {
         const allActions = await this.storage.listActions()
 
         // Build choices with suggested action at top
-        const actionChoices: Array<{ name: string; value: string } | inquirer.Separator> = []
+        const actionChoiceList: Array<{ name: string; value: string }> = []
 
         if (suggestedAction) {
-          actionChoices.push({
+          actionChoiceList.push({
             name: `${suggestedAction.name} - ${suggestedAction.description || 'Suggested for ' + currentCategory} (Recommended)`,
             value: suggestedAction.id,
           })
-          actionChoices.push(new inquirer.Separator('── Other Actions ──'))
         }
 
         for (const action of allActions) {
           if (suggestedAction && action.id === suggestedAction.id) continue
-          actionChoices.push({
+          actionChoiceList.push({
             name: `${action.name}${action.description ? ' - ' + action.description : ''}`,
             value: action.id,
           })
         }
 
-        actionChoices.push(new inquirer.Separator('── Custom ──'))
-        actionChoices.push({ name: 'Custom prompt...', value: '__custom__' })
-        actionChoices.push({ name: 'Ad-hoc session - unstructured exploration/debugging', value: '__adhoc__' })
+        actionChoiceList.push({ name: 'Custom prompt...', value: '__custom__' })
+        actionChoiceList.push({ name: 'Ad-hoc session - unstructured exploration/debugging', value: '__adhoc__' })
 
-        const { selectedActionId } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedActionId',
-            message: `What should the agent do with ${ticket.id}?`,
-            choices: actionChoices,
-          },
-        ])
+        // Use FlagResolver for action selection
+        const actionResolver = new FlagResolver<{ selectedActionId?: string; customInput?: string }>({
+          commandName: 'work start',
+          baseCommand: `prlt work start ${ticketId}`,
+          jsonMode,
+          flags: {},
+        })
+
+        actionResolver.addPrompt({
+          flagName: 'selectedActionId',
+          type: 'list',
+          message: `What should the agent do with ${ticket.id}?`,
+          default: suggestedAction?.id,
+          choices: () => actionChoiceList,
+        })
+
+        actionResolver.addPrompt({
+          flagName: 'customInput',
+          type: 'input',
+          message: 'Enter custom prompt:',
+          when: (ctx) => ctx.flags.selectedActionId === '__custom__',
+          validate: (value) => (value as string).trim() ? true : 'Prompt cannot be empty',
+        })
+
+        const actionResult = await actionResolver.resolve()
+        const selectedActionId = actionResult.selectedActionId
 
         if (selectedActionId === '__custom__') {
-          const { customInput } = await inquirer.prompt([
-            {
-              type: 'input',
-              name: 'customInput',
-              message: 'Enter custom prompt:',
-              validate: (input: string) => input.trim() ? true : 'Prompt cannot be empty',
-            },
-          ])
-          customPrompt = customInput.trim()
+          customPrompt = (actionResult.customInput as string).trim()
         } else if (selectedActionId === '__adhoc__') {
           // Ad-hoc session - no specific action, just launch Claude for exploration
           selectedAction = {
@@ -712,7 +746,7 @@ export default class WorkStart extends PMOCommand {
             isBuiltin: false,
             createdAt: new Date(),
           }
-        } else {
+        } else if (selectedActionId) {
           selectedAction = await this.storage.getAction(selectedActionId)
         }
       }
@@ -775,6 +809,35 @@ export default class WorkStart extends PMOCommand {
           devcontainerLabel = `🐳 devcontainer (requires: ${missing.join(', ')})`
         }
 
+        const envChoices = [
+          { name: devcontainerLabel, value: 'devcontainer', disabled: !devcontainerReady },
+          { name: '💻 host (runs directly on your machine)', value: 'host' },
+          { name: '✗  cancel', value: 'cancel' },
+        ]
+
+        // In JSON mode, use FlagResolver (outputs prompt and exits)
+        if (jsonMode) {
+          const envResolver = new FlagResolver<{ selectedEnvironment?: string }>({
+            commandName: 'work start',
+            baseCommand: `prlt work start ${ticketId}`,
+            jsonMode,
+            flags: {},
+          })
+
+          envResolver.addPrompt({
+            flagName: 'selectedEnvironment',
+            type: 'list',
+            message: 'Where should the agent run?',
+            default: devcontainerReady ? 'devcontainer' : 'host',
+            choices: () => envChoices,
+          })
+
+          await envResolver.resolve()
+          // FlagResolver exits in JSON mode, so we never reach here
+          db.close()
+          return
+        }
+
         // Loop to allow re-selection if Docker isn't running
         let environmentSelected = false
         while (!environmentSelected) {
@@ -784,11 +847,7 @@ export default class WorkStart extends PMOCommand {
               type: 'list',
               name: 'selectedEnvironment',
               message: 'Where should the agent run?',
-              choices: [
-                { name: devcontainerLabel, value: 'devcontainer', disabled: !devcontainerReady },
-                { name: '💻 host (runs directly on your machine)', value: 'host' },
-                { name: '✗  cancel', value: 'cancel' },
-              ],
+              choices: envChoices,
               default: devcontainerReady ? 'devcontainer' : 'host',
             },
           ])
@@ -953,20 +1012,28 @@ export default class WorkStart extends PMOCommand {
             ? 'Select display mode (--run-on-host: bypassing devcontainer):'
             : 'Select display mode (no devcontainer - running on host):'
 
-          const { selectedMode } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedMode',
-              message: warningMsg,
-              choices: [
-                { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-                { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
-                { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
-              ],
-              default: 'terminal',
-            },
-          ])
-          displayMode = selectedMode as DisplayMode
+          // Use FlagResolver for display mode selection
+          const displayResolver = new FlagResolver<{ selectedMode?: string }>({
+            commandName: 'work start',
+            baseCommand: `prlt work start ${ticketId}`,
+            jsonMode,
+            flags: {},
+          })
+
+          displayResolver.addPrompt({
+            flagName: 'selectedMode',
+            type: 'list',
+            message: warningMsg,
+            default: 'terminal',
+            choices: () => [
+              { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+              { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
+              { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+            ],
+          })
+
+          const displayResult = await displayResolver.resolve()
+          displayMode = displayResult.selectedMode as DisplayMode
         }
       }
 
@@ -985,19 +1052,28 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.muted('   Agents will fail with 401 authentication errors without credentials.'))
           this.log('')
 
-          const { authAction } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'authAction',
-              message: 'What would you like to do?',
-              choices: [
-                { name: `🔐 Run ${this.config.bin} agent auth now (one-time setup)`, value: 'auth' },
-                { name: '💻 Switch to host environment instead', value: 'host' },
-                { name: '⏩ Continue anyway (must run /login in first agent)', value: 'continue' },
-                { name: '✗  Cancel', value: 'cancel' },
-              ],
-            },
-          ])
+          // Use FlagResolver for auth action
+          const authResolver = new FlagResolver<{ authAction?: string }>({
+            commandName: 'work start',
+            baseCommand: `prlt work start ${ticketId}`,
+            jsonMode,
+            flags: {},
+          })
+
+          authResolver.addPrompt({
+            flagName: 'authAction',
+            type: 'list',
+            message: 'What would you like to do?',
+            choices: () => [
+              { name: `🔐 Run ${this.config.bin} agent auth now (one-time setup)`, value: 'auth' },
+              { name: '💻 Switch to host environment instead', value: 'host' },
+              { name: '⏩ Continue anyway (must run /login in first agent)', value: 'continue' },
+              { name: '✗  Cancel', value: 'cancel' },
+            ],
+          })
+
+          const authResult = await authResolver.resolve()
+          const authAction = authResult.authAction
 
           if (authAction === 'cancel') {
             db.close()
@@ -1109,19 +1185,27 @@ export default class WorkStart extends PMOCommand {
       } else if (flags['no-pr']) {
         createPR = false
       } else if (ghAvailable) {
-        const { prChoice } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'prChoice',
-            message: 'Create a pull request when work is ready?',
-            choices: [
-              { name: '✓ Yes - Create PR when running `prlt work ready`', value: 'yes' },
-              { name: '✗ No  - Just move ticket to review (can create PR later)', value: 'no' },
-            ],
-            default: 'yes',
-          },
-        ])
-        createPR = prChoice === 'yes'
+        // Use FlagResolver for PR choice
+        const prResolver = new FlagResolver<{ prChoice?: string }>({
+          commandName: 'work start',
+          baseCommand: `prlt work start ${ticketId}`,
+          jsonMode,
+          flags: {},
+        })
+
+        prResolver.addPrompt({
+          flagName: 'prChoice',
+          type: 'list',
+          message: 'Create a pull request when work is ready?',
+          default: 'yes',
+          choices: () => [
+            { name: '✓ Yes - Create PR when running `prlt work ready`', value: 'yes' },
+            { name: '✗ No  - Just move ticket to review (can create PR later)', value: 'no' },
+          ],
+        })
+
+        const prResult = await prResolver.resolve()
+        createPR = prResult.prChoice === 'yes'
       }
 
       // Show execution info
@@ -1182,18 +1266,28 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.muted(`Branch: ${finalBranch}`))
         } else {
           // No branch in DB - ask user if one already exists
-          const { branchChoice } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'branchChoice',
-              message: `Does a branch already exist for ${ticket.id}?`,
-              choices: [
-                { name: 'No, create new branch (Recommended)', value: 'create' },
-                { name: 'Yes, I\'ll enter the branch name', value: 'enter' },
-                { name: 'Search for matching branches', value: 'search' },
-              ],
-            },
-          ])
+          // Use FlagResolver for branch choice
+          const branchResolver = new FlagResolver<{ branchChoice?: string }>({
+            commandName: 'work start',
+            baseCommand: `prlt work start ${ticketId}`,
+            jsonMode,
+            flags: {},
+          })
+
+          branchResolver.addPrompt({
+            flagName: 'branchChoice',
+            type: 'list',
+            message: `Does a branch already exist for ${ticket.id}?`,
+            default: 'create',
+            choices: () => [
+              { name: 'No, create new branch (Recommended)', value: 'create' },
+              { name: 'Yes, I\'ll enter the branch name', value: 'enter' },
+              { name: 'Search for matching branches', value: 'search' },
+            ],
+          })
+
+          const branchResult = await branchResolver.resolve()
+          const branchChoice = branchResult.branchChoice
 
           if (branchChoice === 'enter') {
             // User enters existing branch name
