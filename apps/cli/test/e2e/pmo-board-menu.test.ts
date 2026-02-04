@@ -3,18 +3,27 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { exec, extractJson, type AgentPromptResponse } from './test-helpers.js';
+import {
+  exec,
+  extractJson,
+  agentExec,
+  findChoice,
+  findChoiceByValue,
+  execChoice,
+  execFinal,
+  execWithForce,
+  type AgentPromptResponse,
+} from './test-helpers.js';
 
 /**
  * End-to-end tests for PMO Board Commands (board/index.ts and board/watch.ts)
  * Tests the this.prompt() migration for JSON mode support.
  *
- * Tests:
- * - board --json (JSON mode menu prompt schema)
- * - board --action view (view board)
- * - board --action markdown (show board as markdown)
- * - board --action export (export board.md)
- * - board --action sync --force (sync from board.md)
+ * Full agentic E2E flow tests:
+ *   1. board --machine → get menu JSON with choices
+ *   2. findChoice() → pick a menu item
+ *   3. execChoice() → extract the command from the choice
+ *   4. execFinal() → execute the command, verify END RESULT
  */
 describe('PMO Board Menu E2E Tests', () => {
   let testDir: string;
@@ -55,15 +64,13 @@ describe('PMO Board Menu E2E Tests', () => {
 
     // Run a simple command to initialize the database with proper schema
     // This lets the CLI's own schema creation handle all tables, migrations, and seeding
-    // The pmo init would be interactive, so instead we manually seed the project after schema creation
     try {
-      // This will fail ("No projects found") but still creates the schema
       exec('board --action view');
     } catch {
-      // Expected - no project yet
+      // Expected - no project yet, but schema is now created
     }
 
-    // Now create the default project in the initialized DB
+    // Create the default project in the initialized DB
     const initDb = new Database(dbPath);
     initDb.pragma('foreign_keys = ON');
     const now = new Date().toISOString();
@@ -82,26 +89,27 @@ describe('PMO Board Menu E2E Tests', () => {
     }
   });
 
-  describe('board --json (JSON mode prompt schema)', () => {
-    it('should output prompt schema with choices in JSON mode', () => {
-      const output = exec('board --json');
-      const json = extractJson<AgentPromptResponse>(output);
+  // =========================================================================
+  // JSON mode prompt schema validation
+  // =========================================================================
+  describe('board --machine (prompt schema)', () => {
+    it('should output prompt schema with correct structure', () => {
+      const menu = agentExec('board --machine');
 
-      expect(json).to.not.be.null;
-      expect(json!.prompt).to.have.property('type', 'list');
-      expect(json!.prompt).to.have.property('name', 'action');
-      expect(json!.prompt).to.have.property('message');
-      expect(json!.prompt.message).to.include('Board Operations');
+      expect(menu).to.not.be.null;
+      expect(menu!.prompt).to.have.property('type', 'list');
+      expect(menu!.prompt).to.have.property('name', 'action');
+      expect(menu!.prompt.message).to.include('Board Operations');
     });
 
-    it('should include all menu choices', () => {
-      const output = exec('board --json');
-      const json = extractJson<AgentPromptResponse>(output);
+    it('should include all menu choices with command fields', () => {
+      const menu = agentExec('board --machine');
 
-      expect(json).to.not.be.null;
-      const choices = json!.prompt.choices;
+      expect(menu).to.not.be.null;
+      const choices = menu!.prompt.choices;
       expect(choices).to.be.an('array');
 
+      // Verify all expected actions are present
       const values = choices.map(c => c.value);
       expect(values).to.include('view');
       expect(values).to.include('open');
@@ -110,16 +118,8 @@ describe('PMO Board Menu E2E Tests', () => {
       expect(values).to.include('sync');
       expect(values).to.include('watch');
       expect(values).to.include('cancel');
-    });
 
-    it('should include command field on each choice for agent navigation', () => {
-      const output = exec('board --json');
-      const json = extractJson<AgentPromptResponse>(output);
-
-      expect(json).to.not.be.null;
-      const choices = json!.prompt.choices;
-
-      // All non-cancel choices should have command fields
+      // Every non-cancel choice must have a non-empty command field
       const actionChoices = choices.filter(c => c.value !== 'cancel');
       for (const choice of actionChoices) {
         expect(choice.command, `Choice "${choice.name}" missing command`).to.be.a('string');
@@ -127,44 +127,200 @@ describe('PMO Board Menu E2E Tests', () => {
       }
     });
 
-    it('should include command fields with --action pattern', () => {
-      const output = exec('board --json');
-      const json = extractJson<AgentPromptResponse>(output);
+    it('should include metadata with command name', () => {
+      const menu = agentExec('board --machine');
 
-      expect(json).to.not.be.null;
-      const choices = json!.prompt.choices;
+      expect(menu).to.not.be.null;
+      expect(menu!.metadata).to.have.property('command', 'board');
+    });
 
-      const viewChoice = choices.find(c => c.value === 'view');
+    it('should include --action pattern and project flag in commands', () => {
+      const menu = agentExec('board --machine');
+
+      expect(menu).to.not.be.null;
+      const choices = menu!.prompt.choices;
+
+      const viewChoice = findChoiceByValue(choices, 'view');
       expect(viewChoice).to.not.be.undefined;
       expect(viewChoice!.command).to.include('--action view');
+      expect(viewChoice!.command).to.include('-P');
 
-      const exportChoice = choices.find(c => c.value === 'export');
-      expect(exportChoice).to.not.be.undefined;
-      expect(exportChoice!.command).to.include('--action export');
-
-      const syncChoice = choices.find(c => c.value === 'sync');
+      const syncChoice = findChoiceByValue(choices, 'sync');
       expect(syncChoice).to.not.be.undefined;
       expect(syncChoice!.command).to.include('--action sync');
       expect(syncChoice!.command).to.include('--force');
     });
+  });
 
-    it('should include metadata in JSON output', () => {
-      const output = exec('board --json');
-      const json = extractJson<AgentPromptResponse>(output);
+  // =========================================================================
+  // Full agentic E2E flows: menu → pick choice → execute → verify result
+  // =========================================================================
+  describe('full agentic flow: menu → View board', () => {
+    it('should navigate: board menu → "View" → display board with tickets', () => {
+      createTestTicket(dbPath, 'TKT-101', 'Auth module', 'default-backlog', 'P1');
+      createTestTicket(dbPath, 'TKT-102', 'Setup database', 'default-in-progress', 'P2');
 
-      expect(json).to.not.be.null;
-      expect(json!.metadata).to.have.property('command', 'board');
+      // Step 1: Agent gets the board menu
+      const menu = agentExec('board --machine');
+      expect(menu).to.not.be.null;
+
+      // Step 2: Agent finds the "View" choice
+      const viewChoice = findChoice(menu!.prompt.choices, 'View board');
+      expect(viewChoice).to.not.be.undefined;
+      expect(viewChoice!.command).to.be.a('string');
+
+      // Step 3: Agent executes the command from the choice
+      const result = execFinal(execChoice(viewChoice!));
+
+      // Step 4: Verify end result - board displays with all tickets
+      expect(result).to.include('TKT-101');
+      expect(result).to.include('Auth module');
+      expect(result).to.include('TKT-102');
+      expect(result).to.include('Setup database');
+      expect(result).to.include('Total: 2 tickets');
+    });
+
+    it('should navigate: board menu → "View" → display empty board', () => {
+      const menu = agentExec('board --machine');
+      expect(menu).to.not.be.null;
+
+      const viewChoice = findChoice(menu!.prompt.choices, 'View board');
+      expect(viewChoice).to.not.be.undefined;
+
+      const result = execFinal(execChoice(viewChoice!));
+
+      expect(result).to.include('Total:');
+      expect(result).to.include('0 tickets');
     });
   });
 
-  describe('board --action view', () => {
-    it('should display empty board', () => {
-      const output = exec('board --action view');
+  describe('full agentic flow: menu → Show markdown', () => {
+    it('should navigate: board menu → "Show as markdown" → display markdown with tickets', () => {
+      createTestTicket(dbPath, 'TKT-201', 'Markdown test ticket', 'default-backlog', 'P1');
 
-      expect(output).to.include('Default');
-      expect(output).to.include('Total:');
+      // Step 1: Agent gets the board menu
+      const menu = agentExec('board --machine');
+      expect(menu).to.not.be.null;
+
+      // Step 2: Agent finds the "Show as markdown" choice
+      const mdChoice = findChoice(menu!.prompt.choices, 'markdown');
+      expect(mdChoice).to.not.be.undefined;
+      expect(mdChoice!.command).to.be.a('string');
+
+      // Step 3: Agent executes the command
+      const result = execFinal(execChoice(mdChoice!));
+
+      // Step 4: Verify end result - markdown output contains ticket
+      expect(result).to.include('TKT-201');
+      expect(result).to.include('Markdown test ticket');
+    });
+  });
+
+  describe('full agentic flow: menu → Export board', () => {
+    it('should navigate: board menu → "Export" → create kanban.md file with tickets', () => {
+      createTestTicket(dbPath, 'TKT-301', 'Export flow ticket', 'default-backlog', 'P1');
+
+      // Step 1: Agent gets the board menu
+      const menu = agentExec('board --machine');
+      expect(menu).to.not.be.null;
+
+      // Step 2: Agent finds the "Export" choice
+      const exportChoice = findChoice(menu!.prompt.choices, 'Export');
+      expect(exportChoice).to.not.be.undefined;
+      expect(exportChoice!.command).to.be.a('string');
+
+      // Step 3: Agent executes the export command
+      const result = execFinal(execChoice(exportChoice!));
+
+      // Step 4: Verify end result - command output confirms export
+      expect(result).to.include('Exported board');
+
+      // Step 5: Verify end result - file was actually created on disk
+      const kanbanPath = path.join(testDir, 'pmo', 'projects', 'default', 'kanban.md');
+      expect(fs.existsSync(kanbanPath)).to.be.true;
+
+      const content = fs.readFileSync(kanbanPath, 'utf-8');
+      expect(content).to.include('TKT-301');
+      expect(content).to.include('Export flow ticket');
+    });
+  });
+
+  describe('full agentic flow: menu → Sync board', () => {
+    it('should navigate: board menu → "Sync" → apply changes from board.md', () => {
+      createTestTicket(dbPath, 'TKT-401', 'Sync flow ticket', 'default-backlog', 'P1');
+
+      // Pre-condition: export first so there's a board.md to sync from
+      exec('board --action export');
+
+      // Step 1: Agent gets the board menu
+      const menu = agentExec('board --machine');
+      expect(menu).to.not.be.null;
+
+      // Step 2: Agent finds the "Sync" choice
+      const syncChoice = findChoice(menu!.prompt.choices, 'Sync');
+      expect(syncChoice).to.not.be.undefined;
+      expect(syncChoice!.command).to.be.a('string');
+      // Sync command should include --force to skip confirmation
+      expect(syncChoice!.command).to.include('--force');
+
+      // Step 3: Agent executes the sync command (already has --force in the command)
+      const result = execFinal(execChoice(syncChoice!));
+
+      // Step 4: Verify end result - sync completed
+      expect(result).to.satisfy((s: string) =>
+        s.includes('synced') || s.includes('already in sync')
+      );
     });
 
+    it('should navigate: board menu → "Sync" → detect and apply modified titles', () => {
+      createTestTicket(dbPath, 'TKT-402', 'Before modification', 'default-backlog', 'P1');
+
+      // Export to create the board.md
+      exec('board --action export');
+
+      // Modify the board.md file
+      const kanbanPath = path.join(testDir, 'pmo', 'projects', 'default', 'kanban.md');
+      let content = fs.readFileSync(kanbanPath, 'utf-8');
+      content = content.replace('Before modification', 'After modification');
+      fs.writeFileSync(kanbanPath, content);
+
+      // Step 1: Agent gets the board menu
+      const menu = agentExec('board --machine');
+      expect(menu).to.not.be.null;
+
+      // Step 2: Agent picks "Sync"
+      const syncChoice = findChoice(menu!.prompt.choices, 'Sync');
+      expect(syncChoice).to.not.be.undefined;
+
+      // Step 3: Agent executes sync (--force is in the command)
+      const result = execFinal(execChoice(syncChoice!));
+
+      // Step 4: Verify end result - changes were applied
+      expect(result).to.include('synced');
+    });
+  });
+
+  describe('full agentic flow: menu → Watch', () => {
+    it('should navigate: board menu → "Watch" → command includes board watch', () => {
+      // Step 1: Agent gets the board menu
+      const menu = agentExec('board --machine');
+      expect(menu).to.not.be.null;
+
+      // Step 2: Agent finds the "Watch" choice
+      const watchChoice = findChoice(menu!.prompt.choices, 'Watch');
+      expect(watchChoice).to.not.be.undefined;
+      expect(watchChoice!.command).to.be.a('string');
+      expect(watchChoice!.command).to.include('board watch');
+
+      // NOTE: We don't execFinal here because watch blocks (runs a foreground watcher).
+      // The agent would run this as a long-lived process.
+    });
+  });
+
+  // =========================================================================
+  // Direct --action flag tests (non-agentic, for completeness)
+  // =========================================================================
+  describe('board --action view (direct)', () => {
     it('should display board with tickets organized by column', () => {
       createTestTicket(dbPath, 'TKT-001', 'Add login screen', 'default-backlog', 'P1');
       createTestTicket(dbPath, 'TKT-002', 'Setup CI/CD', 'default-backlog', 'P2');
@@ -188,58 +344,29 @@ describe('PMO Board Menu E2E Tests', () => {
 
       expect(output).to.include('(2)');
     });
-
-    it('should show total ticket count', () => {
-      createTestTicket(dbPath, 'TKT-001', 'Ticket 1', 'default-backlog', 'P1');
-      createTestTicket(dbPath, 'TKT-002', 'Ticket 2', 'default-in-progress', 'P2');
-
-      const output = exec('board --action view');
-
-      expect(output).to.include('Total: 2 tickets');
-    });
   });
 
-  describe('board --action markdown', () => {
+  describe('board --action markdown (direct)', () => {
     it('should output board as markdown', () => {
       createTestTicket(dbPath, 'TKT-001', 'Login feature', 'default-backlog', 'P1');
 
       const output = exec('board --action markdown');
 
-      // Board markdown should contain ticket info
       expect(output).to.include('TKT-001');
       expect(output).to.include('Login feature');
     });
 
     it('should output markdown for empty board', () => {
       const output = exec('board --action markdown');
-
-      // Should not error on empty board
       expect(output).to.be.a('string');
     });
   });
 
-  describe('board --action export', () => {
-    it('should export board to kanban.md file', () => {
-      createTestTicket(dbPath, 'TKT-001', 'Export test', 'default-backlog', 'P1');
-
-      const output = exec('board --action export');
-
-      expect(output).to.include('Exported board');
-
-      // Verify file was created
-      const kanbanPath = path.join(testDir, 'pmo', 'projects', 'default', 'kanban.md');
-      expect(fs.existsSync(kanbanPath)).to.be.true;
-
-      const content = fs.readFileSync(kanbanPath, 'utf-8');
-      expect(content).to.include('TKT-001');
-      expect(content).to.include('Export test');
-    });
-
-    it('should overwrite existing export file', () => {
+  describe('board --action export (direct)', () => {
+    it('should export board to kanban.md and overwrite on re-export', () => {
       createTestTicket(dbPath, 'TKT-001', 'First export', 'default-backlog', 'P1');
       exec('board --action export');
 
-      // Add another ticket and re-export
       createTestTicket(dbPath, 'TKT-002', 'Second export', 'default-backlog', 'P2');
       exec('board --action export');
 
@@ -250,17 +377,13 @@ describe('PMO Board Menu E2E Tests', () => {
     });
   });
 
-  describe('board --action sync --force', () => {
+  describe('board --action sync --force (direct)', () => {
     it('should sync from exported board.md successfully', () => {
       createTestTicket(dbPath, 'TKT-001', 'Sync test', 'default-backlog', 'P1');
-
-      // Export to create the file
       exec('board --action export');
 
-      // Sync should complete without error (either "already in sync" or "synced")
       const output = exec('board --action sync --force');
 
-      // Should either be in sync or apply changes
       expect(output).to.satisfy((s: string) =>
         s.includes('synced') || s.includes('already in sync')
       );
@@ -268,17 +391,13 @@ describe('PMO Board Menu E2E Tests', () => {
 
     it('should detect and apply changes from modified board.md', () => {
       createTestTicket(dbPath, 'TKT-001', 'Original title', 'default-backlog', 'P1');
-
-      // Export to create the file
       exec('board --action export');
 
-      // Modify the board.md file - change ticket title
       const kanbanPath = path.join(testDir, 'pmo', 'projects', 'default', 'kanban.md');
       let content = fs.readFileSync(kanbanPath, 'utf-8');
       content = content.replace('Original title', 'Modified title');
       fs.writeFileSync(kanbanPath, content);
 
-      // Sync with --force to bypass confirmation
       const output = exec('board --action sync --force');
 
       expect(output).to.include('synced');
@@ -296,16 +415,14 @@ describe('PMO Board Menu E2E Tests', () => {
   describe('board with project flag', () => {
     it('should use specified project with -P flag', () => {
       const output = exec('board --action view -P default');
-
       expect(output).to.include('Total:');
     });
 
-    it('should show project name in JSON mode', () => {
-      const output = exec('board --json -P default');
-      const json = extractJson<AgentPromptResponse>(output);
+    it('should include project in JSON prompt message', () => {
+      const menu = agentExec('board --machine -P default');
 
-      expect(json).to.not.be.null;
-      expect(json!.prompt.message).to.include('Board Operations');
+      expect(menu).to.not.be.null;
+      expect(menu!.prompt.message).to.include('Board Operations');
     });
   });
 });
@@ -313,7 +430,6 @@ describe('PMO Board Menu E2E Tests', () => {
 /**
  * Create a test ticket directly in the database.
  * Opens a new DB connection, inserts the ticket, and closes.
- * This ensures the CLI subprocess sees the data.
  */
 function createTestTicket(
   dbPath: string,
