@@ -6,6 +6,11 @@ import {
   createHQConfig,
   createPMODirectories,
   exec,
+  setupProductionSchema,
+  createTestProject,
+  createTestWorkflow,
+  addTestWorkflowStatus,
+  createTestTicket,
   type TestEnvironment,
 } from './test-helpers.js';
 
@@ -49,8 +54,11 @@ describe('Workflow Commands JSON Mode', () => {
   beforeEach(() => {
     env = createTestEnvironment('workflow-json-');
 
-    db = new Database(env.dbPath);
-    setupTestDatabase(db, env.pmoPath);
+    // Use production schema - includes all builtin workflows, phases, actions, etc.
+    db = setupProductionSchema(env.dbPath, env.pmoPath);
+
+    // Create test project using production 'default' workflow
+    createTestProject(db, { id: 'test-project', name: 'Test Project' });
 
     createHQConfig(env.proletariatDir);
     createPMODirectories(env.pmoPath, 'test-project');
@@ -61,36 +69,10 @@ describe('Workflow Commands JSON Mode', () => {
     cleanupTestEnvironment(env);
   });
 
-  /**
-   * Helper to create a custom workflow directly in the database.
-   */
-  function createCustomWorkflow(
-    id: string,
-    name: string,
-    description: string = ''
-  ): void {
-    db.prepare(`
-      INSERT INTO pmo_workflows (id, name, description, is_builtin)
-      VALUES (?, ?, ?, 0)
-    `).run(id, name, description);
-  }
-
-  /**
-   * Helper to add statuses to a workflow.
-   */
-  function addWorkflowStatus(
-    workflowId: string,
-    id: string,
-    name: string,
-    category: string,
-    position: number,
-    isDefault: number = 0
-  ): void {
-    db.prepare(`
-      INSERT INTO pmo_workflow_statuses (id, workflow_id, name, category, position, is_default)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, workflowId, name, category, position, isDefault);
-  }
+  // Helper functions now use shared test-helpers.ts utilities:
+  // - createTestWorkflow(db, { id, name, description })
+  // - addTestWorkflowStatus(db, workflowId, { id, name, category, position, isDefault })
+  // - createTestTicket(db, projectId, { id, title, status, statusId })
 
   describe('workflow list --machine', () => {
     it('should output valid JSON with --machine flag', () => {
@@ -119,7 +101,7 @@ describe('Workflow Commands JSON Mode', () => {
     });
 
     it('should filter to builtin workflows with --builtin flag', () => {
-      createCustomWorkflow('custom-wf', 'Custom Workflow');
+      createTestWorkflow(db, { id: 'custom-wf', name: 'Custom Workflow' });
 
       const output = exec('workflow list --builtin --machine');
       const json = extractJson<Array<{ id: string; isBuiltin: boolean }>>(output);
@@ -131,7 +113,7 @@ describe('Workflow Commands JSON Mode', () => {
     });
 
     it('should filter to custom workflows with --custom flag', () => {
-      createCustomWorkflow('custom-wf', 'Custom Workflow');
+      createTestWorkflow(db, { id: 'custom-wf', name: 'Custom Workflow' });
 
       const output = exec('workflow list --custom --machine');
       const json = extractJson<Array<{ id: string; isBuiltin: boolean }>>(output);
@@ -249,9 +231,9 @@ describe('Workflow Commands JSON Mode', () => {
 
   describe('workflow delete --machine', () => {
     beforeEach(() => {
-      createCustomWorkflow('deletable-wf', 'Deletable Workflow');
-      addWorkflowStatus('deletable-wf', 'del-todo', 'To Do', 'backlog', 0, 1);
-      addWorkflowStatus('deletable-wf', 'del-done', 'Done', 'completed', 1);
+      createTestWorkflow(db, { id: 'deletable-wf', name: 'Deletable Workflow' });
+      addTestWorkflowStatus(db, 'deletable-wf', { id: 'del-todo', name: 'To Do', category: 'backlog', position: 0, isDefault: true });
+      addTestWorkflowStatus(db, 'deletable-wf', { id: 'del-done', name: 'Done', category: 'completed', position: 1 });
     });
 
     it('should output selection prompt when ID not provided', () => {
@@ -330,16 +312,13 @@ describe('Workflow Commands JSON Mode', () => {
   describe('workflow switch --machine', () => {
     beforeEach(() => {
       // Use unique IDs that don't conflict with builtin 'kanban' template
-      createCustomWorkflow('test-kanban-wf', 'Test Kanban', 'Test Kanban workflow');
-      addWorkflowStatus('test-kanban-wf', 'test-kanban-backlog', 'Backlog', 'backlog', 0, 1);
-      addWorkflowStatus('test-kanban-wf', 'test-kanban-doing', 'Doing', 'started', 1);
-      addWorkflowStatus('test-kanban-wf', 'test-kanban-done', 'Done', 'completed', 2);
+      createTestWorkflow(db, { id: 'test-kanban-wf', name: 'Test Kanban', description: 'Test Kanban workflow' });
+      addTestWorkflowStatus(db, 'test-kanban-wf', { id: 'test-kanban-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: true });
+      addTestWorkflowStatus(db, 'test-kanban-wf', { id: 'test-kanban-doing', name: 'Doing', category: 'started', position: 1 });
+      addTestWorkflowStatus(db, 'test-kanban-wf', { id: 'test-kanban-done', name: 'Done', category: 'completed', position: 2 });
 
       // Add a ticket so switch will go through confirmation flow
-      db.prepare(`
-        INSERT INTO pmo_tickets (id, project_id, title, status, status_id)
-        VALUES ('TKT-SWITCH-BASIC', 'test-project', 'Switch Test Ticket', 'Backlog', 'default-backlog')
-      `).run();
+      createTestTicket(db, 'test-project', { id: 'TKT-SWITCH-BASIC', title: 'Switch Test Ticket', status: 'Backlog', statusId: 'default-backlog' });
     });
 
     it('should output workflow selection prompt when workflow not provided', () => {
@@ -464,8 +443,8 @@ describe('Workflow Commands JSON Mode', () => {
 
     describe('workflow list - agent data retrieval', () => {
       beforeEach(() => {
-        createCustomWorkflow('agent-wf-1', 'Agent Workflow One');
-        createCustomWorkflow('agent-wf-2', 'Agent Workflow Two');
+        createTestWorkflow(db, { id: 'agent-wf-1', name: 'Agent Workflow One' });
+        createTestWorkflow(db, { id: 'agent-wf-2', name: 'Agent Workflow Two' });
       });
 
       it('should return all workflows as JSON array for agent processing', () => {
@@ -555,8 +534,8 @@ describe('Workflow Commands JSON Mode', () => {
 
     describe('workflow delete - full agent flow', () => {
       beforeEach(() => {
-        createCustomWorkflow('delete-flow-wf', 'Delete Flow Workflow');
-        addWorkflowStatus('delete-flow-wf', 'dfw-todo', 'To Do', 'backlog', 0, 1);
+        createTestWorkflow(db, { id: 'delete-flow-wf', name: 'Delete Flow Workflow' });
+        addTestWorkflowStatus(db, 'delete-flow-wf', { id: 'dfw-todo', name: 'To Do', category: 'backlog', position: 0, isDefault: true });
       });
 
       it('should complete flow: select workflow → confirm deletion → workflow deleted', () => {
@@ -605,16 +584,13 @@ describe('Workflow Commands JSON Mode', () => {
 
     describe('workflow switch - full agent flow', () => {
       beforeEach(() => {
-        createCustomWorkflow('switch-target-wf', 'Switch Target', 'Target workflow for switch');
-        addWorkflowStatus('switch-target-wf', 'st-backlog', 'Backlog', 'backlog', 0, 1);
-        addWorkflowStatus('switch-target-wf', 'st-active', 'Active', 'started', 1);
-        addWorkflowStatus('switch-target-wf', 'st-done', 'Done', 'completed', 2);
+        createTestWorkflow(db, { id: 'switch-target-wf', name: 'Switch Target', description: 'Target workflow for switch' });
+        addTestWorkflowStatus(db, 'switch-target-wf', { id: 'st-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: true });
+        addTestWorkflowStatus(db, 'switch-target-wf', { id: 'st-active', name: 'Active', category: 'started', position: 1 });
+        addTestWorkflowStatus(db, 'switch-target-wf', { id: 'st-done', name: 'Done', category: 'completed', position: 2 });
 
         // Add a ticket so switch will prompt for confirmation
-        db.prepare(`
-          INSERT INTO pmo_tickets (id, project_id, title, status, status_id)
-          VALUES ('TKT-SWITCH', 'test-project', 'Switch Test Ticket', 'Backlog', 'default-backlog')
-        `).run();
+        createTestTicket(db, 'test-project', { id: 'TKT-SWITCH', title: 'Switch Test Ticket', status: 'Backlog', statusId: 'default-backlog' });
       });
 
       it('should complete flow: select workflow → confirm switch → workflow switched', () => {
@@ -690,8 +666,8 @@ describe('Workflow Commands JSON Mode', () => {
 
     describe('backward compatibility: --json flag flows', () => {
       beforeEach(() => {
-        createCustomWorkflow('json-compat-wf', 'JSON Compat Workflow');
-        addWorkflowStatus('json-compat-wf', 'jc-todo', 'To Do', 'backlog', 0, 1);
+        createTestWorkflow(db, { id: 'json-compat-wf', name: 'JSON Compat Workflow' });
+        addTestWorkflowStatus(db, 'json-compat-wf', { id: 'jc-todo', name: 'To Do', category: 'backlog', position: 0, isDefault: true });
       });
 
       it('should complete view flow with --json flag (legacy)', () => {
@@ -718,171 +694,3 @@ describe('Workflow Commands JSON Mode', () => {
   });
 });
 
-/**
- * Helper function to set up test database with workflow schema.
- * Schema matches production schema from src/lib/pmo/schema.ts
- */
-function setupTestDatabase(db: Database.Database, pmoPath: string) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS pmo_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_phases (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_workflows (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      description TEXT,
-      is_builtin INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_workflow_statuses (
-      id TEXT PRIMARY KEY,
-      workflow_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (workflow_id) REFERENCES pmo_workflows(id) ON DELETE CASCADE,
-      UNIQUE(workflow_id, name)
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      template TEXT,
-      description TEXT,
-      status TEXT NOT NULL DEFAULT 'active',
-      phase_id TEXT,
-      workflow_id TEXT,
-      is_archived INTEGER NOT NULL DEFAULT 0,
-      target_date TIMESTAMP,
-      initiative_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (phase_id) REFERENCES pmo_phases(id) ON DELETE SET NULL,
-      FOREIGN KEY (workflow_id) REFERENCES pmo_workflows(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_columns (
-      id TEXT NOT NULL,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      name TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, id)
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      title TEXT NOT NULL,
-      description TEXT,
-      priority TEXT,
-      category TEXT,
-      status TEXT NOT NULL DEFAULT 'backlog',
-      status_id TEXT,
-      owner TEXT,
-      assignee TEXT,
-      branch TEXT,
-      spec_id TEXT,
-      epic_id TEXT,
-      labels TEXT NOT NULL DEFAULT '[]',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      last_synced_from_spec TIMESTAMP,
-      last_synced_from_board TIMESTAMP,
-      FOREIGN KEY (status_id) REFERENCES pmo_workflow_statuses(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_board_tickets (
-      project_id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL,
-      column_id TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      PRIMARY KEY (project_id, ticket_id)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_pmo_workflows_builtin ON pmo_workflows(is_builtin);
-    CREATE INDEX IF NOT EXISTS idx_pmo_workflow_statuses_workflow ON pmo_workflow_statuses(workflow_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_projects_workflow ON pmo_projects(workflow_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status ON pmo_tickets(status);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_id ON pmo_tickets(status_id);
-  `);
-
-  // Insert default workflow
-  db.prepare(`
-    INSERT INTO pmo_workflows (id, name, description, is_builtin)
-    VALUES ('default', 'Default', 'Default kanban workflow', 1)
-  `).run();
-
-  // Insert workflow statuses - IDs match production format: ${workflow_id}-${status_name_slug}
-  const statuses = [
-    { id: 'default-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
-    { id: 'default-in-progress', name: 'In Progress', category: 'started', position: 1 },
-    { id: 'default-done', name: 'Done', category: 'completed', position: 2 },
-  ];
-
-  for (const status of statuses) {
-    db.prepare(`
-      INSERT INTO pmo_workflow_statuses (id, workflow_id, name, category, position, is_default)
-      VALUES (?, 'default', ?, ?, ?, ?)
-    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
-  }
-
-  // Insert test project
-  db.prepare(`
-    INSERT INTO pmo_projects (id, name, description, workflow_id)
-    VALUES ('test-project', 'Test Project', 'E2E test project', 'default')
-  `).run();
-
-  db.prepare(`
-    INSERT INTO pmo_settings (key, value)
-    VALUES ('pmo_path', ?), ('current_project', 'test-project')
-  `).run(pmoPath);
-
-  // Insert columns
-  const columns = [
-    { id: 'backlog', name: 'Backlog', position: 0 },
-    { id: 'in-progress', name: 'In Progress', position: 1 },
-    { id: 'done', name: 'Done', position: 2 },
-  ];
-
-  for (const col of columns) {
-    db.prepare(`
-      INSERT INTO pmo_columns (id, project_id, name, position)
-      VALUES (?, 'test-project', ?, ?)
-    `).run(col.id, col.name, col.position);
-  }
-
-  // Insert default phases
-  const phases = [
-    { id: 'idea', name: 'Idea', category: 'backlog', position: 0 },
-    { id: 'planned', name: 'Planned', category: 'unstarted', position: 0 },
-    { id: 'active', name: 'Active', category: 'started', position: 0 },
-    { id: 'complete', name: 'Complete', category: 'completed', position: 0 },
-  ];
-
-  for (const phase of phases) {
-    db.prepare(`
-      INSERT OR IGNORE INTO pmo_phases (id, name, category, position, is_default)
-      VALUES (?, ?, ?, ?, 0)
-    `).run(phase.id, phase.name, phase.category, phase.position);
-  }
-}

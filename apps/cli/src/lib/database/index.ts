@@ -64,7 +64,7 @@ export interface AgentWorktree {
   last_checked?: string;
 }
 
-const CREATE_TABLES_SQL = `
+export const CREATE_TABLES_SQL = `
 -- Core workspace metadata
 CREATE TABLE IF NOT EXISTS workspace (
   id INTEGER PRIMARY KEY CHECK (id = 1),
