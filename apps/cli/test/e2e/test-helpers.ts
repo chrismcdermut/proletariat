@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
 import { PMO_TABLES } from '../../src/lib/pmo/schema.js';
+import { CREATE_TABLES_SQL } from '../../src/lib/database/index.js';
 
 /**
  * Error type for execSync failures, which include stdout/stderr from the child process.
@@ -177,6 +178,72 @@ export function setupProductionSchema(dbPath: string, pmoPath: string): Database
   db.prepare(`INSERT OR REPLACE INTO ${T.settings} (key, value) VALUES ('pmo_path', ?)`).run(pmoPath);
 
   return db;
+}
+
+/**
+ * Sets up a test database using the production workspace schema.
+ *
+ * This creates workspace-level tables (workspace, repositories, agents,
+ * agent_themes, agent_theme_names, agent_worktrees, workspace_settings)
+ * using the production CREATE_TABLES_SQL from database/index.ts.
+ *
+ * Use this for tests that only need workspace tables (repo, branch, theme commands).
+ * For PMO tables, use setupProductionSchema instead.
+ * For both, call setupProductionSchema first, then add workspace tables to the same db.
+ *
+ * @param dbPath - Path to the SQLite database file
+ * @param options - Workspace configuration options
+ * @returns Database instance with workspace schema initialized
+ */
+export function setupWorkspaceSchema(
+  dbPath: string,
+  options: {
+    type?: 'hq' | 'workspace';
+    workspaceName?: string;
+    hasPmo?: boolean;
+  } = {}
+): Database.Database {
+  const db = new Database(dbPath);
+  db.pragma('foreign_keys = ON');
+
+  // Create workspace tables using production schema
+  db.exec(CREATE_TABLES_SQL);
+
+  // Insert default workspace row
+  const type = options.type ?? 'hq';
+  const workspaceName = options.workspaceName ?? 'test-workspace';
+  const hasPmo = options.hasPmo ?? false;
+  db.prepare(`
+    INSERT INTO workspace (id, type, workspace_name, has_pmo, created_at)
+    VALUES (1, ?, ?, ?, datetime('now'))
+  `).run(type, workspaceName, hasPmo ? 1 : 0);
+
+  return db;
+}
+
+/**
+ * Adds workspace tables to an existing database (e.g., one already set up with setupProductionSchema).
+ *
+ * @param db - Existing database instance
+ * @param options - Workspace configuration options
+ */
+export function addWorkspaceTables(
+  db: Database.Database,
+  options: {
+    type?: 'hq' | 'workspace';
+    workspaceName?: string;
+    hasPmo?: boolean;
+  } = {}
+): void {
+  db.exec(CREATE_TABLES_SQL);
+
+  const type = options.type ?? 'hq';
+  const workspaceName = options.workspaceName ?? 'test-workspace';
+  const hasPmo = options.hasPmo ?? true;
+  db.prepare(`
+    INSERT INTO workspace (id, type, workspace_name, has_pmo, created_at)
+    VALUES (1, ?, ?, ?, datetime('now'))
+  `).run(type, workspaceName, hasPmo ? 1 : 0);
 }
 
 /**
