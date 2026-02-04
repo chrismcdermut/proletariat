@@ -56,6 +56,15 @@ export default class PMOInit extends Command {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
+    action: Flags.string({
+      description: 'Action for existing PMO (cancel or reinitialize)',
+      options: ['cancel', 'reinitialize'],
+      hidden: true,
+    }),
+    confirmation: Flags.string({
+      description: 'Confirmation text for destructive operations',
+      hidden: true,
+    }),
   };
 
   async run(): Promise<void> {
@@ -223,6 +232,23 @@ export default class PMOInit extends Command {
   }
 
   private findHQRoot(): string | null {
+    // Support PRLT_HQ_PATH override (for devcontainers and tests)
+    const hqPathEnv = process.env.PRLT_HQ_PATH;
+    const allowEnvHqPath = process.env.DEVCONTAINER === 'true' || process.env.PRLT_TEST_ENV === 'true';
+    if (hqPathEnv && allowEnvHqPath) {
+      const configPath = path.join(hqPathEnv, '.proletariat', 'config.json');
+      if (fs.existsSync(configPath)) {
+        try {
+          const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+          if (config.type === 'hq') {
+            return hqPathEnv;
+          }
+        } catch {
+          // Fall through to directory walk
+        }
+      }
+    }
+
     let currentDir = process.cwd();
 
     while (currentDir !== '/') {
@@ -261,47 +287,81 @@ export default class PMOInit extends Command {
 
     // Define choices once, use for both JSON and interactive modes
     const actionChoices = [
-      { name: 'Cancel (keep existing PMO)', value: 'cancel' },
-      { name: 'Reinitialize (DELETES all data)', value: 'reinitialize' },
+      {
+        name: 'Cancel (keep existing PMO)',
+        value: 'cancel',
+        command: 'prlt pmo init --action cancel --json',
+      },
+      {
+        name: 'Reinitialize (DELETES all data)',
+        value: 'reinitialize',
+        command: 'prlt pmo init --action reinitialize --json',
+      },
     ];
     const message = `PMO already exists at ${pmoPath} (${projectCount} projects, ${ticketCount} tickets). What would you like to do?`;
 
-    // In JSON mode, output reinitialize prompt and exit
-    if (jsonMode) {
+    // Determine action: from flag, JSON mode, or interactive prompt
+    let action: string;
+    if (flags.action) {
+      action = flags.action as string;
+    } else if (jsonMode) {
       outputPromptAsJson(
         buildPromptConfig('list', 'action', message, actionChoices),
         createMetadata('pmo init', flags)
       );
+      return null; // unreachable - outputPromptAsJson calls process.exit
+    } else {
+      this.log(chalk.yellow('\n⚠️  PMO already exists'));
+      this.log(chalk.gray(`   Location: ${pmoPath}`));
+      this.log(chalk.gray(`   Projects: ${projectCount}`));
+      this.log(chalk.gray(`   Tickets: ${ticketCount}\n`));
+
+      const result = await inquirer.prompt([{
+        type: 'list',
+        name: 'action',
+        message: 'What would you like to do?',
+        choices: actionChoices,
+        default: 'cancel',
+      }]);
+      action = result.action;
     }
-
-    this.log(chalk.yellow('\n⚠️  PMO already exists'));
-    this.log(chalk.gray(`   Location: ${pmoPath}`));
-    this.log(chalk.gray(`   Projects: ${projectCount}`));
-    this.log(chalk.gray(`   Tickets: ${ticketCount}\n`));
-
-    const { action } = await inquirer.prompt([{
-      type: 'list',
-      name: 'action',
-      message: 'What would you like to do?',
-      choices: actionChoices,
-      default: 'cancel',
-    }]);
 
     if (action === 'cancel') {
       return false;
     }
 
-    // Show warning and require typed confirmation
-    this.log(chalk.red('\n⚠️  WARNING: This will permanently delete:'));
-    this.log(chalk.red('   • All tickets and boards'));
-    this.log(chalk.red('   • All specs and documentation'));
-    this.log(chalk.red('   • Database tables (pmo_*)\n'));
+    // Determine confirmation: from flag, JSON mode, or interactive prompt
+    let confirmation: string;
+    if (flags.confirmation) {
+      confirmation = flags.confirmation as string;
+    } else if (jsonMode) {
+      outputPromptAsJson(
+        {
+          type: 'input',
+          name: 'confirmation',
+          message: 'Type "delete pmo" to confirm:',
+          context: {
+            hint: 'Pass --confirmation "delete pmo" to confirm reinitialize',
+            example: 'prlt pmo init --action reinitialize --confirmation "delete pmo" --location separate --template kanban --name "my-board" --json',
+          },
+        },
+        createMetadata('pmo init', flags)
+      );
+      return null; // unreachable - outputPromptAsJson calls process.exit
+    } else {
+      // Show warning and require typed confirmation
+      this.log(chalk.red('\n⚠️  WARNING: This will permanently delete:'));
+      this.log(chalk.red('   • All tickets and boards'));
+      this.log(chalk.red('   • All specs and documentation'));
+      this.log(chalk.red('   • Database tables (pmo_*)\n'));
 
-    const { confirmation } = await inquirer.prompt([{
-      type: 'input',
-      name: 'confirmation',
-      message: 'Type "delete pmo" to confirm:',
-    }]);
+      const result = await inquirer.prompt([{
+        type: 'input',
+        name: 'confirmation',
+        message: 'Type "delete pmo" to confirm:',
+      }]);
+      confirmation = result.confirmation;
+    }
 
     if (confirmation !== 'delete pmo') {
       this.log(chalk.yellow('\nCancelled. Confirmation text did not match.'));
