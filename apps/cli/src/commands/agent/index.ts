@@ -56,6 +56,7 @@ export default class Agent extends PMOCommand {
         { name: '📋 List all agents', value: 'list', command: 'prlt agent list --machine' },
         { name: '📊 Show status', value: 'status', command: 'prlt agent status --machine' },
         { name: '📂 Visit directory', value: 'visit', command: 'prlt agent visit --machine' },
+        { name: '🗑️  Remove agent', value: 'remove', command: 'prlt agent remove --machine' },
         // Management group
         { name: '👔 Manage staff agents', value: 'staff', command: 'prlt agent staff --machine' },
         { name: '⏱️  Manage temp agents', value: 'temp', command: 'prlt agent temp --machine' },
@@ -95,6 +96,12 @@ export default class Agent extends PMOCommand {
         case 'visit': {
           const { default: VisitCommand } = await import('./visit.js');
           const cmd = new VisitCommand([], this.config);
+          await cmd.run();
+          break;
+        }
+        case 'remove': {
+          const { default: RemoveCommand } = await import('./remove.js');
+          const cmd = new RemoveCommand([], this.config);
           await cmd.run();
           break;
         }
