@@ -8,6 +8,8 @@ import {
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
+  setupProductionSchema,
+  createTestProject,
   exec,
   type TestEnvironment,
 } from './test-helpers.js';
@@ -54,8 +56,8 @@ describe('PR Commands JSON Mode', () => {
   beforeEach(() => {
     env = createTestEnvironment('pr-json-');
 
-    db = new Database(env.dbPath);
-    setupTestDatabase(db, env.pmoPath);
+    db = setupProductionSchema(env.dbPath, env.pmoPath);
+    createTestProject(db, { id: 'test-project', name: 'Test Project' });
 
     createHQConfig(env.proletariatDir);
     createPMODirectories(env.pmoPath, 'test-project');
@@ -85,12 +87,7 @@ describe('PR Commands JSON Mode', () => {
     db.prepare(`
       INSERT INTO pmo_tickets (id, project_id, title, status, status_id)
       VALUES (?, 'test-project', ?, ?, ?)
-    `).run(id, title, statusName, `status-${columnId}`);
-
-    db.prepare(`
-      INSERT INTO pmo_board_tickets (project_id, ticket_id, column_id, position)
-      VALUES ('test-project', ?, ?, 0)
-    `).run(id, columnId);
+    `).run(id, title, statusName, `default-${columnId}`);
 
     if (prUrl) {
       db.prepare(`
@@ -1142,160 +1139,6 @@ describe('PR Commands JSON Mode', () => {
     });
   });
 });
-
-/**
- * Helper function to set up test database with PR-related schema.
- * Schema matches production schema from src/lib/pmo/schema.ts
- */
-function setupTestDatabase(db: Database.Database, pmoPath: string) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS pmo_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_workflows (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      description TEXT,
-      is_builtin INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_workflow_statuses (
-      id TEXT PRIMARY KEY,
-      workflow_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (workflow_id) REFERENCES pmo_workflows(id) ON DELETE CASCADE,
-      UNIQUE(workflow_id, name)
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      template TEXT,
-      description TEXT,
-      status TEXT NOT NULL DEFAULT 'active',
-      phase_id TEXT,
-      workflow_id TEXT,
-      is_archived INTEGER NOT NULL DEFAULT 0,
-      target_date TIMESTAMP,
-      initiative_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (workflow_id) REFERENCES pmo_workflows(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_columns (
-      id TEXT NOT NULL,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      name TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, id)
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      title TEXT NOT NULL,
-      description TEXT,
-      priority TEXT,
-      category TEXT,
-      status TEXT NOT NULL DEFAULT 'backlog',
-      status_id TEXT,
-      owner TEXT,
-      assignee TEXT,
-      branch TEXT,
-      spec_id TEXT,
-      epic_id TEXT,
-      labels TEXT NOT NULL DEFAULT '[]',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      last_synced_from_spec TIMESTAMP,
-      last_synced_from_board TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_board_tickets (
-      project_id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL,
-      column_id TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      PRIMARY KEY (project_id, ticket_id),
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      FOREIGN KEY (project_id, column_id) REFERENCES pmo_columns(project_id, id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_ticket_metadata (
-      ticket_id TEXT NOT NULL,
-      key TEXT NOT NULL,
-      value TEXT,
-      PRIMARY KEY (ticket_id, key),
-      FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_project ON pmo_tickets(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status ON pmo_tickets(status);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_id ON pmo_tickets(status_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_ticket_metadata ON pmo_ticket_metadata(ticket_id);
-  `);
-
-  // Insert workflow
-  db.prepare(`
-    INSERT INTO pmo_workflows (id, name, description, is_builtin)
-    VALUES ('default', 'Default', 'Default kanban workflow', 1)
-  `).run();
-
-  // Insert workflow statuses
-  const statuses = [
-    { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
-    { id: 'status-in-progress', name: 'In Progress', category: 'started', position: 1 },
-    { id: 'status-review', name: 'Review', category: 'started', position: 2 },
-    { id: 'status-done', name: 'Done', category: 'completed', position: 3 },
-  ];
-
-  for (const status of statuses) {
-    db.prepare(`
-      INSERT INTO pmo_workflow_statuses (id, workflow_id, name, category, position, is_default)
-      VALUES (?, 'default', ?, ?, ?, ?)
-    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
-  }
-
-  // Insert test project
-  db.prepare(`
-    INSERT INTO pmo_projects (id, name, description, workflow_id)
-    VALUES ('test-project', 'Test Project', 'E2E test project', 'default')
-  `).run();
-
-  db.prepare(`
-    INSERT INTO pmo_settings (key, value)
-    VALUES ('pmo_path', ?), ('current_project', 'test-project')
-  `).run(pmoPath);
-
-  // Insert columns
-  const columns = [
-    { id: 'backlog', name: 'Backlog', position: 0 },
-    { id: 'in-progress', name: 'In Progress', position: 1 },
-    { id: 'review', name: 'Review', position: 2 },
-    { id: 'done', name: 'Done', position: 3 },
-  ];
-
-  for (const col of columns) {
-    db.prepare(`
-      INSERT INTO pmo_columns (id, project_id, name, position)
-      VALUES (?, 'test-project', ?, ?)
-    `).run(col.id, col.name, col.position);
-  }
-}
 
 /**
  * Initialize a git repo for PR commands to work

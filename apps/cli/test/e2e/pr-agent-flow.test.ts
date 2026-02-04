@@ -8,70 +8,14 @@ import {
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
-  TestEnvironment,
+  setupProductionSchema,
+  createTestProject,
+  extractJson,
+  findChoice,
+  type TestEnvironment,
+  type AgentPromptResponse,
   exec,
 } from './test-helpers.js';
-
-/**
- * Extract JSON from CLI output that may contain warnings.
- * Looks for the first line starting with { and parses from there.
- */
-function extractJson<T>(output: string): T | null {
-  const lines = output.split('\n');
-  let jsonStart = -1;
-
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (trimmed.startsWith('{')) {
-      jsonStart = i;
-      break;
-    }
-  }
-
-  if (jsonStart === -1) {
-    return null;
-  }
-
-  const jsonLines = lines.slice(jsonStart).join('\n');
-  try {
-    return JSON.parse(jsonLines) as T;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Response type for agent prompt JSON output.
- */
-interface AgentPromptResponse {
-  prompt: {
-    type: string;
-    name: string;
-    message: string;
-    choices?: Array<{
-      name: string;
-      value: string;
-      command?: string;
-      disabled?: boolean;
-    }>;
-  };
-  metadata: {
-    command: string;
-    flags: Record<string, unknown>;
-  };
-}
-
-/**
- * Find a choice in a prompt response by partial name match.
- */
-function findChoice(
-  choices: Array<{ name: string; value: string; command?: string }>,
-  pattern: string
-): { name: string; value: string; command?: string } | undefined {
-  return choices.find(c =>
-    c.name.toLowerCase().includes(pattern.toLowerCase())
-  );
-}
 
 /**
  * E2E Agent Flow Tests for PR Commands
@@ -90,11 +34,11 @@ describe('PR Commands - Agent Flow Tests', () => {
   beforeEach(() => {
     env = createTestEnvironment('pr-agent-flow-');
     createHQConfig(env.proletariatDir);
-    createPMODirectories(env.pmoPath);
+    createPMODirectories(env.pmoPath, 'test-project');
 
-    // Create database with required tables
-    db = new Database(env.dbPath);
-    setupTestDatabase(db, env.pmoPath);
+    // Use production schema and create test project
+    db = setupProductionSchema(env.dbPath, env.pmoPath);
+    createTestProject(db, { id: 'test-project', name: 'Test Project' });
   });
 
   afterEach(() => {
@@ -103,23 +47,25 @@ describe('PR Commands - Agent Flow Tests', () => {
   });
 
   /**
-   * Helper to create a test ticket with PR metadata
+   * Helper to create a test ticket with PR metadata.
+   * Uses production status IDs (e.g., 'default-in-progress').
    */
-  function createTestTicket(
+  function createLocalTestTicket(
     ticketId: string,
     title: string,
-    columnId: string = 'in-progress',
+    statusId: string = 'default-in-progress',
     prUrl?: string
   ): void {
-    db.prepare(`
-      INSERT INTO pmo_tickets (id, project_id, title, status, status_id)
-      VALUES (?, 'test-project', ?, 'In Progress', ?)
-    `).run(ticketId, title, columnId);
+    const statusName = statusId === 'default-backlog' ? 'Backlog' :
+                       statusId === 'default-ready' ? 'Ready' :
+                       statusId === 'default-in-progress' ? 'In Progress' :
+                       statusId === 'default-review' ? 'Review' :
+                       statusId === 'default-done' ? 'Done' : 'In Progress';
 
     db.prepare(`
-      INSERT INTO pmo_board_tickets (project_id, ticket_id, column_id, position)
-      VALUES ('test-project', ?, ?, 0)
-    `).run(ticketId, columnId);
+      INSERT INTO pmo_tickets (id, project_id, title, status, status_id)
+      VALUES (?, 'test-project', ?, ?, ?)
+    `).run(ticketId, title, statusName, statusId);
 
     if (prUrl) {
       db.prepare(`
@@ -161,8 +107,8 @@ describe('PR Commands - Agent Flow Tests', () => {
 
   describe('prlt pr status - agent flow', () => {
     beforeEach(() => {
-      createTestTicket('TKT-PR-1', 'Ticket with PR', 'in-progress', 'https://github.com/test/repo/pull/123');
-      createTestTicket('TKT-PR-2', 'Ticket without PR', 'in-progress');
+      createLocalTestTicket('TKT-PR-1', 'Ticket with PR', 'default-in-progress', 'https://github.com/test/repo/pull/123');
+      createLocalTestTicket('TKT-PR-2', 'Ticket without PR', 'default-in-progress');
     });
 
     it('should output ticket selection prompt with --machine when no ticket specified', () => {
@@ -234,7 +180,7 @@ describe('PR Commands - Agent Flow Tests', () => {
 
   describe('prlt pr link - agent flow', () => {
     beforeEach(() => {
-      createTestTicket('TKT-LINK-1', 'Ticket to link PR', 'in-progress');
+      createLocalTestTicket('TKT-LINK-1', 'Ticket to link PR', 'default-in-progress');
     });
 
     it('should output ticket selection prompt with --machine when no ticket specified', () => {
@@ -310,7 +256,7 @@ describe('PR Commands - Agent Flow Tests', () => {
 
   describe('prlt pr create - agent flow', () => {
     beforeEach(() => {
-      createTestTicket('TKT-CREATE-1', 'Ticket for PR creation', 'in-progress');
+      createLocalTestTicket('TKT-CREATE-1', 'Ticket for PR creation', 'default-in-progress');
 
       // Initialize git repo for PR commands
       try {
@@ -374,7 +320,7 @@ describe('PR Commands - Agent Flow Tests', () => {
     });
 
     it('should handle gh CLI not installed gracefully', () => {
-      createTestTicket('TKT-ERR-1', 'Error test ticket', 'in-progress');
+      createLocalTestTicket('TKT-ERR-1', 'Error test ticket', 'default-in-progress');
 
       // This will hit gh check which may fail
       const output = exec('pr create TKT-ERR-1 --machine');
@@ -384,97 +330,3 @@ describe('PR Commands - Agent Flow Tests', () => {
     });
   });
 });
-
-// =============================================================================
-// Database Setup Helper
-// =============================================================================
-
-function setupTestDatabase(db: Database.Database, pmoPath: string): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS pmo_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT,
-      workflow_id TEXT DEFAULT 'default',
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_columns (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT,
-      priority TEXT DEFAULT 'MEDIUM',
-      category TEXT DEFAULT 'feature',
-      status TEXT DEFAULT 'Backlog',
-      status_id TEXT,
-      owner TEXT,
-      assignee TEXT,
-      spec_id TEXT,
-      epic_id TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_board_tickets (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      project_id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL UNIQUE,
-      column_id TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      FOREIGN KEY (column_id) REFERENCES pmo_columns(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_ticket_metadata (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      key TEXT NOT NULL,
-      value TEXT,
-      PRIMARY KEY (ticket_id, key)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_pmo_ticket_metadata ON pmo_ticket_metadata(ticket_id);
-  `);
-
-  // Insert test data
-  db.prepare(`
-    INSERT INTO pmo_projects (id, name, description)
-    VALUES ('test-project', 'Test Project', 'E2E test project')
-  `).run();
-
-  db.prepare(`
-    INSERT INTO pmo_settings (key, value)
-    VALUES ('pmo_path', ?), ('current_project', 'test-project')
-  `).run(pmoPath);
-
-  const columns = [
-    { id: 'backlog', name: 'Backlog', position: 0 },
-    { id: 'in-progress', name: 'In Progress', position: 1 },
-    { id: 'in-review', name: 'In Review', position: 2 },
-    { id: 'done', name: 'Done', position: 3 },
-  ];
-
-  for (const col of columns) {
-    db.prepare(`
-      INSERT INTO pmo_columns (id, project_id, name, position)
-      VALUES (?, 'test-project', ?, ?)
-    `).run(col.id, col.name, col.position);
-  }
-}

@@ -25,6 +25,8 @@ import {
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
+  setupProductionSchema,
+  createTestProject,
   exec,
   type TestEnvironment,
 } from './test-helpers.js';
@@ -70,8 +72,8 @@ describe('Project Commands JSON Mode', () => {
 
   beforeEach(() => {
     env = createTestEnvironment('project-json-');
-    db = new Database(env.dbPath);
-    setupTestDatabase(db, env.pmoPath);
+    db = setupProductionSchema(env.dbPath, env.pmoPath);
+    createTestProject(db, { id: 'test-project', name: 'Test Project' });
     createHQConfig(env.proletariatDir);
     createPMODirectories(env.pmoPath, 'test-project');
   });
@@ -536,8 +538,8 @@ describe('Project Commands JSON Mode', () => {
   describe('project spec --machine', () => {
     beforeEach(() => {
       db.prepare(`
-        INSERT INTO pmo_specs (id, path, title, status)
-        VALUES ('SPEC-001', 'specs/test.md', 'Test Spec', 'active')
+        INSERT INTO pmo_specs (id, title, status)
+        VALUES ('SPEC-001', 'Test Spec', 'active')
       `).run();
     });
 
@@ -794,11 +796,11 @@ describe('Project Commands JSON Mode', () => {
       it('should return board with tickets when viewing project directly', () => {
         db.prepare(`
           INSERT INTO pmo_tickets (id, project_id, title, priority, status, status_id)
-          VALUES ('TKT-001', 'test-project', 'Test Ticket', 'high', 'backlog', 'status-backlog')
+          VALUES ('TKT-001', 'test-project', 'Test Ticket', 'high', 'Backlog', 'default-backlog')
         `).run();
         db.prepare(`
           INSERT INTO pmo_tickets (id, project_id, title, priority, status, status_id)
-          VALUES ('TKT-002', 'test-project', 'In Progress Ticket', 'medium', 'in-progress', 'status-in-progress')
+          VALUES ('TKT-002', 'test-project', 'In Progress Ticket', 'medium', 'In Progress', 'default-in-progress')
         `).run();
 
         const output = exec('project view test-project --machine');
@@ -940,8 +942,8 @@ describe('Project Commands JSON Mode', () => {
     describe('menu → spec flow', () => {
       beforeEach(() => {
         db.prepare(`
-          INSERT INTO pmo_specs (id, path, title, status)
-          VALUES ('SPEC-FLOW', 'specs/flow.md', 'Flow Test Spec', 'active')
+          INSERT INTO pmo_specs (id, title, status)
+          VALUES ('SPEC-FLOW', 'Flow Test Spec', 'active')
         `).run();
         // Need multiple projects for the spec project selection prompt
         db.prepare(`
@@ -1176,185 +1178,3 @@ describe('Project Commands JSON Mode', () => {
   });
 });
 
-/**
- * Helper function to set up test database with complete PMO schema.
- * Schema matches production schema with all tables needed by project commands.
- */
-function setupTestDatabase(db: Database.Database, pmoPath: string) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS pmo_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_phases (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_workflows (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      description TEXT,
-      is_builtin INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_workflow_statuses (
-      id TEXT PRIMARY KEY,
-      workflow_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (workflow_id) REFERENCES pmo_workflows(id) ON DELETE CASCADE,
-      UNIQUE(workflow_id, name)
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      template TEXT,
-      description TEXT,
-      status TEXT NOT NULL DEFAULT 'active',
-      phase_id TEXT,
-      workflow_id TEXT,
-      is_archived INTEGER NOT NULL DEFAULT 0,
-      target_date TIMESTAMP,
-      initiative_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (phase_id) REFERENCES pmo_phases(id) ON DELETE SET NULL,
-      FOREIGN KEY (workflow_id) REFERENCES pmo_workflows(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_columns (
-      id TEXT NOT NULL,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      name TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, id)
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_specs (
-      id TEXT PRIMARY KEY,
-      path TEXT NOT NULL,
-      title TEXT,
-      overview TEXT,
-      status TEXT DEFAULT 'active',
-      spec_type TEXT DEFAULT 'domain',
-      domain TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      title TEXT NOT NULL,
-      description TEXT,
-      priority TEXT,
-      category TEXT,
-      status TEXT NOT NULL DEFAULT 'backlog',
-      status_id TEXT,
-      owner TEXT,
-      assignee TEXT,
-      branch TEXT,
-      spec_id TEXT,
-      epic_id TEXT,
-      labels TEXT NOT NULL DEFAULT '[]',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      last_synced_from_spec TIMESTAMP,
-      last_synced_from_board TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_project_specs (
-      project_id TEXT NOT NULL,
-      spec_id TEXT NOT NULL,
-      PRIMARY KEY (project_id, spec_id)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_pmo_phases_category ON pmo_phases(category);
-    CREATE INDEX IF NOT EXISTS idx_pmo_phases_position ON pmo_phases(category, position);
-    CREATE INDEX IF NOT EXISTS idx_pmo_columns_project ON pmo_columns(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_project ON pmo_tickets(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status ON pmo_tickets(status);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_id ON pmo_tickets(status_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_projects_phase ON pmo_projects(phase_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_projects_workflow ON pmo_projects(workflow_id);
-  `);
-
-  // Insert workflow
-  db.prepare(`
-    INSERT INTO pmo_workflows (id, name, description, is_builtin)
-    VALUES ('default', 'Default', 'Default kanban workflow', 1)
-  `).run();
-
-  // Insert workflow statuses (board columns)
-  const statuses = [
-    { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
-    { id: 'status-in-progress', name: 'In Progress', category: 'started', position: 1 },
-    { id: 'status-review', name: 'Review', category: 'started', position: 2 },
-    { id: 'status-done', name: 'Done', category: 'completed', position: 3 },
-  ];
-
-  for (const status of statuses) {
-    db.prepare(`
-      INSERT INTO pmo_workflow_statuses (id, workflow_id, name, category, position, is_default)
-      VALUES (?, 'default', ?, ?, ?, ?)
-    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
-  }
-
-  // Insert test project with workflow reference
-  db.prepare(`
-    INSERT INTO pmo_projects (id, name, description, workflow_id)
-    VALUES ('test-project', 'Test Project', 'E2E test project', 'default')
-  `).run();
-
-  db.prepare(`
-    INSERT INTO pmo_settings (key, value)
-    VALUES ('pmo_path', ?), ('current_project', 'test-project')
-  `).run(pmoPath);
-
-  // Insert columns (legacy - still used by some commands)
-  const columns = [
-    { id: 'backlog', name: 'Backlog', position: 0 },
-    { id: 'in-progress', name: 'In Progress', position: 1 },
-    { id: 'review', name: 'Review', position: 2 },
-    { id: 'done', name: 'Done', position: 3 },
-  ];
-
-  for (const col of columns) {
-    db.prepare(`
-      INSERT INTO pmo_columns (id, project_id, name, position)
-      VALUES (?, 'test-project', ?, ?)
-    `).run(col.id, col.name, col.position);
-  }
-
-  // Insert default phases
-  const phases = [
-    { id: 'idea', name: 'Idea', category: 'backlog', position: 0 },
-    { id: 'planned', name: 'Planned', category: 'unstarted', position: 0 },
-    { id: 'active', name: 'Active', category: 'started', position: 0 },
-    { id: 'complete', name: 'Complete', category: 'completed', position: 0 },
-  ];
-
-  for (const phase of phases) {
-    db.prepare(`
-      INSERT OR IGNORE INTO pmo_phases (id, name, category, position, is_default)
-      VALUES (?, ?, ?, ?, 0)
-    `).run(phase.id, phase.name, phase.category, phase.position);
-  }
-}
