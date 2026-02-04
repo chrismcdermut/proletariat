@@ -3,56 +3,51 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { exec } from './test-helpers.js';
-
-/** Database row type for agent_work queries */
-interface AgentWorkRow {
-  id?: string;
-  executor: string;
-  environment: string;
-  display_mode: string;
-  sandboxed: number;
-  branch: string;
-  ticket_id: string;
-  agent_name: string;
-  status: string;
-  mode?: string;
-  pid?: string;
-  log_path?: string;
-  started_at?: string;
-  completed_at?: string | null;
-  exit_code?: number | null;
-}
+import { exec, extractJson, type AgentPromptResponse } from './test-helpers.js';
 
 /**
- * End-to-end tests for Execution Commands
- * Tests actual CLI usage as a user would interact with it
- * Spec: execute-commands.md > Execution Commands
+ * End-to-end tests for Execution Commands (migrated to this.prompt())
+ * Tests: prlt execution list, logs, stop, and the main execution menu
  *
- * Note: The command is 'executions list' (plural), not 'execution list' (singular).
- * Tests have been updated to use the correct command path.
- *
- * SKIPPED: Tests need workspace environment setup that isn't working in test context.
- * The executions commands require a properly initialized HQ environment.
+ * These tests exercise the COMPLETE agentic flow end-to-end:
+ * - Use flags/args to bypass interactive prompts
+ * - Verify JSON mode outputs proper prompt schema with choices
+ * - Verify end results (DB state, output content)
  */
-// eslint-disable-next-line mocha/no-skipped-tests
-describe.skip('Execution Commands E2E Tests', () => {
+describe('Execution Commands E2E Tests', () => {
   let testDir: string;
   let originalCwd: string;
   let dbPath: string;
   let db: Database.Database;
 
   beforeEach(() => {
+    executionCounter = 0; // Reset counter between tests
     originalCwd = process.cwd();
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'execution-commands-e2e-'));
+    testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'execution-e2e-')));
     process.chdir(testDir);
 
     // Setup test environment
     const proletariatDir = path.join(testDir, '.proletariat');
     const logsDir = path.join(proletariatDir, 'logs');
     fs.mkdirSync(logsDir, { recursive: true });
-    dbPath = path.join(proletariatDir, 'workspace.db');
 
+    // Create agents directory (needed for getWorkspaceInfo agent discovery)
+    const agentsDir = path.join(testDir, 'agents', 'staff');
+    fs.mkdirSync(agentsDir, { recursive: true });
+
+    // Create PMO directory structure (needed for PMOCommand init)
+    const pmoDir = path.join(testDir, 'pmo', 'projects', 'test-project');
+    fs.mkdirSync(pmoDir, { recursive: true });
+
+    // Create config.json (needed for findPMO fallback)
+    const configPath = path.join(proletariatDir, 'config.json');
+    fs.writeFileSync(configPath, JSON.stringify({
+      type: 'hq',
+      name: 'test-hq',
+      hasPmo: true,
+    }), 'utf-8');
+
+    dbPath = path.join(proletariatDir, 'workspace.db');
     db = new Database(dbPath);
     setupTestDatabase(db);
   });
@@ -65,594 +60,422 @@ describe.skip('Execution Commands E2E Tests', () => {
     }
   });
 
-  /**
-   * Spec: execute-commands.md > prlt execution list
-   * "List running and recent executions"
-   */
+  // =========================================================================
+  // execution (main menu) - JSON mode
+  // =========================================================================
+  describe('prlt execution --json', () => {
+    it('should output JSON prompt schema with menu choices', () => {
+      const output = exec('execution --json');
+      const json = extractJson<AgentPromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.prompt).to.exist;
+      expect(json!.prompt.type).to.equal('list');
+      expect(json!.prompt.name).to.equal('action');
+      expect(json!.prompt.message).to.include('What would you like to do');
+      expect(json!.prompt.choices).to.be.an('array');
+      expect(json!.prompt.choices.length).to.be.greaterThanOrEqual(4);
+    });
+
+    it('should include command field in each choice for agent navigation', () => {
+      const output = exec('execution --json');
+      const json = extractJson<AgentPromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      const choices = json!.prompt.choices;
+
+      // Verify key choices exist with command fields
+      const listChoice = choices.find(c => c.value === 'list');
+      expect(listChoice).to.exist;
+      expect(listChoice!.command).to.include('prlt execution list');
+
+      const logsChoice = choices.find(c => c.value === 'logs');
+      expect(logsChoice).to.exist;
+      expect(logsChoice!.command).to.include('prlt execution logs');
+
+      const stopChoice = choices.find(c => c.value === 'stop');
+      expect(stopChoice).to.exist;
+      expect(stopChoice!.command).to.include('prlt execution stop');
+
+      const stopAllChoice = choices.find(c => c.value === 'stop-all');
+      expect(stopAllChoice).to.exist;
+      expect(stopAllChoice!.command).to.include('prlt execution stop --all');
+    });
+
+    it('should include metadata with command name', () => {
+      const output = exec('execution --json');
+      const json = extractJson<AgentPromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.metadata).to.exist;
+      expect(json!.metadata.command).to.equal('execution');
+    });
+  });
+
+  // =========================================================================
+  // execution list
+  // =========================================================================
   describe('prlt execution list', () => {
-    it('should list all executions', () => {
-      // Create test executions
-      const ticketId1 = createTicket(db, 'Test ticket 1', 'in-progress');
-      const ticketId2 = createTicket(db, 'Test ticket 2', 'in-progress');
-      createAgent(db, 'agent-1');
-      createAgent(db, 'agent-2');
+    it('should list executions when they exist', () => {
+      createExecution(db, 'TKT-001', 'agent-1', 'running');
+      createExecution(db, 'TKT-002', 'agent-2', 'completed');
 
-      createExecution(db, ticketId1, 'agent-1', 'running');
-      createExecution(db, ticketId2, 'agent-2', 'completed');
-
-      const output = exec('executions list');
+      const output = exec('execution list');
 
       expect(output).to.contain('WORK-');
       expect(output).to.contain('agent-1');
       expect(output).to.contain('agent-2');
+      expect(output).to.contain('TKT-001');
+      expect(output).to.contain('TKT-002');
     });
 
-    it('should filter by status', () => {
-      const ticketId1 = createTicket(db, 'Running ticket', 'in-progress');
-      const ticketId2 = createTicket(db, 'Completed ticket', 'done');
-      createAgent(db, 'agent-1');
-      createAgent(db, 'agent-2');
+    it('should show empty message when no executions', () => {
+      const output = exec('execution list');
 
-      createExecution(db, ticketId1, 'agent-1', 'running');
-      createExecution(db, ticketId2, 'agent-2', 'completed');
-
-      // Query running only
-      const runningExecutions = db.prepare(`
-        SELECT * FROM agent_work WHERE status = 'running'
-      `).all();
-
-      expect(runningExecutions).to.have.lengthOf(1);
+      expect(output).to.contain('No executions found');
     });
 
-    it('should filter by agent', () => {
-      const ticketId1 = createTicket(db, 'Agent 1 ticket', 'in-progress');
-      const ticketId2 = createTicket(db, 'Agent 2 ticket', 'in-progress');
-      createAgent(db, 'agent-1');
-      createAgent(db, 'agent-2');
+    it('should filter by --status running', () => {
+      createExecution(db, 'TKT-001', 'agent-1', 'running');
+      createExecution(db, 'TKT-002', 'agent-2', 'completed');
 
-      createExecution(db, ticketId1, 'agent-1', 'running');
-      createExecution(db, ticketId2, 'agent-2', 'running');
+      const output = exec('execution list --status running');
 
-      // Query by agent
-      const agent1Executions = db.prepare(`
-        SELECT * FROM agent_work WHERE agent_name = 'agent-1'
-      `).all();
-
-      expect(agent1Executions).to.have.lengthOf(1);
+      expect(output).to.contain('agent-1');
+      expect(output).not.to.contain('agent-2');
     });
 
-    it('should show execution details', () => {
-      const ticketId = createTicket(db, 'Detail test', 'in-progress');
-      createAgent(db, 'agent-1');
+    it('should filter by --status completed', () => {
+      createExecution(db, 'TKT-001', 'agent-1', 'running');
+      createExecution(db, 'TKT-002', 'agent-2', 'completed');
 
-      createExecution(db, ticketId, 'agent-1', 'running', {
-        executor: 'claude-code',
-        environment: 'devcontainer',
-        display_mode: 'terminal',
-        sandboxed: true,
-        branch: 'agent/agent-1/detail-test',
-      });
+      const output = exec('execution list --status completed');
 
-      const execution = db.prepare(`
-        SELECT * FROM agent_work WHERE ticket_id = ?
-      `).get(ticketId) as AgentWorkRow | undefined;
-
-      expect(execution).to.exist;
-      expect(execution!.executor).to.equal('claude-code');
-      expect(execution!.environment).to.equal('devcontainer');
-      expect(execution!.display_mode).to.equal('terminal');
-      expect(execution!.sandboxed).to.equal(1);
-      expect(execution!.branch).to.equal('agent/agent-1/detail-test');
+      expect(output).not.to.contain('agent-1');
+      expect(output).to.contain('agent-2');
     });
 
-    it('should respect limit option', () => {
-      createAgent(db, 'agent-1');
+    it('should filter by --agent', () => {
+      createExecution(db, 'TKT-001', 'agent-1', 'running');
+      createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-      // Create multiple executions
-      for (let i = 0; i < 30; i++) {
-        const ticketId = createTicket(db, `Ticket ${i}`, 'done');
-        createExecution(db, ticketId, 'agent-1', 'completed');
+      const output = exec('execution list --agent agent-1');
+
+      expect(output).to.contain('agent-1');
+      expect(output).not.to.contain('agent-2');
+    });
+
+    it('should respect --limit flag', () => {
+      for (let i = 1; i <= 5; i++) {
+        createExecution(db, `TKT-${String(i).padStart(3, '0')}`, 'agent-1', 'completed');
       }
 
-      // Query with limit
-      const limited = db.prepare(`
-        SELECT * FROM agent_work ORDER BY started_at DESC LIMIT 20
-      `).all();
-
-      expect(limited).to.have.lengthOf(20);
+      const output = exec('execution list --limit 2');
+      // Count occurrences of WORK- pattern (each execution starts with WORK-)
+      const matches = output.match(/WORK-/g) || [];
+      expect(matches.length).to.equal(2);
     });
   });
 
-  /**
-   * Spec: execute-commands.md > prlt execution logs [id]
-   * "View execution logs"
-   */
+  // =========================================================================
+  // execution logs
+  // =========================================================================
   describe('prlt execution logs', () => {
-    it('should show logs for an execution', () => {
-      const ticketId = createTicket(db, 'Log test', 'in-progress');
-      createAgent(db, 'agent-1');
-
-      // Create log file
+    it('should display logs for an execution with a log file', () => {
       const logPath = path.join(testDir, '.proletariat', 'logs', 'work-WORK-001.log');
-      fs.writeFileSync(logPath, 'Test log content\nLine 2\nLine 3\n');
+      fs.writeFileSync(logPath, 'Line 1: Starting agent\nLine 2: Processing ticket\nLine 3: Done\n');
+      createExecution(db, 'TKT-001', 'agent-1', 'running', { log_path: logPath });
 
-      createExecution(db, ticketId, 'agent-1', 'running', {
-        log_path: logPath,
-      });
+      const output = exec('execution logs WORK-001');
 
-      // Read log file directly (what the command would do)
-      const logContent = fs.readFileSync(logPath, 'utf-8');
-
-      expect(logContent).to.contain('Test log content');
-      expect(logContent).to.contain('Line 2');
+      expect(output).to.contain('Line 1: Starting agent');
+      expect(output).to.contain('Line 2: Processing ticket');
+      expect(output).to.contain('Line 3: Done');
     });
 
-    it('should show last n lines with --tail option', () => {
-      const ticketId = createTicket(db, 'Tail test', 'in-progress');
-      createAgent(db, 'agent-1');
+    it('should show message when execution has no log file', () => {
+      createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-      // Create log file with many lines
-      const logPath = path.join(testDir, '.proletariat', 'logs', 'work-WORK-002.log');
-      const lines = Array.from({ length: 100 }, (_, i) => `Line ${i + 1}`).join('\n');
-      fs.writeFileSync(logPath, lines);
+      const output = exec('execution logs WORK-001');
 
-      createExecution(db, ticketId, 'agent-1', 'running', {
-        log_path: logPath,
-      });
-
-      // Simulate tail behavior
-      const allLines = fs.readFileSync(logPath, 'utf-8').split('\n');
-      const tailLines = allLines.slice(-10);
-
-      expect(tailLines).to.have.lengthOf(10);
-      expect(tailLines[tailLines.length - 1]).to.equal('Line 100');
+      expect(output).to.contain('No log file');
     });
 
-    it('should handle missing log file gracefully', () => {
-      const ticketId = createTicket(db, 'Missing log test', 'in-progress');
-      createAgent(db, 'agent-1');
+    it('should error when execution not found', () => {
+      const output = exec('execution logs NONEXISTENT');
 
-      const nonExistentPath = path.join(testDir, '.proletariat', 'logs', 'nonexistent.log');
+      expect(output.toLowerCase()).to.contain('not found');
+    });
 
-      createExecution(db, ticketId, 'agent-1', 'running', {
-        log_path: nonExistentPath,
-      });
+    it('should output JSON prompt with execution choices when no ID given', () => {
+      createExecution(db, 'TKT-001', 'agent-1', 'running');
+      createExecution(db, 'TKT-002', 'agent-2', 'completed');
 
-      expect(fs.existsSync(nonExistentPath)).to.be.false;
+      const output = exec('execution logs --json');
+      const json = extractJson<AgentPromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.prompt).to.exist;
+      expect(json!.prompt.type).to.equal('list');
+      expect(json!.prompt.name).to.equal('selectedId');
+      expect(json!.prompt.message).to.include('Select execution to view logs');
+      expect(json!.prompt.choices).to.be.an('array');
+      expect(json!.prompt.choices.length).to.equal(2);
+    });
+
+    it('should include command field in JSON execution choices', () => {
+      createExecution(db, 'TKT-001', 'agent-1', 'running');
+
+      const output = exec('execution logs --json');
+      const json = extractJson<AgentPromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      const choice = json!.prompt.choices[0];
+      expect(choice.command).to.exist;
+      expect(choice.command).to.include('prlt execution logs');
+      expect(choice.command).to.include('WORK-001');
+      expect(choice.command).to.include('--json');
+    });
+
+    it('should include metadata in JSON output', () => {
+      createExecution(db, 'TKT-001', 'agent-1', 'running');
+
+      const output = exec('execution logs --json');
+      const json = extractJson<AgentPromptResponse>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.metadata).to.exist;
+      expect(json!.metadata.command).to.equal('execution logs');
     });
   });
 
-  /**
-   * Spec: execute-commands.md > prlt execution stop [id]
-   * "Stop a running execution"
-   */
+  // =========================================================================
+  // execution stop
+  // =========================================================================
   describe('prlt execution stop', () => {
-    it('should mark execution as stopped', () => {
-      const ticketId = createTicket(db, 'Stop test', 'in-progress');
-      createAgent(db, 'agent-1');
+    it('should stop a running execution by ID', () => {
+      createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-      const execId = createExecution(db, ticketId, 'agent-1', 'running', {
-        pid: '12345',
-      });
+      const output = exec('execution stop WORK-001');
 
-      // Simulate stop command (update status)
-      db.prepare(`
-        UPDATE agent_work SET status = 'stopped', completed_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(execId);
+      expect(output).to.contain('Stopped');
+      expect(output).to.contain('WORK-001');
 
-      const execution = db.prepare(`
-        SELECT status FROM agent_work WHERE id = ?
-      `).get(execId) as { status: string };
-
-      expect(execution.status).to.equal('stopped');
+      // Verify DB state updated
+      const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
+      expect(row.status).to.equal('stopped');
     });
 
-    it('should clear agent availability when stopped', () => {
-      const ticketId = createTicket(db, 'Clear test', 'in-progress');
-      createAgent(db, 'agent-1');
+    it('should show message when execution is already stopped', () => {
+      createExecution(db, 'TKT-001', 'agent-1', 'stopped');
 
-      createExecution(db, ticketId, 'agent-1', 'running');
+      const output = exec('execution stop WORK-001');
 
-      // Stop the execution
-      db.prepare(`
-        UPDATE agent_work SET status = 'stopped'
-        WHERE ticket_id = ? AND status = 'running'
-      `).run(ticketId);
-
-      // Agent should now be available
-      const availableAgents = db.prepare(`
-        SELECT a.name
-        FROM agents a
-        LEFT JOIN agent_work w ON a.name = w.agent_name AND w.status = 'running'
-        WHERE w.id IS NULL
-      `).all();
-
-      expect(availableAgents).to.have.lengthOf(1);
+      expect(output).to.contain('not running');
     });
 
-    it('should handle background process stop', () => {
-      const ticketId = createTicket(db, 'Background stop', 'in-progress');
-      createAgent(db, 'agent-1');
+    it('should error when execution not found', () => {
+      const output = exec('execution stop NONEXISTENT');
 
-      createExecution(db, ticketId, 'agent-1', 'running', {
-        display_mode: 'background',
-        pid: '99999',
-      });
-
-      // Query for background executions with PID
-      const backgroundExec = db.prepare(`
-        SELECT id, pid FROM agent_work
-        WHERE display_mode = 'background' AND status = 'running' AND pid IS NOT NULL
-      `).get() as { id: string; pid: string };
-
-      expect(backgroundExec).to.exist;
-      expect(backgroundExec.pid).to.equal('99999');
+      expect(output.toLowerCase()).to.contain('not found');
     });
 
-    it('should handle docker container stop', () => {
-      const ticketId = createTicket(db, 'Docker stop', 'in-progress');
-      createAgent(db, 'agent-1');
+    it('should stop all running executions with --all flag', () => {
+      createExecution(db, 'TKT-001', 'agent-1', 'running');
+      createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-      createExecution(db, ticketId, 'agent-1', 'running', {
-        environment: 'docker',
-        container_id: 'abc123def456',
-      });
+      const output = exec('execution stop --all');
 
-      // Query for docker executions with container_id
-      const dockerExec = db.prepare(`
-        SELECT id, container_id FROM agent_work
-        WHERE environment = 'docker' AND status = 'running' AND container_id IS NOT NULL
-      `).get() as { id: string; container_id: string };
+      expect(output).to.contain('Stopping 2 execution(s)');
 
-      expect(dockerExec).to.exist;
-      expect(dockerExec.container_id).to.equal('abc123def456');
+      // Verify DB state
+      const rows = db.prepare('SELECT status FROM agent_work WHERE status = ?').all('stopped') as { status: string }[];
+      expect(rows.length).to.equal(2);
     });
 
-    it('should handle tmux session stop', () => {
-      const ticketId = createTicket(db, 'Tmux stop', 'in-progress');
-      createAgent(db, 'agent-1');
+    it('should stop executions by agent with --agent flag', () => {
+      createExecution(db, 'TKT-001', 'agent-1', 'running');
+      createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-      createExecution(db, ticketId, 'agent-1', 'running', {
-        display_mode: 'tmux',
-        session_id: 'proletariat:TKT-001',
-      });
+      const output = exec('execution stop --agent agent-1');
 
-      // Query for tmux executions with session_id
-      const tmuxExec = db.prepare(`
-        SELECT id, session_id FROM agent_work
-        WHERE display_mode = 'tmux' AND status = 'running' AND session_id IS NOT NULL
-      `).get() as { id: string; session_id: string };
+      expect(output).to.contain('Stopping 1 execution(s)');
 
-      expect(tmuxExec).to.exist;
-      expect(tmuxExec.session_id).to.equal('proletariat:TKT-001');
-    });
-  });
+      // Verify only agent-1's execution was stopped
+      const agent1 = db.prepare('SELECT status FROM agent_work WHERE agent_name = ?').get('agent-1') as { status: string };
+      expect(agent1.status).to.equal('stopped');
 
-  /**
-   * Spec: execute-commands.md > Execution Tracking
-   * "Database Schema"
-   */
-  describe('Execution Database Schema', () => {
-    it('should store all required fields', () => {
-      const ticketId = createTicket(db, 'Schema test', 'in-progress');
-      createAgent(db, 'agent-1');
-
-      createExecution(db, ticketId, 'agent-1', 'running', {
-        executor: 'claude-code',
-        mode: 'foreground',
-        environment: 'host',
-        display_mode: 'terminal',
-        sandboxed: true,
-        branch: 'agent/agent-1/schema-test',
-        pid: '12345',
-        log_path: '/path/to/logs',
-      });
-
-      const execution = db.prepare(`
-        SELECT * FROM agent_work WHERE ticket_id = ?
-      `).get(ticketId) as AgentWorkRow | undefined;
-
-      expect(execution).to.exist;
-      expect(execution!.ticket_id).to.equal(ticketId);
-      expect(execution!.agent_name).to.equal('agent-1');
-      expect(execution!.executor).to.equal('claude-code');
-      expect(execution!.mode).to.equal('foreground');
-      expect(execution!.environment).to.equal('host');
-      expect(execution!.display_mode).to.equal('terminal');
-      expect(execution!.sandboxed).to.equal(1);
-      expect(execution!.status).to.equal('running');
-      expect(execution!.branch).to.equal('agent/agent-1/schema-test');
-      expect(execution!.pid).to.equal('12345');
-      expect(execution!.log_path).to.equal('/path/to/logs');
-      expect(execution!.started_at).to.exist;
+      const agent2 = db.prepare('SELECT status FROM agent_work WHERE agent_name = ?').get('agent-2') as { status: string };
+      expect(agent2.status).to.equal('running');
     });
 
-    it('should track execution lifecycle', () => {
-      const ticketId = createTicket(db, 'Lifecycle test', 'in-progress');
-      createAgent(db, 'agent-1');
+    it('should show empty message when no running executions to stop', () => {
+      const output = exec('execution stop --all');
 
-      const execId = createExecution(db, ticketId, 'agent-1', 'running');
-
-      // Verify started_at is set
-      let execution = db.prepare(`SELECT * FROM agent_work WHERE id = ?`).get(execId) as AgentWorkRow | undefined;
-      expect(execution).to.exist;
-      expect(execution!.started_at).to.exist;
-      expect(execution!.completed_at).to.be.null;
-
-      // Complete the execution
-      db.prepare(`
-        UPDATE agent_work SET status = 'completed', completed_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(execId);
-
-      execution = db.prepare(`SELECT * FROM agent_work WHERE id = ?`).get(execId) as AgentWorkRow | undefined;
-      expect(execution).to.exist;
-      expect(execution!.status).to.equal('completed');
-      expect(execution!.completed_at).to.exist;
+      expect(output).to.contain('No running executions');
     });
 
-    it('should track exit codes', () => {
-      const ticketId = createTicket(db, 'Exit code test', 'in-progress');
-      createAgent(db, 'agent-1');
+    it('should output JSON prompt with execution choices when no ID given', () => {
+      createExecution(db, 'TKT-001', 'agent-1', 'running');
+      createExecution(db, 'TKT-002', 'agent-2', 'starting');
 
-      const execId = createExecution(db, ticketId, 'agent-1', 'running');
+      const output = exec('execution stop --json');
+      const json = extractJson<AgentPromptResponse>(output);
 
-      // Simulate failure with exit code
-      db.prepare(`
-        UPDATE agent_work SET status = 'failed', exit_code = 1, completed_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(execId);
-
-      const execution = db.prepare(`
-        SELECT status, exit_code FROM agent_work WHERE id = ?
-      `).get(execId) as { status: string; exit_code: number };
-
-      expect(execution.status).to.equal('failed');
-      expect(execution.exit_code).to.equal(1);
-    });
-  });
-
-  /**
-   * Spec: execute-commands.md > Agent Lifecycle
-   * "Execution status transitions"
-   */
-  describe('Execution Status Transitions', () => {
-    it('should transition from running to completed', () => {
-      const ticketId = createTicket(db, 'Complete transition', 'in-progress');
-      createAgent(db, 'agent-1');
-
-      const execId = createExecution(db, ticketId, 'agent-1', 'running');
-
-      // Run work ready (simulates agent completing)
-      db.prepare(`
-        UPDATE agent_work SET status = 'completed', completed_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(execId);
-
-      const execution = db.prepare(`SELECT status FROM agent_work WHERE id = ?`).get(execId) as AgentWorkRow | undefined;
-      expect(execution).to.exist;
-      expect(execution!.status).to.equal('completed');
+      expect(json).to.not.be.null;
+      expect(json!.prompt).to.exist;
+      expect(json!.prompt.type).to.equal('list');
+      expect(json!.prompt.name).to.equal('selectedId');
+      expect(json!.prompt.message).to.include('Select execution to stop');
+      expect(json!.prompt.choices).to.be.an('array');
+      expect(json!.prompt.choices.length).to.equal(2);
     });
 
-    it('should transition from running to failed', () => {
-      const ticketId = createTicket(db, 'Fail transition', 'in-progress');
-      createAgent(db, 'agent-1');
+    it('should include command field in JSON stop choices', () => {
+      createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-      const execId = createExecution(db, ticketId, 'agent-1', 'running');
+      const output = exec('execution stop --json');
+      const json = extractJson<AgentPromptResponse>(output);
 
-      // Simulate failure
-      db.prepare(`
-        UPDATE agent_work SET status = 'failed', exit_code = 1, completed_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(execId);
-
-      const execution = db.prepare(`SELECT status, exit_code FROM agent_work WHERE id = ?`).get(execId) as AgentWorkRow | undefined;
-      expect(execution).to.exist;
-      expect(execution!.status).to.equal('failed');
-      expect(execution!.exit_code).to.equal(1);
+      expect(json).to.not.be.null;
+      const choice = json!.prompt.choices[0];
+      expect(choice.command).to.exist;
+      expect(choice.command).to.include('prlt execution stop');
+      expect(choice.command).to.include('WORK-001');
+      expect(choice.command).to.include('--json');
     });
 
-    it('should transition from running to stopped', () => {
-      const ticketId = createTicket(db, 'Stop transition', 'in-progress');
-      createAgent(db, 'agent-1');
+    it('should include metadata in JSON output', () => {
+      createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-      const execId = createExecution(db, ticketId, 'agent-1', 'running');
+      const output = exec('execution stop --json');
+      const json = extractJson<AgentPromptResponse>(output);
 
-      // Stop execution
-      db.prepare(`
-        UPDATE agent_work SET status = 'stopped', completed_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(execId);
-
-      const execution = db.prepare(`SELECT status FROM agent_work WHERE id = ?`).get(execId) as AgentWorkRow | undefined;
-      expect(execution).to.exist;
-      expect(execution!.status).to.equal('stopped');
-    });
-  });
-
-  /**
-   * Spec: execute-commands.md > Execution Environment
-   * "Environment and Display Mode separation"
-   */
-  describe('Environment and Display Mode', () => {
-    it('should store environment independently of display_mode', () => {
-      const ticketId = createTicket(db, 'Env test', 'in-progress');
-      createAgent(db, 'agent-1');
-
-      // Devcontainer with terminal display
-      createExecution(db, ticketId, 'agent-1', 'running', {
-        environment: 'devcontainer',
-        display_mode: 'terminal',
-      });
-
-      const execution = db.prepare(`
-        SELECT environment, display_mode FROM agent_work WHERE ticket_id = ?
-      `).get(ticketId) as { environment: string; display_mode: string };
-
-      expect(execution.environment).to.equal('devcontainer');
-      expect(execution.display_mode).to.equal('terminal');
+      expect(json).to.not.be.null;
+      expect(json!.metadata).to.exist;
+      expect(json!.metadata.command).to.equal('execution stop');
     });
 
-    it('should allow all environment/display combinations', () => {
-      createAgent(db, 'agent-1');
-      // Note: display modes are foreground, terminal, background
-      // All create tmux sessions - the difference is how they attach:
-      // - foreground: attach in current terminal (blocking)
-      // - terminal: open new tab attached to session
-      // - background: don't attach (detached, reattach later)
-      const combinations = [
-        { env: 'host', display: 'terminal' },
-        { env: 'host', display: 'foreground' },
-        { env: 'host', display: 'background' },
-        { env: 'devcontainer', display: 'terminal' },
-        { env: 'devcontainer', display: 'foreground' },
-        { env: 'devcontainer', display: 'background' },
-      ];
+    it('should also include starting executions in stop list', () => {
+      createExecution(db, 'TKT-001', 'agent-1', 'starting');
 
-      for (const combo of combinations) {
-        const ticketId = createTicket(db, `${combo.env}-${combo.display}`, 'in-progress');
-        createExecution(db, ticketId, 'agent-1', 'running', {
-          environment: combo.env,
-          display_mode: combo.display,
-        });
-      }
+      const output = exec('execution stop --json');
+      const json = extractJson<AgentPromptResponse>(output);
 
-      const count = db.prepare(`SELECT COUNT(*) as count FROM agent_work`).get() as { count: number };
-      expect(count.count).to.equal(combinations.length);
-    });
-  });
-
-  /**
-   * Spec: execute-commands.md > Permission Mode
-   * "sandboxed field tracking"
-   */
-  describe('Permission Mode Tracking', () => {
-    it('should track safe mode (sandboxed=true)', () => {
-      const ticketId = createTicket(db, 'Safe mode test', 'in-progress');
-      createAgent(db, 'agent-1');
-
-      createExecution(db, ticketId, 'agent-1', 'running', {
-        sandboxed: true,
-      });
-
-      const execution = db.prepare(`
-        SELECT sandboxed FROM agent_work WHERE ticket_id = ?
-      `).get(ticketId) as { sandboxed: number };
-
-      expect(execution.sandboxed).to.equal(1);
-    });
-
-    it('should track danger mode (sandboxed=false)', () => {
-      const ticketId = createTicket(db, 'Danger mode test', 'in-progress');
-      createAgent(db, 'agent-1');
-
-      createExecution(db, ticketId, 'agent-1', 'running', {
-        sandboxed: false,
-      });
-
-      const execution = db.prepare(`
-        SELECT sandboxed FROM agent_work WHERE ticket_id = ?
-      `).get(ticketId) as { sandboxed: number };
-
-      expect(execution.sandboxed).to.equal(0);
+      expect(json).to.not.be.null;
+      expect(json!.prompt.choices.length).to.equal(1);
+      expect(json!.prompt.choices[0].name).to.contain('WORK-001');
     });
   });
 });
 
-// Helper functions
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
 function setupTestDatabase(db: Database.Database) {
+  // Workspace tables (needed for getWorkspaceInfo)
   db.exec(`
-    CREATE TABLE IF NOT EXISTS pmo_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_projects (
+    CREATE TABLE IF NOT EXISTS agent_themes (
       id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
+      name TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
       description TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      builtin BOOLEAN DEFAULT FALSE,
+      created_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS pmo_columns (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS agent_theme_names (
+      theme_id TEXT NOT NULL,
       name TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE
+      PRIMARY KEY (theme_id, name),
+      FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE CASCADE
     );
 
-    CREATE TABLE IF NOT EXISTS pmo_statuses (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      UNIQUE(project_id, name)
+    CREATE TABLE IF NOT EXISTS workspace (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      type TEXT NOT NULL CHECK (type IN ('hq', 'workspace')),
+      workspace_name TEXT NOT NULL,
+      has_pmo BOOLEAN DEFAULT FALSE,
+      active_theme_id TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (active_theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
     );
 
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT,
-      priority TEXT DEFAULT 'MEDIUM',
-      category TEXT DEFAULT 'feature',
-      status TEXT DEFAULT 'backlog',
-      status_id TEXT,
-      owner TEXT,
-      assignee TEXT,
-      spec_id TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (status_id) REFERENCES pmo_statuses(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_board_tickets (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      project_id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL UNIQUE,
-      column_id TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      FOREIGN KEY (column_id) REFERENCES pmo_columns(id) ON DELETE CASCADE
+    CREATE TABLE IF NOT EXISTS repositories (
+      name TEXT PRIMARY KEY,
+      path TEXT NOT NULL,
+      type TEXT DEFAULT 'main' CHECK (type IN ('main', 'dependency')),
+      source_url TEXT,
+      action TEXT CHECK (action IN ('clone', 'move', 'link')),
+      added_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS agents (
       name TEXT PRIMARY KEY,
-      path TEXT,
+      type TEXT NOT NULL DEFAULT 'persistent' CHECK (type IN ('persistent', 'ephemeral')),
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cleaned')),
+      base_name TEXT,
+      theme_id TEXT,
       worktree_path TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      mount_mode TEXT NOT NULL DEFAULT 'worktree' CHECK (mount_mode IN ('worktree', 'clone')),
+      created_at TEXT NOT NULL,
+      cleaned_at TEXT,
+      FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS agent_worktrees (
+      agent_name TEXT NOT NULL,
+      repo_name TEXT NOT NULL,
+      worktree_path TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (agent_name, repo_name),
+      FOREIGN KEY (agent_name) REFERENCES agents(name) ON DELETE CASCADE,
+      FOREIGN KEY (repo_name) REFERENCES repositories(name) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_worktrees_agent ON agent_worktrees(agent_name);
+    CREATE INDEX IF NOT EXISTS idx_worktrees_repo ON agent_worktrees(repo_name);
+    CREATE INDEX IF NOT EXISTS idx_theme_names_theme ON agent_theme_names(theme_id);
+    CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
+  `);
+
+  // Insert workspace config
+  db.prepare(`
+    INSERT INTO workspace (id, type, workspace_name, has_pmo, created_at)
+    VALUES (1, 'hq', 'test-hq', 1, datetime('now'))
+  `).run();
+
+  // NOTE: PMO tables (pmo_projects, pmo_actions, etc.) are NOT created here.
+  // They are auto-created by the CLI's SQLiteStorage constructor when the
+  // command runs (via ensurePMOTables()). This avoids schema mismatch issues
+  // as the schema evolves with migrations.
+
+  // Agent work table (for ExecutionStorage)
+  db.exec(`
     CREATE TABLE IF NOT EXISTS agent_work (
       id TEXT PRIMARY KEY,
       ticket_id TEXT NOT NULL,
       agent_name TEXT NOT NULL,
-      executor TEXT DEFAULT 'claude-code',
-      mode TEXT DEFAULT 'foreground',
-      environment TEXT,
-      display_mode TEXT,
-      sandboxed INTEGER DEFAULT 1,
-      status TEXT NOT NULL DEFAULT 'running',
+      executor TEXT NOT NULL DEFAULT 'claude-code',
+      environment TEXT NOT NULL DEFAULT 'host',
+      display_mode TEXT NOT NULL DEFAULT 'terminal',
+      sandboxed INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'starting',
       branch TEXT,
       pid TEXT,
       container_id TEXT,
       session_id TEXT,
       host TEXT,
       log_path TEXT,
-      started_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      completed_at TEXT,
+      started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      completed_at TIMESTAMP,
       exit_code INTEGER
     );
 
@@ -660,86 +483,6 @@ function setupTestDatabase(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_agent_work_status ON agent_work(status);
     CREATE INDEX IF NOT EXISTS idx_agent_work_ticket ON agent_work(ticket_id);
   `);
-
-  // Insert test data
-  db.prepare(`
-    INSERT INTO pmo_projects (id, name, description)
-    VALUES ('test-project', 'Test Project', 'E2E test project')
-  `).run();
-
-  db.prepare(`
-    INSERT INTO pmo_settings (key, value)
-    VALUES ('pmo_path', 'pmo'), ('current_project', 'test-project')
-  `).run();
-
-  const columns = [
-    { id: 'backlog', name: 'Backlog', position: 0 },
-    { id: 'in-progress', name: 'In Progress', position: 1 },
-    { id: 'in-review', name: 'In Review', position: 2 },
-    { id: 'done', name: 'Done', position: 3 },
-  ];
-
-  for (const col of columns) {
-    db.prepare(`
-      INSERT INTO pmo_columns (id, project_id, name, position)
-      VALUES (?, 'test-project', ?, ?)
-    `).run(col.id, col.name, col.position);
-  }
-
-  // Workflow statuses
-  const statuses = [
-    { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
-    { id: 'status-todo', name: 'Todo', category: 'unstarted', position: 0 },
-    { id: 'status-in-progress', name: 'In Progress', category: 'started', position: 0 },
-    { id: 'status-in-review', name: 'In Review', category: 'started', position: 1 },
-    { id: 'status-done', name: 'Done', category: 'completed', position: 0 },
-    { id: 'status-canceled', name: 'Canceled', category: 'canceled', position: 0 },
-  ];
-
-  for (const status of statuses) {
-    db.prepare(`
-      INSERT INTO pmo_statuses (id, project_id, name, category, position, is_default)
-      VALUES (?, 'test-project', ?, ?, ?, ?)
-    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
-  }
-
-  // Create PMO directory structure
-  const pmoPath = path.join(process.cwd(), 'pmo/projects/test-project');
-  fs.mkdirSync(pmoPath, { recursive: true });
-}
-
-let ticketCounter = 0;
-function createTicket(db: Database.Database, title: string, columnId: string): string {
-  ticketCounter++;
-  const ticketId = `TKT-${String(ticketCounter).padStart(3, '0')}`;
-
-  // Map column to status ID
-  const columnToStatus: Record<string, string> = {
-    'backlog': 'status-backlog',
-    'in-progress': 'status-in-progress',
-    'in-review': 'status-in-review',
-    'done': 'status-done',
-  };
-  const statusId = columnToStatus[columnId] || 'status-backlog';
-
-  db.prepare(`
-    INSERT INTO pmo_tickets (id, project_id, title, status, status_id)
-    VALUES (?, 'test-project', ?, ?, ?)
-  `).run(ticketId, title, columnId === 'done' ? 'done' : 'active', statusId);
-
-  db.prepare(`
-    INSERT INTO pmo_board_tickets (project_id, ticket_id, column_id, position)
-    VALUES ('test-project', ?, ?, 0)
-  `).run(ticketId, columnId);
-
-  return ticketId;
-}
-
-function createAgent(db: Database.Database, name: string): void {
-  db.prepare(`
-    INSERT OR IGNORE INTO agents (name, path)
-    VALUES (?, ?)
-  `).run(name, `/agents/${name}`);
 }
 
 let executionCounter = 0;
@@ -750,7 +493,6 @@ function createExecution(
   status: string,
   options: {
     executor?: string;
-    mode?: string;
     environment?: string;
     display_mode?: string;
     sandboxed?: boolean;
@@ -767,18 +509,17 @@ function createExecution(
 
   db.prepare(`
     INSERT INTO agent_work (
-      id, ticket_id, agent_name, status, executor, mode,
+      id, ticket_id, agent_name, status, executor,
       environment, display_mode, sandboxed, branch,
       pid, container_id, session_id, host, log_path
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     execId,
     ticketId,
     agentName,
     status,
     options.executor || 'claude-code',
-    options.mode || 'foreground',
     options.environment || 'host',
     options.display_mode || 'terminal',
     options.sandboxed !== undefined ? (options.sandboxed ? 1 : 0) : 1,
@@ -792,4 +533,3 @@ function createExecution(
 
   return execId;
 }
-
