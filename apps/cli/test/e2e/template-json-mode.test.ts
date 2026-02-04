@@ -112,6 +112,31 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
     return db.prepare('SELECT * FROM pmo_phase_templates WHERE id = ?').get(id) as { id: string; name: string; is_builtin: number } | undefined;
   }
 
+  /**
+   * Helper to create a test ticket directly in the database.
+   */
+  function createTestTicket(
+    id: string,
+    title: string,
+    options: {
+      priority?: string;
+      category?: string;
+      description?: string;
+      status?: string;
+    } = {}
+  ): void {
+    db.prepare(`
+      INSERT INTO pmo_tickets (id, project_id, title, priority, category, description, status)
+      VALUES (?, 'test-project', ?, ?, ?, ?, ?)
+    `).run(
+      id, title,
+      options.priority || null,
+      options.category || null,
+      options.description || null,
+      options.status || 'backlog'
+    );
+  }
+
   // ===========================================================================
   // template --machine (main menu)
   // ===========================================================================
@@ -700,6 +725,434 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(result!.prompt.name).to.equal('type');
       });
     });
+
+    // ==========================================================================
+    // Phase Template Subcommand Deep Flows
+    // ==========================================================================
+
+    describe('phase template list - full menu flow', () => {
+      beforeEach(() => {
+        createTestPhaseTemplate('deep-agile', 'Deep Agile', true, 'Agile phases');
+        createTestPhaseTemplate('deep-custom', 'Deep Custom', false, 'Custom phases');
+      });
+
+      it('should navigate: phase menu → list → get JSON template data', () => {
+        // Step 1: Get phase menu
+        const step1 = agentExec('template phase --machine');
+        expect(step1).to.not.be.null;
+
+        // Find list choice
+        const listChoice = findChoice(step1!.prompt.choices!, 'List');
+        expect(listChoice).to.exist;
+        expect(listChoice!.command).to.include('--json');
+
+        // Step 2: Follow command → get template list JSON
+        const listOutput = execProduction(execChoice(listChoice!));
+        const templates = extractJson<Array<{ id: string; name: string; isBuiltin: boolean }>>(listOutput);
+
+        expect(templates).to.not.be.null;
+        expect(templates).to.be.an('array');
+        // Should contain our test templates (plus built-in templates seeded by the app)
+        const agileT = templates!.find(t => t.id === 'deep-agile');
+        expect(agileT).to.exist;
+        expect(agileT!.name).to.equal('Deep Agile');
+        const customT = templates!.find(t => t.id === 'deep-custom');
+        expect(customT).to.exist;
+        expect(customT!.isBuiltin).to.equal(false);
+      });
+    });
+
+    describe('phase template create - full flow (direct flags)', () => {
+      it('should navigate: phase menu → create → execute with flags → verify DB', () => {
+        // Step 1: Get phase menu
+        const step1 = agentExec('template phase --machine');
+        expect(step1).to.not.be.null;
+
+        // Find create choice
+        const createChoice = findChoice(step1!.prompt.choices!, 'Create');
+        expect(createChoice).to.exist;
+
+        // Step 2: Execute create with all flags (no JSON mode on create command)
+        const result = execProduction('phase template create "Agent Created" --description "Created by agent"');
+        expect(result).to.include('Created phase template');
+        expect(result).to.include('Agent Created');
+
+        // Verify in database
+        const template = getPhaseTemplate('agent-created');
+        expect(template).to.exist;
+        expect(template!.name).to.equal('Agent Created');
+      });
+
+      it('should create phase template with direct command and verify DB', () => {
+        const result = execProduction('phase template create "Direct Create" --description "Direct test"');
+        expect(result).to.include('Created phase template');
+
+        const template = db.prepare(
+          'SELECT * FROM pmo_phase_templates WHERE name = ?'
+        ).get('Direct Create') as { id: string; description: string; is_builtin: number } | undefined;
+        expect(template).to.exist;
+        expect(template!.description).to.equal('Direct test');
+        expect(template!.is_builtin).to.equal(0);
+      });
+    });
+
+    describe('phase template apply - JSON confirmation flow', () => {
+      beforeEach(() => {
+        createTestPhaseTemplate('apply-test', 'Apply Test', false, 'For apply testing');
+      });
+
+      it('should get confirmation prompt and apply template via --force', () => {
+        // Step 1: Request apply with JSON mode → get confirmation prompt
+        const step1 = agentExec('phase template apply apply-test --json');
+        expect(step1).to.not.be.null;
+        expect(step1!.prompt.type).to.equal('list');
+        expect(step1!.prompt.name).to.equal('confirmed');
+        expect(step1!.prompt.message).to.include('Apply Test');
+
+        // Find Yes choice
+        const yesChoice = step1!.prompt.choices!.find(c => c.value === 'true');
+        expect(yesChoice).to.exist;
+
+        // Step 2: Apply with --force to skip confirmation
+        const result = execProduction('phase template apply apply-test --force');
+        expect(result).to.include('Applied phase template');
+
+        // Verify phases were replaced in database
+        const phases = db.prepare('SELECT * FROM pmo_phases').all() as Array<{ name: string; category: string }>;
+        expect(phases.length).to.be.greaterThan(0);
+        // Template has 3 phases: Backlog, In Progress, Done
+        const hasBacklog = phases.some(p => p.name === 'Backlog');
+        const hasInProgress = phases.some(p => p.name === 'In Progress');
+        const hasDone = phases.some(p => p.name === 'Done');
+        expect(hasBacklog).to.be.true;
+        expect(hasInProgress).to.be.true;
+        expect(hasDone).to.be.true;
+      });
+
+      it('should error with JSON when template not found', () => {
+        const output = execProduction('phase template apply nonexistent --json');
+        expect(output.toLowerCase()).to.include('not found');
+      });
+    });
+
+    describe('phase template update - direct flags', () => {
+      beforeEach(() => {
+        createTestPhaseTemplate('update-test', 'Update Test', false, 'Original desc');
+      });
+
+      it('should update template name and description with direct flags', () => {
+        const result = execProduction('phase template update update-test --name "Updated Name" --description "Updated desc"');
+        expect(result).to.include('Updated phase template');
+
+        const template = db.prepare(
+          'SELECT * FROM pmo_phase_templates WHERE id = ?'
+        ).get('update-test') as { name: string; description: string };
+        expect(template.name).to.equal('Updated Name');
+        expect(template.description).to.equal('Updated desc');
+      });
+
+      it('should update only name when only name flag provided', () => {
+        const result = execProduction('phase template update update-test --name "Name Only"');
+        expect(result).to.include('Updated phase template');
+
+        const template = db.prepare(
+          'SELECT * FROM pmo_phase_templates WHERE id = ?'
+        ).get('update-test') as { name: string; description: string };
+        expect(template.name).to.equal('Name Only');
+        expect(template.description).to.equal('Original desc');
+      });
+
+      it('should error when template not found', () => {
+        const output = execProduction('phase template update nonexistent --name "X"');
+        expect(output.toLowerCase()).to.include('not found');
+      });
+
+      it('should error when updating built-in template', () => {
+        createTestPhaseTemplate('builtin-phase', 'Builtin Phase', true);
+        const output = execProduction('phase template update builtin-phase --name "X"');
+        expect(output.toLowerCase()).to.include('cannot modify');
+      });
+    });
+
+    describe('phase template delete - JSON confirmation flow', () => {
+      beforeEach(() => {
+        createTestPhaseTemplate('delete-deep', 'Delete Deep', false, 'For delete testing');
+      });
+
+      it('should get confirmation prompt and delete via --force', () => {
+        // Step 1: Request delete with JSON → get confirmation
+        const step1 = agentExec('phase template delete delete-deep --json');
+        expect(step1).to.not.be.null;
+        expect(step1!.prompt.type).to.equal('list');
+        expect(step1!.prompt.name).to.equal('confirmed');
+        expect(step1!.prompt.message).to.include('Delete Deep');
+
+        // Verify template exists before delete
+        expect(getPhaseTemplate('delete-deep')).to.exist;
+
+        // Step 2: Delete with --force
+        const result = execProduction('phase template delete delete-deep --force');
+        expect(result).to.include('Deleted phase template');
+
+        // Verify template is gone
+        expect(getPhaseTemplate('delete-deep')).to.be.undefined;
+      });
+
+      it('should error when deleting built-in template', () => {
+        createTestPhaseTemplate('builtin-del', 'Builtin Del', true);
+        const output = execProduction('phase template delete builtin-del --json');
+        expect(output.toLowerCase()).to.include('cannot delete');
+      });
+
+      it('should error when template not found', () => {
+        const output = execProduction('phase template delete nonexistent --json');
+        expect(output.toLowerCase()).to.include('not found');
+      });
+    });
+
+    // ==========================================================================
+    // Ticket Template Subcommand Deep Flows
+    // ==========================================================================
+
+    describe('ticket template list - full menu flow', () => {
+      beforeEach(() => {
+        createTestTicketTemplate('deep-bug', 'Deep Bug Report', true, {
+          description: 'Bug report template',
+          defaultPriority: 'HIGH',
+        });
+        createTestTicketTemplate('deep-feature', 'Deep Feature', false, {
+          description: 'Feature template',
+          defaultCategory: 'feature',
+        });
+      });
+
+      it('should navigate: ticket menu → list → get JSON template data', () => {
+        // Step 1: Get ticket menu
+        const step1 = agentExec('template ticket --machine');
+        expect(step1).to.not.be.null;
+
+        // Find list choice
+        const listChoice = findChoice(step1!.prompt.choices!, 'List');
+        expect(listChoice).to.exist;
+        expect(listChoice!.command).to.include('--json');
+
+        // Step 2: Follow command → get template list
+        const listOutput = execProduction(execChoice(listChoice!));
+        const templates = extractJson<Array<{ id: string; name: string }>>(listOutput);
+
+        expect(templates).to.not.be.null;
+        expect(templates).to.be.an('array');
+        const featureT = templates!.find(t => t.id === 'deep-feature');
+        expect(featureT).to.exist;
+        expect(featureT!.name).to.equal('Deep Feature');
+      });
+    });
+
+    describe('ticket template apply - JSON form flow', () => {
+      beforeEach(() => {
+        createTestTicketTemplate('apply-bug', 'Apply Bug', false, {
+          titlePattern: '[BUG] ',
+          defaultPriority: 'HIGH',
+          defaultCategory: 'bug',
+        });
+      });
+
+      it('should get form prompt with --interactive --json', () => {
+        const step1 = agentExec('ticket template apply apply-bug --interactive --json');
+        expect(step1).to.not.be.null;
+        expect(step1!.prompt.type).to.equal('form');
+
+        // Verify form has expected fields
+        const fields = (step1!.prompt as unknown as { fields: Array<{ name: string; type: string }> }).fields;
+        expect(fields).to.be.an('array');
+        const fieldNames = fields.map(f => f.name);
+        expect(fieldNames).to.include('title');
+        expect(fieldNames).to.include('column');
+        expect(fieldNames).to.include('priority');
+      });
+
+      it('should create ticket with all flags provided directly', () => {
+        const result = execProduction('ticket template apply apply-bug --title "Login crash" --column "Backlog"');
+        expect(result).to.include('Created ticket');
+        expect(result).to.include('Login crash');
+
+        // Verify ticket in database
+        const ticket = db.prepare(
+          "SELECT * FROM pmo_tickets WHERE title = ?"
+        ).get('Login crash') as { id: string; priority: string; category: string } | undefined;
+        expect(ticket).to.exist;
+        expect(ticket!.priority).to.equal('HIGH');
+        expect(ticket!.category).to.equal('bug');
+      });
+
+      it('should error when template not found', () => {
+        const output = execProduction('ticket template apply nonexistent --json');
+        expect(output.toLowerCase()).to.include('not found');
+      });
+    });
+
+    describe('ticket template save - direct flags', () => {
+      beforeEach(() => {
+        // Create a test ticket to save as template
+        createTestTicket('TKT-SAVE-001', 'Save Me Ticket', {
+          priority: 'P1',
+          category: 'bug',
+          description: 'A bug ticket to save',
+        });
+      });
+
+      it('should save ticket as template with all args', () => {
+        const result = execProduction('ticket template save TKT-SAVE-001 "Saved Bug" --description "From ticket"');
+        expect(result).to.include('Created template');
+        expect(result).to.include('Saved Bug');
+
+        // Verify template in database
+        const template = db.prepare(
+          "SELECT * FROM pmo_ticket_templates WHERE name = ?"
+        ).get('Saved Bug') as { id: string; default_priority: string; default_category: string; description: string } | undefined;
+        expect(template).to.exist;
+        expect(template!.default_priority).to.equal('P1');
+        expect(template!.default_category).to.equal('bug');
+        expect(template!.description).to.equal('From ticket');
+      });
+    });
+
+    describe('ticket template delete - JSON confirmation flow', () => {
+      beforeEach(() => {
+        createTestTicketTemplate('del-ticket-deep', 'Delete Ticket Deep', false, {
+          description: 'For delete testing',
+        });
+      });
+
+      it('should get confirmation prompt and delete via --force', () => {
+        // Step 1: Request delete with JSON → get confirmation
+        const step1 = agentExec('ticket template delete del-ticket-deep --json');
+        expect(step1).to.not.be.null;
+        expect(step1!.prompt.type).to.equal('list');
+
+        // Verify template exists
+        expect(getTicketTemplate('del-ticket-deep')).to.exist;
+
+        // Step 2: Delete with --force
+        const result = execProduction('ticket template delete del-ticket-deep --force');
+        expect(result).to.include('Deleted template');
+
+        // Verify template is gone
+        expect(getTicketTemplate('del-ticket-deep')).to.be.undefined;
+      });
+
+      it('should error when deleting built-in template', () => {
+        createTestTicketTemplate('builtin-ticket-del', 'Builtin Ticket Del', true);
+        const output = execProduction('ticket template delete builtin-ticket-del --json');
+        expect(output.toLowerCase()).to.include('cannot delete');
+      });
+
+      it('should error when template not found', () => {
+        const output = execProduction('ticket template delete nonexistent --json');
+        expect(output.toLowerCase()).to.include('not found');
+      });
+    });
+
+    // ==========================================================================
+    // Full Lifecycle Flows
+    // ==========================================================================
+
+    describe('phase template lifecycle - complete flow', () => {
+      it('should create → list → update → apply → delete a phase template', () => {
+        // 1. Create template
+        const createResult = execProduction('phase template create "Lifecycle Phases" --description "Lifecycle test"');
+        expect(createResult).to.include('Created phase template');
+
+        // Verify in DB
+        const created = db.prepare(
+          'SELECT * FROM pmo_phase_templates WHERE name = ?'
+        ).get('Lifecycle Phases') as { id: string; description: string };
+        expect(created).to.exist;
+        const templateId = created.id;
+
+        // 2. List and verify it appears
+        const listOutput = execProduction('phase template list --json');
+        const templates = extractJson<Array<{ id: string; name: string }>>(listOutput);
+        expect(templates).to.not.be.null;
+        const found = templates!.find(t => t.id === templateId);
+        expect(found).to.exist;
+        expect(found!.name).to.equal('Lifecycle Phases');
+
+        // 3. Update template
+        const updateResult = execProduction(`phase template update ${templateId} --name "Updated Lifecycle" --description "Updated desc"`);
+        expect(updateResult).to.include('Updated phase template');
+
+        const updated = db.prepare(
+          'SELECT * FROM pmo_phase_templates WHERE id = ?'
+        ).get(templateId) as { name: string; description: string };
+        expect(updated.name).to.equal('Updated Lifecycle');
+        expect(updated.description).to.equal('Updated desc');
+
+        // 4. Apply template
+        const applyResult = execProduction(`phase template apply ${templateId} --force`);
+        expect(applyResult).to.include('Applied phase template');
+
+        // Verify phases exist
+        const phases = db.prepare('SELECT * FROM pmo_phases').all();
+        expect(phases.length).to.be.greaterThan(0);
+
+        // 5. Delete template
+        const deleteResult = execProduction(`phase template delete ${templateId} --force`);
+        expect(deleteResult).to.include('Deleted phase template');
+
+        // Verify gone
+        const deleted = db.prepare(
+          'SELECT * FROM pmo_phase_templates WHERE id = ?'
+        ).get(templateId);
+        expect(deleted).to.be.undefined;
+      });
+    });
+
+    describe('ticket template lifecycle - complete flow', () => {
+      it('should save → list → apply → delete a ticket template', () => {
+        // Create source ticket
+        createTestTicket('TKT-LIFE-001', 'Lifecycle Ticket', {
+          priority: 'P2',
+          category: 'feature',
+        });
+
+        // 1. Save ticket as template
+        const saveResult = execProduction('ticket template save TKT-LIFE-001 "Lifecycle Template" --description "Lifecycle test"');
+        expect(saveResult).to.include('Created template');
+
+        // Get the template ID
+        const savedTemplate = db.prepare(
+          "SELECT * FROM pmo_ticket_templates WHERE name = ?"
+        ).get('Lifecycle Template') as { id: string };
+        expect(savedTemplate).to.exist;
+        const templateId = savedTemplate.id;
+
+        // 2. List and verify it appears
+        const listOutput = execProduction('ticket template list --json');
+        const templates = extractJson<Array<{ id: string; name: string }>>(listOutput);
+        expect(templates).to.not.be.null;
+        const found = templates!.find(t => t.id === templateId);
+        expect(found).to.exist;
+
+        // 3. Apply template to create ticket
+        const applyResult = execProduction(`ticket template apply ${templateId} --title "From Lifecycle" --column "Backlog"`);
+        expect(applyResult).to.include('Created ticket');
+
+        // Verify ticket in DB
+        const ticket = db.prepare(
+          "SELECT * FROM pmo_tickets WHERE title = ?"
+        ).get('From Lifecycle') as { priority: string; category: string } | undefined;
+        expect(ticket).to.exist;
+        expect(ticket!.priority).to.equal('P2');
+        expect(ticket!.category).to.equal('feature');
+
+        // 4. Delete template
+        const deleteResult = execProduction(`ticket template delete ${templateId} --force`);
+        expect(deleteResult).to.include('Deleted template');
+
+        expect(getTicketTemplate(templateId)).to.be.undefined;
+      });
+    });
   });
 });
 
@@ -812,6 +1265,15 @@ function setupTestDatabase(db: Database.Database, pmoPath: string) {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS pmo_columns (
+      id TEXT NOT NULL,
+      project_id TEXT NOT NULL DEFAULT 'default',
+      name TEXT NOT NULL,
+      position INTEGER NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (project_id, id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_pmo_ticket_templates_builtin ON pmo_ticket_templates(is_builtin);
     CREATE INDEX IF NOT EXISTS idx_pmo_phases_category ON pmo_phases(category);
     CREATE INDEX IF NOT EXISTS idx_pmo_phases_position ON pmo_phases(category, position);
@@ -861,5 +1323,19 @@ function setupTestDatabase(db: Database.Database, pmoPath: string) {
       INSERT OR IGNORE INTO pmo_phases (id, name, category, position, is_default)
       VALUES (?, ?, ?, ?, 0)
     `).run(phase.id, phase.name, phase.category, phase.position);
+  }
+
+  // Insert columns (needed for ticket template apply)
+  const columns = [
+    { id: 'backlog', name: 'Backlog', position: 0 },
+    { id: 'in-progress', name: 'In Progress', position: 1 },
+    { id: 'done', name: 'Done', position: 2 },
+  ];
+
+  for (const col of columns) {
+    db.prepare(`
+      INSERT INTO pmo_columns (id, project_id, name, position)
+      VALUES (?, 'test-project', ?, ?)
+    `).run(col.id, col.name, col.position);
   }
 }
