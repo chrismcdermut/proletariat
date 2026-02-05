@@ -100,10 +100,11 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
   // Worktree .git files reference paths like /Users/.../repos/{repoName}/.git/worktrees/name
   // These mounts make those paths accessible inside the container at /hq/repos/{repoName}
   // Clone mode doesn't need this because each clone has its own self-contained .git directory
-  // Use readonly,consistency=cached since agents should not modify the parent repo directly
+  // NOTE: Cannot use readonly because git worktrees share the object store with parent repo.
+  // Commits write to parent's .git/objects/ and refs update in .git/worktrees/<name>/
   if (mountMode === 'worktree' && options.repoWorktrees) {
     for (const repoName of options.repoWorktrees) {
-      mounts.push(`source=\${localEnv:PRLT_HQ_PATH}/repos/${repoName},target=/hq/repos/${repoName},type=bind,readonly,consistency=cached`)
+      mounts.push(`source=\${localEnv:PRLT_HQ_PATH}/repos/${repoName},target=/hq/repos/${repoName},type=bind,consistency=cached`)
     }
   }
 

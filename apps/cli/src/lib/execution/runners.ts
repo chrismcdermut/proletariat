@@ -864,12 +864,13 @@ function createDockerContainer(
     ...(context.hqPath ? [`-v "${context.hqPath}/.proletariat:/hq/.proletariat:cached"`] : []),
     // PMO path - use :cached to reduce contention
     ...(context.pmoPath ? [`-v "${context.pmoPath}:/hq/pmo:cached"`] : []),
-    // Mount parent repos for git worktree resolution - use :ro,cached since agents
-    // should not modify the parent repo directly (they work in worktrees)
+    // Mount parent repos for git worktree resolution - use :cached to reduce contention
+    // NOTE: Cannot use :ro because git worktrees share the object store with parent repo.
+    // Commits write to parent's .git/objects/ and refs update in .git/worktrees/<name>/
     // Worktree .git files reference paths like /Users/.../repos/{repoName}/.git/worktrees/name
     // These mounts make those paths accessible inside the container at /hq/repos/{repoName}
     ...(context.repoWorktrees || []).map(
-      repoName => `-v "${context.hqPath}/repos/${repoName}:/hq/repos/${repoName}:ro,cached"`
+      repoName => `-v "${context.hqPath}/repos/${repoName}:/hq/repos/${repoName}:cached"`
     ),
     // Claude credentials - shared named volume (login once, all containers share)
     `-v "claude-credentials:/home/node/.claude"`,
