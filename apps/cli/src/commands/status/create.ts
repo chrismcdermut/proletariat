@@ -113,41 +113,45 @@ export default class StatusCreate extends PMOCommand {
       when: (ctx) => !ctx.flags.category || flags.interactive,
     });
 
-    // Add color prompt
-    resolver.addPrompt({
-      flagName: 'color',
-      type: 'input',
-      message: 'Color (hex, optional):',
-      default: flags.color,
-      validate: (value) => {
-        const v = value as string;
-        if (!v) return true;
-        return /^#[0-9A-Fa-f]{6}$/.test(v) || 'Invalid hex color (e.g., #FF0000)';
-      },
-      when: (ctx) => ctx.flags.color === undefined || flags.interactive,
-    });
+    // Optional prompts - only shown in interactive mode
+    // In JSON/machine mode, optional fields should be passed as flags or omitted
+    if (flags.interactive) {
+      // Add color prompt
+      resolver.addPrompt({
+        flagName: 'color',
+        type: 'input',
+        message: 'Color (hex, optional):',
+        default: flags.color,
+        validate: (value) => {
+          const v = value as string;
+          if (!v) return true;
+          return /^#[0-9A-Fa-f]{6}$/.test(v) || 'Invalid hex color (e.g., #FF0000)';
+        },
+        when: (ctx) => ctx.flags.color === undefined,
+      });
 
-    // Add description prompt
-    resolver.addPrompt({
-      flagName: 'description',
-      type: 'input',
-      message: 'Description (optional):',
-      default: flags.description,
-      when: (ctx) => ctx.flags.description === undefined || flags.interactive,
-    });
+      // Add description prompt
+      resolver.addPrompt({
+        flagName: 'description',
+        type: 'input',
+        message: 'Description (optional):',
+        default: flags.description,
+        when: (ctx) => ctx.flags.description === undefined,
+      });
 
-    // Add default prompt
-    resolver.addPrompt({
-      flagName: 'default',
-      type: 'list',
-      message: 'Set as default status for new tickets?',
-      choices: () => [
-        { name: 'No', value: false, command: 'prlt status create --json' },
-        { name: 'Yes', value: true, command: 'prlt status create --default --json' },
-      ],
-      default: flags.default || false,
-      when: (ctx) => ctx.flags.default === undefined || flags.interactive,
-    });
+      // Add default prompt
+      resolver.addPrompt({
+        flagName: 'default',
+        type: 'list',
+        message: 'Set as default status for new tickets?',
+        choices: () => [
+          { name: 'No', value: false, command: 'prlt status create --json' },
+          { name: 'Yes', value: true, command: 'prlt status create --default --json' },
+        ],
+        default: flags.default || false,
+        when: (ctx) => ctx.flags.default === undefined,
+      });
+    }
 
     // Resolve all flags
     const resolved = await resolver.resolve();
