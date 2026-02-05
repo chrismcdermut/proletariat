@@ -125,8 +125,18 @@ export default class PhaseMove extends PMOCommand {
       newPosition = parseInt(resolved.position, 10);
     }
 
+    // Get phases in same category for validation
+    const allPhases = await this.storage.listPhases();
+    const categoryPhases = allPhases.filter(p => p.category === phase.category);
+    const maxPosition = categoryPhases.length - 1;
+
     if (newPosition! < 0) {
       this.error('Position must be >= 0');
+    }
+
+    if (newPosition! > maxPosition) {
+      this.warn(`Position ${newPosition} exceeds max (${maxPosition}). Clamping to ${maxPosition}.`);
+      newPosition = maxPosition;
     }
 
     const updated = await this.storage.reorderPhase(phaseId!, newPosition!);
