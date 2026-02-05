@@ -772,10 +772,13 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         const createChoice = findChoice(step1!.prompt.choices!, 'Create');
         expect(createChoice).to.exist;
 
-        // Step 2: Execute create with all flags (no JSON mode on create command)
+        // Step 2: Execute create with all flags
+        // In non-TTY mode (like tests), output is JSON
         const result = execProduction('phase template create "Agent Created" --description "Created by agent"');
-        expect(result).to.include('Created phase template');
-        expect(result).to.include('Agent Created');
+        const json = extractJson<{ success: boolean; result: { name: string } }>(result);
+        expect(json).to.not.be.null;
+        expect(json!.success).to.equal(true);
+        expect(json!.result.name).to.equal('Agent Created');
 
         // Verify in database
         const template = getPhaseTemplate('agent-created');
@@ -784,8 +787,13 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       });
 
       it('should create phase template with direct command and verify DB', () => {
+        // In non-TTY mode (like tests), output is JSON
         const result = execProduction('phase template create "Direct Create" --description "Direct test"');
-        expect(result).to.include('Created phase template');
+        const json = extractJson<{ success: boolean; result: { name: string; description: string } }>(result);
+        expect(json).to.not.be.null;
+        expect(json!.success).to.equal(true);
+        expect(json!.result.name).to.equal('Direct Create');
+        expect(json!.result.description).to.equal('Direct test');
 
         const template = db.prepare(
           'SELECT * FROM pmo_phase_templates WHERE name = ?'
@@ -793,6 +801,109 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(template).to.exist;
         expect(template!.description).to.equal('Direct test');
         expect(template!.is_builtin).to.equal(0);
+      });
+    });
+
+    describe('phase template create - JSON mode support (TKT-794)', () => {
+      it('should output prompt as JSON when name not provided with --json flag', () => {
+        const result = agentExec('phase template create --json');
+        expect(result).to.not.be.null;
+        expect(result!.prompt.type).to.equal('input');
+        expect(result!.prompt.name).to.equal('name');
+        expect(result!.prompt.message).to.include('Template name');
+      });
+
+      it('should output prompt as JSON when name not provided with --machine flag', () => {
+        const result = agentExec('phase template create --machine');
+        expect(result).to.not.be.null;
+        expect(result!.prompt.type).to.equal('input');
+        expect(result!.prompt.name).to.equal('name');
+        expect(result!.prompt.message).to.include('Template name');
+      });
+
+      it('should output success JSON when all required fields provided via flags', () => {
+        const output = execProduction('phase template create "JSON Success Test" --description "Created via JSON" --json');
+        const json = extractJson<{
+          prompt: null;
+          success: boolean;
+          result: { id: string; name: string; description: string; phasesCount: number };
+        }>(output);
+
+        expect(json).to.not.be.null;
+        expect(json!.success).to.equal(true);
+        expect(json!.prompt).to.be.null;
+        expect(json!.result.name).to.equal('JSON Success Test');
+        expect(json!.result.description).to.equal('Created via JSON');
+        expect(json!.result.phasesCount).to.be.greaterThan(0);
+
+        // Verify in database
+        const template = getPhaseTemplate('json-success-test');
+        expect(template).to.exist;
+        expect(template!.name).to.equal('JSON Success Test');
+      });
+
+      it('should work via template phase create wrapper with --json', () => {
+        const output = execProduction('template phase create "Wrapper JSON Test" --description "Via wrapper" --json');
+        const json = extractJson<{
+          prompt: null;
+          success: boolean;
+          result: { id: string; name: string };
+        }>(output);
+
+        expect(json).to.not.be.null;
+        expect(json!.success).to.equal(true);
+        expect(json!.result.name).to.equal('Wrapper JSON Test');
+
+        // Verify in database
+        const template = getPhaseTemplate('wrapper-json-test');
+        expect(template).to.exist;
+      });
+
+      it('should work via template phase create wrapper with --machine', () => {
+        const output = execProduction('template phase create "Machine Flag Test" --machine');
+        const json = extractJson<{
+          prompt: null;
+          success: boolean;
+          result: { id: string; name: string };
+        }>(output);
+
+        expect(json).to.not.be.null;
+        expect(json!.success).to.equal(true);
+        expect(json!.result.name).to.equal('Machine Flag Test');
+
+        // Verify in database
+        const template = getPhaseTemplate('machine-flag-test');
+        expect(template).to.exist;
+      });
+
+      it('should include context hints in prompt JSON', () => {
+        const result = agentExec('phase template create --json');
+        expect(result).to.not.be.null;
+        expect(result!.prompt.type).to.equal('input');
+
+        // The prompt should include context with hints for the agent
+        const promptWithContext = result!.prompt as unknown as { context?: { hint?: string; example?: string } };
+        expect(promptWithContext.context).to.exist;
+        expect(promptWithContext.context!.hint).to.include('prlt phase template create');
+      });
+
+      it('should return phases array in success JSON', () => {
+        const output = execProduction('phase template create "Phases Array Test" --json');
+        const json = extractJson<{
+          success: boolean;
+          result: { phases: Array<{ name: string; category: string; isDefault: boolean }> };
+        }>(output);
+
+        expect(json).to.not.be.null;
+        expect(json!.success).to.equal(true);
+        expect(json!.result.phases).to.be.an('array');
+        expect(json!.result.phases.length).to.be.greaterThan(0);
+
+        // Each phase should have expected properties
+        const firstPhase = json!.result.phases[0];
+        expect(firstPhase).to.have.property('name');
+        expect(firstPhase).to.have.property('category');
+        expect(firstPhase).to.have.property('isDefault');
       });
     });
 

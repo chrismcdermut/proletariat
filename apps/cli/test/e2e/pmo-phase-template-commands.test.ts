@@ -149,8 +149,17 @@ describe('PMO Phase Template Commands E2E Tests', () => {
     it('should create template from workspace phases', () => {
       const output = exec('phase template create "My Custom Phases"');
 
-      expect(output).to.contain('Created phase template');
-      expect(output).to.contain('My Custom Phases');
+      // In non-TTY mode, output is JSON; in TTY mode, output is text
+      // Check for either format
+      const isJson = output.trim().startsWith('{');
+      if (isJson) {
+        const json = JSON.parse(output);
+        expect(json.success).to.equal(true);
+        expect(json.result.name).to.equal('My Custom Phases');
+      } else {
+        expect(output).to.contain('Created phase template');
+        expect(output).to.contain('My Custom Phases');
+      }
 
       // Verify template was created
       const template = db.prepare('SELECT * FROM pmo_phase_templates WHERE name = ?').get('My Custom Phases');
