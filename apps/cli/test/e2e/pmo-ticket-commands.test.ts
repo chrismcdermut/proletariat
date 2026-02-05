@@ -53,6 +53,32 @@ describe('PMO Ticket Commands E2E Tests', () => {
       expect(tickets[0].priority).to.equal('HIGH');
     });
 
+    it('should default column to Backlog in JSON mode when not provided', () => {
+      // This is TKT-790: JSON mode should default column to Backlog instead of prompting
+      const output = exec(
+        'ticket create --json --title "JSON mode ticket" --priority HIGH --category bug'
+      );
+
+      // Should create ticket successfully, not output a prompt for column selection
+      expect(output).to.contain('Created ticket');
+      expect(output).to.contain('JSON mode ticket');
+
+      // Verify ticket was created
+      const ticket = db.prepare('SELECT id, priority FROM pmo_tickets WHERE title = ?').get('JSON mode ticket') as { id: string; priority: string } | undefined;
+      expect(ticket).to.not.be.undefined;
+      expect(ticket!.priority).to.equal('HIGH');
+
+      // Verify it's in the first column (SHIP BL in test setup - the default backlog)
+      const boardTicket = db.prepare(`
+        SELECT c.name
+        FROM pmo_board_tickets bt
+        JOIN pmo_columns c ON c.id = bt.column_id
+        WHERE bt.ticket_id = ?
+      `).get(ticket!.id) as { name: string } | undefined;
+
+      expect(boardTicket?.name).to.equal('SHIP BL');
+    });
+
     it('should auto-generate ticket ID', () => {
       exec('ticket create --title "Test ticket" --column "SHIP BL"');
 

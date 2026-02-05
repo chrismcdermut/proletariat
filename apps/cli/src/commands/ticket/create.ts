@@ -135,6 +135,14 @@ export default class TicketCreate extends PMOCommand {
     // Use FlagResolver to handle both JSON mode and interactive prompts
     // This unifies the two code paths into one pattern
     if (!flags.interactive) {
+      // In JSON mode, default column to first backlog status if not provided
+      // This prevents prompting for column in non-interactive mode
+      if (jsonMode && !flags.column) {
+        // Prefer "Backlog" column, fall back to first column
+        const backlogColumn = columns.find(c => c.toLowerCase() === 'backlog') || columns[0];
+        flags.column = backlogColumn;
+      }
+
       const resolver = new FlagResolver<typeof flags>({
         commandName: 'ticket create',
         baseCommand: 'prlt ticket create',
