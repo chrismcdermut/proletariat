@@ -204,6 +204,97 @@ describe('PMO Base Command', () => {
       expect(RequireProjectCommand.projectIdValue).to.equal('test-project');
     });
   });
+
+  describe('Non-TTY auto-detection', () => {
+    let originalStdinIsTTY: boolean | undefined;
+    let originalStdoutIsTTY: boolean | undefined;
+    let originalExit: typeof process.exit;
+    let originalConsoleLog: typeof console.log;
+    let capturedOutput: string[];
+    let exitCode: number | undefined;
+
+    // Command that calls this.prompt() WITHOUT jsonModeConfig
+    class PromptWithoutConfigCommand extends PMOCommand {
+      static id = 'prompt:noconfig';
+      static flags = { ...pmoBaseFlags };
+      static capturedResult: Record<string, unknown> | null = null;
+
+      static reset() {
+        this.capturedResult = null;
+      }
+
+      async execute(): Promise<void> {
+        const result = await this.prompt([{
+          type: 'list',
+          name: 'choice',
+          message: 'Pick one:',
+          choices: [
+            { name: 'Option A', value: 'a' },
+            { name: 'Option B', value: 'b' },
+          ],
+        }]);
+        PromptWithoutConfigCommand.capturedResult = result;
+      }
+    }
+
+    beforeEach(() => {
+      originalStdinIsTTY = process.stdin.isTTY;
+      originalStdoutIsTTY = process.stdout.isTTY;
+      originalExit = process.exit;
+      originalConsoleLog = console.log;
+      capturedOutput = [];
+      exitCode = undefined;
+      PromptWithoutConfigCommand.reset();
+
+      // Capture console.log output
+      console.log = (...args: unknown[]) => {
+        capturedOutput.push(args.map(String).join(' '));
+      };
+
+      // Override process.exit to capture exit code and throw
+      process.exit = ((code?: number) => {
+        exitCode = code;
+        throw new Error(`__EXIT_${code}__`);
+      }) as typeof process.exit;
+    });
+
+    afterEach(() => {
+      Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinIsTTY, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalStdoutIsTTY, configurable: true });
+      process.exit = originalExit;
+      console.log = originalConsoleLog;
+    });
+
+    it('should auto-switch to JSON mode when stdin is not a TTY and no jsonModeConfig provided', async () => {
+      // Simulate non-TTY environment
+      Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+
+      const config = await Config.load({ root: path.join(__dirname, '../..') });
+
+      try {
+        await PromptWithoutConfigCommand.run([], config);
+        expect.fail('Should have called process.exit');
+      } catch (error: unknown) {
+        // Expected: process.exit was called by outputPromptAsJson
+        expect((error as Error).message).to.equal('__EXIT_2__');
+      }
+
+      // Should have exited with EXIT_NEEDS_INPUT (2)
+      expect(exitCode).to.equal(2);
+
+      // Should have output JSON with the prompt config
+      expect(capturedOutput.length).to.be.greaterThan(0);
+      const jsonOutput = JSON.parse(capturedOutput[capturedOutput.length - 1]);
+      expect(jsonOutput.prompt).to.exist;
+      expect(jsonOutput.prompt.type).to.equal('list');
+      expect(jsonOutput.prompt.name).to.equal('choice');
+      expect(jsonOutput.prompt.message).to.equal('Pick one:');
+      expect(jsonOutput.prompt.choices).to.have.length(2);
+      expect(jsonOutput.metadata).to.exist;
+      expect(jsonOutput.metadata.command).to.equal('prompt:noconfig');
+    });
+  });
 });
 
 // Helper functions
