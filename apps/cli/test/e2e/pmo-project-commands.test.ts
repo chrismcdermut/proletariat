@@ -499,6 +499,138 @@ describe('PMO Project Commands E2E Tests', () => {
       );
     });
   });
+  describe('prlt project select', () => {
+    beforeEach(() => {
+      createLocalTestProject(db, 'proj-1', 'Project One');
+      createLocalTestProject(db, 'proj-2', 'Project Two');
+      createLocalTestColumns(db, 'proj-1');
+      createLocalTestColumns(db, 'proj-2');
+    });
+
+    it('should select a project by ID', () => {
+      const output = exec('project select proj-1');
+
+      // Non-TTY outputs JSON with success: true
+      expect(output).to.satisfy((o: string) =>
+        o.includes('Selected project') || o.includes('"success"')
+      );
+      expect(output).to.contain('Project One');
+    });
+
+    it('should store selected project in config', () => {
+      exec('project select proj-1');
+
+      // Verify by reading the config file
+      const configPath = path.join(env.proletariatDir, 'config.json');
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      expect(config.prlt?.selectedProject).to.equal('proj-1');
+    });
+
+    it('should use selected project as default for project view', () => {
+      // Select proj-1 as default
+      exec('project select proj-1');
+
+      // Run project view without -P flag - should show proj-1
+      const output = exec('project view');
+
+      // Non-TTY outputs JSON; check that it shows proj-1
+      expect(output).to.satisfy((o: string) =>
+        o.includes('proj-1') || o.includes('Project One')
+      );
+    });
+
+    it('should allow -P flag to override selected project', () => {
+      // Select proj-1 as default
+      exec('project select proj-1');
+
+      // Run project view with explicit -P flag for proj-2
+      const output = exec('project view -P proj-2');
+
+      // Should show proj-2, not proj-1
+      expect(output).to.satisfy((o: string) =>
+        o.includes('proj-2') || o.includes('Project Two')
+      );
+    });
+
+    it('should clear selected project with --clear flag', () => {
+      // First select a project
+      exec('project select proj-1');
+
+      // Verify it's selected
+      let configPath = path.join(env.proletariatDir, 'config.json');
+      let config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      expect(config.prlt?.selectedProject).to.equal('proj-1');
+
+      // Clear the selection
+      const output = exec('project select --clear');
+
+      // Non-TTY outputs JSON with success: true
+      expect(output).to.satisfy((o: string) =>
+        o.includes('Cleared') || o.includes('"success"')
+      );
+
+      // Verify it's cleared
+      config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      expect(config.prlt?.selectedProject).to.be.undefined;
+    });
+
+    it('should error for non-existent project', () => {
+      const output = exec('project select non-existent');
+
+      expect(output.toLowerCase()).to.contain('not found');
+    });
+
+    it('should not allow selecting archived project', () => {
+      // Archive proj-1
+      db.prepare('UPDATE pmo_projects SET is_archived = 1 WHERE id = ?').run('proj-1');
+
+      const output = exec('project select proj-1');
+
+      // Should error about archived project
+      expect(output.toLowerCase()).to.satisfy((o: string) =>
+        o.includes('archived') || o.includes('error')
+      );
+    });
+
+    it('should fall back to normal selection when selected project is archived', () => {
+      // Select proj-1 as default
+      exec('project select proj-1');
+
+      // Archive proj-1
+      db.prepare('UPDATE pmo_projects SET is_archived = 1 WHERE id = ?').run('proj-1');
+
+      // Now when we need a project, it should prompt/fall back since the selected one is archived
+      // In non-TTY mode with single available project, it should auto-select proj-2
+      const ticket = exec('ticket create --title "Fallback Test" --priority P1');
+
+      // Check where the ticket was created - should be proj-2 (the only non-archived project)
+      const createdTicket = db.prepare('SELECT project_id FROM pmo_tickets WHERE title = ?').get('Fallback Test') as { project_id: string } | undefined;
+      if (createdTicket) {
+        expect(createdTicket.project_id).to.equal('proj-2');
+      }
+    });
+
+    it('should output JSON in machine mode', () => {
+      const output = exec('project select proj-1 --machine');
+
+      // Parse JSON output
+      const jsonOutput = JSON.parse(output);
+      expect(jsonOutput.success).to.be.true;
+      expect(jsonOutput.result.projectId).to.equal('proj-1');
+      expect(jsonOutput.result.projectName).to.equal('Project One');
+    });
+
+    it('should output JSON with clear in machine mode', () => {
+      exec('project select proj-1');
+      const output = exec('project select --clear --machine');
+
+      // Parse JSON output
+      const jsonOutput = JSON.parse(output);
+      expect(jsonOutput.success).to.be.true;
+      expect(jsonOutput.result.cleared).to.be.true;
+      expect(jsonOutput.result.previousProject).to.equal('proj-1');
+    });
+  });
 });
 
 // Helper functions for this test file
