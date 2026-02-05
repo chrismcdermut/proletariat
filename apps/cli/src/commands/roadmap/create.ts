@@ -121,6 +121,12 @@ export default class RoadmapCreate extends PMOCommand {
       isDefault: roadmapData.isDefault,
     });
 
+    // In JSON mode, output roadmap data and return (skip interactive prompts)
+    if (jsonMode) {
+      this.log(JSON.stringify(roadmap, null, 2));
+      return;
+    }
+
     this.log(styles.success(`\nCreated roadmap "${styles.emphasis(roadmap.name)}"`));
     this.log(styles.muted(`  ID: ${roadmap.id}`));
     if (roadmap.description) {
