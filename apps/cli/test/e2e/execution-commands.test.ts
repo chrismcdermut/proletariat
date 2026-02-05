@@ -995,6 +995,142 @@ describe('Execution Commands E2E Tests', () => {
       });
     });
   });
+
+  // ===========================================================================
+  // execution kill (alias for execution stop)
+  // ===========================================================================
+  describe('prlt execution kill (alias for stop)', () => {
+    describe('single kill with ID', () => {
+      it('should stop a running execution and update DB status', () => {
+        createExecution(db, 'TKT-001', 'agent-1', 'running');
+
+        const output = exec('execution kill WORK-001');
+
+        expect(output).to.contain('Stopped');
+        expect(output).to.contain('WORK-001');
+
+        // Verify DB state
+        const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
+        expect(row.status).to.equal('stopped');
+      });
+
+      it('should show agent and ticket details after kill', () => {
+        createExecution(db, 'TKT-001', 'agent-1', 'running');
+
+        const output = exec('execution kill WORK-001');
+
+        expect(output).to.contain('TKT-001');
+        expect(output).to.contain('agent-1');
+      });
+
+      it('should handle --force flag', () => {
+        createExecution(db, 'TKT-001', 'agent-1', 'running');
+
+        const output = exec('execution kill WORK-001 --force');
+
+        expect(output).to.contain('Stopped');
+        const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
+        expect(row.status).to.equal('stopped');
+      });
+
+      it('should error when execution not found', () => {
+        const output = exec('execution kill NONEXISTENT');
+        expect(output.toLowerCase()).to.contain('not found');
+      });
+    });
+
+    describe('bulk kill with --all', () => {
+      it('should stop all running executions', () => {
+        createExecution(db, 'TKT-001', 'agent-1', 'running');
+        createExecution(db, 'TKT-002', 'agent-2', 'running');
+
+        const output = exec('execution kill --all');
+
+        expect(output).to.contain('Stopping 2 execution(s)');
+        const rows = db.prepare('SELECT status FROM agent_work WHERE status = ?').all('stopped') as { status: string }[];
+        expect(rows.length).to.equal(2);
+      });
+
+      it('should show empty message when no running executions', () => {
+        const output = exec('execution kill --all');
+        expect(output).to.contain('No running executions');
+      });
+    });
+
+    describe('kill by agent with --agent', () => {
+      it('should stop only executions for the specified agent', () => {
+        createExecution(db, 'TKT-001', 'agent-1', 'running');
+        createExecution(db, 'TKT-002', 'agent-2', 'running');
+
+        const output = exec('execution kill --agent agent-1');
+
+        expect(output).to.contain('Stopping 1 execution(s)');
+
+        const agent1 = db.prepare('SELECT status FROM agent_work WHERE agent_name = ?').get('agent-1') as { status: string };
+        expect(agent1.status).to.equal('stopped');
+
+        const agent2 = db.prepare('SELECT status FROM agent_work WHERE agent_name = ?').get('agent-2') as { status: string };
+        expect(agent2.status).to.equal('running');
+      });
+    });
+
+    describe('--json mode', () => {
+      it('should output JSON prompt with active execution choices', () => {
+        createExecution(db, 'TKT-001', 'agent-1', 'running');
+
+        const output = exec('execution kill --json');
+        const json = extractJson<AgentPromptResponse>(output);
+
+        expect(json).to.not.be.null;
+        expect(json!.prompt.type).to.equal('list');
+        expect(json!.prompt.name).to.equal('selectedId');
+        expect(json!.prompt.message).to.include('Select execution to stop');
+        expect(json!.prompt.choices.length).to.equal(1);
+      });
+
+      it('should include command field with execution ID in choices', () => {
+        createExecution(db, 'TKT-001', 'agent-1', 'running');
+
+        const output = exec('execution kill --json');
+        const json = extractJson<AgentPromptResponse>(output);
+
+        const choice = json!.prompt.choices[0];
+        // Note: The command in choices still references 'execution stop' since kill extends stop
+        expect(choice.command).to.include('prlt execution');
+        expect(choice.command).to.include('WORK-001');
+        expect(choice.command).to.include('--json');
+      });
+    });
+
+    describe('full agent workflow', () => {
+      it('should complete: get prompt → select execution → kill → verify stopped', () => {
+        createExecution(db, 'TKT-001', 'agent-1', 'running');
+        createExecution(db, 'TKT-002', 'agent-2', 'running');
+
+        // Step 1: Agent requests execution selection
+        const promptOutput = exec('execution kill --json');
+        const prompt = extractJson<AgentPromptResponse>(promptOutput);
+        expect(prompt).to.not.be.null;
+        expect(prompt!.prompt.choices.length).to.equal(2);
+
+        // Step 2: Agent picks WORK-001 specifically
+        const selectedExec = findChoice(prompt!.prompt.choices, 'WORK-001');
+        expect(selectedExec).to.exist;
+
+        // Step 3: Agent executes the kill command (use execution kill directly)
+        const killOutput = exec('execution kill WORK-001');
+
+        // Step 4: Verify ONLY the selected execution was stopped
+        expect(killOutput).to.contain('Stopped');
+        expect(killOutput).to.contain('WORK-001');
+        const stoppedRow = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
+        expect(stoppedRow.status).to.equal('stopped');
+        // The other execution must remain running
+        const untouchedRow = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-002') as { status: string };
+        expect(untouchedRow.status).to.equal('running');
+      });
+    });
+  });
 });
 
 // =============================================================================
