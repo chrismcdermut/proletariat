@@ -422,6 +422,29 @@ export default class ExecutionConfig extends PMOCommand {
   private setConfigValue(db: Database.Database, key: string, value: string, jsonMode: boolean): void {
     const normalizedKey = key.toLowerCase()
 
+    // Define valid values for each config key
+    const VALID_VALUES: Record<string, string[]> = {
+      defaultenvironment: ['host', 'devcontainer', 'docker', 'vm'],
+      outputmode: ['interactive', 'print'],
+      sandboxed: ['true', 'false'],
+      'terminal.app': ['Terminal', 'iTerm', 'Alacritty', 'Ghostty', 'Kitty', 'tmux', 'Warp', 'WezTerm'],
+      'terminal.openinbackground': ['true', 'false'],
+      shell: ['bash', 'zsh', 'fish'],
+      'tmux.controlmode': ['true', 'false'],
+    }
+
+    // Validate value against allowed options
+    const validValues = VALID_VALUES[normalizedKey]
+    if (validValues && !validValues.includes(value)) {
+      const errorMsg = `Invalid value "${value}" for ${key}. Valid options: ${validValues.join(', ')}`
+      if (jsonMode) {
+        outputErrorAsJson('INVALID_VALUE', errorMsg, createMetadata('execution config', {}))
+      } else {
+        this.error(errorMsg)
+      }
+      return
+    }
+
     switch (normalizedKey) {
       case 'defaultenvironment':
         saveExecutionSetting(db, 'defaultMode', value)
