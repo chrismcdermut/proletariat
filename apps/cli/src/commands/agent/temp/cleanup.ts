@@ -157,9 +157,17 @@ export default class Cleanup extends PMOCommand {
         return;
       }
 
-      // Separate temp and staff agents
+      // Get temp (ephemeral) agents only - this is temp cleanup, not staff cleanup
       const tempAgents = allAgents.filter(a => a.type === 'ephemeral');
-      const staffAgents = allAgents.filter(a => a.type !== 'ephemeral');
+
+      if (tempAgents.length === 0) {
+        if (jsonMode) {
+          outputErrorAsJson('NO_TEMP_AGENTS', 'No temp agents to clean up.', createMetadata('agent cleanup', flags));
+          return;
+        }
+        this.log(colors.textMuted('No temp agents to clean up.'));
+        return;
+      }
 
       // Build choices with separators
       const choices: Array<{ name: string; value: string; disabled?: boolean | string } | inquirer.Separator> = [];
@@ -193,22 +201,7 @@ export default class Cleanup extends PMOCommand {
         }
       }
 
-      // Add staff agents
-      if (staffAgents.length > 0) {
-        choices.push(new inquirer.Separator(`── Staff Agents (${staffAgents.length}) ──`));
-        for (const agent of staffAgents) {
-          const sessions = getAgentTmuxSessions(agent.name);
-          const hasRunningWork = sessions.length > 0;
-          const statusLabel = hasRunningWork ? ' (running)' : '';
-          choices.push({
-            name: `${agent.name}${statusLabel}`,
-            value: agent.name,
-            disabled: hasRunningWork ? 'has running work' : false,
-          });
-        }
-      }
-
-      const selectMessage = 'Select agents to clean up:';
+      const selectMessage = 'Select temp agents to clean up:';
 
       // In JSON mode, output agent selection prompt
       if (jsonMode) {
