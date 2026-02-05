@@ -7,6 +7,7 @@ import { PMO_TABLES } from '../schema.js'
 import { PMOError, Subtask, AcceptanceCriterion } from '../types.js'
 import { slugify } from '../utils.js'
 import { StorageContext } from './types.js'
+import { wrapSqliteError } from './helpers.js'
 
 const T = PMO_TABLES
 
@@ -51,10 +52,14 @@ export class SubtaskStorage {
 
     const position = maxPos.max_pos + 1
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.subtasks} (id, ticket_id, title, done, position)
-      VALUES (?, ?, ?, 0, ?)
-    `).run(id, ticketId, title, position)
+    try {
+      this.ctx.db.prepare(`
+        INSERT INTO ${T.subtasks} (id, ticket_id, title, done, position)
+        VALUES (?, ?, ?, 0, ?)
+      `).run(id, ticketId, title, position)
+    } catch (err) {
+      wrapSqliteError('Subtask', 'create', err)
+    }
 
     // Update ticket timestamp
     this.ctx.db.prepare(`
@@ -171,10 +176,14 @@ export class AcceptanceCriteriaStorage {
     const id = `ac-${randomUUID()}`
     const position = maxPos.max_pos + 1
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.ticket_acceptance_criteria} (id, ticket_id, criterion, verifiable, verified, position)
-      VALUES (?, ?, ?, 1, 0, ?)
-    `).run(id, ticketId, criterion, position)
+    try {
+      this.ctx.db.prepare(`
+        INSERT INTO ${T.ticket_acceptance_criteria} (id, ticket_id, criterion, verifiable, verified, position)
+        VALUES (?, ?, ?, 1, 0, ?)
+      `).run(id, ticketId, criterion, position)
+    } catch (err) {
+      wrapSqliteError('Acceptance criterion', 'create', err)
+    }
 
     this.ctx.db.prepare(`
       UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?

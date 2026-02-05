@@ -8,7 +8,7 @@ import { PMO_TABLES } from '../schema.js'
 import { CreateTicketInput, PMOError, Ticket, TicketFilter } from '../types.js'
 import { slugify, generateEntityId } from '../utils.js'
 import { StorageContext, TicketRow } from './types.js'
-import { rowToTicket } from './helpers.js'
+import { rowToTicket, wrapSqliteError } from './helpers.js'
 
 const T = PMO_TABLES
 
@@ -142,31 +142,35 @@ export class TicketStorage {
 
     // Insert ticket
     const labels = ticket.labels || []
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.tickets} (
-        id, project_id, title, description, priority, category,
-        status_id, owner, assignee, spec_id, epic_id, labels,
-        created_at, updated_at, last_synced_from_spec, last_synced_from_board
+    try {
+      this.ctx.db.prepare(`
+        INSERT INTO ${T.tickets} (
+          id, project_id, title, description, priority, category,
+          status_id, owner, assignee, spec_id, epic_id, labels,
+          created_at, updated_at, last_synced_from_spec, last_synced_from_board
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        projectId,
+        title,
+        ticket.description || null,
+        ticket.priority || null,
+        ticket.category || null,
+        statusId,
+        ticket.owner || null,
+        ticket.assignee || null,
+        specId,
+        ticket.epicId || null,
+        JSON.stringify(labels),
+        now,
+        now,
+        ticket.lastSyncedFromSpec || null,
+        ticket.lastSyncedFromBoard || null
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      projectId,
-      title,
-      ticket.description || null,
-      ticket.priority || null,
-      ticket.category || null,
-      statusId,
-      ticket.owner || null,
-      ticket.assignee || null,
-      specId,
-      ticket.epicId || null,
-      JSON.stringify(labels),
-      now,
-      now,
-      ticket.lastSyncedFromSpec || null,
-      ticket.lastSyncedFromBoard || null
-    )
+    } catch (err) {
+      wrapSqliteError('Ticket', 'create', err)
+    }
 
     // Insert subtasks
     if (ticket.subtasks && ticket.subtasks.length > 0) {
@@ -399,13 +403,18 @@ export class TicketStorage {
 
     // Delete ticket (by ID only, since IDs are globally unique)
     // Related data (subtasks, metadata) are deleted via CASCADE
-    const result = this.ctx.db.prepare(`
-      DELETE FROM ${T.tickets}
-      WHERE id = ?
-    `).run(id)
+    try {
+      const result = this.ctx.db.prepare(`
+        DELETE FROM ${T.tickets}
+        WHERE id = ?
+      `).run(id)
 
-    if (result.changes === 0) {
-      throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
+      if (result.changes === 0) {
+        throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
+      }
+    } catch (err) {
+      if (err instanceof PMOError) throw err
+      wrapSqliteError('Ticket', 'delete', err)
     }
 
     // Update board timestamp for the ticket's project

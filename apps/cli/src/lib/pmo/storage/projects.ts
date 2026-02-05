@@ -15,7 +15,7 @@ import {
 import { generateEntityId, slugify } from '../utils.js'
 import { generateBoardMarkdown } from '../markdown.js'
 import { StorageContext, ProjectRow, TicketRow } from './types.js'
-import { rowToTicket } from './helpers.js'
+import { rowToTicket, wrapSqliteError } from './helpers.js'
 
 const T = PMO_TABLES
 
@@ -180,10 +180,14 @@ export class ProjectStorage {
     const finalWorkflowId = workflow ? workflowId : 'default'
 
     // Insert project with workflow
-    this.ctx.db.prepare(`
-      INSERT OR REPLACE INTO ${T.projects} (id, name, template, description, workflow_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(id, project.name, workflowId, project.description || null, finalWorkflowId, now, now)
+    try {
+      this.ctx.db.prepare(`
+        INSERT OR REPLACE INTO ${T.projects} (id, name, template, description, workflow_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(id, project.name, workflowId, project.description || null, finalWorkflowId, now, now)
+    } catch (err) {
+      wrapSqliteError('Project', 'create', err)
+    }
 
     return this.getBoard(id)
   }
@@ -319,10 +323,15 @@ export class ProjectStorage {
       throw new PMOError('INVALID', 'Cannot delete the default project')
     }
 
-    const result = this.ctx.db.prepare(`DELETE FROM ${T.projects} WHERE id = ?`).run(resolvedId)
+    try {
+      const result = this.ctx.db.prepare(`DELETE FROM ${T.projects} WHERE id = ?`).run(resolvedId)
 
-    if (result.changes === 0) {
-      throw new PMOError('NOT_FOUND', `Project not found: ${projectIdOrName}`)
+      if (result.changes === 0) {
+        throw new PMOError('NOT_FOUND', `Project not found: ${projectIdOrName}`)
+      }
+    } catch (err) {
+      if (err instanceof PMOError) throw err
+      wrapSqliteError('Project', 'delete', err)
     }
 
     // Tickets are deleted via CASCADE
