@@ -176,4 +176,90 @@ describe('Template Commands Machine Output Mode Support', () => {
       expect(output).to.include('--json');
     });
   });
+
+  describe('template ticket create', () => {
+    it('should have --json flag in help', () => {
+      const output = runCli('template ticket create --help');
+      expect(output).to.include('--json');
+    });
+
+    it('should have --subtask flag in help', () => {
+      const output = runCli('template ticket create --help');
+      expect(output).to.include('--subtask');
+    });
+
+    it('should have --ac flag in help', () => {
+      const output = runCli('template ticket create --help');
+      expect(output).to.include('--ac');
+    });
+
+    it('should have --label flag in help', () => {
+      const output = runCli('template ticket create --help');
+      expect(output).to.include('--label');
+    });
+
+    it('should have --title-pattern flag in help', () => {
+      const output = runCli('template ticket create --help');
+      expect(output).to.include('--title-pattern');
+    });
+
+    it('should have --description-template flag in help', () => {
+      const output = runCli('template ticket create --help');
+      expect(output).to.include('--description-template');
+    });
+
+    it('should have --priority flag in help', () => {
+      const output = runCli('template ticket create --help');
+      expect(output).to.include('--priority');
+    });
+
+    it('should have --category flag in help', () => {
+      const output = runCli('template ticket create --help');
+      expect(output).to.include('--category');
+    });
+
+    it('should output JSON form prompt when --json flag is used without name', () => {
+      const output = runCli('template ticket create --json');
+      const json = parseJson(output) as { prompt: { type: string; fields: Array<{ name: string }> } };
+      expect(json).to.not.be.null;
+      expect(json.prompt.type).to.equal('form');
+      expect(json.prompt.fields).to.be.an('array');
+      // Should have name field in the form
+      const fieldNames = json.prompt.fields.map(f => f.name);
+      expect(fieldNames).to.include('name');
+    });
+  });
+
+  describe('ticket template create (underlying implementation)', () => {
+    it('should have --json flag in help', () => {
+      const output = runCli('ticket template create --help');
+      expect(output).to.include('--json');
+    });
+
+    it('should have --subtask flag in help', () => {
+      const output = runCli('ticket template create --help');
+      expect(output).to.include('--subtask');
+    });
+
+    it('should have --ac flag in help', () => {
+      const output = runCli('ticket template create --help');
+      expect(output).to.include('--ac');
+    });
+
+    it('should have --label flag in help', () => {
+      const output = runCli('ticket template create --help');
+      expect(output).to.include('--label');
+    });
+
+    it('should output JSON form prompt when --json flag is used without name', () => {
+      const output = runCli('ticket template create --json');
+      const json = parseJson(output) as { prompt: { type: string; fields: Array<{ name: string }> } };
+      expect(json).to.not.be.null;
+      expect(json.prompt.type).to.equal('form');
+      expect(json.prompt.fields).to.be.an('array');
+      // Should have name field in the form
+      const fieldNames = json.prompt.fields.map(f => f.name);
+      expect(fieldNames).to.include('name');
+    });
+  });
 });
