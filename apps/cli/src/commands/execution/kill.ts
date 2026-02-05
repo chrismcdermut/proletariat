@@ -7,6 +7,8 @@ import ExecutionStop from './stop.js'
 export default class ExecutionKill extends ExecutionStop {
   static description = 'Stop running execution(s) (alias for "execution stop")'
 
+  static args = ExecutionStop.args
+
   static examples = [
     '<%= config.bin %> <%= command.id %> WORK-001',
     '<%= config.bin %> <%= command.id %> WORK-001 --force',
@@ -16,5 +18,5 @@ export default class ExecutionKill extends ExecutionStop {
     '<%= config.bin %> <%= command.id %> --agent altman',
   ]
 
-  // Inherits all args, flags, and execute() from ExecutionStop
+  // Inherits flags and execute() from ExecutionStop
 }

@@ -21,7 +21,7 @@ export default class TicketList extends Command {
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --column Backlog',
-    '<%= config.bin %> <%= command.id %> --priority URGENT',
+    '<%= config.bin %> <%= command.id %> --priority P0',
     '<%= config.bin %> <%= command.id %> --category bug',
     '<%= config.bin %> <%= command.id %> --search "login"',
     '<%= config.bin %> <%= command.id %> --project mobile-app',
@@ -113,6 +113,30 @@ export default class TicketList extends Command {
 
       // Determine projectId for the query
       const projectId = flags.all ? undefined : (filter.projectId || undefined);
+
+      // Validate project if specified (not in --all mode)
+      if (flags.project && !flags.all) {
+        const project = await pmoContext.storage.getProject(flags.project);
+        if (!project) {
+          const allProjects = await pmoContext.storage.listProjectSummaries();
+          const validProjectIds = allProjects.map(p => p.id);
+          this.error(`Project "${flags.project}" not found. Valid projects: ${validProjectIds.join(', ')}`);
+        }
+      }
+
+      // Validate column if specified (requires knowing the project)
+      if (flags.column && !flags.all) {
+        // Get the project board to validate the column
+        const targetProjectId = projectId || (await pmoContext.storage.listProjectSummaries())[0]?.id;
+        if (targetProjectId) {
+          const board = await pmoContext.storage.getBoard(targetProjectId);
+          const validColumns = board.columns.map(c => c.name);
+          if (!validColumns.includes(flags.column)) {
+            this.error(`Column "${flags.column}" not found. Valid columns: ${validColumns.join(', ')}`);
+          }
+        }
+      }
+
       let tickets = await pmoContext.storage.listTickets(projectId, filter);
 
       // Apply pagination

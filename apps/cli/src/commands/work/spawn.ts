@@ -136,15 +136,6 @@ export default class WorkSpawn extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
 
-    // This command requires project context (pass JSON mode config for AI agents)
-    const projectId = await this.requireProject({
-      jsonMode: {
-        flags,
-        commandName: 'work spawn',
-        baseCommand: 'prlt work spawn',
-      },
-    });
-
     // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
       if (jsonMode) {
@@ -156,6 +147,41 @@ export default class WorkSpawn extends PMOCommand {
 
     // Parse ticket IDs from args (everything after flags)
     const ticketIdArgs = argv as string[]
+
+    // Try to infer project from ticket IDs if provided
+    let projectId: string | undefined
+
+    if (ticketIdArgs.length > 0) {
+      // Look up tickets to get their project IDs
+      const projectIds = new Set<string>()
+      for (const ticketId of ticketIdArgs) {
+        // eslint-disable-next-line no-await-in-loop
+        const ticket = await this.storage.getTicket(ticketId)
+        if (ticket?.projectId) {
+          projectIds.add(ticket.projectId)
+        }
+      }
+
+      if (projectIds.size === 1) {
+        // All tickets from same project - use that project
+        projectId = [...projectIds][0]
+      } else if (projectIds.size > 1) {
+        // Tickets from multiple projects - warn and require prompt
+        this.warn('Tickets are from multiple projects. Please specify --project.')
+      }
+      // If size === 0, tickets not found - will be handled later in validation
+    }
+
+    // Only call requireProject() if we couldn't infer from tickets
+    if (!projectId) {
+      projectId = await this.requireProject({
+        jsonMode: {
+          flags,
+          commandName: 'work spawn',
+          baseCommand: 'prlt work spawn',
+        },
+      })
+    }
 
     // Note: Docker check is handled by work:start command when spawning each ticket
     // This allows for the interactive devcontainer/host selection with retry loop

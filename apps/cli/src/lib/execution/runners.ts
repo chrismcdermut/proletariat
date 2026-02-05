@@ -711,8 +711,7 @@ export function isDockerRunning(): boolean {
     try {
       execSync('docker info', { stdio: 'pipe', timeout })
       return true
-    } catch (err) {
-      console.debug(`[runners:docker] Docker check attempt ${attempt}/${maxRetries} failed:`, err)
+    } catch {
       if (attempt === maxRetries) {
         return false
       }
