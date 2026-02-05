@@ -884,7 +884,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         // The prompt should include context with hints for the agent
         const promptWithContext = result!.prompt as unknown as { context?: { hint?: string; example?: string } };
         expect(promptWithContext.context).to.exist;
-        expect(promptWithContext.context!.hint).to.include('prlt phase template create');
+        expect(promptWithContext.context!.hint).to.include('prlt template phase create');
       });
 
       it('should return phases array in success JSON', () => {
