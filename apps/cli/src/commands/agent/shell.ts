@@ -5,7 +5,7 @@ import { execSync, spawn } from 'node:child_process';
 import inquirer from 'inquirer';
 import Database from 'better-sqlite3';
 import { colors } from '../../lib/colors.js';
-import { getWorkspaceInfo, getAgentTmuxSessions } from '../../lib/agents/commands.js';
+import { getWorkspaceInfo, getAgentTmuxSessions, formatAgentList } from '../../lib/agents/commands.js';
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js';
 import { getTerminalApp } from '../../lib/execution/config.js';
 import { TerminalApp } from '../../lib/execution/types.js';
@@ -104,7 +104,7 @@ export default class Shell extends PMOCommand {
     // Validate agent exists
     const agent = workspaceInfo.agents.find(a => a.name === agentName);
     if (!agent) {
-      this.handleError('AGENT_NOT_FOUND', `Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map(a => a.name).join(', ')}`, errorConfig);
+      this.handleError('AGENT_NOT_FOUND', `Agent "${agentName}" not found. Available: ${formatAgentList(workspaceInfo.agents)}`, errorConfig);
     }
 
     // Check for existing tmux sessions (skip in JSON mode - can't handle interactive tmux)

@@ -3,7 +3,8 @@ import { colors, format } from '../../lib/colors.js';
 import {
   getWorkspaceInfo,
   getAgentStatus,
-  WorkspaceInfo
+  WorkspaceInfo,
+  formatAgentList
 } from '../../lib/agents/commands.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
@@ -96,7 +97,7 @@ export default class Status extends PMOCommand {
     // Validate agent exists
     const agent = workspaceInfo.agents.find((a) => a.name === agentName);
     if (!agent) {
-      this.error(`Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map((a) => a.name).join(', ')}`);
+      this.error(`Agent "${agentName}" not found. Available: ${formatAgentList(workspaceInfo.agents)}`);
     }
 
     const agentStatus = getAgentStatus(workspaceInfo, agentName);

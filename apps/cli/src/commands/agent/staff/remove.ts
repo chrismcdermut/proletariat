@@ -3,7 +3,8 @@ import inquirer from 'inquirer';
 import { colors, format } from '../../../lib/colors.js';
 import {
   getWorkspaceInfo,
-  removeAgentsFromWorkspace
+  removeAgentsFromWorkspace,
+  formatAgentList
 } from '../../../lib/agents/commands.js';
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import {
@@ -120,7 +121,7 @@ export default class Remove extends PMOCommand {
     // Validate agent exists and is a staff agent
     const agent = staffAgents.find((a) => a.name === agentName);
     if (!agent) {
-      return handleError('AGENT_NOT_FOUND', `Staff agent "${agentName}" not found. Available staff agents: ${staffAgents.map((a) => a.name).join(', ')}`);
+      return handleError('AGENT_NOT_FOUND', `Staff agent "${agentName}" not found. Available: ${formatAgentList(staffAgents)}`);
     }
 
     const agentsToRemove = [agentName!];
