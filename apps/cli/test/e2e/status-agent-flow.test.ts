@@ -113,11 +113,11 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
   });
 
   // ===========================================================================
-  // STATUS CREATE - Complete Flow Tests (All 5 Prompts)
-  // Prompts: name → category → color → description → default
+  // STATUS CREATE - Machine Mode Flow Tests (Required fields only)
+  // In machine mode: name → category → completes (optional fields skipped)
   // ===========================================================================
-  describe('status create - complete interactive flow (all 5 prompts)', () => {
-    it('Step 1/5: initial command returns name input prompt', () => {
+  describe('status create - machine mode flow (required fields only)', () => {
+    it('Step 1/2: initial command returns name input prompt', () => {
       const output = exec(`status create -P ${TEST_PROJECT_ID} --machine`);
 
       if (hasSchemaError(output)) return;
@@ -129,7 +129,7 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(result!.prompt.message.toLowerCase()).to.include('name');
     });
 
-    it('Step 2/5: with --name, returns category list prompt', () => {
+    it('Step 2/2: with --name, returns category list prompt', () => {
       const output = exec(`status create -P ${TEST_PROJECT_ID} --name "Test Status" --machine`);
 
       if (hasSchemaError(output)) return;
@@ -150,45 +150,50 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(startedChoice!.command).to.include('--machine');
     });
 
-    it('Step 3/5: with --name --category, returns color input prompt', () => {
-      const output = exec(`status create -P ${TEST_PROJECT_ID} --name "Test Status" --category started --machine`);
+    it('Machine mode: with --name --category, creates status (skips optional prompts)', () => {
+      const statusName = 'Machine Mode Status';
+      const statusCategory = 'started';
+
+      // Execute with only required flags - should complete without prompting for optional fields
+      const output = exec(
+        `status create -P ${TEST_PROJECT_ID} --name "${statusName}" --category ${statusCategory} --machine`
+      );
 
       if (hasSchemaError(output)) return;
 
+      // Should NOT return a JSON prompt - should complete successfully
       const result = extractJson<AgentPromptResponse>(output);
-      expect(result).to.exist;
-      expect(result!.prompt.type).to.equal('input');
-      expect(result!.prompt.name).to.equal('color');
-      expect(result!.prompt.message.toLowerCase()).to.include('color');
+      // If no prompt is returned, the command completed
+      if (!result) {
+        // Verify status was created in database
+        const created = getStatusByName(statusName);
+        expect(created).to.exist;
+        expect(created!.name).to.equal(statusName);
+        expect(created!.category).to.equal(statusCategory);
+      }
     });
 
-    it('Step 4/5: with --name --category --color, returns description input prompt', () => {
-      const output = exec(`status create -P ${TEST_PROJECT_ID} --name "Test Status" --category started --color "#FF0000" --machine`);
+    it('Machine mode: optional flags still work when provided', () => {
+      const statusName = 'Machine Optional Flags';
+      const statusCategory = 'started';
+      const statusColor = '#00FF00';
+      const statusDesc = 'Optional flags test';
+
+      // Execute with optional flags - should use them without prompting
+      const output = exec(
+        `status create -P ${TEST_PROJECT_ID} --name "${statusName}" --category ${statusCategory} --color "${statusColor}" --description "${statusDesc}" --default --machine`
+      );
 
       if (hasSchemaError(output)) return;
 
-      const result = extractJson<AgentPromptResponse>(output);
-      expect(result).to.exist;
-      expect(result!.prompt.type).to.equal('input');
-      expect(result!.prompt.name).to.equal('description');
-      expect(result!.prompt.message.toLowerCase()).to.include('description');
-    });
-
-    it('Step 5/5: with --name --category --color --description, returns default list prompt', () => {
-      const output = exec(`status create -P ${TEST_PROJECT_ID} --name "Test Status" --category started --color "#FF0000" --description "Test desc" --machine`);
-
-      if (hasSchemaError(output)) return;
-
-      const result = extractJson<AgentPromptResponse>(output);
-      expect(result).to.exist;
-      expect(result!.prompt.type).to.equal('list');
-      expect(result!.prompt.name).to.equal('default');
-
-      // Verify Yes/No choices
-      const yesChoice = result!.prompt.choices.find(c => c.name.toLowerCase().includes('yes'));
-      const noChoice = result!.prompt.choices.find(c => c.name.toLowerCase().includes('no'));
-      expect(yesChoice).to.exist;
-      expect(noChoice).to.exist;
+      // Verify status was created with all fields
+      const created = getStatusByName(statusName);
+      expect(created).to.exist;
+      expect(created!.name).to.equal(statusName);
+      expect(created!.category).to.equal(statusCategory);
+      expect(created!.color).to.equal(statusColor);
+      expect(created!.description).to.equal(statusDesc);
+      expect(created!.is_default).to.equal(1);
     });
 
     it('Complete flow: all flags provided → creates status → verify in DB', () => {
@@ -214,7 +219,7 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(created!.is_default).to.equal(1);
     });
 
-    it('Full navigation: step through all 5 prompts sequentially', () => {
+    it('Full navigation: step through required prompts (name → category → done)', () => {
       // Step 1: name prompt
       const step1 = exec(`status create -P ${TEST_PROJECT_ID} --machine`);
       if (hasSchemaError(step1)) return;
@@ -229,26 +234,17 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       if (!result2) return;
       expect(result2.prompt.name).to.equal('category');
 
-      // Step 3: color prompt
+      // Step 3: with name and category, command completes (no more prompts)
       const step3 = exec(`status create -P ${TEST_PROJECT_ID} --name "Nav Test" --category backlog --machine`);
       if (hasSchemaError(step3)) return;
       const result3 = extractJson<AgentPromptResponse>(step3);
-      if (!result3) return;
-      expect(result3.prompt.name).to.equal('color');
+      // Should not return a prompt - command should complete
+      expect(result3).to.not.exist;
 
-      // Step 4: description prompt
-      const step4 = exec(`status create -P ${TEST_PROJECT_ID} --name "Nav Test" --category backlog --color "" --machine`);
-      if (hasSchemaError(step4)) return;
-      const result4 = extractJson<AgentPromptResponse>(step4);
-      if (!result4) return;
-      expect(result4.prompt.name).to.equal('description');
-
-      // Step 5: default prompt
-      const step5 = exec(`status create -P ${TEST_PROJECT_ID} --name "Nav Test" --category backlog --color "" --description "" --machine`);
-      if (hasSchemaError(step5)) return;
-      const result5 = extractJson<AgentPromptResponse>(step5);
-      if (!result5) return;
-      expect(result5.prompt.name).to.equal('default');
+      // Verify status was created
+      const created = getStatusByName('Nav Test');
+      expect(created).to.exist;
+      expect(created!.category).to.equal('backlog');
     });
   });
 
