@@ -122,12 +122,12 @@ describe('Agent Command Architecture', () => {
     it('all agent commands use consistent help format', async () => {
       const commands = ['remove', 'visit', 'status', 'shell'];
 
-      await Promise.all(commands.map(async (cmd) => {
+      for (const cmd of commands) {
         const { stdout } = await runCommand(['agent', cmd, '--help'], { root });
         expect(stdout).to.contain('USAGE');
         // Consistent format across all commands
         expect(stdout).to.match(/\$ prlt agent/);
-      }));
+      }
     });
   });
 
@@ -142,14 +142,14 @@ describe('Agent Command Architecture', () => {
           ['agent', 'status']
         ];
 
-        await Promise.all(commands.map(async (cmd) => {
+        for (const cmd of commands) {
           try {
             await runCommand(cmd, { root: testDir });
           } catch (error: unknown) {
             // Expect an error when not in workspace
             expect(error).to.exist;
           }
-        }));
+        }
       } finally {
         fs.rmSync(testDir, { recursive: true, force: true });
       }
