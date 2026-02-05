@@ -73,10 +73,10 @@ export default class ExecutionList extends PMOCommand {
       this.log('═'.repeat(100))
       this.log(
         styles.muted(
-          padEnd('ID', 11) +
+          padEnd('ID', 14) +
             padEnd('Ticket', 9) +
             padEnd('Agent', 10) +
-            padEnd('Env', 12) +
+            padEnd('Env', 13) +
             padEnd('Display', 11) +
             padEnd('Perms', 8) +
             padEnd('Status', 10) +
@@ -95,10 +95,10 @@ export default class ExecutionList extends PMOCommand {
         const permsColor = exec.sandboxed ? styles.success : styles.warning
 
         this.log(
-          padEnd(exec.id, 11) +
+          padEnd(exec.id, 14) +
             padEnd(exec.ticketId, 9) +
             padEnd(exec.agentName, 10) +
-            padEnd(envStr, 12) +
+            padEnd(envStr, 13) +
             padEnd(exec.displayMode, 11) +
             permsColor(padEnd(permsStr, 8)) +
             statusColor(padEnd(exec.status, 10)) +
