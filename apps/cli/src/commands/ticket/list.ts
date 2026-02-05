@@ -28,6 +28,8 @@ export default class TicketList extends Command {
     '<%= config.bin %> <%= command.id %> --all',
     '<%= config.bin %> <%= command.id %> --all --group-by priority',
     '<%= config.bin %> <%= command.id %> -g priority',
+    '<%= config.bin %> <%= command.id %> --limit 10',
+    '<%= config.bin %> <%= command.id %> --limit 10 --offset 20',
   ];
 
   static flags = {
@@ -64,6 +66,15 @@ export default class TicketList extends Command {
       description: 'Group tickets by field',
       options: ['status', 'priority'],
       default: 'status',
+    }),
+    limit: Flags.integer({
+      char: 'l',
+      description: 'Maximum number of tickets to display',
+      min: 1,
+    }),
+    offset: Flags.integer({
+      description: 'Skip first N tickets (for pagination)',
+      min: 0,
     }),
   };
 
@@ -102,7 +113,11 @@ export default class TicketList extends Command {
 
       // Determine projectId for the query
       const projectId = flags.all ? undefined : (filter.projectId || undefined);
-      const tickets = await pmoContext.storage.listTickets(projectId, filter);
+      let tickets = await pmoContext.storage.listTickets(projectId, filter);
+
+      // Apply pagination
+      if (flags.offset) tickets = tickets.slice(flags.offset);
+      if (flags.limit) tickets = tickets.slice(0, flags.limit);
 
       if (tickets.length === 0) {
         this.log(styles.warning('No tickets found.'));
