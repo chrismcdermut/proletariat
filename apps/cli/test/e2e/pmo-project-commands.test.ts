@@ -443,6 +443,93 @@ describe('PMO Project Commands E2E Tests', () => {
     });
   });
 
+  describe('prlt project update', () => {
+    beforeEach(() => {
+      createLocalTestProject(db, 'update-project', 'Update Test Project', 'Original description');
+      createLocalTestColumns(db, 'update-project');
+    });
+
+    it('should update project name with --name flag', () => {
+      exec('project update update-project --name "New Project Name"');
+
+      const project = db.prepare('SELECT name FROM pmo_projects WHERE id = ?').get('update-project') as { name: string };
+      expect(project.name).to.equal('New Project Name');
+    });
+
+    it('should update project description with --description flag', () => {
+      exec('project update update-project --description "New description"');
+
+      const project = db.prepare('SELECT description FROM pmo_projects WHERE id = ?').get('update-project') as { description: string };
+      expect(project.description).to.equal('New description');
+    });
+
+    it('should update both name and description', () => {
+      exec('project update update-project --name "Updated Name" --description "Updated description"');
+
+      const project = db.prepare('SELECT name, description FROM pmo_projects WHERE id = ?').get('update-project') as { name: string; description: string };
+      expect(project.name).to.equal('Updated Name');
+      expect(project.description).to.equal('Updated description');
+    });
+
+    it('should clear description with empty string', () => {
+      exec('project update update-project --description ""');
+
+      const project = db.prepare('SELECT description FROM pmo_projects WHERE id = ?').get('update-project') as { description: string | null };
+      expect(project.description).to.be.null;
+    });
+
+    it('should show success message', () => {
+      const output = exec('project update update-project --name "Success Test"');
+
+      // Non-TTY outputs JSON with success: true
+      expect(output).to.satisfy((o: string) =>
+        o.includes('Updated project') || o.includes('"success"')
+      );
+    });
+
+    it('should error for non-existent project', () => {
+      const output = exec('project update non-existent --name "Test"');
+
+      expect(output.toLowerCase()).to.contain('not found');
+    });
+
+    it('should report no changes when same values provided', () => {
+      const output = exec('project update update-project --name "Update Test Project"');
+
+      // Non-TTY outputs JSON; check for no-change indicator in either format
+      expect(output.toLowerCase()).to.satisfy((o: string) =>
+        o.includes('no changes') || o.includes('"noChanges"') || o.includes('"nochanges"')
+      );
+    });
+
+    it('should update updated_at timestamp', () => {
+      const before = db.prepare('SELECT updated_at FROM pmo_projects WHERE id = ?').get('update-project') as { updated_at: string };
+
+      // Wait a bit to ensure timestamp differs
+      exec('project update update-project --name "Timestamp Test"');
+
+      const after = db.prepare('SELECT updated_at FROM pmo_projects WHERE id = ?').get('update-project') as { updated_at: string };
+      expect(after.updated_at).to.not.equal(before.updated_at);
+    });
+
+    it('should support JSON mode output', () => {
+      const output = exec('project update update-project --name "JSON Test" --machine');
+
+      const json = JSON.parse(output);
+      expect(json.success).to.be.true;
+      expect(json.result.projectName).to.equal('JSON Test');
+      expect(json.result.changes).to.include('name');
+    });
+
+    it('should preserve project ID when updating name', () => {
+      exec('project update update-project --name "Completely Different Name"');
+
+      const project = db.prepare('SELECT id, name FROM pmo_projects WHERE id = ?').get('update-project') as { id: string; name: string };
+      expect(project.id).to.equal('update-project');
+      expect(project.name).to.equal('Completely Different Name');
+    });
+  });
+
   describe('prlt project list --archived', () => {
     beforeEach(() => {
       createLocalTestProject(db, 'active-proj', 'Active Project');
