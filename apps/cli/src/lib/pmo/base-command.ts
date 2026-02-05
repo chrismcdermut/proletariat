@@ -1,8 +1,10 @@
 import { Command, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { getPMOContext, type PMOContext } from './pmo-context.js';
+import { findHQPath } from './find-pmo.js';
 import { styles } from '../styles.js';
 import { PromptCommand } from '../prompt-command.js';
+import { getSelectedProject } from '../workspace-config.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
@@ -154,6 +156,20 @@ export abstract class PMOCommand extends PromptCommand {
     // If -P flag was provided, use it
     if (this.projectFlag) {
       return this.projectFlag;
+    }
+
+    // Check for selected project in workspace config
+    const hqPath = findHQPath();
+    if (hqPath) {
+      const selectedProjectId = getSelectedProject(hqPath);
+      if (selectedProjectId) {
+        // Verify the project still exists
+        const selectedProject = await this.storage.getProject(selectedProjectId);
+        if (selectedProject && !selectedProject.isArchived) {
+          return selectedProjectId;
+        }
+        // If project doesn't exist or is archived, fall through to normal selection
+      }
     }
 
     // Get all projects

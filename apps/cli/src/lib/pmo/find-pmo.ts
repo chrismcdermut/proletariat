@@ -71,6 +71,43 @@ function hasPMOTables(dbPath: string): boolean {
  * NOTE: PRLT_HQ_PATH is ignored on host machines to support multiple agents
  * working in different workspaces simultaneously.
  */
+/**
+ * Find HQ (headquarters) directory by searching up from current directory.
+ *
+ * @returns The HQ path or null if not found
+ */
+export function findHQPath(): string | null {
+  // Check PRLT_HQ_PATH environment variable (only in devcontainers or test environments)
+  const hqPath = process.env.PRLT_HQ_PATH;
+  const allowEnvHqPath = process.env.DEVCONTAINER === 'true' || process.env.PRLT_TEST_ENV === 'true';
+
+  if (hqPath && allowEnvHqPath) {
+    return hqPath;
+  }
+
+  let currentDir = process.cwd();
+
+  // Search up the directory tree
+  while (currentDir !== '/') {
+    const configPath = path.join(currentDir, '.proletariat', 'config.json');
+
+    if (fs.existsSync(configPath)) {
+      try {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        if (config.type === 'hq') {
+          return currentDir;
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+
+    currentDir = path.dirname(currentDir);
+  }
+
+  return null;
+}
+
 export function findPMO(): string | null {
   // Check PRLT_HQ_PATH environment variable (only in devcontainers or test environments)
   const hqPath = process.env.PRLT_HQ_PATH;

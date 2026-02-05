@@ -28,6 +28,7 @@ export default class Project extends PMOCommand {
       { id: 'create', name: 'Create new project', command: 'prlt project create --json' },
       { id: 'list', name: 'List all projects', command: 'prlt project list --format json' },
       { id: 'view', name: 'View project board', command: 'prlt project view --json' },
+      { id: 'select', name: 'Select default project', command: 'prlt project select --json' },
       { id: 'spec', name: 'Manage project specs', command: 'prlt project spec --json' },
       { id: 'delete', name: 'Delete project', command: 'prlt project delete --json' },
       { id: 'cancel', name: 'Cancel', command: '' },
@@ -57,6 +58,9 @@ export default class Project extends PMOCommand {
         break;
       case 'view':
         await this.config.runCommand('project:view', []);
+        break;
+      case 'select':
+        await this.config.runCommand('project:select', []);
         break;
       case 'spec':
         await this.config.runCommand('project:spec', []);

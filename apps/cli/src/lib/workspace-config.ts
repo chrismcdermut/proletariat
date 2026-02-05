@@ -39,6 +39,8 @@ export type PrltChannel = 'npm' | 'npm:dev' | 'npm:next' | 'gh' | 'gh:dev' | 'mo
 export interface PrltConfig {
   /** prlt source: "npm", "npm:dev", "gh", "gh:dev", "mount", or specific version like "npm:1.2.3" */
   channel?: PrltChannel
+  /** Selected default project ID - used when -P flag is not provided */
+  selectedProject?: string
 }
 
 export interface WorkspaceConfig {
@@ -142,4 +144,36 @@ export function parseChannel(channel: string): { registry: 'npm' | 'gh' | 'mount
 
   // Bare version numbers default to npm
   return { registry: 'npm', version: channel }
+}
+
+/**
+ * Get the selected project ID from workspace config.
+ * Returns null if no project is selected.
+ */
+export function getSelectedProject(hqPath: string): string | null {
+  const config = readWorkspaceConfig(hqPath)
+  return config?.prlt?.selectedProject ?? null
+}
+
+/**
+ * Set the selected project ID in workspace config.
+ * Pass null to clear the selection.
+ */
+export function setSelectedProject(hqPath: string, projectId: string | null): void {
+  const config = readWorkspaceConfig(hqPath)
+  if (!config) {
+    throw new Error('No workspace config found')
+  }
+
+  if (!config.prlt) {
+    config.prlt = {}
+  }
+
+  if (projectId === null) {
+    delete config.prlt.selectedProject
+  } else {
+    config.prlt.selectedProject = projectId
+  }
+
+  writeWorkspaceConfig(hqPath, config)
 }
