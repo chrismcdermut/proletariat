@@ -21,8 +21,8 @@ export default class PR extends PMOCommand {
     ...pmoBaseFlags,
     action: Flags.string({
       char: 'a',
-      description: 'Action to perform (create, link, status)',
-      options: ['create', 'link', 'status'],
+      description: 'Action to perform (list, create, link, status)',
+      options: ['list', 'create', 'link', 'status'],
     }),
   };
 
@@ -59,6 +59,7 @@ export default class PR extends PMOCommand {
       type: 'list',
       message: 'Pull Request Operations - What would you like to do?',
       choices: () => [
+        { name: 'List all open PRs', value: 'list' },
         { name: 'Create PR from current branch', value: 'create' },
         { name: 'Link existing PR to ticket', value: 'link' },
         { name: 'View PR status for ticket', value: 'status' },
@@ -75,6 +76,9 @@ export default class PR extends PMOCommand {
 
     // Run the selected subcommand
     switch (resolved.action) {
+      case 'list':
+        await this.config.runCommand('pr:list', []);
+        break;
       case 'create':
         await this.config.runCommand('pr:create', []);
         break;
