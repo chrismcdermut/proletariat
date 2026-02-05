@@ -56,11 +56,13 @@ export default class WorkWatch extends PMOCommand {
     limit: Flags.integer({
       char: 'l',
       description: 'Maximum concurrent executions',
+      min: 1,
     }),
     interval: Flags.integer({
       char: 'i',
       description: 'Polling interval in seconds',
       default: 5,
+      min: 1,
     }),
     once: Flags.boolean({
       description: 'Check once and exit (no continuous watching)',

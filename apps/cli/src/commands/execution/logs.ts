@@ -40,6 +40,7 @@ export default class ExecutionLogs extends PMOCommand {
     tail: Flags.integer({
       char: 'n',
       description: 'Show last n lines',
+      min: 1,
     }),
     json: Flags.boolean({
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
