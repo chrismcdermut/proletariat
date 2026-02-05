@@ -6,7 +6,7 @@ import { PMO_TABLES } from '../schema.js'
 import { Epic, EpicFilter, PMOError, Ticket } from '../types.js'
 import { generateEntityId } from '../utils.js'
 import { StorageContext, EpicRow, TicketRow } from './types.js'
-import { rowToTicket } from './helpers.js'
+import { rowToTicket, wrapSqliteError } from './helpers.js'
 
 const T = PMO_TABLES
 
@@ -31,21 +31,25 @@ export class EpicStorage {
       position = maxPos.max_pos + 1
     }
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.epics} (id, project_id, title, description, status, position, file_path, spec_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      projectId,
-      title,
-      epic.description || null,
-      status,
-      position,
-      epic.filePath || null,
-      epic.specId || null,
-      now,
-      now
-    )
+    try {
+      this.ctx.db.prepare(`
+        INSERT INTO ${T.epics} (id, project_id, title, description, status, position, file_path, spec_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        projectId,
+        title,
+        epic.description || null,
+        status,
+        position,
+        epic.filePath || null,
+        epic.specId || null,
+        now,
+        now
+      )
+    } catch (err) {
+      wrapSqliteError('Epic', 'create', err)
+    }
 
     this.ctx.updateBoardTimestamp(projectId)
 
@@ -194,12 +198,17 @@ export class EpicStorage {
       throw new PMOError('NOT_FOUND', `Epic not found: ${id}`)
     }
 
-    // Unlink tickets from this epic
-    this.ctx.db.prepare(`
-      UPDATE ${T.tickets} SET epic_id = NULL WHERE epic_id = ?
-    `).run(id)
+    try {
+      // Unlink tickets from this epic
+      this.ctx.db.prepare(`
+        UPDATE ${T.tickets} SET epic_id = NULL WHERE epic_id = ?
+      `).run(id)
 
-    this.ctx.db.prepare(`DELETE FROM ${T.epics} WHERE id = ?`).run(id)
+      this.ctx.db.prepare(`DELETE FROM ${T.epics} WHERE id = ?`).run(id)
+    } catch (err) {
+      wrapSqliteError('Epic', 'delete', err)
+    }
+
     this.ctx.updateBoardTimestamp(epic.projectId)
   }
 
