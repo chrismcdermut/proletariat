@@ -186,6 +186,50 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
 
       expect(output.toLowerCase()).to.contain('already exists');
     });
+
+    it('should accept --template-name flag instead of positional argument', () => {
+      const output = exec('ticket template save TKT-001 --template-name "Flag Template"');
+
+      expect(output).to.contain('Created template');
+      expect(output).to.contain('Flag Template');
+
+      const template = db.prepare('SELECT * FROM pmo_ticket_templates WHERE name = ?').get('Flag Template') as { id: string } | undefined;
+      expect(template).to.not.be.undefined;
+    });
+
+    it('should output JSON with --json flag', () => {
+      const output = exec('ticket template save TKT-001 "JSON Template" --json');
+
+      const json = JSON.parse(output);
+      expect(json.success).to.be.true;
+      expect(json.result).to.be.an('object');
+      expect(json.result.template).to.be.an('object');
+      expect(json.result.template.name).to.equal('JSON Template');
+      expect(json.result.sourceTicketId).to.equal('TKT-001');
+      expect(json.metadata.command).to.equal('ticket template save');
+    });
+
+    it('should output prompt as JSON when missing name in --json mode', () => {
+      // Run without name to trigger prompt for template name
+      const output = exec('ticket template save TKT-001 --json');
+
+      // Should output a prompt configuration for the template name input
+      const json = JSON.parse(output);
+      expect(json.prompt).to.be.an('object');
+      expect(json.prompt.type).to.equal('input');
+      expect(json.prompt.name).to.equal('name');
+      expect(json.prompt.message).to.include('Template name');
+      expect(json.metadata.command).to.equal('ticket template save');
+    });
+
+    it('should work non-interactively with all required args', () => {
+      const output = exec('ticket template save TKT-001 -n "Non-Interactive Template" -d "Created non-interactively" --json');
+
+      const json = JSON.parse(output);
+      expect(json.success).to.be.true;
+      expect(json.result.template.name).to.equal('Non-Interactive Template');
+      expect(json.result.template.description).to.equal('Created non-interactively');
+    });
   });
 
   describe('prlt ticket template delete', () => {

@@ -133,6 +133,18 @@ describe('Template Commands Machine Output Mode Support', () => {
       const output = runCli('template ticket save --help');
       expect(output).to.include('--json');
     });
+
+    it('should have --template-name flag in help', () => {
+      const output = runCli('template ticket save --help');
+      expect(output).to.include('--template-name');
+      expect(output).to.include('-n');
+    });
+
+    it('should have --machine flag in help', () => {
+      const output = runCli('template ticket save --help');
+      expect(output).to.include('--machine');
+      expect(output).to.include('-m');
+    });
   });
 
   describe('template phase apply', () => {
