@@ -15,7 +15,7 @@ export default class TicketEdit extends PMOCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %> TICK-001',
     '<%= config.bin %> <%= command.id %> TICK-001 --title "New title"',
-    '<%= config.bin %> <%= command.id %> TICK-001 --priority HIGH --category bug',
+    '<%= config.bin %> <%= command.id %> TICK-001 --priority P1 --category bug',
     '<%= config.bin %> <%= command.id %> TICK-001 --add-subtask "Implement feature" --add-subtask "Write tests"',
     '<%= config.bin %> <%= command.id %> TICK-001 --owner "john" --assignee "agent-1"',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',

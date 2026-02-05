@@ -21,7 +21,7 @@ export default class TicketList extends Command {
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --column Backlog',
-    '<%= config.bin %> <%= command.id %> --priority URGENT',
+    '<%= config.bin %> <%= command.id %> --priority P0',
     '<%= config.bin %> <%= command.id %> --category bug',
     '<%= config.bin %> <%= command.id %> --search "login"',
     '<%= config.bin %> <%= command.id %> --project mobile-app',

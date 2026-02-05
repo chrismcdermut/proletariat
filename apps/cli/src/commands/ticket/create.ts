@@ -17,7 +17,7 @@ export default class TicketCreate extends PMOCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --title "Fix login bug" --column Backlog',
-    '<%= config.bin %> <%= command.id %> -t "Add feature" -c "In Progress" -p HIGH',
+    '<%= config.bin %> <%= command.id %> -t "Add feature" -c "In Progress" -p P1',
     '<%= config.bin %> <%= command.id %> --project mobile-app -t "New feature"',
     '<%= config.bin %> <%= command.id %> --epic EPIC-001 -t "Implement auth flow"',
     '<%= config.bin %> <%= command.id %> --json  # Output column choices as JSON',

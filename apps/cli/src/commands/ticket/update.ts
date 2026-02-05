@@ -13,10 +13,10 @@ export default class TicketUpdate extends PMOCommand {
   static description = 'Update priority/category for ticket(s)';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> TKT-001 --priority HIGH',
+    '<%= config.bin %> <%= command.id %> TKT-001 --priority P1',
     '<%= config.bin %> <%= command.id %> TKT-001 --category bug',
     '<%= config.bin %> <%= command.id %> --bulk',
-    '<%= config.bin %> <%= command.id %> --bulk --priority HIGH',
+    '<%= config.bin %> <%= command.id %> --bulk --priority P1',
     '<%= config.bin %> <%= command.id %> --json  # Output choices as JSON',
   ];
 
