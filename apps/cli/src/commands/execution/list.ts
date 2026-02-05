@@ -32,6 +32,7 @@ export default class ExecutionList extends PMOCommand {
       char: 'l',
       description: 'Number of results',
       default: 20,
+      min: 1,
     }),
   }
 
