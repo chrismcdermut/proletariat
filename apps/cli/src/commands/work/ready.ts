@@ -140,22 +140,22 @@ export default class WorkReady extends PMOCommand {
       }
 
       // Get configured column name (from pmo_settings or default)
-      // In Linear-style workflow, "ready" moves ticket to Done (review is implicit via PR)
-      const targetColumnName = getWorkColumnSetting(db, 'done');
+      // "ready" moves ticket to Review column (work complete moves to Done)
+      const targetColumnName = getWorkColumnSetting(db, 'review');
 
       const board = await this.storage.getBoard(ticket.projectId!);
       const columnNames = board.columns.map(col => col.name);
-      const doneColumn = findColumnByName(columnNames, targetColumnName);
+      const reviewColumn = findColumnByName(columnNames, targetColumnName);
 
-      if (!doneColumn) {
+      if (!reviewColumn) {
         db.close();
-        this.error(`No "${targetColumnName}" column found in board configuration. Configure with: prlt config set column_done <column-name>`);
+        this.error(`No "${targetColumnName}" column found in board configuration. Configure with: prlt config set column_review <column-name>`);
       }
 
       const previousColumn = ticket.statusName;
 
-      // Move to Done column (moveTicket also updates status_id)
-      await this.storage.moveTicket(ticket.projectId!, ticketId!, doneColumn);
+      // Move to Review column (moveTicket also updates status_id)
+      await this.storage.moveTicket(ticket.projectId!, ticketId!, reviewColumn);
 
       // Auto-export to board.md if configured
       await autoExportToBoard(this.pmoPath, this.storage);
@@ -221,7 +221,7 @@ export default class WorkReady extends PMOCommand {
       this.log(styles.success(`Work ready: ${ticketId}`));
       this.log(styles.muted(`   Title: ${ticket.title}`));
       this.log(styles.muted(`   From: ${previousColumn}`));
-      this.log(styles.muted(`   To: ${doneColumn}`));
+      this.log(styles.muted(`   To: ${reviewColumn}`));
       if (prUrl) {
         this.log(styles.muted(`   PR: ${prUrl}`));
       }
