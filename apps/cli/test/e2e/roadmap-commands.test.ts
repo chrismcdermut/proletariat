@@ -78,6 +78,48 @@ describe('PMO Roadmap Commands E2E Tests', () => {
       const roadmaps = db.prepare('SELECT id FROM pmo_roadmaps WHERE id = ?').all('my-custom-id') as Array<{ id: string }>;
       expect(roadmaps).to.have.lengthOf(1);
     });
+
+    describe('JSON mode (TKT-792)', () => {
+      it('should return JSON without interactive prompts when using --json flag', () => {
+        const output = exec('roadmap create --json --name "Q1 Roadmap"');
+
+        // Output should be valid JSON
+        const parsed = JSON.parse(filterOutput(output));
+
+        // Should contain roadmap data
+        expect(parsed).to.have.property('id');
+        expect(parsed).to.have.property('name', 'Q1 Roadmap');
+
+        // Roadmap should be created in database
+        const roadmaps = db.prepare('SELECT * FROM pmo_roadmaps WHERE name = ?').all('Q1 Roadmap') as Array<{ id: string }>;
+        expect(roadmaps).to.have.lengthOf(1);
+      });
+
+      it('should return roadmap data with all fields in JSON mode', () => {
+        const output = exec('roadmap create --json --name "Full Roadmap" --description "Test desc" --id full-roadmap --default');
+
+        const parsed = JSON.parse(filterOutput(output));
+
+        expect(parsed.id).to.equal('full-roadmap');
+        expect(parsed.name).to.equal('Full Roadmap');
+        expect(parsed.description).to.equal('Test desc');
+        expect(parsed.isDefault).to.equal(true);
+      });
+
+      it('should skip follow-up prompt even when projects exist', () => {
+        // The test project already exists in beforeEach
+        // In JSON mode, it should NOT prompt to add projects
+        const output = exec('roadmap create --json --name "Skip Prompt Test"');
+
+        // Should be valid JSON (not error about interactive prompt)
+        const parsed = JSON.parse(filterOutput(output));
+        expect(parsed).to.have.property('name', 'Skip Prompt Test');
+
+        // Should NOT contain any interactive prompt text
+        expect(output).to.not.contain('Add projects');
+        expect(output).to.not.contain('Select projects');
+      });
+    });
   });
 
   describe('prlt roadmap list', () => {
