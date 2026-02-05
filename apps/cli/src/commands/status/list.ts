@@ -43,7 +43,12 @@ export default class StatusList extends PMOCommand {
       this.error(`Project "${projectId}" has no workflow assigned.`);
     }
 
-    const statuses = await this.storage.listStatuses(project.workflowId);
+    const allStatuses = await this.storage.listStatuses(project.workflowId);
+
+    // Apply category filter if specified
+    const statuses = flags.category
+      ? allStatuses.filter(s => s.category === flags.category)
+      : allStatuses;
 
     if (jsonMode) {
       this.log(JSON.stringify(statuses, null, 2));
@@ -73,8 +78,6 @@ export default class StatusList extends PMOCommand {
     };
 
     for (const category of STATE_CATEGORY_ORDER) {
-      if (flags.category && flags.category !== category) continue;
-
       const categoryStatuses = grouped.get(category);
       if (!categoryStatuses || categoryStatuses.length === 0) continue;
 
