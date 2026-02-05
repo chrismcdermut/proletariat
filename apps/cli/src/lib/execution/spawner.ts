@@ -102,6 +102,18 @@ function findBaseBranchInContainer(
 }
 
 // =============================================================================
+// Constants
+// =============================================================================
+
+/**
+ * Delay between container spawns to prevent Docker kernel panics (TKT-801).
+ * When spawning multiple agents simultaneously, Docker Desktop on Apple Silicon
+ * can hit kernel panics in grpcfuse (file sharing layer) due to spinlock
+ * contention when all agents mount the same shared volumes concurrently.
+ */
+const SPAWN_STAGGER_DELAY_MS = 2000
+
+// =============================================================================
 // Types
 // =============================================================================
 
@@ -690,6 +702,16 @@ export async function spawnForColumn(
         if (roundRobinState.lastIndex >= availableAgents.length) {
           roundRobinState.lastIndex = -1
         }
+      }
+
+      // Staggered spawn delay to prevent Docker kernel panics (TKT-801)
+      // When spawning multiple containers, add delay between spawns to avoid
+      // mount storms that cause spinlock contention in Docker's grpcfuse layer
+      const remainingTickets = ticketsToProcess.length - (ticketsToProcess.indexOf(ticket) + 1)
+      if (remainingTickets > 0 && availableAgents.length > 0) {
+        log(`Waiting ${SPAWN_STAGGER_DELAY_MS / 1000}s before next spawn (${remainingTickets} remaining)...`)
+        // eslint-disable-next-line no-await-in-loop -- Intentional staggered delay for Docker stability
+        await new Promise(resolve => setTimeout(resolve, SPAWN_STAGGER_DELAY_MS))
       }
     } else {
       result.failed.push(spawnResult)

@@ -80,34 +80,39 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
   }
 
   // Build mounts array - parent repo mounts only needed for worktree mode
+  // TKT-801: Use consistency=cached to reduce grpcfuse contention on Docker Desktop.
+  // This helps prevent kernel panics when multiple containers mount the same paths concurrently.
   const mounts: string[] = [
-    'source=${localWorkspaceFolder},target=/workspace,type=bind',
+    'source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached',
     'source=claude-bash-history,target=/commandhistory,type=volume',
     'source=claude-credentials,target=/home/node/.claude,type=volume',
     // NOTE: ~/.claude.json is COPIED (not mounted) to /workspace/.claude.json
     // to avoid corruption from concurrent writes by multiple containers
     // NOTE: SSH agent socket mounting doesn't work reliably on Docker Desktop for Mac
     // So we use HTTPS + token approach instead. The token is fetched fresh at spawn time.
-    'source=${localEnv:PRLT_HQ_PATH}/.proletariat,target=/hq/.proletariat,type=bind',
+    'source=${localEnv:PRLT_HQ_PATH}/.proletariat,target=/hq/.proletariat,type=bind,consistency=cached',
     // PMO path can be anywhere (e.g., /hq/pmo or /hq/repos/myrepo/pmo)
     // Use PRLT_PMO_PATH env var to mount the actual location to /hq/pmo
-    'source=${localEnv:PRLT_PMO_PATH},target=/hq/pmo,type=bind',
+    'source=${localEnv:PRLT_PMO_PATH},target=/hq/pmo,type=bind,consistency=cached',
   ]
 
   // Only add parent repo mounts for worktree mode
   // Worktree .git files reference paths like /Users/.../repos/{repoName}/.git/worktrees/name
   // These mounts make those paths accessible inside the container at /hq/repos/{repoName}
   // Clone mode doesn't need this because each clone has its own self-contained .git directory
+  // NOTE: Cannot use readonly because git worktrees share the object store with parent repo.
+  // Commits write to parent's .git/objects/ and refs update in .git/worktrees/<name>/
   if (mountMode === 'worktree' && options.repoWorktrees) {
     for (const repoName of options.repoWorktrees) {
-      mounts.push(`source=\${localEnv:PRLT_HQ_PATH}/repos/${repoName},target=/hq/repos/${repoName},type=bind`)
+      mounts.push(`source=\${localEnv:PRLT_HQ_PATH}/repos/${repoName},target=/hq/repos/${repoName},type=bind,consistency=cached`)
     }
   }
 
   // If using "mount" channel, mount local prlt build from PRLT_REPO_PATH
   // The setup-prlt.sh script will detect /opt/prlt and configure the wrapper
+  // TKT-801: Use readonly,consistency=cached to reduce grpcfuse contention
   if (useMount) {
-    mounts.push('source=${localEnv:PRLT_REPO_PATH},target=/opt/prlt,type=bind,readonly')
+    mounts.push('source=${localEnv:PRLT_REPO_PATH},target=/opt/prlt,type=bind,readonly,consistency=cached')
   }
 
   const devcontainerJson: DevcontainerJson = {
@@ -665,8 +670,9 @@ export function updateDevcontainerMounts(agentDir: string, _repoWorktrees: strin
   // Use single mount for entire workspace - includes all repos and temp files
   // NOTE: ~/.claude.json is COPIED (not mounted) to /workspace/.claude.json
   // to avoid corruption from concurrent writes by multiple containers
+  // TKT-801: Use consistency=cached to reduce grpcfuse contention on Docker Desktop
   devcontainerJson.mounts = [
-    'source=${localWorkspaceFolder},target=/workspace,type=bind',
+    'source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached',
     'source=claude-bash-history,target=/commandhistory,type=volume',
     'source=claude-credentials,target=/home/node/.claude,type=volume',
   ]

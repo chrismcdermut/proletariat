@@ -853,18 +853,24 @@ function createDockerContainer(
   // KEY: Use a named Docker volume for Claude credentials - this is how devcontainer.json
   // was handling it. The volume persists across containers, so login once = logged in everywhere.
   // This avoids corruption from concurrent writes to host filesystem.
+  //
+  // TKT-801: Use :cached mount option to reduce grpcfuse contention on Docker Desktop.
+  // This improves performance and helps prevent kernel panics when multiple containers
+  // mount the same paths concurrently.
   const mounts: string[] = [
     // Agent workspace
-    `-v "${context.agentDir}:/workspace"`,
-    // HQ .proletariat directory (for database access)
-    ...(context.hqPath ? [`-v "${context.hqPath}/.proletariat:/hq/.proletariat"`] : []),
-    // PMO path
-    ...(context.pmoPath ? [`-v "${context.pmoPath}:/hq/pmo"`] : []),
-    // Mount parent repos for git worktree resolution
+    `-v "${context.agentDir}:/workspace:cached"`,
+    // HQ .proletariat directory (for database access) - use :cached to reduce contention
+    ...(context.hqPath ? [`-v "${context.hqPath}/.proletariat:/hq/.proletariat:cached"`] : []),
+    // PMO path - use :cached to reduce contention
+    ...(context.pmoPath ? [`-v "${context.pmoPath}:/hq/pmo:cached"`] : []),
+    // Mount parent repos for git worktree resolution - use :cached to reduce contention
+    // NOTE: Cannot use :ro because git worktrees share the object store with parent repo.
+    // Commits write to parent's .git/objects/ and refs update in .git/worktrees/<name>/
     // Worktree .git files reference paths like /Users/.../repos/{repoName}/.git/worktrees/name
     // These mounts make those paths accessible inside the container at /hq/repos/{repoName}
     ...(context.repoWorktrees || []).map(
-      repoName => `-v "${context.hqPath}/repos/${repoName}:/hq/repos/${repoName}"`
+      repoName => `-v "${context.hqPath}/repos/${repoName}:/hq/repos/${repoName}:cached"`
     ),
     // Claude credentials - shared named volume (login once, all containers share)
     `-v "claude-credentials:/home/node/.claude"`,
