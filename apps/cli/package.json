@@ -1,7 +1,7 @@
 {
   "name": "@proletariat/cli",
   "description": "Agent orchestration platform for AI labor - Spin up workers on demand for multi-agent development",
-  "version": "0.3.18",
+  "version": "0.3.21",
   "author": "Chris McDermut",
   "publishConfig": {
     "access": "public"
@@ -123,9 +123,7 @@
     "test:e2e:pmo": "mocha --forbid-only \"test/e2e/pmo-*.test.ts\"",
     "test:commands": "mocha --forbid-only \"test/commands/**/*.test.ts\"",
     "version": "oclif readme && git add README.md",
-    "release:patch": "npm version patch --no-git-tag-version && pnpm build && pnpm publish --access public --no-git-checks",
-    "release:minor": "npm version minor --no-git-tag-version && pnpm build && pnpm publish --access public --no-git-checks",
-    "release:major": "npm version major --no-git-tag-version && pnpm build && pnpm publish --access public --no-git-checks",
+    "publish:npm": "pnpm build && pnpm publish --access public --no-git-checks",
     "roadmap:generate": "node ./bin/run.js roadmap generate --all"
   },
   "types": "dist/index.d.ts"
