@@ -114,10 +114,11 @@ describe('PR Commands JSON Mode', () => {
       expect(json.prompt.name).to.equal('action');
       expect(json.metadata.command).to.equal('pr');
 
-      // Should have create, link, status actions
+      // Should have create, link, view, status actions
       const values = json.prompt.choices.map(c => c.value);
       expect(values).to.include('create');
       expect(values).to.include('link');
+      expect(values).to.include('view');
       expect(values).to.include('status');
     });
 
@@ -195,6 +196,83 @@ describe('PR Commands JSON Mode', () => {
 
       // Should show ticket info directly (no JSON prompt)
       expect(output).to.include('TKT-STATUS-1');
+    });
+  });
+
+  describe('pr view --machine', () => {
+    it('should output PR selection prompt when no PR number provided (or gh error)', () => {
+      const output = exec('pr view -P test-project --machine');
+      const json = extractJson<{
+        prompt?: { type: string; name: string; choices: Array<{ name: string; value: string; command?: string }> };
+        error?: { code: string };
+        metadata: { command: string };
+      }>(output);
+
+      // May error if gh not installed or no open PRs
+      if (json.error) {
+        expect(json.error.code).to.be.oneOf(['GH_NOT_INSTALLED', 'GH_NOT_AUTHENTICATED', 'NO_OPEN_PRS']);
+      } else if (json.prompt) {
+        expect(json.prompt.type).to.equal('list');
+        expect(json.prompt.name).to.equal('prNumber');
+        expect(json.prompt.choices).to.be.an('array');
+      }
+    });
+
+    it('should work with -m shorthand', () => {
+      const output = exec('pr view -P test-project -m');
+      const json = extractJson<{
+        prompt?: { type: string };
+        error?: { code: string };
+        pr?: unknown;
+        metadata: { command: string };
+      }>(output);
+
+      // Should produce valid JSON output
+      expect(json.metadata.command).to.equal('pr view');
+    });
+
+    it('should support --ticket flag to get PR from ticket', () => {
+      // Create a ticket with PR linked
+      createTestTicket('TKT-VIEW-1', 'View test ticket', 'in-progress', 'https://github.com/test/repo/pull/99');
+
+      const output = exec('pr view --ticket TKT-VIEW-1 -P test-project --machine');
+      const json = extractJson<{
+        pr?: { number: number; title: string; state: string };
+        error?: { code: string; message: string };
+        metadata: { command: string };
+      }>(output);
+
+      // Either shows PR info or gh CLI error
+      if (json.error) {
+        expect(json.error.code).to.be.oneOf(['GH_NOT_INSTALLED', 'GH_NOT_AUTHENTICATED', 'PR_NOT_FOUND']);
+      } else if (json.pr) {
+        expect(json.pr.number).to.be.a('number');
+        expect(json.pr.state).to.be.oneOf(['OPEN', 'CLOSED', 'MERGED']);
+      }
+    });
+
+    it('should return error for ticket without linked PR', () => {
+      createTestTicket('TKT-VIEW-NO-PR', 'View test no PR', 'in-progress');
+
+      const output = exec('pr view --ticket TKT-VIEW-NO-PR -P test-project --machine');
+      const json = extractJson<{
+        error?: { code: string; message: string };
+        metadata: { command: string };
+      }>(output);
+
+      expect(json.error).to.exist;
+      expect(json.error!.code).to.equal('NO_PR_LINKED');
+    });
+
+    it('should return error for non-existent ticket', () => {
+      const output = exec('pr view --ticket INVALID-TICKET -P test-project --machine');
+      const json = extractJson<{
+        error?: { code: string; message: string };
+        metadata: { command: string };
+      }>(output);
+
+      expect(json.error).to.exist;
+      expect(json.error!.code).to.equal('TICKET_NOT_FOUND');
     });
   });
 
