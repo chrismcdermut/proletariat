@@ -14,8 +14,12 @@ export default class ThemesAddNames extends Command {
 
   static args = {
     theme: Args.string({
-      description: 'Theme ID to add names to',
+      description: 'Theme ID',
       required: true,
+    }),
+    names: Args.string({
+      description: 'Names to add to the theme (space-separated)',
+      required: false,
     }),
   };
 
