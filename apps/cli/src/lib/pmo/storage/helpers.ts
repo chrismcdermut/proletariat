@@ -64,11 +64,12 @@ function isCheckConstraintError(err: unknown): boolean {
 
 /**
  * Wrap SQLite constraint errors with user-friendly messages.
+ * This function always throws - it never returns.
  *
  * @param entityType - The type of entity being operated on (e.g., 'Ticket', 'Spec', 'Project')
  * @param operation - The operation being performed ('create', 'update', 'delete')
  * @param err - The error thrown by SQLite
- * @returns Never returns - always throws a user-friendly error
+ * @throws {PMOError} Always throws a user-friendly PMOError
  */
 export function wrapSqliteError(
   entityType: string,
