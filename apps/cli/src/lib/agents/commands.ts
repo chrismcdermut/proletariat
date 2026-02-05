@@ -34,6 +34,18 @@ import {
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
 import { getPMOContext } from '../pmo/index.js';
 
+/**
+ * Format a list of agents for display in error messages.
+ * Truncates long lists to avoid overwhelming output.
+ */
+export function formatAgentList(agents: { name: string }[], maxShow = 10): string {
+  const names = agents.map(a => a.name);
+  if (names.length <= maxShow) {
+    return names.join(', ');
+  }
+  return `${names.slice(0, maxShow).join(', ')} ...and ${names.length - maxShow} more. Run 'prlt agent list' to see all.`;
+}
+
 export interface AgentStatus {
   name: string;
   exists: boolean;
