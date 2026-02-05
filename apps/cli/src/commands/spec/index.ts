@@ -29,6 +29,7 @@ export default class Spec extends PMOCommand {
       { name: 'Create new spec', value: 'create' },
       { name: 'List all specs', value: 'list' },
       { name: 'View spec', value: 'view' },
+      { name: 'Delete spec', value: 'delete' },
       { name: 'Generate tickets from spec', value: 'generate' },
       { name: 'Assign ticket to spec', value: 'ticket' },
       { name: 'Manage dependencies', value: 'link' },
@@ -54,6 +55,7 @@ export default class Spec extends PMOCommand {
           create: 'prlt spec create --json',
           list: 'prlt spec list --json',
           view: 'prlt spec view --json',
+          delete: 'prlt spec delete --json',
           generate: 'prlt spec plan --json',
           ticket: 'prlt spec ticket --json',
           link: 'prlt spec link --json',
@@ -80,6 +82,9 @@ export default class Spec extends PMOCommand {
         break;
       case 'view':
         await this.config.runCommand('spec:view', []);
+        break;
+      case 'delete':
+        await this.config.runCommand('spec:delete', []);
         break;
       case 'generate':
         await this.config.runCommand('spec:generate-tickets', []);

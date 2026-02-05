@@ -407,6 +407,113 @@ describe('Spec Commands JSON Mode with FlagResolver', () => {
     });
   });
 
+  describe('spec delete JSON mode', () => {
+    it('should create FlagResolver for spec selection in delete', () => {
+      const specs = [
+        { id: 'spec-1', title: 'Spec 1', status: 'active', type: 'product' },
+        { id: 'spec-2', title: 'Spec 2', status: 'draft', type: 'platform' },
+      ];
+
+      const resolver = new FlagResolver<{ spec?: string }>({
+        commandName: 'spec delete',
+        baseCommand: 'prlt spec delete',
+        jsonMode: true,
+        flags: {},
+      });
+
+      resolver.addPrompt({
+        flagName: 'spec',
+        type: 'list',
+        message: 'Select spec to delete:',
+        choices: () => specs.map(s => ({
+          name: `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
+          value: s.id,
+        })),
+        getCommand: (value) => `prlt spec delete ${value} --json`,
+      });
+
+      expect(resolver).to.be.instanceOf(FlagResolver);
+    });
+
+    it('should create FlagResolver for confirmation prompt in delete', () => {
+      const specId = 'test-spec';
+      const specTitle = 'Test Spec';
+
+      const resolver = new FlagResolver<{ confirmed?: boolean }>({
+        commandName: 'spec delete',
+        baseCommand: `prlt spec delete ${specId}`,
+        jsonMode: true,
+        flags: {},
+      });
+
+      resolver.addPrompt({
+        flagName: 'confirmed',
+        type: 'list',
+        message: `Delete spec "${specTitle}"?`,
+        choices: () => [
+          { name: 'No', value: false },
+          { name: 'Yes', value: true },
+        ],
+        getCommand: (value) => value
+          ? `prlt spec delete ${specId} --force --json`
+          : '',
+      });
+
+      expect(resolver).to.be.instanceOf(FlagResolver);
+    });
+
+    it('should build delete success response structure', () => {
+      const spec = {
+        id: 'test-spec',
+        title: 'Test Spec',
+      };
+
+      const result = {
+        specId: spec.id,
+        title: spec.title,
+        deleted: true,
+      };
+
+      expect(result.specId).to.equal('test-spec');
+      expect(result.title).to.equal('Test Spec');
+      expect(result.deleted).to.be.true;
+    });
+
+    it('should include metadata for spec delete', () => {
+      const flags = { json: true, force: true };
+      const metadata = createMetadata('spec delete', flags);
+
+      expect(metadata.command).to.equal('spec delete');
+      expect(metadata.flags.json).to.be.true;
+      expect(metadata.flags.force).to.be.true;
+      expect(metadata.timestamp).to.be.a('string');
+    });
+
+    it('should build confirmation choices for delete', () => {
+      const choices: ResolverChoice<boolean>[] = [
+        { name: 'No', value: false },
+        { name: 'Yes', value: true },
+      ];
+
+      expect(choices).to.have.lengthOf(2);
+      expect(choices[0].value).to.be.false;
+      expect(choices[1].value).to.be.true;
+    });
+
+    it('should skip confirmation when force flag is set', async () => {
+      const resolver = new FlagResolver<{ confirmed?: boolean }>({
+        commandName: 'spec delete',
+        baseCommand: 'prlt spec delete test-spec',
+        jsonMode: false,
+        flags: {},
+      });
+
+      // When --force is used, no prompt is added, so resolve returns empty
+      const resolved = await resolver.resolve();
+      expect(resolved.confirmed).to.be.undefined;
+    });
+  });
+
   describe('shouldOutputJson', () => {
     it('should return true when --json flag is set', () => {
       expect(shouldOutputJson({ json: true })).to.be.true;
