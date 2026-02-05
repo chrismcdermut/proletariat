@@ -278,6 +278,131 @@ describe('PMO SQLite Storage', () => {
       const updated = await storage.getTicket(mainTicketId);
       expect(updated!.subtasks).to.have.length(0);
     });
+
+    it('adds multiple subtasks with the same title without ID collision', async () => {
+      // Add 6 subtasks with the same title - should all get unique IDs
+      await storage.addSubtask(mainTicketId, 'Same task');
+      await storage.addSubtask(mainTicketId, 'Same task');
+      await storage.addSubtask(mainTicketId, 'Same task');
+      await storage.addSubtask(mainTicketId, 'Same task');
+      await storage.addSubtask(mainTicketId, 'Same task');
+      await storage.addSubtask(mainTicketId, 'Same task');
+
+      const ticket = await storage.getTicket(mainTicketId);
+      expect(ticket!.subtasks).to.have.length(6);
+
+      // Verify all IDs are unique
+      const ids = ticket!.subtasks.map(s => s.id);
+      const uniqueIds = new Set(ids);
+      expect(uniqueIds.size).to.equal(6);
+
+      // Verify the ID pattern (first is base slug, rest have suffix)
+      expect(ids[0]).to.equal('same-task');
+      expect(ids[1]).to.equal('same-task-2');
+      expect(ids[2]).to.equal('same-task-3');
+      expect(ids[3]).to.equal('same-task-4');
+      expect(ids[4]).to.equal('same-task-5');
+      expect(ids[5]).to.equal('same-task-6');
+    });
+
+    it('adds multiple subtasks with different titles', async () => {
+      await storage.addSubtask(mainTicketId, 'Task A');
+      await storage.addSubtask(mainTicketId, 'Task B');
+      await storage.addSubtask(mainTicketId, 'Task C');
+      await storage.addSubtask(mainTicketId, 'Task D');
+      await storage.addSubtask(mainTicketId, 'Task E');
+      await storage.addSubtask(mainTicketId, 'Task F');
+
+      const ticket = await storage.getTicket(mainTicketId);
+      expect(ticket!.subtasks).to.have.length(6);
+
+      // Verify IDs are based on slugified titles
+      const ids = ticket!.subtasks.map(s => s.id);
+      expect(ids).to.include('task-a');
+      expect(ids).to.include('task-b');
+      expect(ids).to.include('task-c');
+      expect(ids).to.include('task-d');
+      expect(ids).to.include('task-e');
+      expect(ids).to.include('task-f');
+    });
+  });
+
+  describe('Acceptance Criteria Operations', () => {
+    let mainTicketId: string;
+
+    beforeEach(async () => {
+      const ticket = await storage.createTicket(projectId, {
+        title: 'Main ticket',
+        statusName: 'Backlog',
+      });
+      mainTicketId = ticket.id;
+    });
+
+    it('adds acceptance criterion to a ticket', async () => {
+      const criterion = await storage.addAcceptanceCriterion(mainTicketId, 'Test criterion');
+
+      expect(criterion.criterion).to.equal('Test criterion');
+      expect(criterion.verified).to.be.false;
+      expect(criterion.id).to.match(/^ac-/);
+    });
+
+    it('adds multiple acceptance criteria without ID collision', async () => {
+      // Add 6 acceptance criteria in rapid succession - this was the original bug
+      const criterion1 = await storage.addAcceptanceCriterion(mainTicketId, 'AC 1');
+      const criterion2 = await storage.addAcceptanceCriterion(mainTicketId, 'AC 2');
+      const criterion3 = await storage.addAcceptanceCriterion(mainTicketId, 'AC 3');
+      const criterion4 = await storage.addAcceptanceCriterion(mainTicketId, 'AC 4');
+      const criterion5 = await storage.addAcceptanceCriterion(mainTicketId, 'AC 5');
+      const criterion6 = await storage.addAcceptanceCriterion(mainTicketId, 'AC 6');
+
+      const ticket = await storage.getTicket(mainTicketId);
+      expect(ticket!.acceptanceCriteria).to.have.length(6);
+
+      // Verify all IDs are unique
+      const ids = [
+        criterion1.id,
+        criterion2.id,
+        criterion3.id,
+        criterion4.id,
+        criterion5.id,
+        criterion6.id,
+      ];
+      const uniqueIds = new Set(ids);
+      expect(uniqueIds.size).to.equal(6, 'All acceptance criteria IDs must be unique');
+
+      // Verify all IDs follow the ac-UUID pattern
+      for (const id of ids) {
+        expect(id).to.match(/^ac-[0-9a-f-]+$/, `ID ${id} should match ac-UUID pattern`);
+      }
+    });
+
+    it('clears all acceptance criteria', async () => {
+      await storage.addAcceptanceCriterion(mainTicketId, 'AC 1');
+      await storage.addAcceptanceCriterion(mainTicketId, 'AC 2');
+      await storage.addAcceptanceCriterion(mainTicketId, 'AC 3');
+
+      let ticket = await storage.getTicket(mainTicketId);
+      expect(ticket!.acceptanceCriteria).to.have.length(3);
+
+      await storage.clearAcceptanceCriteria(mainTicketId);
+
+      ticket = await storage.getTicket(mainTicketId);
+      expect(ticket!.acceptanceCriteria).to.have.length(0);
+    });
+
+    it('removes individual acceptance criterion', async () => {
+      await storage.addAcceptanceCriterion(mainTicketId, 'AC 1');
+      await storage.addAcceptanceCriterion(mainTicketId, 'AC 2');
+
+      let ticket = await storage.getTicket(mainTicketId);
+      expect(ticket!.acceptanceCriteria).to.have.length(2);
+
+      const criterionToRemove = ticket!.acceptanceCriteria![0].id;
+      await storage.removeAcceptanceCriterion(mainTicketId, criterionToRemove);
+
+      ticket = await storage.getTicket(mainTicketId);
+      expect(ticket!.acceptanceCriteria).to.have.length(1);
+    });
   });
 
   describe('Spec Operations', () => {
