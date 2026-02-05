@@ -40,6 +40,7 @@ export default class Execution extends PMOCommand {
           { name: '📜 View logs for an execution', value: 'logs', command: 'prlt execution logs --json' },
           { name: '🛑 Stop an execution', value: 'stop', command: 'prlt execution stop --json' },
           { name: '🛑 Stop all running', value: 'stop-all', command: 'prlt execution stop --all --json' },
+          { name: '⚙️  Configure execution preferences', value: 'config', command: 'prlt execution config --json' },
           new inquirer.Separator(),
           { name: '❌ Cancel', value: 'cancel', command: '' },
         ],
@@ -57,6 +58,7 @@ export default class Execution extends PMOCommand {
       logs: { cmd: 'execution:logs', args: [] },
       stop: { cmd: 'execution:stop', args: [] },
       'stop-all': { cmd: 'execution:stop', args: ['--all'] },
+      config: { cmd: 'execution:config', args: [] },
     }
 
     const command = commands[action]

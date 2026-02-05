@@ -29,6 +29,8 @@ const CONFIG_KEYS = {
   defaultMode: 'execution.default_mode',
   defaultExecutor: 'execution.default_executor',
   autoExecute: 'execution.auto_execute',
+  outputMode: 'execution.output_mode',
+  sandboxed: 'execution.sandboxed',
   tmuxSession: 'execution.tmux.session',
   tmuxLayout: 'execution.tmux.layout',
   tmuxControlMode: 'execution.tmux.control_mode',
@@ -104,6 +106,18 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
   const autoExecute = getSetting(db, CONFIG_KEYS.autoExecute)
   if (autoExecute !== null) {
     config.autoExecute = autoExecute === 'true'
+  }
+
+  // Load output mode
+  const outputMode = getSetting(db, CONFIG_KEYS.outputMode)
+  if (outputMode) {
+    config.outputMode = outputMode as OutputMode
+  }
+
+  // Load sandboxed preference
+  const sandboxed = getSetting(db, CONFIG_KEYS.sandboxed)
+  if (sandboxed !== null) {
+    config.sandboxed = sandboxed === 'true'
   }
 
   // Load tmux settings
