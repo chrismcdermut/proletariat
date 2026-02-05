@@ -1,8 +1,13 @@
 import { expect } from 'chai'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import * as os from 'node:os'
 
 import {
   generateDevcontainerJson,
   generateDockerfile,
+  createDevcontainerConfig,
+  hasDevcontainerConfig,
   DevcontainerOptions,
 } from '../../src/lib/execution/devcontainer.js'
 
@@ -64,7 +69,8 @@ describe('Devcontainer', () => {
       const options = makeOptions()
       const result = generateDevcontainerJson(options)
 
-      expect(result.mounts).to.include('source=${localWorkspaceFolder},target=/workspace,type=bind')
+      // Mount includes consistency=cached for TKT-801
+      expect(result.mounts).to.include('source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached')
     })
 
     it('should set workspaceFolder to /workspace', () => {
@@ -192,6 +198,184 @@ describe('Devcontainer', () => {
       const result = generateDockerfile(options)
 
       expect(result).to.include('WORKDIR /workspace')
+    })
+  })
+
+  describe('createDevcontainerConfig', () => {
+    let testDir: string
+
+    beforeEach(() => {
+      // Create a temporary directory for testing
+      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devcontainer-test-'))
+    })
+
+    afterEach(() => {
+      // Clean up the temporary directory
+      if (fs.existsSync(testDir)) {
+        fs.rmSync(testDir, { recursive: true, force: true })
+      }
+    })
+
+    it('should create .devcontainer directory', () => {
+      const options: DevcontainerOptions = {
+        agentName: 'test-agent',
+        agentDir: testDir,
+      }
+
+      createDevcontainerConfig(options)
+
+      const devcontainerDir = path.join(testDir, '.devcontainer')
+      expect(fs.existsSync(devcontainerDir)).to.be.true
+    })
+
+    it('should create devcontainer.json file', () => {
+      const options: DevcontainerOptions = {
+        agentName: 'test-agent',
+        agentDir: testDir,
+      }
+
+      createDevcontainerConfig(options)
+
+      const devcontainerJson = path.join(testDir, '.devcontainer', 'devcontainer.json')
+      expect(fs.existsSync(devcontainerJson)).to.be.true
+    })
+
+    it('should create Dockerfile', () => {
+      const options: DevcontainerOptions = {
+        agentName: 'test-agent',
+        agentDir: testDir,
+      }
+
+      createDevcontainerConfig(options)
+
+      const dockerfile = path.join(testDir, '.devcontainer', 'Dockerfile')
+      expect(fs.existsSync(dockerfile)).to.be.true
+    })
+
+    it('should create init-firewall.sh script', () => {
+      const options: DevcontainerOptions = {
+        agentName: 'test-agent',
+        agentDir: testDir,
+      }
+
+      createDevcontainerConfig(options)
+
+      const firewallScript = path.join(testDir, '.devcontainer', 'init-firewall.sh')
+      expect(fs.existsSync(firewallScript)).to.be.true
+    })
+
+    it('should create setup-prlt.sh script', () => {
+      const options: DevcontainerOptions = {
+        agentName: 'test-agent',
+        agentDir: testDir,
+      }
+
+      createDevcontainerConfig(options)
+
+      const setupScript = path.join(testDir, '.devcontainer', 'setup-prlt.sh')
+      expect(fs.existsSync(setupScript)).to.be.true
+    })
+
+    it('should work with no repoWorktrees specified (TKT-795 fix)', () => {
+      // This test verifies the fix for TKT-795: devcontainer config should be
+      // created even when no repos are specified (e.g., placeholder agents)
+      const options: DevcontainerOptions = {
+        agentName: 'placeholder-agent',
+        agentDir: testDir,
+        // No repoWorktrees specified
+      }
+
+      createDevcontainerConfig(options)
+
+      // Verify all required files are created
+      expect(fs.existsSync(path.join(testDir, '.devcontainer', 'devcontainer.json'))).to.be.true
+      expect(fs.existsSync(path.join(testDir, '.devcontainer', 'Dockerfile'))).to.be.true
+      expect(fs.existsSync(path.join(testDir, '.devcontainer', 'init-firewall.sh'))).to.be.true
+      expect(fs.existsSync(path.join(testDir, '.devcontainer', 'setup-prlt.sh'))).to.be.true
+
+      // Verify devcontainer.json has valid content
+      const jsonContent = fs.readFileSync(
+        path.join(testDir, '.devcontainer', 'devcontainer.json'),
+        'utf-8'
+      )
+      const config = JSON.parse(jsonContent)
+      expect(config.name).to.equal('Agent: placeholder-agent')
+    })
+
+    it('should work with clone mount mode', () => {
+      const options: DevcontainerOptions = {
+        agentName: 'clone-agent',
+        agentDir: testDir,
+        mountMode: 'clone',
+      }
+
+      createDevcontainerConfig(options)
+
+      const jsonContent = fs.readFileSync(
+        path.join(testDir, '.devcontainer', 'devcontainer.json'),
+        'utf-8'
+      )
+      const config = JSON.parse(jsonContent)
+      expect(config.containerEnv.PRLT_MOUNT_MODE).to.equal('clone')
+    })
+
+    it('should work with worktree mount mode', () => {
+      const options: DevcontainerOptions = {
+        agentName: 'worktree-agent',
+        agentDir: testDir,
+        mountMode: 'worktree',
+        repoWorktrees: ['repo1', 'repo2'],
+      }
+
+      createDevcontainerConfig(options)
+
+      const jsonContent = fs.readFileSync(
+        path.join(testDir, '.devcontainer', 'devcontainer.json'),
+        'utf-8'
+      )
+      const config = JSON.parse(jsonContent)
+      expect(config.containerEnv.PRLT_MOUNT_MODE).to.equal('worktree')
+
+      // Should have repo mounts
+      const repoMounts = config.mounts.filter((m: string) => m.includes('/hq/repos/'))
+      expect(repoMounts).to.have.length(2)
+    })
+  })
+
+  describe('hasDevcontainerConfig', () => {
+    let testDir: string
+
+    beforeEach(() => {
+      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devcontainer-test-'))
+    })
+
+    afterEach(() => {
+      if (fs.existsSync(testDir)) {
+        fs.rmSync(testDir, { recursive: true, force: true })
+      }
+    })
+
+    it('should return false when no .devcontainer directory exists', () => {
+      expect(hasDevcontainerConfig(testDir)).to.be.false
+    })
+
+    it('should return false when .devcontainer exists but no devcontainer.json', () => {
+      const devcontainerDir = path.join(testDir, '.devcontainer')
+      fs.mkdirSync(devcontainerDir, { recursive: true })
+      fs.writeFileSync(path.join(devcontainerDir, 'Dockerfile'), 'FROM node:20')
+
+      expect(hasDevcontainerConfig(testDir)).to.be.false
+    })
+
+    it('should return true when devcontainer.json exists', () => {
+      const options: DevcontainerOptions = {
+        agentName: 'test-agent',
+        agentDir: testDir,
+      }
+
+      createDevcontainerConfig(options)
+
+      expect(hasDevcontainerConfig(testDir)).to.be.true
     })
   })
 })
