@@ -16,6 +16,7 @@ import { TerminalApp, Shell } from '../../lib/execution/types.js'
 import {
   shouldOutputJson,
   isAgentMode,
+  isNonTTY,
   outputPromptAsJson,
   outputSuccessAsJson,
   outputErrorAsJson,
@@ -150,8 +151,12 @@ export default class Config extends Command {
       }
 
       // Handle --list or --json flag without --setting (just show config)
-      if ((flags.list || flags.json) && !flags.setting) {
-        if (jsonMode) {
+      // Also handle non-TTY mode without explicit flags - output config as readable list
+      const isExplicitJsonMode = flags.json === true
+      const shouldShowConfigList = flags.list || (isExplicitJsonMode && !flags.setting) || (isNonTTY() && !flags.setting && !flags.set?.length)
+
+      if (shouldShowConfigList) {
+        if (isExplicitJsonMode) {
           outputSuccessAsJson({
             terminal: {
               app: config.terminal.app,
