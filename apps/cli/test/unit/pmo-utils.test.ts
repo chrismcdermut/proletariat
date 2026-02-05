@@ -1,5 +1,9 @@
 import { expect } from 'chai';
-import { slugify, formatDate, formatTimestamp, parseDate, deepClone, arraysEqual } from '../../src/lib/pmo/utils.js';
+import * as os from 'node:os';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import Database from 'better-sqlite3';
+import { slugify, formatDate, formatTimestamp, parseDate, deepClone, arraysEqual, DEFAULT_WORK_COLUMNS, getWorkColumnSetting } from '../../src/lib/pmo/utils.js';
 
 describe('PMO Utils', () => {
   describe('slugify', () => {
@@ -112,6 +116,77 @@ describe('PMO Utils', () => {
 
     it('handles string arrays', () => {
       expect(arraysEqual(['a', 'b'], ['b', 'a'])).to.be.true;
+    });
+  });
+
+  describe('DEFAULT_WORK_COLUMNS', () => {
+    it('includes review column', () => {
+      expect(DEFAULT_WORK_COLUMNS).to.have.property('review');
+      expect(DEFAULT_WORK_COLUMNS.review).to.equal('Review');
+    });
+
+    it('includes all expected columns', () => {
+      expect(DEFAULT_WORK_COLUMNS).to.have.property('planned', 'Planned');
+      expect(DEFAULT_WORK_COLUMNS).to.have.property('in_progress', 'In Progress');
+      expect(DEFAULT_WORK_COLUMNS).to.have.property('review', 'Review');
+      expect(DEFAULT_WORK_COLUMNS).to.have.property('done', 'Done');
+    });
+  });
+
+  describe('getWorkColumnSetting', () => {
+    let testDir: string;
+    let db: Database.Database;
+
+    beforeEach(() => {
+      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmo-utils-test-'));
+      const dbPath = path.join(testDir, 'test.db');
+      db = new Database(dbPath);
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS pmo_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+      `);
+    });
+
+    afterEach(() => {
+      db.close();
+      if (fs.existsSync(testDir)) {
+        fs.rmSync(testDir, { recursive: true, force: true });
+      }
+    });
+
+    it('returns default Review column for review type when not configured', () => {
+      const column = getWorkColumnSetting(db, 'review');
+      expect(column).to.equal('Review');
+    });
+
+    it('returns default Done column for done type when not configured', () => {
+      const column = getWorkColumnSetting(db, 'done');
+      expect(column).to.equal('Done');
+    });
+
+    it('returns default In Progress column for in_progress type when not configured', () => {
+      const column = getWorkColumnSetting(db, 'in_progress');
+      expect(column).to.equal('In Progress');
+    });
+
+    it('returns configured value when set in pmo_settings', () => {
+      db.prepare('INSERT INTO pmo_settings (key, value) VALUES (?, ?)').run('column_review', 'Code Review');
+      const column = getWorkColumnSetting(db, 'review');
+      expect(column).to.equal('Code Review');
+    });
+
+    it('work ready should target review column by default', () => {
+      // This test documents the expected behavior:
+      // work ready -> Review column (for code review)
+      // work complete -> Done column (after review is approved)
+      const reviewColumn = getWorkColumnSetting(db, 'review');
+      const doneColumn = getWorkColumnSetting(db, 'done');
+
+      expect(reviewColumn).to.equal('Review');
+      expect(doneColumn).to.equal('Done');
+      expect(reviewColumn).to.not.equal(doneColumn);
     });
   });
 });
