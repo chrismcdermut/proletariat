@@ -40,8 +40,8 @@ export default class PhaseTemplateCreate extends PMOCommand {
 
     // Build base command with positional arg if name provided
     const baseCmd = args.name
-      ? `prlt phase template create "${args.name}"`
-      : 'prlt phase template create';
+      ? `prlt template phase create "${args.name}"`
+      : 'prlt template phase create';
 
     // Use FlagResolver for unified JSON mode and interactive handling
     const resolver = new FlagResolver<{
@@ -69,11 +69,11 @@ export default class PhaseTemplateCreate extends PMOCommand {
         message: 'Template name:',
         validate: (value) => (value as string).length > 0 || 'Name is required',
         context: {
-          hint: 'Provide name with: prlt phase template create "Template Name"',
-          example: 'prlt phase template create "My Phases" --description "Custom phases"',
+          hint: 'Provide name with: prlt template phase create "Template Name"',
+          example: 'prlt template phase create "My Phases" --description "Custom phases"',
         },
         // For input prompts, the agent will re-run with the positional arg
-        getCommand: (value) => `prlt phase template create "${value}" --json`,
+        getCommand: (value) => `prlt template phase create "${value}" --json`,
       });
     }
 
@@ -94,7 +94,7 @@ export default class PhaseTemplateCreate extends PMOCommand {
 
     // Validate required fields
     if (!templateName) {
-      this.error('Name is required. Provide as positional argument: prlt phase template create "Template Name"');
+      this.error('Name is required. Provide as positional argument: prlt template phase create "Template Name"');
     }
 
     // Get description from flags or resolved

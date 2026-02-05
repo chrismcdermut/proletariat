@@ -38,10 +38,10 @@ export default class TemplatePhase extends Command {
       message: 'What would you like to do?',
       choices: () => [
         { name: 'List phase templates', value: 'list', command: 'prlt template phase list --json' },
-        { name: 'Apply a phase template to project', value: 'apply', command: 'prlt phase template apply --json' },
-        { name: 'Create a new phase template', value: 'create', command: 'prlt phase template create --json' },
-        { name: 'Update a phase template', value: 'update', command: 'prlt phase template update --json' },
-        { name: 'Delete a phase template', value: 'delete', command: 'prlt phase template delete --json' },
+        { name: 'Apply a phase template to project', value: 'apply', command: 'prlt template phase apply --json' },
+        { name: 'Create a new phase template', value: 'create', command: 'prlt template phase create --json' },
+        { name: 'Update a phase template', value: 'update', command: 'prlt template phase update --json' },
+        { name: 'Delete a phase template', value: 'delete', command: 'prlt template phase delete --json' },
       ],
     });
 
