@@ -11,7 +11,7 @@ export default class TemplateTicketDelete extends Command {
   static args = {
     id: Args.string({
       description: 'Template ID to delete',
-      required: true,
+      required: false,
     }),
   };
 
@@ -30,7 +30,8 @@ export default class TemplateTicketDelete extends Command {
   async run(): Promise<void> {
     const { args, flags } = await this.parse(TemplateTicketDelete);
 
-    const cmdArgs: string[] = [args.id];
+    const cmdArgs: string[] = [];
+    if (args.id) cmdArgs.push(args.id);
     if (flags.force) cmdArgs.push('--force');
     if (flags.json) cmdArgs.push('--json');
 
