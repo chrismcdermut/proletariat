@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 import { generateBranchName, getBranchType, CATEGORY_TO_BRANCH_TYPE } from '../../src/lib/execution/types.js';
+import { validateBranchName } from '../../src/lib/branch/index.js';
 
 describe('Branch Naming', () => {
   describe('generateBranchName', () => {
@@ -115,6 +116,73 @@ describe('Branch Naming', () => {
         const hasMapping = Object.values(CATEGORY_TO_BRANCH_TYPE).includes(type);
         expect(hasMapping, `Missing mapping for ${type}`).to.be.true;
       }
+    });
+  });
+
+  describe('validateBranchName - ticket ID position error messages', () => {
+    it('should detect ticket ID in owner position and give helpful error', () => {
+      // feat/TKT-001/test - TKT-001 looks like ticket ID but is in owner position
+      const result = validateBranchName('feat/TKT-001/test');
+      expect(result.valid).to.be.false;
+      expect(result.error).to.include('looks like a ticket ID');
+      expect(result.error).to.include('owner position');
+      expect(result.error).to.include('first segment');
+    });
+
+    it('should detect ticket ID in description position (2-part branch)', () => {
+      // feat/PROJ-123 - PROJ-123 looks like ticket ID but is in description position
+      const result = validateBranchName('feat/PROJ-123');
+      expect(result.valid).to.be.false;
+      expect(result.error).to.include('looks like a ticket ID');
+      expect(result.error).to.include('first segment');
+    });
+
+    it('should detect ticket ID in description position (3-part branch)', () => {
+      // feat/chris/TKT-456 - TKT-456 looks like ticket ID but is in description position
+      const result = validateBranchName('feat/chris/TKT-456');
+      expect(result.valid).to.be.false;
+      expect(result.error).to.include('looks like a ticket ID');
+      expect(result.error).to.include('description position');
+      expect(result.error).to.include('first segment');
+    });
+
+    it('should still show kebab-case error for non-ticket-ID values', () => {
+      // feat/chris/AddLogin - AddLogin is not kebab-case but not a ticket ID
+      const result = validateBranchName('feat/chris/AddLogin');
+      expect(result.valid).to.be.false;
+      expect(result.error).to.include('kebab-case');
+      expect(result.error).not.to.include('ticket ID');
+    });
+
+    it('should still show kebab-case error for owner when not ticket ID', () => {
+      // feat/ChrisDoe/test - ChrisDoe is not kebab-case but not a ticket ID
+      const result = validateBranchName('feat/ChrisDoe/test');
+      expect(result.valid).to.be.false;
+      expect(result.error).to.include('Owner name must be kebab-case');
+      expect(result.error).not.to.include('ticket ID');
+    });
+
+    it('should validate correct ticket-first format', () => {
+      const result = validateBranchName('TKT-001/feat/test');
+      expect(result.valid).to.be.true;
+      expect(result.parts?.ticketId).to.equal('TKT-001');
+      expect(result.parts?.type).to.equal('feat');
+      expect(result.parts?.description).to.equal('test');
+    });
+
+    it('should validate correct ticket-first format with owner', () => {
+      const result = validateBranchName('TKT-001/feat/chris/add-feature');
+      expect(result.valid).to.be.true;
+      expect(result.parts?.ticketId).to.equal('TKT-001');
+      expect(result.parts?.owner).to.equal('chris');
+    });
+
+    it('should validate correct legacy format', () => {
+      const result = validateBranchName('feat/chris/add-feature');
+      expect(result.valid).to.be.true;
+      expect(result.parts?.type).to.equal('feat');
+      expect(result.parts?.owner).to.equal('chris');
+      expect(result.parts?.description).to.equal('add-feature');
     });
   });
 });
