@@ -121,6 +121,28 @@ export default class EpicLink extends PMOCommand {
     }
 
     // Interactive mode: show menu in a loop
+    // In JSON mode, output the interactive menu config instead of prompting
+    if (jsonMode) {
+      const menuChoices = [
+        { name: 'View dependencies', value: 'view' },
+        { name: 'Add blocking dependency (blocked by...)', value: 'blocks' },
+        { name: 'Add relates_to dependency', value: 'relates_to' },
+        { name: 'Add duplicates dependency', value: 'duplicates' },
+        { name: 'Remove dependency', value: 'remove' },
+        { name: 'Done', value: 'done' },
+      ]
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', `Dependencies for ${epicId}:`, menuChoices),
+        createMetadata('epic link', flags)
+      )
+      return
+    }
+
+    // Check for TTY before showing interactive menu
+    if (!process.stdin.isTTY) {
+      this.error('Interactive mode requires a TTY. Use --json for scripted usage or provide flags like --blocks, --relates, or --duplicates.')
+    }
+
     let continueLoop = true
     while (continueLoop) {
       // eslint-disable-next-line no-await-in-loop -- Interactive user loop
