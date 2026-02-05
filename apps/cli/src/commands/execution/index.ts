@@ -3,10 +3,11 @@ import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 
 export default class Execution extends PMOCommand {
-  static description = 'Single execution operations (logs, stop)'
+  static description = 'Single execution operations (view, logs, stop)'
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> view WORK-001',
     '<%= config.bin %> <%= command.id %> logs WORK-001',
     '<%= config.bin %> <%= command.id %> stop WORK-001',
   ]
@@ -35,6 +36,7 @@ export default class Execution extends PMOCommand {
         message: 'What would you like to do?',
         choices: [
           { name: '📋 List all executions', value: 'list', command: 'prlt execution list --json' },
+          { name: '🔍 View execution details', value: 'view', command: 'prlt execution view --json' },
           { name: '📜 View logs for an execution', value: 'logs', command: 'prlt execution logs --json' },
           { name: '🛑 Stop an execution', value: 'stop', command: 'prlt execution stop --json' },
           { name: '🛑 Stop all running', value: 'stop-all', command: 'prlt execution stop --all --json' },
@@ -51,6 +53,7 @@ export default class Execution extends PMOCommand {
     // Run the selected subcommand
     const commands: Record<string, { cmd: string; args: string[] }> = {
       list: { cmd: 'execution:list', args: [] },
+      view: { cmd: 'execution:view', args: [] },
       logs: { cmd: 'execution:logs', args: [] },
       stop: { cmd: 'execution:stop', args: [] },
       'stop-all': { cmd: 'execution:stop', args: ['--all'] },
