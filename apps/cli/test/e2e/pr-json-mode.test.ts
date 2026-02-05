@@ -213,7 +213,7 @@ describe('PR Commands JSON Mode', () => {
         expect(json.error.code).to.be.oneOf(['GH_NOT_INSTALLED', 'GH_NOT_AUTHENTICATED', 'NO_OPEN_PRS']);
       } else if (json.prompt) {
         expect(json.prompt.type).to.equal('list');
-        expect(json.prompt.name).to.equal('prNumber');
+        expect(json.prompt.name).to.equal('selection'); // selectFromList uses 'selection' as name
         expect(json.prompt.choices).to.be.an('array');
       }
     });
