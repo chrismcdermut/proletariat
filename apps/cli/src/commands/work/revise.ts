@@ -62,7 +62,7 @@ export default class WorkRevise extends PMOCommand {
       default: false,
     }),
     mode: Flags.string({
-      char: 'm',
+      char: 'd',
       description: 'Runtime mode',
       options: ['foreground', 'background', 'tmux', 'terminal', 'devcontainer'],
     }),
