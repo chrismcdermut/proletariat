@@ -86,7 +86,7 @@ export default class PhaseUpdate extends PMOCommand {
         commandName: 'phase update',
         baseCommand: 'prlt phase update',
         jsonMode,
-        flags: { machine: flags.machine, json: flags.json },
+        flags: { json: flags.json },
       });
 
       idResolver.addPrompt({
@@ -150,7 +150,7 @@ export default class PhaseUpdate extends PMOCommand {
         commandName: 'phase update',
         baseCommand: `prlt phase update ${phaseId}`,
         jsonMode,
-        flags: { machine: flags.machine, json: flags.json },
+        flags: { json: flags.json },
       });
 
       resolver.addPrompt({

@@ -32,6 +32,8 @@ export default class TemplateList extends PMOCommand {
       exclusive: ['builtin'],
     }),
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output as JSON',
       default: false,
     }),

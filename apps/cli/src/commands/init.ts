@@ -26,6 +26,8 @@ export default class Init extends Command {
 
   static flags = {
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Agent mode: use flags instead of prompts, output JSON',
       default: false,
     }),

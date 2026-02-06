@@ -15,6 +15,8 @@ export default class Execution extends PMOCommand {
   static flags = {
     ...pmoBaseFlags,
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
@@ -27,7 +29,7 @@ export default class Execution extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(Execution)
 
-    const jsonModeConfig = (flags.json || flags.machine) ? { flags, commandName: 'execution' } : null
+    const jsonModeConfig = flags.json ? { flags, commandName: 'execution' } : null
 
     const { action } = await this.prompt<{ action: string }>([
       {

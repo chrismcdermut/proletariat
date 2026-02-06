@@ -43,6 +43,8 @@ export default class ExecutionLogs extends PMOCommand {
       min: 1,
     }),
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
@@ -85,7 +87,7 @@ export default class ExecutionLogs extends PMOCommand {
           this.error('No executions found.')
         }
 
-        const jsonModeConfig = (flags.json || flags.machine) ? { flags, commandName: 'execution logs' } : null
+        const jsonModeConfig = flags.json ? { flags, commandName: 'execution logs' } : null
 
         const { selectedId } = await this.prompt<{ selectedId: string }>([
           {

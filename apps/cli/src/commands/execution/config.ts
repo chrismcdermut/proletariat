@@ -47,6 +47,8 @@ export default class ExecutionConfig extends PMOCommand {
   static flags = {
     ...pmoBaseFlags,
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output configuration as JSON (for AI agents/scripts)',
       default: false,
     }),

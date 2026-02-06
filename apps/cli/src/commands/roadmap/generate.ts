@@ -41,6 +41,8 @@ export default class RoadmapGenerate extends PMOCommand {
       description: 'Output directory (default: {pmoPath}/roadmaps)',
     }),
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON',
       default: false,
     }),

@@ -140,8 +140,7 @@ export interface ErrorJsonOutput {
 export type JsonOutput = PromptJsonOutput | SuccessJsonOutput | ErrorJsonOutput
 
 /**
- * Flags interface for JSON mode detection (legacy)
- * @deprecated Use MachineOutputFlags instead
+ * Flags interface for JSON mode detection
  */
 export interface JsonFlags {
   json?: boolean
@@ -149,12 +148,10 @@ export interface JsonFlags {
 
 /**
  * Flags interface for machine-readable output mode detection
- * Supports both new --machine format and legacy --json boolean
+ * --json is the primary flag, -m/--machine are aliases that set json=true
  */
 export interface MachineOutputFlags {
-  /** New format: --machine (enables machine-readable JSON output for AI agents) */
-  machine?: boolean
-  /** Legacy format: --json (deprecated, use --machine instead) */
+  /** Primary JSON output flag. -m and --machine are aliases to this flag */
   json?: boolean
 }
 
@@ -171,20 +168,14 @@ export function isNonTTY(): boolean {
  * Determine if JSON output mode is active (for AI agents)
  *
  * Returns true if:
- * - The --machine flag is explicitly set
- * - The --json flag is explicitly set
+ * - The --json flag is set (or -m/--machine aliases)
  * - The environment is non-TTY (piped output)
  *
  * @param flags - Command flags object
  * @returns true if JSON mode should be used
  */
-export function shouldOutputJson(flags: JsonFlags & { machine?: boolean }): boolean {
-  // New --machine flag
-  if ((flags as { machine?: boolean }).machine === true) {
-    return true
-  }
-
-  // Legacy --json flag
+export function shouldOutputJson(flags: JsonFlags): boolean {
+  // --json flag (includes -m and --machine aliases)
   if (flags.json === true) {
     return true
   }
@@ -202,20 +193,14 @@ export const isAgentMode = shouldOutputJson
  * Determine if machine-readable output mode is active (for AI agents/scripts)
  *
  * Returns true if:
- * - The --machine flag is set
- * - The --json flag is explicitly set (legacy support)
+ * - The --json flag is set (or -m/--machine aliases)
  * - The environment is non-TTY (piped output)
  *
  * @param flags - Command flags object
  * @returns true if machine-readable output mode should be used
  */
 export function isMachineOutput(flags: MachineOutputFlags): boolean {
-  // New --machine flag takes precedence
-  if (flags.machine === true) {
-    return true
-  }
-
-  // Legacy --json flag support
+  // --json flag (includes -m and --machine aliases)
   if (flags.json === true) {
     return true
   }

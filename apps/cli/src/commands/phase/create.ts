@@ -77,7 +77,6 @@ export default class PhaseCreate extends PMOCommand {
       color?: string;
       description?: string;
       default?: boolean;
-      machine?: boolean;
       json?: boolean;
     }>({
       commandName: 'phase create',
@@ -88,7 +87,6 @@ export default class PhaseCreate extends PMOCommand {
         color: flags.color,
         description: flags.description,
         default: flags.default,
-        machine: flags.machine,
         json: flags.json,
       },
     });
