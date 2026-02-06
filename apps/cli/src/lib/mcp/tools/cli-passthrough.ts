@@ -1,0 +1,481 @@
+/**
+ * MCP CLI Passthrough Tools
+ *
+ * These tools call CLI commands that don't have a clean storage API.
+ * They're wrapped for MCP but return formatted text output.
+ */
+
+import { z } from 'zod'
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { McpToolContext } from '../types.js'
+import { errorResponse, textResponse } from '../helpers.js'
+
+export function registerAgentTools(server: McpServer, ctx: McpToolContext): void {
+  server.tool(
+    'agent_list',
+    'List all agents',
+    { type: z.enum(['staff', 'temp', 'all']).optional() },
+    async (params) => {
+      try {
+        const typeFlag = params.type ? `--type ${params.type}` : ''
+        const output = ctx.runCommand(`prlt agent list ${typeFlag} --json 2>/dev/null || prlt agent list ${typeFlag}`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'agent_status',
+    'Check agent status',
+    {},
+    async () => {
+      try {
+        const output = ctx.runCommand('prlt agent status --json 2>/dev/null || prlt agent status')
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'agent_add',
+    'Add new agents',
+    {
+      names: z.array(z.string()).optional().describe('Agent names'),
+      theme: z.string().optional().describe('Theme for names'),
+      clone: z.boolean().optional().describe('Use git clone instead of worktree'),
+    },
+    async (params) => {
+      try {
+        const namesArg = params.names?.join(' ') || ''
+        const themeFlag = params.theme ? `--theme ${params.theme}` : ''
+        const cloneFlag = params.clone ? '--clone' : ''
+        const output = ctx.runCommand(`prlt agent staff add ${namesArg} ${themeFlag} ${cloneFlag} --json`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'agent_remove',
+    'Remove an agent',
+    { name: z.string().describe('Agent name') },
+    async (params) => {
+      try {
+        const output = ctx.runCommand(`prlt agent remove ${params.name} --json`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+}
+
+export function registerDockerTools(server: McpServer, ctx: McpToolContext): void {
+  server.tool(
+    'docker_status',
+    'Check Docker daemon status',
+    {},
+    async () => {
+      try {
+        const output = ctx.runCommand('prlt docker status')
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'docker_list',
+    'List Docker containers',
+    {},
+    async () => {
+      try {
+        const output = ctx.runCommand('prlt docker list')
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'docker_start',
+    'Start Docker containers',
+    { agent: z.string().optional().describe('Agent name') },
+    async (params) => {
+      try {
+        const agentArg = params.agent || ''
+        const output = ctx.runCommand(`prlt docker start ${agentArg}`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'docker_stop',
+    'Stop Docker containers',
+    { agent: z.string().optional().describe('Agent name') },
+    async (params) => {
+      try {
+        const agentArg = params.agent || ''
+        const output = ctx.runCommand(`prlt docker stop ${agentArg}`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'docker_logs',
+    'Get container logs',
+    {
+      agent: z.string().describe('Agent name'),
+      lines: z.number().optional().describe('Number of lines'),
+    },
+    async (params) => {
+      try {
+        const linesFlag = params.lines ? `-n ${params.lines}` : ''
+        const output = ctx.runCommand(`prlt docker logs ${params.agent} ${linesFlag}`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+}
+
+export function registerRepoTools(server: McpServer, ctx: McpToolContext): void {
+  server.tool(
+    'repo_list',
+    'List repositories in workspace',
+    {},
+    async () => {
+      try {
+        const output = ctx.runCommand('prlt repo list')
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'repo_add',
+    'Add a repository',
+    {
+      path: z.string().describe('Repository path or URL'),
+      name: z.string().optional().describe('Name for the repo'),
+    },
+    async (params) => {
+      try {
+        const nameFlag = params.name ? `--name ${params.name}` : ''
+        const output = ctx.runCommand(`prlt repo add ${params.path} ${nameFlag}`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'repo_remove',
+    'Remove a repository',
+    { name: z.string().describe('Repository name') },
+    async (params) => {
+      try {
+        const output = ctx.runCommand(`prlt repo remove ${params.name}`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+}
+
+export function registerBranchTools(server: McpServer, ctx: McpToolContext): void {
+  server.tool(
+    'branch_list',
+    'List branches',
+    {},
+    async () => {
+      try {
+        const output = ctx.runCommand('prlt branch list')
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'branch_create',
+    'Create a branch for a ticket',
+    {
+      ticket_id: z.string().describe('Ticket ID'),
+      name: z.string().optional().describe('Branch name override'),
+    },
+    async (params) => {
+      try {
+        const nameFlag = params.name ? `--name ${params.name}` : ''
+        const output = ctx.runCommand(`prlt branch create ${params.ticket_id} ${nameFlag}`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'branch_where',
+    'Show which ticket/branch you are on',
+    {},
+    async () => {
+      try {
+        const output = ctx.runCommand('prlt branch where')
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+}
+
+export function registerGitHubTools(server: McpServer, ctx: McpToolContext): void {
+  server.tool(
+    'gh_status',
+    'Check GitHub CLI status',
+    {},
+    async () => {
+      try {
+        const output = ctx.runCommand('prlt gh status')
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'gh_login',
+    'Login to GitHub',
+    {},
+    async () => {
+      try {
+        const output = ctx.runCommand('prlt gh login')
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'pr_create',
+    'Create a pull request',
+    {
+      ticket_id: z.string().optional().describe('Ticket ID'),
+      title: z.string().optional().describe('PR title'),
+      body: z.string().optional().describe('PR body'),
+      draft: z.boolean().optional().describe('Create as draft'),
+    },
+    async (params) => {
+      try {
+        const ticketArg = params.ticket_id || ''
+        const titleFlag = params.title ? `--title "${params.title}"` : ''
+        const bodyFlag = params.body ? `--body "${params.body}"` : ''
+        const draftFlag = params.draft ? '--draft' : ''
+        const output = ctx.runCommand(`prlt pr create ${ticketArg} ${titleFlag} ${bodyFlag} ${draftFlag}`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'pr_list',
+    'List pull requests',
+    {},
+    async () => {
+      try {
+        const output = ctx.runCommand('prlt pr list')
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'pr_status',
+    'Check PR status',
+    {},
+    async () => {
+      try {
+        const output = ctx.runCommand('prlt pr status')
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+}
+
+export function registerInitTools(server: McpServer, ctx: McpToolContext): void {
+  server.tool(
+    'init',
+    'Initialize an HQ workspace',
+    {
+      name: z.string().describe('HQ name'),
+      path: z.string().optional().describe('HQ path'),
+      repos: z.array(z.string()).optional().describe('Repository paths'),
+      agents: z.array(z.string()).optional().describe('Agent names'),
+      pmo: z.boolean().optional().describe('Include PMO'),
+    },
+    async (params) => {
+      try {
+        const pathFlag = params.path ? `--path ${params.path}` : ''
+        const reposFlag = params.repos?.length ? `--repos ${params.repos.join(',')}` : ''
+        const agentsFlag = params.agents?.length ? `--agents ${params.agents.join(',')}` : ''
+        const pmoFlag = params.pmo === false ? '--no-pmo' : '--pmo'
+        const output = ctx.runCommand(`prlt init --name ${params.name} ${pathFlag} ${reposFlag} ${agentsFlag} ${pmoFlag} --json`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'pmo_init',
+    'Initialize PMO in existing workspace',
+    {
+      template: z.string().optional().describe('Board template'),
+      name: z.string().optional().describe('Board name'),
+    },
+    async (params) => {
+      try {
+        const templateFlag = params.template ? `--template ${params.template}` : ''
+        const nameFlag = params.name ? `--name ${params.name}` : ''
+        const output = ctx.runCommand(`prlt pmo init ${templateFlag} ${nameFlag}`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+}
+
+export function registerUtilityTools(server: McpServer, ctx: McpToolContext): void {
+  server.tool(
+    'whoami',
+    'Show current context (agent, workspace)',
+    {},
+    async () => {
+      try {
+        const output = ctx.runCommand('prlt whoami')
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'commit',
+    'Create a commit with ticket reference',
+    {
+      message: z.string().describe('Commit message'),
+      ticket_id: z.string().optional().describe('Ticket ID'),
+    },
+    async (params) => {
+      try {
+        const ticketArg = params.ticket_id || ''
+        const output = ctx.runCommand(`prlt commit "${params.message}" ${ticketArg}`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'execution_list',
+    'List work executions',
+    {},
+    async () => {
+      try {
+        const output = ctx.runCommand('prlt execution list')
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'execution_view',
+    'View execution details',
+    { id: z.string().describe('Execution ID') },
+    async (params) => {
+      try {
+        const output = ctx.runCommand(`prlt execution view ${params.id}`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'execution_logs',
+    'Get execution logs',
+    { id: z.string().describe('Execution ID') },
+    async (params) => {
+      try {
+        const output = ctx.runCommand(`prlt execution logs ${params.id}`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'session_list',
+    'List tmux sessions',
+    {},
+    async () => {
+      try {
+        const output = ctx.runCommand('prlt session list')
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  server.tool(
+    'config_show',
+    'Show configuration',
+    {},
+    async () => {
+      try {
+        const output = ctx.runCommand('prlt config')
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+}
