@@ -1347,26 +1347,8 @@ export default class McpServerCommand extends Command {
     )
   }
 
-  async catch(error: Error & { exitCode?: number }): Promise<void> {
-    // Close PMO context on error
-    if (this.pmoContext?.storage) {
-      try {
-        await this.pmoContext.storage.close()
-      } catch {
-        // Ignore close errors
-      }
-    }
-    throw error
-  }
-
-  async finally(_: Error | undefined): Promise<void> {
-    // Close PMO context on exit
-    if (this.pmoContext?.storage) {
-      try {
-        await this.pmoContext.storage.close()
-      } catch {
-        // Ignore close errors
-      }
-    }
-  }
+  // Note: No catch/finally hooks that close storage here.
+  // The MCP server runs indefinitely over stdio - the database connection
+  // must stay open for the lifetime of the process. The connection will be
+  // automatically closed when the process exits.
 }
