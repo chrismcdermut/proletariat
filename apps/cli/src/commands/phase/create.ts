@@ -77,7 +77,6 @@ export default class PhaseCreate extends PMOCommand {
       color?: string;
       description?: string;
       default?: boolean;
-      machine?: boolean;
       json?: boolean;
     }>({
       commandName: 'phase create',
@@ -88,7 +87,6 @@ export default class PhaseCreate extends PMOCommand {
         color: flags.color,
         description: flags.description,
         default: flags.default,
-        machine: flags.machine,
         json: flags.json,
       },
     });
@@ -102,7 +100,7 @@ export default class PhaseCreate extends PMOCommand {
         flagName: 'name',
         type: 'input',
         message: 'Phase name:',
-        validate: (value) => (value as string).length > 0 || 'Name is required',
+        validate: (value) => (value as string).trim() ? true : 'Name cannot be empty',
         context: {
           hint: 'Provide name with: prlt phase create "Phase Name" --category <category>',
           example: 'prlt phase create "In Review" --category started',

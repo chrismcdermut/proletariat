@@ -42,6 +42,8 @@ export default class EpicCreate extends PMOCommand {
       description: 'Link to spec ID (the design spec that describes this epic)',
     }),
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
@@ -168,7 +170,7 @@ export default class EpicCreate extends PMOCommand {
     }>(fields.map(field => ({
       ...field,
       validate: field.name === 'title'
-        ? ((input: string) => input.length > 0 || 'Title is required')
+        ? ((input: string) => input.trim() ? true : 'Title cannot be empty')
         : undefined,
       when: field.name === 'specId' ? () => hasSpecs : undefined,
     })));

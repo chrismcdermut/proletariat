@@ -61,11 +61,11 @@ export default class PhaseMove extends PMOCommand {
         return handleError('NO_PHASES', 'No phases found. Create a phase first with "prlt phase create".');
       }
 
-      const idResolver = new FlagResolver<{ phaseId?: string; machine?: boolean; json?: boolean }>({
+      const idResolver = new FlagResolver<{ phaseId?: string; json?: boolean }>({
         commandName: 'phase move',
         baseCommand: 'prlt phase move',
         jsonMode,
-        flags: { machine: flags.machine, json: flags.json },
+        flags: { json: flags.json },
       });
 
       idResolver.addPrompt({
@@ -100,11 +100,11 @@ export default class PhaseMove extends PMOCommand {
       const phases = await this.storage.listPhases();
       const categoryPhases = phases.filter(p => p.category === phase.category);
 
-      const posResolver = new FlagResolver<{ position?: string; machine?: boolean; json?: boolean }>({
+      const posResolver = new FlagResolver<{ position?: string; json?: boolean }>({
         commandName: 'phase move',
         baseCommand: `prlt phase move ${phaseId}`,
         jsonMode,
-        flags: { machine: flags.machine, json: flags.json },
+        flags: { json: flags.json },
       });
 
       posResolver.addPrompt({

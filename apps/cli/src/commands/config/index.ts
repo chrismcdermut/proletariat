@@ -38,6 +38,8 @@ export default class Config extends Command {
 
   static flags = {
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output configuration as JSON (for AI agents/scripts)',
       default: false,
     }),

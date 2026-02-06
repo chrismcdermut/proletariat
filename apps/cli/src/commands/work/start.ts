@@ -121,6 +121,8 @@ export default class WorkStart extends PMOCommand {
   static flags = {
     ...pmoBaseFlags,
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
@@ -215,6 +217,11 @@ export default class WorkStart extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkStart)
     const projectId = (flags as { project?: string }).project
+
+    // Check for conflicting PR flags
+    if (flags['create-pr'] && flags['no-pr']) {
+      this.error('--create-pr and --no-pr are mutually exclusive');
+    }
 
     // Handle --skip-permissions flag (alias for --permission-mode danger)
     // Check for conflicting flags first

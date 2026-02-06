@@ -47,15 +47,11 @@ export default class Add extends Command {
       char: 't',
       description: 'Pick agent name(s) from a theme (billionaires, toyotas, companies, or custom)',
     }),
-    machine: Flags.boolean({
-      char: 'm',
-      description: 'Output as JSON for AI agents/scripts (machine-readable mode)',
-      default: false,
-    }),
     json: Flags.boolean({
-      description: 'Output as JSON (deprecated, use --machine)',
+      char: 'm',
+      aliases: ['machine'],
+      description: 'Output as JSON for AI agents/scripts',
       default: false,
-      hidden: true,
     }),
     clone: Flags.boolean({
       description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',

@@ -36,6 +36,8 @@ export default class WorkWatch extends PMOCommand {
   static flags = {
     ...pmoBaseFlags,
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
@@ -69,7 +71,7 @@ export default class WorkWatch extends PMOCommand {
       default: false,
     }),
     mode: Flags.string({
-      char: 'm',
+      char: 'd',
       description: 'Display mode for agent output',
       options: ['terminal', 'background'],
     }),

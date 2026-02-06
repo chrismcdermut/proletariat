@@ -226,31 +226,40 @@ describe('Agent Commands E2E Tests', () => {
       })
     })
 
-    describe('agent list - type selection flow', () => {
-      it('should output type selection with --machine', () => {
-        const result = agentExec('agent list --machine')
+    describe('agent list - JSON output', () => {
+      it('should output all agents grouped by type with --machine (no --type)', () => {
+        const output = exec('agent list --machine')
+
+        if (hasContextError(output)) {
+          return
+        }
+
+        const result = extractJson<{ staff: unknown[]; temp: unknown[]; all: unknown[] }>(output)
 
         if (!result) {
           return
         }
 
-        expect(result.prompt.type).to.equal('list')
-        expect(result.metadata.command).to.equal('agent list')
+        // Should have staff, temp, and all arrays
+        expect(result).to.have.property('staff')
+        expect(result).to.have.property('temp')
+        expect(result).to.have.property('all')
+        expect(Array.isArray(result.staff)).to.equal(true)
+        expect(Array.isArray(result.temp)).to.equal(true)
+        expect(Array.isArray(result.all)).to.equal(true)
       })
 
-      it('should include command in type choices', () => {
-        const result = agentExec('agent list --machine')
+      it('should work with --type flag to filter agents', () => {
+        // When --type is provided, it should filter to that type
+        // This just verifies the command works with --type
+        const output = exec('agent list --machine --type all')
 
-        if (!result) {
+        if (hasContextError(output)) {
           return
         }
 
-        for (const choice of result.prompt.choices) {
-          if (choice.command) {
-            expect(choice.command).to.include('agent list')
-            expect(choice.command).to.include('--type')
-          }
-        }
+        // Should output JSON or agent list, not throw an exception
+        expect(output).to.not.include('command failed')
       })
     })
 

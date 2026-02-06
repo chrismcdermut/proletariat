@@ -95,7 +95,7 @@ export default class StatusCreate extends PMOCommand {
       type: 'input',
       message: 'Status name:',
       default: initialName,
-      validate: (value) => (value as string).length > 0 || 'Name is required',
+      validate: (value) => (value as string).trim() ? true : 'Name cannot be empty',
       when: (ctx) => !ctx.flags.name || flags.interactive,
     });
 

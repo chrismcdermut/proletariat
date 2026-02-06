@@ -12,13 +12,15 @@ import {
 } from '../prompt-json.js';
 
 /**
- * Base flags for JSON/agent mode support (legacy)
+ * Base flags for JSON/agent mode support
  * Include these in your command's flags by spreading: ...jsonModeFlags
  * @deprecated Use machineOutputFlags instead
  */
 export const jsonModeFlags = {
   json: Flags.boolean({
-    description: 'Output prompts as JSON for AI agents/scripts',
+    char: 'm',
+    aliases: ['machine'],
+    description: 'Output as JSON for AI agents/scripts',
     default: false,
   }),
 };
@@ -26,18 +28,14 @@ export const jsonModeFlags = {
 /**
  * Base flags for machine-readable output mode
  * Include these in your command's flags by spreading: ...machineOutputFlags
- * Supports both --machine (new) and --json (legacy, deprecated)
+ * --json is the primary flag, -m/--machine are aliases
  */
 export const machineOutputFlags = {
-  machine: Flags.boolean({
-    char: 'm',
-    description: 'Output as JSON for AI agents/scripts (machine-readable mode)',
-    default: false,
-  }),
   json: Flags.boolean({
-    description: 'Output as JSON (deprecated, use --machine)',
+    char: 'm',
+    aliases: ['machine'],
+    description: 'Output as JSON for AI agents/scripts',
     default: false,
-    hidden: true,  // Hide from help since it's deprecated
   }),
 };
 
