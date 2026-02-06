@@ -16,6 +16,7 @@ export default class RoadmapDelete extends PMOCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %> my-roadmap',
     '<%= config.bin %> <%= command.id %> my-roadmap --force',
+    '<%= config.bin %> <%= command.id %> default-roadmap --force  # Required for default',
     '<%= config.bin %> <%= command.id %>  # Interactive selection',
   ];
 
@@ -30,7 +31,7 @@ export default class RoadmapDelete extends PMOCommand {
     ...pmoBaseFlags,
     force: Flags.boolean({
       char: 'f',
-      description: 'Skip confirmation',
+      description: 'Skip confirmation (required for default roadmap)',
       default: false,
     }),
     json: Flags.boolean({
@@ -91,6 +92,19 @@ export default class RoadmapDelete extends PMOCommand {
         return;
       }
       this.error(`Roadmap not found: ${roadmapId}`);
+    }
+
+    // Require --force to delete the default roadmap
+    if (roadmap.isDefault && !flags.force) {
+      if (jsonMode) {
+        outputErrorAsJson(
+          'DEFAULT_ROADMAP',
+          `Cannot delete the default roadmap "${roadmap.name}" without --force. Use --force to confirm deletion.`,
+          createMetadata('roadmap delete', flags)
+        );
+        return;
+      }
+      this.error(`Cannot delete the default roadmap "${roadmap.name}" without --force.\nUse: prlt roadmap delete ${roadmapId} --force`);
     }
 
     // Get project count for context
