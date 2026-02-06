@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.24] - 2026-02-06
+
+### Changed
+- TKT-877: Version bump and maintenance release
+
 ## [0.3.17] - 2025-01-30
 
 ### Added
