@@ -115,6 +115,30 @@ describe('Work Start Command', () => {
     });
   });
 
+  describe('Conflicting PR Flags (TKT-838)', () => {
+    it('errors when both --create-pr and --no-pr are used', () => {
+      const result = runCliWithError([
+        'work', 'start', 'TKT-999',
+        '--create-pr',
+        '--no-pr',
+      ]);
+
+      expect(result.exitCode).to.not.equal(0);
+      expect(result.stderr).to.contain('--create-pr and --no-pr are mutually exclusive');
+    });
+
+    it('error message names both conflicting flags', () => {
+      const result = runCliWithError([
+        'work', 'start', 'TKT-999',
+        '--create-pr',
+        '--no-pr',
+      ]);
+
+      expect(result.stderr).to.contain('--create-pr');
+      expect(result.stderr).to.contain('--no-pr');
+    });
+  });
+
   describe('Command Help', () => {
     it('work start help shows required flags', () => {
       expect(helpOutput).to.contain('USAGE');
