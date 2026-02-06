@@ -274,10 +274,11 @@ export function outputPromptAsJson(
 }
 
 /**
- * Output success result as JSON
+ * Output success result as JSON and exit
  *
  * Use this when all required data was provided via flags
- * and no prompt is needed.
+ * and no prompt is needed. Exits with EXIT_SUCCESS (0) to signal
+ * successful command completion.
  *
  * @param result - Command-specific result data
  * @param metadata - Command metadata
@@ -285,7 +286,7 @@ export function outputPromptAsJson(
 export function outputSuccessAsJson(
   result: Record<string, unknown>,
   metadata: OutputMetadata
-): void {
+): never {
   const output: SuccessJsonOutput = {
     prompt: null,
     success: true,
@@ -293,6 +294,7 @@ export function outputSuccessAsJson(
     metadata,
   }
   console.log(JSON.stringify(output, null, 2))
+  process.exit(EXIT_SUCCESS)
 }
 
 /**
