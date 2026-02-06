@@ -39,7 +39,7 @@ export default class Ticket extends PMOCommand {
     // Each choice includes the full command for AI agents to execute
     const menuChoices = [
       { name: 'Create new ticket', value: 'create', command: 'prlt ticket create --json' },
-      { name: 'Create from template', value: 'template', command: 'prlt ticket template apply --json' },
+      { name: 'Create from template', value: 'template', command: 'prlt template apply --type ticket --json' },
       { name: 'List all tickets', value: 'list', command: 'prlt ticket list --format json' },
       { name: 'View ticket details', value: 'view', command: 'prlt ticket view --json' },
       { name: 'Edit ticket', value: 'edit', command: 'prlt ticket edit --json' },
@@ -47,8 +47,8 @@ export default class Ticket extends PMOCommand {
       { name: 'Move to different project', value: 'project', command: 'prlt ticket project --json' },
       { name: 'Assign to epic', value: 'epic', command: 'prlt ticket epic --json' },
       { name: 'Assign to spec', value: 'spec', command: 'prlt ticket spec --json' },
-      { name: 'Manage dependencies', value: 'link', command: 'prlt ticket link --json' },
-      { name: 'Manage templates', value: 'templates', command: 'prlt ticket template --json' },
+      { name: 'Manage dependencies', value: 'link', command: 'prlt link list --json' },
+      { name: 'Manage templates', value: 'templates', command: 'prlt template --json' },
       { name: 'Delete ticket', value: 'delete', command: 'prlt ticket delete --json' },
       { name: 'Cancel', value: 'cancel' },
     ];
@@ -87,7 +87,7 @@ export default class Ticket extends PMOCommand {
         await this.config.runCommand('ticket:create', []);
         break;
       case 'template':
-        await this.config.runCommand('ticket:template:apply', []);
+        await this.config.runCommand('template:apply', ['--type', 'ticket']);
         break;
       case 'list':
         await this.config.runCommand('ticket:list', []);
@@ -111,10 +111,10 @@ export default class Ticket extends PMOCommand {
         await this.config.runCommand('ticket:spec', []);
         break;
       case 'link':
-        await this.config.runCommand('ticket:link', []);
+        await this.config.runCommand('link', []);
         break;
       case 'templates':
-        await this.config.runCommand('ticket:template', []);
+        await this.config.runCommand('template', []);
         break;
       case 'delete':
         await this.config.runCommand('ticket:delete', []);

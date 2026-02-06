@@ -38,7 +38,7 @@ export default class Epic extends PMOCommand {
       { id: 'progress', name: 'Show progress', command: 'prlt epic progress --json' },
       { id: 'ticket', name: 'Assign tickets to epic', command: 'prlt epic ticket --json' },
       { id: 'spec', name: 'Assign spec to epic', command: 'prlt epic spec --json' },
-      { id: 'link', name: 'Manage dependencies', command: 'prlt epic link --json' },
+      { id: 'link', name: 'Manage dependencies', command: 'prlt link list --json' },
       { id: 'archive', name: 'Archive epic (complete)', command: 'prlt epic archive --json' },
       { id: 'activate', name: 'Activate epic', command: 'prlt epic activate --json' },
       { id: 'move', name: 'Reorder epic', command: 'prlt epic move --json' },
@@ -82,7 +82,7 @@ export default class Epic extends PMOCommand {
         await this.config.runCommand('epic:spec', []);
         break;
       case 'link':
-        await this.config.runCommand('epic:link', []);
+        await this.config.runCommand('link', []);
         break;
       case 'archive':
         await this.config.runCommand('epic:archive', []);

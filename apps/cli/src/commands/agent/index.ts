@@ -12,7 +12,7 @@ export default class Agent extends PMOCommand {
     '<%= config.bin %> <%= command.id %> visit tacoma',
     '<%= config.bin %> <%= command.id %> staff add',
     '<%= config.bin %> <%= command.id %> staff remove camry',
-    '<%= config.bin %> <%= command.id %> temp cleanup --temp',
+    '<%= config.bin %> <%= command.id %> cleanup --temp',
     '<%= config.bin %> <%= command.id %> restart altman',
     '<%= config.bin %> <%= command.id %> rebuild altman',
     '<%= config.bin %> <%= command.id %> shell altman',
@@ -61,7 +61,7 @@ export default class Agent extends PMOCommand {
         { name: '🗑️  Remove agent', value: 'remove', command: 'prlt agent remove --machine' },
         // Management group
         { name: '👔 Manage staff agents', value: 'staff', command: 'prlt agent staff --machine' },
-        { name: '⏱️  Manage temp agents', value: 'temp', command: 'prlt agent temp --machine' },
+        { name: '🧹 Cleanup agents', value: 'cleanup', command: 'prlt agent cleanup --machine' },
         { name: '🎨 Manage themes', value: 'themes', command: 'prlt agent themes --machine' },
         // Operations group
         { name: '🐚 Open shell', value: 'shell', command: 'prlt agent shell --machine' },
@@ -108,20 +108,20 @@ export default class Agent extends PMOCommand {
           break;
         }
         case 'staff': {
-          const { default: StaffCommand } = await import('./staff/index.js');
+          const { default: StaffCommand } = await import('../staff/index.js');
           const cmd = new StaffCommand([], this.config);
           await cmd.run();
           break;
         }
-        case 'temp': {
-          const { default: TempCommand } = await import('./temp/index.js');
-          const cmd = new TempCommand([], this.config);
+        case 'cleanup': {
+          const { default: CleanupCommand } = await import('./cleanup.js');
+          const cmd = new CleanupCommand([], this.config);
           await cmd.run();
           break;
         }
         case 'themes': {
-          const { default: ThemesCommand } = await import('./themes/index.js');
-          const cmd = new ThemesCommand([], this.config);
+          const { default: ThemeCommand } = await import('../theme/index.js');
+          const cmd = new ThemeCommand([], this.config);
           await cmd.run();
           break;
         }
