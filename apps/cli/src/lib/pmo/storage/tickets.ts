@@ -16,6 +16,34 @@ export class TicketStorage {
   constructor(private ctx: StorageContext) {}
 
   /**
+   * Validate a category against the DB.
+   * Returns the valid category name if found, throws error if invalid.
+   */
+  private async validateCategory(category: string | null | undefined): Promise<string | null> {
+    if (!category) return null
+
+    // Check if category exists in DB for ticket type
+    const row = this.ctx.db.prepare(`
+      SELECT name FROM ${T.categories} WHERE LOWER(name) = LOWER(?) AND type = 'ticket'
+    `).get(category) as { name: string } | undefined
+
+    if (!row) {
+      // Get valid categories for error message
+      const validCategories = this.ctx.db.prepare(`
+        SELECT name FROM ${T.categories} WHERE type = 'ticket' ORDER BY position
+      `).all() as Array<{ name: string }>
+
+      const validNames = validCategories.map(c => c.name).join(', ')
+      throw new PMOError(
+        'INVALID',
+        `Invalid category "${category}". Valid categories: ${validNames}`
+      )
+    }
+
+    return row.name
+  }
+
+  /**
    * Resolve a project identifier to its actual ID.
    * Tries multiple strategies:
    * 1. Exact ID match
@@ -76,6 +104,9 @@ export class TicketStorage {
     const title = ticket.title || 'Untitled'
     const now = Date.now()
     const specId = ticket.specId || null
+
+    // Validate category against DB
+    const validatedCategory = await this.validateCategory(ticket.category)
 
     // Get status_id from project's workflow
     let statusId = ticket.statusId
@@ -156,7 +187,7 @@ export class TicketStorage {
         title,
         ticket.description || null,
         ticket.priority || null,
-        ticket.category || null,
+        validatedCategory,
         statusId,
         ticket.owner || null,
         ticket.assignee || null,
@@ -237,6 +268,12 @@ export class TicketStorage {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
     }
 
+    // Validate category if being updated
+    let validatedCategory: string | null | undefined
+    if (changes.category !== undefined) {
+      validatedCategory = await this.validateCategory(changes.category)
+    }
+
     const updates: string[] = []
     const params: unknown[] = []
 
@@ -252,9 +289,9 @@ export class TicketStorage {
       updates.push('priority = ?')
       params.push(changes.priority)
     }
-    if (changes.category !== undefined) {
+    if (validatedCategory !== undefined) {
       updates.push('category = ?')
-      params.push(changes.category)
+      params.push(validatedCategory)
     }
     if (changes.statusId !== undefined) {
       updates.push('status_id = ?')
