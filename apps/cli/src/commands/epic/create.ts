@@ -168,7 +168,7 @@ export default class EpicCreate extends PMOCommand {
     }>(fields.map(field => ({
       ...field,
       validate: field.name === 'title'
-        ? ((input: string) => input.length > 0 || 'Title is required')
+        ? ((input: string) => input.trim() ? true : 'Title cannot be empty')
         : undefined,
       when: field.name === 'specId' ? () => hasSpecs : undefined,
     })));

@@ -292,7 +292,7 @@ export default class TicketEdit extends PMOCommand {
         name: 'title',
         message: 'Title:',
         default: ticket.title,
-        validate: (input: string) => input.length > 0 || 'Title is required',
+        validate: (input: string) => input.trim() ? true : 'Title cannot be empty',
       },
       {
         type: 'editor',
@@ -347,7 +347,7 @@ export default class TicketEdit extends PMOCommand {
         name: 'customCategory',
         message: 'Enter custom category:',
         when: (answers: { categoryChoice: string }) => answers.categoryChoice === '__custom__',
-        validate: (input: string) => input.length > 0 || 'Category is required when choosing custom',
+        validate: (input: string) => input.trim() ? true : 'Category cannot be empty',
       },
     ]);
 

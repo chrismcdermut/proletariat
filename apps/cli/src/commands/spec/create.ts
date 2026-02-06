@@ -94,7 +94,7 @@ export default class SpecCreate extends PMOCommand {
         flagName: 'title',
         type: 'input',
         message: 'Spec title:',
-        validate: (value) => (value as string).length > 0 || 'Title is required',
+        validate: (value) => (value as string).trim() ? true : 'Title cannot be empty',
         when: (ctx) => !ctx.flags.title,
       });
 
