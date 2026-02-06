@@ -133,6 +133,34 @@ export const TICKET_CATEGORIES = [
 export type TicketCategory = typeof TICKET_CATEGORIES[number]
 
 /**
+ * Category types (ticket vs status).
+ */
+export type CategoryType = 'ticket' | 'status'
+
+/**
+ * Category record for ticket or status classification.
+ */
+export interface Category {
+  id: string
+  name: string
+  type: CategoryType
+  description?: string
+  color?: string
+  position: number
+  isBuiltin: boolean
+  createdAt: Date
+}
+
+/**
+ * Filter options for listing categories.
+ */
+export interface CategoryFilter {
+  type?: CategoryType
+  isBuiltin?: boolean
+  search?: string
+}
+
+/**
  * Check if a string is a valid Priority value.
  */
 export function isValidPriority(value: string | undefined | null): value is Priority {

@@ -238,3 +238,14 @@ export interface RoadmapProjectRow {
   position: number
   created_at: string
 }
+
+export interface CategoryRow {
+  id: string
+  name: string
+  type: string
+  description: string | null
+  color: string | null
+  position: number
+  is_builtin: number
+  created_at: string
+}

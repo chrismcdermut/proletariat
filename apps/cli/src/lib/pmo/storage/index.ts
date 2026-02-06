@@ -17,6 +17,9 @@ import {
   BoardView,
   BoardViewFilter,
   BoardViewFilters,
+  Category,
+  CategoryFilter,
+  CategoryType,
   Column,
   CreateTicketInput,
   Epic,
@@ -62,6 +65,7 @@ import {
   seedBuiltinPhaseTemplates,
   seedBuiltinActions,
   seedBuiltinTicketTemplates,
+  seedBuiltinCategories,
   updateBoardTimestamp,
 } from './base.js'
 import { ProjectStorage } from './projects.js'
@@ -76,6 +80,7 @@ import { PhaseStorage } from './phases.js'
 import { ActionStorage } from './actions.js'
 import { ViewStorage } from './views.js'
 import { RoadmapStorage } from './roadmaps.js'
+import { CategoryStorage } from './categories.js'
 
 const T = PMO_TABLES
 
@@ -99,6 +104,7 @@ export class SQLiteStorage implements PMOStorage {
   private actionStorage: ActionStorage
   private viewStorage: ViewStorage
   private roadmapStorage: RoadmapStorage
+  private categoryStorage: CategoryStorage
 
   constructor(dbPath: string) {
     this.dbPath = dbPath
@@ -132,6 +138,7 @@ export class SQLiteStorage implements PMOStorage {
     this.actionStorage = new ActionStorage(ctx)
     this.viewStorage = new ViewStorage(ctx)
     this.roadmapStorage = new RoadmapStorage(ctx)
+    this.categoryStorage = new CategoryStorage(ctx)
 
     // Ensure PMO tables exist
     this.ensurePMOTables()
@@ -167,6 +174,7 @@ export class SQLiteStorage implements PMOStorage {
     seedBuiltinPhaseTemplates(this.db)
     seedBuiltinActions(this.db)
     seedBuiltinTicketTemplates(this.db)
+    seedBuiltinCategories(this.db)
 
     // Validate schema
     validateTicketSchema(this.db)
@@ -841,6 +849,46 @@ export class SQLiteStorage implements PMOStorage {
 
   async getRoadmapsForProject(projectId: string): Promise<Roadmap[]> {
     return this.roadmapStorage.getRoadmapsForProject(projectId)
+  }
+
+  // ===========================================================================
+  // Category Operations
+  // ===========================================================================
+
+  async listCategories(filter?: CategoryFilter): Promise<Category[]> {
+    return this.categoryStorage.listCategories(filter)
+  }
+
+  async getCategory(id: string): Promise<Category | null> {
+    return this.categoryStorage.getCategory(id)
+  }
+
+  async getCategoryByName(name: string, type: CategoryType): Promise<Category | null> {
+    return this.categoryStorage.getCategoryByName(name, type)
+  }
+
+  async createCategory(category: Partial<Category> & { name: string; type: CategoryType }): Promise<Category> {
+    return this.categoryStorage.createCategory(category)
+  }
+
+  async updateCategory(id: string, changes: Partial<Category>): Promise<Category> {
+    return this.categoryStorage.updateCategory(id, changes)
+  }
+
+  async renameCategory(id: string, newName: string): Promise<Category> {
+    return this.categoryStorage.renameCategory(id, newName)
+  }
+
+  async deleteCategory(id: string): Promise<void> {
+    return this.categoryStorage.deleteCategory(id)
+  }
+
+  async getCategoryNames(type: CategoryType): Promise<string[]> {
+    return this.categoryStorage.getCategoryNames(type)
+  }
+
+  async isValidCategory(name: string, type: CategoryType): Promise<boolean> {
+    return this.categoryStorage.isValidCategory(name, type)
   }
 
   // ===========================================================================

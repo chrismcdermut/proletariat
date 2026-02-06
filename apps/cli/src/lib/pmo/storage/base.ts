@@ -5,7 +5,7 @@
 
 import Database from 'better-sqlite3'
 import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from '../schema.js'
-import { StateCategory } from '../types.js'
+import { StateCategory, TICKET_CATEGORIES, STATE_CATEGORY_ORDER } from '../types.js'
 import { BUILTIN_TEMPLATES } from '../templates-builtin.js'
 
 const T = PMO_TABLES
@@ -899,6 +899,55 @@ Why is this refactor needed?
       null,
       '[]',
       JSON.stringify(template.suggestedSubtasks || []),
+      now
+    )
+  }
+}
+
+/**
+ * Seed built-in categories from TICKET_CATEGORIES and STATE_CATEGORY_ORDER.
+ */
+export function seedBuiltinCategories(db: Database.Database): void {
+  const insertCategory = db.prepare(`
+    INSERT OR IGNORE INTO ${T.categories} (id, name, type, description, position, is_builtin, created_at)
+    VALUES (?, ?, ?, ?, ?, 1, ?)
+  `)
+
+  const now = new Date().toISOString()
+
+  // Seed ticket categories from TICKET_CATEGORIES
+  for (let i = 0; i < TICKET_CATEGORIES.length; i++) {
+    const category = TICKET_CATEGORIES[i]
+    const id = `ticket-${category}`
+    insertCategory.run(
+      id,
+      category,
+      'ticket',
+      null,
+      i,
+      now
+    )
+  }
+
+  // Seed status categories from STATE_CATEGORY_ORDER
+  const statusCategoryDescriptions: Record<string, string> = {
+    triage: 'Inbox - needs review before entering workflow',
+    backlog: 'Not yet scheduled for work',
+    unstarted: 'Scheduled but work has not begun',
+    started: 'Work is actively in progress',
+    completed: 'Work finished successfully',
+    canceled: 'Work will not be done',
+  }
+
+  for (let i = 0; i < STATE_CATEGORY_ORDER.length; i++) {
+    const category = STATE_CATEGORY_ORDER[i]
+    const id = `status-${category}`
+    insertCategory.run(
+      id,
+      category,
+      'status',
+      statusCategoryDescriptions[category] || null,
+      i,
       now
     )
   }
