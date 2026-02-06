@@ -33,7 +33,7 @@ export default class TicketCreate extends PMOCommand {
     }),
     title: Flags.string({
       char: 't',
-      description: 'Ticket title',
+      description: 'Ticket title [required for non-interactive]',
     }),
     column: Flags.string({
       char: 'c',

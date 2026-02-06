@@ -75,7 +75,7 @@ export default class BranchCreate extends PMOCommand {
     }),
     type: Flags.string({
       char: 't',
-      description: 'Branch type',
+      description: 'Branch type [required for non-interactive with -d]',
       options: Object.keys(BRANCH_TYPES),
     }),
     owner: Flags.string({
@@ -84,7 +84,7 @@ export default class BranchCreate extends PMOCommand {
     }),
     description: Flags.string({
       char: 'd',
-      description: 'Branch description (kebab-case)',
+      description: 'Branch description (kebab-case) [required for non-interactive with -t]',
     }),
     'empty-commit': Flags.boolean({
       char: 'e',
