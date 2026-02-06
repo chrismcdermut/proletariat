@@ -1,10 +1,10 @@
 import { Command } from '@oclif/core';
 import chalk from 'chalk';
-import { getWorkspaceInfo } from '../../../lib/agents/commands.js';
-import { ensureBuiltinThemes } from '../../../lib/themes.js';
-import { getThemes, getThemeNames, getAvailableThemeNames } from '../../../lib/database/index.js';
+import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { ensureBuiltinThemes } from '../../lib/themes.js';
+import { getThemes, getThemeNames, getAvailableThemeNames } from '../../lib/database/index.js';
 
-export default class ThemesList extends Command {
+export default class ThemeList extends Command {
   static description = 'List available agent themes';
 
   static examples = [
@@ -42,7 +42,7 @@ export default class ThemesList extends Command {
         this.log('');
       }
 
-      this.log(chalk.blue('Use: prlt agent add --theme <theme-id>'));
+      this.log(chalk.blue('Use: prlt staff add --theme <theme-id>'));
 
     } catch (error) {
       this.error(error instanceof Error ? error.message : String(error));

@@ -5,7 +5,7 @@ import * as fs from 'node:fs';
 import {
   getWorkspaceInfo,
   getAllAgentsStatus
-} from '../../../lib/agents/commands.js';
+} from '../../lib/agents/commands.js';
 
 export default class List extends Command {
   static description = 'List all staff (persistent) agents and their status';
@@ -25,7 +25,7 @@ export default class List extends Command {
       const staffAgents = workspaceInfo.agents.filter(a => a.type === 'persistent');
 
       if (staffAgents.length === 0) {
-        this.log(chalk.yellow('No staff agents found. Add staff agents with "prlt agent staff add"'));
+        this.log(chalk.yellow('No staff agents found. Add staff agents with "prlt staff add"'));
         return;
       }
 
@@ -86,7 +86,7 @@ export default class List extends Command {
           } else {
             this.log(chalk.red(`   Agent directory not found`));
           }
-          this.log(chalk.white('   Run "prlt agent staff add" to recreate'));
+          this.log(chalk.white('   Run "prlt staff add" to recreate'));
         }
 
         this.log(''); // Empty line between agents

@@ -1,17 +1,17 @@
 import { Command, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { getWorkspaceInfo } from '../../../lib/agents/commands.js';
-import { ensureBuiltinThemes } from '../../../lib/themes.js';
-import { getThemes, getAvailableThemeNames } from '../../../lib/database/index.js';
+import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { ensureBuiltinThemes } from '../../lib/themes.js';
+import { getThemes, getAvailableThemeNames } from '../../lib/database/index.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
   createMetadata,
   buildPromptConfig,
-} from '../../../lib/prompt-json.js';
+} from '../../lib/prompt-json.js';
 
-export default class Themes extends Command {
+export default class Theme extends Command {
   static description = 'Manage agent naming themes';
 
   static examples = [
@@ -30,7 +30,7 @@ export default class Themes extends Command {
   };
 
   async run(): Promise<void> {
-    const { flags } = await this.parse(Themes);
+    const { flags } = await this.parse(Theme);
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -38,9 +38,9 @@ export default class Themes extends Command {
     // Define choices once, use for both JSON and interactive modes
     // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { id: 'list', name: 'List themes', command: 'prlt agent themes list --format json' },
-      { id: 'create', name: 'Create a new theme', command: 'prlt agent themes create --machine' },
-      { id: 'add-names', name: 'Add names to a theme', command: 'prlt agent themes add-names --machine' },
+      { id: 'list', name: 'List themes', command: 'prlt theme list --format json' },
+      { id: 'create', name: 'Create a new theme', command: 'prlt theme create --machine' },
+      { id: 'add-names', name: 'Add names to a theme', command: 'prlt theme add-names --machine' },
       { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'What would you like to do?';
@@ -53,7 +53,7 @@ export default class Themes extends Command {
           value: c.id,
           command: c.command,
         }))),
-        createMetadata('agent themes', flags)
+        createMetadata('theme', flags)
       );
       return;
     }

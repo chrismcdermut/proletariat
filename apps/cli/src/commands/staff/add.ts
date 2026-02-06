@@ -5,21 +5,21 @@ import {
   getWorkspaceInfo,
   validateAgentNames,
   addAgentsToWorkspace
-} from '../../../lib/agents/commands.js';
-import { ensureBuiltinThemes, BUILTIN_THEMES, isValidAgentName, normalizeAgentName } from '../../../lib/themes.js';
+} from '../../lib/agents/commands.js';
+import { ensureBuiltinThemes, BUILTIN_THEMES, isValidAgentName, normalizeAgentName } from '../../lib/themes.js';
 import {
   getTheme,
   getThemes,
   getAvailableThemeNames,
   getActiveTheme
-} from '../../../lib/database/index.js';
+} from '../../lib/database/index.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
-} from '../../../lib/prompt-json.js';
+} from '../../lib/prompt-json.js';
 
 export default class Add extends Command {
   static description = 'Add new agents to the workspace';
@@ -84,7 +84,7 @@ export default class Add extends Command {
         if (!theme) {
           const available = BUILTIN_THEMES.map(t => t.name).join(', ');
           if (jsonMode) {
-            outputErrorAsJson('THEME_NOT_FOUND', `Theme "${flags.theme}" not found. Available: ${available}`, createMetadata('agent add', flags));
+            outputErrorAsJson('THEME_NOT_FOUND', `Theme "${flags.theme}" not found. Available: ${available}`, createMetadata('staff add', flags));
             return;
           }
           this.error(`Theme "${flags.theme}" not found. Available: ${available}`);
@@ -96,7 +96,7 @@ export default class Add extends Command {
         const availableNames = getAvailableThemeNames(workspaceInfo.path, themeId);
         if (availableNames.length === 0) {
           if (jsonMode) {
-            outputErrorAsJson('NO_AVAILABLE_NAMES', `No available names in theme "${theme.display_name}". All names are in use.`, createMetadata('agent add', flags));
+            outputErrorAsJson('NO_AVAILABLE_NAMES', `No available names in theme "${theme.display_name}". All names are in use.`, createMetadata('staff add', flags));
             return;
           }
           this.error(`No available names in theme "${theme.display_name}". All names are in use.`);
@@ -110,7 +110,7 @@ export default class Add extends Command {
         if (jsonMode) {
           outputPromptAsJson(
             buildPromptConfig('checkbox', 'names', selectMessage, nameChoices),
-            createMetadata('agent add', flags)
+            createMetadata('staff add', flags)
           );
           return;
         }
@@ -141,7 +141,7 @@ export default class Add extends Command {
 
           if (availableNames.length === 0) {
             if (jsonMode) {
-              outputErrorAsJson('NO_AVAILABLE_NAMES', `No available names in ${activeTheme.display_name}. All names are in use.`, createMetadata('agent add', flags));
+              outputErrorAsJson('NO_AVAILABLE_NAMES', `No available names in ${activeTheme.display_name}. All names are in use.`, createMetadata('staff add', flags));
               return;
             }
             this.log(chalk.yellow(`No available names in ${activeTheme.display_name}. All names are in use.`));
@@ -160,7 +160,7 @@ export default class Add extends Command {
           if (jsonMode) {
             outputPromptAsJson(
               buildPromptConfig('checkbox', 'names', selectMessage, nameChoices),
-              createMetadata('agent add', flags)
+              createMetadata('staff add', flags)
             );
             return;
           }
@@ -225,7 +225,7 @@ export default class Add extends Command {
           if (jsonMode) {
             outputPromptAsJson(
               buildPromptConfig('list', 'theme', selectMessage, themeChoices),
-              createMetadata('agent add', flags)
+              createMetadata('staff add', flags)
             );
             return;
           }

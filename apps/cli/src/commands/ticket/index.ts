@@ -47,7 +47,7 @@ export default class Ticket extends PMOCommand {
       { name: 'Move to different project', value: 'project', command: 'prlt ticket project --json' },
       { name: 'Assign to epic', value: 'epic', command: 'prlt ticket epic --json' },
       { name: 'Assign to spec', value: 'spec', command: 'prlt ticket spec --json' },
-      { name: 'Manage dependencies', value: 'link', command: 'prlt ticket link --json' },
+      { name: 'Manage dependencies', value: 'link', command: 'prlt link list --json' },
       { name: 'Manage templates', value: 'templates', command: 'prlt ticket template --json' },
       { name: 'Delete ticket', value: 'delete', command: 'prlt ticket delete --json' },
       { name: 'Cancel', value: 'cancel' },
@@ -111,7 +111,7 @@ export default class Ticket extends PMOCommand {
         await this.config.runCommand('ticket:spec', []);
         break;
       case 'link':
-        await this.config.runCommand('ticket:link', []);
+        await this.config.runCommand('link', []);
         break;
       case 'templates':
         await this.config.runCommand('ticket:template', []);

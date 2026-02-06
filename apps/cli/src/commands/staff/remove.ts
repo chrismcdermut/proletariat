@@ -1,19 +1,19 @@
 import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { colors, format } from '../../../lib/colors.js';
+import { colors, format } from '../../lib/colors.js';
 import {
   getWorkspaceInfo,
   removeAgentsFromWorkspace,
   formatAgentList
-} from '../../../lib/agents/commands.js';
-import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
+} from '../../lib/agents/commands.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
-} from '../../../lib/prompt-json.js';
+} from '../../lib/prompt-json.js';
 
 export default class Remove extends PMOCommand {
   static description = 'Remove a specific agent from the workspace';
@@ -58,7 +58,7 @@ export default class Remove extends PMOCommand {
     // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
       if (jsonMode) {
-        outputErrorAsJson(code, message, createMetadata('agent remove', flags));
+        outputErrorAsJson(code, message, createMetadata('staff remove', flags));
         this.exit(1);
       }
       this.error(message);
@@ -72,7 +72,7 @@ export default class Remove extends PMOCommand {
 
     if (staffAgents.length === 0) {
       if (jsonMode) {
-        outputErrorAsJson('NO_AGENTS', 'No staff agents to remove.', createMetadata('agent staff remove', flags));
+        outputErrorAsJson('NO_AGENTS', 'No staff agents to remove.', createMetadata('staff remove', flags));
         return;
       }
       this.log(colors.warning('No staff agents to remove.'));
@@ -94,7 +94,7 @@ export default class Remove extends PMOCommand {
       if (jsonMode) {
         outputPromptAsJson(
           buildPromptConfig('list', 'name', selectMessage, agentChoices),
-          createMetadata('agent remove', flags)
+          createMetadata('staff remove', flags)
         );
         return;
       }
@@ -142,7 +142,7 @@ export default class Remove extends PMOCommand {
       if (jsonMode) {
         outputPromptAsJson(
           buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
-          createMetadata('agent remove', flags)
+          createMetadata('staff remove', flags)
         );
         return;
       }

@@ -1,13 +1,13 @@
 import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
-import { colors } from '../../../lib/colors.js';
-import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
+import { colors } from '../../lib/colors.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
   createMetadata,
   buildPromptConfig,
-} from '../../../lib/prompt-json.js';
+} from '../../lib/prompt-json.js';
 
 export default class Staff extends PMOCommand {
   static description = 'Manage staff (persistent) agents';
@@ -45,9 +45,9 @@ export default class Staff extends PMOCommand {
     // Define choices once, use for both JSON and interactive modes
     // Include command field for AI agent navigation
     const menuChoices = [
-      { name: 'List staff agents', value: 'list', command: 'prlt agent staff list --machine' },
-      { name: 'Add staff agent', value: 'add', command: 'prlt agent staff add --machine' },
-      { name: 'Remove staff agent', value: 'remove', command: 'prlt agent staff remove --machine' },
+      { name: 'List staff agents', value: 'list', command: 'prlt staff list --machine' },
+      { name: 'Add staff agent', value: 'add', command: 'prlt staff add --machine' },
+      { name: 'Remove staff agent', value: 'remove', command: 'prlt staff remove --machine' },
       { name: 'Cancel', value: 'cancel', command: '' },
     ];
     const message = 'What would you like to do?';
@@ -56,7 +56,7 @@ export default class Staff extends PMOCommand {
     if (jsonMode) {
       outputPromptAsJson(
         buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('agent staff', flags)
+        createMetadata('staff', flags)
       );
       return;
     }

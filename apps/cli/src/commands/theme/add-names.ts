@@ -1,10 +1,10 @@
 import { Command, Args } from '@oclif/core';
 import chalk from 'chalk';
-import { getWorkspaceInfo } from '../../../lib/agents/commands.js';
-import { isValidAgentName, normalizeAgentName } from '../../../lib/themes.js';
-import { getTheme, addThemeNames, getThemeNames } from '../../../lib/database/index.js';
+import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { isValidAgentName, normalizeAgentName } from '../../lib/themes.js';
+import { getTheme, addThemeNames, getThemeNames } from '../../lib/database/index.js';
 
-export default class ThemesAddNames extends Command {
+export default class ThemeAddNames extends Command {
   static description = 'Add names to a theme';
 
   static examples = [
@@ -26,7 +26,7 @@ export default class ThemesAddNames extends Command {
   static strict = false; // Allow multiple name arguments
 
   async run(): Promise<void> {
-    const { args, argv } = await this.parse(ThemesAddNames);
+    const { args, argv } = await this.parse(ThemeAddNames);
 
     try {
       const workspaceInfo = getWorkspaceInfo();
@@ -34,7 +34,7 @@ export default class ThemesAddNames extends Command {
       // Validate theme exists
       const theme = getTheme(workspaceInfo.path, args.theme);
       if (!theme) {
-        this.error(`Theme "${args.theme}" not found. Run "prlt agent themes list" to see available themes.`);
+        this.error(`Theme "${args.theme}" not found. Run "prlt theme list" to see available themes.`);
       }
 
       // Get names from remaining arguments (skip the theme arg)

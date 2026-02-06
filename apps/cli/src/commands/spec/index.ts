@@ -58,7 +58,7 @@ export default class Spec extends PMOCommand {
           delete: 'prlt spec delete --json',
           generate: 'prlt spec plan --json',
           ticket: 'prlt spec ticket --json',
-          link: 'prlt spec link --json',
+          link: 'prlt link list --json',
           cancel: '',
         };
         return commands[value as string] || '';
@@ -93,7 +93,7 @@ export default class Spec extends PMOCommand {
         await this.config.runCommand('spec:ticket', []);
         break;
       case 'link':
-        await this.config.runCommand('spec:link', []);
+        await this.config.runCommand('link', []);
         break;
     }
   }

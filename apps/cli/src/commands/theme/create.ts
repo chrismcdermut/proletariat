@@ -1,9 +1,9 @@
 import { Command, Args, Flags } from '@oclif/core';
 import chalk from 'chalk';
-import { getWorkspaceInfo } from '../../../lib/agents/commands.js';
-import { createTheme, getTheme } from '../../../lib/database/index.js';
+import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { createTheme, getTheme } from '../../lib/database/index.js';
 
-export default class ThemesCreate extends Command {
+export default class ThemeCreate extends Command {
   static description = 'Create a custom agent theme';
 
   static examples = [
@@ -30,7 +30,7 @@ export default class ThemesCreate extends Command {
   };
 
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(ThemesCreate);
+    const { args, flags } = await this.parse(ThemeCreate);
 
     try {
       const workspaceInfo = getWorkspaceInfo();
@@ -68,7 +68,7 @@ export default class ThemesCreate extends Command {
         this.log(chalk.gray(`   ${theme.description}`));
       }
       this.log('');
-      this.log(chalk.blue('Add names with: prlt agent themes add-names ' + name + ' <names...>'));
+      this.log(chalk.blue('Add names with: prlt theme add-names ' + name + ' <names...>'));
 
     } catch (error) {
       this.error(error instanceof Error ? error.message : String(error));

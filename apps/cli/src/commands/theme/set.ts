@@ -1,17 +1,17 @@
 import { Command, Args, Flags } from '@oclif/core';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
-import { getWorkspaceInfo } from '../../../lib/agents/commands.js';
-import { ensureBuiltinThemes } from '../../../lib/themes.js';
-import { getThemes, getAvailableThemeNames, setActiveTheme, getActiveTheme } from '../../../lib/database/index.js';
+import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { ensureBuiltinThemes } from '../../lib/themes.js';
+import { getThemes, getAvailableThemeNames, setActiveTheme, getActiveTheme } from '../../lib/database/index.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
   createMetadata,
   buildPromptConfig,
-} from '../../../lib/prompt-json.js';
+} from '../../lib/prompt-json.js';
 
-export default class ThemesSet extends Command {
+export default class ThemeSet extends Command {
   static description = 'Set the active theme for this workspace';
 
   static examples = [
@@ -36,7 +36,7 @@ export default class ThemesSet extends Command {
   };
 
   async run(): Promise<void> {
-    const { args, flags } = await this.parse(ThemesSet);
+    const { args, flags } = await this.parse(ThemeSet);
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -64,7 +64,7 @@ export default class ThemesSet extends Command {
           });
           outputPromptAsJson(
             buildPromptConfig('list', 'theme', 'Select theme for this workspace:', themeChoices),
-            createMetadata('agent themes set', flags)
+            createMetadata('theme set', flags)
           );
           return;
         }
