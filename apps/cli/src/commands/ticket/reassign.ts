@@ -7,6 +7,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 
 export default class TicketReassign extends PMOCommand {
   static description = 'Reassign ticket(s) to a different agent';
@@ -161,6 +162,19 @@ export default class TicketReassign extends PMOCommand {
       targetAssignee = undefined;
     }
 
+    // Validate agent name if provided directly (not through interactive prompt)
+    if (targetAssignee && (args.assignee || flags.to)) {
+      try {
+        const workspaceInfo = getWorkspaceInfo();
+        const agent = workspaceInfo.agents.find(a => a.name === targetAssignee);
+        if (!agent) {
+          this.error(`Agent "${targetAssignee}" not found. Run 'prlt agent list' to see available agents.`);
+        }
+      } catch {
+        // Not in a workspace or agents table doesn't exist - skip validation
+      }
+    }
+
     // Check if same
     if (targetAssignee === ticket.assignee) {
       this.log(styles.muted(`Ticket "${ticketId}" is already assigned to "${targetAssignee || 'none'}".`));
@@ -254,6 +268,19 @@ export default class TicketReassign extends PMOCommand {
     // Handle special values
     if (targetAssignee === 'none' || targetAssignee === 'unassigned') {
       targetAssignee = undefined;
+    }
+
+    // Validate agent name if provided directly via --to flag (not through interactive prompt)
+    if (targetAssignee && flags.to) {
+      try {
+        const workspaceInfo = getWorkspaceInfo();
+        const agent = workspaceInfo.agents.find(a => a.name === targetAssignee);
+        if (!agent) {
+          this.error(`Agent "${targetAssignee}" not found. Run 'prlt agent list' to see available agents.`);
+        }
+      } catch {
+        // Not in a workspace or agents table doesn't exist - skip validation
+      }
     }
 
     // Confirmation
