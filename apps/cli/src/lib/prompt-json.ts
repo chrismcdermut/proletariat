@@ -141,9 +141,31 @@ export interface ErrorJsonOutput {
 }
 
 /**
+ * JSON output for dry-run validation (what would happen)
+ */
+export interface DryRunJsonOutput {
+  /** Indicates this is a dry-run result */
+  type: 'dry-run'
+  /** Whether the inputs are valid */
+  valid: boolean
+  /** What would be created if valid */
+  wouldCreate?: {
+    type: string
+    [key: string]: unknown
+  }
+  /** Validation errors if invalid */
+  errors?: Array<{
+    field: string
+    error: string
+  }>
+  /** Command metadata */
+  metadata: OutputMetadata
+}
+
+/**
  * Union type for all JSON output types
  */
-export type JsonOutput = PromptJsonOutput | SuccessJsonOutput | ErrorJsonOutput
+export type JsonOutput = PromptJsonOutput | SuccessJsonOutput | ErrorJsonOutput | DryRunJsonOutput
 
 /**
  * Flags interface for JSON mode detection
@@ -416,4 +438,55 @@ export function buildFormPromptConfig(
     type: 'form',
     fields,
   }
+}
+
+/**
+ * Output a successful dry-run result as JSON and exit
+ *
+ * Use this when --dry-run is set and all validation passes.
+ * Shows what would be created without actually creating it.
+ *
+ * @param entityType - Type of entity that would be created (e.g., "ticket", "project")
+ * @param wouldCreate - Data about what would be created
+ * @param metadata - Command metadata
+ */
+export function outputDryRunSuccessAsJson(
+  entityType: string,
+  wouldCreate: Record<string, unknown>,
+  metadata: OutputMetadata
+): never {
+  const output: DryRunJsonOutput = {
+    type: 'dry-run',
+    valid: true,
+    wouldCreate: {
+      type: entityType,
+      ...wouldCreate,
+    },
+    metadata,
+  }
+  console.log(JSON.stringify(output, null, 2))
+  process.exit(EXIT_SUCCESS)
+}
+
+/**
+ * Output a dry-run validation failure as JSON and exit
+ *
+ * Use this when --dry-run is set and validation fails.
+ * Shows the validation errors without attempting to create.
+ *
+ * @param errors - Array of validation errors
+ * @param metadata - Command metadata
+ */
+export function outputDryRunErrorsAsJson(
+  errors: Array<{ field: string; error: string }>,
+  metadata: OutputMetadata
+): never {
+  const output: DryRunJsonOutput = {
+    type: 'dry-run',
+    valid: false,
+    errors,
+    metadata,
+  }
+  console.log(JSON.stringify(output, null, 2))
+  process.exit(EXIT_ERROR)
 }

@@ -7,6 +7,8 @@ import { TicketTemplate, PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types
 import {
   shouldOutputJson,
   outputErrorAsJson,
+  outputDryRunSuccessAsJson,
+  outputDryRunErrorsAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
@@ -21,6 +23,7 @@ export default class TicketCreate extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --project mobile-app -t "New feature"',
     '<%= config.bin %> <%= command.id %> --epic EPIC-001 -t "Implement auth flow"',
     '<%= config.bin %> <%= command.id %> --json  # Output column choices as JSON',
+    '<%= config.bin %> <%= command.id %> --title "Test" -P PROJ-001 --dry-run --json  # Validate without creating',
   ];
 
   static flags = {
@@ -70,6 +73,10 @@ export default class TicketCreate extends PMOCommand {
     labels: Flags.string({
       char: 'l',
       description: 'Labels (comma-separated)',
+    }),
+    'dry-run': Flags.boolean({
+      description: 'Validate inputs without creating ticket (use with --json for structured output)',
+      default: false,
     }),
   };
 
@@ -202,7 +209,60 @@ export default class TicketCreate extends PMOCommand {
 
     // Validate status/column
     if (!columns.includes(ticketData.statusName)) {
+      if (flags['dry-run']) {
+        if (jsonMode) {
+          outputDryRunErrorsAsJson(
+            [{ field: 'column', error: `Invalid column "${ticketData.statusName}". Available: ${columns.join(', ')}` }],
+            createMetadata('ticket create', flags)
+          );
+        }
+        this.error(`Invalid column "${ticketData.statusName}". Available columns: ${columns.join(', ')}`);
+      }
       this.error(`Invalid column "${ticketData.statusName}". Available columns: ${columns.join(', ')}`);
+    }
+
+    // Handle dry-run: show what would be created without actually creating
+    if (flags['dry-run']) {
+      const wouldCreate = {
+        title: ticketData.title,
+        project: projectId,
+        column: ticketData.statusName,
+        ...(ticketData.priority && { priority: ticketData.priority }),
+        ...(ticketData.category && { category: ticketData.category }),
+        ...(ticketData.description && { description: ticketData.description }),
+        ...(ticketData.epicId && { epic: ticketData.epicId }),
+        ...(ticketData.labels && ticketData.labels.length > 0 && { labels: ticketData.labels }),
+      };
+
+      if (jsonMode) {
+        outputDryRunSuccessAsJson('ticket', wouldCreate, createMetadata('ticket create', flags));
+      }
+
+      // Human-readable dry-run output
+      this.log(styles.warning('\n[DRY RUN] Would create ticket:'));
+      this.log(styles.muted(`   Title: ${ticketData.title}`));
+      this.log(styles.muted(`   Project: ${projectName}`));
+      this.log(styles.muted(`   Column: ${ticketData.statusName}`));
+      if (ticketData.priority) {
+        this.log(styles.muted(`   Priority: ${ticketData.priority}`));
+      }
+      if (ticketData.category) {
+        this.log(styles.muted(`   Category: ${ticketData.category}`));
+      }
+      if (ticketData.epicId) {
+        this.log(styles.muted(`   Epic: ${ticketData.epicId}`));
+      }
+      if (ticketData.labels && ticketData.labels.length > 0) {
+        this.log(styles.muted(`   Labels: ${ticketData.labels.join(', ')}`));
+      }
+      if (template) {
+        this.log(styles.muted(`   Template: ${template.name}`));
+        if (template.suggestedSubtasks.length > 0) {
+          this.log(styles.muted(`   Subtasks: ${template.suggestedSubtasks.length} would be created`));
+        }
+      }
+      this.log(styles.muted('\n(No ticket was created)'));
+      return;
     }
 
     const ticket = await this.storage.createTicket(projectId, {
