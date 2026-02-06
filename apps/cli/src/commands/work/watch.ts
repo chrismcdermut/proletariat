@@ -69,7 +69,7 @@ export default class WorkWatch extends PMOCommand {
       default: false,
     }),
     mode: Flags.string({
-      char: 'm',
+      char: 'd',
       description: 'Display mode for agent output',
       options: ['terminal', 'background'],
     }),
