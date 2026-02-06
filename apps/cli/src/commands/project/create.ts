@@ -9,6 +9,8 @@ import {
   shouldOutputJson,
   outputPromptAsJson,
   outputSuccessAsJson,
+  outputDryRunSuccessAsJson,
+  outputDryRunErrorsAsJson,
   createMetadata,
   buildFormPromptConfig,
   FormField,
@@ -24,6 +26,7 @@ export default class ProjectCreate extends PMOCommand {
     '<%= config.bin %> <%= command.id %> "My New Project"',
     '<%= config.bin %> <%= command.id %> --name "Mobile App" --description "iOS and Android app"',
     '<%= config.bin %> <%= command.id %> -i  # Interactive mode',
+    '<%= config.bin %> <%= command.id %> --name "Test" --dry-run --json  # Validate without creating',
   ];
 
   static args = {
@@ -55,6 +58,10 @@ export default class ProjectCreate extends PMOCommand {
     interactive: Flags.boolean({
       char: 'i',
       description: 'Interactive mode',
+      default: false,
+    }),
+    'dry-run': Flags.boolean({
+      description: 'Validate inputs without creating project (use with --json for structured output)',
       default: false,
     }),
   };
@@ -115,7 +122,45 @@ export default class ProjectCreate extends PMOCommand {
     // Check if project already exists
     const existing = await this.storage.getProject(projectId);
     if (existing) {
+      if (flags['dry-run']) {
+        if (jsonMode) {
+          outputDryRunErrorsAsJson(
+            [{ field: 'id', error: `Project "${projectId}" already exists` }],
+            createMetadata('project create', flags)
+          );
+        }
+      }
       this.error(`Project "${projectId}" already exists.`);
+    }
+
+    // Get the statuses from the workflow (for dry-run preview)
+    const statuses = await this.storage.listStatuses(projectData.template);
+
+    // Handle dry-run: show what would be created without actually creating
+    if (flags['dry-run']) {
+      const wouldCreate = {
+        id: projectId,
+        name: projectData.name,
+        template: projectData.template,
+        statuses: statuses.map(s => s.name),
+        ...(projectData.description && { description: projectData.description }),
+      };
+
+      if (jsonMode) {
+        outputDryRunSuccessAsJson('project', wouldCreate, createMetadata('project create', flags));
+      }
+
+      // Human-readable dry-run output
+      this.log(styles.warning('\n[DRY RUN] Would create project:'));
+      this.log(styles.muted(`   ID: ${projectId}`));
+      this.log(styles.muted(`   Name: ${projectData.name}`));
+      this.log(styles.muted(`   Template: ${projectData.template}`));
+      this.log(styles.muted(`   Statuses: ${statuses.map(s => s.name).join(' → ')}`));
+      if (projectData.description) {
+        this.log(styles.muted(`   Description: ${projectData.description}`));
+      }
+      this.log(styles.muted('\n(No project was created)'));
+      return;
     }
 
     // Create project in database
@@ -137,9 +182,6 @@ export default class ProjectCreate extends PMOCommand {
 
     // Create spec folders in project directory
     const specsPath = createSpecFolders(this.pmoPath, projectId);
-
-    // Get the statuses from the workflow (template name = workflow ID for built-in templates)
-    const statuses = await this.storage.listStatuses(projectData.template);
 
     // In JSON mode, output success with project details
     if (jsonMode) {

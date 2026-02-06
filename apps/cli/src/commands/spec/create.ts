@@ -3,7 +3,12 @@ import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { slugify } from '../../lib/pmo/utils.js';
 import { SpecType, SpecStatus } from '../../lib/pmo/types.js';
-import { shouldOutputJson } from '../../lib/prompt-json.js';
+import {
+  shouldOutputJson,
+  outputDryRunSuccessAsJson,
+  outputDryRunErrorsAsJson,
+  createMetadata,
+} from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class SpecCreate extends PMOCommand {
@@ -13,6 +18,7 @@ export default class SpecCreate extends PMOCommand {
     '<%= config.bin %> <%= command.id %> "User Authentication"',
     '<%= config.bin %> <%= command.id %> --title "API Design" --type product',
     '<%= config.bin %> <%= command.id %> -i  # Interactive mode',
+    '<%= config.bin %> <%= command.id %> --title "Test" --dry-run --json  # Validate without creating',
   ];
 
   static args = {
@@ -44,6 +50,10 @@ export default class SpecCreate extends PMOCommand {
     interactive: Flags.boolean({
       char: 'i',
       description: 'Interactive mode',
+      default: false,
+    }),
+    'dry-run': Flags.boolean({
+      description: 'Validate inputs without creating spec (use with --json for structured output)',
       default: false,
     }),
   };
@@ -130,6 +140,49 @@ export default class SpecCreate extends PMOCommand {
 
     // Generate ID from title
     const specId = slugify(resolved.title!);
+
+    // Check if spec already exists
+    const existing = await this.storage.getSpec(specId);
+    if (existing) {
+      if (flags['dry-run']) {
+        if (jsonMode) {
+          outputDryRunErrorsAsJson(
+            [{ field: 'id', error: `Spec "${specId}" already exists` }],
+            createMetadata('spec create', flags)
+          );
+        }
+      }
+      this.error(`Spec "${specId}" already exists.`);
+    }
+
+    // Handle dry-run: show what would be created without actually creating
+    if (flags['dry-run']) {
+      const wouldCreate = {
+        id: specId,
+        title: resolved.title!,
+        status: resolved.status || 'draft',
+        ...(specType && { type: specType }),
+        ...(resolved.problem && { problem: resolved.problem }),
+      };
+
+      if (jsonMode) {
+        outputDryRunSuccessAsJson('spec', wouldCreate, createMetadata('spec create', flags));
+      }
+
+      // Human-readable dry-run output
+      this.log(styles.warning('\n[DRY RUN] Would create spec:'));
+      this.log(styles.muted(`   ID: ${specId}`));
+      this.log(styles.muted(`   Title: ${resolved.title}`));
+      this.log(styles.muted(`   Status: ${resolved.status || 'draft'}`));
+      if (specType) {
+        this.log(styles.muted(`   Type: ${specType}`));
+      }
+      if (resolved.problem) {
+        this.log(styles.muted(`   Problem: ${resolved.problem}`));
+      }
+      this.log(styles.muted('\n(No spec was created)'));
+      return;
+    }
 
     // Create spec in database
     const spec = await this.storage.createSpec({

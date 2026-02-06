@@ -7,6 +7,8 @@ import { createEpicFile, getRelativeEpicPath } from '../../lib/pmo/epic-files.js
 import {
   shouldOutputJson,
   outputPromptAsJson,
+  outputDryRunSuccessAsJson,
+  outputDryRunErrorsAsJson,
   createMetadata,
   buildFormPromptConfig,
   FormField,
@@ -20,6 +22,7 @@ export default class EpicCreate extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --title "User Authentication System"',
     '<%= config.bin %> <%= command.id %> -t "API Design" --status draft',
     '<%= config.bin %> <%= command.id %> -t "Implement Auth" --spec SPEC-001',
+    '<%= config.bin %> <%= command.id %> --title "Test" -P PROJ-001 --dry-run --json  # Validate without creating',
   ];
 
   static flags = {
@@ -45,6 +48,10 @@ export default class EpicCreate extends PMOCommand {
       char: 'm',
       aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    'dry-run': Flags.boolean({
+      description: 'Validate inputs without creating epic (use with --json for structured output)',
       default: false,
     }),
   };
@@ -117,8 +124,46 @@ export default class EpicCreate extends PMOCommand {
     if (epicData.specId) {
       const spec = await this.storage.getSpec(epicData.specId);
       if (!spec) {
+        if (flags['dry-run']) {
+          if (jsonMode) {
+            outputDryRunErrorsAsJson(
+              [{ field: 'spec', error: `Spec not found: ${epicData.specId}` }],
+              createMetadata('epic create', flags)
+            );
+          }
+        }
         this.error(`Spec not found: ${epicData.specId}`);
       }
+    }
+
+    // Handle dry-run: show what would be created without actually creating
+    if (flags['dry-run']) {
+      const projectName = await this.getProjectName(projectId);
+      const wouldCreate = {
+        title: epicData.title,
+        project: projectId,
+        status: epicData.status,
+        ...(epicData.description && { description: epicData.description }),
+        ...(epicData.specId && { spec: epicData.specId }),
+      };
+
+      if (jsonMode) {
+        outputDryRunSuccessAsJson('epic', wouldCreate, createMetadata('epic create', flags));
+      }
+
+      // Human-readable dry-run output
+      this.log(styles.warning('\n[DRY RUN] Would create epic:'));
+      this.log(styles.muted(`   Title: ${epicData.title}`));
+      this.log(styles.muted(`   Project: ${projectName}`));
+      this.log(styles.muted(`   Status: ${epicData.status}`));
+      if (epicData.description) {
+        this.log(styles.muted(`   Description: ${epicData.description}`));
+      }
+      if (epicData.specId) {
+        this.log(styles.muted(`   Spec: ${epicData.specId}`));
+      }
+      this.log(styles.muted('\n(No epic was created)'));
+      return;
     }
 
     const epic = await this.storage.createEpic(projectId, {
