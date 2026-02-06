@@ -19,6 +19,8 @@ export default class TemplatePhaseList extends Command {
       exclusive: ['builtin'],
     }),
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output as JSON',
       default: false,
     }),

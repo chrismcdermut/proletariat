@@ -21,15 +21,11 @@ export default class TemplatePhaseCreate extends Command {
       char: 'd',
       description: 'Template description',
     }),
-    machine: Flags.boolean({
-      char: 'm',
-      description: 'Output as JSON for AI agents/scripts (machine-readable mode)',
-      default: false,
-    }),
     json: Flags.boolean({
-      description: 'Output as JSON (deprecated, use --machine)',
+      char: 'm',
+      aliases: ['machine'],
+      description: 'Output as JSON for AI agents/scripts',
       default: false,
-      hidden: true,
     }),
   };
 
@@ -39,7 +35,6 @@ export default class TemplatePhaseCreate extends Command {
     const cmdArgs: string[] = [];
     if (args.name) cmdArgs.push(args.name);
     if (flags.description) cmdArgs.push('--description', flags.description);
-    if (flags.machine) cmdArgs.push('--machine');
     if (flags.json) cmdArgs.push('--json');
 
     await this.config.runCommand('phase:template:create', cmdArgs);

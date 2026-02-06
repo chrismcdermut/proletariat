@@ -26,6 +26,8 @@ export default class EpicLinkBlock extends PMOCommand {
     ...pmoBaseFlags,
     project: Flags.string({ char: 'P', description: 'Project ID' }),
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),

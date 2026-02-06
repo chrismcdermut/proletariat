@@ -43,6 +43,8 @@ export default class RoadmapUpdate extends PMOCommand {
       allowNo: true,
     }),
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),

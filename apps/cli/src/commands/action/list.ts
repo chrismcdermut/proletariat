@@ -29,6 +29,8 @@ export default class ActionList extends PMOCommand {
       options: ['backlog', 'unstarted', 'started', 'completed', 'canceled'],
     }),
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output as JSON',
       default: false,
     }),

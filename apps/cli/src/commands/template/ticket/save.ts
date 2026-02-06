@@ -31,10 +31,6 @@ export default class TemplateTicketSave extends Command {
       char: 'd',
       description: 'Template description',
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   async run(): Promise<void> {
@@ -46,7 +42,6 @@ export default class TemplateTicketSave extends Command {
     if (flags['template-name']) cmdArgs.push('--template-name', flags['template-name']);
     if (flags.description) cmdArgs.push('--description', flags.description);
     if (flags.json) cmdArgs.push('--json');
-    if (flags.machine) cmdArgs.push('--machine');
 
     await this.config.runCommand('ticket:template:save', cmdArgs);
   }

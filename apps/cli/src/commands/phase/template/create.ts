@@ -47,7 +47,6 @@ export default class PhaseTemplateCreate extends PMOCommand {
     const resolver = new FlagResolver<{
       name?: string;
       description?: string;
-      machine?: boolean;
       json?: boolean;
     }>({
       commandName: 'phase template create',
@@ -55,7 +54,6 @@ export default class PhaseTemplateCreate extends PMOCommand {
       jsonMode,
       flags: {
         description: flags.description,
-        machine: flags.machine,
         json: flags.json,
       },
       args: { name: args.name },

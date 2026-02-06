@@ -22,6 +22,8 @@ export default class Workflow extends PMOCommand {
       default: false,
     }),
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output as JSON',
       default: false,
     }),

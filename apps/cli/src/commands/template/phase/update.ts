@@ -25,6 +25,8 @@ export default class TemplatePhaseUpdate extends Command {
       description: 'New template description',
     }),
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
