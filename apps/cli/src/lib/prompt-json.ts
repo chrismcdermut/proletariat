@@ -99,6 +99,8 @@ export interface OutputMetadata {
  * JSON output when a prompt would be shown
  */
 export interface PromptJsonOutput {
+  /** Output type discriminator */
+  type: 'prompt'
   /** Prompt configuration, or null if no prompt needed */
   prompt: PromptConfig | null
   /** Command metadata */
@@ -109,6 +111,8 @@ export interface PromptJsonOutput {
  * JSON output for successful command execution (no prompt needed)
  */
 export interface SuccessJsonOutput {
+  /** Output type discriminator */
+  type: 'success'
   /** Always null when success output */
   prompt: null
   /** Indicates successful execution */
@@ -123,6 +127,8 @@ export interface SuccessJsonOutput {
  * JSON output for error conditions
  */
 export interface ErrorJsonOutput {
+  /** Output type discriminator */
+  type: 'error'
   /** Error details */
   error: {
     /** Machine-readable error code (e.g., "NO_TICKETS_AVAILABLE") */
@@ -251,6 +257,7 @@ export function outputPromptAsJson(
   metadata: OutputMetadata
 ): never {
   const output: PromptJsonOutput = {
+    type: 'prompt',
     prompt: config,
     metadata,
   }
@@ -273,6 +280,7 @@ export function outputSuccessAsJson(
   metadata: OutputMetadata
 ): never {
   const output: SuccessJsonOutput = {
+    type: 'success',
     prompt: null,
     success: true,
     result,
@@ -299,6 +307,7 @@ export function outputErrorAsJson(
   metadata: OutputMetadata
 ): never {
   const output: ErrorJsonOutput = {
+    type: 'error',
     error: {
       code,
       message,
