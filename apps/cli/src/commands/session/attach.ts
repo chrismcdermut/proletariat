@@ -69,6 +69,15 @@ export default class SessionAttach extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SessionAttach)
 
+    // Check for mutually exclusive flags
+    const rawArgs = process.argv
+    const hasCurrentTerminal = rawArgs.includes('--current-terminal') || rawArgs.includes('-c')
+    const hasNewTab = rawArgs.includes('--new-tab') || rawArgs.includes('-n')
+
+    if (hasCurrentTerminal && hasNewTab) {
+      this.error('--current-terminal and --new-tab are mutually exclusive')
+    }
+
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
 
