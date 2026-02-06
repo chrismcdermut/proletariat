@@ -25,7 +25,7 @@ export default class ActionCreate extends PMOCommand {
     ...pmoBaseFlags,
     prompt: Flags.string({
       char: 'p',
-      description: 'The prompt to send to the agent',
+      description: 'The prompt to send to the agent [required for non-interactive]',
     }),
     description: Flags.string({
       char: 'd',

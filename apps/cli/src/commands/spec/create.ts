@@ -26,7 +26,7 @@ export default class SpecCreate extends PMOCommand {
     ...pmoBaseFlags,
     title: Flags.string({
       char: 't',
-      description: 'Spec title',
+      description: 'Spec title [required for non-interactive]',
     }),
     status: Flags.string({
       char: 's',

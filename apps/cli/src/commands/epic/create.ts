@@ -26,7 +26,7 @@ export default class EpicCreate extends PMOCommand {
     ...pmoBaseFlags,
     title: Flags.string({
       char: 't',
-      description: 'Epic title',
+      description: 'Epic title [required for non-interactive]',
     }),
     status: Flags.string({
       char: 's',

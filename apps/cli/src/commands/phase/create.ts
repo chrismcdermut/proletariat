@@ -25,7 +25,7 @@ export default class PhaseCreate extends PMOCommand {
     ...pmoBaseFlags,
     category: Flags.string({
       char: 'c',
-      description: 'State category',
+      description: 'State category [required for non-interactive]',
       options: ['backlog', 'unstarted', 'started', 'completed', 'canceled'],
     }),
     color: Flags.string({

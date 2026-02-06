@@ -37,7 +37,7 @@ export default class ProjectCreate extends PMOCommand {
     ...pmoBaseFlags,
     name: Flags.string({
       char: 'n',
-      description: 'Project name',
+      description: 'Project name [required for non-interactive]',
     }),
     id: Flags.string({
       description: 'Custom project ID (auto-generated from name if not provided)',

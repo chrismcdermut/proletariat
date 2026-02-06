@@ -53,7 +53,7 @@ export default class WorkSpawn extends PMOCommand {
     }),
     column: Flags.string({
       char: 'c',
-      description: 'Column name to spawn tickets from (used with --all)',
+      description: 'Column name to spawn tickets from [required for non-interactive with --all]',
     }),
     strategy: Flags.string({
       char: 's',
