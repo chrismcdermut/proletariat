@@ -8,6 +8,7 @@ import { slugify } from '../../lib/pmo/utils.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
+  outputSuccessAsJson,
   createMetadata,
   buildFormPromptConfig,
   FormField,
@@ -54,10 +55,6 @@ export default class ProjectCreate extends PMOCommand {
     interactive: Flags.boolean({
       char: 'i',
       description: 'Interactive mode',
-      default: false,
-    }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
   };
@@ -143,6 +140,22 @@ export default class ProjectCreate extends PMOCommand {
 
     // Get the statuses from the workflow (template name = workflow ID for built-in templates)
     const statuses = await this.storage.listStatuses(projectData.template);
+
+    // In JSON mode, output success with project details
+    if (jsonMode) {
+      outputSuccessAsJson(
+        {
+          id: project.id,
+          name: project.name,
+          template: projectData.template,
+          statuses: statuses.map(s => s.name),
+          boardPath: path.relative(process.cwd(), boardPath),
+          specsPath: path.relative(process.cwd(), specsPath),
+        },
+        createMetadata('project create', flags)
+      );
+      return;
+    }
 
     this.log(styles.success(`\nCreated project "${styles.emphasis(project.name)}"`));
     this.log(styles.muted(`  ID: ${project.id}`));

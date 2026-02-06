@@ -8,6 +8,7 @@ import { PMO_TABLES } from '../schema.js'
 import { PMOError, StateCategory, STATE_CATEGORY_ORDER, Workflow, WorkflowStatus, WorkflowFilter } from '../types.js'
 import { slugify } from '../utils.js'
 import { StorageContext, WorkflowStatusRow, WorkflowRow } from './types.js'
+import { wrapSqliteError } from './helpers.js'
 
 const T = PMO_TABLES
 
@@ -99,17 +100,21 @@ export class StatusStorage {
       throw new PMOError('CONFLICT', `Workflow with name "${workflow.name}" already exists`)
     }
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.workflows} (id, name, description, is_builtin, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      workflow.name || 'New Workflow',
-      workflow.description || null,
-      workflow.isBuiltin ? 1 : 0,
-      now,
-      now
-    )
+    try {
+      this.ctx.db.prepare(`
+        INSERT INTO ${T.workflows} (id, name, description, is_builtin, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        workflow.name || 'New Workflow',
+        workflow.description || null,
+        workflow.isBuiltin ? 1 : 0,
+        now,
+        now
+      )
+    } catch (err) {
+      wrapSqliteError('Workflow', 'create', err)
+    }
 
     return {
       id,
@@ -186,9 +191,13 @@ export class StatusStorage {
       )
     }
 
-    // Delete associated statuses first (cascaded by FK, but explicit for safety)
-    this.ctx.db.prepare(`DELETE FROM ${T.workflow_statuses} WHERE workflow_id = ?`).run(id)
-    this.ctx.db.prepare(`DELETE FROM ${T.workflows} WHERE id = ?`).run(id)
+    try {
+      // Delete associated statuses first (cascaded by FK, but explicit for safety)
+      this.ctx.db.prepare(`DELETE FROM ${T.workflow_statuses} WHERE workflow_id = ?`).run(id)
+      this.ctx.db.prepare(`DELETE FROM ${T.workflows} WHERE id = ?`).run(id)
+    } catch (err) {
+      wrapSqliteError('Workflow', 'delete', err)
+    }
   }
 
   /**
@@ -288,20 +297,24 @@ export class StatusStorage {
       `).run(workflowId)
     }
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.workflow_statuses} (id, workflow_id, name, category, position, color, description, is_default, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      workflowId,
-      status.name || 'New Status',
-      category,
-      position,
-      status.color || null,
-      status.description || null,
-      status.isDefault ? 1 : 0,
-      now
-    )
+    try {
+      this.ctx.db.prepare(`
+        INSERT INTO ${T.workflow_statuses} (id, workflow_id, name, category, position, color, description, is_default, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        workflowId,
+        status.name || 'New Status',
+        category,
+        position,
+        status.color || null,
+        status.description || null,
+        status.isDefault ? 1 : 0,
+        now
+      )
+    } catch (err) {
+      wrapSqliteError('Status', 'create', err)
+    }
 
     // Update workflow's updated_at timestamp
     this.ctx.db.prepare(`UPDATE ${T.workflows} SET updated_at = ? WHERE id = ?`).run(now, workflowId)
@@ -416,14 +429,18 @@ export class StatusStorage {
       )
     }
 
-    this.ctx.db.prepare(`DELETE FROM ${T.workflow_statuses} WHERE id = ?`).run(id)
+    try {
+      this.ctx.db.prepare(`DELETE FROM ${T.workflow_statuses} WHERE id = ?`).run(id)
 
-    // Reorder remaining statuses
-    this.ctx.db.prepare(`
-      UPDATE ${T.workflow_statuses}
-      SET position = position - 1
-      WHERE workflow_id = ? AND position > ?
-    `).run(existing.workflowId, existing.position)
+      // Reorder remaining statuses
+      this.ctx.db.prepare(`
+        UPDATE ${T.workflow_statuses}
+        SET position = position - 1
+        WHERE workflow_id = ? AND position > ?
+      `).run(existing.workflowId, existing.position)
+    } catch (err) {
+      wrapSqliteError('Status', 'delete', err)
+    }
 
     // Update workflow's updated_at timestamp
     this.ctx.db.prepare(`UPDATE ${T.workflows} SET updated_at = ? WHERE id = ?`).run(

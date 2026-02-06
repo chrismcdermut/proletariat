@@ -1,44 +1,49 @@
 import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { exec, filterOutput } from './test-helpers.js';
+import {
+  exec,
+  filterOutput,
+  createTestEnvironment,
+  cleanupTestEnvironment,
+  setupProductionSchema,
+  createTestProject,
+  createTestTicket,
+  createHQConfig,
+  createPMODirectories,
+  type TestEnvironment,
+} from './test-helpers.js';
 
 /**
  * End-to-end tests for PMO Roadmap Commands
  * Tests: prlt roadmap create, list, view, update, delete, add-project, remove-project, reorder, generate
  */
 describe('PMO Roadmap Commands E2E Tests', () => {
-  let testDir: string;
-  let originalCwd: string;
-  let dbPath: string;
+  let env: TestEnvironment;
   let db: Database.Database;
+  const pmoPath = 'pmo'; // relative path for settings
 
   beforeEach(() => {
-    originalCwd = process.cwd();
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmo-roadmap-e2e-'));
-    process.chdir(testDir);
+    env = createTestEnvironment('pmo-roadmap-e2e-');
 
-    const proletariatDir = path.join(testDir, '.proletariat');
-    fs.mkdirSync(proletariatDir, { recursive: true });
-    dbPath = path.join(proletariatDir, 'workspace.db');
+    // Use production schema
+    db = setupProductionSchema(env.dbPath, pmoPath);
 
-    // Create pmo directory structure
-    const pmoPath = path.join(testDir, 'pmo');
-    fs.mkdirSync(path.join(pmoPath, 'projects', 'test-project'), { recursive: true });
-    fs.mkdirSync(path.join(pmoPath, 'roadmaps'), { recursive: true });
+    // Create test project
+    createTestProject(db, { id: 'test-project', name: 'Test Project' });
 
-    db = new Database(dbPath);
-    setupTestDatabase(db);
+    // Create HQ config and PMO directories
+    createHQConfig(env.proletariatDir);
+    createPMODirectories(env.pmoPath, 'test-project');
+
+    // Create roadmaps directory for generate tests
+    fs.mkdirSync(path.join(env.pmoPath, 'roadmaps'), { recursive: true });
   });
 
   afterEach(() => {
     if (db) db.close();
-    process.chdir(originalCwd);
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
+    cleanupTestEnvironment(env);
   });
 
   describe('prlt roadmap create', () => {
@@ -72,6 +77,48 @@ describe('PMO Roadmap Commands E2E Tests', () => {
 
       const roadmaps = db.prepare('SELECT id FROM pmo_roadmaps WHERE id = ?').all('my-custom-id') as Array<{ id: string }>;
       expect(roadmaps).to.have.lengthOf(1);
+    });
+
+    describe('JSON mode (TKT-792)', () => {
+      it('should return JSON without interactive prompts when using --json flag', () => {
+        const output = exec('roadmap create --json --name "Q1 Roadmap"');
+
+        // Output should be valid JSON
+        const parsed = JSON.parse(filterOutput(output));
+
+        // Should contain roadmap data
+        expect(parsed).to.have.property('id');
+        expect(parsed).to.have.property('name', 'Q1 Roadmap');
+
+        // Roadmap should be created in database
+        const roadmaps = db.prepare('SELECT * FROM pmo_roadmaps WHERE name = ?').all('Q1 Roadmap') as Array<{ id: string }>;
+        expect(roadmaps).to.have.lengthOf(1);
+      });
+
+      it('should return roadmap data with all fields in JSON mode', () => {
+        const output = exec('roadmap create --json --name "Full Roadmap" --description "Test desc" --id full-roadmap --default');
+
+        const parsed = JSON.parse(filterOutput(output));
+
+        expect(parsed.id).to.equal('full-roadmap');
+        expect(parsed.name).to.equal('Full Roadmap');
+        expect(parsed.description).to.equal('Test desc');
+        expect(parsed.isDefault).to.equal(true);
+      });
+
+      it('should skip follow-up prompt even when projects exist', () => {
+        // The test project already exists in beforeEach
+        // In JSON mode, it should NOT prompt to add projects
+        const output = exec('roadmap create --json --name "Skip Prompt Test"');
+
+        // Should be valid JSON (not error about interactive prompt)
+        const parsed = JSON.parse(filterOutput(output));
+        expect(parsed).to.have.property('name', 'Skip Prompt Test');
+
+        // Should NOT contain any interactive prompt text
+        expect(output).to.not.contain('Add projects');
+        expect(output).to.not.contain('Select projects');
+      });
     });
   });
 
@@ -165,8 +212,8 @@ describe('PMO Roadmap Commands E2E Tests', () => {
   describe('prlt roadmap reorder', () => {
     beforeEach(() => {
       // Create additional projects
-      db.prepare(`INSERT INTO pmo_projects (id, name) VALUES ('project-2', 'Project 2')`).run();
-      db.prepare(`INSERT INTO pmo_projects (id, name) VALUES ('project-3', 'Project 3')`).run();
+      createTestProject(db, { id: 'project-2', name: 'Project 2' });
+      createTestProject(db, { id: 'project-3', name: 'Project 3' });
     });
 
     it('should reorder project to new position', () => {
@@ -186,14 +233,14 @@ describe('PMO Roadmap Commands E2E Tests', () => {
     it('should generate markdown file', () => {
       exec('roadmap create --name "Generated Roadmap" --description "Test generation" --id gen-test');
       exec('roadmap add-project gen-test test-project');
-      // Add a ticket for the project
-      db.prepare(`INSERT INTO pmo_tickets (id, project_id, title, priority, status_id) VALUES ('TKT-001', 'test-project', 'Test Ticket', 'P0', 'backlog')`).run();
+      // Add a ticket for the project (uses production status_id format)
+      createTestTicket(db, 'test-project', { id: 'TKT-001', title: 'Test Ticket', priority: 'P0' });
 
       const output = exec('roadmap generate gen-test');
 
       expect(filterOutput(output)).to.contain('Generated');
 
-      const mdPath = path.join(testDir, 'pmo', 'roadmaps', 'generated-roadmap.md');
+      const mdPath = path.join(env.testDir, 'pmo', 'roadmaps', 'generated-roadmap.md');
       expect(fs.existsSync(mdPath)).to.be.true;
     });
 
@@ -207,148 +254,3 @@ describe('PMO Roadmap Commands E2E Tests', () => {
     });
   });
 });
-
-/**
- * Sets up the test database with required schema
- */
-function setupTestDatabase(db: Database.Database) {
-  db.exec(`
-    -- Settings table
-    CREATE TABLE IF NOT EXISTS pmo_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    -- Projects table
-    CREATE TABLE IF NOT EXISTS pmo_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      template TEXT,
-      description TEXT,
-      initiative_id TEXT,
-      is_archived INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Roadmaps table
-    CREATE TABLE IF NOT EXISTS pmo_roadmaps (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Roadmap Projects join table
-    CREATE TABLE IF NOT EXISTS pmo_roadmap_projects (
-      roadmap_id TEXT NOT NULL REFERENCES pmo_roadmaps(id) ON DELETE CASCADE,
-      project_id TEXT NOT NULL REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      position INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (roadmap_id, project_id)
-    );
-
-    -- Statuses table
-    CREATE TABLE IF NOT EXISTS pmo_statuses (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      UNIQUE(project_id, name)
-    );
-
-    -- Tickets table
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT,
-      priority TEXT DEFAULT 'MEDIUM',
-      category TEXT DEFAULT 'feature',
-      status TEXT DEFAULT 'backlog',
-      status_id TEXT,
-      owner TEXT,
-      assignee TEXT,
-      branch TEXT,
-      spec_id TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (status_id) REFERENCES pmo_statuses(id)
-    );
-
-    -- Columns table (needed for board operations)
-    CREATE TABLE IF NOT EXISTS pmo_columns (
-      id TEXT NOT NULL,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      name TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, id)
-    );
-
-    -- Board tickets table
-    CREATE TABLE IF NOT EXISTS pmo_board_tickets (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      project_id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL UNIQUE,
-      column_id TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE
-    );
-
-    -- Indexes for roadmaps
-    CREATE INDEX IF NOT EXISTS idx_pmo_roadmap_projects_roadmap ON pmo_roadmap_projects(roadmap_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_roadmap_projects_position ON pmo_roadmap_projects(roadmap_id, position);
-    CREATE INDEX IF NOT EXISTS idx_pmo_roadmaps_default ON pmo_roadmaps(is_default);
-  `);
-
-  // Insert test project
-  db.prepare(`
-    INSERT INTO pmo_projects (id, name, template)
-    VALUES ('test-project', 'Test Project', 'kanban')
-  `).run();
-
-  // Insert settings
-  db.prepare(`
-    INSERT INTO pmo_settings (key, value)
-    VALUES ('pmo_path', 'pmo'), ('current_project', 'test-project')
-  `).run();
-
-  // Insert statuses for test project
-  const statuses = [
-    { id: 'backlog', name: 'Backlog', category: 'backlog', position: 0 },
-    { id: 'in-progress', name: 'In Progress', category: 'started', position: 1 },
-    { id: 'done', name: 'Done', category: 'completed', position: 2 },
-  ];
-
-  for (const status of statuses) {
-    db.prepare(`
-      INSERT INTO pmo_statuses (id, project_id, name, category, position, is_default)
-      VALUES (?, 'test-project', ?, ?, ?, ?)
-    `).run(status.id, status.name, status.category, status.position, status.position === 0 ? 1 : 0);
-  }
-
-  // Insert columns for test project
-  const columns = [
-    { id: 'backlog', name: 'SHIP BL', position: 0 },
-    { id: 'in-progress', name: 'In Progress', position: 1 },
-    { id: 'done', name: 'Done', position: 2 },
-  ];
-
-  for (const col of columns) {
-    db.prepare(`
-      INSERT INTO pmo_columns (id, project_id, name, position)
-      VALUES (?, 'test-project', ?, ?)
-    `).run(col.id, col.name, col.position);
-  }
-}

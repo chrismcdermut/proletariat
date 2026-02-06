@@ -23,6 +23,8 @@ export default class PhaseTemplateList extends PMOCommand {
       exclusive: ['builtin'],
     }),
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output as JSON',
       default: false,
     }),
@@ -75,7 +77,7 @@ export default class PhaseTemplateList extends PMOCommand {
     }
 
     this.log('');
-    this.log(styles.muted('Apply a template: prlt phase template apply <template-id>'));
+    this.log(styles.muted('Apply a template: prlt template phase apply <template-id>'));
     this.log('');
   }
 

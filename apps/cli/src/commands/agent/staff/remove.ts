@@ -3,7 +3,8 @@ import inquirer from 'inquirer';
 import { colors, format } from '../../../lib/colors.js';
 import {
   getWorkspaceInfo,
-  removeAgentsFromWorkspace
+  removeAgentsFromWorkspace,
+  formatAgentList
 } from '../../../lib/agents/commands.js';
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import {
@@ -32,7 +33,14 @@ export default class Remove extends PMOCommand {
   static flags = {
     ...pmoBaseFlags,
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
+    force: Flags.boolean({
+      char: 'f',
+      description: 'Skip confirmation prompt (for non-interactive use)',
       default: false,
     }),
   };
@@ -115,44 +123,47 @@ export default class Remove extends PMOCommand {
     // Validate agent exists and is a staff agent
     const agent = staffAgents.find((a) => a.name === agentName);
     if (!agent) {
-      return handleError('AGENT_NOT_FOUND', `Staff agent "${agentName}" not found. Available staff agents: ${staffAgents.map((a) => a.name).join(', ')}`);
+      return handleError('AGENT_NOT_FOUND', `Staff agent "${agentName}" not found. Available: ${formatAgentList(staffAgents)}`);
     }
 
     const agentsToRemove = [agentName!];
 
-    // Build choices once, use for both JSON and interactive modes
-    const confirmChoices = [
-      { name: 'No, cancel', value: 'false' },
-      { name: 'Yes, remove agent', value: 'true' },
-    ];
-    const confirmMessage = `Are you sure you want to remove agent "${agentName!}"? This will delete its worktree.`;
+    // Skip confirmation if --force flag is passed
+    if (!flags.force) {
+      // Build choices once, use for both JSON and interactive modes
+      const confirmChoices = [
+        { name: 'No, cancel', value: 'false' },
+        { name: 'Yes, remove agent', value: 'true' },
+      ];
+      const confirmMessage = `Are you sure you want to remove agent "${agentName!}"? This will delete its worktree.`;
 
-    // Confirm removal
-    // In JSON mode, output confirmation prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
-        createMetadata('agent remove', flags)
-      );
-      return;
-    }
-
-    const { confirm } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'confirm',
-        message: confirmMessage,
-        choices: [
-          { name: '❌ ' + confirmChoices[0].name, value: false },
-          { name: '⚠️  ' + confirmChoices[1].name, value: true }
-        ],
-        default: 0 // Default to "No, cancel"
+      // Confirm removal
+      // In JSON mode, output confirmation prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
+          createMetadata('agent remove', flags)
+        );
+        return;
       }
-    ]);
 
-    if (!confirm) {
-      this.log(colors.textMuted('Removal cancelled.'));
-      return;
+      const { confirm } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'confirm',
+          message: confirmMessage,
+          choices: [
+            { name: '❌ ' + confirmChoices[0].name, value: false },
+            { name: '⚠️  ' + confirmChoices[1].name, value: true }
+          ],
+          default: 0 // Default to "No, cancel"
+        }
+      ]);
+
+      if (!confirm) {
+        this.log(colors.textMuted('Removal cancelled.'));
+        return;
+      }
     }
 
     // Remove agents

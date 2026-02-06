@@ -249,14 +249,15 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
             }
           }
 
-          // Create devcontainer config for sandboxed execution (only for repos that were created)
+          // Create devcontainer config for sandboxed execution
           // Note: Agent metadata is stored in SQLite (agents table), not in config files
-          if (!options?.skipDevcontainer && createdRepos.length > 0) {
+          // Always create devcontainer config (even if no repos were created) so agent rebuild works
+          if (!options?.skipDevcontainer) {
             console.log(styles.muted(`  Creating devcontainer config...`));
             createDevcontainerConfig({
               agentName: agent,
               agentDir,
-              repoWorktrees: mountMode === 'worktree' ? createdRepos : undefined,  // Only pass repos for worktree mode
+              repoWorktrees: mountMode === 'worktree' && createdRepos.length > 0 ? createdRepos : undefined,
               mountMode,
             });
           }
@@ -268,10 +269,21 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
       }
     } else {
       console.log(chalk.yellow('No repositories found in HQ. Creating placeholder agent directories.'));
-      // Create placeholder directories for now
+      // Create placeholder directories with devcontainer configs
       for (const agent of agents) {
         const agentDir = path.join(workspacePath, agent);
         fs.mkdirSync(agentDir, { recursive: true });
+
+        // Create devcontainer config even without repos so agent rebuild works
+        if (!options?.skipDevcontainer) {
+          console.log(styles.muted(`  Creating devcontainer config...`));
+          createDevcontainerConfig({
+            agentName: agent,
+            agentDir,
+            mountMode: mountMode,
+          });
+        }
+
         console.log(chalk.green(`✅ Placeholder agent ${agent} created`));
       }
     }

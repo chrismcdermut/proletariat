@@ -60,10 +60,10 @@ describe.skip('Work Commands E2E Tests', () => {
 
   /**
    * Spec: execute-commands.md > prlt work ready
-   * "Moves ticket to Done column (Linear-style: review is implicit via PR)"
+   * "Moves ticket to Review column"
    */
   describe('prlt work ready', () => {
-    it('should move ticket to Done column', () => {
+    it('should move ticket to Review column', () => {
       // Create ticket in In Progress column
       const ticketId = createTicket(db, 'Ready test', 'in-progress');
 
@@ -72,7 +72,7 @@ describe.skip('Work Commands E2E Tests', () => {
       expect(output).to.contain('ready');
       expect(output).to.contain(ticketId);
 
-      // Verify ticket moved to Done (Linear-style: review is implicit via PR)
+      // Verify ticket moved to Review column
       const ticket = db.prepare(`
         SELECT c.name as column_name
         FROM pmo_board_tickets bt
@@ -80,7 +80,7 @@ describe.skip('Work Commands E2E Tests', () => {
         WHERE bt.ticket_id = ?
       `).get(ticketId) as { column_name: string };
 
-      expect(ticket.column_name).to.equal('Done');
+      expect(ticket.column_name).to.equal('Review');
     });
 
     it('should mark running execution as completed', () => {
@@ -494,12 +494,13 @@ function setupTestDatabase(db: Database.Database) {
     VALUES ('pmo_path', 'pmo'), ('current_project', 'test-project')
   `).run();
 
-  // Linear-style columns: Backlog, Planned, In Progress, Done
+  // Linear-style columns: Backlog, Planned, In Progress, Review, Done
   const columns = [
     { id: 'backlog', name: 'Backlog', position: 0 },
     { id: 'planned', name: 'Planned', position: 1 },
     { id: 'in-progress', name: 'In Progress', position: 2 },
-    { id: 'done', name: 'Done', position: 3 },
+    { id: 'review', name: 'Review', position: 3 },
+    { id: 'done', name: 'Done', position: 4 },
   ];
 
   for (const col of columns) {
@@ -536,12 +537,13 @@ function createTicket(db: Database.Database, title: string, columnOrStatus: stri
   ticketCounter++;
   const ticketId = `TKT-${String(ticketCounter).padStart(3, '0')}`;
 
-  // Map input to actual column ID (columns: backlog, planned, in-progress, done)
+  // Map input to actual column ID (columns: backlog, planned, in-progress, review, done)
   const toColumnId: Record<string, string> = {
     'backlog': 'backlog',
     'planned': 'planned',
     'in-progress': 'in-progress',
-    'in-review': 'in-progress',  // in-review uses in-progress column
+    'in-review': 'review',
+    'review': 'review',
     'done': 'done',
   };
 

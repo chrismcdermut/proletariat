@@ -28,7 +28,9 @@ export default class ThemesSet extends Command {
 
   static flags = {
     json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      char: 'm',
+      aliases: ['machine'],
+      description: 'Output as JSON for AI agents/scripts',
       default: false,
     }),
   };

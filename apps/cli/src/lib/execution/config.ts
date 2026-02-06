@@ -9,6 +9,13 @@ import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
 import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell, DisplayMode, OutputMode, ExecutionEnvironment } from './types.js'
 import { isGHInstalled, isGHAuthenticated } from '../pr/index.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+  type JsonFlags,
+} from '../prompt-json.js'
 
 import { execSync } from 'node:child_process'
 
@@ -22,6 +29,8 @@ const CONFIG_KEYS = {
   defaultMode: 'execution.default_mode',
   defaultExecutor: 'execution.default_executor',
   autoExecute: 'execution.auto_execute',
+  outputMode: 'execution.output_mode',
+  sandboxed: 'execution.sandboxed',
   tmuxSession: 'execution.tmux.session',
   tmuxLayout: 'execution.tmux.layout',
   tmuxControlMode: 'execution.tmux.control_mode',
@@ -97,6 +106,18 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
   const autoExecute = getSetting(db, CONFIG_KEYS.autoExecute)
   if (autoExecute !== null) {
     config.autoExecute = autoExecute === 'true'
+  }
+
+  // Load output mode
+  const outputMode = getSetting(db, CONFIG_KEYS.outputMode)
+  if (outputMode) {
+    config.outputMode = outputMode as OutputMode
+  }
+
+  // Load sandboxed preference
+  const sandboxed = getSetting(db, CONFIG_KEYS.sandboxed)
+  if (sandboxed !== null) {
+    config.sandboxed = sandboxed === 'true'
   }
 
   // Load tmux settings
@@ -396,6 +417,11 @@ export interface ExecutionPromptOptions {
   reconfigure?: boolean
   /** Log function for status messages */
   log?: (msg: string) => void
+  /** JSON mode configuration for AI agents */
+  jsonMode?: {
+    flags: JsonFlags & Record<string, unknown>
+    commandName: string
+  }
 }
 
 export interface ExecutionPromptResult {
@@ -415,7 +441,10 @@ export async function promptExecutionSettings(
   db: Database.Database,
   options: ExecutionPromptOptions
 ): Promise<ExecutionPromptResult> {
-  const { displayMode, environment, log = () => {} } = options
+  const { displayMode, environment, log = () => {}, jsonMode } = options
+
+  // Check if JSON mode is active
+  const isJsonMode = jsonMode && shouldOutputJson(jsonMode.flags)
 
   // Load execution config from database
   const executionConfig = loadExecutionConfig(db)
@@ -453,15 +482,25 @@ export async function promptExecutionSettings(
   const streamingDisplayModes: DisplayMode[] = ['terminal']
 
   if (options.outputMode === undefined && streamingDisplayModes.includes(displayMode)) {
+    const outputChoices = [
+      { name: 'interactive  - Watch Claude work in real-time (streaming UI)', value: 'interactive' },
+      { name: 'print        - Show final result only (better for logs)', value: 'print' },
+    ]
+
+    // In JSON mode, output the output mode prompt
+    if (isJsonMode && jsonMode) {
+      outputPromptAsJson(
+        buildPromptConfig('list', 'selectedOutputMode', 'How should Claude display output?', outputChoices, 'interactive'),
+        createMetadata(jsonMode.commandName, jsonMode.flags)
+      )
+    }
+
     const { selectedOutputMode } = await inquirer.prompt([
       {
         type: 'list',
         name: 'selectedOutputMode',
         message: 'How should Claude display output?',
-        choices: [
-          { name: 'interactive  - Watch Claude work in real-time (streaming UI)', value: 'interactive' },
-          { name: 'print        - Show final result only (better for logs)', value: 'print' },
-        ],
+        choices: outputChoices,
         default: 'interactive',
       },
     ])
@@ -475,15 +514,25 @@ export async function promptExecutionSettings(
     const containerNote = (environment === 'devcontainer' || environment === 'docker')
       ? ' (container provides additional isolation)'
       : ''
+    const permissionChoices = [
+      { name: '🔒 safe   - Requires approval for dangerous operations (recommended)', value: 'safe' },
+      { name: '⚠️  danger - Skip permission checks (--dangerously-skip-permissions)', value: 'danger' },
+    ]
+
+    // In JSON mode, output the permissions prompt
+    if (isJsonMode && jsonMode) {
+      outputPromptAsJson(
+        buildPromptConfig('list', 'permissionMode', `Permission mode for Claude Code${containerNote}:`, permissionChoices, 'safe'),
+        createMetadata(jsonMode.commandName, jsonMode.flags)
+      )
+    }
+
     const { permissionMode } = await inquirer.prompt([
       {
         type: 'list',
         name: 'permissionMode',
         message: `Permission mode for Claude Code${containerNote}:`,
-        choices: [
-          { name: '🔒 safe   - Requires approval for dangerous operations (recommended)', value: 'safe' },
-          { name: '⚠️  danger - Skip permission checks (--dangerously-skip-permissions)', value: 'danger' },
-        ],
+        choices: permissionChoices,
         default: 'safe',
       },
     ])
@@ -495,15 +544,25 @@ export async function promptExecutionSettings(
   if (options.createPR === undefined) {
     const ghAvailable = isGHInstalled() && isGHAuthenticated()
     if (ghAvailable) {
+      const prChoices = [
+        { name: '✓ Yes - Create PR when running `prlt work ready`', value: 'yes' },
+        { name: '✗ No  - Just move ticket to review (can create PR later)', value: 'no' },
+      ]
+
+      // In JSON mode, output the PR creation prompt
+      if (isJsonMode && jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'prChoice', 'Create a pull request when work is ready?', prChoices, 'yes'),
+          createMetadata(jsonMode.commandName, jsonMode.flags)
+        )
+      }
+
       const { prChoice } = await inquirer.prompt([
         {
           type: 'list',
           name: 'prChoice',
           message: 'Create a pull request when work is ready?',
-          choices: [
-            { name: '✓ Yes - Create PR when running `prlt work ready`', value: 'yes' },
-            { name: '✗ No  - Just move ticket to review (can create PR later)', value: 'no' },
-          ],
+          choices: prChoices,
           default: 'yes',
         },
       ])

@@ -24,6 +24,12 @@ export default class TemplatePhaseUpdate extends Command {
       char: 'd',
       description: 'New template description',
     }),
+    json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
+      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      default: false,
+    }),
   };
 
   async run(): Promise<void> {
@@ -33,6 +39,7 @@ export default class TemplatePhaseUpdate extends Command {
     if (args.id) cmdArgs.push(args.id);
     if (flags.name) cmdArgs.push('--name', flags.name);
     if (flags.description) cmdArgs.push('--description', flags.description);
+    if (flags.json) cmdArgs.push('--json');
 
     await this.config.runCommand('phase:template:update', cmdArgs);
   }

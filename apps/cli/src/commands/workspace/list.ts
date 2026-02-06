@@ -28,6 +28,8 @@ export default class WorkspaceList extends Command {
 
   static flags = {
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output as JSON for machine-readable format',
       default: false,
     }),

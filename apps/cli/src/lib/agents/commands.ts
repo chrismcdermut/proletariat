@@ -34,6 +34,18 @@ import {
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
 import { getPMOContext } from '../pmo/index.js';
 
+/**
+ * Format a list of agents for display in error messages.
+ * Truncates long lists to avoid overwhelming output.
+ */
+export function formatAgentList(agents: { name: string }[], maxShow = 10): string {
+  const names = agents.map(a => a.name);
+  if (names.length <= maxShow) {
+    return names.join(', ');
+  }
+  return `${names.slice(0, maxShow).join(', ')} ...and ${names.length - maxShow} more. Run 'prlt agent list' to see all.`;
+}
+
 export interface AgentStatus {
   name: string;
   exists: boolean;
@@ -63,18 +75,18 @@ export interface WorkspaceInfo {
  * Find workspace root and return workspace information.
  *
  * Search priority:
- * 1. PRLT_HQ_PATH environment variable (ONLY when DEVCONTAINER=true - for devcontainer mounts)
+ * 1. PRLT_HQ_PATH environment variable (ONLY when DEVCONTAINER=true or PRLT_TEST_ENV=true)
  * 2. Current directory tree for HQ with workspace.db
  *
  * NOTE: PRLT_HQ_PATH is ignored on host machines to support multiple agents
  * working in different workspaces simultaneously.
  */
 export function getWorkspaceInfo(): WorkspaceInfo {
-  // Check PRLT_HQ_PATH environment variable (only in devcontainers)
+  // Check PRLT_HQ_PATH environment variable (only in devcontainers or test environments)
   const hqPath = process.env.PRLT_HQ_PATH;
-  const isDevcontainer = process.env.DEVCONTAINER === 'true';
+  const allowEnvHqPath = process.env.DEVCONTAINER === 'true' || process.env.PRLT_TEST_ENV === 'true';
 
-  if (hqPath && isDevcontainer) {
+  if (hqPath && allowEnvHqPath) {
     const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
     if (fs.existsSync(dbPath)) {
       try {

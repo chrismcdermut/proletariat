@@ -15,7 +15,7 @@ export default class TicketEdit extends PMOCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %> TICK-001',
     '<%= config.bin %> <%= command.id %> TICK-001 --title "New title"',
-    '<%= config.bin %> <%= command.id %> TICK-001 --priority HIGH --category bug',
+    '<%= config.bin %> <%= command.id %> TICK-001 --priority P1 --category bug',
     '<%= config.bin %> <%= command.id %> TICK-001 --add-subtask "Implement feature" --add-subtask "Write tests"',
     '<%= config.bin %> <%= command.id %> TICK-001 --owner "john" --assignee "agent-1"',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
@@ -84,6 +84,8 @@ export default class TicketEdit extends PMOCommand {
       default: false,
     }),
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
@@ -292,7 +294,7 @@ export default class TicketEdit extends PMOCommand {
         name: 'title',
         message: 'Title:',
         default: ticket.title,
-        validate: (input: string) => input.length > 0 || 'Title is required',
+        validate: (input: string) => input.trim() ? true : 'Title cannot be empty',
       },
       {
         type: 'editor',
@@ -347,7 +349,7 @@ export default class TicketEdit extends PMOCommand {
         name: 'customCategory',
         message: 'Enter custom category:',
         when: (answers: { categoryChoice: string }) => answers.categoryChoice === '__custom__',
-        validate: (input: string) => input.length > 0 || 'Category is required when choosing custom',
+        validate: (input: string) => input.trim() ? true : 'Category cannot be empty',
       },
     ]);
 

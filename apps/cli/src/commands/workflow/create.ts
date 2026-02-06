@@ -18,6 +18,7 @@ export default class WorkflowCreate extends PMOCommand {
     '<%= config.bin %> <%= command.id %> "My Workflow"',
     '<%= config.bin %> <%= command.id %> "Sprint Board" --description "Agile sprint workflow"',
     '<%= config.bin %> <%= command.id %> "Simple" --statuses "Todo,In Progress,Done"',
+    '<%= config.bin %> <%= command.id %> --machine  # JSON output for AI agents',
   ];
 
   static args = {
@@ -36,10 +37,6 @@ export default class WorkflowCreate extends PMOCommand {
     statuses: Flags.string({
       char: 's',
       description: 'Comma-separated list of status names (uses default categories)',
-    }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
     }),
   };
 
@@ -62,6 +59,7 @@ export default class WorkflowCreate extends PMOCommand {
         { type: 'input', name: 'description', message: 'Description (optional):', default: flags.description },
       ];
 
+      // In JSON mode, output form prompt and exit
       if (jsonMode) {
         outputPromptAsJson(
           buildFormPromptConfig(fields),

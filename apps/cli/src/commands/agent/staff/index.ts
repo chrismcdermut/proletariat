@@ -21,6 +21,8 @@ export default class Staff extends PMOCommand {
   static flags = {
     ...pmoBaseFlags,
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
@@ -41,11 +43,12 @@ export default class Staff extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices once, use for both JSON and interactive modes
+    // Include command field for AI agent navigation
     const menuChoices = [
-      { name: 'List staff agents', value: 'list' },
-      { name: 'Add staff agent', value: 'add' },
-      { name: 'Remove staff agent', value: 'remove' },
-      { name: 'Cancel', value: 'cancel' },
+      { name: 'List staff agents', value: 'list', command: 'prlt agent staff list --machine' },
+      { name: 'Add staff agent', value: 'add', command: 'prlt agent staff add --machine' },
+      { name: 'Remove staff agent', value: 'remove', command: 'prlt agent staff remove --machine' },
+      { name: 'Cancel', value: 'cancel', command: '' },
     ];
     const message = 'What would you like to do?';
 

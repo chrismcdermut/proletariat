@@ -1,14 +1,8 @@
 import { Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  outputErrorAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js';
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
+import { outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js';
 
 type TemplateType = 'ticket' | 'phase';
 
@@ -35,6 +29,8 @@ export default class TemplateDelete extends PMOCommand {
       default: false,
     }),
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
@@ -47,35 +43,31 @@ export default class TemplateDelete extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(TemplateDelete);
 
-    // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // If no type specified, prompt for type first
-    let templateType = flags.type as TemplateType | undefined;
+    // Create resolver for type and template selection
+    const resolver = new FlagResolver<{ type?: string; templateIds?: string[] }>({
+      commandName: 'template delete',
+      baseCommand: 'prlt template delete',
+      jsonMode,
+      flags,
+    });
 
-    if (!templateType) {
-      const typeChoices = [
-        { name: 'Ticket templates', value: 'ticket' },
-        { name: 'Phase templates', value: 'phase' },
-      ];
-      const typeMessage = 'Which template type would you like to delete?';
+    // Prompt for template type if not provided
+    resolver.addPrompt({
+      flagName: 'type',
+      type: 'list',
+      message: 'Which template type would you like to delete?',
+      choices: () => [
+        { name: 'Ticket templates', value: 'ticket', command: 'prlt template delete --type ticket --json' },
+        { name: 'Phase templates', value: 'phase', command: 'prlt template delete --type phase --json' },
+      ],
+      when: (ctx) => !ctx.flags.type,
+    });
 
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'type', typeMessage, typeChoices),
-          createMetadata('template delete', flags)
-        );
-        return;
-      }
-
-      const { selectedType } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedType',
-        message: typeMessage,
-        choices: typeChoices,
-      }]);
-      templateType = selectedType;
-    }
+    // First resolve type
+    const resolvedType = await resolver.resolve();
+    const templateType = resolvedType.type as TemplateType;
 
     // Get custom templates of the selected type
     let templates: Array<{ id: string; name: string }> = [];
@@ -99,53 +91,49 @@ export default class TemplateDelete extends PMOCommand {
     if (templates.length === 0) {
       if (jsonMode) {
         outputErrorAsJson('NO_TEMPLATES', `No custom ${typeName} templates to delete.`, createMetadata('template delete', flags));
-        this.exit(1);
       }
       this.log(styles.muted(`\nNo custom ${typeName} templates to delete.`));
       return;
     }
 
-    // Build choices for template selection
-    const templateChoices = templates.map(t => ({
-      name: t.name,
-      value: t.id,
-    }));
-    const message = `Select ${typeName} templates to delete:`;
+    // Create new resolver for template selection (needs templates data)
+    const templateResolver = new FlagResolver<{ templateIds?: string[] }>({
+      commandName: 'template delete',
+      baseCommand: 'prlt template delete',
+      jsonMode,
+      flags: {} as { templateIds?: string[] },
+    });
 
-    // In JSON mode, output template selection prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('checkbox', 'templateIds', message, templateChoices),
-        createMetadata('template delete', flags)
-      );
-      return;
-    }
-
-    // Select templates to delete
-    const { selected } = await inquirer.prompt<{ selected: string[] }>([{
+    templateResolver.addPrompt({
+      flagName: 'templateIds',
       type: 'checkbox',
-      name: 'selected',
-      message,
-      choices: templateChoices,
-    }]);
+      message: `Select ${typeName} templates to delete:`,
+      choices: () => templates.map(t => ({
+        name: t.name,
+        value: t.id,
+        command: `prlt template delete --type ${templateType} --templateIds "${t.id}" --json`,
+      })),
+    });
+
+    const resolvedTemplates = await templateResolver.resolve();
+    const selected = resolvedTemplates.templateIds || [];
 
     if (selected.length === 0) {
       this.log(styles.muted('\nNo templates selected.'));
       return;
     }
 
-    // Confirm deletion
+    // Confirm deletion (using agentPrompt for confirmation)
     if (!flags.force) {
-      const { confirm } = await inquirer.prompt<{ confirm: boolean }>([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: `Delete ${selected.length} ${typeName} template(s)?`,
         choices: [
-          { name: 'No', value: false },
-          { name: 'Yes', value: true },
+          { name: 'No', value: false, command: '' },
+          { name: 'Yes', value: true, command: `prlt template delete --type ${templateType} --templateIds "${selected.join(',')}" --force --json` },
         ],
-        default: 0,
-      }]);
+      }], jsonMode ? { flags, commandName: 'template delete' } : null);
 
       if (!confirm) {
         this.log(styles.muted('Cancelled.'));

@@ -17,6 +17,10 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import Database from 'better-sqlite3';
+import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
+import { PMO_TABLES } from '../../src/lib/pmo/schema.js';
+import { CREATE_TABLES_SQL } from '../../src/lib/database/index.js';
 
 /**
  * Error type for execSync failures, which include stdout/stderr from the child process.
@@ -64,7 +68,8 @@ export interface TestEnvironment {
  */
 export function createTestEnvironment(prefix: string): TestEnvironment {
   const originalCwd = process.cwd();
-  const testDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  // Use realpath to resolve symlinks (important on macOS where /var -> /private/var)
+  const testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   process.chdir(testDir);
 
   const proletariatDir = path.join(testDir, '.proletariat');
@@ -137,18 +142,386 @@ export function createEpicDirectories(pmoPath: string, projectId: string = 'test
   }
 }
 
+// =============================================================================
+// Production Schema Setup
+// =============================================================================
+// These helpers use the production PMO schema to ensure tests accurately
+// reflect production behavior and prevent schema drift.
+
+const T = PMO_TABLES;
+
+/**
+ * Sets up a test database using the production PMO schema.
+ *
+ * This is the recommended way to set up test databases as it:
+ * - Uses the exact same schema as production (PMO_SCHEMA_SQL)
+ * - Seeds all builtin data (workflows, phases, actions, templates)
+ * - Prevents schema drift between tests and production
+ *
+ * Usage:
+ *   const db = setupProductionSchema(env.dbPath, env.pmoPath);
+ *   // db is ready to use with production schema and builtin data
+ *
+ * @param dbPath - Path to the SQLite database file
+ * @param pmoPath - Path to the PMO directory (stored in settings)
+ * @returns Database instance with production schema initialized
+ */
+export function setupProductionSchema(dbPath: string, pmoPath: string): Database.Database {
+  const db = new Database(dbPath);
+  db.pragma('foreign_keys = ON');
+
+  // Initialize PMO tables using production schema and seeding
+  // This runs migrations, creates tables, and seeds builtin data
+  initializePMOTables(db);
+
+  // Store PMO path in settings
+  db.prepare(`INSERT OR REPLACE INTO ${T.settings} (key, value) VALUES ('pmo_path', ?)`).run(pmoPath);
+
+  return db;
+}
+
+/**
+ * Sets up a test database using the production workspace schema.
+ *
+ * This creates workspace-level tables (workspace, repositories, agents,
+ * agent_themes, agent_theme_names, agent_worktrees, workspace_settings)
+ * using the production CREATE_TABLES_SQL from database/index.ts.
+ *
+ * Use this for tests that only need workspace tables (repo, branch, theme commands).
+ * For PMO tables, use setupProductionSchema instead.
+ * For both, call setupProductionSchema first, then add workspace tables to the same db.
+ *
+ * @param dbPath - Path to the SQLite database file
+ * @param options - Workspace configuration options
+ * @returns Database instance with workspace schema initialized
+ */
+export function setupWorkspaceSchema(
+  dbPath: string,
+  options: {
+    type?: 'hq' | 'workspace';
+    workspaceName?: string;
+    hasPmo?: boolean;
+  } = {}
+): Database.Database {
+  const db = new Database(dbPath);
+  db.pragma('foreign_keys = ON');
+
+  // Create workspace tables using production schema
+  db.exec(CREATE_TABLES_SQL);
+
+  // Insert default workspace row
+  const type = options.type ?? 'hq';
+  const workspaceName = options.workspaceName ?? 'test-workspace';
+  const hasPmo = options.hasPmo ?? false;
+  db.prepare(`
+    INSERT INTO workspace (id, type, workspace_name, has_pmo, created_at)
+    VALUES (1, ?, ?, ?, datetime('now'))
+  `).run(type, workspaceName, hasPmo ? 1 : 0);
+
+  return db;
+}
+
+/**
+ * Adds workspace tables to an existing database (e.g., one already set up with setupProductionSchema).
+ *
+ * @param db - Existing database instance
+ * @param options - Workspace configuration options
+ */
+export function addWorkspaceTables(
+  db: Database.Database,
+  options: {
+    type?: 'hq' | 'workspace';
+    workspaceName?: string;
+    hasPmo?: boolean;
+  } = {}
+): void {
+  db.exec(CREATE_TABLES_SQL);
+
+  const type = options.type ?? 'hq';
+  const workspaceName = options.workspaceName ?? 'test-workspace';
+  const hasPmo = options.hasPmo ?? true;
+  db.prepare(`
+    INSERT INTO workspace (id, type, workspace_name, has_pmo, created_at)
+    VALUES (1, ?, ?, ?, datetime('now'))
+  `).run(type, workspaceName, hasPmo ? 1 : 0);
+}
+
+/**
+ * Creates a test project in the database.
+ *
+ * @param db - Database instance
+ * @param options - Project options
+ * @returns The project ID
+ */
+export function createTestProject(
+  db: Database.Database,
+  options: {
+    id?: string;
+    name?: string;
+    description?: string;
+    workflowId?: string;
+  } = {}
+): string {
+  const id = options.id ?? 'test-project';
+  const name = options.name ?? 'Test Project';
+  const description = options.description ?? 'E2E test project';
+  const workflowId = options.workflowId ?? 'default';
+
+  db.prepare(`
+    INSERT INTO ${T.projects} (id, name, description, workflow_id)
+    VALUES (?, ?, ?, ?)
+  `).run(id, name, description, workflowId);
+
+  // Set as current project
+  db.prepare(`INSERT OR REPLACE INTO ${T.settings} (key, value) VALUES ('current_project', ?)`).run(id);
+
+  return id;
+}
+
+/**
+ * Creates a test ticket in the database.
+ *
+ * @param db - Database instance
+ * @param projectId - Project ID
+ * @param options - Ticket options
+ * @returns The ticket ID
+ */
+export function createTestTicket(
+  db: Database.Database,
+  projectId: string,
+  options: {
+    id?: string;
+    title?: string;
+    description?: string;
+    status?: string;
+    statusId?: string;
+    priority?: string;
+    category?: string;
+  } = {}
+): string {
+  const id = options.id ?? `TKT-${Date.now()}`;
+  const title = options.title ?? 'Test Ticket';
+  const description = options.description ?? null;
+  const status = options.status ?? 'Backlog';
+  const statusId = options.statusId ?? 'default-backlog';
+  const priority = options.priority ?? null;
+  const category = options.category ?? null;
+
+  db.prepare(`
+    INSERT INTO ${T.tickets} (id, project_id, title, description, status, status_id, priority, category)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, projectId, title, description, status, statusId, priority, category);
+
+  return id;
+}
+
+/**
+ * Creates a custom workflow in the database.
+ *
+ * @param db - Database instance
+ * @param options - Workflow options
+ * @returns The workflow ID
+ */
+export function createTestWorkflow(
+  db: Database.Database,
+  options: {
+    id?: string;
+    name?: string;
+    description?: string;
+  } = {}
+): string {
+  const id = options.id ?? `test-workflow-${Date.now()}`;
+  const name = options.name ?? 'Test Workflow';
+  const description = options.description ?? null;
+
+  db.prepare(`
+    INSERT INTO ${T.workflows} (id, name, description, is_builtin)
+    VALUES (?, ?, ?, 0)
+  `).run(id, name, description);
+
+  return id;
+}
+
+/**
+ * Adds a status to a workflow.
+ *
+ * @param db - Database instance
+ * @param workflowId - Workflow ID
+ * @param options - Status options
+ * @returns The status ID
+ */
+export function addTestWorkflowStatus(
+  db: Database.Database,
+  workflowId: string,
+  options: {
+    id?: string;
+    name: string;
+    category: string;
+    position: number;
+    isDefault?: boolean;
+  }
+): string {
+  const id = options.id ?? `${workflowId}-${options.name.toLowerCase().replace(/\s+/g, '-')}`;
+
+  db.prepare(`
+    INSERT INTO ${T.workflow_statuses} (id, workflow_id, name, category, position, is_default)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, workflowId, options.name, options.category, options.position, options.isDefault ? 1 : 0);
+
+  return id;
+}
+
+/**
+ * Creates a test phase in the database.
+ * Note: Production schema seeds default phases (idea, planned, active, completed, canceled).
+ * Use this for creating additional custom phases for testing.
+ *
+ * @param db - Database instance
+ * @param options - Phase options
+ * @returns The phase ID
+ */
+export function createTestPhase(
+  db: Database.Database,
+  options: {
+    id?: string;
+    name: string;
+    category: string;
+    position?: number;
+    description?: string;
+    isDefault?: boolean;
+  }
+): string {
+  const id = options.id ?? `phase-${options.name.toLowerCase().replace(/\s+/g, '-')}`;
+  const position = options.position ?? 0;
+
+  db.prepare(`
+    INSERT INTO ${T.phases} (id, name, category, position, description, is_default)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, options.name, options.category, position, options.description ?? null, options.isDefault ? 1 : 0);
+
+  return id;
+}
+
+/**
+ * Creates a test spec in the database.
+ *
+ * @param db - Database instance
+ * @param options - Spec options
+ * @returns The spec ID
+ */
+export function createTestSpec(
+  db: Database.Database,
+  options: {
+    id?: string;
+    title?: string;
+    status?: string;
+  } = {}
+): string {
+  const id = options.id ?? `SPEC-${Date.now()}`;
+  const title = options.title ?? 'Test Spec';
+  const status = options.status ?? 'draft';
+
+  db.prepare(`
+    INSERT INTO ${T.specs} (id, title, status)
+    VALUES (?, ?, ?)
+  `).run(id, title, status);
+
+  return id;
+}
+
+/**
+ * Creates a test epic in the database.
+ *
+ * @param db - Database instance
+ * @param projectId - Project ID
+ * @param options - Epic options
+ * @returns The epic ID
+ */
+export function createTestEpic(
+  db: Database.Database,
+  projectId: string,
+  options: {
+    id?: string;
+    title?: string;
+    description?: string;
+    status?: string;
+    position?: number;
+  } = {}
+): string {
+  const id = options.id ?? `EPIC-${Date.now()}`;
+  const title = options.title ?? 'Test Epic';
+  const description = options.description ?? null;
+  const status = options.status ?? 'active';
+  const position = options.position ?? 0;
+
+  db.prepare(`
+    INSERT INTO ${T.epics} (id, project_id, title, description, status, position)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, projectId, title, description, status, position);
+
+  return id;
+}
+
+/**
+ * Gets the default status ID for a workflow.
+ * Useful for creating tickets with the correct status_id.
+ *
+ * @param db - Database instance
+ * @param workflowId - Workflow ID (defaults to 'default')
+ * @returns The default status ID or first status if no default
+ */
+export function getDefaultStatusId(db: Database.Database, workflowId: string = 'default'): string {
+  const result = db.prepare(`
+    SELECT id FROM ${T.workflow_statuses}
+    WHERE workflow_id = ?
+    ORDER BY is_default DESC, position ASC
+    LIMIT 1
+  `).get(workflowId) as { id: string } | undefined;
+
+  return result?.id ?? 'default-backlog';
+}
+
+/**
+ * Gets a status ID by name for a workflow.
+ *
+ * @param db - Database instance
+ * @param workflowId - Workflow ID
+ * @param statusName - Status name to find
+ * @returns The status ID or undefined if not found
+ */
+export function getStatusIdByName(
+  db: Database.Database,
+  workflowId: string,
+  statusName: string
+): string | undefined {
+  const result = db.prepare(`
+    SELECT id FROM ${T.workflow_statuses}
+    WHERE workflow_id = ? AND name = ?
+  `).get(workflowId, statusName) as { id: string } | undefined;
+
+  return result?.id;
+}
+
 /**
  * Gets the isolated environment variables for running CLI commands.
  * This ensures that environment variables that could bypass test isolation
  * are explicitly cleared.
+ *
+ * NOTE: We use 'production' as the default NODE_ENV because when NODE_ENV=test,
+ * oclif tries to load TypeScript source files directly from src/commands instead
+ * of the compiled dist/commands. Since the spawned child process doesn't have
+ * ts-node configured, this causes ERR_UNKNOWN_FILE_EXTENSION errors.
  */
-export function getIsolatedEnv(nodeEnv: string = 'test'): NodeJS.ProcessEnv {
+export function getIsolatedEnv(nodeEnv: string = 'production'): NodeJS.ProcessEnv {
   const env = { ...process.env };
 
   // Clear environment variables that could bypass test isolation
   for (const varName of ISOLATION_ENV_VARS) {
     delete env[varName];
   }
+
+  // Clear DEBUG to prevent oclif debug output that pollutes JSON
+  delete env.DEBUG;
 
   // Set NODE_ENV
   env.NODE_ENV = nodeEnv;
@@ -166,7 +539,7 @@ export function filterOutput(output: string): string {
     !line.includes('Warning:') &&
     !line.includes('module: @oclif') &&
     !line.includes('task: findCommand') &&
-    !line.includes('plugin: @chrismcdermut') &&
+    !line.includes('plugin: @') &&  // Filter all plugin: lines (e.g., plugin: @proletariat/cli)
     !line.includes('root: /') &&
     !line.includes('code: ERR_') &&
     !line.includes('message: Unknown file extension') &&
@@ -241,11 +614,19 @@ export function getBinPath(): string {
  */
 export function exec(cmd: string): string {
   try {
-    const binPath = getBinPath();
-    const result = execSync(`${binPath} ${cmd}`, {
+    const cliDir = path.join(__dirname, '../..');
+    const binPath = path.join(cliDir, 'bin/run.js');
+
+    // Get isolated env (production mode for oclif) and set HQ path to current test directory
+    const env = getIsolatedEnv('production');
+    env.PRLT_HQ_PATH = process.cwd();
+    env.PRLT_TEST_ENV = 'true'; // Required for PRLT_HQ_PATH to be respected in tests
+
+    const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
-      cwd: process.cwd(),
-      env: getIsolatedEnv(),
+      cwd: cliDir, // Run from CLI dir so oclif finds commands
+      env,
+      maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large JSON output
     });
     return result;
   } catch (error: unknown) {
@@ -292,17 +673,25 @@ export function execWithFilter(cmd: string): string {
 
 /**
  * Executes a CLI command in production mode from CLI directory.
- * Used by docker-commands tests that need compiled JS.
+ * Used by docker-commands tests and agent flow tests that need compiled JS.
+ *
+ * Sets PRLT_HQ_PATH to the current working directory (which should be the test
+ * directory) so commands use the test database, not a real one.
  */
 export function execProduction(cmd: string): string {
   try {
     const cliDir = path.join(__dirname, '../..');
     const binPath = path.join(cliDir, 'bin/run.js');
 
+    // Get isolated env and set HQ path to current test directory
+    const env = getIsolatedEnv('production');
+    env.PRLT_HQ_PATH = process.cwd();
+    env.PRLT_TEST_ENV = 'true'; // Required for PRLT_HQ_PATH to be respected
+
     const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: getIsolatedEnv('production'),
+      env,
       cwd: cliDir, // Run from CLI directory for proper module resolution
     });
     return filterNodeWarnings(result);
@@ -390,7 +779,7 @@ export interface AgentPromptChoice {
 
 /**
  * Extract JSON from CLI output that may contain warnings or other noise.
- * Looks for the first line starting with { and parses from there.
+ * Looks for the first line starting with { or [ and parses from there.
  *
  * @param output - Raw CLI output
  * @returns Parsed JSON object or null if no valid JSON found
@@ -401,7 +790,7 @@ export function extractJson<T>(output: string): T | null {
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
-    if (trimmed.startsWith('{')) {
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
       jsonStart = i;
       break;
     }
@@ -430,6 +819,7 @@ export function hasContextError(output: string): boolean {
   return (
     output.includes('Not in a workspace') ||
     output.includes('No workspace') ||
+    output.includes('Not in an HQ') ||
     output.includes('No projects found') ||
     output.includes('No tickets') ||
     output.includes('No agents found') ||

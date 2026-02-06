@@ -6,7 +6,7 @@ import { PMO_TABLES } from '../schema.js'
 import { PMOError, Project, Spec, SpecFilter, Ticket } from '../types.js'
 import { generateEntityId } from '../utils.js'
 import { StorageContext, SpecRow, TicketRow } from './types.js'
-import { rowToSpec, rowToTicket } from './helpers.js'
+import { rowToSpec, rowToTicket, wrapSqliteError } from './helpers.js'
 
 const T = PMO_TABLES
 
@@ -20,34 +20,38 @@ export class SpecStorage {
     const id = spec.id || generateEntityId(this.ctx.db, 'spec')
     const now = Date.now()
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.specs} (
-        id, title, status, type, tags,
-        problem, solution, decisions, not_now, ui_ux,
-        acceptance_criteria, open_questions,
-        requirements_functional, requirements_technical,
-        context, created_at, updated_at
+    try {
+      this.ctx.db.prepare(`
+        INSERT INTO ${T.specs} (
+          id, title, status, type, tags,
+          problem, solution, decisions, not_now, ui_ux,
+          acceptance_criteria, open_questions,
+          requirements_functional, requirements_technical,
+          context, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        spec.title || 'Untitled Spec',
+        spec.status || 'draft',
+        spec.type || null,
+        spec.tags ? JSON.stringify(spec.tags) : null,
+        spec.problem || null,
+        spec.solution || null,
+        spec.decisions || null,
+        spec.notNow || null,
+        spec.uiUx || null,
+        spec.acceptanceCriteria || null,
+        spec.openQuestions || null,
+        spec.requirementsFunctional || null,
+        spec.requirementsTechnical || null,
+        spec.context || null,
+        now,
+        now
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      spec.title || 'Untitled Spec',
-      spec.status || 'draft',
-      spec.type || null,
-      spec.tags ? JSON.stringify(spec.tags) : null,
-      spec.problem || null,
-      spec.solution || null,
-      spec.decisions || null,
-      spec.notNow || null,
-      spec.uiUx || null,
-      spec.acceptanceCriteria || null,
-      spec.openQuestions || null,
-      spec.requirementsFunctional || null,
-      spec.requirementsTechnical || null,
-      spec.context || null,
-      now,
-      now
-    )
+    } catch (err) {
+      wrapSqliteError('Spec', 'create', err)
+    }
 
     return {
       id,
@@ -220,8 +224,12 @@ export class SpecStorage {
       throw new PMOError('NOT_FOUND', `Spec not found: ${id}`)
     }
 
-    this.ctx.db.prepare(`DELETE FROM ${T.specs} WHERE id = ?`).run(id)
-    this.ctx.db.prepare(`UPDATE ${T.tickets} SET spec_id = NULL WHERE spec_id = ?`).run(id)
+    try {
+      this.ctx.db.prepare(`DELETE FROM ${T.specs} WHERE id = ?`).run(id)
+      this.ctx.db.prepare(`UPDATE ${T.tickets} SET spec_id = NULL WHERE spec_id = ?`).run(id)
+    } catch (err) {
+      wrapSqliteError('Spec', 'delete', err)
+    }
   }
 
   /**

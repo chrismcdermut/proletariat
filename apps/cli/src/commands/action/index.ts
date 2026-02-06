@@ -29,7 +29,7 @@ export default class Action extends PMOCommand {
     // Define choices once, use for both JSON and interactive modes
     // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { id: 'list', name: 'List all actions', command: 'prlt action list --json' },
+      { id: 'list', name: 'List all actions', command: 'prlt action list --machine' },
       { id: 'show', name: 'View action details', command: 'prlt action show --machine' },
       { id: 'create', name: 'Create custom action', command: 'prlt action create --machine' },
       { id: 'update', name: 'Update action', command: 'prlt action update --machine' },

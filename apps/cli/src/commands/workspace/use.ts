@@ -1,7 +1,7 @@
-import { Command, Args, Flags } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import chalk from 'chalk';
-import inquirer from 'inquirer';
 import * as fs from 'node:fs';
+import { PromptCommand } from '../../lib/prompt-command.js';
 import { isValidHQ } from '../../lib/workspace.js';
 import {
   findWorkspacesByName,
@@ -10,14 +10,8 @@ import {
   normalizePath,
   getRegisteredWorkspaces,
 } from '../../lib/machine-config.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js';
 
-export default class WorkspaceUse extends Command {
+export default class WorkspaceUse extends PromptCommand {
   static description = 'Set the active workspace';
 
   static examples = [
@@ -34,6 +28,8 @@ export default class WorkspaceUse extends Command {
 
   static flags = {
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
@@ -41,9 +37,6 @@ export default class WorkspaceUse extends Command {
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(WorkspaceUse);
-
-    // Check if JSON output mode is active
-    const jsonMode = shouldOutputJson(flags);
 
     const input = args.nameOrPath;
 
@@ -77,33 +70,26 @@ export default class WorkspaceUse extends Command {
       }
 
       if (matches.length > 1) {
-        // Build choices once, use for both JSON and interactive modes
+        // Build choices with command field for agent navigation
         const workspaceChoices = matches.map((w) => ({
           name: `${w.name} - ${w.path}`,
           value: w.path,
+          command: `prlt workspace use "${w.path}" --json`,
         }));
-        const message = `Multiple workspaces found with name "${input}". Which workspace do you want to use?`;
 
-        // In JSON mode, output workspace selection prompt
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'workspacePath', message, workspaceChoices),
-            createMetadata('workspace use', flags)
-          );
-          return;
-        }
+        const jsonModeConfig = { flags: flags as Record<string, unknown> & { json?: boolean }, commandName: 'workspace use' };
 
-        // Multiple workspaces with same name - prompt user to choose
-        this.log(chalk.yellow(`Multiple workspaces found with name "${input}":`));
-
-        const { selected } = await inquirer.prompt([
+        // this.prompt() handles both modes:
+        // - JSON mode: outputs prompt config as JSON and exits
+        // - Interactive mode: shows inquirer menu
+        const { selected } = await this.prompt<{ selected: string }>([
           {
             type: 'list',
             name: 'selected',
-            message: 'Which workspace do you want to use?',
+            message: `Multiple workspaces found with name "${input}". Which workspace do you want to use?`,
             choices: workspaceChoices,
           },
-        ]);
+        ], jsonModeConfig);
 
         workspace = matches.find((w) => w.path === selected)!;
       } else {

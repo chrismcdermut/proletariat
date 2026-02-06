@@ -1,7 +1,6 @@
 import { Args, Flags } from '@oclif/core'
 import * as path from 'node:path'
 import { execSync } from 'node:child_process'
-import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
@@ -9,12 +8,6 @@ import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import type { AgentWork } from '../../lib/execution/types.js'
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js'
 
 export default class ExecutionStop extends PMOCommand {
   static description = 'Stop running execution(s)'
@@ -51,6 +44,8 @@ export default class ExecutionStop extends PMOCommand {
       description: 'Stop all executions for a specific agent',
     }),
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
@@ -172,23 +167,9 @@ export default class ExecutionStop extends PMOCommand {
         return
       }
 
-      // Check if JSON output mode is active
-      const jsonMode = shouldOutputJson(flags)
+      const jsonModeConfig = flags.json ? { flags: flags as Record<string, unknown>, commandName: 'execution stop' } : null
 
-      // In JSON mode, output execution selection prompt
-      if (jsonMode) {
-        const execChoices = activeExecutions.map((e) => ({
-          name: `${e.id} - ${e.ticketId} (${e.agentName}, ${e.environment})`,
-          value: e.id,
-        }))
-        outputPromptAsJson(
-          buildPromptConfig('list', 'executionId', 'Select execution to stop:', execChoices),
-          createMetadata('execution stop', flags)
-        )
-        return
-      }
-
-      const { selectedId } = await inquirer.prompt([
+      const { selectedId } = await this.prompt<{ selectedId: string }>([
         {
           type: 'list',
           name: 'selectedId',
@@ -196,9 +177,10 @@ export default class ExecutionStop extends PMOCommand {
           choices: activeExecutions.map((e) => ({
             name: `${e.id} - ${e.ticketId} (${e.agentName}, ${e.environment})`,
             value: e.id,
+            command: `prlt execution stop ${e.id} --json`,
           })),
         },
-      ])
+      ], jsonModeConfig)
       id = selectedId
     }
 

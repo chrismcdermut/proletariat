@@ -53,6 +53,32 @@ describe('PMO Ticket Commands E2E Tests', () => {
       expect(tickets[0].priority).to.equal('HIGH');
     });
 
+    it('should default column to Backlog in JSON mode when not provided', () => {
+      // This is TKT-790: JSON mode should default column to Backlog instead of prompting
+      const output = exec(
+        'ticket create --json --title "JSON mode ticket" --priority HIGH --category bug'
+      );
+
+      // Should create ticket successfully, not output a prompt for column selection
+      expect(output).to.contain('Created ticket');
+      expect(output).to.contain('JSON mode ticket');
+
+      // Verify ticket was created
+      const ticket = db.prepare('SELECT id, priority FROM pmo_tickets WHERE title = ?').get('JSON mode ticket') as { id: string; priority: string } | undefined;
+      expect(ticket).to.not.be.undefined;
+      expect(ticket!.priority).to.equal('HIGH');
+
+      // Verify it's in the first column (SHIP BL in test setup - the default backlog)
+      const boardTicket = db.prepare(`
+        SELECT c.name
+        FROM pmo_board_tickets bt
+        JOIN pmo_columns c ON c.id = bt.column_id
+        WHERE bt.ticket_id = ?
+      `).get(ticket!.id) as { name: string } | undefined;
+
+      expect(boardTicket?.name).to.equal('SHIP BL');
+    });
+
     it('should auto-generate ticket ID', () => {
       exec('ticket create --title "Test ticket" --column "SHIP BL"');
 
@@ -264,6 +290,9 @@ describe('PMO Ticket Commands E2E Tests', () => {
       const updatedTicket = db.prepare('SELECT priority FROM pmo_tickets WHERE id = ?').get(ticket.id) as { priority: string | null };
       expect(updatedTicket.priority).to.be.oneOf([null, undefined, '']);
     });
+
+    // Note: Tests for multiple AC and subtask ID collision handling are in the unit tests
+    // (pmo-storage.test.ts) which directly test the storage layer without E2E setup complexity
   });
 
   describe('prlt ticket status', () => {
@@ -525,15 +554,43 @@ function setupTestDatabase(db: Database.Database) {
       value TEXT NOT NULL
     );
 
+    -- Workflows table (shared workflow definitions)
+    CREATE TABLE IF NOT EXISTS pmo_workflows (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Workflow statuses table (board columns)
+    CREATE TABLE IF NOT EXISTS pmo_workflow_statuses (
+      id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      color TEXT,
+      description TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (workflow_id) REFERENCES pmo_workflows(id) ON DELETE CASCADE,
+      UNIQUE(workflow_id, name)
+    );
+
     -- Projects table
     CREATE TABLE IF NOT EXISTS pmo_projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       template TEXT,
       description TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      workflow_id TEXT,
       initiative_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (workflow_id) REFERENCES pmo_workflows(id) ON DELETE SET NULL
     );
 
     -- Initiatives table
@@ -707,11 +764,12 @@ function setupTestDatabase(db: Database.Database) {
 
     -- Ticket dependencies table
     CREATE TABLE IF NOT EXISTS pmo_ticket_dependencies (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      blocked_by_ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
+      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE RESTRICT,
+      depends_on_ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE RESTRICT,
+      dependency_type TEXT NOT NULL DEFAULT 'blocks' CHECK (dependency_type IN ('blocks', 'relates_to', 'duplicates')),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (ticket_id, blocked_by_ticket_id),
-      CHECK (ticket_id != blocked_by_ticket_id)
+      PRIMARY KEY (ticket_id, depends_on_ticket_id, dependency_type),
+      CHECK (ticket_id != depends_on_ticket_id)
     );
 
     -- Ticket affected paths table
@@ -790,9 +848,33 @@ function setupTestDatabase(db: Database.Database) {
   `);
 
   // Insert test data
+
+  // Create a workflow first (required for project)
   db.prepare(`
-    INSERT INTO pmo_projects (id, name, description)
-    VALUES ('test-project', 'Test Project', 'E2E test project')
+    INSERT INTO pmo_workflows (id, name, description, is_builtin)
+    VALUES ('kanban-workflow', 'Kanban', 'Default kanban workflow', 1)
+  `).run();
+
+  // Create workflow statuses (these are the board columns now)
+  const workflowStatuses = [
+    { id: 'ws-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
+    { id: 'ws-ready', name: 'Ready', category: 'unstarted', position: 1 },
+    { id: 'ws-in-progress', name: 'In Progress', category: 'started', position: 2 },
+    { id: 'ws-review', name: 'Review', category: 'started', position: 3 },
+    { id: 'ws-done', name: 'Done', category: 'completed', position: 4 },
+    { id: 'ws-merged', name: 'Merged', category: 'completed', position: 5 },
+  ];
+
+  for (const status of workflowStatuses) {
+    db.prepare(`
+      INSERT INTO pmo_workflow_statuses (id, workflow_id, name, category, position, is_default)
+      VALUES (?, 'kanban-workflow', ?, ?, ?, ?)
+    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
+  }
+
+  db.prepare(`
+    INSERT INTO pmo_projects (id, name, description, workflow_id)
+    VALUES ('test-project', 'Test Project', 'E2E test project', 'kanban-workflow')
   `).run();
 
   db.prepare(`
@@ -800,6 +882,7 @@ function setupTestDatabase(db: Database.Database) {
     VALUES ('pmo_path', 'pmo'), ('current_project', 'test-project')
   `).run();
 
+  // Legacy columns (kept for backwards compatibility with some tests)
   const columns = [
     { id: 'backlog', name: 'SHIP BL', position: 0 },
     { id: 'ready', name: 'Ready', position: 1 },
@@ -816,7 +899,7 @@ function setupTestDatabase(db: Database.Database) {
     `).run(col.id, col.name, col.position);
   }
 
-  // Workflow statuses (kanban template)
+  // Legacy statuses (kept for backwards compatibility)
   const statuses = [
     { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
     { id: 'status-todo', name: 'Todo', category: 'unstarted', position: 0 },

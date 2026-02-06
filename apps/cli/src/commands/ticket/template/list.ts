@@ -24,6 +24,8 @@ export default class TicketTemplateList extends PMOCommand {
       exclusive: ['builtin'],
     }),
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output as JSON',
       default: false,
     }),

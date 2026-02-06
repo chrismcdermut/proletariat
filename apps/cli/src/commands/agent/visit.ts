@@ -1,15 +1,12 @@
 import { Args, Flags } from '@oclif/core';
 import * as path from 'node:path';
-import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
-import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { getWorkspaceInfo, formatAgentList } from '../../lib/agents/commands.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class Visit extends PMOCommand {
@@ -30,6 +27,8 @@ export default class Visit extends PMOCommand {
   static flags = {
     ...pmoBaseFlags,
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
@@ -68,53 +67,40 @@ export default class Visit extends PMOCommand {
 
     let agentName = args.name;
 
+    // Agent mode config for prompts
+    const agentConfig = jsonMode ? { flags, commandName: 'agent visit' } : null;
+
     // Interactive mode if no agent specified
     if (!agentName) {
-      // In JSON mode, output agent selection prompt
-      if (jsonMode) {
-        const agentChoices = workspaceInfo.agents.map((agent) => ({ name: agent.name, value: agent.name }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'name', 'Select agent to visit:', agentChoices),
-          createMetadata('agent visit', flags)
-        );
-        return;
-      }
-
       // Group agents by type
       const staffAgents = workspaceInfo.agents.filter(a => a.type === 'persistent');
       const tempAgents = workspaceInfo.agents.filter(a => a.type === 'ephemeral');
 
-      const choices: Array<{ name: string; value: string } | inquirer.Separator> = [];
+      // Build choices with command field for JSON mode
+      const choices: Array<{ name: string; value: string; command: string }> = [];
 
-      if (staffAgents.length > 0) {
-        choices.push(new inquirer.Separator('── Staff Agents ──'));
-        for (const agent of staffAgents) {
-          choices.push({ name: `👔 ${agent.name}`, value: agent.name });
-        }
+      for (const agent of staffAgents) {
+        choices.push({ name: `👔 ${agent.name}`, value: agent.name, command: `prlt agent visit ${agent.name} --machine` });
       }
 
-      if (tempAgents.length > 0) {
-        choices.push(new inquirer.Separator('── Temp Agents ──'));
-        for (const agent of tempAgents) {
-          choices.push({ name: `⏱️  ${agent.name}`, value: agent.name });
-        }
+      for (const agent of tempAgents) {
+        choices.push({ name: `⏱️  ${agent.name}`, value: agent.name, command: `prlt agent visit ${agent.name} --machine` });
       }
 
-      const { selected } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'selected',
-          message: 'Select agent to visit:',
-          choices
-        }
-      ]);
+      const { selected } = await this.prompt<{ selected: string }>([{
+        type: 'list',
+        name: 'selected',
+        message: 'Select agent to visit:',
+        choices,
+      }], agentConfig);
+
       agentName = selected;
     }
 
     // Validate agent exists
     const agent = workspaceInfo.agents.find(a => a.name === agentName);
     if (!agent) {
-      return handleError('AGENT_NOT_FOUND', `Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map(a => a.name).join(', ')}`);
+      return handleError('AGENT_NOT_FOUND', `Agent "${agentName}" not found. Available: ${formatAgentList(workspaceInfo.agents)}`);
     }
 
     // Calculate path to agent directory

@@ -1,13 +1,11 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
+  outputSuccessAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class ProjectArchive extends PMOCommand {
@@ -30,10 +28,6 @@ export default class ProjectArchive extends PMOCommand {
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation',
-      default: false,
-    }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
   };
@@ -64,33 +58,29 @@ export default class ProjectArchive extends PMOCommand {
 
     if (project.isArchived) {
       if (jsonMode) {
-        outputErrorAsJson('ALREADY_ARCHIVED', `Project "${project.name}" is already archived.`, createMetadata('project archive', flags));
+        outputSuccessAsJson(
+          { projectId: project.id, projectName: project.name, alreadyArchived: true },
+          createMetadata('project archive', flags)
+        );
         return;
       }
       this.log(styles.muted(`Project "${project.name}" is already archived.`));
       return;
     }
 
-    if (!flags.force) {
-      // In JSON mode, output confirmation prompt
-      if (jsonMode) {
-        const confirmChoices = [
-          { name: 'No', value: 'false' },
-          { name: 'Yes', value: 'true' },
-        ];
-        outputPromptAsJson(
-          buildPromptConfig('list', 'confirmed', `Archive project "${project.name}"? It will be hidden from default views.`, confirmChoices),
-          createMetadata('project archive', flags)
-        );
-        return;
-      }
+    // Agent mode config for prompts
+    const agentConfig = jsonMode ? { flags, commandName: 'project archive' } : null;
 
-      const { confirm } = await inquirer.prompt<{ confirm: boolean }>([{
-        type: 'confirm',
+    if (!flags.force) {
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
+        type: 'list',
         name: 'confirm',
         message: `Archive project "${project.name}"? It will be hidden from default views.`,
-        default: false,
-      }]);
+        choices: [
+          { name: 'No', value: false, command: '' },
+          { name: 'Yes', value: true, command: `prlt project archive ${args.id} --force --json` },
+        ],
+      }], agentConfig);
 
       if (!confirm) {
         this.log(styles.muted('Cancelled.'));
@@ -99,6 +89,14 @@ export default class ProjectArchive extends PMOCommand {
     }
 
     await this.storage.archiveProject(args.id);
+
+    if (jsonMode) {
+      outputSuccessAsJson(
+        { projectId: project.id, projectName: project.name, archived: true },
+        createMetadata('project archive', flags)
+      );
+      return;
+    }
 
     this.log(styles.success(`\nArchived project "${project.name}"`));
     this.log(styles.muted('View archived projects: prlt project list --archived'));

@@ -2,6 +2,12 @@ import { Command, Flags } from '@oclif/core';
 import chalk from 'chalk';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { discoverAgentsOnDisk } from '../../lib/database/index.js';
+import {
+  shouldOutputJson,
+  outputSuccessAsJson,
+  outputErrorAsJson,
+  createMetadata,
+} from '../../lib/prompt-json.js';
 
 export default class Discover extends Command {
   static description = 'Discover agents on disk that are not registered in the database';
@@ -16,21 +22,47 @@ export default class Discover extends Command {
       description: 'Show what would be discovered without making changes',
       default: false,
     }),
+    json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
+      description: 'Output as JSON for AI agents/scripts',
+      default: false,
+    }),
   };
 
   async run(): Promise<void> {
     const { flags } = await this.parse(Discover);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
     try {
       const workspaceInfo = getWorkspaceInfo();
 
-      this.log(chalk.bold('\n🔍 Agent Discovery\n'));
+      if (!jsonMode) {
+        this.log(chalk.bold('\n🔍 Agent Discovery\n'));
 
-      if (flags['dry-run']) {
-        this.log(chalk.yellow('Dry run mode - no changes will be made\n'));
+        if (flags['dry-run']) {
+          this.log(chalk.yellow('Dry run mode - no changes will be made\n'));
+        }
       }
 
       const result = discoverAgentsOnDisk(workspaceInfo.path);
+
+      // JSON mode - output structured result
+      if (jsonMode) {
+        outputSuccessAsJson({
+          discovered: result.discovered.map(agent => ({
+            name: agent.name,
+            type: agent.type === 'persistent' ? 'staff' : 'temp',
+            path: agent.path,
+          })),
+          cleaned: result.cleaned,
+          inSync: result.discovered.length === 0 && result.cleaned.length === 0,
+          dryRun: flags['dry-run'],
+        }, createMetadata('agent discover', flags));
+        return;
+      }
 
       // Report discovered agents
       if (result.discovered.length > 0) {
@@ -70,6 +102,9 @@ export default class Discover extends Command {
       }
 
     } catch (error) {
+      if (jsonMode) {
+        outputErrorAsJson('DISCOVER_FAILED', error instanceof Error ? error.message : String(error), createMetadata('agent discover', flags));
+      }
       this.error(error instanceof Error ? error.message : String(error));
     }
   }

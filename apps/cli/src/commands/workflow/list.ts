@@ -1,6 +1,7 @@
 import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import { isMachineOutput } from '../../lib/prompt-json.js';
 
 export default class WorkflowList extends PMOCommand {
   static description = 'List all available workflows';
@@ -8,7 +9,7 @@ export default class WorkflowList extends PMOCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --builtin',
-    '<%= config.bin %> <%= command.id %> --json',
+    '<%= config.bin %> <%= command.id %> --machine',
   ];
 
   static flags = {
@@ -19,10 +20,6 @@ export default class WorkflowList extends PMOCommand {
     }),
     custom: Flags.boolean({
       description: 'Show only custom workflows',
-      default: false,
-    }),
-    json: Flags.boolean({
-      description: 'Output as JSON',
       default: false,
     }),
   };
@@ -43,7 +40,7 @@ export default class WorkflowList extends PMOCommand {
       Object.keys(filter).length > 0 ? filter : undefined
     );
 
-    if (flags.json) {
+    if (isMachineOutput(flags)) {
       this.log(JSON.stringify(workflows, null, 2));
       return;
     }

@@ -1,13 +1,10 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class WorkflowView extends PMOCommand {
@@ -16,7 +13,7 @@ export default class WorkflowView extends PMOCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %> default',
     '<%= config.bin %> <%= command.id %>  # Interactive selection',
-    '<%= config.bin %> <%= command.id %> --json',
+    '<%= config.bin %> <%= command.id %> --machine  # JSON output for AI agents',
   ];
 
   static args = {
@@ -28,10 +25,6 @@ export default class WorkflowView extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output as JSON',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -53,6 +46,9 @@ export default class WorkflowView extends PMOCommand {
       this.error(message);
     };
 
+    // Agent mode config for prompts
+    const agentConfig = jsonMode ? { flags, commandName: 'workflow view' } : null;
+
     // Get workflow ID - prompt if not provided
     let workflowId = args.id;
 
@@ -62,29 +58,20 @@ export default class WorkflowView extends PMOCommand {
         return handleError('NO_WORKFLOWS', 'No workflows found.');
       }
 
-      // In JSON mode, output workflow selection prompt
-      if (jsonMode) {
-        const workflowChoices = workflows.map(w => ({
-          name: `${w.name}${w.isBuiltin ? ' (built-in)' : ''}`,
-          value: w.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select workflow to view:', workflowChoices),
-          createMetadata('workflow view', flags)
-        );
-        return;
-      }
-
-      const { selectedId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedId',
+      // Use selectFromList for workflow selection (handles JSON mode automatically)
+      const selected = await this.selectFromList({
         message: 'Select workflow to view:',
-        choices: workflows.map(w => ({
-          name: `${w.name}${w.isBuiltin ? ' (built-in)' : ''}`,
-          value: w.id,
-        })),
-      }]);
-      workflowId = selectedId;
+        items: workflows,
+        getName: (w) => `${w.name}${w.isBuiltin ? ' (built-in)' : ''}`,
+        getValue: (w) => w.id,
+        getCommand: (w) => `prlt workflow view ${w.id} --json`,
+        jsonMode: agentConfig,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      workflowId = selected;
     }
 
     // Get workflow details
@@ -96,7 +83,7 @@ export default class WorkflowView extends PMOCommand {
     // Get workflow statuses
     const statuses = await this.storage.listStatuses(workflowId!);
 
-    if (flags.json) {
+    if (jsonMode) {
       this.log(JSON.stringify({ workflow, statuses }, null, 2));
       return;
     }

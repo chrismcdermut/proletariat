@@ -56,11 +56,13 @@ export default class WorkRevise extends PMOCommand {
   static flags = {
     ...pmoBaseFlags,
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
     mode: Flags.string({
-      char: 'm',
+      char: 'd',
       description: 'Runtime mode',
       options: ['foreground', 'background', 'tmux', 'terminal', 'devcontainer'],
     }),

@@ -17,7 +17,7 @@ export default class TicketCreate extends PMOCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --title "Fix login bug" --column Backlog',
-    '<%= config.bin %> <%= command.id %> -t "Add feature" -c "In Progress" -p HIGH',
+    '<%= config.bin %> <%= command.id %> -t "Add feature" -c "In Progress" -p P1',
     '<%= config.bin %> <%= command.id %> --project mobile-app -t "New feature"',
     '<%= config.bin %> <%= command.id %> --epic EPIC-001 -t "Implement auth flow"',
     '<%= config.bin %> <%= command.id %> --json  # Output column choices as JSON',
@@ -26,6 +26,8 @@ export default class TicketCreate extends PMOCommand {
   static flags = {
     ...pmoBaseFlags,
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
@@ -135,6 +137,14 @@ export default class TicketCreate extends PMOCommand {
     // Use FlagResolver to handle both JSON mode and interactive prompts
     // This unifies the two code paths into one pattern
     if (!flags.interactive) {
+      // In JSON mode, default column to first backlog status if not provided
+      // This prevents prompting for column in non-interactive mode
+      if (jsonMode && !flags.column) {
+        // Prefer "Backlog" column, fall back to first column
+        const backlogColumn = columns.find(c => c.toLowerCase() === 'backlog') || columns[0];
+        flags.column = backlogColumn;
+      }
+
       const resolver = new FlagResolver<typeof flags>({
         commandName: 'ticket create',
         baseCommand: 'prlt ticket create',
@@ -158,7 +168,7 @@ export default class TicketCreate extends PMOCommand {
         type: 'input',
         message: 'Enter ticket title:',
         when: (ctx) => !ctx.flags.title && ctx.flags.column !== undefined,
-        validate: (value) => (value as string).length > 0 || 'Title is required',
+        validate: (value) => (value as string).trim() ? true : 'Title cannot be empty',
         context: (ctx) => ({
           hint: `Provide title with: ${ctx.baseCommand}${ctx.projectId ? ` -P ${ctx.projectId}` : ''} --column "${ctx.flags.column}" --title "Your title here"`,
           requiredFields: ['--title'],
@@ -322,7 +332,7 @@ export default class TicketCreate extends PMOCommand {
         name: 'title',
         message: 'Ticket title:',
         default: flags.title || template?.titlePattern,
-        validate: (input: string) => input.length > 0 || 'Title is required',
+        validate: (input: string) => input.trim() ? true : 'Title cannot be empty',
       },
       {
         type: 'list',
@@ -377,7 +387,7 @@ export default class TicketCreate extends PMOCommand {
         name: 'customCategory',
         message: 'Enter custom category:',
         when: (answers: { categoryChoice: string }) => answers.categoryChoice === '__custom__',
-        validate: (input: string) => input.length > 0 || 'Category is required when choosing custom',
+        validate: (input: string) => input.trim() ? true : 'Category cannot be empty',
       },
     ]);
 
@@ -426,7 +436,7 @@ export default class TicketCreate extends PMOCommand {
         type: 'input',
         name: 'what',
         message: 'What is the concrete outcome? (one sentence):',
-        validate: (input: string) => input.length > 0 || 'Outcome is required - what does success look like?',
+        validate: (input: string) => input.trim() ? true : 'Outcome cannot be empty - what does success look like?',
       },
       {
         type: 'input',

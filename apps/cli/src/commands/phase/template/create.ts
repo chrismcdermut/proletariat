@@ -1,7 +1,8 @@
 import { Flags, Args } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
 import { styles } from '../../../lib/styles.js';
+import { shouldOutputJson, outputSuccessAsJson, createMetadata } from '../../../lib/prompt-json.js';
+import { FlagResolver } from '../../../lib/flags/index.js';
 
 export default class PhaseTemplateCreate extends PMOCommand {
   static description = 'Create a new phase template from current workspace phases';
@@ -9,6 +10,7 @@ export default class PhaseTemplateCreate extends PMOCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %> "My Custom Phases"',
     '<%= config.bin %> <%= command.id %> "Enterprise" --description "Enterprise project lifecycle"',
+    '<%= config.bin %> <%= command.id %> "My Phases" --description "Custom phases" --json',
   ];
 
   static args = {
@@ -33,30 +35,89 @@ export default class PhaseTemplateCreate extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(PhaseTemplateCreate);
 
-    // Get template name - prompt if not provided
-    let templateName = args.name;
-    if (!templateName) {
-      const { name } = await inquirer.prompt([{
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Build base command with positional arg if name provided
+    const baseCmd = args.name
+      ? `prlt template phase create "${args.name}"`
+      : 'prlt template phase create';
+
+    // Use FlagResolver for unified JSON mode and interactive handling
+    const resolver = new FlagResolver<{
+      name?: string;
+      description?: string;
+      json?: boolean;
+    }>({
+      commandName: 'phase template create',
+      baseCommand: baseCmd,
+      jsonMode,
+      flags: {
+        description: flags.description,
+        json: flags.json,
+      },
+      args: { name: args.name },
+    });
+
+    // Name prompt - required (only if not provided as positional arg)
+    if (!args.name) {
+      resolver.addPrompt({
+        flagName: 'name',
         type: 'input',
-        name: 'name',
         message: 'Template name:',
-        validate: (input: string) => input.length > 0 || 'Name is required',
-      }]);
-      templateName = name;
+        validate: (value) => (value as string).length > 0 || 'Name is required',
+        context: {
+          hint: 'Provide name with: prlt template phase create "Template Name"',
+          example: 'prlt template phase create "My Phases" --description "Custom phases"',
+        },
+        // For input prompts, the agent will re-run with the positional arg
+        getCommand: (value) => `prlt template phase create "${value}" --json`,
+      });
     }
 
-    // Get description if not provided
-    let description = flags.description;
-    if (description === undefined) {
-      const { desc } = await inquirer.prompt([{
+    // Description prompt - optional (only in interactive mode without --json)
+    if (!jsonMode && args.name && flags.description === undefined) {
+      resolver.addPrompt({
+        flagName: 'description',
         type: 'input',
-        name: 'desc',
         message: 'Description (optional):',
-      }]);
-      description = desc || undefined;
+      });
     }
 
-    const template = await this.storage.savePhaseTemplate(templateName!, description);
+    // Resolve missing flags
+    const resolved = await resolver.resolve();
+
+    // Get name from args or resolved (for interactive mode)
+    const templateName = args.name || (resolved as { name?: string }).name;
+
+    // Validate required fields
+    if (!templateName) {
+      this.error('Name is required. Provide as positional argument: prlt template phase create "Template Name"');
+    }
+
+    // Get description from flags or resolved
+    const description = flags.description ?? resolved.description ?? undefined;
+
+    const template = await this.storage.savePhaseTemplate(templateName, description);
+
+    // Output as JSON in machine mode
+    if (jsonMode) {
+      outputSuccessAsJson(
+        {
+          id: template.id,
+          name: template.name,
+          description: template.description,
+          phasesCount: template.phases.length,
+          phases: template.phases.map(p => ({
+            name: p.name,
+            category: p.category,
+            isDefault: p.isDefault,
+          })),
+        },
+        createMetadata('phase template create', flags as Record<string, unknown>)
+      );
+      return;
+    }
 
     this.log(styles.success(`\nCreated phase template "${styles.emphasis(template.name)}" (${template.id})`));
     this.log(styles.muted(`Saved ${template.phases.length} phases:`));

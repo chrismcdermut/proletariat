@@ -21,7 +21,7 @@ export default class AgentRestart extends PMOCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %> altman',
     '<%= config.bin %> <%= command.id %>  # Interactive selection',
-    '<%= config.bin %> <%= command.id %> --json  # JSON mode for AI agents',
+    '<%= config.bin %> <%= command.id %> --machine  # JSON mode for AI agents',
   ];
 
   static args = {
@@ -34,6 +34,8 @@ export default class AgentRestart extends PMOCommand {
   static flags = {
     ...pmoBaseFlags,
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
@@ -78,7 +80,7 @@ export default class AgentRestart extends PMOCommand {
         items: agents,
         getName: (a) => a.name,
         getValue: (a) => a.name,
-        getCommand: (a) => `prlt agent restart ${a.name} --json`,
+        getCommand: (a) => `prlt agent restart ${a.name} --machine`,
         jsonMode: jsonMode ? { flags, commandName: 'agent restart' } : null,
       });
 

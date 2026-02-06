@@ -1,0 +1,293 @@
+import { Flags, Args } from '@oclif/core';
+import inquirer from 'inquirer';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { styles } from '../../lib/styles.js';
+import { SpecType, SpecStatus } from '../../lib/pmo/types.js';
+import {
+  shouldOutputJson,
+  outputErrorAsJson,
+  createMetadata,
+} from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
+
+export default class SpecEdit extends PMOCommand {
+  static description = 'Edit an existing spec';
+
+  static examples = [
+    '<%= config.bin %> <%= command.id %> user-authentication',
+    '<%= config.bin %> <%= command.id %> --spec api-design --title "New API Design"',
+    '<%= config.bin %> <%= command.id %> user-auth --status active',
+    '<%= config.bin %> <%= command.id %> user-auth --type product --problem "Need better auth"',
+    '<%= config.bin %> <%= command.id %> -i  # Interactive mode',
+  ];
+
+  static args = {
+    spec: Args.string({
+      description: 'Spec ID to edit',
+      required: false,
+    }),
+  };
+
+  static flags = {
+    ...pmoBaseFlags,
+    spec: Flags.string({
+      char: 's',
+      description: 'Spec ID to edit',
+    }),
+    title: Flags.string({
+      char: 't',
+      description: 'New spec title',
+    }),
+    status: Flags.string({
+      description: 'Spec status',
+      options: ['draft', 'active', 'implemented'],
+    }),
+    type: Flags.string({
+      description: 'Spec type',
+      options: ['product', 'platform', 'infra', 'integration', 'none'],
+    }),
+    problem: Flags.string({
+      description: 'Problem statement',
+    }),
+    solution: Flags.string({
+      description: 'Solution description',
+    }),
+    decisions: Flags.string({
+      description: 'Design decisions',
+    }),
+    interactive: Flags.boolean({
+      char: 'i',
+      description: 'Interactive mode - prompts for all fields',
+      default: false,
+    }),
+  };
+
+  async execute(): Promise<void> {
+    const { args, flags } = await this.parse(SpecEdit);
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('spec edit', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
+    // Get spec ID from args or flags
+    let specId = args.spec || flags.spec;
+
+    if (!specId) {
+      // List specs for selection
+      const specs = await this.storage.listSpecs();
+
+      if (specs.length === 0) {
+        return handleError('NO_SPECS', 'No specs found. Create one first with: prlt spec create');
+      }
+
+      // Use FlagResolver for spec selection
+      const resolver = new FlagResolver<{ spec?: string }>({
+        commandName: 'spec edit',
+        baseCommand: 'prlt spec edit',
+        jsonMode,
+        flags: { spec: flags.spec },
+      });
+
+      resolver.addPrompt({
+        flagName: 'spec',
+        type: 'list',
+        message: 'Select spec to edit:',
+        choices: () => specs.map(s => ({
+          name: `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
+          value: s.id,
+        })),
+      });
+
+      const resolved = await resolver.resolve();
+      specId = resolved.spec;
+    }
+
+    // Get current spec
+    const spec = await this.storage.getSpec(specId!);
+    if (!spec) {
+      return handleError('NOT_FOUND', `Spec "${specId}" not found.`);
+    }
+
+    // Build choices for prompts
+    const typeChoices = [
+      { name: 'Product (user-facing feature)', value: 'product' },
+      { name: 'Platform (internal tooling)', value: 'platform' },
+      { name: 'Infra (technical infrastructure)', value: 'infra' },
+      { name: 'Integration (external service)', value: 'integration' },
+      { name: 'None', value: '' },
+    ];
+    const statusChoices = [
+      { name: 'Draft (planning)', value: 'draft' },
+      { name: 'Active (in progress)', value: 'active' },
+      { name: 'Implemented (complete)', value: 'implemented' },
+    ];
+
+    // Determine what to update
+    let updates: Partial<{
+      title: string;
+      status: SpecStatus;
+      type: SpecType | undefined;
+      problem: string;
+      solution: string;
+      decisions: string;
+    }> = {};
+
+    const hasFlags = flags.title || flags.status || flags.type || flags.problem ||
+      flags.solution || flags.decisions;
+
+    if (flags.interactive || !hasFlags) {
+      // Interactive mode - prompt for editable fields
+      updates = await this.promptForEdits(spec, typeChoices, statusChoices);
+    } else {
+      // Use flag values
+      if (flags.title) updates.title = flags.title;
+      if (flags.status) updates.status = flags.status as SpecStatus;
+      if (flags.type) {
+        updates.type = flags.type === 'none' ? undefined : flags.type as SpecType;
+      }
+      if (flags.problem) updates.problem = flags.problem;
+      if (flags.solution) updates.solution = flags.solution;
+      if (flags.decisions) updates.decisions = flags.decisions;
+    }
+
+    // Check if anything changed
+    if (Object.keys(updates).length === 0) {
+      this.log(styles.muted('\nNo changes made.'));
+      return;
+    }
+
+    // Update the spec
+    const updatedSpec = await this.storage.updateSpec(specId!, updates);
+
+    // Display updated spec
+    this.log(styles.success(`\n✅ Updated spec "${styles.emphasis(updatedSpec.title)}"`));
+
+    const changedFields: string[] = [];
+    if (updates.title) changedFields.push(`Title: ${updatedSpec.title}`);
+    if (updates.status) changedFields.push(`Status: ${updatedSpec.status}`);
+    if (updates.type !== undefined) changedFields.push(`Type: ${updatedSpec.type || 'none'}`);
+    if (updates.problem !== undefined) changedFields.push(`Problem: ${updates.problem ? 'updated' : '(cleared)'}`);
+    if (updates.solution !== undefined) changedFields.push(`Solution: ${updates.solution ? 'updated' : '(cleared)'}`);
+    if (updates.decisions !== undefined) changedFields.push(`Decisions: ${updates.decisions ? 'updated' : '(cleared)'}`);
+
+    for (const field of changedFields) {
+      this.log(styles.muted(`   ${field}`));
+    }
+
+    this.log('');
+    this.log(styles.muted(`View spec: prlt spec view ${updatedSpec.id}`));
+  }
+
+  private async promptForEdits(
+    spec: {
+      title: string;
+      status: SpecStatus;
+      type?: SpecType;
+      problem?: string;
+      solution?: string;
+      decisions?: string;
+    },
+    typeChoices: { name: string; value: string }[],
+    statusChoices: { name: string; value: string }[]
+  ): Promise<{
+    title?: string;
+    status?: SpecStatus;
+    type?: SpecType | undefined;
+    problem?: string;
+    solution?: string;
+    decisions?: string;
+  }> {
+    const answers = await inquirer.prompt<{
+      title: string;
+      status: string;
+      type: string;
+      problem: string;
+      solution: string;
+      decisions: string;
+    }>([
+      {
+        type: 'input',
+        name: 'title',
+        message: 'Title:',
+        default: spec.title,
+        validate: (input: string) => input.length > 0 || 'Title is required',
+      },
+      {
+        type: 'list',
+        name: 'status',
+        message: 'Status:',
+        choices: statusChoices,
+        default: spec.status,
+      },
+      {
+        type: 'list',
+        name: 'type',
+        message: 'Type:',
+        choices: typeChoices,
+        default: spec.type || '',
+      },
+      {
+        type: 'editor',
+        name: 'problem',
+        message: 'Problem statement (opens $EDITOR):',
+        default: spec.problem || '',
+        waitForUseInput: false,
+      },
+      {
+        type: 'editor',
+        name: 'solution',
+        message: 'Solution (opens $EDITOR):',
+        default: spec.solution || '',
+        waitForUseInput: false,
+      },
+      {
+        type: 'editor',
+        name: 'decisions',
+        message: 'Design decisions (opens $EDITOR):',
+        default: spec.decisions || '',
+        waitForUseInput: false,
+      },
+    ]);
+
+    // Build updates object with only changed fields
+    const updates: {
+      title?: string;
+      status?: SpecStatus;
+      type?: SpecType | undefined;
+      problem?: string;
+      solution?: string;
+      decisions?: string;
+    } = {};
+
+    if (answers.title !== spec.title) {
+      updates.title = answers.title;
+    }
+    if (answers.status !== spec.status) {
+      updates.status = answers.status as SpecStatus;
+    }
+
+    const newType = answers.type === '' ? undefined : answers.type as SpecType;
+    if (newType !== spec.type) {
+      updates.type = newType;
+    }
+    if (answers.problem !== (spec.problem || '')) {
+      updates.problem = answers.problem || undefined;
+    }
+    if (answers.solution !== (spec.solution || '')) {
+      updates.solution = answers.solution || undefined;
+    }
+    if (answers.decisions !== (spec.decisions || '')) {
+      updates.decisions = answers.decisions || undefined;
+    }
+
+    return updates;
+  }
+}

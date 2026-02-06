@@ -1,6 +1,5 @@
-import { Command, Flags } from '@oclif/core';
+import { Flags } from '@oclif/core';
 import chalk from 'chalk';
-import inquirer from 'inquirer';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import {
@@ -8,13 +7,10 @@ import {
   getAllAgentsStatus,
   getAgentTmuxSessions
 } from '../../lib/agents/commands.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-} from '../../lib/prompt-json.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 
-export default class List extends Command {
+export default class List extends PMOCommand {
   static description = 'List all agents and their current status';
 
   static examples = [
@@ -24,21 +20,25 @@ export default class List extends Command {
   ];
 
   static flags = {
+    ...pmoBaseFlags,
     type: Flags.string({
       char: 't',
       description: 'Filter by agent type',
       options: ['staff', 'temp', 'all'],
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     try {
       const { flags } = await this.parse(List);
       const jsonMode = shouldOutputJson(flags);
+
+      // Agent mode config for prompts
+      const agentConfig = jsonMode ? { flags, commandName: 'agent list' } : null;
 
       // Get workspace information
       const workspaceInfo = getWorkspaceInfo();
@@ -46,39 +46,53 @@ export default class List extends Command {
       // Filter to active agents only
       const activeAgents = workspaceInfo.agents.filter(a => a.status === 'active');
 
-      // Determine type filter - prompt if not provided
+      // Determine type filter - prompt if not provided (but not in JSON mode)
       let typeFilter = flags.type as 'staff' | 'temp' | 'all' | undefined;
 
-      if (!typeFilter) {
-        // In JSON mode, output type selection prompt
-        if (jsonMode) {
-          outputPromptAsJson(
-            {
-              type: 'list',
-              name: 'type',
-              message: 'Which agents do you want to list?',
-              choices: [
-                { name: 'All agents', value: 'all', command: 'prlt agent list --type all --json' },
-                { name: 'Staff agents only', value: 'staff', command: 'prlt agent list --type staff --json' },
-                { name: 'Temp agents only', value: 'temp', command: 'prlt agent list --type temp --json' },
-              ],
-            },
-            createMetadata('agent list', flags)
-          );
-          return;
-        }
+      // In JSON mode without type filter, output all agents grouped by type
+      if (jsonMode && !typeFilter) {
+        const staffAgents = activeAgents.filter(a => a.type === 'persistent');
+        const tempAgents = activeAgents.filter(a => a.type === 'ephemeral');
+        const agentsStatus = getAllAgentsStatus(workspaceInfo);
 
-        // Interactive mode - prompt for type
-        const { selectedType } = await inquirer.prompt([{
+        const formatAgentJson = (agents: typeof activeAgents) => {
+          return agents.map(agent => {
+            const status = agentsStatus.find(s => s.name === agent.name);
+            const sessions = getAgentTmuxSessions(agent.name);
+            return {
+              name: agent.name,
+              type: agent.type === 'persistent' ? 'staff' : 'temp',
+              exists: status?.exists ?? false,
+              branch: status?.branch ?? null,
+              repositories: status?.repositories ?? [],
+              assignedTickets: status?.assignedTickets ?? [],
+              completedTickets: status?.completedTickets ?? [],
+              running: sessions.length > 0,
+            };
+          });
+        };
+
+        const output = {
+          staff: formatAgentJson(staffAgents),
+          temp: formatAgentJson(tempAgents),
+          all: formatAgentJson(activeAgents),
+        };
+
+        this.log(JSON.stringify(output, null, 2));
+        return;
+      }
+
+      if (!typeFilter) {
+        const { selectedType } = await this.prompt<{ selectedType: 'staff' | 'temp' | 'all' }>([{
           type: 'list',
           name: 'selectedType',
           message: 'Which agents do you want to list?',
           choices: [
-            { name: '📋 All agents', value: 'all' },
-            { name: '👔 Staff agents only', value: 'staff' },
-            { name: '⏱️  Temp agents only', value: 'temp' },
+            { name: '📋 All agents', value: 'all', command: 'prlt agent list --type all --machine' },
+            { name: '👔 Staff agents only', value: 'staff', command: 'prlt agent list --type staff --machine' },
+            { name: '⏱️  Temp agents only', value: 'temp', command: 'prlt agent list --type temp --machine' },
           ],
-        }]);
+        }], agentConfig);
         typeFilter = selectedType;
       }
 

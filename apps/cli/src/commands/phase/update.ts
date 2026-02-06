@@ -1,17 +1,13 @@
 import { Flags, Args } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
-  buildFormPromptConfig,
-  FormField,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class PhaseUpdate extends PMOCommand {
   static description = 'Update a project lifecycle phase';
@@ -56,10 +52,6 @@ export default class PhaseUpdate extends PMOCommand {
       description: 'Interactive mode',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -81,7 +73,7 @@ export default class PhaseUpdate extends PMOCommand {
       this.error(message);
     };
 
-    // Get phase ID - prompt if not provided
+    // Get phase ID - use FlagResolver if not provided
     let phaseId = args.id;
 
     if (!phaseId) {
@@ -90,35 +82,40 @@ export default class PhaseUpdate extends PMOCommand {
         return handleError('NO_PHASES', 'No phases found. Create a phase first with "prlt phase create".');
       }
 
-      // In JSON mode, output phase selection prompt
-      if (jsonMode) {
-        const phaseChoices = phases.map(p => ({
-          name: `${p.name} (${p.category})`,
-          value: p.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'phaseId', 'Select phase to update:', phaseChoices),
-          createMetadata('phase update', flags)
-        );
-        return;
-      }
+      const idResolver = new FlagResolver<{ phaseId?: string; machine?: boolean; json?: boolean }>({
+        commandName: 'phase update',
+        baseCommand: 'prlt phase update',
+        jsonMode,
+        flags: { json: flags.json },
+      });
 
-      const { selectedId } = await inquirer.prompt([{
+      idResolver.addPrompt({
+        flagName: 'phaseId',
         type: 'list',
-        name: 'selectedId',
         message: 'Select phase to update:',
-        choices: phases.map(p => ({
+        choices: () => phases.map(p => ({
           name: `${p.name} (${p.category})`,
           value: p.id,
         })),
-      }]);
-      phaseId = selectedId;
+        // Use positional arg format for phase ID
+        getCommand: (value) => `prlt phase update ${value} --json`,
+      });
+
+      const resolved = await idResolver.resolve();
+      phaseId = resolved.phaseId;
     }
 
     const existing = await this.storage.getPhase(phaseId!);
     if (!existing) {
       return handleError('PHASE_NOT_FOUND', `Phase "${phaseId}" not found.`);
     }
+
+    // Check if any change flags were provided
+    const hasChangeFlags = flags.name !== undefined ||
+                            flags.category !== undefined ||
+                            flags.color !== undefined ||
+                            flags.description !== undefined ||
+                            flags.default !== undefined;
 
     let updates: {
       name?: string;
@@ -128,16 +125,9 @@ export default class PhaseUpdate extends PMOCommand {
       isDefault?: boolean;
     };
 
-    // Check if any change flags were provided
-    const hasChangeFlags = flags.name !== undefined ||
-                            flags.category !== undefined ||
-                            flags.color !== undefined ||
-                            flags.description !== undefined ||
-                            flags.default !== undefined;
-
     // Auto-enter interactive mode if no change flags provided
     if (flags.interactive || !hasChangeFlags) {
-      // Define labels and choices once - single source of truth
+      // Define category labels - single source of truth
       const categoryLabels: Record<StateCategory, string> = {
         triage: 'Triage - Inbox, needs review',
         backlog: 'Backlog - Not yet scheduled for work',
@@ -146,27 +136,91 @@ export default class PhaseUpdate extends PMOCommand {
         completed: 'Completed - Work finished successfully',
         canceled: 'Canceled - Work won\'t be done',
       };
-      const categoryChoices = STATE_CATEGORY_ORDER.map(cat => ({ name: categoryLabels[cat], value: cat }));
 
-      // Define fields once - single source of truth for both JSON and interactive modes
-      const fields: FormField[] = [
-        { type: 'input', name: 'name', message: 'Name:', default: existing.name },
-        { type: 'list', name: 'category', message: 'Category:', choices: categoryChoices, default: existing.category },
-        { type: 'input', name: 'color', message: 'Color (hex):', default: existing.color || '' },
-        { type: 'input', name: 'description', message: 'Description:', default: existing.description || '' },
-        { type: 'confirm', name: 'isDefault', message: 'Default for new projects?', default: existing.isDefault || false },
-      ];
+      // Use FlagResolver for update prompts
+      const resolver = new FlagResolver<{
+        name?: string;
+        category?: string;
+        color?: string;
+        description?: string;
+        isDefault?: boolean;
+        machine?: boolean;
+        json?: boolean;
+      }>({
+        commandName: 'phase update',
+        baseCommand: `prlt phase update ${phaseId}`,
+        jsonMode,
+        flags: { json: flags.json },
+      });
 
-      // In JSON mode, output form prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildFormPromptConfig(fields),
-          createMetadata('phase update', flags)
-        );
+      resolver.addPrompt({
+        flagName: 'name',
+        type: 'input',
+        message: 'Name:',
+        default: existing.name,
+      });
+
+      resolver.addPrompt({
+        flagName: 'category',
+        type: 'list',
+        message: 'Category:',
+        choices: () => STATE_CATEGORY_ORDER.map(cat => ({
+          name: categoryLabels[cat],
+          value: cat,
+        })),
+        default: existing.category,
+        when: (ctx) => ctx.flags.name !== undefined,
+      });
+
+      resolver.addPrompt({
+        flagName: 'color',
+        type: 'input',
+        message: 'Color (hex):',
+        default: existing.color || '',
+        when: (ctx) => ctx.flags.category !== undefined,
+      });
+
+      resolver.addPrompt({
+        flagName: 'description',
+        type: 'input',
+        message: 'Description:',
+        default: existing.description || '',
+        when: (ctx) => ctx.flags.color !== undefined,
+      });
+
+      resolver.addPrompt({
+        flagName: 'isDefault',
+        type: 'list',
+        message: 'Default for new projects?',
+        choices: () => [
+          { name: 'No', value: false },
+          { name: 'Yes', value: true },
+        ],
+        default: existing.isDefault || false,
+        when: (ctx) => ctx.flags.description !== undefined,
+      });
+
+      const resolved = await resolver.resolve();
+
+      // Build updates from resolved values - only include changed values
+      updates = {};
+      if (resolved.name && resolved.name !== existing.name) {
+        updates.name = resolved.name;
       }
-
-      updates = await this.promptUpdates(fields, existing);
+      if (resolved.category && resolved.category !== existing.category) {
+        updates.category = resolved.category as StateCategory;
+      }
+      if (resolved.color !== undefined && resolved.color !== (existing.color || '')) {
+        updates.color = resolved.color || undefined;
+      }
+      if (resolved.description !== undefined && resolved.description !== (existing.description || '')) {
+        updates.description = resolved.description || undefined;
+      }
+      if (resolved.isDefault !== undefined && resolved.isDefault !== (existing.isDefault || false)) {
+        updates.isDefault = resolved.isDefault;
+      }
     } else {
+      // Use flags directly
       updates = {};
       if (flags.name) updates.name = flags.name;
       if (flags.category) updates.category = flags.category as StateCategory;
@@ -189,47 +243,5 @@ export default class PhaseUpdate extends PMOCommand {
     if (phase.isDefault) {
       this.log(styles.muted(`  Default: Yes`));
     }
-  }
-
-  private async promptUpdates(
-    fields: FormField[],
-    existing: {
-      name: string;
-      category: StateCategory;
-      color?: string;
-      description?: string;
-      isDefault?: boolean;
-    }
-  ): Promise<{
-    name?: string;
-    category?: StateCategory;
-    color?: string;
-    description?: string;
-    isDefault?: boolean;
-  }> {
-    // Build inquirer prompts from fields
-    const answers = await inquirer.prompt<{
-      name: string;
-      category: StateCategory;
-      color: string;
-      description: string;
-      isDefault: boolean;
-    }>(fields);
-
-    const updates: {
-      name?: string;
-      category?: StateCategory;
-      color?: string;
-      description?: string;
-      isDefault?: boolean;
-    } = {};
-
-    if (answers.name !== existing.name) updates.name = answers.name;
-    if (answers.category !== existing.category) updates.category = answers.category;
-    if (answers.color !== (existing.color || '')) updates.color = answers.color || undefined;
-    if (answers.description !== (existing.description || '')) updates.description = answers.description || undefined;
-    if (answers.isDefault !== (existing.isDefault || false)) updates.isDefault = answers.isDefault;
-
-    return updates;
   }
 }

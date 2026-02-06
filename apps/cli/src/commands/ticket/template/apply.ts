@@ -73,6 +73,8 @@ export default class TicketTemplateApply extends PMOCommand {
       default: false,
     }),
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),

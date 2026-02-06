@@ -1,6 +1,7 @@
 import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { shouldOutputJson } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class Spec extends PMOCommand {
   static description = 'Interactive menu for spec operations';
@@ -11,10 +12,6 @@ export default class Spec extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -27,27 +24,49 @@ export default class Spec extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // Define choices once, use for both JSON and interactive modes
-    // Each choice includes the full command for AI agents to execute
+    // Define choices for the menu
     const menuChoices = [
-      { id: 'create', name: 'Create new spec', command: 'prlt spec create --json' },
-      { id: 'list', name: 'List all specs', command: 'prlt spec list --format json' },
-      { id: 'view', name: 'View spec', command: 'prlt spec view --json' },
-      { id: 'generate', name: 'Generate tickets from spec', command: 'prlt spec plan --json' },
-      { id: 'ticket', name: 'Assign ticket to spec', command: 'prlt spec ticket --json' },
-      { id: 'link', name: 'Manage dependencies', command: 'prlt spec link --json' },
-      { id: 'cancel', name: 'Cancel', command: '' },
+      { name: 'Create new spec', value: 'create' },
+      { name: 'List all specs', value: 'list' },
+      { name: 'View spec', value: 'view' },
+      { name: 'Delete spec', value: 'delete' },
+      { name: 'Generate tickets from spec', value: 'generate' },
+      { name: 'Assign ticket to spec', value: 'ticket' },
+      { name: 'Manage dependencies', value: 'link' },
+      { name: 'Cancel', value: 'cancel' },
     ];
-    const message = 'Spec Operations - What would you like to do?';
 
-    const action = await this.selectFromList({
-      message: '📄 ' + message,
-      items: menuChoices,
-      getName: (c) => c.name,
-      getValue: (c) => c.id,
-      getCommand: (c) => c.command,
-      jsonMode: jsonMode ? { flags, commandName: 'spec' } : null,
+    // Use FlagResolver for action selection
+    const resolver = new FlagResolver<{ action?: string }>({
+      commandName: 'spec',
+      baseCommand: 'prlt spec',
+      jsonMode,
+      flags: {},
     });
+
+    resolver.addPrompt({
+      flagName: 'action',
+      type: 'list',
+      message: '📄 Spec Operations - What would you like to do?',
+      choices: () => menuChoices,
+      // Custom command builder for menu items
+      getCommand: (value) => {
+        const commands: Record<string, string> = {
+          create: 'prlt spec create --json',
+          list: 'prlt spec list --json',
+          view: 'prlt spec view --json',
+          delete: 'prlt spec delete --json',
+          generate: 'prlt spec plan --json',
+          ticket: 'prlt spec ticket --json',
+          link: 'prlt spec link --json',
+          cancel: '',
+        };
+        return commands[value as string] || '';
+      },
+    });
+
+    const resolved = await resolver.resolve();
+    const action = resolved.action;
 
     if (action === 'cancel' || !action) {
       return;
@@ -63,6 +82,9 @@ export default class Spec extends PMOCommand {
         break;
       case 'view':
         await this.config.runCommand('spec:view', []);
+        break;
+      case 'delete':
+        await this.config.runCommand('spec:delete', []);
         break;
       case 'generate':
         await this.config.runCommand('spec:generate-tickets', []);

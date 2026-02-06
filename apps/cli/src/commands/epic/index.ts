@@ -12,6 +12,8 @@ export default class Epic extends PMOCommand {
   static flags = {
     ...pmoBaseFlags,
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
@@ -41,6 +43,7 @@ export default class Epic extends PMOCommand {
       { id: 'activate', name: 'Activate epic', command: 'prlt epic activate --json' },
       { id: 'move', name: 'Reorder epic', command: 'prlt epic move --json' },
       { id: 'project', name: 'Move to different project', command: 'prlt epic project --json' },
+      { id: 'delete', name: 'Delete epic', command: 'prlt epic delete --json' },
       { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'Epic Operations - What would you like to do?';
@@ -92,6 +95,9 @@ export default class Epic extends PMOCommand {
         break;
       case 'project':
         await this.config.runCommand('epic:project', []);
+        break;
+      case 'delete':
+        await this.config.runCommand('epic:delete', []);
         break;
     }
   }

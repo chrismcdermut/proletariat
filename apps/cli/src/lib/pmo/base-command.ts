@@ -2,25 +2,25 @@ import { Command, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { getPMOContext, type PMOContext } from './pmo-context.js';
 import { styles } from '../styles.js';
+import { PromptCommand } from '../prompt-command.js';
 import {
   shouldOutputJson,
-  isAgentMode,
-  isMachineOutput,
   outputPromptAsJson,
+  outputErrorAsJson,
   createMetadata,
-  normalizeChoices,
   type JsonFlags,
-  type MachineOutputFlags,
 } from '../prompt-json.js';
 
 /**
- * Base flags for JSON/agent mode support (legacy)
+ * Base flags for JSON/agent mode support
  * Include these in your command's flags by spreading: ...jsonModeFlags
  * @deprecated Use machineOutputFlags instead
  */
 export const jsonModeFlags = {
   json: Flags.boolean({
-    description: 'Output prompts as JSON for AI agents/scripts',
+    char: 'm',
+    aliases: ['machine'],
+    description: 'Output as JSON for AI agents/scripts',
     default: false,
   }),
 };
@@ -28,18 +28,14 @@ export const jsonModeFlags = {
 /**
  * Base flags for machine-readable output mode
  * Include these in your command's flags by spreading: ...machineOutputFlags
- * Supports both --machine (new) and --json (legacy, deprecated)
+ * --json is the primary flag, -m/--machine are aliases
  */
 export const machineOutputFlags = {
-  machine: Flags.boolean({
-    char: 'm',
-    description: 'Output as JSON for AI agents/scripts (machine-readable mode)',
-    default: false,
-  }),
   json: Flags.boolean({
-    description: 'Output as JSON (deprecated, use --machine)',
+    char: 'm',
+    aliases: ['machine'],
+    description: 'Output as JSON for AI agents/scripts',
     default: false,
-    hidden: true,  // Hide from help since it's deprecated
   }),
 };
 
@@ -90,7 +86,7 @@ export const pmoBaseFlags = {
  * }
  * ```
  */
-export abstract class PMOCommand extends Command {
+export abstract class PMOCommand extends PromptCommand {
   /**
    * PMO context with storage, pmoPath, etc.
    * Available after init() runs (before execute())
@@ -196,12 +192,21 @@ export abstract class PMOCommand extends Command {
       return numA - numB;
     });
 
+    // Auto-detect non-TTY: switch to JSON mode when no TTY present
+    const effectiveJsonMode = options?.jsonMode ?? (!process.stdin.isTTY
+      ? {
+          flags: { json: true } as JsonFlags & Record<string, unknown>,
+          commandName: this.id ?? 'unknown',
+          baseCommand: `prlt ${(this.id ?? 'unknown').replace(/:/g, ' ')}`,
+        }
+      : null);
+
     // If JSON mode is active, output project choices as JSON
-    if (options?.jsonMode && shouldOutputJson(options.jsonMode.flags)) {
+    if (effectiveJsonMode && shouldOutputJson(effectiveJsonMode.flags)) {
       const choices = sortedProjects.map(p => ({
         name: `${p.name} (${p.id})`,
         value: p.id,
-        command: `${options.jsonMode!.baseCommand} -P ${p.id} --json`,
+        command: `${effectiveJsonMode.baseCommand} -P ${p.id} --json`,
       }));
       outputPromptAsJson(
         {
@@ -210,7 +215,7 @@ export abstract class PMOCommand extends Command {
           message: 'Select project:',
           choices,
         },
-        createMetadata(options.jsonMode.commandName, options.jsonMode.flags)
+        createMetadata(effectiveJsonMode.commandName, effectiveJsonMode.flags)
       );
       // outputPromptAsJson calls process.exit, so this is unreachable
       return '';
@@ -291,6 +296,11 @@ export abstract class PMOCommand extends Command {
       cancelValue,
     } = options;
 
+    // Auto-detect non-TTY: switch to JSON mode when no TTY present
+    const effectiveJsonMode = jsonMode ?? (!process.stdin.isTTY
+      ? { flags: { json: true } as JsonFlags & Record<string, unknown>, commandName: this.id ?? 'unknown' }
+      : null);
+
     // Build choices with command field
     const choices = items.map(item => ({
       name: getName(item),
@@ -299,7 +309,7 @@ export abstract class PMOCommand extends Command {
     }));
 
     // Check for JSON mode
-    if (jsonMode && shouldOutputJson(jsonMode.flags)) {
+    if (effectiveJsonMode && shouldOutputJson(effectiveJsonMode.flags)) {
       outputPromptAsJson(
         {
           type: 'list',
@@ -307,7 +317,7 @@ export abstract class PMOCommand extends Command {
           message,
           choices,
         },
-        createMetadata(jsonMode.commandName, jsonMode.flags)
+        createMetadata(effectiveJsonMode.commandName, effectiveJsonMode.flags)
       );
       // outputPromptAsJson exits, so this is unreachable
       return null;
@@ -370,8 +380,13 @@ export abstract class PMOCommand extends Command {
   }): Promise<string> {
     const { message, fieldName, defaultValue, validate, jsonMode } = options;
 
+    // Auto-detect non-TTY: switch to JSON mode when no TTY present
+    const effectiveJsonMode = jsonMode ?? (!process.stdin.isTTY
+      ? { flags: { json: true } as JsonFlags & Record<string, unknown>, commandName: this.id ?? 'unknown', commandHint: '', example: undefined as string | undefined }
+      : null);
+
     // Check for JSON mode
-    if (jsonMode && shouldOutputJson(jsonMode.flags)) {
+    if (effectiveJsonMode && shouldOutputJson(effectiveJsonMode.flags)) {
       outputPromptAsJson(
         {
           type: 'input',
@@ -379,11 +394,11 @@ export abstract class PMOCommand extends Command {
           message,
           default: defaultValue,
           context: {
-            hint: jsonMode.commandHint,
-            example: jsonMode.example,
+            hint: effectiveJsonMode.commandHint,
+            example: effectiveJsonMode.example,
           },
         },
-        createMetadata(jsonMode.commandName, jsonMode.flags)
+        createMetadata(effectiveJsonMode.commandName, effectiveJsonMode.flags)
       );
       // outputPromptAsJson exits, so this is unreachable
       return '';
@@ -402,91 +417,45 @@ export abstract class PMOCommand extends Command {
   }
 
   /**
-   * Prompt wrapper - drop-in replacement for inquirer.prompt
+   * Unified error handler for JSON/interactive modes.
    *
-   * Works in BOTH modes:
-   * - Interactive mode: calls inquirer.prompt normally (human sees menu)
-   * - JSON/Agent mode: outputs prompt as structured JSON and exits
+   * Consolidates error handling to avoid message drift between JSON and interactive modes.
+   * In JSON mode: outputs structured error JSON and exits
+   * In interactive mode: calls this.error() with the message
    *
-   * This is the simplest way to make any inquirer.prompt call work for both humans and agents.
-   * Just replace `await inquirer.prompt(questions)` with `await this.prompt(questions, jsonModeConfig)`
-   *
-   * @param questions - Inquirer question config(s)
-   * @param jsonModeConfig - JSON mode configuration (null to disable JSON mode handling)
-   * @returns Answers object (only in interactive mode)
+   * @param code - Error code for JSON output (e.g., 'NOT_FOUND', 'DOCKER_NOT_RUNNING')
+   * @param message - Human-readable error message (used in both modes)
+   * @param options - Configuration for error handling
+   * @returns never - always throws or exits
    *
    * @example
    * ```typescript
-   * // Before (breaks in JSON mode):
-   * const { column } = await inquirer.prompt([{
-   *   type: 'list',
-   *   name: 'column',
-   *   message: 'Select column:',
-   *   choices: columns.map(c => ({ name: c, value: c })),
-   * }]);
+   * // Instead of duplicating messages:
+   * // if (jsonMode) { outputErrorAsJson('CODE', 'msg', ...); }
+   * // this.error('msg');
    *
-   * // After (works in both modes):
-   * const { column } = await this.prompt([{
-   *   type: 'list',
-   *   name: 'column',
-   *   message: 'Select column:',
-   *   choices: columns.map(c => ({
-   *     name: c,
-   *     value: c,
-   *     command: `prlt ticket move --column "${c}" --json`,
-   *   })),
-   * }], {
+   * // Use:
+   * this.handleError('DOCKER_NOT_RUNNING', 'Docker is not running.', {
+   *   jsonMode,
+   *   commandName: 'agent auth',
    *   flags,
-   *   commandName: 'ticket move',
    * });
    * ```
    */
-  protected async prompt<T extends Record<string, unknown>>(
-    questions: Array<{
-      type: string;
-      name: string;
-      message: string;
-      choices?: Array<
-        | string
-        | { name: string; value: unknown; disabled?: boolean | string; command?: string }
-        | unknown
-      >;
-      default?: unknown;
-      validate?: (input: unknown) => boolean | string;
-      when?: boolean | ((answers: Record<string, unknown>) => boolean);
-    }>,
-    jsonModeConfig?: {
-      flags: JsonFlags & Record<string, unknown>;
+  protected handleError(
+    code: string,
+    message: string,
+    options: {
+      jsonMode: boolean;
       commandName: string;
-    } | null
-  ): Promise<T> {
-    // Check for JSON/agent mode
-    if (jsonModeConfig && isAgentMode(jsonModeConfig.flags)) {
-      // Find first question that should be shown (respecting 'when' conditions)
-      const firstQuestion = questions[0];
-      if (firstQuestion) {
-        // Convert choices to agent-compatible format
-        const choices = firstQuestion.choices
-          ? normalizeChoices(firstQuestion.choices)
-          : undefined;
-
-        outputPromptAsJson(
-          {
-            type: firstQuestion.type as 'list' | 'checkbox' | 'input' | 'confirm' | 'editor',
-            name: firstQuestion.name,
-            message: firstQuestion.message,
-            choices,
-            default: firstQuestion.default as string | boolean | string[] | undefined,
-          },
-          createMetadata(jsonModeConfig.commandName, jsonModeConfig.flags)
-        );
-        // outputPromptAsJson calls process.exit, never returns
-      }
-      return {} as T;
+      flags: Record<string, unknown>;
     }
-
-    // Interactive mode: just call inquirer
-    return inquirer.prompt(questions as Parameters<typeof inquirer.prompt>[0]) as Promise<T>;
+  ): never {
+    if (options.jsonMode) {
+      outputErrorAsJson(code, message, createMetadata(options.commandName, options.flags));
+      this.exit(1);
+    }
+    this.error(message);
   }
 
   /**

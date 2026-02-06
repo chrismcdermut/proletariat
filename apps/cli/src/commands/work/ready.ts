@@ -35,7 +35,7 @@ export default class WorkReady extends PMOCommand {
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> TKT-001',
     '<%= config.bin %> <%= command.id %> --pr',
-    '<%= config.bin %> <%= command.id %> TKT-001 --pr --draft',
+    '<%= config.bin %> <%= command.id %> TKT-001 --draft-pr',
     '<%= config.bin %> <%= command.id %> --json  # Output choices as JSON',
   ];
 
@@ -49,6 +49,8 @@ export default class WorkReady extends PMOCommand {
   static flags = {
     ...pmoBaseFlags,
     json: Flags.boolean({
+      char: 'm',
+      aliases: ['machine'],
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
@@ -56,8 +58,8 @@ export default class WorkReady extends PMOCommand {
       description: 'Create a pull request for this work',
       default: false,
     }),
-    draft: Flags.boolean({
-      description: 'Create PR as draft (only with --pr)',
+    'draft-pr': Flags.boolean({
+      description: 'Create a draft pull request (implies --pr)',
       default: false,
     }),
     'no-pr': Flags.boolean({
@@ -69,6 +71,11 @@ export default class WorkReady extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkReady);
     const projectId = (flags as { project?: string }).project;
+
+    // Check for conflicting PR flags
+    if (flags.pr && flags['no-pr']) {
+      this.error('--pr and --no-pr are mutually exclusive');
+    }
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -140,22 +147,22 @@ export default class WorkReady extends PMOCommand {
       }
 
       // Get configured column name (from pmo_settings or default)
-      // In Linear-style workflow, "ready" moves ticket to Done (review is implicit via PR)
-      const targetColumnName = getWorkColumnSetting(db, 'done');
+      // "ready" moves ticket to Review column (work complete moves to Done)
+      const targetColumnName = getWorkColumnSetting(db, 'review');
 
       const board = await this.storage.getBoard(ticket.projectId!);
       const columnNames = board.columns.map(col => col.name);
-      const doneColumn = findColumnByName(columnNames, targetColumnName);
+      const reviewColumn = findColumnByName(columnNames, targetColumnName);
 
-      if (!doneColumn) {
+      if (!reviewColumn) {
         db.close();
-        this.error(`No "${targetColumnName}" column found in board configuration. Configure with: prlt config set column_done <column-name>`);
+        this.error(`No "${targetColumnName}" column found in board configuration. Configure with: prlt config set column_review <column-name>`);
       }
 
       const previousColumn = ticket.statusName;
 
-      // Move to Done column (moveTicket also updates status_id)
-      await this.storage.moveTicket(ticket.projectId!, ticketId!, doneColumn);
+      // Move to Review column (moveTicket also updates status_id)
+      await this.storage.moveTicket(ticket.projectId!, ticketId!, reviewColumn);
 
       // Auto-export to board.md if configured
       await autoExportToBoard(this.pmoPath, this.storage);
@@ -169,7 +176,7 @@ export default class WorkReady extends PMOCommand {
 
       // Handle PR creation
       let prUrl: string | undefined;
-      const shouldCreatePR = flags.pr || (!flags['no-pr'] && await this.shouldOfferPRCreation());
+      const shouldCreatePR = flags.pr || flags['draft-pr'] || (!flags['no-pr'] && await this.shouldOfferPRCreation());
 
       if (shouldCreatePR) {
         // Get branch and worktree path from the execution record
@@ -204,7 +211,7 @@ export default class WorkReady extends PMOCommand {
           }
         }
 
-        prUrl = await this.handlePRCreation(ticket, flags.draft, branch, worktreePath);
+        prUrl = await this.handlePRCreation(ticket, flags['draft-pr'], branch, worktreePath);
         if (prUrl) {
           // Store PR URL in ticket metadata
           await this.storage.updateTicket(ticketId!, {
@@ -221,7 +228,7 @@ export default class WorkReady extends PMOCommand {
       this.log(styles.success(`Work ready: ${ticketId}`));
       this.log(styles.muted(`   Title: ${ticket.title}`));
       this.log(styles.muted(`   From: ${previousColumn}`));
-      this.log(styles.muted(`   To: ${doneColumn}`));
+      this.log(styles.muted(`   To: ${reviewColumn}`));
       if (prUrl) {
         this.log(styles.muted(`   PR: ${prUrl}`));
       }

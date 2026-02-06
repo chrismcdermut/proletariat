@@ -5,32 +5,25 @@ import {
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
+  setupProductionSchema,
+  createTestProject,
+  createTestWorkflow,
+  addTestWorkflowStatus,
+  extractJson as extractJsonOrNull,
   exec,
   type TestEnvironment,
 } from './test-helpers.js';
 
 /**
- * Extract JSON from CLI output that may contain warnings.
- * Looks for the first line starting with { and parses from there.
+ * Asserting wrapper around shared extractJson.
+ * Throws if no valid JSON is found (appropriate for test assertions).
  */
 function extractJson<T>(output: string): T {
-  const lines = output.split('\n');
-  let jsonStart = -1;
-
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (trimmed.startsWith('{')) {
-      jsonStart = i;
-      break;
-    }
-  }
-
-  if (jsonStart === -1) {
+  const result = extractJsonOrNull<T>(output);
+  if (result === null) {
     throw new Error(`No JSON found in output: ${output.substring(0, 500)}...`);
   }
-
-  const jsonLines = lines.slice(jsonStart).join('\n');
-  return JSON.parse(jsonLines) as T;
+  return result;
 }
 
 /**
@@ -47,8 +40,8 @@ describe('JSON Mode Flag Accumulation', () => {
   beforeEach(() => {
     env = createTestEnvironment('json-mode-');
 
-    db = new Database(env.dbPath);
-    setupTestDatabase(db, env.pmoPath);
+    db = setupProductionSchema(env.dbPath, env.pmoPath);
+    createTestProject(db, { id: 'test-project', name: 'Test Project', description: 'E2E test project' });
 
     createHQConfig(env.proletariatDir);
     createPMODirectories(env.pmoPath, 'test-project');
@@ -63,43 +56,33 @@ describe('JSON Mode Flag Accumulation', () => {
    * Helper to insert a test ticket directly into the database.
    * More reliable than exec('ticket create ...') for test setup.
    */
-  function createTestTicket(id: string, title: string, statusId: string = 'status-backlog'): void {
+  function createLocalTestTicket(id: string, title: string, statusId: string = 'default-backlog'): void {
     // Map status_id to status name
-    const statusName = statusId === 'status-backlog' ? 'Backlog' :
-                       statusId === 'status-in-progress' ? 'In Progress' :
-                       statusId === 'status-review' ? 'Review' : 'Done';
+    const statusName = statusId === 'default-backlog' ? 'Backlog' :
+                       statusId === 'default-in-progress' ? 'In Progress' :
+                       statusId === 'default-review' ? 'Review' : 'Done';
 
     db.prepare(`
       INSERT INTO pmo_tickets (id, project_id, title, status, status_id)
       VALUES (?, 'test-project', ?, ?, ?)
     `).run(id, title, statusName, statusId);
-
-    // Also insert into legacy board_tickets for backwards compatibility
-    const columnId = statusId === 'status-backlog' ? 'backlog' :
-                     statusId === 'status-in-progress' ? 'in-progress' :
-                     statusId === 'status-review' ? 'review' : 'done';
-    db.prepare(`
-      INSERT INTO pmo_board_tickets (project_id, ticket_id, column_id, position)
-      VALUES ('test-project', ?, ?, 0)
-    `).run(id, columnId);
   }
 
   /**
-   * Helper to get ticket status from database (checks both status and board_tickets)
+   * Helper to get ticket status from database.
    */
-  function getTicketStatus(ticketId: string): { status: string; columnId: string } {
-    const ticket = db.prepare('SELECT status FROM pmo_tickets WHERE id = ?').get(ticketId) as { status: string } | undefined;
-    const boardTicket = db.prepare('SELECT column_id FROM pmo_board_tickets WHERE ticket_id = ?').get(ticketId) as { column_id: string } | undefined;
+  function getTicketStatus(ticketId: string): { status: string; statusId: string } {
+    const ticket = db.prepare('SELECT status, status_id FROM pmo_tickets WHERE id = ?').get(ticketId) as { status: string; status_id: string } | undefined;
     return {
       status: ticket?.status || 'unknown',
-      columnId: boardTicket?.column_id || 'unknown',
+      statusId: ticket?.status_id || 'unknown',
     };
   }
 
   describe('ticket move --json', () => {
     beforeEach(() => {
-      createTestTicket('TKT-001', 'Test ticket 1');
-      createTestTicket('TKT-002', 'Test ticket 2');
+      createLocalTestTicket('TKT-001', 'Test ticket 1');
+      createLocalTestTicket('TKT-002', 'Test ticket 2');
     });
 
     it('should output valid JSON with prompt schema', () => {
@@ -159,7 +142,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
   describe('ticket complete --json', () => {
     beforeEach(() => {
-      createTestTicket('TKT-003', 'Complete me');
+      createLocalTestTicket('TKT-003', 'Complete me');
     });
 
     it('should include project flag in ticket selection commands', () => {
@@ -174,7 +157,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
   describe('ticket delete --json', () => {
     beforeEach(() => {
-      createTestTicket('TKT-004', 'Delete me');
+      createLocalTestTicket('TKT-004', 'Delete me');
     });
 
     it('should include project flag in ticket selection commands', () => {
@@ -189,7 +172,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
   describe('ticket view --json', () => {
     beforeEach(() => {
-      createTestTicket('TKT-005', 'View me');
+      createLocalTestTicket('TKT-005', 'View me');
     });
 
     it('should include project flag in ticket selection commands', () => {
@@ -204,7 +187,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
   describe('ticket edit --json', () => {
     beforeEach(() => {
-      createTestTicket('TKT-006', 'Edit me');
+      createLocalTestTicket('TKT-006', 'Edit me');
     });
 
     it('should include project flag in ticket selection commands', () => {
@@ -219,7 +202,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
   describe('ticket status --json', () => {
     beforeEach(() => {
-      createTestTicket('TKT-007', 'Status me');
+      createLocalTestTicket('TKT-007', 'Status me');
     });
 
     it('should include project flag in ticket selection commands', () => {
@@ -234,7 +217,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
   describe('ticket update --json', () => {
     beforeEach(() => {
-      createTestTicket('TKT-008', 'Update me');
+      createLocalTestTicket('TKT-008', 'Update me');
     });
 
     it('should include project flag in ticket selection commands', () => {
@@ -249,7 +232,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
   describe('ticket reassign --json', () => {
     beforeEach(() => {
-      createTestTicket('TKT-009', 'Reassign me');
+      createLocalTestTicket('TKT-009', 'Reassign me');
     });
 
     it('should include project flag in ticket selection commands', () => {
@@ -264,8 +247,8 @@ describe('JSON Mode Flag Accumulation', () => {
 
   describe('ticket link --json', () => {
     beforeEach(() => {
-      createTestTicket('TKT-010', 'Link me');
-      createTestTicket('TKT-011', 'Link target');
+      createLocalTestTicket('TKT-010', 'Link me');
+      createLocalTestTicket('TKT-011', 'Link target');
     });
 
     it('should include project flag in ticket selection commands', () => {
@@ -292,8 +275,8 @@ describe('JSON Mode Flag Accumulation', () => {
 
   describe('ticket link block --json', () => {
     beforeEach(() => {
-      createTestTicket('TKT-012', 'Blocked ticket');
-      createTestTicket('TKT-013', 'Blocker ticket');
+      createLocalTestTicket('TKT-012', 'Blocked ticket');
+      createLocalTestTicket('TKT-013', 'Blocker ticket');
     });
 
     it('should include project flag in blocker selection commands', () => {
@@ -308,11 +291,11 @@ describe('JSON Mode Flag Accumulation', () => {
 
   describe('ticket spec --json', () => {
     beforeEach(() => {
-      createTestTicket('TKT-014', 'Spec me');
+      createLocalTestTicket('TKT-014', 'Spec me');
       // Create a spec
       db.prepare(`
-        INSERT INTO pmo_specs (id, path, title, status)
-        VALUES ('SPEC-001', 'specs/test.md', 'Test Spec', 'active')
+        INSERT INTO pmo_specs (id, title, status)
+        VALUES ('SPEC-001', 'Test Spec', 'active')
       `).run();
     });
 
@@ -337,7 +320,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
   describe('ticket epic --json', () => {
     beforeEach(() => {
-      createTestTicket('TKT-015', 'Epic me');
+      createLocalTestTicket('TKT-015', 'Epic me');
       // Create an epic
       db.prepare(`
         INSERT INTO pmo_epics (id, project_id, title, status)
@@ -366,20 +349,9 @@ describe('JSON Mode Flag Accumulation', () => {
 
   describe('ticket project --json', () => {
     beforeEach(() => {
-      createTestTicket('TKT-016', 'Project me');
-      // Create another project to move to
-      db.prepare(`
-        INSERT INTO pmo_projects (id, name, description)
-        VALUES ('other-project', 'Other Project', 'Another project')
-      `).run();
-      // Add columns to the other project
-      const columns = ['Backlog', 'In Progress', 'Done'];
-      columns.forEach((name, i) => {
-        db.prepare(`
-          INSERT INTO pmo_columns (id, project_id, name, position)
-          VALUES (?, 'other-project', ?, ?)
-        `).run(`col-${i}`, name, i);
-      });
+      createLocalTestTicket('TKT-016', 'Project me');
+      // Create another project to move to (uses default workflow which already has statuses)
+      createTestProject(db, { id: 'other-project', name: 'Other Project', description: 'Another project' });
     });
 
     it('should include source project flag in ticket selection commands', () => {
@@ -403,8 +375,8 @@ describe('JSON Mode Flag Accumulation', () => {
 
   describe('--machine flag (semantic alias for --json)', () => {
     beforeEach(() => {
-      createTestTicket('TKT-M01', 'Machine mode ticket 1');
-      createTestTicket('TKT-M02', 'Machine mode ticket 2');
+      createLocalTestTicket('TKT-M01', 'Machine mode ticket 1');
+      createLocalTestTicket('TKT-M02', 'Machine mode ticket 2');
     });
 
     it('should output valid JSON with --machine flag', () => {
@@ -485,7 +457,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
   describe('End-to-end stateless flow', () => {
     beforeEach(() => {
-      createTestTicket('TKT-E2E', 'E2E Test Ticket');
+      createLocalTestTicket('TKT-E2E', 'E2E Test Ticket');
     });
 
     it('should complete full ticket move flow via JSON commands', () => {
@@ -552,7 +524,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
     describe('ticket move - full agent flow', () => {
       beforeEach(() => {
-        createTestTicket('TKT-MOVE-1', 'Move me to In Progress');
+        createLocalTestTicket('TKT-MOVE-1', 'Move me to In Progress');
       });
 
       it('should complete move flow: select ticket → select column → move', () => {
@@ -587,7 +559,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
     describe('ticket complete - full agent flow', () => {
       beforeEach(() => {
-        createTestTicket('TKT-COMP-1', 'Complete this ticket', 'status-in-progress');
+        createLocalTestTicket('TKT-COMP-1', 'Complete this ticket', 'default-in-progress');
       });
 
       it('should complete flow: select ticket → mark as done', () => {
@@ -613,7 +585,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
     describe('ticket delete - full agent flow', () => {
       beforeEach(() => {
-        createTestTicket('TKT-DEL-1', 'Delete this ticket');
+        createLocalTestTicket('TKT-DEL-1', 'Delete this ticket');
       });
 
       it('should complete flow: select ticket → confirm delete', () => {
@@ -641,7 +613,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
     describe('ticket view - full agent flow', () => {
       beforeEach(() => {
-        createTestTicket('TKT-VIEW-1', 'View this ticket details');
+        createLocalTestTicket('TKT-VIEW-1', 'View this ticket details');
       });
 
       it('should complete flow: select ticket → view details', () => {
@@ -663,7 +635,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
     describe('ticket epic - full agent flow', () => {
       beforeEach(() => {
-        createTestTicket('TKT-EPIC-1', 'Assign me to an epic');
+        createLocalTestTicket('TKT-EPIC-1', 'Assign me to an epic');
         // Create test epic
         db.prepare(`
           INSERT INTO pmo_epics (id, project_id, title, status)
@@ -700,11 +672,11 @@ describe('JSON Mode Flag Accumulation', () => {
 
     describe('ticket spec - full agent flow', () => {
       beforeEach(() => {
-        createTestTicket('TKT-SPEC-1', 'Assign me to a spec');
+        createLocalTestTicket('TKT-SPEC-1', 'Assign me to a spec');
         // Create test spec
         db.prepare(`
-          INSERT INTO pmo_specs (id, path, title, status)
-          VALUES ('SPEC-FLOW-1', 'specs/flow-test.md', 'Test Spec for Flow', 'active')
+          INSERT INTO pmo_specs (id, title, status)
+          VALUES ('SPEC-FLOW-1', 'Test Spec for Flow', 'active')
         `).run();
       });
 
@@ -737,8 +709,8 @@ describe('JSON Mode Flag Accumulation', () => {
 
     describe('ticket link block - full agent flow', () => {
       beforeEach(() => {
-        createTestTicket('TKT-BLOCKED', 'This ticket will be blocked');
-        createTestTicket('TKT-BLOCKER', 'This ticket blocks another');
+        createLocalTestTicket('TKT-BLOCKED', 'This ticket will be blocked');
+        createLocalTestTicket('TKT-BLOCKER', 'This ticket blocks another');
       });
 
       it('should complete flow: select blocked ticket → select blocker → create dependency', () => {
@@ -766,20 +738,9 @@ describe('JSON Mode Flag Accumulation', () => {
 
     describe('ticket project - full agent flow', () => {
       beforeEach(() => {
-        createTestTicket('TKT-PROJ-1', 'Move me to another project');
-        // Create another project
-        db.prepare(`
-          INSERT INTO pmo_projects (id, name, description, workflow_id)
-          VALUES ('target-project', 'Target Project', 'Project to move to', 'default')
-        `).run();
-        // Add columns to target project
-        const columns = ['Backlog', 'In Progress', 'Done'];
-        columns.forEach((name, i) => {
-          db.prepare(`
-            INSERT INTO pmo_columns (id, project_id, name, position)
-            VALUES (?, 'target-project', ?, ?)
-          `).run(`target-col-${i}`, name, i);
-        });
+        createLocalTestTicket('TKT-PROJ-1', 'Move me to another project');
+        // Create another project (uses default workflow which already has statuses)
+        createTestProject(db, { id: 'target-project', name: 'Target Project', description: 'Project to move to' });
       });
 
       it('should complete flow: select ticket → select target project → move', () => {
@@ -811,7 +772,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
     describe('backward compatibility: --json flag flows', () => {
       beforeEach(() => {
-        createTestTicket('TKT-JSON-1', 'JSON flag flow test');
+        createLocalTestTicket('TKT-JSON-1', 'JSON flag flow test');
       });
 
       it('should complete move flow with --json flag (legacy)', () => {
@@ -830,203 +791,227 @@ describe('JSON Mode Flag Accumulation', () => {
         expect(result).to.include('Moved');
       });
     });
+
+    describe('workflow view - full agent flow', () => {
+      it('should output JSON data when workflow ID is provided with --json', () => {
+        const output = exec('workflow view default --json');
+        const json = extractJson<{ workflow: { id: string; name: string; description: string; isBuiltin: boolean }; statuses: unknown[] }>(output);
+
+        expect(json.workflow.id).to.equal('default');
+        expect(json.workflow.name).to.equal('Default');
+        expect(json.workflow.isBuiltin).to.equal(true);
+        expect(json.statuses).to.be.an('array');
+      });
+
+      it('should prompt for workflow selection when no ID provided', () => {
+        const step1 = agentExec('workflow view --machine');
+        expect(step1.prompt.type).to.equal('list');
+        expect(step1.prompt.message).to.include('workflow');
+
+        const workflowChoice = findChoice(step1.prompt.choices, 'Default');
+        expect(workflowChoice).to.exist;
+        expect(workflowChoice!.command).to.include('--json');
+      });
+
+      it('should complete flow: select workflow → view details', () => {
+        // Agent Step 1: Get available workflows
+        const step1 = agentExec('workflow view --machine');
+        expect(step1.prompt.type).to.equal('list');
+
+        const workflowChoice = findChoice(step1.prompt.choices, 'Default');
+        expect(workflowChoice).to.exist;
+
+        // Agent Step 2: View the workflow (executes directly, no more prompts)
+        const viewCmd = execChoice(workflowChoice!);
+        const result = execFinal(viewCmd);
+
+        // Verify workflow details are shown
+        expect(result).to.include('Default');
+      });
+    });
+
+    describe('workflow switch - full agent flow', () => {
+      // The 'kanban' workflow is already seeded by the production schema as a built-in workflow.
+      // Confirmation prompt only appears when the project has tickets, so create one.
+      beforeEach(() => {
+        createLocalTestTicket('TKT-SWITCH-1', 'Ticket for switch confirmation');
+      });
+
+      it('should prompt for workflow selection when no workflow specified', () => {
+        const step1 = agentExec('workflow switch -P test-project --machine');
+        expect(step1.prompt.type).to.equal('list');
+        expect(step1.prompt.message).to.include('workflow');
+
+        // Should show available workflows
+        const kanbanChoice = findChoice(step1.prompt.choices, 'Kanban');
+        expect(kanbanChoice).to.exist;
+        expect(kanbanChoice!.command).to.include('-P test-project');
+        expect(kanbanChoice!.command).to.include('--json');
+      });
+
+      it('should prompt for confirmation when switching workflow', () => {
+        const step1 = agentExec('workflow switch kanban -P test-project --machine');
+        expect(step1.prompt.type).to.equal('list');
+
+        // Should show confirmation choices
+        const yesChoice = findChoice(step1.prompt.choices, 'Yes');
+        expect(yesChoice).to.exist;
+        expect(yesChoice!.command).to.include('--force');
+      });
+
+      it('should complete flow: select workflow → confirm → switch', () => {
+        // Agent Step 1: Get available workflows
+        const step1 = agentExec('workflow switch -P test-project --machine');
+        expect(step1.prompt.type).to.equal('list');
+
+        const workflowChoice = findChoice(step1.prompt.choices, 'Kanban');
+        expect(workflowChoice).to.exist;
+
+        // Agent Step 2: Select workflow, get confirmation
+        const step2 = agentExec(execChoice(workflowChoice!));
+        expect(step2.prompt.type).to.equal('list');
+
+        const yesChoice = findChoice(step2.prompt.choices, 'Yes');
+        expect(yesChoice).to.exist;
+
+        // Agent Step 3: Confirm the switch
+        const result = execFinal(execChoice(yesChoice!));
+
+        // Verify switch
+        expect(result.toLowerCase()).to.match(/switch|kanban/);
+
+        // Verify in database
+        const project = db.prepare('SELECT workflow_id FROM pmo_projects WHERE id = ?').get('test-project') as { workflow_id: string };
+        expect(project.workflow_id).to.equal('kanban');
+      });
+
+      it('should skip confirmation with --force flag', () => {
+        const result = exec('workflow switch kanban -P test-project --force');
+        expect(result.toLowerCase()).to.match(/switch|kanban/);
+
+        // Verify in database
+        const project = db.prepare('SELECT workflow_id FROM pmo_projects WHERE id = ?').get('test-project') as { workflow_id: string };
+        expect(project.workflow_id).to.equal('kanban');
+      });
+    });
+
+    describe('workflow delete - full agent flow', () => {
+      beforeEach(() => {
+        // Create a custom workflow that can be deleted
+        createTestWorkflow(db, { id: 'custom-wf', name: 'Custom Workflow', description: 'A custom workflow for testing' });
+        addTestWorkflowStatus(db, 'custom-wf', { id: 'custom-todo', name: 'To Do', category: 'backlog', position: 0, isDefault: true });
+        addTestWorkflowStatus(db, 'custom-wf', { id: 'custom-done', name: 'Done', category: 'completed', position: 1 });
+      });
+
+      it('should prompt for workflow selection when no ID provided', () => {
+        const step1 = agentExec('workflow delete --machine');
+        expect(step1.prompt.type).to.equal('list');
+        expect(step1.prompt.message).to.include('workflow');
+
+        // Should only show custom workflows (not built-in)
+        const customChoice = findChoice(step1.prompt.choices, 'Custom Workflow');
+        expect(customChoice).to.exist;
+
+        const defaultChoice = findChoice(step1.prompt.choices, 'Default');
+        expect(defaultChoice).to.be.undefined; // Built-in should not appear
+      });
+
+      it('should prompt for confirmation when deleting workflow', () => {
+        const step1 = agentExec('workflow delete custom-wf --machine');
+        expect(step1.prompt.type).to.equal('list');
+
+        // Should show confirmation choices
+        const yesChoice = findChoice(step1.prompt.choices, 'Yes');
+        expect(yesChoice).to.exist;
+        expect(yesChoice!.command).to.include('--force');
+      });
+
+      it('should complete flow: select workflow → confirm → delete', () => {
+        // Agent Step 1: Get available workflows to delete
+        const step1 = agentExec('workflow delete --machine');
+        expect(step1.prompt.type).to.equal('list');
+
+        const workflowChoice = findChoice(step1.prompt.choices, 'Custom Workflow');
+        expect(workflowChoice).to.exist;
+
+        // Agent Step 2: Select workflow, get confirmation
+        const step2 = agentExec(execChoice(workflowChoice!));
+        expect(step2.prompt.type).to.equal('list');
+
+        const yesChoice = findChoice(step2.prompt.choices, 'Yes');
+        expect(yesChoice).to.exist;
+
+        // Agent Step 3: Confirm the delete
+        const result = execFinal(execChoice(yesChoice!));
+
+        // Verify delete
+        expect(result.toLowerCase()).to.match(/delete|custom workflow/i);
+
+        // Verify in database
+        const workflow = db.prepare('SELECT id FROM pmo_workflows WHERE id = ?').get('custom-wf');
+        expect(workflow).to.be.undefined;
+      });
+
+      it('should skip confirmation with --force flag', () => {
+        const result = exec('workflow delete custom-wf --force');
+        expect(result.toLowerCase()).to.match(/delete|custom workflow/i);
+
+        // Verify in database
+        const workflow = db.prepare('SELECT id FROM pmo_workflows WHERE id = ?').get('custom-wf');
+        expect(workflow).to.be.undefined;
+      });
+
+      it('should reject deletion of built-in workflows', () => {
+        const output = exec('workflow delete default --force');
+        expect(output.toLowerCase()).to.include('cannot delete');
+      });
+
+      it('should reject deletion of workflow in use by project', () => {
+        // First, switch the test project to use custom-wf
+        db.prepare(`UPDATE pmo_projects SET workflow_id = 'custom-wf' WHERE id = 'test-project'`).run();
+
+        const output = exec('workflow delete custom-wf --force');
+        // Error message or code should indicate the workflow is in use
+        expect(output.toLowerCase()).to.satisfy((s: string) =>
+          s.includes('in_use') || s.includes('used by') || s.includes('in use') || s.includes('cannot delete')
+        );
+      });
+    });
+
+    describe('workflow list --json', () => {
+      it('should output JSON array of workflows', () => {
+        const output = exec('workflow list --json');
+        const json = extractJson<Array<{ id: string; name: string; isBuiltin: boolean }>>(output);
+
+        expect(json).to.be.an('array');
+        expect(json.length).to.be.greaterThan(0);
+
+        const defaultWf = json.find(w => w.id === 'default');
+        expect(defaultWf).to.exist;
+        expect(defaultWf!.name).to.equal('Default');
+        expect(defaultWf!.isBuiltin).to.equal(true);
+      });
+    });
+
+    describe('workflow create --json (form prompt)', () => {
+      it('should output form prompt configuration when --json flag is used', () => {
+        const output = exec('workflow create --json');
+        const json = extractJson<{ prompt: { type: string; fields: unknown[] } }>(output);
+
+        expect(json.prompt).to.exist;
+        expect(json.prompt.type).to.equal('form');
+        expect(json.prompt.fields).to.be.an('array');
+      });
+
+      it('should create workflow with direct args (no prompts)', () => {
+        const result = exec('workflow create "Test Workflow" --description "A test workflow"');
+        expect(result.toLowerCase()).to.match(/create|test workflow/i);
+
+        // Verify in database
+        const workflow = db.prepare('SELECT * FROM pmo_workflows WHERE name = ?').get('Test Workflow') as { id: string; name: string } | undefined;
+        expect(workflow).to.exist;
+        expect(workflow!.name).to.equal('Test Workflow');
+      });
+    });
   });
 });
-
-// Helper function to set up test database with complete PMO schema
-function setupTestDatabase(db: Database.Database, pmoPath: string) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS pmo_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_workflows (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      description TEXT,
-      is_builtin INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_workflow_statuses (
-      id TEXT PRIMARY KEY,
-      workflow_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (workflow_id) REFERENCES pmo_workflows(id) ON DELETE CASCADE,
-      UNIQUE(workflow_id, name)
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      template TEXT,
-      description TEXT,
-      initiative_id TEXT,
-      workflow_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (workflow_id) REFERENCES pmo_workflows(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_columns (
-      id TEXT NOT NULL,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      name TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, id)
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_specs (
-      id TEXT PRIMARY KEY,
-      path TEXT NOT NULL,
-      title TEXT,
-      overview TEXT,
-      status TEXT DEFAULT 'active',
-      spec_type TEXT DEFAULT 'domain',
-      domain TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_epics (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT,
-      status TEXT NOT NULL DEFAULT 'active',
-      position INTEGER NOT NULL DEFAULT 0,
-      file_path TEXT,
-      spec_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (spec_id) REFERENCES pmo_specs(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      title TEXT NOT NULL,
-      description TEXT,
-      priority TEXT,
-      category TEXT,
-      status TEXT NOT NULL DEFAULT 'backlog',
-      status_id TEXT,
-      owner TEXT,
-      assignee TEXT,
-      branch TEXT,
-      spec_id TEXT,
-      epic_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      last_synced_from_spec TIMESTAMP,
-      last_synced_from_board TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (spec_id) REFERENCES pmo_specs(id) ON DELETE SET NULL,
-      FOREIGN KEY (epic_id) REFERENCES pmo_epics(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_board_tickets (
-      project_id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL,
-      column_id TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      PRIMARY KEY (project_id, ticket_id),
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      FOREIGN KEY (project_id, column_id) REFERENCES pmo_columns(project_id, id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_subtasks (
-      id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      title TEXT NOT NULL,
-      done INTEGER DEFAULT 0,
-      position INTEGER NOT NULL,
-      PRIMARY KEY (ticket_id, id)
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_ticket_dependencies (
-      ticket_id TEXT NOT NULL,
-      depends_on_ticket_id TEXT NOT NULL,
-      dependency_type TEXT NOT NULL DEFAULT 'blocks',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (ticket_id, depends_on_ticket_id),
-      FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      FOREIGN KEY (depends_on_ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_ticket_acceptance_criteria (
-      id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      criterion TEXT NOT NULL,
-      verifiable INTEGER DEFAULT 1,
-      verified INTEGER DEFAULT 0,
-      verified_at TIMESTAMP,
-      verified_by TEXT,
-      position INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (ticket_id, id)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_pmo_columns_project ON pmo_columns(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_project ON pmo_tickets(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_epic ON pmo_tickets(epic_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_epics_project ON pmo_epics(project_id);
-  `);
-
-  // Insert workflow
-  db.prepare(`
-    INSERT INTO pmo_workflows (id, name, description, is_builtin)
-    VALUES ('default', 'Default', 'Default kanban workflow', 1)
-  `).run();
-
-  // Insert workflow statuses (board columns)
-  const statuses = [
-    { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
-    { id: 'status-in-progress', name: 'In Progress', category: 'started', position: 1 },
-    { id: 'status-review', name: 'Review', category: 'started', position: 2 },
-    { id: 'status-done', name: 'Done', category: 'completed', position: 3 },
-  ];
-
-  for (const status of statuses) {
-    db.prepare(`
-      INSERT INTO pmo_workflow_statuses (id, workflow_id, name, category, position, is_default)
-      VALUES (?, 'default', ?, ?, ?, ?)
-    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
-  }
-
-  // Insert test project with workflow reference
-  db.prepare(`
-    INSERT INTO pmo_projects (id, name, description, workflow_id)
-    VALUES ('test-project', 'Test Project', 'E2E test project', 'default')
-  `).run();
-
-  db.prepare(`
-    INSERT INTO pmo_settings (key, value)
-    VALUES ('pmo_path', ?), ('current_project', 'test-project')
-  `).run(pmoPath);
-
-  // Insert columns (legacy - still used by some commands)
-  const columns = [
-    { id: 'backlog', name: 'Backlog', position: 0 },
-    { id: 'in-progress', name: 'In Progress', position: 1 },
-    { id: 'review', name: 'Review', position: 2 },
-    { id: 'done', name: 'Done', position: 3 },
-  ];
-
-  for (const col of columns) {
-    db.prepare(`
-      INSERT INTO pmo_columns (id, project_id, name, position)
-      VALUES (?, 'test-project', ?, ?)
-    `).run(col.id, col.name, col.position);
-  }
-}

@@ -1,14 +1,12 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class PhaseMove extends PMOCommand {
   static description = 'Change the position of a phase within its category';
@@ -32,10 +30,6 @@ export default class PhaseMove extends PMOCommand {
       char: 'p',
       description: 'New position (0-indexed)',
       required: false,
-    }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
     }),
   };
 
@@ -67,29 +61,30 @@ export default class PhaseMove extends PMOCommand {
         return handleError('NO_PHASES', 'No phases found. Create a phase first with "prlt phase create".');
       }
 
-      // In JSON mode, output phase selection prompt
-      if (jsonMode) {
-        const phaseChoices = phases.map(p => ({
-          name: `${p.name} (${p.category}, position ${p.position})`,
-          value: p.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'phaseId', 'Select phase to move:', phaseChoices),
-          createMetadata('phase move', flags)
-        );
-        return;
-      }
+      const idResolver = new FlagResolver<{ phaseId?: string; json?: boolean }>({
+        commandName: 'phase move',
+        baseCommand: 'prlt phase move',
+        jsonMode,
+        flags: { json: flags.json },
+      });
 
-      const { selectedId } = await inquirer.prompt([{
+      idResolver.addPrompt({
+        flagName: 'phaseId',
         type: 'list',
-        name: 'selectedId',
         message: 'Select phase to move:',
-        choices: phases.map(p => ({
+        choices: () => phases.map(p => ({
           name: `${p.name} (${p.category}, position ${p.position})`,
           value: p.id,
         })),
-      }]);
-      phaseId = selectedId;
+        // Use positional arg format for phase ID
+        getCommand: (value) => `prlt phase move ${value} --json`,
+      });
+
+      const resolved = await idResolver.resolve();
+      if (!resolved.phaseId) {
+        return; // Cancelled
+      }
+      phaseId = resolved.phaseId;
     }
 
     const phase = await this.storage.getPhase(phaseId!);
@@ -105,34 +100,43 @@ export default class PhaseMove extends PMOCommand {
       const phases = await this.storage.listPhases();
       const categoryPhases = phases.filter(p => p.category === phase.category);
 
-      // In JSON mode, output position selection prompt
-      if (jsonMode) {
-        const positionChoices = categoryPhases.map((_, idx) => ({
+      const posResolver = new FlagResolver<{ position?: string; json?: boolean }>({
+        commandName: 'phase move',
+        baseCommand: `prlt phase move ${phaseId}`,
+        jsonMode,
+        flags: { json: flags.json },
+      });
+
+      posResolver.addPrompt({
+        flagName: 'position',
+        type: 'list',
+        message: `New position within ${phase.category} (currently ${phase.position}):`,
+        choices: () => categoryPhases.map((_, idx) => ({
           name: `Position ${idx}${idx === phase.position ? ' (current)' : ''}`,
           value: String(idx),
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'position', `New position within ${phase.category} (currently ${phase.position}):`, positionChoices),
-          createMetadata('phase move', flags)
-        );
-        return;
-      }
-
-      const { position } = await inquirer.prompt([{
-        type: 'list',
-        name: 'position',
-        message: `New position within ${phase.category} (currently ${phase.position}):`,
-        choices: categoryPhases.map((_, idx) => ({
-          name: `Position ${idx}${idx === phase.position ? ' (current)' : ''}`,
-          value: idx,
         })),
-        default: phase.position,
-      }]);
-      newPosition = position;
+        default: String(phase.position),
+      });
+
+      const resolved = await posResolver.resolve();
+      if (!resolved.position) {
+        return; // Cancelled
+      }
+      newPosition = parseInt(resolved.position, 10);
     }
+
+    // Get phases in same category for validation
+    const allPhases = await this.storage.listPhases();
+    const categoryPhases = allPhases.filter(p => p.category === phase.category);
+    const maxPosition = categoryPhases.length - 1;
 
     if (newPosition! < 0) {
       this.error('Position must be >= 0');
+    }
+
+    if (newPosition! > maxPosition) {
+      this.warn(`Position ${newPosition} exceeds max (${maxPosition}). Clamping to ${maxPosition}.`);
+      newPosition = maxPosition;
     }
 
     const updated = await this.storage.reorderPhase(phaseId!, newPosition!);

@@ -60,11 +60,19 @@ describe('Workspace Commands E2E Tests', () => {
 
   /**
    * Execute a workspace command with proper isolation.
+   * Sets HOME to testDir so machine config is isolated.
+   * Sets PRLT_HQ_PATH to testWorkspace1 to bypass the init hook
+   * (which redirects to "init" flow when no workspace is detected).
    */
   function execWorkspace(cmd: string): string {
     try {
       const binPath = getBinPath();
-      const env = { ...getIsolatedEnv(), HOME: testDir };
+      const env = {
+        ...getIsolatedEnv(),
+        HOME: testDir,
+        PRLT_HQ_PATH: testWorkspace1,
+        PRLT_TEST_ENV: 'true',
+      };
 
       const result = execSync(`node ${binPath} ${cmd}`, {
         encoding: 'utf-8',
@@ -288,6 +296,84 @@ describe('Workspace Commands E2E Tests', () => {
       // But if we were running a command that uses findHQRoot(),
       // it would find workspace2 (the current directory) first
       // This is validated by the unit tests in machine-config.test.ts
+    });
+  });
+
+  describe('prlt workspace prune', () => {
+    it('should show no stale entries when all paths exist', () => {
+      execWorkspace(`workspace add ${testWorkspace1}`);
+
+      const output = execWorkspace('workspace prune --dry-run');
+
+      expect(output).to.include('No stale entries found');
+    });
+
+    it('should detect stale workspace registrations', () => {
+      execWorkspace(`workspace add ${testWorkspace1}`);
+      execWorkspace(`workspace add ${testWorkspace2}`);
+
+      // Delete workspace2 from disk
+      fs.rmSync(testWorkspace2, { recursive: true, force: true });
+
+      const output = execWorkspace('workspace prune --dry-run');
+
+      expect(output).to.include('Stale workspace registrations');
+      expect(output).to.include('workspace-two');
+      expect(output).to.include('Path no longer exists');
+      expect(output).to.include('[DRY RUN]');
+    });
+
+    it('should remove stale entries when not using --dry-run', () => {
+      execWorkspace(`workspace add ${testWorkspace1}`);
+      execWorkspace(`workspace add ${testWorkspace2}`);
+
+      // Delete workspace2 from disk
+      fs.rmSync(testWorkspace2, { recursive: true, force: true });
+
+      const output = execWorkspace('workspace prune');
+
+      expect(output).to.include('Pruned');
+      expect(output).to.include('1 workspace registration(s)');
+
+      // Verify workspace2 is no longer in registry
+      const configPath = path.join(testDir, '.proletariat', 'config.json');
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      const hqs = (config.headquarters || config.workspaces) as Array<{ name: string; path: string }>;
+      expect(hqs).to.have.length(1);
+      expect(hqs[0].name).to.equal('workspace-one');
+    });
+
+    it('should support --json flag', () => {
+      execWorkspace(`workspace add ${testWorkspace1}`);
+      execWorkspace(`workspace add ${testWorkspace2}`);
+
+      // Delete workspace2 from disk
+      fs.rmSync(testWorkspace2, { recursive: true, force: true });
+
+      const output = execWorkspace('workspace prune --dry-run --json');
+      const json = JSON.parse(output);
+
+      expect(json.dryRun).to.be.true;
+      expect(json.staleWorkspaces).to.be.an('array');
+      expect(json.staleWorkspaces).to.have.length(1);
+      expect(json.staleWorkspaces[0].name).to.equal('workspace-two');
+      expect(json.totalFound).to.equal(1);
+      expect(json.totalRemoved).to.equal(0);
+    });
+
+    it('should report totalRemoved when actually pruning', () => {
+      execWorkspace(`workspace add ${testWorkspace1}`);
+      execWorkspace(`workspace add ${testWorkspace2}`);
+
+      // Delete workspace2 from disk
+      fs.rmSync(testWorkspace2, { recursive: true, force: true });
+
+      const output = execWorkspace('workspace prune --json');
+      const json = JSON.parse(output);
+
+      expect(json.dryRun).to.be.false;
+      expect(json.totalFound).to.equal(1);
+      expect(json.totalRemoved).to.equal(1);
     });
   });
 });

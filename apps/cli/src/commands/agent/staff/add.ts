@@ -48,7 +48,9 @@ export default class Add extends Command {
       description: 'Pick agent name(s) from a theme (billionaires, toyotas, companies, or custom)',
     }),
     json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
+      char: 'm',
+      aliases: ['machine'],
+      description: 'Output as JSON for AI agents/scripts',
       default: false,
     }),
     clone: Flags.boolean({

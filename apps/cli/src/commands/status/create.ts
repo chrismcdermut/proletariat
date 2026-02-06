@@ -1,15 +1,21 @@
 import { Flags, Args } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildFormPromptConfig,
-  FormField,
-} from '../../lib/prompt-json.js';
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
+
+interface CreateFlags {
+  name?: string;
+  category?: StateCategory;
+  color?: string;
+  description?: string;
+  default?: boolean;
+  project?: string;
+  json?: boolean;
+  machine?: boolean;
+  interactive?: boolean;
+  [key: string]: unknown;
+}
 
 export default class StatusCreate extends PMOCommand {
   static description = 'Create a new workflow status';
@@ -54,70 +60,108 @@ export default class StatusCreate extends PMOCommand {
       description: 'Interactive mode',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusCreate);
-    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    let statusData: {
-      name: string;
-      category: StateCategory;
-      color?: string;
-      description?: string;
-      isDefault?: boolean;
-    };
+    // This command requires project context - get projectId (with JSON mode support)
+    const projectId = await this.requireProject({
+      jsonMode: jsonMode ? {
+        flags,
+        commandName: 'status create',
+        baseCommand: 'prlt status create',
+      } : undefined,
+    });
 
-    // Auto-enter interactive mode if any required value is missing
-    const name = args.name || flags.name;
-    if (flags.interactive || !name || !flags.category) {
-      // Build choices once - single source of truth
-      const categoryChoices = STATE_CATEGORY_ORDER.map(cat => ({
+    // Determine initial name from args or flags
+    const initialName = args.name || flags.name;
+
+    // Create FlagResolver for prompts
+    const resolver = new FlagResolver<CreateFlags>({
+      commandName: 'status create',
+      baseCommand: 'prlt status create',
+      jsonMode,
+      flags: { ...flags, name: initialName, category: flags.category as StateCategory | undefined },
+      context: { projectId },
+    });
+
+    // Add name prompt
+    resolver.addPrompt({
+      flagName: 'name',
+      type: 'input',
+      message: 'Status name:',
+      default: initialName,
+      validate: (value) => (value as string).trim() ? true : 'Name cannot be empty',
+      when: (ctx) => !ctx.flags.name || flags.interactive,
+    });
+
+    // Add category prompt
+    resolver.addPrompt({
+      flagName: 'category',
+      type: 'list',
+      message: 'Category:',
+      choices: () => STATE_CATEGORY_ORDER.map(cat => ({
         name: `${cat} - ${this.getCategoryDescription(cat)}`,
         value: cat,
-      }));
+        command: `prlt status create --category ${cat} --machine`,
+      })),
+      default: flags.category || 'backlog',
+      when: (ctx) => !ctx.flags.category || flags.interactive,
+    });
 
-      // Define fields once - single source of truth for both JSON and interactive modes
-      const fields: FormField[] = [
-        { type: 'input', name: 'name', message: 'Status name:', default: name || flags.name },
-        { type: 'list', name: 'category', message: 'Category:', choices: categoryChoices, default: flags.category || 'backlog' },
-        { type: 'input', name: 'color', message: 'Color (hex, optional):', default: flags.color },
-        { type: 'input', name: 'description', message: 'Description (optional):', default: flags.description },
-        { type: 'confirm', name: 'isDefault', message: 'Set as default status for new tickets?', default: flags.default || false },
-      ];
+    // Optional prompts - only shown in interactive mode
+    // In JSON/machine mode, optional fields should be passed as flags or omitted
+    if (flags.interactive) {
+      // Add color prompt
+      resolver.addPrompt({
+        flagName: 'color',
+        type: 'input',
+        message: 'Color (hex, optional):',
+        default: flags.color,
+        validate: (value) => {
+          const v = value as string;
+          if (!v) return true;
+          return /^#[0-9A-Fa-f]{6}$/.test(v) || 'Invalid hex color (e.g., #FF0000)';
+        },
+        when: (ctx) => ctx.flags.color === undefined,
+      });
 
-      // In JSON mode, output form prompts
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildFormPromptConfig(fields),
-          createMetadata('status create', flags)
-        );
-      }
+      // Add description prompt
+      resolver.addPrompt({
+        flagName: 'description',
+        type: 'input',
+        message: 'Description (optional):',
+        default: flags.description,
+        when: (ctx) => ctx.flags.description === undefined,
+      });
 
-      statusData = await this.promptStatusData(fields);
-    } else {
-      statusData = {
-        name,
-        category: flags.category as StateCategory,
-        color: flags.color,
-        description: flags.description,
-        isDefault: flags.default,
-      };
+      // Add default prompt
+      resolver.addPrompt({
+        flagName: 'default',
+        type: 'list',
+        message: 'Set as default status for new tickets?',
+        choices: () => [
+          { name: 'No', value: false, command: 'prlt status create --json' },
+          { name: 'Yes', value: true, command: 'prlt status create --default --json' },
+        ],
+        default: flags.default || false,
+        when: (ctx) => ctx.flags.default === undefined,
+      });
     }
 
+    // Resolve all flags
+    const resolved = await resolver.resolve();
+
     const status = await this.storage.createStatus(projectId, {
-      name: statusData.name,
-      category: statusData.category,
-      color: statusData.color,
-      description: statusData.description,
-      isDefault: statusData.isDefault,
+      name: resolved.name!,
+      category: resolved.category!,
+      color: resolved.color,
+      description: resolved.description,
+      isDefault: resolved.default,
     });
 
     const projectName = await this.getProjectName(projectId);
@@ -130,43 +174,6 @@ export default class StatusCreate extends PMOCommand {
     if (status.isDefault) {
       this.log(styles.muted(`  Default: yes`));
     }
-  }
-
-  private async promptStatusData(
-    fields: FormField[]
-  ): Promise<{
-    name: string;
-    category: StateCategory;
-    color?: string;
-    description?: string;
-    isDefault?: boolean;
-  }> {
-    // Build inquirer prompts from fields, adding validators
-    const answers = await inquirer.prompt<{
-      name: string;
-      category: StateCategory;
-      color: string;
-      description: string;
-      isDefault: boolean;
-    }>(fields.map(field => ({
-      ...field,
-      validate: field.name === 'name'
-        ? ((input: string) => input.length > 0 || 'Name is required')
-        : field.name === 'color'
-        ? ((input: string) => {
-            if (!input) return true;
-            return /^#[0-9A-Fa-f]{6}$/.test(input) || 'Invalid hex color (e.g., #FF0000)';
-          })
-        : undefined,
-    })));
-
-    return {
-      name: answers.name,
-      category: answers.category,
-      color: answers.color || undefined,
-      description: answers.description || undefined,
-      isDefault: answers.isDefault,
-    };
   }
 
   private getCategoryDescription(category: StateCategory): string {

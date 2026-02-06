@@ -1,16 +1,12 @@
 import { Flags, Args } from '@oclif/core';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class SpecTicket extends PMOCommand {
   static description = 'Assign a ticket to a spec document';
@@ -33,10 +29,6 @@ export default class SpecTicket extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     ticket: Flags.string({
       char: 't',
       description: 'Ticket ID',
@@ -49,11 +41,18 @@ export default class SpecTicket extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SpecTicket);
-    // This command requires project context
-    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
+
+    // This command requires project context (with JSON mode support)
+    const projectId = await this.requireProject({
+      jsonMode: jsonMode ? {
+        flags,
+        commandName: 'spec ticket',
+        baseCommand: 'prlt spec ticket',
+      } : undefined,
+    });
 
     // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
@@ -72,23 +71,27 @@ export default class SpecTicket extends PMOCommand {
         return handleError('NO_TICKETS', 'No tickets found. Create one first with: prlt ticket create');
       }
 
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = tickets.map(t => ({ name: `${t.id}: ${t.title}`, value: t.id }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to link:', ticketChoices),
-          createMetadata('spec ticket', flags)
-        );
-        return;
-      }
+      // Use FlagResolver for ticket selection
+      const ticketResolver = new FlagResolver<{ ticket?: string }>({
+        commandName: 'spec ticket',
+        baseCommand: 'prlt spec ticket',
+        jsonMode,
+        flags: { ticket: flags.ticket },
+        context: { projectId },
+      });
 
-      const { selectedTicket } = await inquirer.prompt([{
+      ticketResolver.addPrompt({
+        flagName: 'ticket',
         type: 'list',
-        name: 'selectedTicket',
         message: 'Select ticket to link:',
-        choices: tickets.map(t => ({ name: `${t.id}: ${t.title}`, value: t.id })),
-      }]);
-      ticketId = selectedTicket;
+        choices: () => tickets.map(t => ({
+          name: `${t.id}: ${t.title}`,
+          value: t.id,
+        })),
+      });
+
+      const resolved = await ticketResolver.resolve();
+      ticketId = resolved.ticket;
     }
 
     if (!ticketId) {
@@ -105,39 +108,43 @@ export default class SpecTicket extends PMOCommand {
     // Get spec ID
     let specId = args.specId || flags.spec;
     if (!specId) {
-      const specs = await this.listAvailableSpecs(this.pmoPath, projectId);
+      // List all specs globally (specs are not project-scoped)
+      const specs = await this.storage.listSpecs();
       if (specs.length === 0) {
         return handleError('NO_SPECS', 'No specs found. Create one first with: prlt spec create');
       }
 
-      // In JSON mode, output spec selection prompt
-      if (jsonMode) {
-        const specChoices = specs.map(s => ({ name: `${s.name} (${s.status})`, value: s.id }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'specId', 'Select spec to link:', specChoices),
-          createMetadata('spec ticket', flags)
-        );
-        return;
-      }
+      // Use FlagResolver for spec selection
+      const specResolver = new FlagResolver<{ spec?: string }>({
+        commandName: 'spec ticket',
+        baseCommand: `prlt spec ticket --ticket "${ticketId}"`,
+        jsonMode,
+        flags: { spec: flags.spec },
+        context: { projectId, ticketId },
+      });
 
-      const { selectedSpec } = await inquirer.prompt([{
+      specResolver.addPrompt({
+        flagName: 'spec',
         type: 'list',
-        name: 'selectedSpec',
         message: 'Select spec to link:',
-        choices: specs.map(s => ({ name: `${s.name} (${s.status})`, value: s.id })),
-      }]);
-      specId = selectedSpec;
+        choices: () => specs.map(s => ({
+          name: `${s.title} (${s.status})`,
+          value: s.id,
+        })),
+      });
+
+      const resolved = await specResolver.resolve();
+      specId = resolved.spec;
     }
 
     if (!specId) {
       this.error('No spec selected');
     }
 
-    // Verify spec exists
-    const specPath = this.findSpecFile(this.pmoPath, projectId, specId);
-    if (!specPath) {
-      const projectName = await this.getProjectName(projectId);
-      this.error(`Spec "${specId}" not found in project "${projectName}"`);
+    // Verify spec exists globally (specs are not project-scoped)
+    const spec = await this.storage.getSpec(specId);
+    if (!spec) {
+      return handleError('SPEC_NOT_FOUND', `Spec "${specId}" not found`);
     }
 
     // Check if already linked
@@ -161,42 +168,5 @@ export default class SpecTicket extends PMOCommand {
     this.log(styles.success(`\n✅ Linked ticket "${styles.emphasis(ticketId)}" to spec "${styles.emphasis(specId)}"`));
     this.log(styles.muted(`\nView ticket:`));
     this.log(styles.muted(`  prlt ticket view ${ticketId}`));
-  }
-
-  private async listAvailableSpecs(pmoPath: string, projectId: string): Promise<Array<{ id: string; name: string; status: string }>> {
-    const specsBasePath = path.join(pmoPath, 'projects', projectId, 'specs');
-    const specs: Array<{ id: string; name: string; status: string }> = [];
-
-    if (!fs.existsSync(specsBasePath)) {
-      return specs;
-    }
-
-    for (const status of ['active', 'draft', 'archived']) {
-      const statusPath = path.join(specsBasePath, status);
-      if (!fs.existsSync(statusPath)) {
-        continue;
-      }
-
-      const files = fs.readdirSync(statusPath).filter(f => f.endsWith('.md'));
-      for (const file of files) {
-        const id = path.basename(file, '.md');
-        specs.push({ id, name: id, status });
-      }
-    }
-
-    return specs;
-  }
-
-  private findSpecFile(pmoPath: string, projectId: string, specId: string): string | null {
-    const specsBasePath = path.join(pmoPath, 'projects', projectId, 'specs');
-
-    for (const status of ['active', 'draft', 'archived']) {
-      const specPath = path.join(specsBasePath, status, `${specId}.md`);
-      if (fs.existsSync(specPath)) {
-        return specPath;
-      }
-    }
-
-    return null;
   }
 }

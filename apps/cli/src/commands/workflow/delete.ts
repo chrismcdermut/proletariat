@@ -1,13 +1,10 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class WorkflowDelete extends PMOCommand {
@@ -17,6 +14,7 @@ export default class WorkflowDelete extends PMOCommand {
     '<%= config.bin %> <%= command.id %> my-workflow',
     '<%= config.bin %> <%= command.id %> my-workflow --force  # Skip confirmation',
     '<%= config.bin %> <%= command.id %>  # Interactive selection',
+    '<%= config.bin %> <%= command.id %> --machine  # JSON output for AI agents',
   ];
 
   static args = {
@@ -31,10 +29,6 @@ export default class WorkflowDelete extends PMOCommand {
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation prompt',
-      default: false,
-    }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
   };
@@ -58,6 +52,9 @@ export default class WorkflowDelete extends PMOCommand {
       this.error(message);
     };
 
+    // Agent mode config for prompts
+    const agentConfig = jsonMode ? { flags, commandName: 'workflow delete' } : null;
+
     // Get workflow ID - prompt if not provided
     let workflowId = args.id;
 
@@ -68,29 +65,20 @@ export default class WorkflowDelete extends PMOCommand {
         return handleError('NO_CUSTOM_WORKFLOWS', 'No custom workflows found to delete.');
       }
 
-      // In JSON mode, output workflow selection prompt
-      if (jsonMode) {
-        const workflowChoices = workflows.map(w => ({
-          name: w.name,
-          value: w.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select workflow to delete:', workflowChoices),
-          createMetadata('workflow delete', flags)
-        );
-        return;
-      }
-
-      const { selectedId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedId',
+      // Use selectFromList for workflow selection (handles JSON mode automatically)
+      const selected = await this.selectFromList({
         message: 'Select workflow to delete:',
-        choices: workflows.map(w => ({
-          name: w.name,
-          value: w.id,
-        })),
-      }]);
-      workflowId = selectedId;
+        items: workflows,
+        getName: (w) => w.name,
+        getValue: (w) => w.id,
+        getCommand: (w) => `prlt workflow delete ${w.id} --json`,
+        jsonMode: agentConfig,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      workflowId = selected;
     }
 
     // Get workflow details
@@ -119,28 +107,20 @@ export default class WorkflowDelete extends PMOCommand {
     if (!flags.force) {
       const statuses = await this.storage.listStatuses(workflowId!);
 
-      // In JSON mode, output confirmation prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('confirm', 'confirm', `Delete workflow "${workflow.name}" with ${statuses.length} statuses?`),
-          createMetadata('workflow delete', flags)
-        );
-        return;
-      }
-
       this.log(styles.warning(`\nWorkflow "${workflow.name}" has ${statuses.length} status(es).`));
       this.log(styles.warning('This action cannot be undone.'));
       this.log('');
 
-      const { confirm } = await inquirer.prompt([{
+      // Use prompt for confirmation (handles JSON mode automatically)
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: `Delete workflow "${workflow.name}"?`,
         choices: [
-          { name: 'Yes', value: true },
-          { name: 'No', value: false },
+          { name: 'No', value: false, command: '' },
+          { name: 'Yes, delete', value: true, command: `prlt workflow delete ${workflowId} --force --json` },
         ],
-      }]);
+      }], agentConfig);
 
       if (!confirm) {
         this.log(styles.muted('Cancelled'));
