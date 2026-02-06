@@ -212,7 +212,7 @@ export default class TicketTemplateCreate extends PMOCommand {
         type: 'input',
         name: 'templateName',
         message: 'Template name:',
-        validate: (input: string) => input.length > 0 || 'Name is required',
+        validate: (input: string) => input.trim() ? true : 'Name cannot be empty',
       }]);
       name = templateName;
     }
@@ -314,7 +314,7 @@ export default class TicketTemplateCreate extends PMOCommand {
             type: 'input',
             name: 'subtaskTitle',
             message: 'Subtask title:',
-            validate: (input: string) => input.length > 0 || 'Title is required',
+            validate: (input: string) => input.trim() ? true : 'Title cannot be empty',
           }]);
           subtasks.push(subtaskTitle);
 

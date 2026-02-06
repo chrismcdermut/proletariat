@@ -166,7 +166,7 @@ export default class TicketCreate extends PMOCommand {
         type: 'input',
         message: 'Enter ticket title:',
         when: (ctx) => !ctx.flags.title && ctx.flags.column !== undefined,
-        validate: (value) => (value as string).length > 0 || 'Title is required',
+        validate: (value) => (value as string).trim() ? true : 'Title cannot be empty',
         context: (ctx) => ({
           hint: `Provide title with: ${ctx.baseCommand}${ctx.projectId ? ` -P ${ctx.projectId}` : ''} --column "${ctx.flags.column}" --title "Your title here"`,
           requiredFields: ['--title'],
@@ -330,7 +330,7 @@ export default class TicketCreate extends PMOCommand {
         name: 'title',
         message: 'Ticket title:',
         default: flags.title || template?.titlePattern,
-        validate: (input: string) => input.length > 0 || 'Title is required',
+        validate: (input: string) => input.trim() ? true : 'Title cannot be empty',
       },
       {
         type: 'list',
@@ -385,7 +385,7 @@ export default class TicketCreate extends PMOCommand {
         name: 'customCategory',
         message: 'Enter custom category:',
         when: (answers: { categoryChoice: string }) => answers.categoryChoice === '__custom__',
-        validate: (input: string) => input.length > 0 || 'Category is required when choosing custom',
+        validate: (input: string) => input.trim() ? true : 'Category cannot be empty',
       },
     ]);
 
@@ -434,7 +434,7 @@ export default class TicketCreate extends PMOCommand {
         type: 'input',
         name: 'what',
         message: 'What is the concrete outcome? (one sentence):',
-        validate: (input: string) => input.length > 0 || 'Outcome is required - what does success look like?',
+        validate: (input: string) => input.trim() ? true : 'Outcome cannot be empty - what does success look like?',
       },
       {
         type: 'input',
