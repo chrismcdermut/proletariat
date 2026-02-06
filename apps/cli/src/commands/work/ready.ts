@@ -70,6 +70,11 @@ export default class WorkReady extends PMOCommand {
     const { args, flags } = await this.parse(WorkReady);
     const projectId = (flags as { project?: string }).project;
 
+    // Check for conflicting PR flags
+    if (flags.pr && flags['no-pr']) {
+      this.error('--pr and --no-pr are mutually exclusive');
+    }
+
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
