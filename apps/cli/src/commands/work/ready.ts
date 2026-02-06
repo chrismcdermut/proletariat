@@ -35,7 +35,7 @@ export default class WorkReady extends PMOCommand {
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> TKT-001',
     '<%= config.bin %> <%= command.id %> --pr',
-    '<%= config.bin %> <%= command.id %> TKT-001 --pr --draft',
+    '<%= config.bin %> <%= command.id %> TKT-001 --draft-pr',
     '<%= config.bin %> <%= command.id %> --json  # Output choices as JSON',
   ];
 
@@ -56,8 +56,8 @@ export default class WorkReady extends PMOCommand {
       description: 'Create a pull request for this work',
       default: false,
     }),
-    draft: Flags.boolean({
-      description: 'Create PR as draft (only with --pr)',
+    'draft-pr': Flags.boolean({
+      description: 'Create a draft pull request (implies --pr)',
       default: false,
     }),
     'no-pr': Flags.boolean({
@@ -169,7 +169,7 @@ export default class WorkReady extends PMOCommand {
 
       // Handle PR creation
       let prUrl: string | undefined;
-      const shouldCreatePR = flags.pr || (!flags['no-pr'] && await this.shouldOfferPRCreation());
+      const shouldCreatePR = flags.pr || flags['draft-pr'] || (!flags['no-pr'] && await this.shouldOfferPRCreation());
 
       if (shouldCreatePR) {
         // Get branch and worktree path from the execution record
@@ -204,7 +204,7 @@ export default class WorkReady extends PMOCommand {
           }
         }
 
-        prUrl = await this.handlePRCreation(ticket, flags.draft, branch, worktreePath);
+        prUrl = await this.handlePRCreation(ticket, flags['draft-pr'], branch, worktreePath);
         if (prUrl) {
           // Store PR URL in ticket metadata
           await this.storage.updateTicket(ticketId!, {
