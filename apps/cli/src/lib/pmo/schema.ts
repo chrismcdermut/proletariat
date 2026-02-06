@@ -13,6 +13,7 @@ export const PMO_TABLES = {
   projects: 'pmo_projects',
   initiatives: 'pmo_initiatives',
   tickets: 'pmo_tickets',
+  categories: 'pmo_categories',
   board_views: 'pmo_board_views',  // Saved board view configurations
   subtasks: 'pmo_subtasks',
   ticket_metadata: 'pmo_ticket_metadata',
@@ -79,6 +80,20 @@ export const PMO_TABLE_SCHEMAS = {
       key_results TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+  // Categories for tickets and status types
+  categories: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.categories} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK (type IN ('ticket', 'status')),
+      description TEXT,
+      color TEXT,
+      position INTEGER NOT NULL DEFAULT 0,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(name, type)
     )`,
 
   // Shared workflow definitions - projects reference these via workflow_id
@@ -522,6 +537,8 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_roadmap_projects_roadmap ON ${PMO_TABLES.roadmap_projects}(roadmap_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_roadmap_projects_project ON ${PMO_TABLES.roadmap_projects}(project_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_roadmap_projects_position ON ${PMO_TABLES.roadmap_projects}(roadmap_id, position);
+  CREATE INDEX IF NOT EXISTS idx_pmo_categories_type ON ${PMO_TABLES.categories}(type);
+  CREATE INDEX IF NOT EXISTS idx_pmo_categories_position ON ${PMO_TABLES.categories}(type, position);
 `;
 
 // =============================================================================
@@ -539,6 +556,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.workflow_statuses,  // Workflow statuses (= board columns)
   PMO_TABLE_SCHEMAS.projects,
   PMO_TABLE_SCHEMAS.initiatives,
+  PMO_TABLE_SCHEMAS.categories,  // Ticket and status categories
   // PMO_TABLE_SCHEMAS.templates,  // REMOVED: workflows are now used directly
   PMO_TABLE_SCHEMAS.specs,  // Must be before tickets (FK reference)
   PMO_TABLE_SCHEMAS.spec_dependencies,  // Spec-to-spec dependencies
