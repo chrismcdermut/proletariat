@@ -46,8 +46,41 @@ export default class List extends PMOCommand {
       // Filter to active agents only
       const activeAgents = workspaceInfo.agents.filter(a => a.status === 'active');
 
-      // Determine type filter - prompt if not provided
+      // Determine type filter - prompt if not provided (but not in JSON mode)
       let typeFilter = flags.type as 'staff' | 'temp' | 'all' | undefined;
+
+      // In JSON mode without type filter, output all agents grouped by type
+      if (jsonMode && !typeFilter) {
+        const staffAgents = activeAgents.filter(a => a.type === 'persistent');
+        const tempAgents = activeAgents.filter(a => a.type === 'ephemeral');
+        const agentsStatus = getAllAgentsStatus(workspaceInfo);
+
+        const formatAgentJson = (agents: typeof activeAgents) => {
+          return agents.map(agent => {
+            const status = agentsStatus.find(s => s.name === agent.name);
+            const sessions = getAgentTmuxSessions(agent.name);
+            return {
+              name: agent.name,
+              type: agent.type === 'persistent' ? 'staff' : 'temp',
+              exists: status?.exists ?? false,
+              branch: status?.branch ?? null,
+              repositories: status?.repositories ?? [],
+              assignedTickets: status?.assignedTickets ?? [],
+              completedTickets: status?.completedTickets ?? [],
+              running: sessions.length > 0,
+            };
+          });
+        };
+
+        const output = {
+          staff: formatAgentJson(staffAgents),
+          temp: formatAgentJson(tempAgents),
+          all: formatAgentJson(activeAgents),
+        };
+
+        this.log(JSON.stringify(output, null, 2));
+        return;
+      }
 
       if (!typeFilter) {
         const { selectedType } = await this.prompt<{ selectedType: 'staff' | 'temp' | 'all' }>([{
