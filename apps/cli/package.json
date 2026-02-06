@@ -9,7 +9,7 @@
   "bin": {
     "prlt": "./bin/run.js"
   },
-  "bugs": "https://github.com/chrismcdermut/proletariat-cli/issues",
+  "bugs": "https://github.com/chrismcdermut/proletariat/issues",
   "dependencies": {
     "@inkjs/ui": "^2.0.0",
     "@oclif/core": "^4",
@@ -61,7 +61,7 @@
     "./oclif.manifest.json",
     "README.md"
   ],
-  "homepage": "https://github.com/chrismcdermut/proletariat-cli",
+  "homepage": "https://github.com/chrismcdermut/proletariat",
   "keywords": [
     "cli",
     "multi-agent",
@@ -102,7 +102,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/chrismcdermut/proletariat-cli.git"
+    "url": "https://github.com/chrismcdermut/proletariat.git",
+    "directory": "apps/cli"
   },
   "scripts": {
     "postinstall": "npm rebuild better-sqlite3 2>/dev/null || true",
