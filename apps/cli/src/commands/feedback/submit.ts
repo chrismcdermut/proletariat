@@ -94,6 +94,7 @@ export default class FeedbackSubmit extends Command {
           buildPromptConfig('list', 'category', categoryMessage, categoryChoices),
           createMetadata('feedback submit', flags)
         );
+        return;
       }
 
       const { selectedCategory } = await inquirer.prompt([{
@@ -115,6 +116,7 @@ export default class FeedbackSubmit extends Command {
           buildPromptConfig('input', 'title', titleMessage),
           createMetadata('feedback submit', { ...flags, category })
         );
+        return;
       }
 
       const { inputTitle } = await inquirer.prompt([{
@@ -144,6 +146,7 @@ export default class FeedbackSubmit extends Command {
           buildPromptConfig('editor', 'body', bodyMessage),
           createMetadata('feedback submit', { ...flags, category, title })
         );
+        return;
       }
 
       const { inputBody } = await inquirer.prompt([{
