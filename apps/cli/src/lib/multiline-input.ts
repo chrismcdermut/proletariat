@@ -27,8 +27,6 @@ export interface MultiLineInputOptions {
   default?: string;
   /** Hint text shown below the input area (e.g., key bindings) */
   hint?: string;
-  /** Minimum number of lines to show (for visual consistency) */
-  minLines?: number;
   /** Whether input is required (empty not allowed) */
   required?: boolean;
   /** Validation function - returns true if valid, or error message */
@@ -174,9 +172,9 @@ export async function multiLineInput(options: MultiLineInputOptions): Promise<Mu
       // Print hint
       process.stdout.write(chalk.dim(hint) + '\n');
 
-      // Print border
+      // Print border (guard against very small terminal widths)
       const termWidth = process.stdout.columns || 80;
-      const borderWidth = Math.min(termWidth - 4, 76);
+      const borderWidth = Math.max(1, Math.min(termWidth - 4, 76));
       process.stdout.write(chalk.dim('┌' + '─'.repeat(borderWidth) + '┐') + '\n');
 
       // Print lines with line numbers
@@ -335,25 +333,20 @@ export async function multiLineInput(options: MultiLineInputOptions): Promise<Mu
 
           // Validate if required
           if (required && text.length === 0) {
-            // Show error and continue
-            cleanup();
+            // Show error and continue - must restore raw mode for input to work
             process.stdout.write(chalk.red('Input is required. Please enter some text.') + '\n');
-            // Re-render
             renderedLineCount = 0;
             render();
-            // Re-enable input
-            process.stdin.resume();
             return;
           }
 
           if (validate) {
             const result = validate(text);
             if (result !== true) {
-              cleanup();
+              // Show error and continue - keep raw mode active
               process.stdout.write(chalk.red(typeof result === 'string' ? result : 'Invalid input') + '\n');
               renderedLineCount = 0;
               render();
-              process.stdin.resume();
               return;
             }
           }

@@ -145,6 +145,26 @@ export default class SpecEdit extends PMOCommand {
       flags.solution || flags.decisions;
 
     if (flags.interactive || !hasFlags) {
+      // In JSON mode without flags, output a form prompt instead of interactive prompts
+      if (jsonMode) {
+        const { outputPromptAsJson, buildFormPromptConfig } = await import('../../lib/prompt-json.js');
+        const formConfig = buildFormPromptConfig([
+          { type: 'input', name: 'title', message: 'Title:', default: spec.title },
+          { type: 'list', name: 'status', message: 'Status:', choices: statusChoices, default: spec.status },
+          { type: 'list', name: 'type', message: 'Type:', choices: typeChoices, default: spec.type || '' },
+          { type: 'multiline', name: 'problem', message: 'Problem statement:', default: spec.problem || '' },
+          { type: 'multiline', name: 'solution', message: 'Solution:', default: spec.solution || '' },
+          { type: 'multiline', name: 'decisions', message: 'Design decisions:', default: spec.decisions || '' },
+        ]);
+        formConfig.context = {
+          hint: `Edit spec with: prlt spec edit ${specId} --title "..." --problem "..." --json`,
+          specId,
+          currentValues: { title: spec.title, status: spec.status, type: spec.type, problem: spec.problem, solution: spec.solution, decisions: spec.decisions },
+        };
+        outputPromptAsJson(formConfig, createMetadata('spec edit', flags));
+        return; // outputPromptAsJson exits, but TypeScript doesn't know
+      }
+
       // Interactive mode - prompt for editable fields
       updates = await this.promptForEdits(spec, typeChoices, statusChoices);
     } else {
@@ -290,13 +310,16 @@ export default class SpecEdit extends PMOCommand {
       updates.type = newType;
     }
     if (problemResult.value !== (spec.problem || '')) {
-      updates.problem = problemResult.value || undefined;
+      // Preserve empty string to allow clearing the field
+      updates.problem = problemResult.value;
     }
     if (solutionResult.value !== (spec.solution || '')) {
-      updates.solution = solutionResult.value || undefined;
+      // Preserve empty string to allow clearing the field
+      updates.solution = solutionResult.value;
     }
     if (decisionsResult.value !== (spec.decisions || '')) {
-      updates.decisions = decisionsResult.value || undefined;
+      // Preserve empty string to allow clearing the field
+      updates.decisions = decisionsResult.value;
     }
 
     return updates;

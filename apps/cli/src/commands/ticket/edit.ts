@@ -156,6 +156,30 @@ export default class TicketEdit extends PMOCommand {
       flags['add-label'] || flags['remove-label'] || flags['add-ac'] || flags['clear-ac'];
 
     if (flags.interactive || !hasFlags) {
+      // In JSON mode without flags, output a form prompt instead of interactive prompts
+      if (jsonMode) {
+        const { outputPromptAsJson, buildFormPromptConfig } = await import('../../lib/prompt-json.js');
+        const formConfig = buildFormPromptConfig([
+          { type: 'input', name: 'title', message: 'Title:', default: ticket.title },
+          { type: 'multiline', name: 'description', message: 'Description:', default: ticket.description || '' },
+          { type: 'list', name: 'priority', message: 'Priority:', choices: [
+            { name: 'None', value: '' },
+            { name: 'P0 - Critical', value: 'P0' },
+            { name: 'P1 - High', value: 'P1' },
+            { name: 'P2 - Medium', value: 'P2' },
+            { name: 'P3 - Low', value: 'P3' },
+          ], default: ticket.priority || '' },
+          { type: 'input', name: 'category', message: 'Category:', default: ticket.category || '' },
+        ]);
+        formConfig.context = {
+          hint: `Edit ticket with: prlt ticket edit ${ticketId} --title "..." --description "..." --priority P0 --json`,
+          ticketId,
+          currentValues: { title: ticket.title, description: ticket.description, priority: ticket.priority, category: ticket.category },
+        };
+        outputPromptAsJson(formConfig, createMetadata('ticket edit', flags));
+        return; // outputPromptAsJson exits, but TypeScript doesn't know
+      }
+
       // Interactive mode - prompt for all editable fields
       const board = await this.storage.getBoard(ticket.projectId!);
       const columns = board.columns.map(col => col.name);
@@ -373,7 +397,8 @@ export default class TicketEdit extends PMOCommand {
       updates.title = title;
     }
     if (descResult.value !== (ticket.description || '')) {
-      updates.description = descResult.value || undefined;
+      // Preserve empty string to allow clearing the description
+      updates.description = descResult.value;
     }
     if (answers.priority !== (ticket.priority || '')) {
       updates.priority = answers.priority || undefined;
