@@ -174,11 +174,14 @@ export default class FeedbackSubmit extends Command {
       this.log(styles.muted('\nCreating issue on GitHub...\n'));
     }
 
-    try {
-      // Escape title and body for shell
-      const escapedTitle = title!.replace(/"/g, '\\"');
+    // Escape title for shell
+    const escapedTitle = title!.replace(/"/g, '\\"');
+    let usedLabel: string | null = label;
+    let result: string;
 
-      const result = execSync(
+    try {
+      // Try with label first
+      result = execSync(
         `gh issue create --repo "${FEEDBACK_REPO}" --title "${escapedTitle}" --body-file - --label "${label}"`,
         {
           encoding: 'utf-8',
@@ -186,39 +189,61 @@ export default class FeedbackSubmit extends Command {
           stdio: ['pipe', 'pipe', 'pipe'],
         }
       ).trim();
-
-      // Parse issue URL from result
-      const issueUrl = result;
-      const issueMatch = issueUrl.match(/\/issues\/(\d+)/);
-      const issueNumber = issueMatch ? parseInt(issueMatch[1], 10) : undefined;
-
-      if (jsonMode) {
-        outputSuccessAsJson(
-          {
-            issueUrl,
-            issueNumber,
-            title: title!,
-            category: category!,
-            label,
-            repository: FEEDBACK_REPO,
-          },
-          createMetadata('feedback submit', flags)
-        );
+    } catch (labelError) {
+      // If label doesn't exist, try without label
+      const labelErrorMessage = labelError instanceof Error ? labelError.message : '';
+      if (labelErrorMessage.includes('not found') && labelErrorMessage.includes('label')) {
+        try {
+          usedLabel = null;
+          result = execSync(
+            `gh issue create --repo "${FEEDBACK_REPO}" --title "${escapedTitle}" --body-file -`,
+            {
+              encoding: 'utf-8',
+              input: fullBody,
+              stdio: ['pipe', 'pipe', 'pipe'],
+            }
+          ).trim();
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error creating issue';
+          return handleError('ISSUE_CREATE_FAILED', `Failed to create issue: ${errorMessage}`);
+        }
+      } else {
+        const errorMessage = labelError instanceof Error ? labelError.message : 'Unknown error creating issue';
+        return handleError('ISSUE_CREATE_FAILED', `Failed to create issue: ${errorMessage}`);
       }
-
-      this.log(chalk.green('  ✓ Issue created successfully!\n'));
-      this.log(`${styles.header('Issue URL:')} ${chalk.cyan(issueUrl)}`);
-      if (issueNumber) {
-        this.log(`${styles.header('Issue #:')}   ${issueNumber}`);
-      }
-      this.log(`${styles.header('Category:')} ${category}`);
-      this.log(`${styles.header('Label:')}    ${label}\n`);
-      this.log(styles.muted('Thank you for your feedback!'));
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error creating issue';
-      return handleError('ISSUE_CREATE_FAILED', `Failed to create issue: ${errorMessage}`);
     }
+
+    // Parse issue URL from result
+    const issueUrl = result;
+    const issueMatch = issueUrl.match(/\/issues\/(\d+)/);
+    const issueNumber = issueMatch ? parseInt(issueMatch[1], 10) : undefined;
+
+    if (jsonMode) {
+      outputSuccessAsJson(
+        {
+          issueUrl,
+          issueNumber,
+          title: title!,
+          category: category!,
+          label: usedLabel,
+          repository: FEEDBACK_REPO,
+        },
+        createMetadata('feedback submit', flags)
+      );
+    }
+
+    this.log(chalk.green('  ✓ Issue created successfully!\n'));
+    this.log(`${styles.header('Issue URL:')} ${chalk.cyan(issueUrl)}`);
+    if (issueNumber) {
+      this.log(`${styles.header('Issue #:')}   ${issueNumber}`);
+    }
+    this.log(`${styles.header('Category:')} ${category}`);
+    if (usedLabel) {
+      this.log(`${styles.header('Label:')}    ${usedLabel}\n`);
+    } else {
+      this.log(styles.muted(`(Label '${label}' not found in repository)\n`));
+    }
+    this.log(styles.muted('Thank you for your feedback!'));
   }
 
   /**
