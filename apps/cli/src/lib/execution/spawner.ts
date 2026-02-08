@@ -48,6 +48,40 @@ function tryGitCommand(cmd: string, cwd: string): boolean {
 }
 
 /**
+ * Check if a git repository has a GitHub remote configured
+ */
+export function hasGitHubRemote(repoPath: string): boolean {
+  try {
+    const remoteUrl = execSync('git remote get-url origin', {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim()
+    return remoteUrl.includes('github.com')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Check if any of the given repos have a GitHub remote
+ */
+function checkReposForRemote(repoPaths: string[]): { hasRemote: boolean; reposWithoutRemote: string[] } {
+  const reposWithoutRemote: string[] = []
+
+  for (const repoPath of repoPaths) {
+    if (isGitRepo(repoPath) && !hasGitHubRemote(repoPath)) {
+      reposWithoutRemote.push(repoPath)
+    }
+  }
+
+  return {
+    hasRemote: reposWithoutRemote.length === 0,
+    reposWithoutRemote,
+  }
+}
+
+/**
  * Check if a directory is a git repository
  */
 function isGitRepo(dir: string): boolean {
@@ -138,6 +172,8 @@ export interface SpawnOptions {
   executionConfig?: ExecutionConfig
   /** Logging callback */
   log?: (msg: string) => void
+  /** Skip GitHub remote check */
+  skipRemoteCheck?: boolean
 }
 
 export interface SpawnResult {
@@ -392,6 +428,32 @@ export async function spawnAgentForTicket(
   const gitRepos = repoWorktrees.length > 0
     ? repoWorktrees.map(r => path.join(agentDir, r))
     : [worktreePath]
+
+  // Check for GitHub remote if PR creation is enabled
+  if (!options.skipRemoteCheck) {
+    const remoteCheck = checkReposForRemote(gitRepos)
+    if (!remoteCheck.hasRemote) {
+      const repoNames = remoteCheck.reposWithoutRemote.map(r => path.basename(r)).join(', ')
+      if (options.createPR) {
+        // If PR creation is requested, we must have a remote
+        return {
+          success: false,
+          ticketId: ticket.id,
+          agentName,
+          error: `No GitHub remote found for: ${repoNames}\n\n` +
+            'Cannot create PRs without a GitHub remote.\n' +
+            'Options:\n' +
+            '  1. Run "prlt repo create" to create a GitHub repo and set up remote\n' +
+            '  2. Manually add a remote: git remote add origin <url>\n' +
+            '  3. Use --skip-remote-check to spawn without PR support',
+        }
+      } else {
+        // Just warn if not creating PRs
+        log(`⚠️  No GitHub remote found for: ${repoNames}. PRs cannot be created.`)
+        log('   Run "prlt repo create" to set up a GitHub remote.')
+      }
+    }
+  }
 
   // Always fetch latest from origin before branch operations
   // This ensures all spawn actions work with the latest code
