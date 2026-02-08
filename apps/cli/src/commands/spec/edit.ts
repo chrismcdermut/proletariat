@@ -9,6 +9,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
+import { multiLineInput } from '../../lib/multiline-input.js';
 
 export default class SpecEdit extends PMOCommand {
   static description = 'Edit an existing spec';
@@ -205,13 +206,11 @@ export default class SpecEdit extends PMOCommand {
     solution?: string;
     decisions?: string;
   }> {
-    const answers = await inquirer.prompt<{
+    // First prompt for title, status, and type
+    const basicAnswers = await inquirer.prompt<{
       title: string;
       status: string;
       type: string;
-      problem: string;
-      solution: string;
-      decisions: string;
     }>([
       {
         type: 'input',
@@ -234,28 +233,40 @@ export default class SpecEdit extends PMOCommand {
         choices: typeChoices,
         default: spec.type || '',
       },
-      {
-        type: 'editor',
-        name: 'problem',
-        message: 'Problem statement (opens $EDITOR):',
-        default: spec.problem || '',
-        waitForUseInput: false,
-      },
-      {
-        type: 'editor',
-        name: 'solution',
-        message: 'Solution (opens $EDITOR):',
-        default: spec.solution || '',
-        waitForUseInput: false,
-      },
-      {
-        type: 'editor',
-        name: 'decisions',
-        message: 'Design decisions (opens $EDITOR):',
-        default: spec.decisions || '',
-        waitForUseInput: false,
-      },
     ]);
+
+    // Prompt for problem statement using multiline input
+    const problemResult = await multiLineInput({
+      message: 'Problem statement:',
+      default: spec.problem || '',
+      hint: 'Describe the problem this spec addresses. Ctrl+D to finish, Ctrl+C to cancel',
+    });
+
+    if (problemResult.cancelled) {
+      throw new Error('Edit cancelled');
+    }
+
+    // Prompt for solution using multiline input
+    const solutionResult = await multiLineInput({
+      message: 'Solution:',
+      default: spec.solution || '',
+      hint: 'Describe the proposed solution. Ctrl+D to finish, Ctrl+C to cancel',
+    });
+
+    if (solutionResult.cancelled) {
+      throw new Error('Edit cancelled');
+    }
+
+    // Prompt for decisions using multiline input
+    const decisionsResult = await multiLineInput({
+      message: 'Design decisions:',
+      default: spec.decisions || '',
+      hint: 'Document key design decisions. Ctrl+D to finish, Ctrl+C to cancel',
+    });
+
+    if (decisionsResult.cancelled) {
+      throw new Error('Edit cancelled');
+    }
 
     // Build updates object with only changed fields
     const updates: {
@@ -267,25 +278,25 @@ export default class SpecEdit extends PMOCommand {
       decisions?: string;
     } = {};
 
-    if (answers.title !== spec.title) {
-      updates.title = answers.title;
+    if (basicAnswers.title !== spec.title) {
+      updates.title = basicAnswers.title;
     }
-    if (answers.status !== spec.status) {
-      updates.status = answers.status as SpecStatus;
+    if (basicAnswers.status !== spec.status) {
+      updates.status = basicAnswers.status as SpecStatus;
     }
 
-    const newType = answers.type === '' ? undefined : answers.type as SpecType;
+    const newType = basicAnswers.type === '' ? undefined : basicAnswers.type as SpecType;
     if (newType !== spec.type) {
       updates.type = newType;
     }
-    if (answers.problem !== (spec.problem || '')) {
-      updates.problem = answers.problem || undefined;
+    if (problemResult.value !== (spec.problem || '')) {
+      updates.problem = problemResult.value || undefined;
     }
-    if (answers.solution !== (spec.solution || '')) {
-      updates.solution = answers.solution || undefined;
+    if (solutionResult.value !== (spec.solution || '')) {
+      updates.solution = solutionResult.value || undefined;
     }
-    if (answers.decisions !== (spec.decisions || '')) {
-      updates.decisions = answers.decisions || undefined;
+    if (decisionsResult.value !== (spec.decisions || '')) {
+      updates.decisions = decisionsResult.value || undefined;
     }
 
     return updates;

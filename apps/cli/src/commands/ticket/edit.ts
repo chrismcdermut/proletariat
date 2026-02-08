@@ -8,6 +8,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { multiLineInput } from '../../lib/multiline-input.js';
 
 export default class TicketEdit extends PMOCommand {
   static description = 'Edit an existing ticket';
@@ -282,13 +283,8 @@ export default class TicketEdit extends PMOCommand {
     priority?: string;
     category?: string;
   }> {
-    const answers = await inquirer.prompt<{
-      title: string;
-      description: string;
-      priority: string;
-      categoryChoice: string;
-      customCategory?: string;
-    }>([
+    // First prompt for title
+    const { title } = await inquirer.prompt<{ title: string }>([
       {
         type: 'input',
         name: 'title',
@@ -296,13 +292,25 @@ export default class TicketEdit extends PMOCommand {
         default: ticket.title,
         validate: (input: string) => input.trim() ? true : 'Title cannot be empty',
       },
-      {
-        type: 'editor',
-        name: 'description',
-        message: 'Description (opens $EDITOR for multiline input):',
-        default: ticket.description || '',
-        waitForUseInput: false,
-      },
+    ]);
+
+    // Prompt for description using inline multiline input
+    const descResult = await multiLineInput({
+      message: 'Description:',
+      default: ticket.description || '',
+      hint: 'Ctrl+D to finish, Ctrl+C to cancel',
+    });
+
+    if (descResult.cancelled) {
+      throw new Error('Edit cancelled');
+    }
+
+    // Continue with remaining prompts
+    const answers = await inquirer.prompt<{
+      priority: string;
+      categoryChoice: string;
+      customCategory?: string;
+    }>([
       {
         type: 'list',
         name: 'priority',
@@ -348,7 +356,7 @@ export default class TicketEdit extends PMOCommand {
         type: 'input',
         name: 'customCategory',
         message: 'Enter custom category:',
-        when: (answers: { categoryChoice: string }) => answers.categoryChoice === '__custom__',
+        when: (promptAnswers: { categoryChoice: string }) => promptAnswers.categoryChoice === '__custom__',
         validate: (input: string) => input.trim() ? true : 'Category cannot be empty',
       },
     ]);
@@ -361,11 +369,11 @@ export default class TicketEdit extends PMOCommand {
       category?: string;
     } = {};
 
-    if (answers.title !== ticket.title) {
-      updates.title = answers.title;
+    if (title !== ticket.title) {
+      updates.title = title;
     }
-    if (answers.description !== (ticket.description || '')) {
-      updates.description = answers.description || undefined;
+    if (descResult.value !== (ticket.description || '')) {
+      updates.description = descResult.value || undefined;
     }
     if (answers.priority !== (ticket.priority || '')) {
       updates.priority = answers.priority || undefined;

@@ -12,6 +12,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
+import { multiLineInput } from '../../lib/multiline-input.js';
 
 export default class TicketCreate extends PMOCommand {
   static description = 'Create a new ticket on the PMO board';
@@ -486,23 +487,31 @@ export default class TicketCreate extends PMOCommand {
 
     this.log(styles.muted('\n─── Ticket Description (for agent execution) ───'));
 
-    const descAnswers = await inquirer.prompt<{
-      what: string;
-      doneWhen: string;
-      context: string;
-      notInScope: string;
-    }>([
+    // Prompt for "What" - the main outcome
+    const { what } = await inquirer.prompt<{ what: string }>([
       {
         type: 'input',
         name: 'what',
         message: 'What is the concrete outcome? (one sentence):',
         validate: (input: string) => input.trim() ? true : 'Outcome cannot be empty - what does success look like?',
       },
-      {
-        type: 'input',
-        name: 'doneWhen',
-        message: 'Done when (acceptance criteria):',
-      },
+    ]);
+
+    // Prompt for acceptance criteria using multiline input
+    const doneWhenResult = await multiLineInput({
+      message: 'Done when (acceptance criteria):',
+      hint: 'Enter each criterion on a new line. Ctrl+D to finish, Ctrl+C to cancel',
+    });
+
+    if (doneWhenResult.cancelled) {
+      throw new Error('Ticket creation cancelled');
+    }
+
+    // Continue with remaining prompts
+    const { context, notInScope } = await inquirer.prompt<{
+      context: string;
+      notInScope: string;
+    }>([
       {
         type: 'input',
         name: 'context',
@@ -520,11 +529,11 @@ export default class TicketCreate extends PMOCommand {
     // Build structured description
     const parts: string[] = [];
 
-    parts.push(`## What\n${descAnswers.what}`);
+    parts.push(`## What\n${what}`);
 
-    if (descAnswers.doneWhen.trim()) {
+    if (doneWhenResult.value.trim()) {
       // Ensure each line in doneWhen starts with - [ ] if it doesn't already
-      const criteria = descAnswers.doneWhen
+      const criteria = doneWhenResult.value
         .split('\n')
         .map(line => line.trim())
         .filter(line => line.length > 0)
@@ -541,12 +550,12 @@ export default class TicketCreate extends PMOCommand {
       parts.push(`## Done when\n${criteria}`);
     }
 
-    if (descAnswers.context.trim()) {
-      parts.push(`## Context\n${descAnswers.context}`);
+    if (context.trim()) {
+      parts.push(`## Context\n${context}`);
     }
 
-    if (descAnswers.notInScope.trim()) {
-      parts.push(`## Not in scope\n${descAnswers.notInScope}`);
+    if (notInScope.trim()) {
+      parts.push(`## Not in scope\n${notInScope}`);
     }
 
     return parts.join('\n\n');

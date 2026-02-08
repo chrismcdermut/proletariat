@@ -46,6 +46,7 @@ import {
   PromptChoice,
   PromptConfig,
 } from '../prompt-json.js';
+import { multiLineInput } from '../multiline-input.js';
 
 /**
  * Context available during prompt resolution
@@ -86,8 +87,8 @@ export interface PromptDefinition<TValue = unknown, TFlags = Record<string, unkn
   /** The flag name this prompt resolves (e.g., 'column', 'title') */
   flagName: string;
 
-  /** Prompt type */
-  type: 'list' | 'checkbox' | 'input' | 'confirm' | 'editor';
+  /** Prompt type. Use 'multiline' for inline multi-line text input (replaces 'editor') */
+  type: 'list' | 'checkbox' | 'input' | 'confirm' | 'editor' | 'multiline';
 
   /** User-facing prompt message */
   message: string | ((ctx: ResolverContext<TFlags>) => string);
@@ -400,6 +401,23 @@ export class FlagResolver<TFlags extends Record<string, unknown> = Record<string
     choices: ResolverChoice<unknown>[] | undefined,
     defaultValue: unknown
   ): Promise<unknown> {
+    // Handle multiline type specially - use our custom multiLineInput
+    if (prompt.type === 'multiline') {
+      const result = await multiLineInput({
+        message,
+        default: typeof defaultValue === 'string' ? defaultValue : '',
+        validate: prompt.validate
+          ? (value) => prompt.validate!(value, this.resolverContext)
+          : undefined,
+      });
+
+      if (result.cancelled) {
+        throw new Error('Input cancelled');
+      }
+
+      return result.value;
+    }
+
     // Build inquirer prompt config as a single question object
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const question: any = {
