@@ -1,15 +1,12 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { Epic, EpicStatus, Ticket } from '../../lib/pmo/types.js';
 import { getRelativeEpicPath } from '../../lib/pmo/epic-files.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 // Progress bar helper
@@ -73,25 +70,19 @@ export default class EpicProgress extends PMOCommand {
           return;
         }
 
-        // In JSON mode, output epic selection prompt
-        if (jsonMode) {
-          const epicChoices = epics.map(e => ({ name: `${e.id} ${e.title} (${e.status})`, value: e.id }));
-          outputPromptAsJson(
-            buildPromptConfig('list', 'id', 'Select epic to view progress:', epicChoices),
-            createMetadata('epic progress', flags)
-          );
-          return;
-        }
+        const epicChoices = epics.map(e => ({
+          name: `${e.id} ${e.title} (${e.status})`,
+          value: e.id,
+          command: `prlt epic progress ${e.id} --json`,
+        }));
 
-        const { selected } = await inquirer.prompt([{
+        const jsonModeConfig = jsonMode ? { flags, commandName: 'epic progress' } : null;
+        const { selected } = await this.prompt<{ selected: string }>([{
           type: 'list',
           name: 'selected',
           message: 'Select epic to view progress:',
-          choices: epics.map(e => ({
-            name: `${e.id} ${e.title} (${e.status})`,
-            value: e.id,
-          })),
-        }]);
+          choices: epicChoices,
+        }], jsonModeConfig);
         epicId = selected;
       }
 
