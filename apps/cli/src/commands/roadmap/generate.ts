@@ -40,6 +40,10 @@ export default class RoadmapGenerate extends PMOCommand {
       char: 'o',
       description: 'Output directory (default: {pmoPath}/roadmaps)',
     }),
+    'exclude-done': Flags.boolean({
+      description: 'Exclude completed tickets from roadmap',
+      default: false,
+    }),
     json: Flags.boolean({
       char: 'm',
       aliases: ['machine'],
@@ -70,7 +74,7 @@ export default class RoadmapGenerate extends PMOCommand {
 
       for (const roadmap of roadmaps) {
         // eslint-disable-next-line no-await-in-loop -- Sequential generation with user feedback
-        await this.generateRoadmap(roadmap.id, outputDir);
+        await this.generateRoadmap(roadmap.id, outputDir, flags['exclude-done']);
       }
       this.log(styles.success(`\nGenerated ${roadmaps.length} roadmap(s) to ${outputDir}`));
       return;
@@ -113,10 +117,10 @@ export default class RoadmapGenerate extends PMOCommand {
       roadmapId = selected;
     }
 
-    await this.generateRoadmap(roadmapId!, outputDir);
+    await this.generateRoadmap(roadmapId!, outputDir, flags['exclude-done']);
   }
 
-  private async generateRoadmap(roadmapId: string, outputDir: string): Promise<void> {
+  private async generateRoadmap(roadmapId: string, outputDir: string, excludeDone: boolean = false): Promise<void> {
     const roadmap = await this.storage.getRoadmap(roadmapId);
     if (!roadmap) {
       this.error(`Roadmap not found: ${roadmapId}`);
@@ -154,14 +158,19 @@ export default class RoadmapGenerate extends PMOCommand {
       lines.push(`## ${i + 1}. ${displayName}`);
       lines.push('');
 
+      // Filter tickets based on excludeDone flag
+      const filteredTickets = excludeDone
+        ? tickets.filter(t => t.statusCategory !== 'completed')
+        : tickets;
+
       // Group tickets by priority
-      const ticketsByPriority = new Map<string, typeof tickets>();
+      const ticketsByPriority = new Map<string, typeof filteredTickets>();
       for (const priority of PRIORITIES) {
         ticketsByPriority.set(priority, []);
       }
       ticketsByPriority.set('unset', []);
 
-      for (const ticket of tickets) {
+      for (const ticket of filteredTickets) {
         const normalizedPriority = normalizePriority(ticket.priority) || 'unset';
         const group = ticketsByPriority.get(normalizedPriority) || ticketsByPriority.get('unset')!;
         group.push(ticket);
@@ -172,17 +181,16 @@ export default class RoadmapGenerate extends PMOCommand {
         'started': 1,
         'unstarted': 2,
         'backlog': 3,
-        'completed': 4,
-        'canceled': 5,
-        'triage': 6,
+        'triage': 4,
       };
 
+      // Output active tickets by priority
       for (const [priority, priorityTickets] of ticketsByPriority) {
         if (priorityTickets.length === 0) continue;
 
         priorityTickets.sort((a, b) => {
-          const catA = categoryOrder[a.statusCategory || 'backlog'] || 6;
-          const catB = categoryOrder[b.statusCategory || 'backlog'] || 6;
+          const catA = categoryOrder[a.statusCategory || 'backlog'] || 5;
+          const catB = categoryOrder[b.statusCategory || 'backlog'] || 5;
           if (catA !== catB) return catA - catB;
           return a.id.localeCompare(b.id);
         });
@@ -192,7 +200,6 @@ export default class RoadmapGenerate extends PMOCommand {
         lines.push(`### ${priorityLabel} (${priorityTickets.length} ticket${priorityTickets.length > 1 ? 's' : ''})`);
         lines.push('');
 
-        // Table header
         lines.push('| Ticket | Title | Status | Category | Description |');
         lines.push('| ------ | ----- | ------ | -------- | ----------- |');
 
@@ -204,7 +211,6 @@ export default class RoadmapGenerate extends PMOCommand {
 
           lines.push(`| ${ticket.id} | ${title} | ${status} | ${category} | ${desc} |`);
         }
-
         lines.push('');
       }
 
