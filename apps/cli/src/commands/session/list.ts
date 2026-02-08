@@ -15,6 +15,35 @@ interface VerifiedSession {
   environment: 'host' | 'container'
   containerId?: string
   exists: boolean  // Whether the tmux session actually exists
+  source: 'db' | 'discovered'  // Whether session was found in DB or discovered from tmux
+}
+
+/**
+ * Parse a tmux session name following prlt naming convention.
+ * Format: {ticketId}-{action}-{agentName}
+ * Example: "TKT-878-Implement-stout-page" -> { ticketId: "TKT-878", action: "Implement", agentName: "stout-page" }
+ */
+function parseSessionName(sessionName: string): { ticketId: string; action: string; agentName: string } | null {
+  // Pattern: TKT-### or similar ticket ID, followed by action, followed by agent name
+  // The ticket ID contains a hyphen, so we need to be careful about parsing
+  const match = sessionName.match(/^(TKT-\d+|[A-Z]+-\d+)-([^-]+)-(.+)$/)
+  if (match) {
+    return {
+      ticketId: match[1],
+      action: match[2],
+      agentName: match[3],
+    }
+  }
+  return null
+}
+
+/**
+ * Build expected session name from execution data.
+ * Format: {ticketId}-{action}-{agentName}
+ * This is the same format used by runners.ts buildSessionName()
+ */
+function buildExpectedSessionName(ticketId: string, agentName: string, action: string = 'work'): string {
+  return `${ticketId}-${action}-${agentName}`
 }
 
 export default class SessionList extends PMOCommand {
@@ -44,6 +73,7 @@ export default class SessionList extends PMOCommand {
     // Get workspace info for execution records
     let executionStorage: ExecutionStorage | null = null
     let db: Database.Database | null = null
+    let hasWorkspace = true
 
     try {
       const workspaceInfo = getWorkspaceInfo()
@@ -51,52 +81,159 @@ export default class SessionList extends PMOCommand {
       db = new Database(dbPath)
       executionStorage = new ExecutionStorage(db)
     } catch {
-      this.log('')
-      this.log(styles.muted('Not in a workspace. Run from a proletariat HQ directory.'))
-      this.log('')
-      return
+      // Not in a workspace, but we can still discover tmux sessions
+      hasWorkspace = false
     }
 
     try {
       // DB-driven approach: Start with executions, verify tmux sessions exist
-      const runningExecutions = executionStorage.listExecutions({ status: 'running' }) || []
-      const startingExecutions = executionStorage.listExecutions({ status: 'starting' }) || []
+      const runningExecutions = executionStorage?.listExecutions({ status: 'running' }) || []
+      const startingExecutions = executionStorage?.listExecutions({ status: 'starting' }) || []
       const activeExecutions = [...runningExecutions, ...startingExecutions]
 
       // Get list of actual tmux sessions for verification
       const hostTmuxSessions = this.getHostTmuxSessionNames()
       const containerTmuxSessions = this.getContainerTmuxSessionMap()
 
+      // Flatten all container sessions for orphan detection
+      const allContainerSessions: Array<{ sessionName: string; containerId: string }> = []
+      containerTmuxSessions.forEach((sessions, containerId) => {
+        for (const sessionName of sessions) {
+          allContainerSessions.push({ sessionName, containerId })
+        }
+      })
+
+      // Track which tmux sessions we've matched to DB records
+      const matchedHostSessions = new Set<string>()
+      const matchedContainerSessions = new Set<string>()
+
       // Build verified session list from DB records
       const sessions: VerifiedSession[] = []
 
       for (const exec of activeExecutions) {
-        if (!exec.sessionId) continue  // Skip executions without sessionId
-
         const isContainer = exec.environment === 'devcontainer'
         let exists = false
         let containerId: string | undefined
+        let actualSessionId = exec.sessionId
 
-        if (isContainer && exec.containerId) {
-          // Check if session exists in container
-          const containerSessions = containerTmuxSessions.get(exec.containerId)
-          exists = containerSessions?.includes(exec.sessionId) ?? false
-          containerId = exec.containerId
+        // If sessionId is NULL, try to find session by naming convention
+        // Format: {ticketId}-{action}-{agentName}
+        if (!exec.sessionId) {
+          // Try common action names to find the session
+          const possibleActions = ['Implement', 'implement', 'work', 'Review', 'review', 'Fix', 'fix']
+
+          if (isContainer && exec.containerId) {
+            const containerSessions = containerTmuxSessions.get(exec.containerId) || []
+            for (const action of possibleActions) {
+              const expectedName = buildExpectedSessionName(exec.ticketId, exec.agentName, action)
+              if (containerSessions.includes(expectedName)) {
+                actualSessionId = expectedName
+                exists = true
+                containerId = exec.containerId
+                break
+              }
+            }
+            // Also try partial match by ticket ID prefix
+            if (!actualSessionId) {
+              const match = containerSessions.find(s => s.startsWith(`${exec.ticketId}-`))
+              if (match) {
+                actualSessionId = match
+                exists = true
+                containerId = exec.containerId
+              }
+            }
+          } else {
+            for (const action of possibleActions) {
+              const expectedName = buildExpectedSessionName(exec.ticketId, exec.agentName, action)
+              if (hostTmuxSessions.includes(expectedName)) {
+                actualSessionId = expectedName
+                exists = true
+                break
+              }
+            }
+            // Also try partial match by ticket ID prefix
+            if (!actualSessionId) {
+              const match = hostTmuxSessions.find(s => s.startsWith(`${exec.ticketId}-`))
+              if (match) {
+                actualSessionId = match
+                exists = true
+              }
+            }
+          }
+
+          // If still no match, skip this execution (truly has no session)
+          if (!actualSessionId) {
+            continue
+          }
         } else {
-          // Check if session exists on host
-          exists = hostTmuxSessions.includes(exec.sessionId)
+          // sessionId is set, verify it exists
+          if (isContainer && exec.containerId) {
+            const containerSessions = containerTmuxSessions.get(exec.containerId)
+            exists = containerSessions?.includes(exec.sessionId) ?? false
+            containerId = exec.containerId
+          } else {
+            exists = hostTmuxSessions.includes(exec.sessionId)
+          }
+        }
+
+        // Track matched sessions to detect orphans later
+        if (exists && actualSessionId) {
+          if (isContainer && containerId) {
+            matchedContainerSessions.add(`${containerId}:${actualSessionId}`)
+          } else {
+            matchedHostSessions.add(actualSessionId)
+          }
         }
 
         // Only include if session exists, unless --all flag
         if (exists || flags.all) {
           sessions.push({
-            sessionId: exec.sessionId,
+            sessionId: actualSessionId!,
             ticketId: exec.ticketId,
             agentName: exec.agentName,
             status: exists ? exec.status : 'stale',
             environment: isContainer ? 'container' : 'host',
             containerId,
             exists,
+            source: 'db',
+          })
+        }
+      }
+
+      // Discover orphan sessions: tmux sessions matching prlt pattern but not in DB
+      // Host sessions
+      for (const sessionName of hostTmuxSessions) {
+        if (matchedHostSessions.has(sessionName)) continue
+
+        const parsed = parseSessionName(sessionName)
+        if (parsed) {
+          sessions.push({
+            sessionId: sessionName,
+            ticketId: parsed.ticketId,
+            agentName: parsed.agentName,
+            status: 'orphan',
+            environment: 'host',
+            exists: true,
+            source: 'discovered',
+          })
+        }
+      }
+
+      // Container sessions
+      for (const { sessionName, containerId } of allContainerSessions) {
+        if (matchedContainerSessions.has(`${containerId}:${sessionName}`)) continue
+
+        const parsed = parseSessionName(sessionName)
+        if (parsed) {
+          sessions.push({
+            sessionId: sessionName,
+            ticketId: parsed.ticketId,
+            agentName: parsed.agentName,
+            status: 'orphan',
+            environment: 'container',
+            containerId,
+            exists: true,
+            source: 'discovered',
           })
         }
       }
@@ -109,28 +246,37 @@ export default class SessionList extends PMOCommand {
         this.log(
           styles.muted(
             '  ' +
-            padEnd('Session', 28) +
+            padEnd('Session', 34) +
             padEnd('Ticket', 12) +
-            padEnd('Agent', 14) +
+            padEnd('Agent', 18) +
             padEnd('Type', 15) +
             'Status'
           )
         )
-        this.log('  ' + '─'.repeat(80))
+        this.log('  ' + '─'.repeat(88))
 
         for (const session of sessions) {
           const typeIcon = session.environment === 'container' ? '🐳 container' : '💻 host'
           const statusColor = session.status === 'running' ? styles.success :
                              session.status === 'starting' ? styles.warning :
-                             session.status === 'stale' ? styles.error : styles.muted
+                             session.status === 'stale' ? styles.error :
+                             session.status === 'orphan' ? styles.warning : styles.muted
+
+          // For orphan sessions, append source indicator
+          const statusText = session.source === 'discovered' ? `${session.status}*` : session.status
+
+          // Truncate long session names to fit column
+          const displaySession = session.sessionId.length > 32
+            ? session.sessionId.substring(0, 29) + '...'
+            : session.sessionId
 
           this.log(
             '  ' +
-            padEnd(session.sessionId, 28) +
+            padEnd(displaySession, 34) +
             padEnd(session.ticketId, 12) +
-            padEnd(session.agentName, 14) +
+            padEnd(session.agentName, 18) +
             padEnd(typeIcon, 15) +
-            statusColor(session.status)
+            statusColor(statusText)
           )
         }
 
@@ -153,11 +299,26 @@ export default class SessionList extends PMOCommand {
           this.log('')
         }
 
+        // Show orphan sessions note
+        const orphanSessions = sessions.filter(s => s.source === 'discovered')
+        if (orphanSessions.length > 0) {
+          this.log(styles.muted(`\n📋 ${orphanSessions.length} session(s) discovered from tmux (marked with *).`))
+          this.log(styles.muted('   These sessions match the prlt naming pattern but are not tracked in the database.'))
+          this.log('')
+        }
+
       } else {
         this.log('')
-        this.log(styles.muted('No active sessions found.'))
-        this.log('')
-        this.log(styles.muted('Start work with: prlt work start <ticket-id>'))
+        if (!hasWorkspace) {
+          this.log(styles.muted('Not in a workspace and no prlt-pattern tmux sessions found.'))
+          this.log('')
+          this.log(styles.muted('Run from a proletariat HQ directory to see tracked sessions,'))
+          this.log(styles.muted('or start work with: prlt work start <ticket-id>'))
+        } else {
+          this.log(styles.muted('No active sessions found.'))
+          this.log('')
+          this.log(styles.muted('Start work with: prlt work start <ticket-id>'))
+        }
         this.log('')
       }
 
