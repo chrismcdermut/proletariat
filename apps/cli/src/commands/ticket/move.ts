@@ -18,6 +18,7 @@ export default class TicketMove extends PMOCommand {
     '<%= config.bin %> <%= command.id %> my-ticket "In Progress"',
     '<%= config.bin %> <%= command.id %> implement-auth Done',
     '<%= config.bin %> <%= command.id %> fix-bug "In Review" --position 0',
+    '<%= config.bin %> <%= command.id %> TKT-123 --to-project PROJ-002',
     '<%= config.bin %> <%= command.id %> --bulk',
   ];
 
@@ -42,6 +43,9 @@ export default class TicketMove extends PMOCommand {
     }),
     position: Flags.integer({
       description: 'Position within the column (0 = top)',
+    }),
+    'to-project': Flags.string({
+      description: 'Move ticket to a different project (uses Backlog/default column)',
     }),
     bulk: Flags.boolean({
       char: 'b',
@@ -116,6 +120,12 @@ export default class TicketMove extends PMOCommand {
     const ticket = await this.storage.getTicket(ticketId!);
     if (!ticket) {
       this.error(`Ticket "${ticketId}" not found.`);
+    }
+
+    // Cross-project move
+    if (flags['to-project']) {
+      await this.executeCrossProjectMove(ticketId!, flags['to-project'], args.column, jsonMode, flags);
+      return;
     }
 
     // Get target column - prompt if not provided
@@ -269,5 +279,79 @@ export default class TicketMove extends PMOCommand {
     if (failCount > 0) {
       this.log(styles.error(`Failed to move ${failCount} ticket(s)`));
     }
+  }
+
+  /**
+   * Move a ticket to a different project.
+   * If a target column is specified and exists in the target project, move to that column.
+   * Otherwise, use the default/backlog column.
+   */
+  private async executeCrossProjectMove(
+    ticketId: string,
+    targetProjectId: string,
+    targetColumn: string | undefined,
+    jsonMode: boolean,
+    flags: Record<string, unknown>
+  ): Promise<void> {
+    // Get current ticket details
+    const ticket = await this.storage.getTicket(ticketId);
+    if (!ticket) {
+      this.error(`Ticket "${ticketId}" not found.`);
+    }
+
+    const sourceProjectId = ticket.projectId;
+
+    // Check if target project exists
+    const projects = await this.storage.listProjects();
+    const targetProject = projects.find(p =>
+      p.id === targetProjectId ||
+      p.id.toLowerCase() === targetProjectId.toLowerCase() ||
+      p.name.toLowerCase() === targetProjectId.toLowerCase()
+    );
+
+    if (!targetProject) {
+      if (jsonMode) {
+        outputErrorAsJson('PROJECT_NOT_FOUND', `Project not found: ${targetProjectId}`, createMetadata('ticket move', flags));
+        this.exit(1);
+      }
+      this.error(`Project not found: ${targetProjectId}`);
+    }
+
+    // Check if moving to the same project
+    if (targetProject.id === sourceProjectId) {
+      this.log(styles.warning(`Ticket "${ticketId}" is already in project "${targetProject.id}".`));
+      this.log(styles.muted(`To move to a different column, use: prlt ticket move ${ticketId} <column>`));
+      return;
+    }
+
+    // Move ticket to the new project
+    const movedTicket = await this.storage.moveTicketToProject(ticketId, targetProject.id);
+
+    // If a target column was specified, try to move to that column in the new project
+    if (targetColumn) {
+      try {
+        await this.storage.moveTicket(targetProject.id, ticketId, targetColumn);
+        // Refresh ticket to get updated status
+        const updatedTicket = await this.storage.getTicket(ticketId);
+
+        await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+
+        this.log(styles.success(`\n✅ Moved ticket ${styles.emphasis(ticketId)} to project ${styles.emphasis(targetProject.id)}`));
+        this.log(styles.muted(`   From project: ${sourceProjectId}`));
+        this.log(styles.muted(`   To project: ${targetProject.id}`));
+        this.log(styles.muted(`   Column: ${updatedTicket?.statusName || targetColumn}`));
+        return;
+      } catch {
+        // Column doesn't exist in target project - that's ok, we'll use the default
+        this.log(styles.muted(`Note: Column "${targetColumn}" not found in target project, using default column.`));
+      }
+    }
+
+    await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+
+    this.log(styles.success(`\n✅ Moved ticket ${styles.emphasis(ticketId)} to project ${styles.emphasis(targetProject.id)}`));
+    this.log(styles.muted(`   From project: ${sourceProjectId}`));
+    this.log(styles.muted(`   To project: ${targetProject.id}`));
+    this.log(styles.muted(`   Column: ${movedTicket.statusName || 'default'}`));
   }
 }
