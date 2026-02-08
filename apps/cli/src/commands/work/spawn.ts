@@ -686,10 +686,14 @@ export default class WorkSpawn extends PMOCommand {
         } else if (flags.action === 'custom') {
           // Custom action specified via flag - require --message
           if (!flags.message) {
+            db.close()
             return handleError('MISSING_MESSAGE', '--action custom requires --message flag with the custom prompt')
           }
           batchAction = 'custom'
           batchCustomMessage = flags.message
+        } else if (flags.message && flags.action !== 'custom') {
+          // --message provided without --action custom - warn user
+          this.warn('--message flag is only used with --action custom, ignoring')
         }
 
         // Now fetch action details after selection is made
@@ -1072,6 +1076,12 @@ export default class WorkSpawn extends PMOCommand {
             if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
             if (flags.focus) startArgs.push('--focus')
+            // Pass action/prompt - custom action uses --prompt, others use --action
+            if (batchAction === 'custom' && batchCustomMessage) {
+              startArgs.push('--prompt', batchCustomMessage)
+            } else if (batchAction) {
+              startArgs.push('--action', batchAction)
+            }
           } else {
             // Batch mode: pass all settings to skip prompts
             // batchDisplayMode is for devcontainer, batchDisplay is for host

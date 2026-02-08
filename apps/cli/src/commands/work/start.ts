@@ -677,7 +677,7 @@ export default class WorkStart extends PMOCommand {
         // Handle special "custom" action - requires --prompt flag
         if (flags.action === 'custom') {
           db.close()
-          this.error('--action custom requires --prompt flag.\nUsage: prlt work start TKT-001 --prompt "your custom instructions"')
+          this.error('--action custom requires --prompt flag.\nUsage: prlt work start TKT-001 --action custom --prompt "your custom instructions"')
         }
         // Specific action requested
         selectedAction = await this.storage.getAction(flags.action)
