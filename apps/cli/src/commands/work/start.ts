@@ -463,15 +463,21 @@ export default class WorkStart extends PMOCommand {
 
       if (flags.ephemeral) {
         // Create ephemeral agent on-demand
-        this.log(styles.muted('Creating ephemeral agent...'))
+        if (!jsonMode) {
+          this.log(styles.muted('Creating ephemeral agent...'))
+        }
         const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
           skipDevcontainer: flags['run-on-host'],
-          log: (msg) => this.log(msg),
+          log: (msg) => {
+            if (!jsonMode) this.log(msg)
+          },
           mountMode: flags.clone ? 'clone' : 'worktree',
         })
         agentName = ephemeralResult.name
         agentWorktreePath = ephemeralResult.worktreePath
-        this.log(styles.success(`Created ephemeral agent: ${agentName}`))
+        if (!jsonMode) {
+          this.log(styles.success(`Created ephemeral agent: ${agentName}`))
+        }
       } else if (flags.agent) {
         // Agent specified via flag
         agentName = flags.agent
@@ -1289,32 +1295,34 @@ export default class WorkStart extends PMOCommand {
         }
       }
 
-      // Show execution info
-      this.log('')
-      this.log(styles.header(`🚀 Starting work: ${ticket.id}: ${ticket.title}`))
-      this.log(styles.muted(`   Agent: ${assignedAgent}`))
-      this.log(styles.muted(`   Action: ${context.actionName || 'None'}`))
-      this.log(styles.muted(`   Executor: ${executor}`))
+      // Show execution info (skip in JSON mode)
+      if (!jsonMode) {
+        this.log('')
+        this.log(styles.header(`🚀 Starting work: ${ticket.id}: ${ticket.title}`))
+        this.log(styles.muted(`   Agent: ${assignedAgent}`))
+        this.log(styles.muted(`   Action: ${context.actionName || 'None'}`))
+        this.log(styles.muted(`   Executor: ${executor}`))
 
-      // Environment info
-      const envIcon = environment === 'devcontainer' ? '🐳' : '💻'
-      this.log(styles.muted(`   Environment: ${envIcon} ${environment}`))
-      this.log(styles.muted(`   Display: ${displayMode}`))
+        // Environment info
+        const envIcon = environment === 'devcontainer' ? '🐳' : '💻'
+        this.log(styles.muted(`   Environment: ${envIcon} ${environment}`))
+        this.log(styles.muted(`   Display: ${displayMode}`))
 
-      // Permissions info
-      if (sandboxed) {
-        this.log(styles.success(`   Permissions: 🔒 safe`))
-      } else {
-        this.log(styles.warning(`   Permissions: ⚠️  danger (--dangerously-skip-permissions)`))
+        // Permissions info
+        if (sandboxed) {
+          this.log(styles.success(`   Permissions: 🔒 safe`))
+        } else {
+          this.log(styles.warning(`   Permissions: ⚠️  danger (--dangerously-skip-permissions)`))
+        }
+
+        this.log(styles.muted(`   Output: ${outputMode === 'interactive' ? 'streaming (watch Claude work)' : 'print (final result only)'}`))
+        if (ghAvailable) {
+          this.log(styles.muted(`   Create PR: ${createPR ? 'yes (when work is ready)' : 'no'}`))
+        }
+        this.log(styles.muted(`   Worktree: ${worktreePath}`))
+        this.log(styles.muted(`   Branch: ${branch}`))
+        this.log('')
       }
-
-      this.log(styles.muted(`   Output: ${outputMode === 'interactive' ? 'streaming (watch Claude work)' : 'print (final result only)'}`))
-      if (ghAvailable) {
-        this.log(styles.muted(`   Create PR: ${createPR ? 'yes (when work is ready)' : 'no'}`))
-      }
-      this.log(styles.muted(`   Worktree: ${worktreePath}`))
-      this.log(styles.muted(`   Branch: ${branch}`))
-      this.log('')
 
       // Add createPR to context
       context.createPR = createPR
@@ -1514,8 +1522,10 @@ export default class WorkStart extends PMOCommand {
         branch,
       })
 
-      this.log(styles.muted(`   Work ID: ${execution.id}`))
-      this.log('')
+      if (!jsonMode) {
+        this.log(styles.muted(`   Work ID: ${execution.id}`))
+        this.log('')
+      }
 
       // Note: Ticket status update moved to after successful spawn (see below)
 
@@ -1566,7 +1576,9 @@ export default class WorkStart extends PMOCommand {
       }
 
       // Run execution
-      this.log(styles.muted('Starting agent...'))
+      if (!jsonMode) {
+        this.log(styles.muted('Starting agent...'))
+      }
       const sessionManager = (flags.session || 'tmux') as SessionManager
       const result = await runExecution(environment, context, executor, executionConfig, {
         host: flags['vm-host'],
