@@ -4,6 +4,7 @@ import {
   PMOCommand,
   pmoBaseFlags,
 } from '../../lib/pmo/index.js';
+import { Ticket, PMOError } from '../../lib/pmo/types.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
@@ -74,6 +75,17 @@ export default class TicketMove extends PMOCommand {
       this.error(message);
     };
 
+    // Cross-project move: if ticketId and --to-project are provided, skip project context
+    // The source project is determined from the ticket itself
+    if (args.ticketId && flags['to-project']) {
+      const ticket = await this.storage.getTicket(args.ticketId);
+      if (!ticket) {
+        return handleError('TICKET_NOT_FOUND', `Ticket "${args.ticketId}" not found.`);
+      }
+      await this.executeCrossProjectMove(ticket, flags['to-project'], args.column, jsonMode, flags);
+      return;
+    }
+
     // This command requires project context - get projectId (with JSON mode support)
     const projectId = await this.requireProject({
       jsonMode: {
@@ -122,9 +134,9 @@ export default class TicketMove extends PMOCommand {
       this.error(`Ticket "${ticketId}" not found.`);
     }
 
-    // Cross-project move
+    // Cross-project move (when ticketId was selected interactively)
     if (flags['to-project']) {
-      await this.executeCrossProjectMove(ticketId!, flags['to-project'], args.column, jsonMode, flags);
+      await this.executeCrossProjectMove(ticket, flags['to-project'], args.column, jsonMode, flags);
       return;
     }
 
@@ -287,18 +299,13 @@ export default class TicketMove extends PMOCommand {
    * Otherwise, use the default/backlog column.
    */
   private async executeCrossProjectMove(
-    ticketId: string,
+    ticket: Ticket,
     targetProjectId: string,
     targetColumn: string | undefined,
     jsonMode: boolean,
     flags: Record<string, unknown>
   ): Promise<void> {
-    // Get current ticket details
-    const ticket = await this.storage.getTicket(ticketId);
-    if (!ticket) {
-      this.error(`Ticket "${ticketId}" not found.`);
-    }
-
+    const ticketId = ticket.id;
     const sourceProjectId = ticket.projectId;
 
     // Check if target project exists
@@ -341,9 +348,13 @@ export default class TicketMove extends PMOCommand {
         this.log(styles.muted(`   To project: ${targetProject.id}`));
         this.log(styles.muted(`   Column: ${updatedTicket?.statusName || targetColumn}`));
         return;
-      } catch {
-        // Column doesn't exist in target project - that's ok, we'll use the default
-        this.log(styles.muted(`Note: Column "${targetColumn}" not found in target project, using default column.`));
+      } catch (error) {
+        // Only catch "status not found" errors - re-throw unexpected errors
+        if (error instanceof PMOError && error.code === 'NOT_FOUND') {
+          this.log(styles.muted(`Note: Column "${targetColumn}" not found in target project, using default column.`));
+        } else {
+          throw error;
+        }
       }
     }
 
