@@ -55,6 +55,8 @@ export default class SupportBook extends Command {
         execSync(`xdg-open "${url}"`);
       } else if (platform === 'win32') {
         execSync(`start "" "${url}"`);
+      } else {
+        throw new Error(`Unsupported platform: ${platform}`);
       }
     } catch {
       this.log(styles.warning('Could not open browser automatically.'));

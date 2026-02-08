@@ -49,6 +49,19 @@ export default class SupportIssues extends Command {
       this.openUrl(url);
       this.log(styles.success('Opening GitHub Issues...'));
       this.log(styles.muted(`URL: ${url}`));
+    } else {
+      // List issues via gh CLI when --no-browser is set
+      try {
+        const output = execSync('gh issue list --repo chrismcdermut/proletariat', {
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        this.log(styles.header('Open Issues'));
+        this.log(output.trim() || styles.muted('No open issues found.'));
+      } catch {
+        this.log(styles.warning('Could not list issues via gh CLI.'));
+        this.log(styles.info(`Please visit: ${url}`));
+      }
     }
   }
 
@@ -62,6 +75,8 @@ export default class SupportIssues extends Command {
         execSync(`xdg-open "${url}"`);
       } else if (platform === 'win32') {
         execSync(`start "" "${url}"`);
+      } else {
+        throw new Error(`Unsupported platform: ${platform}`);
       }
     } catch {
       this.log(styles.warning('Could not open browser automatically.'));

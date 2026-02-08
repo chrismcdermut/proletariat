@@ -130,12 +130,15 @@ export default class SupportLogs extends PMOCommand {
 
   private checkGh(): DiagnosticInfo['tools']['gh'] {
     try {
-      const versionOutput = execSync('gh --version 2>/dev/null', { encoding: 'utf-8' });
+      const versionOutput = execSync('gh --version', {
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
       const version = versionOutput.split('\n')[0]?.replace('gh version ', '').trim();
 
       let authenticated = false;
       try {
-        execSync('gh auth status 2>/dev/null', { encoding: 'utf-8' });
+        execSync('gh auth status', { stdio: 'ignore' });
         authenticated = true;
       } catch {
         authenticated = false;
@@ -149,11 +152,11 @@ export default class SupportLogs extends PMOCommand {
 
   private checkDocker(): DiagnosticInfo['tools']['docker'] {
     try {
-      execSync('docker --version 2>/dev/null', { encoding: 'utf-8' });
+      execSync('docker --version', { stdio: 'ignore' });
 
       let running = false;
       try {
-        execSync('docker info 2>/dev/null', { encoding: 'utf-8' });
+        execSync('docker info', { stdio: 'ignore' });
         running = true;
       } catch {
         running = false;
@@ -167,7 +170,10 @@ export default class SupportLogs extends PMOCommand {
 
   private checkTmux(): DiagnosticInfo['tools']['tmux'] {
     try {
-      const versionOutput = execSync('tmux -V 2>/dev/null', { encoding: 'utf-8' });
+      const versionOutput = execSync('tmux -V', {
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
       const version = versionOutput.trim();
       return { installed: true, version };
     } catch {
@@ -271,6 +277,7 @@ export default class SupportLogs extends PMOCommand {
   private copyToClipboard(text: string): boolean {
     const platform = process.platform;
     // Strip ANSI codes for clipboard
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional ANSI escape code stripping
     const plainText = text.replace(/\x1b\[[0-9;]*m/g, '');
 
     try {
