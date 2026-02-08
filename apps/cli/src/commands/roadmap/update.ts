@@ -4,7 +4,9 @@ import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
   outputErrorAsJson,
+  outputPromptAsJson,
   createMetadata,
+  buildFormPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class RoadmapUpdate extends PMOCommand {
@@ -93,7 +95,27 @@ export default class RoadmapUpdate extends PMOCommand {
     const hasUpdateFlags = flags.name !== undefined || flags.description !== undefined || flags.default !== undefined;
 
     if (!hasUpdateFlags) {
-      const formJsonModeConfig = jsonMode ? { flags, commandName: 'roadmap update' } : null;
+      // In JSON mode, agents need a single multi-field form, not sequential prompts
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildFormPromptConfig([
+            { type: 'input', name: 'name', message: 'New name (leave blank to keep current):', default: roadmap.name },
+            { type: 'input', name: 'description', message: 'New description (leave blank to keep current):', default: roadmap.description || '' },
+            {
+              type: 'list',
+              name: 'isDefault',
+              message: 'Set as default roadmap?',
+              choices: [
+                { name: 'No change', value: 'no-change' },
+                { name: 'Yes', value: 'yes' },
+                { name: 'No', value: 'no' },
+              ],
+            },
+          ]),
+          createMetadata('roadmap update', flags)
+        );
+        return;
+      }
 
       // Prompt for name
       const { name } = await this.prompt<{ name: string }>([{
@@ -101,7 +123,7 @@ export default class RoadmapUpdate extends PMOCommand {
         name: 'name',
         message: 'New name (leave blank to keep current):',
         default: roadmap.name,
-      }], formJsonModeConfig);
+      }], null);
 
       // Prompt for description
       const { description } = await this.prompt<{ description: string }>([{
@@ -109,7 +131,7 @@ export default class RoadmapUpdate extends PMOCommand {
         name: 'description',
         message: 'New description (leave blank to keep current):',
         default: roadmap.description || '',
-      }], formJsonModeConfig);
+      }], null);
 
       // Prompt for isDefault
       const { isDefault } = await this.prompt<{ isDefault: string }>([{
@@ -121,7 +143,7 @@ export default class RoadmapUpdate extends PMOCommand {
           { name: 'Yes', value: 'yes', command: `prlt roadmap update "${roadmapId}" --default --json` },
           { name: 'No', value: 'no', command: `prlt roadmap update "${roadmapId}" --no-default --json` },
         ],
-      }], formJsonModeConfig);
+      }], null);
 
       const answers = { name, description, isDefault };
 

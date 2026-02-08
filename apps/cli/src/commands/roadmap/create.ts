@@ -2,7 +2,12 @@ import { Flags, Args } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { slugify } from '../../lib/pmo/utils.js';
-import { shouldOutputJson } from '../../lib/prompt-json.js';
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildFormPromptConfig,
+} from '../../lib/prompt-json.js';
 
 export default class RoadmapCreate extends PMOCommand {
   static description = 'Create a new roadmap';
@@ -66,7 +71,28 @@ export default class RoadmapCreate extends PMOCommand {
     };
 
     if (flags.interactive || (!args.name && !flags.name)) {
-      const formJsonModeConfig = jsonMode ? { flags, commandName: 'roadmap create' } : null;
+      // In JSON mode, agents need a single multi-field form, not sequential prompts
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildFormPromptConfig([
+            { type: 'input', name: 'name', message: 'Roadmap name:', default: flags.name },
+            { type: 'input', name: 'id', message: 'Roadmap ID (leave blank to auto-generate):' },
+            { type: 'input', name: 'description', message: 'Description (optional):', default: flags.description },
+            {
+              type: 'list',
+              name: 'isDefault',
+              message: 'Set as default roadmap?',
+              choices: [
+                { name: 'No', value: 'false' },
+                { name: 'Yes', value: 'true' },
+              ],
+              default: flags.default ? 'true' : 'false',
+            },
+          ]),
+          createMetadata('roadmap create', flags)
+        );
+        return;
+      }
 
       // Prompt for name
       const { name } = await this.prompt<{ name: string }>([{
@@ -75,7 +101,7 @@ export default class RoadmapCreate extends PMOCommand {
         message: 'Roadmap name:',
         default: flags.name,
         validate: (input: unknown) => (typeof input === 'string' && input.length > 0) || 'Name is required',
-      }], formJsonModeConfig);
+      }], null);
 
       // Prompt for id
       const { id } = await this.prompt<{ id: string }>([{
@@ -83,7 +109,7 @@ export default class RoadmapCreate extends PMOCommand {
         name: 'id',
         message: 'Roadmap ID (leave blank to auto-generate):',
         default: `roadmap-${slugify(name)}`,
-      }], formJsonModeConfig);
+      }], null);
 
       // Prompt for description
       const { description } = await this.prompt<{ description: string }>([{
@@ -91,7 +117,7 @@ export default class RoadmapCreate extends PMOCommand {
         name: 'description',
         message: 'Description (optional):',
         default: flags.description,
-      }], formJsonModeConfig);
+      }], null);
 
       // Prompt for isDefault
       const { isDefault } = await this.prompt<{ isDefault: string }>([{
@@ -103,7 +129,7 @@ export default class RoadmapCreate extends PMOCommand {
           { name: 'Yes', value: 'true', command: `prlt roadmap create --name "${name}" --default --json` },
         ],
         default: flags.default ? 'true' : 'false',
-      }], formJsonModeConfig);
+      }], null);
 
       roadmapData = {
         name,
