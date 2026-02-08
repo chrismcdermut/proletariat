@@ -1023,28 +1023,34 @@ export default class WorkSpawn extends PMOCommand {
         const actionModifiesCode = selectedActionDetails?.modifiesCode ?? true
         if (!batchCreatePr && !batchNoPr) {
           if (actionModifiesCode) {
-            // Use FlagResolver for PR choice
-            const prResolver = new FlagResolver<{ prChoice?: string }>({
-              commandName: 'work spawn',
-              baseCommand: 'prlt work spawn',
-              jsonMode,
-              flags: {},
-            })
+            // In JSON mode with --yes, default to creating PRs for code-modifying actions
+            if (jsonMode && flags.yes) {
+              batchCreatePr = true
+              batchNoPr = false
+            } else {
+              // Use FlagResolver for PR choice
+              const prResolver = new FlagResolver<{ prChoice?: string }>({
+                commandName: 'work spawn',
+                baseCommand: 'prlt work spawn',
+                jsonMode,
+                flags: {},
+              })
 
-            prResolver.addPrompt({
-              flagName: 'prChoice',
-              type: 'list',
-              message: 'Create pull requests when work is ready?',
-              default: 'yes',
-              choices: () => [
-                { name: '✓ Yes - Create PR for each ticket', value: 'yes' },
-                { name: '✗ No  - Just move tickets to review', value: 'no' },
-              ],
-            })
+              prResolver.addPrompt({
+                flagName: 'prChoice',
+                type: 'list',
+                message: 'Create pull requests when work is ready?',
+                default: 'yes',
+                choices: () => [
+                  { name: '✓ Yes - Create PR for each ticket', value: 'yes' },
+                  { name: '✗ No  - Just move tickets to review', value: 'no' },
+                ],
+              })
 
-            const prResult = await prResolver.resolve()
-            batchCreatePr = prResult.prChoice === 'yes'
-            batchNoPr = prResult.prChoice === 'no'
+              const prResult = await prResolver.resolve()
+              batchCreatePr = prResult.prChoice === 'yes'
+              batchNoPr = prResult.prChoice === 'no'
+            }
           } else {
             // Non-code-modifying action - no PR needed
             batchCreatePr = false
