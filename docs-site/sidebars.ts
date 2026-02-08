@@ -1,0 +1,175 @@
+import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
+
+const sidebars: SidebarsConfig = {
+  docsSidebar: [
+    'intro',
+    {
+      type: 'category',
+      label: 'Getting Started',
+      collapsed: false,
+      items: [
+        'getting-started/installation',
+        'getting-started/quick-start',
+        'getting-started/core-concepts',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Guides',
+      items: [
+        'guides/creating-tickets',
+        'guides/spawning-agents',
+        'guides/docker-setup',
+        'guides/github-integration',
+        'guides/multi-agent-workflows',
+        'guides/actions',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Architecture',
+      items: [
+        'architecture/how-it-works',
+        'architecture/data-model',
+        'architecture/agent-isolation',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Reference',
+      items: [
+        'reference/environment-variables',
+        'reference/troubleshooting',
+      ],
+    },
+  ],
+  commandsSidebar: [
+    'commands/index',
+    {
+      type: 'category',
+      label: 'ticket',
+      items: [
+        'commands/ticket/create',
+        'commands/ticket/list',
+        'commands/ticket/view',
+        'commands/ticket/edit',
+        'commands/ticket/move',
+        'commands/ticket/delete',
+        'commands/ticket/complete',
+        'commands/ticket/bulk',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'work',
+      items: [
+        'commands/work/start',
+        'commands/work/spawn',
+        'commands/work/spawn-all',
+        'commands/work/complete',
+        'commands/work/ready',
+        'commands/work/revise',
+        'commands/work/watch',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'agent',
+      items: [
+        'commands/agent/list',
+        'commands/agent/status',
+        'commands/agent/shell',
+        'commands/agent/visit',
+        'commands/agent/login',
+        'commands/agent/rebuild',
+        'commands/agent/restart',
+        'commands/agent/cleanup',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'project',
+      items: [
+        'commands/project/create',
+        'commands/project/list',
+        'commands/project/view',
+        'commands/project/archive',
+        'commands/project/unarchive',
+        'commands/project/delete',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'epic',
+      items: [
+        'commands/epic/create',
+        'commands/epic/list',
+        'commands/epic/view',
+        'commands/epic/ticket',
+        'commands/epic/progress',
+        'commands/epic/move',
+        'commands/epic/archive',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'spec',
+      items: [
+        'commands/spec/create',
+        'commands/spec/list',
+        'commands/spec/view',
+        'commands/spec/plan',
+        'commands/spec/ticket',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'execution',
+      items: [
+        'commands/execution/list',
+        'commands/execution/logs',
+        'commands/execution/stop',
+        'commands/execution/view',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'docker',
+      items: [
+        'commands/docker/list',
+        'commands/docker/status',
+        'commands/docker/start',
+        'commands/docker/stop',
+        'commands/docker/shell',
+        'commands/docker/logs',
+        'commands/docker/sync',
+        'commands/docker/clean',
+        'commands/docker/prune',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Other Commands',
+      items: [
+        'commands/other/init',
+        'commands/other/board',
+        'commands/other/session',
+        'commands/other/pr',
+        'commands/other/gh',
+        'commands/other/repo',
+        'commands/other/workflow',
+        'commands/other/status',
+        'commands/other/phase',
+        'commands/other/template',
+        'commands/other/action',
+        'commands/other/theme',
+        'commands/other/staff',
+        'commands/other/whoami',
+        'commands/other/commit',
+        'commands/other/claude',
+      ],
+    },
+  ],
+};
+
+export default sidebars;

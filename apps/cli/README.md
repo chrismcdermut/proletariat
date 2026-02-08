@@ -17,6 +17,8 @@
 >
 > **Let's get you shipping** [Book a call][cal-link] - I'm happy to help you get prlt running or chat feedback, ideas, multi-agent workflows, and the future of work/labor (and economic labor theory..)
 
+📚 **[Read the Documentation](https://chrismcdermut.github.io/proletariat/)** — Full guides, command reference, and architecture docs.
+
 ---
 
 # TLDR
@@ -640,6 +642,7 @@ Claude Code handles its own authentication via `claude login`.
 
 ## Support
 
+- **Documentation**: [chrismcdermut.github.io/proletariat](https://chrismcdermut.github.io/proletariat/) - Full docs, guides, and command reference
 - **Discord**: [discord.gg/tmZyjNNSvw](https://discord.gg/tmZyjNNSvw)
 - **GitHub Issues**: [Report bugs or request features](https://github.com/chrismcdermut/proletariat/issues)
 - **Setup Help**: [Book a call][cal-link] - I'll help you get things running

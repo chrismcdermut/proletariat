@@ -1,0 +1,49 @@
+/**
+ * Custom CSS for prlt documentation
+ */
+
+/* Red/revolutionary color scheme */
+:root {
+  --ifm-color-primary: #c41e3a;
+  --ifm-color-primary-dark: #b01b34;
+  --ifm-color-primary-darker: #a61a32;
+  --ifm-color-primary-darkest: #891529;
+  --ifm-color-primary-light: #d82140;
+  --ifm-color-primary-lighter: #da2d4a;
+  --ifm-color-primary-lightest: #e04d65;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+/* Dark mode */
+[data-theme='dark'] {
+  --ifm-color-primary: #ff4d4d;
+  --ifm-color-primary-dark: #ff3333;
+  --ifm-color-primary-darker: #ff2626;
+  --ifm-color-primary-darkest: #f20000;
+  --ifm-color-primary-light: #ff6666;
+  --ifm-color-primary-lighter: #ff7373;
+  --ifm-color-primary-lightest: #ff9999;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
+
+/* Code blocks */
+.prism-code {
+  font-size: 14px;
+}
+
+/* Tables */
+table {
+  display: table;
+  width: 100%;
+}
+
+/* Navbar tweaks */
+.navbar__title {
+  font-weight: bold;
+}
+
+/* Footer */
+.footer--dark {
+  background-color: #1a1a1a;
+}
