@@ -1,10 +1,16 @@
 import { Flags } from '@oclif/core'
-import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/index.js'
+import {
+  parseSessionName,
+  getHostTmuxSessionNames,
+  getContainerTmuxSessionMap,
+  flattenContainerSessions,
+  findSessionForExecution,
+} from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 
 interface VerifiedSession {
@@ -16,34 +22,6 @@ interface VerifiedSession {
   containerId?: string
   exists: boolean  // Whether the tmux session actually exists
   source: 'db' | 'discovered'  // Whether session was found in DB or discovered from tmux
-}
-
-/**
- * Parse a tmux session name following prlt naming convention.
- * Format: {ticketId}-{action}-{agentName}
- * Example: "TKT-878-Implement-stout-page" -> { ticketId: "TKT-878", action: "Implement", agentName: "stout-page" }
- */
-function parseSessionName(sessionName: string): { ticketId: string; action: string; agentName: string } | null {
-  // Pattern: TKT-### or similar ticket ID, followed by action, followed by agent name
-  // The ticket ID contains a hyphen, so we need to be careful about parsing
-  const match = sessionName.match(/^(TKT-\d+|[A-Z]+-\d+)-([^-]+)-(.+)$/)
-  if (match) {
-    return {
-      ticketId: match[1],
-      action: match[2],
-      agentName: match[3],
-    }
-  }
-  return null
-}
-
-/**
- * Build expected session name from execution data.
- * Format: {ticketId}-{action}-{agentName}
- * This is the same format used by runners.ts buildSessionName()
- */
-function buildExpectedSessionName(ticketId: string, agentName: string, action: string = 'work'): string {
-  return `${ticketId}-${action}-${agentName}`
 }
 
 export default class SessionList extends PMOCommand {
@@ -92,16 +70,11 @@ export default class SessionList extends PMOCommand {
       const activeExecutions = [...runningExecutions, ...startingExecutions]
 
       // Get list of actual tmux sessions for verification
-      const hostTmuxSessions = this.getHostTmuxSessionNames()
-      const containerTmuxSessions = this.getContainerTmuxSessionMap()
+      const hostTmuxSessions = getHostTmuxSessionNames()
+      const containerTmuxSessions = getContainerTmuxSessionMap()
 
       // Flatten all container sessions for orphan detection
-      const allContainerSessions: Array<{ sessionName: string; containerId: string }> = []
-      containerTmuxSessions.forEach((sessions, containerId) => {
-        for (const sessionName of sessions) {
-          allContainerSessions.push({ sessionName, containerId })
-        }
-      })
+      const allContainerSessions = flattenContainerSessions(containerTmuxSessions)
 
       // Track which tmux sessions we've matched to DB records
       const matchedHostSessions = new Set<string>()
@@ -117,47 +90,20 @@ export default class SessionList extends PMOCommand {
         let actualSessionId = exec.sessionId
 
         // If sessionId is NULL, try to find session by naming convention
-        // Format: {ticketId}-{action}-{agentName}
         if (!exec.sessionId) {
-          // Try common action names to find the session
-          const possibleActions = ['Implement', 'implement', 'work', 'Review', 'review', 'Fix', 'fix']
-
           if (isContainer && exec.containerId) {
             const containerSessions = containerTmuxSessions.get(exec.containerId) || []
-            for (const action of possibleActions) {
-              const expectedName = buildExpectedSessionName(exec.ticketId, exec.agentName, action)
-              if (containerSessions.includes(expectedName)) {
-                actualSessionId = expectedName
-                exists = true
-                containerId = exec.containerId
-                break
-              }
-            }
-            // Also try partial match by ticket ID prefix
-            if (!actualSessionId) {
-              const match = containerSessions.find(s => s.startsWith(`${exec.ticketId}-`))
-              if (match) {
-                actualSessionId = match
-                exists = true
-                containerId = exec.containerId
-              }
+            const match = findSessionForExecution(exec.ticketId, exec.agentName, containerSessions)
+            if (match) {
+              actualSessionId = match
+              exists = true
+              containerId = exec.containerId
             }
           } else {
-            for (const action of possibleActions) {
-              const expectedName = buildExpectedSessionName(exec.ticketId, exec.agentName, action)
-              if (hostTmuxSessions.includes(expectedName)) {
-                actualSessionId = expectedName
-                exists = true
-                break
-              }
-            }
-            // Also try partial match by ticket ID prefix
-            if (!actualSessionId) {
-              const match = hostTmuxSessions.find(s => s.startsWith(`${exec.ticketId}-`))
-              if (match) {
-                actualSessionId = match
-                exists = true
-              }
+            const match = findSessionForExecution(exec.ticketId, exec.agentName, hostTmuxSessions)
+            if (match) {
+              actualSessionId = match
+              exists = true
             }
           }
 
@@ -186,9 +132,10 @@ export default class SessionList extends PMOCommand {
         }
 
         // Only include if session exists, unless --all flag
-        if (exists || flags.all) {
+        // Note: actualSessionId is guaranteed non-null here due to continue above
+        if ((exists || flags.all) && actualSessionId) {
           sessions.push({
-            sessionId: actualSessionId!,
+            sessionId: actualSessionId,
             ticketId: exec.ticketId,
             agentName: exec.agentName,
             status: exists ? exec.status : 'stale',
@@ -246,10 +193,10 @@ export default class SessionList extends PMOCommand {
         this.log(
           styles.muted(
             '  ' +
-            padEnd('Session', 34) +
-            padEnd('Ticket', 12) +
-            padEnd('Agent', 18) +
-            padEnd('Type', 15) +
+            'Session'.padEnd(34) +
+            'Ticket'.padEnd(12) +
+            'Agent'.padEnd(18) +
+            'Type'.padEnd(15) +
             'Status'
           )
         )
@@ -272,10 +219,10 @@ export default class SessionList extends PMOCommand {
 
           this.log(
             '  ' +
-            padEnd(displaySession, 34) +
-            padEnd(session.ticketId, 12) +
-            padEnd(session.agentName, 18) +
-            padEnd(typeIcon, 15) +
+            displaySession.padEnd(34) +
+            session.ticketId.padEnd(12) +
+            session.agentName.padEnd(18) +
+            typeIcon.padEnd(15) +
             statusColor(statusText)
           )
         }
@@ -326,65 +273,4 @@ export default class SessionList extends PMOCommand {
       db?.close()
     }
   }
-
-  /**
-   * Get list of host tmux session names
-   */
-  private getHostTmuxSessionNames(): string[] {
-    try {
-      execSync('which tmux', { stdio: 'pipe' })
-      const output = execSync(
-        'tmux list-sessions -F "#{session_name}"',
-        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-      ).trim()
-
-      if (!output) return []
-      return output.split('\n')
-    } catch {
-      return []
-    }
-  }
-
-  /**
-   * Get map of containerId -> tmux session names
-   */
-  private getContainerTmuxSessionMap(): Map<string, string[]> {
-    const sessionMap = new Map<string, string[]>()
-
-    try {
-      const containersOutput = execSync(
-        'docker ps --filter "label=devcontainer.local_folder" --format "{{.ID}}"',
-        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-      ).trim()
-
-      if (!containersOutput) return sessionMap
-
-      for (const containerId of containersOutput.split('\n')) {
-        try {
-          const tmuxOutput = execSync(
-            `docker exec ${containerId} tmux list-sessions -F "#{session_name}" 2>/dev/null`,
-            { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-          ).trim()
-
-          if (tmuxOutput) {
-            sessionMap.set(containerId, tmuxOutput.split('\n'))
-          }
-        } catch {
-          // Container has no tmux sessions
-        }
-      }
-    } catch {
-      // Docker not available
-    }
-
-    return sessionMap
-  }
-}
-
-// =============================================================================
-// Helper Functions
-// =============================================================================
-
-function padEnd(str: string, length: number): string {
-  return str.padEnd(length)
 }
