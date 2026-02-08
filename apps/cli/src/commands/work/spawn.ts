@@ -32,6 +32,7 @@ export default class WorkSpawn extends PMOCommand {
     '<%= config.bin %> <%= command.id %> TKT-001 TKT-002    # Spawn specific tickets by ID',
     '<%= config.bin %> <%= command.id %> --dry-run          # Preview without executing',
     '<%= config.bin %> <%= command.id %> --many --json      # Output ticket choices as JSON (for agents)',
+    '<%= config.bin %> <%= command.id %> TKT-001 --action custom --message "Add unit tests"  # Custom prompt',
   ]
 
   static flags = {
@@ -115,7 +116,10 @@ export default class WorkSpawn extends PMOCommand {
       default: false,
     }),
     action: Flags.string({
-      description: 'Action to perform (e.g., groom, implement, review). Prompts if not provided.',
+      description: 'Action to perform (e.g., groom, implement, review, custom). Prompts if not provided.',
+    }),
+    message: Flags.string({
+      description: 'Custom prompt/message for the agent (use with --action custom)',
     }),
     session: Flags.string({
       description: 'Session manager inside container (tmux runs agent in tmux inside container)',
@@ -607,6 +611,8 @@ export default class WorkSpawn extends PMOCommand {
       let batchNoPr = flags['no-pr']
       let batchRunOnHost = flags['run-on-host']
       let batchAction = flags.action
+      // Track custom message for custom action (needs to be outside the if block)
+      let batchCustomMessage: string | undefined = flags.message
       // Track display mode separately for devcontainer (needs to be outside the if block)
       let batchDisplayMode: string | undefined
 
@@ -632,14 +638,18 @@ export default class WorkSpawn extends PMOCommand {
               value: a.id,
             }))
 
-          // Add adhoc option at the end
+          // Add custom and adhoc options at the end
+          actionChoices.push({
+            name: 'custom       - Enter a custom prompt/instruction',
+            value: '__custom__',
+          })
           actionChoices.push({
             name: 'adhoc        - Unstructured exploration/debugging',
             value: '__adhoc__',
           })
 
-          // Use FlagResolver for action selection
-          const actionResolver = new FlagResolver<{ selectedAction?: string }>({
+          // Use FlagResolver for action selection with optional custom input
+          const actionResolver = new FlagResolver<{ selectedAction?: string; customInput?: string }>({
             commandName: 'work spawn',
             baseCommand: 'prlt work spawn',
             jsonMode,
@@ -654,13 +664,48 @@ export default class WorkSpawn extends PMOCommand {
             choices: () => actionChoices,
           })
 
+          actionResolver.addPrompt({
+            flagName: 'customInput',
+            type: 'input',
+            message: 'Enter custom prompt for the agent:',
+            when: (ctx) => ctx.flags.selectedAction === '__custom__',
+            validate: (value) => (value as string).trim() ? true : 'Prompt cannot be empty',
+          })
+
           const actionResult = await actionResolver.resolve()
           const selectedAction = actionResult.selectedAction
-          batchAction = selectedAction === '__adhoc__' ? 'adhoc' : selectedAction
+
+          if (selectedAction === '__custom__') {
+            batchAction = 'custom'
+            batchCustomMessage = (actionResult.customInput as string).trim()
+          } else if (selectedAction === '__adhoc__') {
+            batchAction = 'adhoc'
+          } else {
+            batchAction = selectedAction
+          }
+        } else if (flags.action === 'custom') {
+          // Custom action specified via flag - require --message
+          if (!flags.message) {
+            return handleError('MISSING_MESSAGE', '--action custom requires --message flag with the custom prompt')
+          }
+          batchAction = 'custom'
+          batchCustomMessage = flags.message
         }
 
         // Now fetch action details after selection is made
-        if (batchAction === 'adhoc') {
+        if (batchAction === 'custom') {
+          // Custom action - user provides their own prompt
+          selectedActionDetails = {
+            id: 'custom',
+            name: 'Custom',
+            description: 'Custom prompt/instruction',
+            prompt: batchCustomMessage || '',
+            modifiesCode: true, // Assume custom prompts may modify code
+            defaultMoveToCategory: 'started',
+            isBuiltin: false,
+            createdAt: new Date(),
+          }
+        } else if (batchAction === 'adhoc') {
           // Adhoc is a synthetic action, not stored in database
           selectedActionDetails = {
             id: 'adhoc',
@@ -1040,8 +1085,12 @@ export default class WorkSpawn extends PMOCommand {
             startArgs.push('--permission-mode', batchPermissionMode)
             if (batchCreatePr) startArgs.push('--create-pr')
             if (batchNoPr) startArgs.push('--no-pr')
-            // Pass action flag (from prompt or flag)
-            startArgs.push('--action', batchAction || 'implement')
+            // Pass action/prompt - custom action uses --prompt, others use --action
+            if (batchAction === 'custom' && batchCustomMessage) {
+              startArgs.push('--prompt', batchCustomMessage)
+            } else {
+              startArgs.push('--action', batchAction || 'implement')
+            }
             // Pass session manager (tmux inside container by default)
             if (flags.session) startArgs.push('--session', flags.session)
             // Pass focus flag (brings terminal to foreground)

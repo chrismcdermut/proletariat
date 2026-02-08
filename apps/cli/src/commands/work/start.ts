@@ -109,6 +109,7 @@ export default class WorkStart extends PMOCommand {
     '<%= config.bin %> <%= command.id %> TKT-001 --mode terminal',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
     '<%= config.bin %> <%= command.id %> --all  # Spawn all backlog tickets',
+    '<%= config.bin %> <%= command.id %> TKT-001 --prompt "Add unit tests for the API"  # Custom prompt',
   ]
 
   static args = {
@@ -673,6 +674,11 @@ export default class WorkStart extends PMOCommand {
         // Custom prompt overrides everything
         customPrompt = flags.prompt
       } else if (flags.action) {
+        // Handle special "custom" action - requires --prompt flag
+        if (flags.action === 'custom') {
+          db.close()
+          this.error('--action custom requires --prompt flag.\nUsage: prlt work start TKT-001 --prompt "your custom instructions"')
+        }
         // Specific action requested
         selectedAction = await this.storage.getAction(flags.action)
         if (!selectedAction) {
