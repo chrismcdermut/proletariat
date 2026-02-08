@@ -27,7 +27,7 @@ prlt epic progress EPC-001
 
 ## Output
 
-```
+```text
 EPC-001: User Authentication
 Progress: 60% (3/5 tickets done)
 

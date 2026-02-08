@@ -47,7 +47,7 @@ prlt work spawn-all \
 
 ## Output
 
-```
+```text
 Found 5 planned tickets
 Spawning agents...
   TKT-001 → bold-bezos

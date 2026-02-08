@@ -44,7 +44,7 @@ prlt work watch --column Backlog --action implement
 
 ## Output
 
-```
+```text
 Watching for new tickets...
 
 [12:34:56] New ticket: TKT-005

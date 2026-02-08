@@ -73,7 +73,7 @@ prlt work start TKT-001 --agent alice
 
 ## Output
 
-```
+```text
 ✓ Starting work on TKT-001
   Agent: bold-bezos
   Branch: feat/TKT-001-add-oauth

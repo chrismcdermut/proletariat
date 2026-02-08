@@ -35,7 +35,7 @@ prlt work complete TKT-001
 
 ## Output
 
-```
+```text
 ✓ Completed TKT-001
   Moved to: Done
 ```

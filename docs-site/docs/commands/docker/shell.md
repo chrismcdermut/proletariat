@@ -5,7 +5,7 @@ title: docker shell
 
 # prlt docker shell
 
-Shell into a container.
+Open a shell in a container.
 
 ## Usage
 

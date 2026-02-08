@@ -76,7 +76,7 @@ prlt work spawn TKT-001 TKT-002 \
 
 ## Output
 
-```
+```text
 Spawning 3 agents...
   TKT-001 → bold-bezos
   TKT-002 → keen-gates

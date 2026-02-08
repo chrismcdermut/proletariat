@@ -42,7 +42,7 @@ prlt work ready TKT-001 --pr
 
 ## Output
 
-```
+```text
 ✓ TKT-001 ready for review
   Moved to: In Review
   PR: https://github.com/org/repo/pull/123

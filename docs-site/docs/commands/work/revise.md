@@ -42,7 +42,7 @@ prlt work revise TKT-001 --comment "Need tests for edge cases"
 
 ## Output
 
-```
+```text
 ✓ Requested revision for TKT-001
   Moved to: In Progress
   Comment: Need tests for edge cases
