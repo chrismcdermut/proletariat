@@ -1,13 +1,10 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class RoadmapDelete extends PMOCommand {
@@ -63,27 +60,17 @@ export default class RoadmapDelete extends PMOCommand {
         this.error('No roadmaps found.');
       }
 
-      if (jsonMode) {
-        const choices = roadmaps.map(r => ({
-          name: `${r.name}${r.isDefault ? ' (default)' : ''}`,
-          value: r.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select roadmap to delete:', choices),
-          createMetadata('roadmap delete', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt<{ selected: string }>([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'roadmap delete' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select roadmap to delete:',
         choices: roadmaps.map(r => ({
           name: `${r.name}${r.isDefault ? ' (default)' : ''}`,
           value: r.id,
+          command: `prlt roadmap delete "${r.id}" --json`,
         })),
-      }]);
+      }], jsonModeConfig);
       roadmapId = selected;
     }
 
@@ -116,27 +103,16 @@ export default class RoadmapDelete extends PMOCommand {
     if (!flags.force) {
       const message = `Delete roadmap "${roadmap.name}"${projects.length > 0 ? ` (contains ${projects.length} project reference${projects.length > 1 ? 's' : ''})` : ''}?`;
 
-      if (jsonMode) {
-        const confirmChoices = [
-          { name: 'No, cancel', value: 'false' },
-          { name: 'Yes, delete', value: 'true' },
-        ];
-        outputPromptAsJson(
-          buildPromptConfig('list', 'confirmed', message, confirmChoices),
-          createMetadata('roadmap delete', flags)
-        );
-        return;
-      }
-
-      const { confirm } = await inquirer.prompt<{ confirm: boolean }>([{
+      const confirmJsonModeConfig = jsonMode ? { flags, commandName: 'roadmap delete' } : null;
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message,
         choices: [
-          { name: 'No, cancel', value: false },
-          { name: 'Yes, delete', value: true },
+          { name: 'No, cancel', value: false, command: '' },
+          { name: 'Yes, delete', value: true, command: `prlt roadmap delete "${roadmapId}" --force --json` },
         ],
-      }]);
+      }], confirmJsonModeConfig);
 
       if (!confirm) {
         this.log(styles.muted('Cancelled.'));

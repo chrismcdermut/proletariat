@@ -1,17 +1,14 @@
 import { Args, Flags } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { slugify } from '../../lib/pmo/utils.js';
 import { normalizePriority, PRIORITIES } from '../../lib/pmo/types.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class RoadmapGenerate extends PMOCommand {
@@ -89,27 +86,17 @@ export default class RoadmapGenerate extends PMOCommand {
         this.error('No roadmaps found. Create one with: prlt roadmap create');
       }
 
-      if (jsonMode) {
-        const choices = roadmaps.map(r => ({
-          name: `${r.name}${r.isDefault ? ' (default)' : ''}`,
-          value: r.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select roadmap to generate:', choices),
-          createMetadata('roadmap generate', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt<{ selected: string }>([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'roadmap generate' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select roadmap to generate:',
         choices: roadmaps.map(r => ({
           name: `${r.name}${r.isDefault ? ' (default)' : ''}`,
           value: r.id,
+          command: `prlt roadmap generate "${r.id}" --json`,
         })),
-      }]);
+      }], jsonModeConfig);
       roadmapId = selected;
     }
 

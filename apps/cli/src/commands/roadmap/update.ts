@@ -1,15 +1,10 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
-  buildFormPromptConfig,
-  FormField,
 } from '../../lib/prompt-json.js';
 
 export default class RoadmapUpdate extends PMOCommand {
@@ -71,27 +66,17 @@ export default class RoadmapUpdate extends PMOCommand {
         this.error('No roadmaps found. Create one with: prlt roadmap create');
       }
 
-      if (jsonMode) {
-        const choices = roadmaps.map(r => ({
-          name: `${r.name}${r.isDefault ? ' (default)' : ''}`,
-          value: r.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select roadmap to update:', choices),
-          createMetadata('roadmap update', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt<{ selected: string }>([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'roadmap update' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select roadmap to update:',
         choices: roadmaps.map(r => ({
           name: `${r.name}${r.isDefault ? ' (default)' : ''}`,
           value: r.id,
+          command: `prlt roadmap update "${r.id}" --json`,
         })),
-      }]);
+      }], jsonModeConfig);
       roadmapId = selected;
     }
 
@@ -108,34 +93,37 @@ export default class RoadmapUpdate extends PMOCommand {
     const hasUpdateFlags = flags.name !== undefined || flags.description !== undefined || flags.default !== undefined;
 
     if (!hasUpdateFlags) {
-      const fields: FormField[] = [
-        { type: 'input', name: 'name', message: 'New name (leave blank to keep current):', default: roadmap.name },
-        { type: 'input', name: 'description', message: 'New description (leave blank to keep current):', default: roadmap.description || '' },
-        {
-          type: 'list',
-          name: 'isDefault',
-          message: 'Set as default roadmap?',
-          choices: [
-            { name: 'No change', value: 'no-change' },
-            { name: 'Yes', value: 'yes' },
-            { name: 'No', value: 'no' },
-          ],
-        },
-      ];
+      const formJsonModeConfig = jsonMode ? { flags, commandName: 'roadmap update' } : null;
 
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildFormPromptConfig(fields),
-          createMetadata('roadmap update', flags)
-        );
-        return;
-      }
+      // Prompt for name
+      const { name } = await this.prompt<{ name: string }>([{
+        type: 'input',
+        name: 'name',
+        message: 'New name (leave blank to keep current):',
+        default: roadmap.name,
+      }], formJsonModeConfig);
 
-      const answers = await inquirer.prompt<{
-        name: string;
-        description: string;
-        isDefault: string;
-      }>(fields);
+      // Prompt for description
+      const { description } = await this.prompt<{ description: string }>([{
+        type: 'input',
+        name: 'description',
+        message: 'New description (leave blank to keep current):',
+        default: roadmap.description || '',
+      }], formJsonModeConfig);
+
+      // Prompt for isDefault
+      const { isDefault } = await this.prompt<{ isDefault: string }>([{
+        type: 'list',
+        name: 'isDefault',
+        message: 'Set as default roadmap?',
+        choices: [
+          { name: 'No change', value: 'no-change', command: '' },
+          { name: 'Yes', value: 'yes', command: `prlt roadmap update "${roadmapId}" --default --json` },
+          { name: 'No', value: 'no', command: `prlt roadmap update "${roadmapId}" --no-default --json` },
+        ],
+      }], formJsonModeConfig);
+
+      const answers = { name, description, isDefault };
 
       const changes: { name?: string; description?: string; isDefault?: boolean } = {};
       if (answers.name && answers.name !== roadmap.name) {
