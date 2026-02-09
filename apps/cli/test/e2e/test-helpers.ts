@@ -257,18 +257,11 @@ export function getBinPath(): string {
  */
 export function exec(cmd: string): string {
   try {
-    const cliDir = path.join(__dirname, '../..');
-    const binPath = path.join(cliDir, 'bin/run.js');
-
-    // Get isolated env (production mode for oclif) and set HQ path to current test directory
-    const env = getIsolatedEnv('production');
-    env.PRLT_HQ_PATH = process.cwd();
-    env.PRLT_TEST_ENV = 'true'; // Required for PRLT_HQ_PATH to be respected in tests
-
+    const binPath = getBinPath();
     const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
-      cwd: cliDir, // Run from CLI dir so oclif finds commands
-      env,
+      cwd: process.cwd(),
+      env: getIsolatedEnv(),
       maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large JSON output
     });
     return filterOutput(result);
