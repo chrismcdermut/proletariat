@@ -25,7 +25,7 @@ export default class Discover extends Command {
     json: Flags.boolean({
       char: 'm',
       aliases: ['machine'],
-      description: 'Output as JSON for AI agents/scripts',
+      description: 'Output discovery results as JSON',
       default: false,
     }),
   };
