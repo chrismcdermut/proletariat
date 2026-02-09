@@ -172,7 +172,7 @@ export default class TicketMove extends PMOCommand {
 
         // If user chose different project, handle cross-project move
         if (moveType === 'project') {
-          const targetProject = await this.selectFromList({
+          const targetProjectId = await this.selectFromList({
             message: 'Select target project:',
             items: otherProjects,
             getName: (p) => `${p.name} (${p.id})`,
@@ -181,11 +181,30 @@ export default class TicketMove extends PMOCommand {
             jsonMode: jsonMode ? { flags, commandName: 'ticket move' } : null,
           });
 
-          if (!targetProject) {
+          if (!targetProjectId) {
             return; // Cancelled or JSON mode
           }
 
-          await this.executeCrossProjectMove(ticket, targetProject, undefined, jsonMode, flags);
+          // Get columns from target project and ask which column to move to
+          const targetProjectBoard = await this.storage.getProjectBoard(targetProjectId);
+          if (!targetProjectBoard) {
+            this.error('Target project not found.');
+          }
+
+          const targetColumnName = await this.selectFromList({
+            message: 'Move to column:',
+            items: targetProjectBoard.columns as { name: string }[],
+            getName: (col) => col.name,
+            getValue: (col) => col.name,
+            getCommand: (col) => `prlt ticket move ${ticketId} "${col.name}" --to-project ${targetProjectId} --json`,
+            jsonMode: jsonMode ? { flags, commandName: 'ticket move' } : null,
+          });
+
+          if (!targetColumnName) {
+            return; // Cancelled or JSON mode
+          }
+
+          await this.executeCrossProjectMove(ticket, targetProjectId, targetColumnName, jsonMode, flags);
           return;
         }
       }
