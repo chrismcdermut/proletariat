@@ -9,6 +9,18 @@ const __dirname = path.dirname(__filename);
 // Root directory for the CLI - needed for @oclif/test to find commands
 const root = path.resolve(__dirname, '../..');
 
+// Isolated env to prevent test commands from polluting production database
+function getIsolatedEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.PRLT_HQ_PATH;
+  delete env.PRLT_PMO_PATH;
+  delete env.PRLT_DATABASE_PATH;
+  delete env.PRLT_CONFIG_PATH;
+  delete env.DEVCONTAINER;
+  delete env.PRLT_TEST_ENV;
+  return env;
+}
+
 // Helper to run CLI commands directly and get stdout
 function runCli(args: string[]): string {
   const binPath = path.join(root, 'bin', 'run.js');
@@ -17,6 +29,7 @@ function runCli(args: string[]): string {
       cwd: root,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: getIsolatedEnv(),
     });
   } catch (error: unknown) {
     // Return stdout even on error (for --help commands that may exit with code 0)
@@ -32,6 +45,7 @@ function runCliWithError(args: string[]): { stdout: string; stderr: string; exit
       cwd: root,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: getIsolatedEnv(),
     });
     return { stdout, stderr: '', exitCode: 0 };
   } catch (error: unknown) {

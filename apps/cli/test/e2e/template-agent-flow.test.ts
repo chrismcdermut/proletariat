@@ -37,12 +37,25 @@ interface AgentPromptResponse {
   };
 }
 
+// Isolated env to prevent test commands from polluting production database
+function getIsolatedEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.PRLT_HQ_PATH;
+  delete env.PRLT_PMO_PATH;
+  delete env.PRLT_DATABASE_PATH;
+  delete env.PRLT_CONFIG_PATH;
+  delete env.DEVCONTAINER;
+  delete env.PRLT_TEST_ENV;
+  return env;
+}
+
 // Helper to run CLI and get output
 function runCli(args: string): string {
   try {
     return execSync(`node ${CLI_PATH} ${args} 2>&1`, {
       encoding: 'utf-8',
       timeout: 30000,
+      env: getIsolatedEnv(),
     });
   } catch (error) {
     // JSON mode exits with code 2, so we catch and return output
