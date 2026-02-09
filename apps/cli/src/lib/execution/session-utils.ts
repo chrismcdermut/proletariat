@@ -82,10 +82,12 @@ export function buildExpectedSessionName(ticketId: string, agentName: string, ac
 
 /**
  * Check if a session name matches the expected pattern for a ticket and agent.
- * Verifies both the ticket ID prefix and agent name suffix.
+ * Parses the session name and verifies the ticket ID and agent name match exactly.
  */
 export function sessionMatchesExecution(sessionName: string, ticketId: string, agentName: string): boolean {
-  return sessionName.startsWith(`${ticketId}-`) && sessionName.endsWith(`-${agentName}`)
+  const parsed = parseSessionName(sessionName)
+  if (!parsed) return false
+  return parsed.ticketId === ticketId && parsed.agentName === agentName
 }
 
 /**
