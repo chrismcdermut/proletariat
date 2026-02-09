@@ -14,6 +14,16 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLI_PATH="$SCRIPT_DIR/apps/cli/bin/run.js"
 
+# Clear environment variables that could cause test data to leak into production databases.
+# In devcontainer environments, PRLT_HQ_PATH and DEVCONTAINER are set and would cause the CLI
+# to use the production database at /hq/.proletariat/workspace.db instead of the test directory.
+unset PRLT_HQ_PATH
+unset PRLT_PMO_PATH
+unset PRLT_DATABASE_PATH
+unset PRLT_CONFIG_PATH
+unset DEVCONTAINER
+unset PRLT_TEST_ENV
+
 # Build the CLI
 echo "📦 Building CLI..."
 npm run build

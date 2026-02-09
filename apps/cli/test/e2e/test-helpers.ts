@@ -43,6 +43,8 @@ const ISOLATION_ENV_VARS = [
   'PRLT_PMO_PATH',
   'PRLT_DATABASE_PATH',
   'PRLT_CONFIG_PATH',
+  'DEVCONTAINER',
+  'PRLT_TEST_ENV',
 ];
 
 export interface TestEnvironment {
