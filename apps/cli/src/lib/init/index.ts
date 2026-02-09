@@ -24,6 +24,8 @@ import {
   getOrganizations,
   createOrganization,
 } from '../machine-config.js';
+import { hasGitHubRemote } from '../repos/git.js';
+import { isGHInstalled, isGHAuthenticated } from '../pr/index.js';
 
 export interface HQConfig {
   type: 'hq';
@@ -385,6 +387,25 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
   });
 
   addRepositoriesToDatabase(hqPath, dbRepos);
+
+  // Check for repos without GitHub remotes (only in interactive mode)
+  if (!quiet && addedRepos.length > 0) {
+    const reposPath = path.join(hqPath, 'repos');
+    const reposWithoutRemote: string[] = [];
+
+    for (const repoName of addedRepos) {
+      const repoFullPath = path.join(reposPath, repoName);
+      if (fs.existsSync(repoFullPath) && !hasGitHubRemote(repoFullPath)) {
+        reposWithoutRemote.push(repoName);
+      }
+    }
+
+    if (reposWithoutRemote.length > 0 && isGHInstalled() && isGHAuthenticated()) {
+      log(chalk.yellow(`\n⚠️  The following repos have no GitHub remote: ${reposWithoutRemote.join(', ')}`));
+      log(chalk.gray('   Without a remote, agents cannot create pull requests.'));
+      log(chalk.gray('   You can create GitHub repos later with: prlt repo create'));
+    }
+  }
 
   // Create PMO if requested
   if (pmoSetup.includePMO) {

@@ -39,6 +39,7 @@ export default class GH extends Command {
         { name: 'Check status', value: 'status', command: 'prlt gh status --json' },
         { name: 'Login to GitHub', value: 'login', command: 'prlt gh login --json' },
         { name: 'Show GH_TOKEN setup', value: 'token', command: 'prlt gh token --json' },
+        { name: 'Create GitHub repository', value: 'repo-create', command: 'prlt repo create --json' },
       ],
       skipAutoCommand: true,  // Use our custom commands above
     });
@@ -56,6 +57,9 @@ export default class GH extends Command {
         break;
       case 'token':
         await this.config.runCommand('gh token');
+        break;
+      case 'repo-create':
+        await this.config.runCommand('repo create');
         break;
     }
   }
