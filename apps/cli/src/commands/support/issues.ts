@@ -23,6 +23,7 @@ export default class SupportIssues extends Command {
     browser: Flags.boolean({
       description: 'Open issues in browser (default behavior)',
       default: true,
+      allowNo: true,
     }),
   };
 
