@@ -16,6 +16,11 @@ const hook: Hook<'init'> = async function ({ id, config }) {
     return
   }
 
+  // Skip when --help flag is present - help should always be available
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    return
+  }
+
   // Skip for help-related commands/flags
   // When user runs just `prlt` with no args, id is undefined
   if (!id || id === 'help') {
