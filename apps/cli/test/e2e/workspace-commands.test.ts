@@ -21,7 +21,7 @@ describe('Workspace Commands E2E Tests', () => {
     originalHome = process.env.HOME;
 
     // Create a temp directory for testing
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-e2e-'));
+    testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-e2e-')));
     process.env.HOME = testDir;
 
     // Create two test workspaces
@@ -100,8 +100,8 @@ describe('Workspace Commands E2E Tests', () => {
       expect(fs.existsSync(configPath)).to.be.true;
 
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      expect(config.workspaces).to.have.length(1);
-      expect(config.workspaces[0].path).to.equal(testWorkspace1);
+      expect(config.headquarters).to.have.length(1);
+      expect(config.headquarters[0].path).to.equal(testWorkspace1);
     });
 
     it('should register with custom name', () => {
@@ -112,7 +112,7 @@ describe('Workspace Commands E2E Tests', () => {
 
       const configPath = path.join(testDir, '.proletariat', 'config.json');
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      expect(config.workspaces[0].name).to.equal('My Custom Name');
+      expect(config.headquarters[0].name).to.equal('My Custom Name');
     });
 
     it('should reject non-workspace directories', () => {
@@ -193,7 +193,7 @@ describe('Workspace Commands E2E Tests', () => {
 
       const configPath = path.join(testDir, '.proletariat', 'config.json');
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      expect(config.activeWorkspace).to.equal(testWorkspace2);
+      expect(config.activeHeadquarters).to.equal(testWorkspace2);
     });
 
     it('should switch active workspace by path', () => {
@@ -236,8 +236,8 @@ describe('Workspace Commands E2E Tests', () => {
       // Verify removed from config
       const configPath = path.join(testDir, '.proletariat', 'config.json');
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      expect(config.workspaces).to.have.length(1);
-      expect(config.workspaces[0].name).to.equal('workspace-two');
+      expect(config.headquarters).to.have.length(1);
+      expect(config.headquarters[0].name).to.equal('workspace-two');
     });
 
     it('should unregister workspace by path', () => {
@@ -252,7 +252,7 @@ describe('Workspace Commands E2E Tests', () => {
 
       const configPath = path.join(testDir, '.proletariat', 'config.json');
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      expect(config.activeWorkspace).to.be.null;
+      expect(config.activeHeadquarters).to.be.null;
     });
 
     it('should reject non-existent workspace', () => {
@@ -273,7 +273,7 @@ describe('Workspace Commands E2E Tests', () => {
 
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
       expect(config.version).to.equal('1.0.0');
-      expect(config.workspaces).to.be.an('array');
+      expect(config.headquarters).to.be.an('array');
     });
   });
 
