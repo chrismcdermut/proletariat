@@ -1,6 +1,7 @@
-import { Command, Args, Flags } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
+import { PromptCommand } from '../../lib/prompt-command.js';
 import {
   getWorkspaceInfo,
   validateAgentNames,
@@ -21,7 +22,7 @@ import {
   buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
-export default class Add extends Command {
+export default class Add extends PromptCommand {
   static description = 'Add new agents to the workspace';
 
   static examples = [
@@ -116,13 +117,13 @@ export default class Add extends Command {
         }
 
         // Interactive selection from theme
-        const { selected } = await inquirer.prompt([{
+        const { selected } = await this.prompt<{ selected: string[] }>([{
           type: 'checkbox',
           name: 'selected',
           message: selectMessage,
           choices: nameChoices,
-          validate: (input) => input.length > 0 || 'Please select at least one name'
-        }]);
+          validate: (input: unknown) => (input as string[]).length > 0 || 'Please select at least one name'
+        }], null);
 
         agentNames = selected;
       }
@@ -172,29 +173,29 @@ export default class Add extends Command {
             { name: chalk.blue(nameChoices[nameChoices.length - 1].name), value: nameChoices[nameChoices.length - 1].value }
           ];
 
-          const { selected } = await inquirer.prompt([{
+          const { selected } = await this.prompt<{ selected: string[] }>([{
             type: 'checkbox',
             name: 'selected',
             message: selectMessage,
             choices,
             pageSize: 20,
-            validate: (input) => input.length > 0 || 'Please select at least one name'
-          }]);
+            validate: (input: unknown) => (input as string[]).length > 0 || 'Please select at least one name'
+          }], null);
 
           // Check if custom was selected
           const hasCustom = selected.includes('__custom__');
           const themedSelections = selected.filter((s: string) => s !== '__custom__');
 
           if (hasCustom) {
-            const { customNames } = await inquirer.prompt([{
+            const { customNames } = await this.prompt<{ customNames: string }>([{
               type: 'input',
               name: 'customNames',
               message: 'Enter custom agent names (space-separated):',
-              validate: (input: string) => {
-                if (!input.trim()) return 'Please enter at least one name';
+              validate: (input: unknown) => {
+                if (!(input as string).trim()) return 'Please enter at least one name';
                 return true;
               }
-            }]);
+            }], null);
             const rawNames = customNames.trim().split(/\s+/);
             const normalizedCustom = rawNames.map((n: string) => normalizeAgentName(n)).filter((n: string) => n && isValidAgentName(n));
             agentNames.push(...normalizedCustom);
@@ -240,23 +241,23 @@ export default class Add extends Command {
             { name: chalk.blue(themeChoices[themeChoices.length - 1].name), value: themeChoices[themeChoices.length - 1].value }
           ];
 
-          const { selectedTheme } = await inquirer.prompt([{
+          const { selectedTheme } = await this.prompt<{ selectedTheme: string }>([{
             type: 'list',
             name: 'selectedTheme',
             message: selectMessage,
             choices: interactiveChoices
-          }]);
+          }], null);
 
           if (selectedTheme === '__custom__') {
-            const { customNames } = await inquirer.prompt([{
+            const { customNames } = await this.prompt<{ customNames: string }>([{
               type: 'input',
               name: 'customNames',
               message: 'Enter custom agent names (space-separated):',
-              validate: (input: string) => {
-                if (!input.trim()) return 'Please enter at least one name';
+              validate: (input: unknown) => {
+                if (!(input as string).trim()) return 'Please enter at least one name';
                 return true;
               }
-            }]);
+            }], null);
             const rawNames = customNames.trim().split(/\s+/);
             const normalizedCustom = rawNames.map((n: string) => ({
               original: n,
@@ -277,14 +278,14 @@ export default class Add extends Command {
             const theme = getTheme(workspaceInfo.path, selectedTheme);
             const availableNames = getAvailableThemeNames(workspaceInfo.path, selectedTheme);
 
-            const { selected } = await inquirer.prompt([{
+            const { selected } = await this.prompt<{ selected: string[] }>([{
               type: 'checkbox',
               name: 'selected',
               message: `Select agents from ${theme?.display_name}:`,
               choices: availableNames.map(name => ({ name, value: name })),
               pageSize: 20,
-              validate: (input) => input.length > 0 || 'Please select at least one name'
-            }]);
+              validate: (input: unknown) => (input as string[]).length > 0 || 'Please select at least one name'
+            }], null);
 
             agentNames = selected;
           }

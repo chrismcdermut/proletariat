@@ -1,9 +1,9 @@
-import { Command, Flags } from '@oclif/core';
+import { Flags } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import chalk from 'chalk';
-import inquirer from 'inquirer';
+import { PromptCommand } from '../../lib/prompt-command.js';
 import Database from 'better-sqlite3';
 import {
   SQLiteStorage,
@@ -29,7 +29,7 @@ import {
 // Build template options dynamically from shared definitions (picker templates + custom)
 const PICKER_TEMPLATE_IDS = [...getPickerTemplates().map(t => t.id), 'custom'];
 
-export default class PMOInit extends Command {
+export default class PMOInit extends PromptCommand {
   static description = 'Initialize PMO (Project Management Org) in current directory or HQ';
 
   static examples = [
@@ -318,13 +318,13 @@ export default class PMOInit extends Command {
       this.log(chalk.gray(`   Projects: ${projectCount}`));
       this.log(chalk.gray(`   Tickets: ${ticketCount}\n`));
 
-      const result = await inquirer.prompt([{
+      const result = await this.prompt<{ action: string }>([{
         type: 'list',
         name: 'action',
         message: 'What would you like to do?',
         choices: actionChoices,
         default: 'cancel',
-      }]);
+      }], null);
       action = result.action;
     }
 
@@ -357,11 +357,11 @@ export default class PMOInit extends Command {
       this.log(chalk.red('   • All specs and documentation'));
       this.log(chalk.red('   • Database tables (pmo_*)\n'));
 
-      const result = await inquirer.prompt([{
+      const result = await this.prompt<{ confirmation: string }>([{
         type: 'input',
         name: 'confirmation',
         message: 'Type "delete pmo" to confirm:',
-      }]);
+      }], null);
       confirmation = result.confirmation;
     }
 

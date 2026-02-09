@@ -1,5 +1,4 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { CategoryType } from '../../lib/pmo/types.js';
@@ -95,7 +94,7 @@ export default class CategoryDelete extends PMOCommand {
 
     // Confirm deletion
     if (!jsonMode) {
-      const { confirmed } = await inquirer.prompt([{
+      const { confirmed } = await this.prompt<{ confirmed: boolean }>([{
         type: 'list',
         name: 'confirmed',
         message: `Are you sure you want to delete category "${name}"?`,
@@ -103,7 +102,7 @@ export default class CategoryDelete extends PMOCommand {
           { name: 'Yes, delete it', value: true },
           { name: 'No, cancel', value: false },
         ],
-      }]);
+      }], null);
 
       if (!confirmed) {
         this.log(styles.muted('Deletion cancelled.'));
