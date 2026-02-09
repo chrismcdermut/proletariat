@@ -31,6 +31,7 @@ export default class Repo extends PMOCommand {
     const menuChoices = [
       { name: 'List all repositories', value: 'list', command: 'prlt repo list --json' },
       { name: 'Add repository', value: 'add', command: 'prlt repo add --json' },
+      { name: 'Create GitHub repository', value: 'create', command: 'prlt repo create --json' },
       { name: 'Remove repository', value: 'remove', command: 'prlt repo remove --json' },
       { name: 'View repository details', value: 'view', command: 'prlt repo view --json' },
       { name: 'Add multiple repositories', value: 'add-bulk', command: 'prlt repo add --bulk --json' },
@@ -66,6 +67,12 @@ export default class Repo extends PMOCommand {
         case 'list': {
           const { default: ListCommand } = await import('./list.js');
           const cmd = new ListCommand([], this.config);
+          await cmd.run();
+          break;
+        }
+        case 'create': {
+          const { default: CreateCommand } = await import('./create.js');
+          const cmd = new CreateCommand([], this.config);
           await cmd.run();
           break;
         }

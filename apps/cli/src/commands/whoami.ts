@@ -13,6 +13,7 @@ export default class Whoami extends Command {
   ];
 
   async run(): Promise<void> {
+    await this.parse(Whoami);
     const isDevcontainer = process.env.DEVCONTAINER === 'true';
     const agentName = this.detectAgentName();
     const repoName = this.detectRepoName();

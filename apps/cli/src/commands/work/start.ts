@@ -2,7 +2,6 @@ import { Args, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { execSync } from 'node:child_process'
-import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import {
@@ -111,6 +110,7 @@ export default class WorkStart extends PMOCommand {
     '<%= config.bin %> <%= command.id %> TKT-001 --mode terminal',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
     '<%= config.bin %> <%= command.id %> --all  # Spawn all backlog tickets',
+    '<%= config.bin %> <%= command.id %> TKT-001 --prompt "Add unit tests for the API"  # Custom prompt',
   ]
 
   static args = {
@@ -245,6 +245,7 @@ export default class WorkStart extends PMOCommand {
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
+    const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work start' } : null
 
     // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
@@ -743,6 +744,11 @@ export default class WorkStart extends PMOCommand {
         // Custom prompt overrides everything
         customPrompt = flags.prompt
       } else if (flags.action) {
+        // Handle special "custom" action - requires --prompt flag
+        if (flags.action === 'custom') {
+          db.close()
+          this.error('--action custom requires --prompt flag.\nUsage: prlt work start TKT-001 --action custom --prompt "your custom instructions"')
+        }
         // Specific action requested
         selectedAction = await this.storage.getAction(flags.action)
         if (!selectedAction) {
@@ -919,7 +925,7 @@ export default class WorkStart extends PMOCommand {
         let environmentSelected = false
         while (!environmentSelected) {
           // eslint-disable-next-line no-await-in-loop -- Interactive loop with retry on Docker check
-          const { selectedEnvironment } = await inquirer.prompt([
+          const { selectedEnvironment } = await this.prompt<{ selectedEnvironment: string }>([
             {
               type: 'list',
               name: 'selectedEnvironment',
@@ -927,7 +933,7 @@ export default class WorkStart extends PMOCommand {
               choices: envChoices,
               default: devcontainerReady ? 'devcontainer' : 'host',
             },
-          ])
+          ], jsonModeConfig)
 
           if (selectedEnvironment === 'cancel') {
             db.close()
@@ -1010,19 +1016,19 @@ export default class WorkStart extends PMOCommand {
                 environment = 'host'
                 // Skip to host mode prompts
                 // eslint-disable-next-line no-await-in-loop -- Follow-up prompt after user selection
-                const { selectedDisplay } = await inquirer.prompt([
+                const { selectedDisplay } = await this.prompt<{ selectedDisplay: string }>([
                   {
                     type: 'list',
                     name: 'selectedDisplay',
                     message: 'How should the agent output be displayed?',
                     choices: [
-                      { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-                      { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
-                      { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+                      { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal', command: `prlt work start ${ticketId} --display terminal --run-on-host --json` },
+                      { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground', command: `prlt work start ${ticketId} --display foreground --run-on-host --json` },
+                      { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background', command: `prlt work start ${ticketId} --display background --run-on-host --json` },
                     ],
                     default: 'terminal',
                   },
-                ])
+                ], jsonModeConfig)
                 displayMode = selectedDisplay as DisplayMode
                 environmentSelected = true
                 continue
@@ -1033,19 +1039,19 @@ export default class WorkStart extends PMOCommand {
             environment = 'devcontainer'
             // Pick display mode for devcontainer
             // eslint-disable-next-line no-await-in-loop -- Follow-up prompt after selection
-            const { selectedDisplay } = await inquirer.prompt([
+            const { selectedDisplay } = await this.prompt<{ selectedDisplay: string }>([
               {
                 type: 'list',
                 name: 'selectedDisplay',
                 message: 'How should the agent output be displayed?',
                 choices: [
-                  { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-                  { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
-                  { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+                  { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal', command: `prlt work start ${ticketId} --display terminal --json` },
+                  { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground', command: `prlt work start ${ticketId} --display foreground --json` },
+                  { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background', command: `prlt work start ${ticketId} --display background --json` },
                 ],
                 default: 'terminal',
               },
-            ])
+            ], jsonModeConfig)
             displayMode = selectedDisplay as DisplayMode
             environment = 'devcontainer'
             environmentSelected = true
@@ -1053,19 +1059,19 @@ export default class WorkStart extends PMOCommand {
             // User chose host
             environment = 'host'
             // eslint-disable-next-line no-await-in-loop -- Follow-up prompt after selection
-            const { selectedDisplay } = await inquirer.prompt([
+            const { selectedDisplay } = await this.prompt<{ selectedDisplay: string }>([
               {
                 type: 'list',
                 name: 'selectedDisplay',
                 message: 'How should the agent output be displayed?',
                 choices: [
-                  { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-                  { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground' },
-                  { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+                  { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal', command: `prlt work start ${ticketId} --display terminal --run-on-host --json` },
+                  { name: '▶️  Foreground  - Run in current terminal (blocking)', value: 'foreground', command: `prlt work start ${ticketId} --display foreground --run-on-host --json` },
+                  { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background', command: `prlt work start ${ticketId} --display background --run-on-host --json` },
                 ],
                 default: 'terminal',
               },
-            ])
+            ], jsonModeConfig)
             displayMode = selectedDisplay as DisplayMode
             environmentSelected = true
           }
@@ -1197,7 +1203,7 @@ export default class WorkStart extends PMOCommand {
               this.log('')
 
               // Wait for user to complete auth
-              await inquirer.prompt([{
+              await this.prompt<{ done: string }>([{
                 type: 'input',
                 name: 'done',
                 message: 'Press Enter when authentication is complete:',
@@ -1380,14 +1386,14 @@ export default class WorkStart extends PMOCommand {
 
           if (branchChoice === 'enter') {
             // User enters existing branch name
-            const { enteredBranch } = await inquirer.prompt([
+            const { enteredBranch } = await this.prompt<{ enteredBranch: string }>([
               {
                 type: 'input',
                 name: 'enteredBranch',
                 message: 'Enter branch name:',
-                validate: (input: string) => input.trim() ? true : 'Branch name required',
+                validate: (input: unknown) => (input as string).trim() ? true : 'Branch name required',
               },
-            ])
+            ], jsonModeConfig)
             finalBranch = enteredBranch.trim()
 
             // Validate branch exists (locally or in origin)
@@ -1419,19 +1425,18 @@ export default class WorkStart extends PMOCommand {
 
             if (remoteBranches.length > 0) {
               const branchChoices = [
-                ...remoteBranches.map(b => ({ name: b, value: b.replace('origin/', '') })),
-                new inquirer.Separator(),
-                { name: 'None of these, create new branch', value: '__create__' },
+                ...remoteBranches.map(b => ({ name: b, value: b.replace('origin/', ''), command: `prlt work start ${ticketId} --json` })),
+                { name: '── None of these, create new branch ──', value: '__create__', command: `prlt work start ${ticketId} --json` },
               ]
 
-              const { selectedBranch } = await inquirer.prompt([
+              const { selectedBranch } = await this.prompt<{ selectedBranch: string }>([
                 {
                   type: 'list',
                   name: 'selectedBranch',
                   message: `Found ${remoteBranches.length} matching branch(es):`,
                   choices: branchChoices,
                 },
-              ])
+              ], jsonModeConfig)
 
               if (selectedBranch !== '__create__') {
                 finalBranch = selectedBranch
@@ -1706,8 +1711,11 @@ export default class WorkStart extends PMOCommand {
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
     db: Database.Database,
     executionStorage: ExecutionStorage,
-    flags: { display?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean; 'permission-mode'?: string }
+    flags: { display?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean; 'permission-mode'?: string; json?: boolean }
   ): Promise<void> {
+    const batchJsonMode = shouldOutputJson(flags as { json?: boolean })
+    const batchJsonModeConfig = batchJsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work start' } : null
+
     // Get all tickets and filter to backlog/unstarted (not in progress)
     // Note: In batch mode, we get all tickets across all projects (pass undefined for projectId)
     // eslint-disable-next-line unicorn/no-useless-undefined
@@ -1755,17 +1763,17 @@ export default class WorkStart extends PMOCommand {
     this.log('')
 
     // Confirm before batch spawning
-    const { confirm } = await inquirer.prompt([
+    const { confirm } = await this.prompt<{ confirm: boolean }>([
       {
         type: 'list',
         name: 'confirm',
         message: `Start work on ${backlogTickets.length} tickets using ${availableAgents.length} available agents?`,
         choices: [
-          { name: 'Yes', value: true },
-          { name: 'No', value: false },
+          { name: 'Yes', value: true, command: 'prlt work start --all --json' },
+          { name: 'No', value: false, command: '' },
         ],
       },
-    ])
+    ], batchJsonModeConfig)
 
     if (!confirm) {
       db.close()
@@ -1776,19 +1784,19 @@ export default class WorkStart extends PMOCommand {
     // Prompt for permissions mode once for all tickets (TKT-513)
     let batchPermissionMode: 'danger' | 'safe' = flags['permission-mode'] as 'danger' | 'safe'
     if (!batchPermissionMode) {
-      const { permissionMode } = await inquirer.prompt([
+      const { permissionMode } = await this.prompt<{ permissionMode: string }>([
         {
           type: 'list',
           name: 'permissionMode',
           message: 'Permission mode for Claude Code:',
           choices: [
-            { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
-            { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+            { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger', command: 'prlt work start --all --permission-mode danger --json' },
+            { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe', command: 'prlt work start --all --permission-mode safe --json' },
           ],
           default: 'danger',
         },
-      ])
-      batchPermissionMode = permissionMode
+      ], batchJsonModeConfig)
+      batchPermissionMode = permissionMode as 'danger' | 'safe'
     }
 
     // Check Docker credentials if any agents use devcontainers
@@ -1805,18 +1813,18 @@ export default class WorkStart extends PMOCommand {
         this.log(styles.muted('   Agents will fail with 401 authentication errors without credentials.'))
         this.log('')
 
-        const { authAction } = await inquirer.prompt([
+        const { authAction } = await this.prompt<{ authAction: string }>([
           {
             type: 'list',
             name: 'authAction',
             message: 'What would you like to do?',
             choices: [
-              { name: `🔐 Run ${this.config.bin} agent auth now (one-time setup)`, value: 'auth' },
-              { name: '💻 Run all agents on host instead (--run-on-host)', value: 'host' },
-              { name: '✗  Cancel', value: 'cancel' },
+              { name: `🔐 Run ${this.config.bin} agent auth now (one-time setup)`, value: 'auth', command: `${this.config.bin} agent auth` },
+              { name: '💻 Run all agents on host instead (--run-on-host)', value: 'host', command: 'prlt work start --all --run-on-host --json' },
+              { name: '✗  Cancel', value: 'cancel', command: '' },
             ],
           },
-        ])
+        ], batchJsonModeConfig)
 
         if (authAction === 'cancel') {
           db.close()
@@ -1859,11 +1867,11 @@ export default class WorkStart extends PMOCommand {
           this.log('')
 
           // Wait for user to complete auth
-          await inquirer.prompt([{
+          await this.prompt<{ done: string }>([{
             type: 'input',
             name: 'done',
             message: 'Press Enter when authentication is complete:',
-          }])
+          }], batchJsonModeConfig)
 
           // Check if credentials now exist
           if (!dockerCredentialsExist()) {

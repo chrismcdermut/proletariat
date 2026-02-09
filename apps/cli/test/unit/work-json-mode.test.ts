@@ -9,6 +9,18 @@ const __dirname = path.dirname(__filename);
 // Root directory for the CLI
 const root = path.resolve(__dirname, '../..');
 
+// Isolated env to prevent test commands from polluting production database
+function getIsolatedEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.PRLT_HQ_PATH;
+  delete env.PRLT_PMO_PATH;
+  delete env.PRLT_DATABASE_PATH;
+  delete env.PRLT_CONFIG_PATH;
+  delete env.DEVCONTAINER;
+  delete env.PRLT_TEST_ENV;
+  return env;
+}
+
 // Helper to run CLI commands directly and get stdout
 function runCli(args: string[]): string {
   const binPath = path.join(root, 'bin', 'run.js');
@@ -17,6 +29,7 @@ function runCli(args: string[]): string {
       cwd: root,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: getIsolatedEnv(),
     });
   } catch (error: unknown) {
     return (error as { stdout?: string })?.stdout || '';

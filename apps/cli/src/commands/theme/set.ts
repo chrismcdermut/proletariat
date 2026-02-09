@@ -1,6 +1,6 @@
-import { Command, Args, Flags } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import chalk from 'chalk';
-import inquirer from 'inquirer';
+import { PromptCommand } from '../../lib/prompt-command.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ensureBuiltinThemes } from '../../lib/themes.js';
 import { getThemes, getAvailableThemeNames, setActiveTheme, getActiveTheme } from '../../lib/database/index.js';
@@ -11,7 +11,7 @@ import {
   buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
-export default class ThemeSet extends Command {
+export default class ThemeSet extends PromptCommand {
   static description = 'Set the active theme for this workspace';
 
   static examples = [
@@ -78,12 +78,12 @@ export default class ThemeSet extends Command {
           };
         });
 
-        const { selected } = await inquirer.prompt([{
+        const { selected } = await this.prompt<{ selected: string }>([{
           type: 'list',
           name: 'selected',
           message: 'Select theme for this workspace:',
           choices
-        }]);
+        }], null);
 
         themeId = selected;
       }

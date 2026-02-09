@@ -28,7 +28,7 @@ describe('Machine Config', () => {
 
   beforeEach(() => {
     // Create a temp directory for testing
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'machine-config-test-'));
+    testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'machine-config-test-')));
 
     // Save original HOME and override it
     originalHome = process.env.HOME;
@@ -99,7 +99,7 @@ describe('Machine Config', () => {
       const config = readMachineConfig();
       expect(config.version).to.equal('1.0.0');
       expect(config.headquarters).to.deep.equal([]);
-      expect(config.activeWorkspace).to.be.null;
+      expect(config.activeHeadquarters).to.be.null;
     });
 
     it('reads existing config file', () => {
@@ -187,7 +187,7 @@ describe('Machine Config', () => {
       registerWorkspace(testWorkspaceDir);
 
       const config = readMachineConfig();
-      expect(config.activeWorkspace).to.equal(testWorkspaceDir);
+      expect(config.activeHeadquarters).to.equal(testWorkspaceDir);
     });
 
     it('updates existing entry instead of creating duplicate', () => {
@@ -227,7 +227,7 @@ describe('Machine Config', () => {
       unregisterWorkspace(testWorkspaceDir);
 
       const config = readMachineConfig();
-      expect(config.activeWorkspace).to.be.null;
+      expect(config.activeHeadquarters).to.be.null;
     });
 
     it('returns false if workspace not found', () => {
@@ -289,7 +289,7 @@ describe('Machine Config', () => {
     });
 
     it('throws error if workspace not found', () => {
-      expect(() => setActiveWorkspace('/nonexistent')).to.throw('Workspace not found');
+      expect(() => setActiveWorkspace('/nonexistent')).to.throw('Headquarters not found');
     });
 
     it('throws error if path no longer exists', () => {
@@ -310,7 +310,7 @@ describe('Machine Config', () => {
       registerWorkspace(testWorkspaceDir, 'duplicate', false);
       registerWorkspace(ws2Dir, 'duplicate', false);
 
-      expect(() => setActiveWorkspace('duplicate')).to.throw('Multiple workspaces found');
+      expect(() => setActiveWorkspace('duplicate')).to.throw('Multiple headquarters found');
     });
   });
 

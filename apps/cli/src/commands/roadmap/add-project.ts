@@ -1,13 +1,10 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class RoadmapAddProject extends PMOCommand {
@@ -65,27 +62,17 @@ export default class RoadmapAddProject extends PMOCommand {
         this.error('No roadmaps found. Create one with: prlt roadmap create');
       }
 
-      if (jsonMode) {
-        const choices = roadmaps.map(r => ({
-          name: `${r.name}${r.isDefault ? ' (default)' : ''}`,
-          value: r.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'roadmap', 'Select roadmap:', choices),
-          createMetadata('roadmap add-project', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt<{ selected: string }>([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'roadmap add-project' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select roadmap:',
         choices: roadmaps.map(r => ({
           name: `${r.name}${r.isDefault ? ' (default)' : ''}`,
           value: r.id,
+          command: `prlt roadmap add-project "${r.id}" --json`,
         })),
-      }]);
+      }], jsonModeConfig);
       roadmapId = selected;
     }
 
@@ -117,27 +104,17 @@ export default class RoadmapAddProject extends PMOCommand {
     // Select project
     let projectId = args.project;
     if (!projectId) {
-      if (jsonMode) {
-        const choices = availableProjects.map(p => ({
-          name: p.name,
-          value: p.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'project', 'Select project to add:', choices),
-          createMetadata('roadmap add-project', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt<{ selected: string }>([{
+      const projectJsonModeConfig = jsonMode ? { flags, commandName: 'roadmap add-project' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select project to add:',
         choices: availableProjects.map(p => ({
           name: p.name,
           value: p.id,
+          command: `prlt roadmap add-project "${roadmapId}" "${p.id}" --json`,
         })),
-      }]);
+      }], projectJsonModeConfig);
       projectId = selected;
     }
 

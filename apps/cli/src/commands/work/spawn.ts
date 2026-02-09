@@ -1,6 +1,5 @@
 import { Flags } from '@oclif/core'
 import * as path from 'node:path'
-import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
@@ -34,6 +33,7 @@ export default class WorkSpawn extends PMOCommand {
     '<%= config.bin %> <%= command.id %> TKT-001 TKT-002    # Spawn specific tickets by ID',
     '<%= config.bin %> <%= command.id %> --dry-run          # Preview without executing',
     '<%= config.bin %> <%= command.id %> --many --json      # Output ticket choices as JSON (for agents)',
+    '<%= config.bin %> <%= command.id %> TKT-001 --action custom --message "Add unit tests"  # Custom prompt',
   ]
 
   static flags = {
@@ -117,7 +117,10 @@ export default class WorkSpawn extends PMOCommand {
       default: false,
     }),
     action: Flags.string({
-      description: 'Action to perform (e.g., groom, implement, review). Prompts if not provided.',
+      description: 'Action to perform (e.g., groom, implement, review, custom). Prompts if not provided.',
+    }),
+    message: Flags.string({
+      description: 'Custom prompt/message for the agent (use with --action custom)',
     }),
     session: Flags.string({
       description: 'Session manager inside container (tmux runs agent in tmux inside container)',
@@ -519,22 +522,17 @@ export default class WorkSpawn extends PMOCommand {
           ticketsByPriority.get(priority)!.push(ticket)
         }
 
-        // Build choices with priority separators
-        const choices: Array<{ name: string; value: string } | inquirer.Separator> = []
-        // Also build flat choices for JSON mode (without separators)
+        // Build flat choices for ticket selection
         const flatChoices: Array<{ name: string; value: string }> = []
         for (const priority of PRIORITY_ORDER) {
           const tickets = ticketsByPriority.get(priority) || []
           if (tickets.length === 0) continue
-          choices.push(new inquirer.Separator(`── ${priority} (${tickets.length}) ──`))
           for (const ticket of tickets) {
             const statusBadge = ticket.statusName ? ` [${ticket.statusName}]` : ''
-            const ticketChoice = {
+            flatChoices.push({
               name: `[${priority}] ${ticket.id} - ${ticket.title}${statusBadge}`,
               value: ticket.id,
-            }
-            choices.push(ticketChoice)
-            flatChoices.push(ticketChoice)
+            })
           }
         }
 
@@ -595,6 +593,8 @@ export default class WorkSpawn extends PMOCommand {
       }
 
       // Handle tickets with active sessions
+      const spawnJsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work spawn' } : null
+
       if (ticketsWithActiveSessions.length > 0 && !jsonMode) {
         this.log(styles.warning(`Found ${ticketsWithActiveSessions.length} ticket(s) with active tmux sessions:`))
         for (const { ticketId, agent } of ticketsWithActiveSessions) {
@@ -602,18 +602,18 @@ export default class WorkSpawn extends PMOCommand {
         }
         this.log('')
 
-        const { sessionAction } = await inquirer.prompt([
+        const { sessionAction } = await this.prompt<{ sessionAction: string }>([
           {
             type: 'list',
             name: 'sessionAction',
             message: 'What would you like to do with these tickets?',
             choices: [
-              { name: 'Skip them (only spawn tickets without active sessions)', value: 'skip' },
-              { name: 'Kill sessions and respawn with new agents', value: 'kill' },
-              { name: 'Cancel', value: 'cancel' },
+              { name: 'Skip them (only spawn tickets without active sessions)', value: 'skip', command: 'prlt work spawn --json' },
+              { name: 'Kill sessions and respawn with new agents', value: 'kill', command: 'prlt work spawn --json' },
+              { name: 'Cancel', value: 'cancel', command: '' },
             ],
           },
-        ])
+        ], spawnJsonModeConfig)
 
         if (sessionAction === 'cancel') {
           db.close()
@@ -666,6 +666,8 @@ export default class WorkSpawn extends PMOCommand {
       let batchNoPr = flags['no-pr']
       let batchRunOnHost = flags['run-on-host']
       let batchAction = flags.action
+      // Track custom message for custom action (needs to be outside the if block)
+      let batchCustomMessage: string | undefined = flags.message
       // Track display mode separately for devcontainer (needs to be outside the if block)
       let batchDisplayMode: string | undefined
 
@@ -691,14 +693,18 @@ export default class WorkSpawn extends PMOCommand {
               value: a.id,
             }))
 
-          // Add adhoc option at the end
+          // Add custom and adhoc options at the end
+          actionChoices.push({
+            name: 'custom       - Enter a custom prompt/instruction',
+            value: '__custom__',
+          })
           actionChoices.push({
             name: 'adhoc        - Unstructured exploration/debugging',
             value: '__adhoc__',
           })
 
-          // Use FlagResolver for action selection
-          const actionResolver = new FlagResolver<{ selectedAction?: string }>({
+          // Use FlagResolver for action selection with optional custom input
+          const actionResolver = new FlagResolver<{ selectedAction?: string; customInput?: string }>({
             commandName: 'work spawn',
             baseCommand: 'prlt work spawn',
             jsonMode,
@@ -713,13 +719,52 @@ export default class WorkSpawn extends PMOCommand {
             choices: () => actionChoices,
           })
 
+          actionResolver.addPrompt({
+            flagName: 'customInput',
+            type: 'input',
+            message: 'Enter custom prompt for the agent:',
+            when: (ctx) => ctx.flags.selectedAction === '__custom__',
+            validate: (value) => (value as string).trim() ? true : 'Prompt cannot be empty',
+          })
+
           const actionResult = await actionResolver.resolve()
           const selectedAction = actionResult.selectedAction
-          batchAction = selectedAction === '__adhoc__' ? 'adhoc' : selectedAction
+
+          if (selectedAction === '__custom__') {
+            batchAction = 'custom'
+            batchCustomMessage = (actionResult.customInput as string).trim()
+          } else if (selectedAction === '__adhoc__') {
+            batchAction = 'adhoc'
+          } else {
+            batchAction = selectedAction
+          }
+        } else if (flags.action === 'custom') {
+          // Custom action specified via flag - require --message
+          if (!flags.message) {
+            db.close()
+            return handleError('MISSING_MESSAGE', '--action custom requires --message flag with the custom prompt')
+          }
+          batchAction = 'custom'
+          batchCustomMessage = flags.message
+        } else if (flags.message && flags.action !== 'custom') {
+          // --message provided without --action custom - warn user
+          this.warn('--message flag is only used with --action custom, ignoring')
         }
 
         // Now fetch action details after selection is made
-        if (batchAction === 'adhoc') {
+        if (batchAction === 'custom') {
+          // Custom action - user provides their own prompt
+          selectedActionDetails = {
+            id: 'custom',
+            name: 'Custom',
+            description: 'Custom prompt/instruction',
+            prompt: batchCustomMessage || '',
+            modifiesCode: true, // Assume custom prompts may modify code
+            defaultMoveToCategory: 'started',
+            isBuiltin: false,
+            createdAt: new Date(),
+          }
+        } else if (batchAction === 'adhoc') {
           // Adhoc is a synthetic action, not stored in database
           selectedActionDetails = {
             id: 'adhoc',
@@ -839,7 +884,7 @@ export default class WorkSpawn extends PMOCommand {
           let environmentSelected = false
           while (!environmentSelected) {
             // eslint-disable-next-line no-await-in-loop -- Interactive loop with retry on Docker check
-            const { selectedEnvironment } = await inquirer.prompt([
+            const { selectedEnvironment } = await this.prompt<{ selectedEnvironment: string }>([
               {
                 type: 'list',
                 name: 'selectedEnvironment',
@@ -847,7 +892,7 @@ export default class WorkSpawn extends PMOCommand {
                 choices: envChoices,
                 default: devcontainerReady ? 'devcontainer' : 'host',
               },
-            ])
+            ], spawnJsonModeConfig)
 
             if (selectedEnvironment === 'cancel') {
               db.close()
@@ -939,18 +984,18 @@ export default class WorkSpawn extends PMOCommand {
               // For devcontainer, prompt for display mode
               // Simplified: tmux is always used inside container for session persistence
               // eslint-disable-next-line no-await-in-loop -- Follow-up prompt after selection
-              const { selectedDisplay } = await inquirer.prompt([
+              const { selectedDisplay } = await this.prompt<{ selectedDisplay: string }>([
                 {
                   type: 'list',
                   name: 'selectedDisplay',
                   message: 'How should agent output be displayed?',
                   choices: [
-                    { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-                    { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+                    { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal', command: 'prlt work spawn --display terminal --json' },
+                    { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background', command: 'prlt work spawn --display background --json' },
                   ],
                   default: 'terminal',
                 },
-              ])
+              ], spawnJsonModeConfig)
               batchDisplayMode = selectedDisplay
 
               // Always use tmux inside container for session persistence
@@ -1109,6 +1154,12 @@ export default class WorkSpawn extends PMOCommand {
             if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
             if (flags.focus) startArgs.push('--focus')
+            // Pass action/prompt - custom action uses --prompt, others use --action
+            if (batchAction === 'custom' && batchCustomMessage) {
+              startArgs.push('--prompt', batchCustomMessage)
+            } else if (batchAction) {
+              startArgs.push('--action', batchAction)
+            }
           } else {
             // Batch mode: pass all settings to skip prompts
             // batchDisplayMode is for devcontainer, batchDisplay is for host
@@ -1122,8 +1173,12 @@ export default class WorkSpawn extends PMOCommand {
             startArgs.push('--permission-mode', batchPermissionMode)
             if (batchCreatePr) startArgs.push('--create-pr')
             if (batchNoPr) startArgs.push('--no-pr')
-            // Pass action flag (from prompt or flag)
-            startArgs.push('--action', batchAction || 'implement')
+            // Pass action/prompt - custom action uses --prompt, others use --action
+            if (batchAction === 'custom' && batchCustomMessage) {
+              startArgs.push('--prompt', batchCustomMessage)
+            } else {
+              startArgs.push('--action', batchAction || 'implement')
+            }
             // Pass session manager (tmux inside container by default)
             if (flags.session) startArgs.push('--session', flags.session)
             // Pass focus flag (brings terminal to foreground)

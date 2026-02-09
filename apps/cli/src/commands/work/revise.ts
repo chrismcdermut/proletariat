@@ -2,7 +2,6 @@ import { Args, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { execSync } from 'node:child_process'
-import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
@@ -163,7 +162,8 @@ export default class WorkRevise extends PMOCommand {
           return
         }
 
-        const { selectedTicketId } = await inquirer.prompt([
+        const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work revise' } : null
+        const { selectedTicketId } = await this.prompt<{ selectedTicketId: string }>([
           {
             type: 'list',
             name: 'selectedTicketId',
@@ -171,9 +171,10 @@ export default class WorkRevise extends PMOCommand {
             choices: reviewTickets.map((t) => ({
               name: `${t.id} - ${t.title}`,
               value: t.id,
+              command: `prlt work revise ${t.id} --json`,
             })),
           },
-        ])
+        ], jsonModeConfig)
         ticketId = selectedTicketId
       }
 
@@ -285,21 +286,23 @@ export default class WorkRevise extends PMOCommand {
       let displayMode: DisplayMode = 'terminal'
       let sandboxed = false
 
+      const reviseJsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work revise' } : null
+
       if (hasDevcontainer && !flags['run-on-host']) {
         environment = 'devcontainer'
 
-        const { selectedDisplay } = await inquirer.prompt([
+        const { selectedDisplay } = await this.prompt<{ selectedDisplay: string }>([
           {
             type: 'list',
             name: 'selectedDisplay',
             message: 'How should the agent output be displayed?',
             choices: [
-              { name: 'terminal     - New terminal window', value: 'terminal' },
-              { name: 'background   - Runs detached, reattach with: prlt session attach', value: 'background' },
+              { name: 'terminal     - New terminal window', value: 'terminal', command: `prlt work revise ${ticketId} --mode terminal --json` },
+              { name: 'background   - Runs detached, reattach with: prlt session attach', value: 'background', command: `prlt work revise ${ticketId} --mode background --json` },
             ],
             default: 'terminal',
           },
-        ])
+        ], reviseJsonModeConfig)
         displayMode = selectedDisplay as DisplayMode
       } else if (flags.mode) {
         // Host environment: terminal/background are display modes
@@ -307,18 +310,18 @@ export default class WorkRevise extends PMOCommand {
       }
 
       // Permission mode
-      const { permissionMode } = await inquirer.prompt([
+      const { permissionMode } = await this.prompt<{ permissionMode: string }>([
         {
           type: 'list',
           name: 'permissionMode',
           message: 'Permission mode for Claude Code:',
           choices: [
-            { name: 'danger - Skip permission checks (faster for revisions)', value: 'danger' },
-            { name: 'safe   - Requires approval for dangerous operations', value: 'safe' },
+            { name: 'danger - Skip permission checks (faster for revisions)', value: 'danger', command: `prlt work revise ${ticketId} --json` },
+            { name: 'safe   - Requires approval for dangerous operations', value: 'safe', command: `prlt work revise ${ticketId} --json` },
           ],
           default: 'danger',
         },
-      ])
+      ], reviseJsonModeConfig)
       sandboxed = permissionMode === 'safe'
 
       const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor

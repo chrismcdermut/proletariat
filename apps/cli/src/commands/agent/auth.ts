@@ -32,7 +32,7 @@ export default class Auth extends Command {
     json: Flags.boolean({
       char: 'm',
       aliases: ['machine'],
-      description: 'Output as JSON for AI agents/scripts',
+      description: 'Output status as JSON',
       default: false,
     }),
   };

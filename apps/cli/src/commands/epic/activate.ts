@@ -1,15 +1,12 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { Ticket } from '../../lib/pmo/types.js';
 import { moveEpicFile, getRelativeEpicPath } from '../../lib/pmo/epic-files.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class EpicActivate extends PMOCommand {
@@ -99,30 +96,20 @@ export default class EpicActivate extends PMOCommand {
       const tickets = await this.storage.getTicketsForEpic(projectId, epicId!);
       const doneTickets = tickets.filter((t: Ticket) => t.status === 'done').length;
 
-      // In JSON mode, output confirmation prompt
-      if (jsonMode) {
-        const confirmChoices = [
-          { name: 'No', value: 'false' },
-          { name: 'Yes', value: 'true' },
-        ];
-        outputPromptAsJson(
-          buildPromptConfig('list', 'confirm', `This epic was previously completed (${doneTickets}/${tickets.length} tickets done). Reactivate this epic?`, confirmChoices),
-          createMetadata('epic activate', flags)
-        );
-        return;
+      if (!jsonMode) {
+        this.log(styles.warning(`\n⚠️  This epic was previously completed (${doneTickets}/${tickets.length} tickets done)`));
       }
 
-      this.log(styles.warning(`\n⚠️  This epic was previously completed (${doneTickets}/${tickets.length} tickets done)`));
-      const { confirm } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic activate' } : null;
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
-        message: 'Reactivate this epic?',
+        message: `This epic was previously completed (${doneTickets}/${tickets.length} tickets done). Reactivate this epic?`,
         choices: [
-          { name: 'No', value: false },
-          { name: 'Yes', value: true },
+          { name: 'No', value: false, command: '' },
+          { name: 'Yes', value: true, command: `prlt epic activate ${epicId} --json` },
         ],
-        default: false,
-      }]);
+      }], jsonModeConfig);
 
       if (!confirm) {
         this.log(styles.muted('Cancelled.'));

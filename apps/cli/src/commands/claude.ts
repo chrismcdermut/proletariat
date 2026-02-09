@@ -1,9 +1,9 @@
-import { Command, Flags } from '@oclif/core'
+import { Flags } from '@oclif/core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
 import { execSync } from 'node:child_process'
-import inquirer from 'inquirer'
+import { PromptCommand } from '../lib/prompt-command.js'
 import Database from 'better-sqlite3'
 import { findHQRoot } from '../lib/workspace.js'
 import {
@@ -13,11 +13,8 @@ import {
 } from '../lib/agents/commands.js'
 import {
   shouldOutputJson,
-  isAgentMode,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  normalizeChoices,
 } from '../lib/prompt-json.js'
 import { styles } from '../lib/styles.js'
 import {
@@ -67,7 +64,7 @@ function isGitRepo(dir: string): boolean {
   }
 }
 
-export default class Claude extends Command {
+export default class Claude extends PromptCommand {
   static description = 'Quick launch Claude Code for ad-hoc sessions (works anywhere)'
 
   static examples = [
@@ -118,42 +115,6 @@ export default class Claude extends Command {
       char: 't',
       description: 'Ticket title (inside HQ only)',
     }),
-  }
-
-  /**
-   * Prompt wrapper - handles both JSON mode and interactive mode.
-   * In JSON mode: outputs prompt as JSON and exits.
-   * In interactive mode: calls inquirer.prompt normally.
-   */
-  private async prompt<T extends Record<string, unknown>>(
-    questions: Array<{
-      type: string
-      name: string
-      message: string
-      choices?: Array<string | { name: string; value: unknown; disabled?: boolean | string; command?: string } | unknown>
-      default?: unknown
-      validate?: (input: unknown) => boolean | string
-    }>,
-    jsonModeConfig?: { flags: Record<string, unknown>; commandName: string } | null
-  ): Promise<T> {
-    if (jsonModeConfig && isAgentMode(jsonModeConfig.flags)) {
-      const firstQuestion = questions[0]
-      if (firstQuestion) {
-        const choices = firstQuestion.choices ? normalizeChoices(firstQuestion.choices) : undefined
-        outputPromptAsJson(
-          {
-            type: firstQuestion.type as 'list' | 'checkbox' | 'input' | 'confirm' | 'editor',
-            name: firstQuestion.name,
-            message: firstQuestion.message,
-            choices,
-            default: firstQuestion.default as string | boolean | string[] | undefined,
-          },
-          createMetadata(jsonModeConfig.commandName, jsonModeConfig.flags)
-        )
-      }
-      return {} as T
-    }
-    return inquirer.prompt(questions as Parameters<typeof inquirer.prompt>[0]) as Promise<T>
   }
 
   async run(): Promise<void> {
@@ -214,6 +175,7 @@ export default class Claude extends Command {
           validate: (input: unknown) => (input as string).trim() ? true : 'Session name required',
         },
       ], jsonModeConfig)
+      if (jsonMode) return
       slug = inputSlug.trim()
     }
 
@@ -373,6 +335,7 @@ export default class Claude extends Command {
           default: 'terminal',
         },
       ], jsonModeConfig)
+      if (jsonMode) return
       displayMode = selectedDisplay as DisplayMode
     }
 
@@ -393,6 +356,7 @@ export default class Claude extends Command {
           default: 'danger',
         },
       ], jsonModeConfig)
+      if (jsonMode) return
       sandboxed = permissionMode === 'safe'
     }
 
@@ -631,6 +595,7 @@ export default class Claude extends Command {
               })),
             },
           ], jsonModeConfig)
+          if (jsonMode) { db.close(); return }
           projectId = selectedProject
         }
       }
@@ -647,6 +612,7 @@ export default class Claude extends Command {
             validate: (input: unknown) => (input as string).trim() ? true : 'Title required',
           },
         ], jsonModeConfig)
+        if (jsonMode) { db.close(); return }
         ticketTitle = inputTitle.trim()
       }
 
@@ -822,6 +788,7 @@ export default class Claude extends Command {
             default: 'terminal',
           },
         ], jsonModeConfig)
+        if (jsonMode) { db.close(); return }
         displayMode = selectedDisplay as DisplayMode
       }
 
@@ -843,6 +810,7 @@ export default class Claude extends Command {
             default: 'danger',
           },
         ], jsonModeConfig)
+        if (jsonMode) { db.close(); return }
         sandboxed = permissionMode === 'safe'
       }
 

@@ -1,5 +1,4 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { Ticket } from '../../lib/pmo/types.js';
@@ -245,7 +244,10 @@ export default class TicketEpic extends PMOCommand {
     'from-epic'?: string;
     force: boolean;
     unlink: boolean;
+    json?: boolean;
   }): Promise<void> {
+    const jsonMode = shouldOutputJson(flags);
+    const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'ticket epic' } : null;
     this.log(styles.emphasis('🔗 Link Tickets to Epic\n'));
 
     // Get project first
@@ -294,7 +296,7 @@ export default class TicketEpic extends PMOCommand {
     }
 
     // Select tickets to link
-    const { selectedTickets } = await inquirer.prompt([{
+    const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{
       type: 'checkbox',
       name: 'selectedTickets',
       message: 'Select tickets to link:',
@@ -306,7 +308,7 @@ export default class TicketEpic extends PMOCommand {
           value: t.id,
         };
       }),
-    }]);
+    }], jsonModeConfig);
 
     if (selectedTickets.length === 0) {
       this.log(styles.muted('No tickets selected.'));
@@ -316,18 +318,19 @@ export default class TicketEpic extends PMOCommand {
     // Select target epic
     let targetEpic: string | null | undefined = flags['to-epic'];
     if (targetEpic === undefined) {
-      const { epic } = await inquirer.prompt([{
+      const { epic } = await this.prompt<{ epic: string | null }>([{
         type: 'list',
         name: 'epic',
         message: 'Link to which epic?',
         choices: [
-          { name: 'None (remove epic link)', value: null },
+          { name: 'None (remove epic link)', value: null, command: 'prlt ticket epic --bulk --unlink --json' },
           ...epics.map(e => ({
             name: `${e.title} (${e.status})`,
             value: e.id,
+            command: `prlt ticket epic --bulk --to-epic ${e.id} --json`,
           })),
         ],
-      }]);
+      }], jsonModeConfig);
       targetEpic = epic;
     }
 
@@ -346,16 +349,16 @@ export default class TicketEpic extends PMOCommand {
       }
       this.log('');
 
-      const { confirm } = await inquirer.prompt([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: 'Continue?',
         choices: [
-          { name: 'No, cancel', value: false },
-          { name: 'Yes, link tickets', value: true }
+          { name: 'No, cancel', value: false, command: '' },
+          { name: 'Yes, link tickets', value: true, command: `prlt ticket epic --bulk --to-epic ${targetEpic || 'none'} --force --json` }
         ],
         default: 0
-      }]);
+      }], jsonModeConfig);
 
       if (!confirm) {
         this.log(styles.muted('Operation cancelled.'));

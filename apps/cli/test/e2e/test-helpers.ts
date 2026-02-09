@@ -43,6 +43,8 @@ const ISOLATION_ENV_VARS = [
   'PRLT_PMO_PATH',
   'PRLT_DATABASE_PATH',
   'PRLT_CONFIG_PATH',
+  'DEVCONTAINER',
+  'PRLT_TEST_ENV',
 ];
 
 export interface TestEnvironment {
@@ -523,6 +525,11 @@ export function getIsolatedEnv(nodeEnv: string = 'production'): NodeJS.ProcessEn
   // Clear DEBUG to prevent oclif debug output that pollutes JSON
   delete env.DEBUG;
 
+  // Suppress oclif warn-if-update-available plugin warnings during tests.
+  // Without this, the plugin emits "Updated prlt available!" warnings to stderr
+  // that can leak into command output and break JSON parsing.
+  env.PRLT_SKIP_NEW_VERSION_CHECK = 'true';
+
   // Set NODE_ENV
   env.NODE_ENV = nodeEnv;
 
@@ -549,6 +556,8 @@ export function filterOutput(output: string): string {
     !line.includes('ExperimentalWarning') &&
     !line.includes('DeprecationWarning') &&
     !line.includes('(Use `node') &&
+    !line.includes('Updated prlt available') &&
+    !line.includes('npm install -g @proletariat/cli') &&
     line.trim() !== ''
   ).join('\n');
 }
@@ -614,35 +623,28 @@ export function getBinPath(): string {
  */
 export function exec(cmd: string): string {
   try {
-    const cliDir = path.join(__dirname, '../..');
-    const binPath = path.join(cliDir, 'bin/run.js');
-
-    // Get isolated env (production mode for oclif) and set HQ path to current test directory
-    const env = getIsolatedEnv('production');
-    env.PRLT_HQ_PATH = process.cwd();
-    env.PRLT_TEST_ENV = 'true'; // Required for PRLT_HQ_PATH to be respected in tests
-
+    const binPath = getBinPath();
     const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
-      cwd: cliDir, // Run from CLI dir so oclif finds commands
-      env,
+      cwd: process.cwd(),
+      env: getIsolatedEnv(),
       maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large JSON output
     });
-    return result;
+    return filterOutput(result);
   } catch (error: unknown) {
     const execError = error as ExecError;
     // Command failed - capture both stdout and stderr
     const stdout = execError.stdout || '';
     const stderr = execError.stderr || '';
 
-    // Return stdout if available (for expected error messages)
+    // Return filtered stdout if available (for expected error messages)
     if (stdout.trim()) {
-      return stdout;
+      return filterOutput(stdout);
     }
 
     // Filter out Node.js warnings from stderr
     const filteredStderr = filterOutput(stderr);
-    return filteredStderr || execError.message || 'Unknown error';
+    return filteredStderr || filterOutput(execError.message || 'Unknown error');
   }
 }
 

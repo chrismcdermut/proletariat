@@ -309,6 +309,9 @@ function buildPrompt(context: ExecutionContext): string {
     }
   }
 
+  // Universal stop instruction - prevents Claude Code from making additional API calls after task completion
+  prompt += `\n\n---\n\n**STOP:** After providing your final summary, your task is complete. Do not take any further actions, do not verify your work again, and do not continue the conversation. Simply output your summary and stop.`
+
   return prompt
 }
 
@@ -1706,9 +1709,11 @@ exec bash
       }
     }
 
-    // Step 2: Create tmux session with bash explicitly (not default shell which may be zsh)
-    // Using bash avoids zsh-newuser-install prompt that blocks the session
-    const createSessionCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" bash${mouseOption} \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
+    // Step 2: Create tmux session running the script directly
+    // Pass the script as the session command (like host runner does) instead of using send-keys.
+    // The send-keys approach had a race condition where keys could be lost if bash hadn't
+    // fully initialized, causing background mode to create empty sessions without running claude.
+    const createSessionCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" "bash ${scriptPath}"${mouseOption} \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
     try {
       execSync(`docker exec ${actualContainerId} bash -c '${createSessionCmd}'`, { stdio: 'pipe' })
     } catch (error) {
@@ -1718,21 +1723,23 @@ exec bash
       }
     }
 
-    // Step 3: Send keys to run the script (this runs in the interactive bash)
-    const sendKeysCmd = `tmux send-keys -t "${sessionName}" "source ${scriptPath}" Enter`
-    try {
-      execSync(`docker exec ${actualContainerId} bash -c '${sendKeysCmd}'`, { stdio: 'pipe' })
-    } catch (error) {
-      return {
-        success: false,
-        error: `Failed to start script in tmux session: ${error instanceof Error ? error.message : error}`,
-      }
-    }
-
-    // Step 2: Open iTerm tab that attaches directly to container's tmux
-    // Skip this step for background mode - just return success after tmux session is created
+    // Step 3: Handle display mode
+    // For background mode, return success after tmux session is created
     // User can reattach later with `prlt session attach`
     if (displayMode === 'background') {
+      // Verify the tmux session was actually created (brief delay to let tmux start)
+      await new Promise(resolve => setTimeout(resolve, 500))
+      try {
+        execSync(
+          `docker exec ${actualContainerId} tmux has-session -t "${sessionName}" 2>&1`,
+          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+        )
+      } catch (err) {
+        return {
+          success: false,
+          error: `Failed to verify tmux session "${sessionName}" inside container. The session may not have started correctly.`,
+        }
+      }
       return {
         success: true,
         containerId: actualContainerId,
@@ -1740,7 +1747,7 @@ exec bash
       }
     }
 
-    // Foreground mode: attach to container's tmux session in current terminal (blocking)
+    // For foreground mode: attach to container's tmux session in current terminal (blocking)
     if (displayMode === 'foreground') {
       try {
         // Clear screen and attach - this blocks until user detaches or claude exits

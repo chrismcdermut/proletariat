@@ -1,9 +1,9 @@
-import { Command, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
+import { Flags } from '@oclif/core';
 import { styles } from '../../lib/styles.js';
 import { shouldOutputJson, outputPromptAsJson, buildPromptConfig, createMetadata } from '../../lib/prompt-json.js';
+import { PromptCommand } from '../../lib/prompt-command.js';
 
-export default class Template extends Command {
+export default class Template extends PromptCommand {
   static description = 'Manage templates (ticket and phase)';
 
   static aliases = ['templates'];
@@ -49,12 +49,12 @@ export default class Template extends Command {
     this.log(`\n${styles.emphasis('Templates')}`);
     this.log(styles.muted('Manage ticket and phase templates\n'));
 
-    const { action } = await inquirer.prompt([{
+    const { action } = await this.prompt<{ action: string }>([{
       type: 'list',
       name: 'action',
       message: 'What would you like to do?',
-      choices: menuChoices.map(c => ({ name: c.name, value: c.value })),
-    }]);
+      choices: menuChoices.map(c => ({ name: c.name, value: c.value, command: c.command })),
+    }], null);
 
     if (action === 'cancel') return;
 

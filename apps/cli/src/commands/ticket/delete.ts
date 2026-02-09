@@ -1,5 +1,4 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import {
   autoExportToBoard,
   PMOCommand,
@@ -75,7 +74,7 @@ export default class TicketDelete extends PMOCommand {
 
     // Bulk mode
     if (flags.bulk) {
-      await this.executeBulk(allTickets, flags.force);
+      await this.executeBulk(allTickets, flags.force, flags);
       return;
     }
 
@@ -115,16 +114,17 @@ export default class TicketDelete extends PMOCommand {
       this.log(`  Project: ${board.name}`);
       this.log(`  Status: ${ticket.statusName}`);
 
-      const { confirmed } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'ticket delete' } : null;
+      const { confirmed } = await this.prompt<{ confirmed: boolean }>([{
         type: 'list',
         name: 'confirmed',
         message: 'Are you sure?',
         choices: [
-          { name: 'No, cancel', value: false },
-          { name: 'Yes, delete', value: true },
+          { name: 'No, cancel', value: false, command: '' },
+          { name: 'Yes, delete', value: true, command: `prlt ticket delete ${ticketId} --force --json` },
         ],
         default: 0,
-      }]);
+      }], jsonModeConfig);
 
       if (!confirmed) {
         this.log(styles.warning('Deletion cancelled.'));
@@ -144,12 +144,15 @@ export default class TicketDelete extends PMOCommand {
 
   private async executeBulk(
     allTickets: Awaited<ReturnType<typeof this.storage.listTickets>>,
-    force: boolean
+    force: boolean,
+    flags?: Record<string, unknown>
   ): Promise<void> {
+    const jsonMode = flags ? shouldOutputJson(flags) : false;
+    const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'ticket delete' } : null;
     this.log(styles.emphasis('🗑️  Delete Multiple Tickets\n'));
 
     // Select tickets to delete
-    const { selectedTickets } = await inquirer.prompt([{
+    const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{
       type: 'checkbox',
       name: 'selectedTickets',
       message: 'Select tickets to DELETE:',
@@ -157,7 +160,7 @@ export default class TicketDelete extends PMOCommand {
         name: `${t.id} - ${t.title} (${t.statusName})`,
         value: t.id,
       })),
-    }]);
+    }], jsonModeConfig);
 
     if (selectedTickets.length === 0) {
       this.log(styles.muted('No tickets selected.'));
@@ -173,16 +176,16 @@ export default class TicketDelete extends PMOCommand {
       }
       this.log('');
 
-      const { confirm } = await inquirer.prompt([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: 'Are you sure? This cannot be undone.',
         choices: [
-          { name: 'No, cancel', value: false },
-          { name: 'Yes, DELETE tickets', value: true }
+          { name: 'No, cancel', value: false, command: '' },
+          { name: 'Yes, DELETE tickets', value: true, command: 'prlt ticket delete --bulk --force --json' }
         ],
         default: 0
-      }]);
+      }], jsonModeConfig);
 
       if (!confirm) {
         this.log(styles.muted('Deletion cancelled.'));

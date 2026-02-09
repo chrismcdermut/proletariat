@@ -55,11 +55,13 @@ interface AgentPromptResponse {
  */
 function getCleanEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
-  // Clear isolation variables
+  // Clear isolation variables to prevent polluting production database
   delete env.PRLT_HQ_PATH;
   delete env.PRLT_PMO_PATH;
   delete env.PRLT_DATABASE_PATH;
   delete env.PRLT_CONFIG_PATH;
+  delete env.DEVCONTAINER;
+  delete env.PRLT_TEST_ENV;
   // Clear debug variables that cause oclif noise
   delete env.DEBUG;
   delete env.OCLIF_DEBUG;

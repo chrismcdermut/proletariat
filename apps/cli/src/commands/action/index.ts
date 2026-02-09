@@ -99,7 +99,7 @@ export default class Action extends PMOCommand {
       return null;
     }
 
-    const { selected } = await inquirer.prompt([{
+    const { selected } = await this.prompt<{ selected: string }>([{
       type: 'list',
       name: 'selected',
       message,
@@ -111,7 +111,7 @@ export default class Action extends PMOCommand {
         new inquirer.Separator(),
         { name: 'Cancel', value: null },
       ],
-    }]);
+    }], null);
 
     return selected;
   }

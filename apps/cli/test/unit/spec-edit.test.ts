@@ -252,9 +252,8 @@ describe('Spec Edit Command', () => {
       expect(shouldOutputJson({ json: true })).to.be.true;
     });
 
-    it('should return true when --machine flag is set', () => {
-      expect(shouldOutputJson({ machine: true })).to.be.true;
-    });
+    // Note: --machine is an oclif alias that sets json: true
+    // The shouldOutputJson function only sees { json: true }
 
     it('should return false when no flags are set in TTY', () => {
       const originalIsTTY = process.stdout.isTTY;

@@ -1,5 +1,4 @@
 import { Flags, Args } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { SpecType, SpecStatus } from '../../lib/pmo/types.js';
@@ -9,6 +8,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
+import { multiLineInput } from '../../lib/multiline-input.js';
 
 export default class SpecEdit extends PMOCommand {
   static description = 'Edit an existing spec';
@@ -144,6 +144,26 @@ export default class SpecEdit extends PMOCommand {
       flags.solution || flags.decisions;
 
     if (flags.interactive || !hasFlags) {
+      // In JSON mode without flags, output a form prompt instead of interactive prompts
+      if (jsonMode) {
+        const { outputPromptAsJson, buildFormPromptConfig } = await import('../../lib/prompt-json.js');
+        const formConfig = buildFormPromptConfig([
+          { type: 'input', name: 'title', message: 'Title:', default: spec.title },
+          { type: 'list', name: 'status', message: 'Status:', choices: statusChoices, default: spec.status },
+          { type: 'list', name: 'type', message: 'Type:', choices: typeChoices, default: spec.type || '' },
+          { type: 'multiline', name: 'problem', message: 'Problem statement:', default: spec.problem || '' },
+          { type: 'multiline', name: 'solution', message: 'Solution:', default: spec.solution || '' },
+          { type: 'multiline', name: 'decisions', message: 'Design decisions:', default: spec.decisions || '' },
+        ]);
+        formConfig.context = {
+          hint: `Edit spec with: prlt spec edit ${specId} --title "..." --problem "..." --json`,
+          specId,
+          currentValues: { title: spec.title, status: spec.status, type: spec.type, problem: spec.problem, solution: spec.solution, decisions: spec.decisions },
+        };
+        outputPromptAsJson(formConfig, createMetadata('spec edit', flags));
+        return; // outputPromptAsJson exits, but TypeScript doesn't know
+      }
+
       // Interactive mode - prompt for editable fields
       updates = await this.promptForEdits(spec, typeChoices, statusChoices);
     } else {
@@ -205,20 +225,18 @@ export default class SpecEdit extends PMOCommand {
     solution?: string;
     decisions?: string;
   }> {
-    const answers = await inquirer.prompt<{
+    // First prompt for title, status, and type
+    const basicAnswers = await this.prompt<{
       title: string;
       status: string;
       type: string;
-      problem: string;
-      solution: string;
-      decisions: string;
     }>([
       {
         type: 'input',
         name: 'title',
         message: 'Title:',
         default: spec.title,
-        validate: (input: string) => input.length > 0 || 'Title is required',
+        validate: (input: unknown) => (input as string).length > 0 || 'Title is required',
       },
       {
         type: 'list',
@@ -234,28 +252,40 @@ export default class SpecEdit extends PMOCommand {
         choices: typeChoices,
         default: spec.type || '',
       },
-      {
-        type: 'editor',
-        name: 'problem',
-        message: 'Problem statement (opens $EDITOR):',
-        default: spec.problem || '',
-        waitForUseInput: false,
-      },
-      {
-        type: 'editor',
-        name: 'solution',
-        message: 'Solution (opens $EDITOR):',
-        default: spec.solution || '',
-        waitForUseInput: false,
-      },
-      {
-        type: 'editor',
-        name: 'decisions',
-        message: 'Design decisions (opens $EDITOR):',
-        default: spec.decisions || '',
-        waitForUseInput: false,
-      },
-    ]);
+    ], null);
+
+    // Prompt for problem statement using multiline input
+    const problemResult = await multiLineInput({
+      message: 'Problem statement:',
+      default: spec.problem || '',
+      hint: 'Describe the problem this spec addresses. Ctrl+D to finish, Ctrl+C to cancel',
+    });
+
+    if (problemResult.cancelled) {
+      throw new Error('Edit cancelled');
+    }
+
+    // Prompt for solution using multiline input
+    const solutionResult = await multiLineInput({
+      message: 'Solution:',
+      default: spec.solution || '',
+      hint: 'Describe the proposed solution. Ctrl+D to finish, Ctrl+C to cancel',
+    });
+
+    if (solutionResult.cancelled) {
+      throw new Error('Edit cancelled');
+    }
+
+    // Prompt for decisions using multiline input
+    const decisionsResult = await multiLineInput({
+      message: 'Design decisions:',
+      default: spec.decisions || '',
+      hint: 'Document key design decisions. Ctrl+D to finish, Ctrl+C to cancel',
+    });
+
+    if (decisionsResult.cancelled) {
+      throw new Error('Edit cancelled');
+    }
 
     // Build updates object with only changed fields
     const updates: {
@@ -267,25 +297,28 @@ export default class SpecEdit extends PMOCommand {
       decisions?: string;
     } = {};
 
-    if (answers.title !== spec.title) {
-      updates.title = answers.title;
+    if (basicAnswers.title !== spec.title) {
+      updates.title = basicAnswers.title;
     }
-    if (answers.status !== spec.status) {
-      updates.status = answers.status as SpecStatus;
+    if (basicAnswers.status !== spec.status) {
+      updates.status = basicAnswers.status as SpecStatus;
     }
 
-    const newType = answers.type === '' ? undefined : answers.type as SpecType;
+    const newType = basicAnswers.type === '' ? undefined : basicAnswers.type as SpecType;
     if (newType !== spec.type) {
       updates.type = newType;
     }
-    if (answers.problem !== (spec.problem || '')) {
-      updates.problem = answers.problem || undefined;
+    if (problemResult.value !== (spec.problem || '')) {
+      // Preserve empty string to allow clearing the field
+      updates.problem = problemResult.value;
     }
-    if (answers.solution !== (spec.solution || '')) {
-      updates.solution = answers.solution || undefined;
+    if (solutionResult.value !== (spec.solution || '')) {
+      // Preserve empty string to allow clearing the field
+      updates.solution = solutionResult.value;
     }
-    if (answers.decisions !== (spec.decisions || '')) {
-      updates.decisions = answers.decisions || undefined;
+    if (decisionsResult.value !== (spec.decisions || '')) {
+      // Preserve empty string to allow clearing the field
+      updates.decisions = decisionsResult.value;
     }
 
     return updates;

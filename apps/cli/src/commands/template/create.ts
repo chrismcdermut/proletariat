@@ -1,5 +1,4 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { PRIORITIES, PRIORITY_LABELS, TICKET_CATEGORIES } from '../../lib/pmo/types.js';
 import { styles } from '../../lib/styles.js';
@@ -105,16 +104,16 @@ export default class TemplateCreate extends PMOCommand {
         return;
       }
 
-      const { selectedType } = await inquirer.prompt([{
+      const { selectedType } = await this.prompt<{ selectedType: string }>([{
         type: 'list',
         name: 'selectedType',
         message: 'What type of template?',
         choices: [
-          { name: 'Ticket template', value: 'ticket' },
-          { name: 'Phase template', value: 'phase' },
+          { name: 'Ticket template', value: 'ticket', command: 'prlt template create --type ticket --json' },
+          { name: 'Phase template', value: 'phase', command: 'prlt template create --type phase --json' },
         ],
-      }]);
-      templateType = selectedType;
+      }], jsonMode ? { flags, commandName: 'template create' } : null);
+      templateType = selectedType as TemplateType;
     }
 
     if (templateType === 'ticket') {
@@ -158,12 +157,13 @@ export default class TemplateCreate extends PMOCommand {
         return;
       }
 
-      const { templateName } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'template create' } : null;
+      const { templateName } = await this.prompt<{ templateName: string }>([{
         type: 'input',
         name: 'templateName',
         message: 'Template name:',
-        validate: (input: string) => input.trim() ? true : 'Name required',
-      }]);
+        validate: (input: unknown) => (input as string).trim() ? true : 'Name required',
+      }], jsonModeConfig);
       name = templateName;
     }
 
@@ -179,14 +179,14 @@ export default class TemplateCreate extends PMOCommand {
 
     // Interactive prompts for missing optional values
     if (!jsonMode && description === undefined) {
-      const { desc } = await inquirer.prompt([{
+      const { desc } = await this.prompt<{ desc: string }>([{
         type: 'input', name: 'desc', message: 'Description (optional):',
-      }]);
+      }], null);
       description = desc || undefined;
     }
 
     if (!jsonMode && priority === undefined) {
-      const { p } = await inquirer.prompt([{
+      const { p } = await this.prompt<{ p: string }>([{
         type: 'list',
         name: 'p',
         message: 'Default priority:',
@@ -194,12 +194,12 @@ export default class TemplateCreate extends PMOCommand {
           { name: 'None', value: '' },
           ...PRIORITIES.map(pr => ({ name: PRIORITY_LABELS[pr], value: pr })),
         ],
-      }]);
+      }], null);
       priority = p || undefined;
     }
 
     if (!jsonMode && category === undefined) {
-      const { c } = await inquirer.prompt([{
+      const { c } = await this.prompt<{ c: string }>([{
         type: 'list',
         name: 'c',
         message: 'Default category:',
@@ -207,7 +207,7 @@ export default class TemplateCreate extends PMOCommand {
           { name: 'None', value: '' },
           ...TICKET_CATEGORIES.map(cat => ({ name: cat, value: cat })),
         ],
-      }]);
+      }], null);
       category = c || undefined;
     }
 
@@ -250,20 +250,21 @@ export default class TemplateCreate extends PMOCommand {
         return;
       }
 
-      const { templateName } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'template create' } : null;
+      const { templateName } = await this.prompt<{ templateName: string }>([{
         type: 'input',
         name: 'templateName',
         message: 'Template name:',
-        validate: (input: string) => input.trim() ? true : 'Name required',
-      }]);
+        validate: (input: unknown) => (input as string).trim() ? true : 'Name required',
+      }], jsonModeConfig);
       name = templateName;
     }
 
     let description = flags.description as string | undefined;
     if (!jsonMode && description === undefined) {
-      const { desc } = await inquirer.prompt([{
+      const { desc } = await this.prompt<{ desc: string }>([{
         type: 'input', name: 'desc', message: 'Description (optional):',
-      }]);
+      }], null);
       description = desc || undefined;
     }
 
