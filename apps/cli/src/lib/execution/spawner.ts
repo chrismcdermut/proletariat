@@ -14,6 +14,7 @@ import { autoExportToBoard } from '../pmo/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../pmo/utils.js'
 import { WorkspaceInfo } from '../agents/commands.js'
 import { findHQRoot } from '../repos/index.js'
+import { hasGitHubRemote } from '../repos/git.js'
 import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
@@ -42,22 +43,6 @@ function tryGitCommand(cmd: string, cwd: string): boolean {
   try {
     execSync(cmd, { cwd, stdio: 'pipe' })
     return true
-  } catch {
-    return false
-  }
-}
-
-/**
- * Check if a git repository has a GitHub remote configured
- */
-export function hasGitHubRemote(repoPath: string): boolean {
-  try {
-    const remoteUrl = execSync('git remote get-url origin', {
-      cwd: repoPath,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim()
-    return remoteUrl.includes('github.com')
   } catch {
     return false
   }

@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { colors, format } from '../../lib/colors.js';
 import { findHQRoot, isInGitRepo } from '../../lib/repos/index.js';
+import { hasGitHubRemote } from '../../lib/repos/git.js';
 import {
   isGHInstalled,
   isGHAuthenticated,
@@ -13,7 +14,9 @@ import {
   shouldOutputJson,
   outputSuccessAsJson,
   outputErrorAsJson,
+  outputPromptAsJson,
   createMetadata,
+  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 import { addRepositoriesToDatabase } from '../../lib/database/index.js';
 
@@ -31,22 +34,6 @@ interface CreateRepoResult {
 // =============================================================================
 // GitHub Helpers
 // =============================================================================
-
-/**
- * Check if the current directory has a GitHub remote configured.
- */
-export function hasGitHubRemote(cwd?: string): boolean {
-  try {
-    const remoteUrl = execSync('git remote get-url origin', {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    return remoteUrl.includes('github.com');
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Get the user's GitHub organizations.
@@ -162,10 +149,11 @@ export default class Create extends PMOCommand {
     const { flags } = await this.parse(Create);
 
     const jsonMode = shouldOutputJson(flags);
+    const metadata = createMetadata('repo create', flags);
 
     const handleError = (code: string, message: string): never => {
       if (jsonMode) {
-        outputErrorAsJson(code, message, createMetadata('repo create', flags));
+        outputErrorAsJson(code, message, metadata);
         this.exit(1);
       }
       this.error(message);
@@ -212,13 +200,21 @@ export default class Create extends PMOCommand {
       repoName = path.basename(process.cwd());
     }
 
-    // Interactive mode: prompt for missing values
-    if (!jsonMode) {
-      // Prompt for repo name
+    // Prompt for repo name
+    const nameMessage = 'Repository name:';
+    if (jsonMode) {
+      if (!flags.name) {
+        outputPromptAsJson(
+          buildPromptConfig('input', 'repoName', nameMessage, undefined, repoName),
+          metadata
+        );
+        return;
+      }
+    } else {
       const nameResult = await this.prompt<{ repoName: string }>([{
         type: 'input',
         name: 'repoName',
-        message: 'Repository name:',
+        message: nameMessage,
         default: repoName,
         validate: (input: unknown) => {
           const value = String(input || '');
@@ -230,40 +226,63 @@ export default class Create extends PMOCommand {
         },
       }], null);
       repoName = nameResult.repoName;
+    }
 
-      // Prompt for visibility
+    // Prompt for visibility
+    const visibilityChoices = [
+      { name: 'Private', value: 'private' },
+      { name: 'Public', value: 'public' },
+    ];
+    const visibilityMessage = 'Repository visibility:';
+    if (jsonMode) {
+      if (!flags.visibility) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'visibility', visibilityMessage, visibilityChoices, visibility),
+          metadata
+        );
+        return;
+      }
+    } else {
       const visibilityResult = await this.prompt<{ visibility: 'public' | 'private' }>([{
         type: 'list',
         name: 'visibility',
-        message: 'Repository visibility:',
-        choices: [
-          { name: 'Private', value: 'private' },
-          { name: 'Public', value: 'public' },
-        ],
+        message: visibilityMessage,
+        choices: visibilityChoices,
         default: visibility,
       }], null);
       visibility = visibilityResult.visibility;
+    }
 
-      // Get user's orgs and prompt if available
-      const orgs = getGHOrganizations();
-      const username = getGHUsername();
+    // Prompt for org if orgs are available
+    const orgs = getGHOrganizations();
+    const username = getGHUsername();
 
-      if (orgs.length > 0) {
-        const ownerChoices = [
-          { name: `${username} (personal account)`, value: '' },
-          ...orgs.map(o => ({ name: o, value: o })),
-        ];
+    if (orgs.length > 0 && !flags.org) {
+      const ownerChoices = [
+        { name: `${username || 'Personal'} (personal account)`, value: '' },
+        ...orgs.map(o => ({ name: o, value: o })),
+      ];
+      const orgMessage = 'Create repository under:';
 
-        const orgResult = await this.prompt<{ org: string }>([{
-          type: 'list',
-          name: 'org',
-          message: 'Create repository under:',
-          choices: ownerChoices,
-        }], null);
-        org = orgResult.org || undefined;
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'org', orgMessage, ownerChoices),
+          metadata
+        );
+        return;
       }
 
-      // Confirm creation
+      const orgResult = await this.prompt<{ org: string }>([{
+        type: 'list',
+        name: 'org',
+        message: orgMessage,
+        choices: ownerChoices,
+      }], null);
+      org = orgResult.org || undefined;
+    }
+
+    // Confirm creation (interactive only)
+    if (!jsonMode) {
       this.log('');
       this.log(colors.primary('Creating GitHub repository:'));
       this.log(`  Name: ${org ? `${org}/${repoName}` : repoName}`);
@@ -271,14 +290,16 @@ export default class Create extends PMOCommand {
       this.log(`  Push initial commit: ${flags.push ? 'Yes' : 'No'}`);
       this.log('');
 
+      const confirmChoices = [
+        { name: 'Yes', value: true },
+        { name: 'No', value: false },
+      ];
+
       const confirmResult = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: 'Proceed with creation?',
-        choices: [
-          { name: 'Yes', value: true },
-          { name: 'No', value: false },
-        ],
+        choices: confirmChoices,
       }], null);
 
       if (!confirmResult.confirm) {
@@ -288,7 +309,9 @@ export default class Create extends PMOCommand {
     }
 
     // Create the repository
-    this.log(colors.primary('Creating GitHub repository...'));
+    if (!jsonMode) {
+      this.log(colors.primary('Creating GitHub repository...'));
+    }
 
     const result = createGHRepo({
       name: repoName,
@@ -305,12 +328,17 @@ export default class Create extends PMOCommand {
     const hqPath = findHQRoot();
     if (hqPath) {
       try {
+        // Use the actual local folder name for the DB path, not repoName
+        // (repoName may differ if user overrides it via --name)
+        const localFolderName = path.basename(process.cwd());
         addRepositoriesToDatabase(hqPath, [{
           name: repoName,
-          path: `repos/${repoName}`,
+          path: `repos/${localFolderName}`,
           source_url: result.url,
         }]);
-        this.log(colors.textMuted('Updated prlt workspace database.'));
+        if (!jsonMode) {
+          this.log(colors.textMuted('Updated prlt workspace database.'));
+        }
       } catch {
         // Ignore database update errors - repo was still created
       }
@@ -324,7 +352,7 @@ export default class Create extends PMOCommand {
         url: result.url,
         visibility,
         org: org || null,
-      }, createMetadata('repo create', flags));
+      }, metadata);
       return;
     }
 

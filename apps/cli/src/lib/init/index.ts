@@ -24,7 +24,7 @@ import {
   getOrganizations,
   createOrganization,
 } from '../machine-config.js';
-import { hasGitHubRemote } from '../execution/spawner.js';
+import { hasGitHubRemote } from '../repos/git.js';
 import { isGHInstalled, isGHAuthenticated } from '../pr/index.js';
 
 export interface HQConfig {
