@@ -8,6 +8,8 @@ import {
   shouldOutputJson,
   outputErrorAsJson,
   createMetadata,
+  outputConfirmationNeededAsJson,
+  outputExecutionResultAsJson,
 } from '../../lib/prompt-json.js'
 import { FlagResolver } from '../../lib/flags/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
@@ -212,6 +214,11 @@ export default class WorkStart extends PMOCommand {
       description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
       default: false,
     }),
+    yes: Flags.boolean({
+      char: 'y',
+      description: 'Skip confirmation prompt (for non-TTY/scripted execution)',
+      default: false,
+    }),
   }
 
   async execute(): Promise<void> {
@@ -302,6 +309,63 @@ export default class WorkStart extends PMOCommand {
       if (!ticket) {
         db.close()
         return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`)
+      }
+
+      // In JSON mode with explicit flags, implement two-step confirm-then-execute protocol
+      if (jsonMode) {
+        // Check if all required flags for non-interactive execution are provided
+        const hasAction = !!(flags.action || flags.prompt)
+        const hasDisplay = !!(flags.display || flags['run-on-host'])
+        const hasPermissions = !!(flags['permission-mode'] || flags['skip-permissions'])
+        const hasAgent = !!(flags.ephemeral || flags.agent)
+        const allFlagsProvided = hasAction && hasDisplay && hasPermissions && hasAgent
+
+        if (allFlagsProvided && !flags.yes) {
+          // All flags provided but no --yes: return confirmation_needed with plan
+          const metadata = createMetadata('work start', flags)
+
+          // Build the confirm command with --yes
+          let confirmCmd = `prlt work start ${ticketId}`
+          if (flags.action) confirmCmd += ` --action ${flags.action}`
+          if (flags.prompt) confirmCmd += ` --prompt "${flags.prompt}"`
+          if (flags.display) confirmCmd += ` --display ${flags.display}`
+          if (flags['run-on-host']) confirmCmd += ' --run-on-host'
+          if (flags['permission-mode']) confirmCmd += ` --permission-mode ${flags['permission-mode']}`
+          if (flags['skip-permissions']) confirmCmd += ' --skip-permissions'
+          if (flags.ephemeral) confirmCmd += ' --ephemeral'
+          if (flags.agent) confirmCmd += ` --agent ${flags.agent}`
+          if (flags.executor) confirmCmd += ` --executor ${flags.executor}`
+          if (flags.session) confirmCmd += ` --session ${flags.session}`
+          if (flags['create-pr']) confirmCmd += ' --create-pr'
+          if (flags['no-pr']) confirmCmd += ' --no-pr'
+          if (flags.clone) confirmCmd += ' --clone'
+          if (flags.focus) confirmCmd += ' --focus'
+          if (flags.force) confirmCmd += ' --force'
+          confirmCmd += ' --yes'
+
+          const plan = {
+            ticket: {
+              id: ticket.id,
+              title: ticket.title,
+              status: ticket.statusName,
+            },
+            action: flags.action || 'custom',
+            display: flags.display || (flags['run-on-host'] ? 'host' : 'devcontainer'),
+            permissions: (flags['permission-mode'] || (flags['skip-permissions'] ? 'danger' : 'safe')),
+            agent: flags.agent || 'ephemeral',
+          }
+
+          db.close()
+          outputConfirmationNeededAsJson(
+            plan,
+            confirmCmd,
+            `Ready to start work on ${ticketId}. Run with --yes to execute.`,
+            metadata
+          )
+          return
+        }
+        // If --yes is set with all flags, continue to execution (don't return)
+        // If missing flags, continue and let FlagResolver handle prompts
       }
 
       // Check if ticket is blocked by dependencies
@@ -400,15 +464,21 @@ export default class WorkStart extends PMOCommand {
 
       if (flags.ephemeral) {
         // Create ephemeral agent on-demand
-        this.log(styles.muted('Creating ephemeral agent...'))
+        if (!jsonMode) {
+          this.log(styles.muted('Creating ephemeral agent...'))
+        }
         const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
           skipDevcontainer: flags['run-on-host'],
-          log: (msg) => this.log(msg),
+          log: (msg) => {
+            if (!jsonMode) this.log(msg)
+          },
           mountMode: flags.clone ? 'clone' : 'worktree',
         })
         agentName = ephemeralResult.name
         agentWorktreePath = ephemeralResult.worktreePath
-        this.log(styles.success(`Created ephemeral agent: ${agentName}`))
+        if (!jsonMode) {
+          this.log(styles.success(`Created ephemeral agent: ${agentName}`))
+        }
       } else if (flags.agent) {
         // Agent specified via flag
         agentName = flags.agent
@@ -1060,98 +1130,103 @@ export default class WorkStart extends PMOCommand {
       if (environment === 'devcontainer') {
         const hasCredentials = dockerCredentialsExist()
         if (!hasCredentials) {
-          this.log('')
-          this.log(styles.warning('⚠️  No Claude Code credentials found for Docker containers'))
-          this.log(styles.muted('   Agents will fail with 401 authentication errors without credentials.'))
-          this.log('')
-
-          // Use FlagResolver for auth action
-          const authResolver = new FlagResolver<{ authAction?: string }>({
-            commandName: 'work start',
-            baseCommand: `prlt work start ${ticketId}`,
-            jsonMode,
-            flags: {},
-          })
-
-          authResolver.addPrompt({
-            flagName: 'authAction',
-            type: 'list',
-            message: 'What would you like to do?',
-            choices: () => [
-              { name: `🔐 Run ${this.config.bin} agent auth now (one-time setup)`, value: 'auth' },
-              { name: '💻 Switch to host environment instead', value: 'host' },
-              { name: '⏩ Continue anyway (must run /login in first agent)', value: 'continue' },
-              { name: '✗  Cancel', value: 'cancel' },
-            ],
-          })
-
-          const authResult = await authResolver.resolve()
-          const authAction = authResult.authAction
-
-          if (authAction === 'cancel') {
-            db.close()
-            this.log(styles.muted('Cancelled.'))
-            return
-          }
-
-          if (authAction === 'host') {
-            environment = 'host'
-            this.log(styles.muted('Switched to host environment.'))
-          } else if (authAction === 'auth') {
+          // In JSON mode with --yes, continue anyway (agent can run /login)
+          if (jsonMode && flags.yes) {
+            // Continue without prompting - agent will need to handle auth
+          } else {
             this.log('')
-            this.log(styles.primary(`Opening ${this.config.bin} agent auth in new tab...`))
+            this.log(styles.warning('⚠️  No Claude Code credentials found for Docker containers'))
+            this.log(styles.muted('   Agents will fail with 401 authentication errors without credentials.'))
             this.log('')
 
-            // Open auth in a new terminal tab
-            const authCmd = `${process.argv[1]} agent auth`
-            try {
-              execSync(`osascript -e '
-                tell application "iTerm"
-                  tell current window
-                    create tab with default profile
-                    tell current session
-                      write text "${authCmd}"
-                    end tell
-                  end tell
-                end tell
-              '`)
-            } catch {
-              // Fallback: try Terminal.app
-              try {
-                execSync(`osascript -e 'tell application "Terminal" to do script "${authCmd}"'`)
-              } catch {
-                this.log(styles.warning('Could not open new terminal tab.'))
-                this.log(styles.muted(`Please run manually: ${authCmd}`))
-              }
-            }
+            // Use FlagResolver for auth action
+            const authResolver = new FlagResolver<{ authAction?: string }>({
+              commandName: 'work start',
+              baseCommand: `prlt work start ${ticketId}`,
+              jsonMode,
+              flags: {},
+            })
 
-            this.log(styles.muted('Complete the /login flow in the new tab, then press Enter here...'))
-            this.log('')
+            authResolver.addPrompt({
+              flagName: 'authAction',
+              type: 'list',
+              message: 'What would you like to do?',
+              choices: () => [
+                { name: `🔐 Run ${this.config.bin} agent auth now (one-time setup)`, value: 'auth' },
+                { name: '💻 Switch to host environment instead', value: 'host' },
+                { name: '⏩ Continue anyway (must run /login in first agent)', value: 'continue' },
+                { name: '✗  Cancel', value: 'cancel' },
+              ],
+            })
 
-            // Wait for user to complete auth
-            await this.prompt<{ done: string }>([{
-              type: 'input',
-              name: 'done',
-              message: 'Press Enter when authentication is complete:',
-            }], jsonModeConfig)
+            const authResult = await authResolver.resolve()
+            const authAction = authResult.authAction
 
-            // Check if credentials now exist
-            if (!dockerCredentialsExist()) {
-              this.log('')
-              this.log(styles.warning('Authentication did not complete. No credentials found.'))
+            if (authAction === 'cancel') {
               db.close()
+              this.log(styles.muted('Cancelled.'))
               return
             }
-            const info = getDockerCredentialInfo()
-            this.log('')
-            this.log(styles.success('✓ Credentials configured'))
-            if (info) {
-              this.log(styles.muted(`   Subscription: ${info.subscriptionType || 'unknown'}`))
-              this.log(styles.muted(`   Expires: ${info.expiresAt.toLocaleDateString()}`))
+
+            if (authAction === 'host') {
+              environment = 'host'
+              this.log(styles.muted('Switched to host environment.'))
+            } else if (authAction === 'auth') {
+              this.log('')
+              this.log(styles.primary(`Opening ${this.config.bin} agent auth in new tab...`))
+              this.log('')
+
+              // Open auth in a new terminal tab
+              const authCmd = `${process.argv[1]} agent auth`
+              try {
+                execSync(`osascript -e '
+                  tell application "iTerm"
+                    tell current window
+                      create tab with default profile
+                      tell current session
+                        write text "${authCmd}"
+                      end tell
+                    end tell
+                  end tell
+                '`)
+              } catch {
+                // Fallback: try Terminal.app
+                try {
+                  execSync(`osascript -e 'tell application "Terminal" to do script "${authCmd}"'`)
+                } catch {
+                  this.log(styles.warning('Could not open new terminal tab.'))
+                  this.log(styles.muted(`Please run manually: ${authCmd}`))
+                }
+              }
+
+              this.log(styles.muted('Complete the /login flow in the new tab, then press Enter here...'))
+              this.log('')
+
+              // Wait for user to complete auth
+              await this.prompt<{ done: string }>([{
+                type: 'input',
+                name: 'done',
+                message: 'Press Enter when authentication is complete:',
+              }])
+
+              // Check if credentials now exist
+              if (!dockerCredentialsExist()) {
+                this.log('')
+                this.log(styles.warning('Authentication did not complete. No credentials found.'))
+                db.close()
+                return
+              }
+              const info = getDockerCredentialInfo()
+              this.log('')
+              this.log(styles.success('✓ Credentials configured'))
+              if (info) {
+                this.log(styles.muted(`   Subscription: ${info.subscriptionType || 'unknown'}`))
+                this.log(styles.muted(`   Expires: ${info.expiresAt.toLocaleDateString()}`))
+              }
+              this.log('')
             }
-            this.log('')
+            // authAction === 'continue' falls through
           }
-          // authAction === 'continue' falls through
         }
       }
 
@@ -1198,55 +1273,62 @@ export default class WorkStart extends PMOCommand {
       } else if (flags['no-pr']) {
         createPR = false
       } else if (ghAvailable) {
-        // Use FlagResolver for PR choice
-        const prResolver = new FlagResolver<{ prChoice?: string }>({
-          commandName: 'work start',
-          baseCommand: `prlt work start ${ticketId}`,
-          jsonMode,
-          flags: {},
-        })
+        // In JSON mode with --yes, default to creating PR for code-modifying actions
+        if (jsonMode && flags.yes) {
+          createPR = context.modifiesCode !== false
+        } else {
+          // Use FlagResolver for PR choice
+          const prResolver = new FlagResolver<{ prChoice?: string }>({
+            commandName: 'work start',
+            baseCommand: `prlt work start ${ticketId}`,
+            jsonMode,
+            flags: {},
+          })
 
-        prResolver.addPrompt({
-          flagName: 'prChoice',
-          type: 'list',
-          message: 'Create a pull request when work is ready?',
-          default: 'yes',
-          choices: () => [
-            { name: '✓ Yes - Create PR when running `prlt work ready`', value: 'yes' },
-            { name: '✗ No  - Just move ticket to review (can create PR later)', value: 'no' },
-          ],
-        })
+          prResolver.addPrompt({
+            flagName: 'prChoice',
+            type: 'list',
+            message: 'Create a pull request when work is ready?',
+            default: 'yes',
+            choices: () => [
+              { name: '✓ Yes - Create PR when running `prlt work ready`', value: 'yes' },
+              { name: '✗ No  - Just move ticket to review (can create PR later)', value: 'no' },
+            ],
+          })
 
-        const prResult = await prResolver.resolve()
-        createPR = prResult.prChoice === 'yes'
+          const prResult = await prResolver.resolve()
+          createPR = prResult.prChoice === 'yes'
+        }
       }
 
-      // Show execution info
-      this.log('')
-      this.log(styles.header(`🚀 Starting work: ${ticket.id}: ${ticket.title}`))
-      this.log(styles.muted(`   Agent: ${assignedAgent}`))
-      this.log(styles.muted(`   Action: ${context.actionName || 'None'}`))
-      this.log(styles.muted(`   Executor: ${executor}`))
+      // Show execution info (skip in JSON mode)
+      if (!jsonMode) {
+        this.log('')
+        this.log(styles.header(`🚀 Starting work: ${ticket.id}: ${ticket.title}`))
+        this.log(styles.muted(`   Agent: ${assignedAgent}`))
+        this.log(styles.muted(`   Action: ${context.actionName || 'None'}`))
+        this.log(styles.muted(`   Executor: ${executor}`))
 
-      // Environment info
-      const envIcon = environment === 'devcontainer' ? '🐳' : '💻'
-      this.log(styles.muted(`   Environment: ${envIcon} ${environment}`))
-      this.log(styles.muted(`   Display: ${displayMode}`))
+        // Environment info
+        const envIcon = environment === 'devcontainer' ? '🐳' : '💻'
+        this.log(styles.muted(`   Environment: ${envIcon} ${environment}`))
+        this.log(styles.muted(`   Display: ${displayMode}`))
 
-      // Permissions info
-      if (sandboxed) {
-        this.log(styles.success(`   Permissions: 🔒 safe`))
-      } else {
-        this.log(styles.warning(`   Permissions: ⚠️  danger (--dangerously-skip-permissions)`))
+        // Permissions info
+        if (sandboxed) {
+          this.log(styles.success(`   Permissions: 🔒 safe`))
+        } else {
+          this.log(styles.warning(`   Permissions: ⚠️  danger (--dangerously-skip-permissions)`))
+        }
+
+        this.log(styles.muted(`   Output: ${outputMode === 'interactive' ? 'streaming (watch Claude work)' : 'print (final result only)'}`))
+        if (ghAvailable) {
+          this.log(styles.muted(`   Create PR: ${createPR ? 'yes (when work is ready)' : 'no'}`))
+        }
+        this.log(styles.muted(`   Worktree: ${worktreePath}`))
+        this.log(styles.muted(`   Branch: ${branch}`))
+        this.log('')
       }
-
-      this.log(styles.muted(`   Output: ${outputMode === 'interactive' ? 'streaming (watch Claude work)' : 'print (final result only)'}`))
-      if (ghAvailable) {
-        this.log(styles.muted(`   Create PR: ${createPR ? 'yes (when work is ready)' : 'no'}`))
-      }
-      this.log(styles.muted(`   Worktree: ${worktreePath}`))
-      this.log(styles.muted(`   Branch: ${branch}`))
-      this.log('')
 
       // Add createPR to context
       context.createPR = createPR
@@ -1445,8 +1527,10 @@ export default class WorkStart extends PMOCommand {
         branch,
       })
 
-      this.log(styles.muted(`   Work ID: ${execution.id}`))
-      this.log('')
+      if (!jsonMode) {
+        this.log(styles.muted(`   Work ID: ${execution.id}`))
+        this.log('')
+      }
 
       // Note: Ticket status update moved to after successful spawn (see below)
 
@@ -1497,7 +1581,9 @@ export default class WorkStart extends PMOCommand {
       }
 
       // Run execution
-      this.log(styles.muted('Starting agent...'))
+      if (!jsonMode) {
+        this.log(styles.muted('Starting agent...'))
+      }
       const sessionManager = (flags.session || 'tmux') as SessionManager
       const result = await runExecution(environment, context, executor, executionConfig, {
         host: flags['vm-host'],
@@ -1560,18 +1646,55 @@ export default class WorkStart extends PMOCommand {
           }
         }
 
-        await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
+        await autoExportToBoard(this.pmoPath, this.storage, (msg) => {
+          if (!jsonMode) {
+            this.log(styles.muted(msg))
+          }
+        })
 
-        this.log('')
-        this.log(styles.success(`✓ Work started (${execution.id})`))
-        this.log('')
-        this.log(styles.muted('Commands:'))
-        this.log(styles.muted(`  prlt work status              View work status`))
-        this.log(styles.muted(`  prlt work ready ${ticketId}     Mark ready for review`))
-        this.log(styles.muted(`  prlt work stop ${execution.id}    Stop work`))
+        // Output results
+        if (jsonMode) {
+          // Output JSON execution result
+          outputExecutionResultAsJson(
+            [{
+              workId: execution.id,
+              ticketId: ticket.id,
+              agent: assignedAgent,
+              sessionId: result.sessionId,
+              containerId: result.containerId,
+              status: 'running',
+            }],
+            1,
+            0,
+            createMetadata('work start', flags)
+          )
+        } else {
+          this.log('')
+          this.log(styles.success(`✓ Work started (${execution.id})`))
+          this.log('')
+          this.log(styles.muted('Commands:'))
+          this.log(styles.muted(`  prlt work status              View work status`))
+          this.log(styles.muted(`  prlt work ready ${ticketId}     Mark ready for review`))
+          this.log(styles.muted(`  prlt work stop ${execution.id}    Stop work`))
+        }
       } else {
         executionStorage.updateStatus(execution.id, 'failed')
-        this.error(`Failed to start work: ${result.error}`)
+        if (jsonMode) {
+          // Output JSON failure result
+          outputExecutionResultAsJson(
+            [{
+              workId: execution.id,
+              ticketId: ticket.id,
+              agent: assignedAgent,
+              status: 'failed',
+            }],
+            0,
+            1,
+            createMetadata('work start', flags)
+          )
+        } else {
+          this.error(`Failed to start work: ${result.error}`)
+        }
       }
 
       db.close()

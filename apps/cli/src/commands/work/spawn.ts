@@ -15,6 +15,8 @@ import {
   outputSuccessAsJson,
   outputErrorAsJson,
   createMetadata,
+  outputConfirmationNeededAsJson,
+  outputExecutionResultAsJson,
 } from '../../lib/prompt-json.js'
 import { FlagResolver } from '../../lib/flags/index.js'
 
@@ -290,21 +292,78 @@ export default class WorkSpawn extends PMOCommand {
           return handleError('NO_VALID_TICKETS', 'No valid tickets found from provided IDs.')
         }
 
-        // In JSON mode with explicit tickets, output success
+        // In JSON mode with explicit tickets, check if we should execute or return confirmation
         if (jsonMode) {
-          outputSuccessAsJson(
-            {
-              ticketsSelected: ticketsToSpawn.map(t => ({
+          // Check if all required flags for non-interactive execution are provided
+          const hasAction = !!flags.action
+          const hasDisplay = !!flags.display || flags['run-on-host']
+          const hasPermissions = flags['skip-permissions'] || flags['per-ticket'] // per-ticket mode prompts individually
+          const allFlagsProvided = hasAction && hasDisplay && hasPermissions
+
+          if (allFlagsProvided && flags.yes) {
+            // All flags provided and --yes is set: fall through to execution loop
+            // Don't return here - continue to execution
+          } else if (allFlagsProvided && !flags.yes) {
+            // All flags provided but no --yes: return confirmation_needed with plan
+            const metadata = createMetadata('work spawn', flags)
+
+            // Build the confirm command with --yes
+            const ticketIds = ticketsToSpawn.map(t => t.id).join(' ')
+            let confirmCmd = `prlt work spawn ${ticketIds}`
+            if (flags.action) confirmCmd += ` --action ${flags.action}`
+            if (flags.display) confirmCmd += ` --display ${flags.display}`
+            if (flags['run-on-host']) confirmCmd += ' --run-on-host'
+            if (flags['skip-permissions']) confirmCmd += ' --skip-permissions'
+            if (flags.executor) confirmCmd += ` --executor ${flags.executor}`
+            if (flags.session) confirmCmd += ` --session ${flags.session}`
+            if (flags['create-pr']) confirmCmd += ' --create-pr'
+            if (flags['no-pr']) confirmCmd += ' --no-pr'
+            if (flags.clone) confirmCmd += ' --clone'
+            if (flags.focus) confirmCmd += ' --focus'
+            confirmCmd += ' --yes'
+
+            const plan = {
+              tickets: ticketsToSpawn.map(t => ({
                 id: t.id,
                 title: t.title,
                 status: t.statusName,
               })),
+              action: flags.action,
+              display: flags.display || (flags['run-on-host'] ? 'host' : 'devcontainer'),
+              permissions: flags['skip-permissions'] ? 'danger' : 'safe',
               count: ticketsToSpawn.length,
-            },
-            createMetadata('work spawn', flags)
-          )
-          db.close()
-          return
+            }
+
+            db.close()
+            outputConfirmationNeededAsJson(
+              plan,
+              confirmCmd,
+              `Ready to spawn ${ticketsToSpawn.length} agent(s). Run with --yes to execute.`,
+              metadata
+            )
+            return
+          } else {
+            // Missing required flags: return success with tickets selected (legacy behavior)
+            // This allows the calling agent to see what tickets are available
+            outputSuccessAsJson(
+              {
+                ticketsSelected: ticketsToSpawn.map(t => ({
+                  id: t.id,
+                  title: t.title,
+                  status: t.statusName,
+                })),
+                count: ticketsToSpawn.length,
+                missingFlags: {
+                  action: !hasAction,
+                  display: !hasDisplay,
+                  permissions: !hasPermissions,
+                },
+              },
+              createMetadata('work spawn', flags)
+            )
+            db.close()
+            return
+          }
         }
 
         this.log('')
@@ -1009,28 +1068,34 @@ export default class WorkSpawn extends PMOCommand {
         const actionModifiesCode = selectedActionDetails?.modifiesCode ?? true
         if (!batchCreatePr && !batchNoPr) {
           if (actionModifiesCode) {
-            // Use FlagResolver for PR choice
-            const prResolver = new FlagResolver<{ prChoice?: string }>({
-              commandName: 'work spawn',
-              baseCommand: 'prlt work spawn',
-              jsonMode,
-              flags: {},
-            })
+            // In JSON mode with --yes, default to creating PRs for code-modifying actions
+            if (jsonMode && flags.yes) {
+              batchCreatePr = true
+              batchNoPr = false
+            } else {
+              // Use FlagResolver for PR choice
+              const prResolver = new FlagResolver<{ prChoice?: string }>({
+                commandName: 'work spawn',
+                baseCommand: 'prlt work spawn',
+                jsonMode,
+                flags: {},
+              })
 
-            prResolver.addPrompt({
-              flagName: 'prChoice',
-              type: 'list',
-              message: 'Create pull requests when work is ready?',
-              default: 'yes',
-              choices: () => [
-                { name: '✓ Yes - Create PR for each ticket', value: 'yes' },
-                { name: '✗ No  - Just move tickets to review', value: 'no' },
-              ],
-            })
+              prResolver.addPrompt({
+                flagName: 'prChoice',
+                type: 'list',
+                message: 'Create pull requests when work is ready?',
+                default: 'yes',
+                choices: () => [
+                  { name: '✓ Yes - Create PR for each ticket', value: 'yes' },
+                  { name: '✗ No  - Just move tickets to review', value: 'no' },
+                ],
+              })
 
-            const prResult = await prResolver.resolve()
-            batchCreatePr = prResult.prChoice === 'yes'
-            batchNoPr = prResult.prChoice === 'no'
+              const prResult = await prResolver.resolve()
+              batchCreatePr = prResult.prChoice === 'yes'
+              batchNoPr = prResult.prChoice === 'no'
+            }
           } else {
             // Non-code-modifying action - no PR needed
             batchCreatePr = false
@@ -1050,10 +1115,22 @@ export default class WorkSpawn extends PMOCommand {
       let successCount = 0
       let failCount = 0
 
+      // Track execution results for JSON output
+      const executionResults: Array<{
+        workId: string
+        ticketId: string
+        agent: string
+        sessionId?: string
+        containerId?: string
+        status: string
+      }> = []
+
       // Process sequentially for clear logging and resource management
       for (const ticket of ticketsToSpawn) {
         try {
-          this.log(styles.muted(`Starting ${ticket.id} with ephemeral agent...`))
+          if (!jsonMode) {
+            this.log(styles.muted(`Starting ${ticket.id} with ephemeral agent...`))
+          }
 
           // Build args for work:start
           // IMPORTANT: Pass --project to avoid re-prompting for project selection
@@ -1062,6 +1139,11 @@ export default class WorkSpawn extends PMOCommand {
 
           // Pass clone flag if specified
           if (flags.clone) startArgs.push('--clone')
+
+          // In JSON mode with --yes, pass --yes to work:start to skip prompts there too
+          if (jsonMode && flags.yes) {
+            startArgs.push('--yes')
+          }
 
           if (flags['per-ticket']) {
             // Per-ticket mode: only pass display flag, let start prompt for the rest
@@ -1107,17 +1189,50 @@ export default class WorkSpawn extends PMOCommand {
           await this.config.runCommand('work:start', startArgs)
 
           successCount++
+
+          // Track for JSON output
+          executionResults.push({
+            workId: `WORK-${ticket.id}`, // Placeholder - actual work ID comes from work:start
+            ticketId: ticket.id,
+            agent: 'ephemeral', // Ephemeral agent name determined by work:start
+            status: 'running',
+          })
         } catch (error) {
           failCount++
-          this.log(styles.error(`Failed to start ${ticket.id}: ${error instanceof Error ? error.message : error}`))
+          if (!jsonMode) {
+            this.log(styles.error(`Failed to start ${ticket.id}: ${error instanceof Error ? error.message : error}`))
+          }
+
+          // Track failed executions for JSON output
+          executionResults.push({
+            workId: '',
+            ticketId: ticket.id,
+            agent: '',
+            status: 'failed',
+          })
         }
       }
 
-      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
+      await autoExportToBoard(this.pmoPath, this.storage, (msg) => {
+        if (!jsonMode) {
+          this.log(styles.muted(msg))
+        }
+      })
       db.close()
 
-      this.log('')
-      this.log(styles.success(`✓ Spawn results: ${successCount} started, ${failCount} failed`))
+      // Output results
+      if (jsonMode) {
+        // Output JSON execution results
+        outputExecutionResultAsJson(
+          executionResults,
+          successCount,
+          failCount,
+          createMetadata('work spawn', flags)
+        )
+      } else {
+        this.log('')
+        this.log(styles.success(`✓ Spawn results: ${successCount} started, ${failCount} failed`))
+      }
     } catch (error) {
       db.close()
       throw error

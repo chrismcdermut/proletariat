@@ -163,9 +163,50 @@ export interface DryRunJsonOutput {
 }
 
 /**
+ * JSON output for confirmation needed (two-step execute protocol)
+ * Used when all required flags are provided but --yes is not set.
+ * Agent should review the plan and re-run with --yes to execute.
+ */
+export interface ConfirmationNeededJsonOutput {
+  /** Output type discriminator */
+  type: 'confirmation_needed'
+  /** Plan of what will happen if confirmed */
+  plan: Record<string, unknown>
+  /** The full command to run to confirm and execute */
+  confirm_command: string
+  /** Human-readable message */
+  message: string
+  /** Command metadata */
+  metadata: OutputMetadata
+}
+
+/**
+ * JSON output for execution result (after successful spawn/start)
+ */
+export interface ExecutionResultJsonOutput {
+  /** Output type discriminator */
+  type: 'execution_result'
+  /** Execution results */
+  result: {
+    executions: Array<{
+      workId: string
+      ticketId: string
+      agent: string
+      sessionId?: string
+      containerId?: string
+      status: string
+    }>
+    successCount: number
+    failCount: number
+  }
+  /** Command metadata */
+  metadata: OutputMetadata
+}
+
+/**
  * Union type for all JSON output types
  */
-export type JsonOutput = PromptJsonOutput | SuccessJsonOutput | ErrorJsonOutput | DryRunJsonOutput
+export type JsonOutput = PromptJsonOutput | SuccessJsonOutput | ErrorJsonOutput | DryRunJsonOutput | ConfirmationNeededJsonOutput | ExecutionResultJsonOutput
 
 /**
  * Flags interface for JSON mode detection
@@ -489,4 +530,69 @@ export function outputDryRunErrorsAsJson(
   }
   console.log(JSON.stringify(output, null, 2))
   process.exit(EXIT_ERROR)
+}
+
+/**
+ * Output a confirmation needed response as JSON and exit
+ *
+ * Use this in non-TTY mode when all required flags are provided but --yes is not set.
+ * This allows agents to preview what will happen before confirming execution.
+ *
+ * @param plan - Details of what will happen if confirmed
+ * @param confirmCommand - The full command to run with --yes to execute
+ * @param message - Human-readable message explaining the confirmation
+ * @param metadata - Command metadata
+ */
+export function outputConfirmationNeededAsJson(
+  plan: Record<string, unknown>,
+  confirmCommand: string,
+  message: string,
+  metadata: OutputMetadata
+): never {
+  const output: ConfirmationNeededJsonOutput = {
+    type: 'confirmation_needed',
+    plan,
+    confirm_command: confirmCommand,
+    message,
+    metadata,
+  }
+  console.log(JSON.stringify(output, null, 2))
+  process.exit(EXIT_NEEDS_INPUT)
+}
+
+/**
+ * Output execution result as JSON (non-exiting version)
+ *
+ * Use this after execution completes in non-TTY mode to provide structured
+ * results. Unlike other output functions, this does NOT exit - caller should
+ * handle cleanup and exit.
+ *
+ * @param executions - Array of execution results
+ * @param successCount - Number of successful executions
+ * @param failCount - Number of failed executions
+ * @param metadata - Command metadata
+ */
+export function outputExecutionResultAsJson(
+  executions: Array<{
+    workId: string
+    ticketId: string
+    agent: string
+    sessionId?: string
+    containerId?: string
+    status: string
+  }>,
+  successCount: number,
+  failCount: number,
+  metadata: OutputMetadata
+): void {
+  const output: ExecutionResultJsonOutput = {
+    type: 'execution_result',
+    result: {
+      executions,
+      successCount,
+      failCount,
+    },
+    metadata,
+  }
+  console.log(JSON.stringify(output, null, 2))
 }
