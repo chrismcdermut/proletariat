@@ -1,13 +1,10 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class RoadmapView extends PMOCommand {
@@ -56,27 +53,17 @@ export default class RoadmapView extends PMOCommand {
         this.error('No roadmaps found. Create one with: prlt roadmap create');
       }
 
-      if (jsonMode) {
-        const choices = roadmaps.map(r => ({
-          name: `${r.name}${r.isDefault ? ' (default)' : ''}`,
-          value: r.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select roadmap to view:', choices),
-          createMetadata('roadmap view', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt<{ selected: string }>([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'roadmap view' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select roadmap to view:',
         choices: roadmaps.map(r => ({
           name: `${r.name}${r.isDefault ? ' (default)' : ''}`,
           value: r.id,
+          command: `prlt roadmap view "${r.id}" --json`,
         })),
-      }]);
+      }], jsonModeConfig);
       roadmapId = selected;
     }
 

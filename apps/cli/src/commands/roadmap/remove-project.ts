@@ -1,13 +1,10 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class RoadmapRemoveProject extends PMOCommand {
@@ -66,27 +63,17 @@ export default class RoadmapRemoveProject extends PMOCommand {
         this.error('No roadmaps found');
       }
 
-      if (jsonMode) {
-        const choices = roadmaps.map(r => ({
-          name: `${r.name}${r.isDefault ? ' (default)' : ''}`,
-          value: r.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'roadmap', 'Select roadmap:', choices),
-          createMetadata('roadmap remove-project', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt<{ selected: string }>([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'roadmap remove-project' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select roadmap:',
         choices: roadmaps.map(r => ({
           name: `${r.name}${r.isDefault ? ' (default)' : ''}`,
           value: r.id,
+          command: `prlt roadmap remove-project "${r.id}" --json`,
         })),
-      }]);
+      }], jsonModeConfig);
       roadmapId = selected;
     }
 
@@ -113,27 +100,17 @@ export default class RoadmapRemoveProject extends PMOCommand {
     // Select project
     let projectId = args.project;
     if (!projectId) {
-      if (jsonMode) {
-        const choices = projects.map((p, i) => ({
-          name: `${i + 1}. ${p.name}`,
-          value: p.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'project', 'Select project to remove:', choices),
-          createMetadata('roadmap remove-project', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt<{ selected: string }>([{
+      const projectJsonModeConfig = jsonMode ? { flags, commandName: 'roadmap remove-project' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select project to remove:',
         choices: projects.map((p, i) => ({
           name: `${i + 1}. ${p.name}`,
           value: p.id,
+          command: `prlt roadmap remove-project "${roadmapId}" "${p.id}" --json`,
         })),
-      }]);
+      }], projectJsonModeConfig);
       projectId = selected;
     }
 
@@ -151,27 +128,16 @@ export default class RoadmapRemoveProject extends PMOCommand {
     if (!flags.force) {
       const message = `Remove "${project.name}" from "${roadmap.name}"?`;
 
-      if (jsonMode) {
-        const confirmChoices = [
-          { name: 'No, cancel', value: 'false' },
-          { name: 'Yes, remove', value: 'true' },
-        ];
-        outputPromptAsJson(
-          buildPromptConfig('list', 'confirmed', message, confirmChoices),
-          createMetadata('roadmap remove-project', flags)
-        );
-        return;
-      }
-
-      const { confirm } = await inquirer.prompt<{ confirm: boolean }>([{
+      const confirmJsonModeConfig = jsonMode ? { flags, commandName: 'roadmap remove-project' } : null;
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message,
         choices: [
-          { name: 'No, cancel', value: false },
-          { name: 'Yes, remove', value: true },
+          { name: 'No, cancel', value: false, command: '' },
+          { name: 'Yes, remove', value: true, command: `prlt roadmap remove-project "${roadmapId}" "${projectId}" --force --json` },
         ],
-      }]);
+      }], confirmJsonModeConfig);
 
       if (!confirm) {
         this.log(styles.muted('Cancelled.'));

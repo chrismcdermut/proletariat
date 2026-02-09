@@ -1,13 +1,10 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class RoadmapReorder extends PMOCommand {
@@ -64,27 +61,17 @@ export default class RoadmapReorder extends PMOCommand {
         this.error('No roadmaps found');
       }
 
-      if (jsonMode) {
-        const choices = roadmaps.map(r => ({
-          name: `${r.name}${r.isDefault ? ' (default)' : ''}`,
-          value: r.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'roadmap', 'Select roadmap:', choices),
-          createMetadata('roadmap reorder', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt<{ selected: string }>([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'roadmap reorder' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select roadmap:',
         choices: roadmaps.map(r => ({
           name: `${r.name}${r.isDefault ? ' (default)' : ''}`,
           value: r.id,
+          command: `prlt roadmap reorder "${r.id}" --json`,
         })),
-      }]);
+      }], jsonModeConfig);
       roadmapId = selected;
     }
 
@@ -133,27 +120,17 @@ export default class RoadmapReorder extends PMOCommand {
     this.log('');
 
     // Prompt to select project to move
-    if (jsonMode) {
-      const choices = projects.map((p, i) => ({
-        name: `${i + 1}. ${p.name}`,
-        value: p.id,
-      }));
-      outputPromptAsJson(
-        buildPromptConfig('list', 'project', 'Select project to move:', choices),
-        createMetadata('roadmap reorder', flags)
-      );
-      return;
-    }
-
-    const { projectToMove } = await inquirer.prompt<{ projectToMove: string }>([{
+    const projectJsonModeConfig = jsonMode ? { flags, commandName: 'roadmap reorder' } : null;
+    const { projectToMove } = await this.prompt<{ projectToMove: string }>([{
       type: 'list',
       name: 'projectToMove',
       message: 'Select project to move:',
       choices: projects.map((p, i) => ({
         name: `${i + 1}. ${p.name}`,
         value: p.id,
+        command: `prlt roadmap reorder "${roadmapId}" --project "${p.id}" --json`,
       })),
-    }]);
+    }], projectJsonModeConfig);
 
     const project = projects.find(p => p.id === projectToMove)!;
     const currentPosition = projects.findIndex(p => p.id === projectToMove);
@@ -161,10 +138,14 @@ export default class RoadmapReorder extends PMOCommand {
     // Generate position choices
     const positionChoices = projects.map((p, i) => {
       if (i === currentPosition) {
-        return { name: `${i + 1}. ${p.name} (current position)`, value: i, disabled: true };
+        return { name: `${i + 1}. ${p.name} (current position)`, value: i, disabled: true, command: '' };
       }
       const label = i < currentPosition ? `Move before ${i + 1}. ${p.name}` : `Move after ${i}. ${projects[i - 1]?.name || ''}`;
-      return { name: `Position ${i + 1}: ${label}`, value: i };
+      return {
+        name: `Position ${i + 1}: ${label}`,
+        value: i,
+        command: `prlt roadmap reorder "${roadmapId}" --project "${projectToMove}" --position ${i} --json`,
+      };
     }).filter(c => !c.disabled);
 
     // Add "move to end" option if not already at the end
@@ -172,15 +153,17 @@ export default class RoadmapReorder extends PMOCommand {
       positionChoices.push({
         name: `Position ${projects.length}: Move to end`,
         value: projects.length - 1,
+        command: `prlt roadmap reorder "${roadmapId}" --project "${projectToMove}" --position ${projects.length - 1} --json`,
       });
     }
 
-    const { newPosition } = await inquirer.prompt<{ newPosition: number }>([{
+    const positionJsonModeConfig = jsonMode ? { flags, commandName: 'roadmap reorder' } : null;
+    const { newPosition } = await this.prompt<{ newPosition: number }>([{
       type: 'list',
       name: 'newPosition',
       message: `Move "${project.name}" to which position?`,
       choices: positionChoices,
-    }]);
+    }], positionJsonModeConfig);
 
     await this.storage.reorderRoadmapProject(roadmapId, projectToMove, newPosition);
 

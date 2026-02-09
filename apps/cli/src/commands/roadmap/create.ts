@@ -1,15 +1,8 @@
 import { Flags, Args } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { slugify } from '../../lib/pmo/utils.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildFormPromptConfig,
-  FormField,
-} from '../../lib/prompt-json.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 
 export default class RoadmapCreate extends PMOCommand {
   static description = 'Create a new roadmap';
@@ -73,31 +66,51 @@ export default class RoadmapCreate extends PMOCommand {
     };
 
     if (flags.interactive || (!args.name && !flags.name)) {
-      const fields: FormField[] = [
-        { type: 'input', name: 'name', message: 'Roadmap name:', default: flags.name },
-        { type: 'input', name: 'id', message: 'Roadmap ID (leave blank to auto-generate):' },
-        { type: 'input', name: 'description', message: 'Description (optional):', default: flags.description },
-        {
-          type: 'list',
-          name: 'isDefault',
-          message: 'Set as default roadmap?',
-          choices: [
-            { name: 'No', value: 'false' },
-            { name: 'Yes', value: 'true' },
-          ],
-          default: flags.default ? 'true' : 'false',
-        },
-      ];
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'roadmap create' } : null;
 
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildFormPromptConfig(fields),
-          createMetadata('roadmap create', flags)
-        );
-        return;
-      }
+      // Prompt for name - in JSON mode, outputs prompt and exits; agent re-runs with --name flag
+      const { name } = await this.prompt<{ name: string }>([{
+        type: 'input',
+        name: 'name',
+        message: 'Roadmap name:',
+        default: flags.name,
+        validate: (input: unknown) => (typeof input === 'string' && input.length > 0) || 'Name is required',
+      }], jsonModeConfig);
 
-      roadmapData = await this.promptRoadmapData(fields);
+      // Prompt for id
+      const { id } = await this.prompt<{ id: string }>([{
+        type: 'input',
+        name: 'id',
+        message: 'Roadmap ID (leave blank to auto-generate):',
+        default: `roadmap-${slugify(name)}`,
+      }], jsonModeConfig);
+
+      // Prompt for description
+      const { description } = await this.prompt<{ description: string }>([{
+        type: 'input',
+        name: 'description',
+        message: 'Description (optional):',
+        default: flags.description,
+      }], jsonModeConfig);
+
+      // Prompt for isDefault
+      const { isDefault } = await this.prompt<{ isDefault: string }>([{
+        type: 'list',
+        name: 'isDefault',
+        message: 'Set as default roadmap?',
+        choices: [
+          { name: 'No', value: 'false', command: `prlt roadmap create --name "${name}" --json` },
+          { name: 'Yes', value: 'true', command: `prlt roadmap create --name "${name}" --default --json` },
+        ],
+        default: flags.default ? 'true' : 'false',
+      }], jsonModeConfig);
+
+      roadmapData = {
+        name,
+        id: id || undefined,
+        description: description || undefined,
+        isDefault: isDefault === 'true',
+      };
     } else {
       roadmapData = {
         name: args.name || flags.name!,
@@ -142,23 +155,27 @@ export default class RoadmapCreate extends PMOCommand {
     const projects = await this.storage.listProjects({ isArchived: false });
     if (projects.length > 0) {
       this.log('');
-      const { addProjects } = await inquirer.prompt<{ addProjects: boolean }>([{
+      const { addProjects } = await this.prompt<{ addProjects: boolean }>([{
         type: 'list',
         name: 'addProjects',
         message: 'Add projects to this roadmap now?',
         choices: [
-          { name: 'Yes', value: true },
-          { name: 'No, I\'ll add them later', value: false },
+          { name: 'Yes', value: true, command: `prlt roadmap add-project "${roadmap.id}" --json` },
+          { name: 'No, I\'ll add them later', value: false, command: '' },
         ],
-      }]);
+      }], null);
 
       if (addProjects) {
-        const { selectedProjects } = await inquirer.prompt<{ selectedProjects: string[] }>([{
+        const { selectedProjects } = await this.prompt<{ selectedProjects: string[] }>([{
           type: 'checkbox',
           name: 'selectedProjects',
           message: 'Select projects to include:',
-          choices: projects.map(p => ({ name: p.name, value: p.id })),
-        }]);
+          choices: projects.map(p => ({
+            name: p.name,
+            value: p.id,
+            command: `prlt roadmap add-project "${roadmap.id}" "${p.id}" --json`,
+          })),
+        }], null);
 
         for (const projectId of selectedProjects) {
           // eslint-disable-next-line no-await-in-loop -- Sequential updates
@@ -175,36 +192,5 @@ export default class RoadmapCreate extends PMOCommand {
     this.log(styles.muted(`  prlt roadmap view ${roadmap.id}`));
     this.log(styles.muted(`  prlt roadmap add-project ${roadmap.id}`));
     this.log(styles.muted(`  prlt roadmap generate ${roadmap.id}`));
-  }
-
-  private async promptRoadmapData(
-    fields: FormField[]
-  ): Promise<{
-    name: string;
-    id?: string;
-    description?: string;
-    isDefault: boolean;
-  }> {
-    const answers = await inquirer.prompt<{
-      name: string;
-      id: string;
-      description: string;
-      isDefault: string | boolean;
-    }>(fields.map(field => ({
-      ...field,
-      validate: field.name === 'name'
-        ? ((input: string) => input.length > 0 || 'Name is required')
-        : undefined,
-      default: field.name === 'id'
-        ? ((answers: { name: string }) => `roadmap-${slugify(answers.name)}`)
-        : field.default,
-    })));
-
-    return {
-      name: answers.name,
-      id: answers.id || undefined,
-      description: answers.description || undefined,
-      isDefault: answers.isDefault === true || answers.isDefault === 'true',
-    };
   }
 }
