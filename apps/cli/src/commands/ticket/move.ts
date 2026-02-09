@@ -4,6 +4,7 @@ import {
   PMOCommand,
   pmoBaseFlags,
 } from '../../lib/pmo/index.js';
+import { Ticket, PMOError } from '../../lib/pmo/types.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
@@ -18,6 +19,7 @@ export default class TicketMove extends PMOCommand {
     '<%= config.bin %> <%= command.id %> my-ticket "In Progress"',
     '<%= config.bin %> <%= command.id %> implement-auth Done',
     '<%= config.bin %> <%= command.id %> fix-bug "In Review" --position 0',
+    '<%= config.bin %> <%= command.id %> TKT-123 --to-project PROJ-002',
     '<%= config.bin %> <%= command.id %> --bulk',
   ];
 
@@ -42,6 +44,9 @@ export default class TicketMove extends PMOCommand {
     }),
     position: Flags.integer({
       description: 'Position within the column (0 = top)',
+    }),
+    'to-project': Flags.string({
+      description: 'Move ticket to a different project (uses Backlog/default column)',
     }),
     bulk: Flags.boolean({
       char: 'b',
@@ -69,6 +74,17 @@ export default class TicketMove extends PMOCommand {
       }
       this.error(message);
     };
+
+    // Cross-project move: if ticketId and --to-project are provided, skip project context
+    // The source project is determined from the ticket itself
+    if (args.ticketId && flags['to-project']) {
+      const ticket = await this.storage.getTicket(args.ticketId);
+      if (!ticket) {
+        return handleError('TICKET_NOT_FOUND', `Ticket "${args.ticketId}" not found.`);
+      }
+      await this.executeCrossProjectMove(ticket, flags['to-project'], args.column, jsonMode, flags);
+      return;
+    }
 
     // This command requires project context - get projectId (with JSON mode support)
     const projectId = await this.requireProject({
@@ -118,10 +134,81 @@ export default class TicketMove extends PMOCommand {
       this.error(`Ticket "${ticketId}" not found.`);
     }
 
+    // Cross-project move (when --to-project flag is provided)
+    if (flags['to-project']) {
+      await this.executeCrossProjectMove(ticket, flags['to-project'], args.column, jsonMode, flags);
+      return;
+    }
+
     // Get target column - prompt if not provided
     let targetColumn = args.column;
 
     if (!targetColumn) {
+      // Check if there are other projects to move to
+      const allProjects = await this.storage.listProjects();
+      const otherProjects = allProjects.filter(p => p.id !== projectId);
+
+      // If there are other projects, ask user what type of move they want
+      if (otherProjects.length > 0) {
+        const moveTypeChoices = [
+          { id: 'column', name: 'Different column (same project)' },
+          { id: 'project', name: 'Different project' },
+        ];
+
+        const moveType = await this.selectFromList({
+          message: 'Move to:',
+          items: moveTypeChoices,
+          getName: (choice) => choice.name,
+          getValue: (choice) => choice.id,
+          getCommand: (choice) => choice.id === 'column'
+            ? `prlt ticket move ${ticketId} -P ${projectId} --json`
+            : `prlt ticket project ${ticketId} -P ${projectId} --json`,
+          jsonMode: jsonMode ? { flags, commandName: 'ticket move' } : null,
+        });
+
+        if (!moveType) {
+          return; // Cancelled or JSON mode
+        }
+
+        // If user chose different project, handle cross-project move
+        if (moveType === 'project') {
+          const targetProjectId = await this.selectFromList({
+            message: 'Select target project:',
+            items: otherProjects,
+            getName: (p) => `${p.name} (${p.id})`,
+            getValue: (p) => p.id,
+            getCommand: (p) => `prlt ticket move ${ticketId} --to-project ${p.id} --json`,
+            jsonMode: jsonMode ? { flags, commandName: 'ticket move' } : null,
+          });
+
+          if (!targetProjectId) {
+            return; // Cancelled or JSON mode
+          }
+
+          // Get columns from target project and ask which column to move to
+          const targetProjectBoard = await this.storage.getProjectBoard(targetProjectId);
+          if (!targetProjectBoard) {
+            this.error('Target project not found.');
+          }
+
+          const targetColumnName = await this.selectFromList({
+            message: 'Move to column:',
+            items: targetProjectBoard.columns as { name: string }[],
+            getName: (col) => col.name,
+            getValue: (col) => col.name,
+            getCommand: (col) => `prlt ticket move ${ticketId} "${col.name}" --to-project ${targetProjectId} --json`,
+            jsonMode: jsonMode ? { flags, commandName: 'ticket move' } : null,
+          });
+
+          if (!targetColumnName) {
+            return; // Cancelled or JSON mode
+          }
+
+          await this.executeCrossProjectMove(ticket, targetProjectId, targetColumnName, jsonMode, flags);
+          return;
+        }
+      }
+
       // Get columns from the database (not config.json) to ensure accuracy
       const project = await this.storage.getProjectBoard(projectId);
       if (!project) {
@@ -269,5 +356,78 @@ export default class TicketMove extends PMOCommand {
     if (failCount > 0) {
       this.log(styles.error(`Failed to move ${failCount} ticket(s)`));
     }
+  }
+
+  /**
+   * Move a ticket to a different project.
+   * If a target column is specified and exists in the target project, move to that column.
+   * Otherwise, use the default/backlog column.
+   */
+  private async executeCrossProjectMove(
+    ticket: Ticket,
+    targetProjectId: string,
+    targetColumn: string | undefined,
+    jsonMode: boolean,
+    flags: Record<string, unknown>
+  ): Promise<void> {
+    const ticketId = ticket.id;
+    const sourceProjectId = ticket.projectId;
+
+    // Check if target project exists
+    const projects = await this.storage.listProjects();
+    const targetProject = projects.find(p =>
+      p.id === targetProjectId ||
+      p.id.toLowerCase() === targetProjectId.toLowerCase() ||
+      p.name.toLowerCase() === targetProjectId.toLowerCase()
+    );
+
+    if (!targetProject) {
+      if (jsonMode) {
+        outputErrorAsJson('PROJECT_NOT_FOUND', `Project not found: ${targetProjectId}`, createMetadata('ticket move', flags));
+        this.exit(1);
+      }
+      this.error(`Project not found: ${targetProjectId}`);
+    }
+
+    // Check if moving to the same project
+    if (targetProject.id === sourceProjectId) {
+      this.log(styles.warning(`Ticket "${ticketId}" is already in project "${targetProject.id}".`));
+      this.log(styles.muted(`To move to a different column, use: prlt ticket move ${ticketId} <column>`));
+      return;
+    }
+
+    // Move ticket to the new project
+    const movedTicket = await this.storage.moveTicketToProject(ticketId, targetProject.id);
+
+    // If a target column was specified, try to move to that column in the new project
+    if (targetColumn) {
+      try {
+        await this.storage.moveTicket(targetProject.id, ticketId, targetColumn);
+        // Refresh ticket to get updated status
+        const updatedTicket = await this.storage.getTicket(ticketId);
+
+        await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+
+        this.log(styles.success(`\n✅ Moved ticket ${styles.emphasis(ticketId)} to project ${styles.emphasis(targetProject.id)}`));
+        this.log(styles.muted(`   From project: ${sourceProjectId}`));
+        this.log(styles.muted(`   To project: ${targetProject.id}`));
+        this.log(styles.muted(`   Column: ${updatedTicket?.statusName || targetColumn}`));
+        return;
+      } catch (error) {
+        // Only catch "status not found" errors - re-throw unexpected errors
+        if (error instanceof PMOError && error.code === 'NOT_FOUND') {
+          this.log(styles.muted(`Note: Column "${targetColumn}" not found in target project, using default column.`));
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+
+    this.log(styles.success(`\n✅ Moved ticket ${styles.emphasis(ticketId)} to project ${styles.emphasis(targetProject.id)}`));
+    this.log(styles.muted(`   From project: ${sourceProjectId}`));
+    this.log(styles.muted(`   To project: ${targetProject.id}`));
+    this.log(styles.muted(`   Column: ${movedTicket.statusName || 'default'}`));
   }
 }
