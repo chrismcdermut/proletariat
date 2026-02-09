@@ -1,6 +1,5 @@
 import { Flags } from '@oclif/core'
 import * as path from 'node:path'
-import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
@@ -464,22 +463,17 @@ export default class WorkSpawn extends PMOCommand {
           ticketsByPriority.get(priority)!.push(ticket)
         }
 
-        // Build choices with priority separators
-        const choices: Array<{ name: string; value: string } | inquirer.Separator> = []
-        // Also build flat choices for JSON mode (without separators)
+        // Build flat choices for ticket selection
         const flatChoices: Array<{ name: string; value: string }> = []
         for (const priority of PRIORITY_ORDER) {
           const tickets = ticketsByPriority.get(priority) || []
           if (tickets.length === 0) continue
-          choices.push(new inquirer.Separator(`── ${priority} (${tickets.length}) ──`))
           for (const ticket of tickets) {
             const statusBadge = ticket.statusName ? ` [${ticket.statusName}]` : ''
-            const ticketChoice = {
+            flatChoices.push({
               name: `[${priority}] ${ticket.id} - ${ticket.title}${statusBadge}`,
               value: ticket.id,
-            }
-            choices.push(ticketChoice)
-            flatChoices.push(ticketChoice)
+            })
           }
         }
 
@@ -540,6 +534,8 @@ export default class WorkSpawn extends PMOCommand {
       }
 
       // Handle tickets with active sessions
+      const spawnJsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work spawn' } : null
+
       if (ticketsWithActiveSessions.length > 0 && !jsonMode) {
         this.log(styles.warning(`Found ${ticketsWithActiveSessions.length} ticket(s) with active tmux sessions:`))
         for (const { ticketId, agent } of ticketsWithActiveSessions) {
@@ -547,18 +543,18 @@ export default class WorkSpawn extends PMOCommand {
         }
         this.log('')
 
-        const { sessionAction } = await inquirer.prompt([
+        const { sessionAction } = await this.prompt<{ sessionAction: string }>([
           {
             type: 'list',
             name: 'sessionAction',
             message: 'What would you like to do with these tickets?',
             choices: [
-              { name: 'Skip them (only spawn tickets without active sessions)', value: 'skip' },
-              { name: 'Kill sessions and respawn with new agents', value: 'kill' },
-              { name: 'Cancel', value: 'cancel' },
+              { name: 'Skip them (only spawn tickets without active sessions)', value: 'skip', command: 'prlt work spawn --json' },
+              { name: 'Kill sessions and respawn with new agents', value: 'kill', command: 'prlt work spawn --json' },
+              { name: 'Cancel', value: 'cancel', command: '' },
             ],
           },
-        ])
+        ], spawnJsonModeConfig)
 
         if (sessionAction === 'cancel') {
           db.close()
@@ -829,7 +825,7 @@ export default class WorkSpawn extends PMOCommand {
           let environmentSelected = false
           while (!environmentSelected) {
             // eslint-disable-next-line no-await-in-loop -- Interactive loop with retry on Docker check
-            const { selectedEnvironment } = await inquirer.prompt([
+            const { selectedEnvironment } = await this.prompt<{ selectedEnvironment: string }>([
               {
                 type: 'list',
                 name: 'selectedEnvironment',
@@ -837,7 +833,7 @@ export default class WorkSpawn extends PMOCommand {
                 choices: envChoices,
                 default: devcontainerReady ? 'devcontainer' : 'host',
               },
-            ])
+            ], spawnJsonModeConfig)
 
             if (selectedEnvironment === 'cancel') {
               db.close()
@@ -929,18 +925,18 @@ export default class WorkSpawn extends PMOCommand {
               // For devcontainer, prompt for display mode
               // Simplified: tmux is always used inside container for session persistence
               // eslint-disable-next-line no-await-in-loop -- Follow-up prompt after selection
-              const { selectedDisplay } = await inquirer.prompt([
+              const { selectedDisplay } = await this.prompt<{ selectedDisplay: string }>([
                 {
                   type: 'list',
                   name: 'selectedDisplay',
                   message: 'How should agent output be displayed?',
                   choices: [
-                    { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-                    { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+                    { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal', command: 'prlt work spawn --display terminal --json' },
+                    { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background', command: 'prlt work spawn --display background --json' },
                   ],
                   default: 'terminal',
                 },
-              ])
+              ], spawnJsonModeConfig)
               batchDisplayMode = selectedDisplay
 
               // Always use tmux inside container for session persistence
