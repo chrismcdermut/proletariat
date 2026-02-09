@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename);
  * Tests that agent temp cleanup only shows temp agents, not staff agents
  */
 describe('Agent Temp Cleanup (TKT-796)', () => {
-  const cleanupPath = path.resolve(__dirname, '../../src/commands/agent/temp/cleanup.ts');
+  const cleanupPath = path.resolve(__dirname, '../../src/commands/agent/cleanup.ts');
 
   describe('interactive mode filters staff agents', () => {
     it('should NOT include staff agents section in interactive mode', () => {
