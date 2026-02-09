@@ -51,8 +51,8 @@ export interface PromptChoice {
  * Form field configuration for multi-field prompts
  */
 export interface FormField {
-  /** Type of field: input, list, checkbox, confirm, editor */
-  type: 'input' | 'list' | 'checkbox' | 'confirm' | 'editor'
+  /** Type of field: input, list, checkbox, confirm, editor, multiline */
+  type: 'input' | 'list' | 'checkbox' | 'confirm' | 'editor' | 'multiline'
   /** Field name */
   name: string
   /** User-facing message */
@@ -67,8 +67,8 @@ export interface FormField {
  * Prompt configuration for JSON output
  */
 export interface PromptConfig {
-  /** Type of prompt: list (single select), checkbox (multi select), confirm, input, editor, or form (multi-field) */
-  type: 'list' | 'checkbox' | 'confirm' | 'input' | 'editor' | 'form'
+  /** Type of prompt: list (single select), checkbox (multi select), confirm, input, editor, multiline (inline multi-line), or form (multi-field) */
+  type: 'list' | 'checkbox' | 'confirm' | 'input' | 'editor' | 'multiline' | 'form'
   /** Field name for the prompt answer (not used for form type) */
   name?: string
   /** User-facing prompt message (not used for form type) */
@@ -402,7 +402,7 @@ export function normalizeChoices(
  * @returns PromptConfig object
  */
 export function buildPromptConfig(
-  type: 'list' | 'checkbox' | 'confirm' | 'input' | 'editor',
+  type: 'list' | 'checkbox' | 'confirm' | 'input' | 'editor' | 'multiline',
   name: string,
   message: string,
   choices?: Array<string | { name: string; value: string; disabled?: boolean | string; command?: string } | unknown>,

@@ -10,6 +10,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
+import { multiLineInput } from '../../lib/multiline-input.js';
 
 export default class SpecCreate extends PMOCommand {
   static description = 'Create a new spec';
@@ -127,7 +128,7 @@ export default class SpecCreate extends PMOCommand {
 
       resolver.addPrompt({
         flagName: 'problem',
-        type: 'input',
+        type: 'multiline',
         message: 'Problem statement (optional):',
         when: (ctx) => ctx.flags.title !== undefined,
       });

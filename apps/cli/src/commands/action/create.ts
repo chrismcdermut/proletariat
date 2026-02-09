@@ -103,11 +103,11 @@ export default class ActionCreate extends PMOCommand {
         },
       });
 
-      // Prompt input (editor type in interactive, but input for JSON mode context)
+      // Prompt input (multiline for inline text input)
       resolver.addPrompt({
         flagName: 'prompt',
-        type: 'editor',
-        message: 'Prompt (opens editor):',
+        type: 'multiline',
+        message: 'Prompt (agent instructions):',
         default: prompt || 'Enter the prompt that will be sent to the agent...',
         when: (ctx) => !ctx.flags.prompt && ctx.flags.name !== undefined,
         validate: (value) => (value as string).trim() ? true : 'Prompt is required',

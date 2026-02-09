@@ -146,11 +146,11 @@ export default class ActionUpdate extends PMOCommand {
         },
       });
 
-      // Prompt input (editor)
+      // Prompt input (multiline)
       resolver.addPrompt({
         flagName: 'prompt',
-        type: 'editor',
-        message: 'Prompt (opens editor):',
+        type: 'multiline',
+        message: 'Prompt (agent instructions):',
         default: existingAction.prompt,
         when: (ctx) => ctx.flags.name !== undefined && ctx.flags.description !== undefined,
         context: {
