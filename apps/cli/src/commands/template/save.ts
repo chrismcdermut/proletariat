@@ -1,5 +1,4 @@
 import { Flags, Args } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
@@ -74,12 +73,12 @@ export default class TemplateSave extends PMOCommand {
         return;
       }
 
-      const { selected } = await inquirer.prompt([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select ticket:',
         choices: tickets.slice(0, 20).map(t => ({ name: `${t.id} - ${t.title}`, value: t.id })),
-      }]);
+      }], null);
       ticketId = selected;
     }
 
@@ -96,20 +95,20 @@ export default class TemplateSave extends PMOCommand {
         return;
       }
 
-      const { name } = await inquirer.prompt([{
+      const { name } = await this.prompt<{ name: string }>([{
         type: 'input',
         name: 'name',
         message: 'Template name:',
         default: ticket.category || ticket.title.split(' ')[0],
-        validate: (i: string) => i.length > 0 || 'Required',
-      }]);
+        validate: (i: unknown) => (i as string).length > 0 || 'Required',
+      }], null);
       templateName = name;
     }
 
     // Get description
     let description = flags.description;
     if (description === undefined && !jsonMode) {
-      const { desc } = await inquirer.prompt([{ type: 'input', name: 'desc', message: 'Description (optional):' }]);
+      const { desc } = await this.prompt<{ desc: string }>([{ type: 'input', name: 'desc', message: 'Description (optional):' }], null);
       description = desc || undefined;
     }
 

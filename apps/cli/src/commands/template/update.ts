@@ -1,5 +1,4 @@
 import { Flags, Args } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
@@ -74,12 +73,12 @@ export default class TemplateUpdate extends PMOCommand {
         return;
       }
 
-      const { selected } = await inquirer.prompt([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select template:',
         choices: editable.map(t => ({ name: `${t.name}${t.description ? ` - ${t.description}` : ''}`, value: t.id })),
-      }]);
+      }], null);
       templateId = selected;
     }
 
@@ -88,14 +87,14 @@ export default class TemplateUpdate extends PMOCommand {
     let newDescription = flags.description;
 
     if (!newName && newDescription === undefined && !jsonMode) {
-      const { updateName } = await inquirer.prompt([{
+      const { updateName } = await this.prompt<{ updateName: string }>([{
         type: 'input', name: 'updateName', message: 'New name (leave empty to keep):',
-      }]);
+      }], null);
       if (updateName) newName = updateName;
 
-      const { updateDesc } = await inquirer.prompt([{
+      const { updateDesc } = await this.prompt<{ updateDesc: string }>([{
         type: 'input', name: 'updateDesc', message: 'New description (leave empty to keep):',
-      }]);
+      }], null);
       if (updateDesc) newDescription = updateDesc;
 
       if (!newName && !newDescription) {

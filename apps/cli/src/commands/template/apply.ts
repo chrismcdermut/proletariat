@@ -1,5 +1,4 @@
 import { Flags, Args } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types.js';
 import { styles } from '../../lib/styles.js';
@@ -113,7 +112,7 @@ export default class TemplateApply extends PMOCommand {
         return;
       }
 
-      const { selectedType } = await inquirer.prompt([{
+      const { selectedType } = await this.prompt<{ selectedType: TemplateType }>([{
         type: 'list',
         name: 'selectedType',
         message: 'What type of template?',
@@ -121,7 +120,7 @@ export default class TemplateApply extends PMOCommand {
           { name: 'Ticket template', value: 'ticket' },
           { name: 'Phase template', value: 'phase' },
         ],
-      }]);
+      }], null);
       templateType = selectedType;
     }
 
@@ -156,12 +155,12 @@ export default class TemplateApply extends PMOCommand {
         return handleError('NO_TEMPLATES', 'No ticket templates. Create with: prlt template create --type ticket');
       }
 
-      const { selected } = await inquirer.prompt([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select template:',
         choices: templates.map(t => ({ name: `${t.name}${t.description ? ` - ${t.description}` : ''}`, value: t.id })),
-      }]);
+      }], null);
       templateId = selected;
     }
 
@@ -193,10 +192,10 @@ export default class TemplateApply extends PMOCommand {
         return;
       }
 
-      const answers = await inquirer.prompt(fields.map(f => ({
+      const answers = await this.prompt<{ title: string; column: string; priority: string }>(fields.map(f => ({
         ...f,
-        validate: f.name === 'title' ? ((i: string) => i.length > 0 || 'Required') : undefined,
-      })));
+        validate: f.name === 'title' ? ((i: unknown) => (i as string).length > 0 || 'Required') : undefined,
+      })), null);
 
       title = answers.title;
       column = answers.column;
@@ -260,12 +259,12 @@ export default class TemplateApply extends PMOCommand {
         return handleError('NO_TEMPLATES', 'No phase templates. Create with: prlt template create --type phase');
       }
 
-      const { selected } = await inquirer.prompt([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select phase template:',
         choices: templates.map(t => ({ name: `${t.name}${t.description ? ` - ${t.description}` : ''}`, value: t.id })),
-      }]);
+      }], null);
       templateId = selected;
     }
 
@@ -289,7 +288,7 @@ export default class TemplateApply extends PMOCommand {
       }
 
       this.log(styles.warning(`\nThis will REPLACE ${existingPhases.length} existing phase(s).`));
-      const { confirm } = await inquirer.prompt([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: `Apply template "${template.name}"?`,
@@ -297,7 +296,7 @@ export default class TemplateApply extends PMOCommand {
           { name: 'No', value: false },
           { name: 'Yes', value: true },
         ],
-      }]);
+      }], null);
 
       if (!confirm) {
         this.log(styles.muted('Cancelled'));
