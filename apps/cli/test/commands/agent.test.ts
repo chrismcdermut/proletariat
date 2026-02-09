@@ -29,7 +29,7 @@ describe('Agent Management System', () => {
   describe('Agent Help Commands', () => {
     it('agent help shows subcommands', async () => {
       const { stdout } = await runCommand(['agent', '--help'], { root });
-      expect(stdout).to.contain('agent remove');
+      expect(stdout).to.contain('agent staff');
       expect(stdout).to.contain('agent visit');
       expect(stdout).to.contain('agent status');
       expect(stdout).to.contain('agent shell');
@@ -41,7 +41,7 @@ describe('Agent Management System', () => {
     });
 
     // Test actual existing agent commands
-    const agentCommands = ['remove', 'visit', 'status', 'shell', 'login', 'rebuild', 'restart'];
+    const agentCommands = ['visit', 'status', 'shell', 'login', 'rebuild', 'restart'];
     agentCommands.forEach(cmd => {
       it(`agent ${cmd} shows help`, async () => {
         const { stdout } = await runCommand(['agent', cmd, '--help'], { root });
@@ -49,11 +49,17 @@ describe('Agent Management System', () => {
         expect(stdout).to.not.contain('not found');
       });
     });
+
+    it('agent staff remove shows help', async () => {
+      const { stdout } = await runCommand(['agent', 'staff', 'remove', '--help'], { root });
+      expect(stdout).to.contain('USAGE');
+      expect(stdout).to.not.contain('not found');
+    });
   });
 
   describe('Agent Command Contracts', () => {
-    it('agent remove help contains proper description', async () => {
-      const { stdout } = await runCommand(['agent', 'remove', '--help'], { root });
+    it('agent staff remove help contains proper description', async () => {
+      const { stdout } = await runCommand(['agent', 'staff', 'remove', '--help'], { root });
       expect(stdout).to.contain('Remove');
     });
 
@@ -83,7 +89,7 @@ describe('Agent Management System', () => {
     // Verify actual existing commands
     const specifiedCommands = [
       { cmd: 'agent', desc: 'Show agent command help' },
-      { cmd: 'agent remove', desc: 'Remove agents' },
+      { cmd: 'agent staff remove', desc: 'Remove agents' },
       { cmd: 'agent visit', desc: 'Navigate to agent directory' },
       { cmd: 'agent status', desc: 'Show detailed agent status' },
       { cmd: 'agent shell', desc: 'Open shell in agent' }
@@ -108,7 +114,7 @@ describe('Agent Management System', () => {
   describe('Database Integration', () => {
     it('commands reference SQLite integration in help', async () => {
       // Verify that help text works for existing commands
-      const { stdout } = await runCommand(['agent', 'remove', '--help'], { root });
+      const { stdout } = await runCommand(['agent', 'staff', 'remove', '--help'], { root });
       expect(stdout).to.contain('Remove');
 
       const { stdout: statusHelp } = await runCommand(['agent', 'status', '--help'], { root });
@@ -120,10 +126,10 @@ describe('Agent Management System', () => {
 describe('Agent Command Architecture', () => {
   describe('DRY Principles', () => {
     it('all agent commands use consistent help format', async () => {
-      const commands = ['remove', 'visit', 'status', 'shell'];
+      const commands = [['agent', 'staff', 'remove'], ['agent', 'visit'], ['agent', 'status'], ['agent', 'shell']];
 
       for (const cmd of commands) {
-        const { stdout } = await runCommand(['agent', cmd, '--help'], { root });
+        const { stdout } = await runCommand([...cmd, '--help'], { root });
         expect(stdout).to.contain('USAGE');
         // Consistent format across all commands
         expect(stdout).to.match(/\$ prlt agent/);
@@ -137,7 +143,7 @@ describe('Agent Command Architecture', () => {
 
       try {
         const commands = [
-          ['agent', 'remove', 'test'],
+          ['agent', 'staff', 'remove', 'test'],
           ['agent', 'visit', 'test'],
           ['agent', 'status']
         ];
