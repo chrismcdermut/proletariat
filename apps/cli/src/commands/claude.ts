@@ -214,6 +214,7 @@ export default class Claude extends Command {
           validate: (input: unknown) => (input as string).trim() ? true : 'Session name required',
         },
       ], jsonModeConfig)
+      if (jsonMode) return
       slug = inputSlug.trim()
     }
 
@@ -373,6 +374,7 @@ export default class Claude extends Command {
           default: 'terminal',
         },
       ], jsonModeConfig)
+      if (jsonMode) return
       displayMode = selectedDisplay as DisplayMode
     }
 
@@ -393,6 +395,7 @@ export default class Claude extends Command {
           default: 'danger',
         },
       ], jsonModeConfig)
+      if (jsonMode) return
       sandboxed = permissionMode === 'safe'
     }
 
@@ -631,6 +634,7 @@ export default class Claude extends Command {
               })),
             },
           ], jsonModeConfig)
+          if (jsonMode) { db.close(); return }
           projectId = selectedProject
         }
       }
@@ -647,6 +651,7 @@ export default class Claude extends Command {
             validate: (input: unknown) => (input as string).trim() ? true : 'Title required',
           },
         ], jsonModeConfig)
+        if (jsonMode) { db.close(); return }
         ticketTitle = inputTitle.trim()
       }
 
@@ -822,6 +827,7 @@ export default class Claude extends Command {
             default: 'terminal',
           },
         ], jsonModeConfig)
+        if (jsonMode) { db.close(); return }
         displayMode = selectedDisplay as DisplayMode
       }
 
@@ -843,6 +849,7 @@ export default class Claude extends Command {
             default: 'danger',
           },
         ], jsonModeConfig)
+        if (jsonMode) { db.close(); return }
         sandboxed = permissionMode === 'safe'
       }
 
