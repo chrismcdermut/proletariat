@@ -123,27 +123,32 @@ export function getGitHubRepo(cwd?: string): string | null {
 
 /**
  * Get the default base branch (main or master).
+ * Prefers origin/main over local main to avoid stale local branches
+ * in agent worktrees where local main is never updated.
  */
 export function getDefaultBaseBranch(cwd?: string): string {
-  try {
-    // Check if 'main' exists
-    execSync('git rev-parse --verify main', {
-      cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return 'main';
-  } catch {
-    // Fall back to 'master'
+  // Check origin/main first (most reliable in worktree environments)
+  // then local main, then origin/master, then local master
+  const candidates = [
+    { ref: 'origin/main', name: 'main' },
+    { ref: 'main', name: 'main' },
+    { ref: 'origin/master', name: 'master' },
+    { ref: 'master', name: 'master' },
+  ];
+
+  for (const { ref, name } of candidates) {
     try {
-      execSync('git rev-parse --verify master', {
+      execSync(`git rev-parse --verify ${ref}`, {
         cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
-      return 'master';
+      return name;
     } catch {
-      return 'main'; // Default to main even if not found
+      // Try next candidate
     }
   }
+
+  return 'main'; // Default to main even if not found
 }
 
 /**
@@ -210,10 +215,26 @@ export function hasUnpushedCommits(branch: string, cwd?: string): boolean {
 
 /**
  * Get the commit log between base and head.
+ * Prefers origin/${base} over local ${base} to avoid stale local branches
+ * in agent worktrees where local main/master is never updated.
  */
 export function getCommitLog(base: string, cwd?: string): string[] {
+  // Prefer origin/${base} for accurate comparison (local branch may be stale)
+  let ref = base;
+  if (!base.startsWith('origin/')) {
+    try {
+      execSync(`git rev-parse --verify origin/${base}`, {
+        cwd,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      ref = `origin/${base}`;
+    } catch {
+      // Fall back to local ref
+    }
+  }
+
   try {
-    const output = execSync(`git log ${base}..HEAD --oneline`, {
+    const output = execSync(`git log ${ref}..HEAD --oneline`, {
       cwd,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
