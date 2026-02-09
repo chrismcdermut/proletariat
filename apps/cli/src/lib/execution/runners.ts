@@ -309,6 +309,9 @@ function buildPrompt(context: ExecutionContext): string {
     }
   }
 
+  // Universal stop instruction - prevents Claude Code from making additional API calls after task completion
+  prompt += `\n\n---\n\n**STOP:** After providing your final summary, your task is complete. Do not take any further actions, do not verify your work again, and do not continue the conversation. Simply output your summary and stop.`
+
   return prompt
 }
 
