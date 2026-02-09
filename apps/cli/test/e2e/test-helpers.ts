@@ -141,14 +141,28 @@ export function createEpicDirectories(pmoPath: string, projectId: string = 'test
  * Gets the isolated environment variables for running CLI commands.
  * This ensures that environment variables that could bypass test isolation
  * are explicitly cleared.
+ *
+ * NOTE: We use 'production' as the default NODE_ENV because when NODE_ENV=test,
+ * oclif tries to load TypeScript source files directly from src/commands instead
+ * of the compiled dist/commands. Since the spawned child process doesn't have
+ * ts-node configured, this causes ERR_UNKNOWN_FILE_EXTENSION errors and oclif
+ * emits 'plugin: @proletariat/cli' warnings that pollute stdout/stderr.
  */
-export function getIsolatedEnv(nodeEnv: string = 'test'): NodeJS.ProcessEnv {
+export function getIsolatedEnv(nodeEnv: string = 'production'): NodeJS.ProcessEnv {
   const env = { ...process.env };
 
   // Clear environment variables that could bypass test isolation
   for (const varName of ISOLATION_ENV_VARS) {
     delete env[varName];
   }
+
+  // Clear DEBUG to prevent oclif debug output that pollutes JSON
+  delete env.DEBUG;
+
+  // Suppress oclif warn-if-update-available plugin warnings during tests.
+  // Without this, the plugin emits "Updated prlt available!" warnings to stderr
+  // that can leak into command output and break JSON parsing.
+  env.PRLT_SKIP_NEW_VERSION_CHECK = 'true';
 
   // Set NODE_ENV
   env.NODE_ENV = nodeEnv;
@@ -166,7 +180,7 @@ export function filterOutput(output: string): string {
     !line.includes('Warning:') &&
     !line.includes('module: @oclif') &&
     !line.includes('task: findCommand') &&
-    !line.includes('plugin: @chrismcdermut') &&
+    !line.includes('plugin: @') &&  // Filter all plugin: lines (e.g., plugin: @proletariat/cli)
     !line.includes('root: /') &&
     !line.includes('code: ERR_') &&
     !line.includes('message: Unknown file extension') &&
@@ -176,6 +190,8 @@ export function filterOutput(output: string): string {
     !line.includes('ExperimentalWarning') &&
     !line.includes('DeprecationWarning') &&
     !line.includes('(Use `node') &&
+    !line.includes('Updated prlt available') &&
+    !line.includes('npm install -g @proletariat/cli') &&
     line.trim() !== ''
   ).join('\n');
 }
@@ -241,27 +257,35 @@ export function getBinPath(): string {
  */
 export function exec(cmd: string): string {
   try {
-    const binPath = getBinPath();
-    const result = execSync(`${binPath} ${cmd}`, {
+    const cliDir = path.join(__dirname, '../..');
+    const binPath = path.join(cliDir, 'bin/run.js');
+
+    // Get isolated env (production mode for oclif) and set HQ path to current test directory
+    const env = getIsolatedEnv('production');
+    env.PRLT_HQ_PATH = process.cwd();
+    env.PRLT_TEST_ENV = 'true'; // Required for PRLT_HQ_PATH to be respected in tests
+
+    const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
-      cwd: process.cwd(),
-      env: getIsolatedEnv(),
+      cwd: cliDir, // Run from CLI dir so oclif finds commands
+      env,
+      maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large JSON output
     });
-    return result;
+    return filterOutput(result);
   } catch (error: unknown) {
     const execError = error as ExecError;
     // Command failed - capture both stdout and stderr
     const stdout = execError.stdout || '';
     const stderr = execError.stderr || '';
 
-    // Return stdout if available (for expected error messages)
+    // Return filtered stdout if available (for expected error messages)
     if (stdout.trim()) {
-      return stdout;
+      return filterOutput(stdout);
     }
 
     // Filter out Node.js warnings from stderr
     const filteredStderr = filterOutput(stderr);
-    return filteredStderr || execError.message || 'Unknown error';
+    return filteredStderr || filterOutput(execError.message || 'Unknown error');
   }
 }
 
@@ -299,10 +323,15 @@ export function execProduction(cmd: string): string {
     const cliDir = path.join(__dirname, '../..');
     const binPath = path.join(cliDir, 'bin/run.js');
 
+    // Get isolated env and set HQ path to current test directory
+    const env = getIsolatedEnv('production');
+    env.PRLT_HQ_PATH = process.cwd();
+    env.PRLT_TEST_ENV = 'true'; // Required for PRLT_HQ_PATH to be respected
+
     const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: getIsolatedEnv('production'),
+      env,
       cwd: cliDir, // Run from CLI directory for proper module resolution
     });
     return filterNodeWarnings(result);
