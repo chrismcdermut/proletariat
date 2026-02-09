@@ -1,5 +1,4 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
@@ -225,7 +224,9 @@ export default class TicketSpec extends PMOCommand {
     this.log(styles.muted(`\nView ticket: prlt ticket view ${ticketId}`));
   }
 
-  private async executeBulk(flags: { spec?: string; unlink: boolean }, projectId?: string): Promise<void> {
+  private async executeBulk(flags: { spec?: string; unlink: boolean; json?: boolean }, projectId?: string): Promise<void> {
+    const jsonMode = shouldOutputJson(flags);
+    const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'ticket spec' } : null;
     this.log(styles.emphasis('📄 Bulk Assign Spec to Tickets\n'));
 
     // Get all tickets
@@ -236,7 +237,7 @@ export default class TicketSpec extends PMOCommand {
     }
 
     // Select tickets
-    const { selectedTickets } = await inquirer.prompt([{
+    const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{
       type: 'checkbox',
       name: 'selectedTickets',
       message: 'Select tickets to update:',
@@ -247,7 +248,7 @@ export default class TicketSpec extends PMOCommand {
           value: t.id,
         };
       }),
-    }]);
+    }], jsonModeConfig);
 
     if (selectedTickets.length === 0) {
       this.log(styles.muted('No tickets selected.'));
@@ -276,15 +277,16 @@ export default class TicketSpec extends PMOCommand {
         return;
       }
 
-      const { selected } = await inquirer.prompt([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select spec to assign:',
         choices: specs.map(s => ({
           name: `${s.id} - ${s.title} (${s.status})`,
           value: s.id,
+          command: `prlt ticket spec --bulk --spec ${s.id} --json`,
         })),
-      }]);
+      }], jsonModeConfig);
       specId = selected;
     }
 

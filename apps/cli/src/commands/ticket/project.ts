@@ -1,5 +1,4 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
@@ -198,7 +197,9 @@ export default class TicketProject extends PMOCommand {
     this.log(styles.muted(`\nView ticket: prlt ticket view ${ticketId}`));
   }
 
-  private async executeBulk(flags: { target?: string }): Promise<void> {
+  private async executeBulk(flags: { target?: string; json?: boolean }): Promise<void> {
+    const jsonMode = shouldOutputJson(flags);
+    const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'ticket project' } : null;
     this.log(styles.emphasis('📁 Bulk Move Tickets to Project\n'));
 
     // Get source project ID
@@ -212,7 +213,7 @@ export default class TicketProject extends PMOCommand {
     }
 
     // Select tickets
-    const { selectedTickets } = await inquirer.prompt([{
+    const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{
       type: 'checkbox',
       name: 'selectedTickets',
       message: 'Select tickets to move:',
@@ -223,7 +224,7 @@ export default class TicketProject extends PMOCommand {
           value: t.id,
         };
       }),
-    }]);
+    }], jsonModeConfig);
 
     if (selectedTickets.length === 0) {
       this.log(styles.muted('No tickets selected.'));
@@ -242,15 +243,16 @@ export default class TicketProject extends PMOCommand {
     let targetProjectId = flags.target;
 
     if (!targetProjectId) {
-      const { selected } = await inquirer.prompt([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select target project:',
         choices: otherProjects.map(p => ({
           name: `${p.id} - ${p.name}`,
           value: p.id,
+          command: `prlt ticket project --bulk --target ${p.id} --json`,
         })),
-      }]);
+      }], jsonModeConfig);
       targetProjectId = selected;
     }
 
@@ -268,15 +270,15 @@ export default class TicketProject extends PMOCommand {
 
     if (ticketsWithEpics.length > 0) {
       this.log(styles.warning(`\n${ticketsWithEpics.length} ticket(s) are assigned to epics.`));
-      const { action } = await inquirer.prompt([{
+      const { action } = await this.prompt<{ action: string }>([{
         type: 'list',
         name: 'action',
         message: 'How to handle epic assignments?',
         choices: [
-          { name: 'Unlink from epics and move', value: 'unlink' },
-          { name: 'Cancel', value: 'cancel' },
+          { name: 'Unlink from epics and move', value: 'unlink', command: `prlt ticket project --bulk --target ${targetProjectId} --json` },
+          { name: 'Cancel', value: 'cancel', command: '' },
         ],
-      }]);
+      }], jsonModeConfig);
 
       if (action === 'cancel') {
         return;
