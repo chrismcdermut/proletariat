@@ -134,7 +134,7 @@ export default class TicketMove extends PMOCommand {
       this.error(`Ticket "${ticketId}" not found.`);
     }
 
-    // Cross-project move (when ticketId was selected interactively)
+    // Cross-project move (when --to-project flag is provided)
     if (flags['to-project']) {
       await this.executeCrossProjectMove(ticket, flags['to-project'], args.column, jsonMode, flags);
       return;
@@ -144,6 +144,52 @@ export default class TicketMove extends PMOCommand {
     let targetColumn = args.column;
 
     if (!targetColumn) {
+      // Check if there are other projects to move to
+      const allProjects = await this.storage.listProjects();
+      const otherProjects = allProjects.filter(p => p.id !== projectId);
+
+      // If there are other projects, ask user what type of move they want
+      if (otherProjects.length > 0) {
+        const moveTypeChoices = [
+          { id: 'column', name: 'Different column (same project)' },
+          { id: 'project', name: 'Different project' },
+        ];
+
+        const moveType = await this.selectFromList({
+          message: 'Move to:',
+          items: moveTypeChoices,
+          getName: (choice) => choice.name,
+          getValue: (choice) => choice.id,
+          getCommand: (choice) => choice.id === 'column'
+            ? `prlt ticket move ${ticketId} -P ${projectId} --json`
+            : `prlt ticket project ${ticketId} -P ${projectId} --json`,
+          jsonMode: jsonMode ? { flags, commandName: 'ticket move' } : null,
+        });
+
+        if (!moveType) {
+          return; // Cancelled or JSON mode
+        }
+
+        // If user chose different project, handle cross-project move
+        if (moveType === 'project') {
+          const targetProject = await this.selectFromList({
+            message: 'Select target project:',
+            items: otherProjects,
+            getName: (p) => `${p.name} (${p.id})`,
+            getValue: (p) => p.id,
+            getCommand: (p) => `prlt ticket move ${ticketId} --to-project ${p.id} --json`,
+            jsonMode: jsonMode ? { flags, commandName: 'ticket move' } : null,
+          });
+
+          if (!targetProject) {
+            return; // Cancelled or JSON mode
+          }
+
+          await this.executeCrossProjectMove(ticket, targetProject, undefined, jsonMode, flags);
+          return;
+        }
+      }
+
       // Get columns from the database (not config.json) to ensure accuracy
       const project = await this.storage.getProjectBoard(projectId);
       if (!project) {
