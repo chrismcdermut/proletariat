@@ -99,7 +99,7 @@ export default class Remove extends PMOCommand {
         return;
       }
 
-      const { selected } = await inquirer.prompt([
+      const { selected } = await this.prompt<{ selected: string }>([
         {
           type: 'list',
           name: 'selected',
@@ -110,7 +110,7 @@ export default class Remove extends PMOCommand {
             { name: '❌ ' + agentChoices[agentChoices.length - 1].name, value: agentChoices[agentChoices.length - 1].value }
           ]
         }
-      ]);
+      ], null);
 
       if (selected === 'cancel') {
         this.log(colors.textMuted('Operation cancelled.'));
@@ -147,7 +147,7 @@ export default class Remove extends PMOCommand {
         return;
       }
 
-      const { confirm } = await inquirer.prompt([
+      const { confirm } = await this.prompt<{ confirm: boolean }>([
         {
           type: 'list',
           name: 'confirm',
@@ -158,7 +158,7 @@ export default class Remove extends PMOCommand {
           ],
           default: 0 // Default to "No, cancel"
         }
-      ]);
+      ], null);
 
       if (!confirm) {
         this.log(colors.textMuted('Removal cancelled.'));

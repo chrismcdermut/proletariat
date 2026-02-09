@@ -1,17 +1,11 @@
-import { Args, Command, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
+import { Args, Flags } from '@oclif/core';
 import { setTerminalTitle, resetTerminalTitle } from '../../lib/terminal.js';
 import { styles } from '../../lib/styles.js';
 import { machineOutputFlags } from '../../lib/pmo/base-command.js';
-import {
-  isAgentMode,
-  outputPromptAsJson,
-  createMetadata,
-  normalizeChoices,
-  type JsonFlags,
-} from '../../lib/prompt-json.js';
+import { isAgentMode } from '../../lib/prompt-json.js';
+import { PromptCommand } from '../../lib/prompt-command.js';
 
-export default class TerminalTitle extends Command {
+export default class TerminalTitle extends PromptCommand {
   static description = 'Set the terminal tab/window title';
 
   static examples = [
@@ -36,58 +30,6 @@ export default class TerminalTitle extends Command {
     }),
     ...machineOutputFlags,
   };
-
-  /**
-   * Prompt wrapper - drop-in replacement for inquirer.prompt with JSON mode support.
-   * Matches the pattern from PMOCommand.prompt().
-   *
-   * In JSON mode: outputs prompt config as JSON and exits
-   * In interactive mode: shows normal inquirer prompt
-   */
-  protected async prompt<T extends Record<string, unknown>>(
-    questions: Array<{
-      type: string;
-      name: string;
-      message: string;
-      choices?: Array<
-        | string
-        | { name: string; value: unknown; disabled?: boolean | string; command?: string }
-        | unknown
-      >;
-      default?: unknown;
-      validate?: (input: unknown) => boolean | string;
-    }>,
-    jsonModeConfig?: {
-      flags: JsonFlags & Record<string, unknown>;
-      commandName: string;
-    } | null
-  ): Promise<T> {
-    // Check for JSON/agent mode
-    if (jsonModeConfig && isAgentMode(jsonModeConfig.flags)) {
-      const firstQuestion = questions[0];
-      if (firstQuestion) {
-        const choices = firstQuestion.choices
-          ? normalizeChoices(firstQuestion.choices)
-          : undefined;
-
-        outputPromptAsJson(
-          {
-            type: firstQuestion.type as 'list' | 'checkbox' | 'input' | 'confirm' | 'editor',
-            name: firstQuestion.name,
-            message: firstQuestion.message,
-            choices,
-            default: firstQuestion.default as string | boolean | string[] | undefined,
-          },
-          createMetadata(jsonModeConfig.commandName, jsonModeConfig.flags)
-        );
-        // outputPromptAsJson calls process.exit, never returns
-      }
-      return {} as T;
-    }
-
-    // Interactive mode: just call inquirer
-    return inquirer.prompt(questions as Parameters<typeof inquirer.prompt>[0]) as Promise<T>;
-  }
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(TerminalTitle);

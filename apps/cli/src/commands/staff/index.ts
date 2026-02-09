@@ -64,7 +64,7 @@ export default class Staff extends PMOCommand {
     this.log(colors.primary('Staff Agents'));
     this.log(colors.textMuted('Persistent agents with dedicated worktrees.\n'));
 
-    const { action } = await inquirer.prompt([{
+    const { action } = await this.prompt<{ action: string }>([{
       type: 'list',
       name: 'action',
       message,
@@ -75,7 +75,7 @@ export default class Staff extends PMOCommand {
         new inquirer.Separator(),
         { name: '❌ ' + menuChoices[3].name, value: menuChoices[3].value },
       ]
-    }]);
+    }], null);
 
     if (action === 'cancel') {
       this.log(colors.textMuted('Operation cancelled.'));

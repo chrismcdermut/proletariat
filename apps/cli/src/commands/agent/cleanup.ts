@@ -214,14 +214,14 @@ export default class Cleanup extends PMOCommand {
         return;
       }
 
-      const { selected } = await inquirer.prompt([
+      const { selected } = await this.prompt<{ selected: string[] }>([
         {
           type: 'checkbox',
           name: 'selected',
           message: selectMessage,
           choices,
         },
-      ]);
+      ], null);
 
       if (selected.length === 0 || selected.includes('__cancel__')) {
         this.log(colors.textMuted('Operation cancelled.'));
@@ -277,7 +277,7 @@ export default class Cleanup extends PMOCommand {
       }
       this.log('');
 
-      const { confirm } = await inquirer.prompt([
+      const { confirm } = await this.prompt<{ confirm: boolean }>([
         {
           type: 'list',
           name: 'confirm',
@@ -288,7 +288,7 @@ export default class Cleanup extends PMOCommand {
           ],
           default: 0,
         },
-      ]);
+      ], null);
 
       if (!confirm) {
         this.log(colors.textMuted('Operation cancelled.'));
@@ -360,14 +360,14 @@ export default class Cleanup extends PMOCommand {
 
         // In interactive mode, prompt for action
         // eslint-disable-next-line no-await-in-loop -- User interaction per agent
-        const { action } = await inquirer.prompt([
+        const { action } = await this.prompt<{ action: string }>([
           {
             type: 'list',
             name: 'action',
             message: `What would you like to do with ${agentName}?`,
             choices,
           },
-        ]);
+        ], null);
 
         if (action === 'skip') {
           this.log(colors.textMuted(`  Skipping ${agentName}`));

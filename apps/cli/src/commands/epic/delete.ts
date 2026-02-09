@@ -1,5 +1,4 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { deleteEpicFile } from '../../lib/pmo/epic-files.js';
@@ -89,12 +88,12 @@ export default class EpicDelete extends PMOCommand {
         return;
       }
 
-      const { selected } = await inquirer.prompt([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select epic to delete:',
         choices,
-      }]);
+      }], null);
       epicId = selected;
     }
 
@@ -127,7 +126,7 @@ export default class EpicDelete extends PMOCommand {
       this.log(`  Status: ${epic.status}`);
       this.log(`  Tickets: ${tickets.length} (will be unlinked, not deleted)`);
 
-      const { confirmed } = await inquirer.prompt([{
+      const { confirmed } = await this.prompt<{ confirmed: boolean }>([{
         type: 'list',
         name: 'confirmed',
         message: `Delete epic '${epic.title}'?`,
@@ -136,7 +135,7 @@ export default class EpicDelete extends PMOCommand {
           { name: 'Yes, delete permanently', value: true },
         ],
         default: 0,
-      }]);
+      }], null);
 
       if (!confirmed) {
         this.log(styles.muted('Deletion cancelled.'));

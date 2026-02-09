@@ -1,5 +1,4 @@
 import { Flags, Args } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { SpecType, SpecStatus } from '../../lib/pmo/types.js';
@@ -227,7 +226,7 @@ export default class SpecEdit extends PMOCommand {
     decisions?: string;
   }> {
     // First prompt for title, status, and type
-    const basicAnswers = await inquirer.prompt<{
+    const basicAnswers = await this.prompt<{
       title: string;
       status: string;
       type: string;
@@ -237,7 +236,7 @@ export default class SpecEdit extends PMOCommand {
         name: 'title',
         message: 'Title:',
         default: spec.title,
-        validate: (input: string) => input.length > 0 || 'Title is required',
+        validate: (input: unknown) => (input as string).length > 0 || 'Title is required',
       },
       {
         type: 'list',
@@ -253,7 +252,7 @@ export default class SpecEdit extends PMOCommand {
         choices: typeChoices,
         default: spec.type || '',
       },
-    ]);
+    ], null);
 
     // Prompt for problem statement using multiline input
     const problemResult = await multiLineInput({

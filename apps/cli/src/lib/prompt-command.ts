@@ -91,6 +91,9 @@ export abstract class PromptCommand extends Command {
       default?: unknown;
       validate?: (input: unknown) => boolean | string;
       when?: boolean | ((answers: Record<string, unknown>) => boolean);
+      filter?: (input: unknown) => unknown;
+      pageSize?: number;
+      [key: string]: unknown;
     }>,
     jsonModeConfig?: {
       flags: JsonFlags & Record<string, unknown>;

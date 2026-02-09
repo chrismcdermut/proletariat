@@ -1,15 +1,12 @@
-import { Command, Args, Flags } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
-import inquirer from 'inquirer'
+import { PromptCommand } from '../lib/prompt-command.js'
 import { validateBranchName, BranchType } from '../lib/branch/index.js'
 import { styles } from '../lib/styles.js'
 import {
   shouldOutputJson,
-  isAgentMode,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  normalizeChoices,
 } from '../lib/prompt-json.js'
 
 /**
@@ -174,7 +171,7 @@ function branchTypeToCommitType(branchType: BranchType): string {
   return mapping[branchType] || branchType
 }
 
-export default class Commit extends Command {
+export default class Commit extends PromptCommand {
   static description = 'Create a commit with ticket ID from branch name'
 
   static examples = [
@@ -233,42 +230,6 @@ export default class Commit extends Command {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-  }
-
-  /**
-   * Prompt wrapper - handles both JSON mode and interactive mode.
-   * In JSON mode: outputs prompt as JSON and exits.
-   * In interactive mode: calls inquirer.prompt normally.
-   */
-  private async prompt<T extends Record<string, unknown>>(
-    questions: Array<{
-      type: string
-      name: string
-      message: string
-      choices?: Array<string | { name: string; value: unknown; disabled?: boolean | string; command?: string; checked?: boolean } | unknown>
-      default?: unknown
-      validate?: (input: unknown) => boolean | string
-    }>,
-    jsonModeConfig?: { flags: Record<string, unknown>; commandName: string } | null
-  ): Promise<T> {
-    if (jsonModeConfig && isAgentMode(jsonModeConfig.flags)) {
-      const firstQuestion = questions[0]
-      if (firstQuestion) {
-        const choices = firstQuestion.choices ? normalizeChoices(firstQuestion.choices) : undefined
-        outputPromptAsJson(
-          {
-            type: firstQuestion.type as 'list' | 'checkbox' | 'input' | 'confirm' | 'editor',
-            name: firstQuestion.name,
-            message: firstQuestion.message,
-            choices,
-            default: firstQuestion.default as string | boolean | string[] | undefined,
-          },
-          createMetadata(jsonModeConfig.commandName, jsonModeConfig.flags)
-        )
-      }
-      return {} as T
-    }
-    return inquirer.prompt(questions as Parameters<typeof inquirer.prompt>[0]) as Promise<T>
   }
 
   async run(): Promise<void> {

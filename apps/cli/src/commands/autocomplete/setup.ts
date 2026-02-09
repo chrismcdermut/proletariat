@@ -1,9 +1,9 @@
-import { Command, Flags } from '@oclif/core';
+import { Flags } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import chalk from 'chalk';
-import inquirer from 'inquirer';
+import { PromptCommand } from '../../lib/prompt-command.js';
 import { machineOutputFlags } from '../../lib/pmo/base-command.js';
 import {
   isAgentMode,
@@ -16,7 +16,7 @@ type ShellType = 'zsh' | 'bash' | 'powershell' | 'unknown';
 
 const SUPPORTED_SHELLS: Array<'zsh' | 'bash' | 'powershell'> = ['zsh', 'bash', 'powershell'];
 
-export default class AutocompleteSetup extends Command {
+export default class AutocompleteSetup extends PromptCommand {
   static description = 'Auto-detect shell and set up autocomplete';
 
   static examples = [
@@ -94,12 +94,12 @@ export default class AutocompleteSetup extends Command {
     // Interactive mode without --shell
     if (detectedShell === 'unknown') {
       // Shell not detected: prompt user to select
-      const { selectedShell } = await inquirer.prompt([{
+      const { selectedShell } = await this.prompt<{ selectedShell: string }>([{
         type: 'list',
         name: 'selectedShell',
         message: 'Could not detect shell. Select your shell:',
         choices: SUPPORTED_SHELLS.map(s => ({ name: s, value: s })),
-      }]);
+      }], null);
 
       this.log('');
       const shell = selectedShell as ShellType;

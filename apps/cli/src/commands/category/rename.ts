@@ -1,5 +1,4 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { CategoryType } from '../../lib/pmo/types.js';
@@ -109,18 +108,18 @@ export default class CategoryRename extends PMOCommand {
         return;
       }
 
-      const { categoryNewName } = await inquirer.prompt([{
+      const { categoryNewName } = await this.prompt<{ categoryNewName: string }>([{
         type: 'input',
         name: 'categoryNewName',
         message,
-        validate: (input: string) => {
-          if (!input.trim()) return 'New name is required';
-          if (!/^[a-z][a-z0-9-]*$/.test(input.trim())) {
+        validate: (input: unknown) => {
+          if (!(input as string).trim()) return 'New name is required';
+          if (!/^[a-z][a-z0-9-]*$/.test((input as string).trim())) {
             return 'Category name must start with a letter and contain only lowercase letters, numbers, and hyphens';
           }
           return true;
         },
-      }]);
+      }], null);
       newName = categoryNewName;
     }
 

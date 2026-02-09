@@ -1,5 +1,4 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { CategoryType } from '../../lib/pmo/types.js';
@@ -65,18 +64,18 @@ export default class CategoryCreate extends PMOCommand {
         return;
       }
 
-      const { categoryName } = await inquirer.prompt([{
+      const { categoryName } = await this.prompt<{ categoryName: string }>([{
         type: 'input',
         name: 'categoryName',
         message,
-        validate: (input: string) => {
-          if (!input.trim()) return 'Category name is required';
-          if (!/^[a-z][a-z0-9-]*$/.test(input.trim())) {
+        validate: (input: unknown) => {
+          if (!(input as string).trim()) return 'Category name is required';
+          if (!/^[a-z][a-z0-9-]*$/.test((input as string).trim())) {
             return 'Category name must start with a letter and contain only lowercase letters, numbers, and hyphens';
           }
           return true;
         },
-      }]);
+      }], null);
       name = categoryName;
     }
 
@@ -92,11 +91,11 @@ export default class CategoryCreate extends PMOCommand {
 
     // Prompt for description if not provided
     if (!description && !jsonMode) {
-      const { categoryDescription } = await inquirer.prompt([{
+      const { categoryDescription } = await this.prompt<{ categoryDescription: string }>([{
         type: 'input',
         name: 'categoryDescription',
         message: 'Description (optional):',
-      }]);
+      }], null);
       description = categoryDescription || undefined;
     }
 

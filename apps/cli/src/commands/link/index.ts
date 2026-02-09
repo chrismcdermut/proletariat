@@ -60,7 +60,7 @@ export default class Link extends PMOCommand {
         return
       }
 
-      const { selected } = await inquirer.prompt([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message,
@@ -69,7 +69,7 @@ export default class Link extends PMOCommand {
           new inquirer.Separator(),
           { name: menuChoices[3].name, value: menuChoices[3].value }
         ]
-      }])
+      }], null)
 
       if (selected === 'cancel') {
         this.log(styles.muted('\nCancelled.'))

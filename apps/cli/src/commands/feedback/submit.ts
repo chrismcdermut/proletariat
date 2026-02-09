@@ -1,8 +1,8 @@
-import { Command, Flags } from '@oclif/core';
+import { Flags } from '@oclif/core';
 import { execSync } from 'node:child_process';
 import * as os from 'node:os';
-import inquirer from 'inquirer';
 import chalk from 'chalk';
+import { PromptCommand } from '../../lib/prompt-command.js';
 import { styles } from '../../lib/styles.js';
 import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js';
 import {
@@ -25,7 +25,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   general: 'feedback',
 };
 
-export default class FeedbackSubmit extends Command {
+export default class FeedbackSubmit extends PromptCommand {
   static description = 'Submit feedback, bug reports, or feature requests to GitHub Issues';
 
   static examples = [
@@ -97,12 +97,12 @@ export default class FeedbackSubmit extends Command {
         return;
       }
 
-      const { selectedCategory } = await inquirer.prompt([{
+      const { selectedCategory } = await this.prompt<{ selectedCategory: string }>([{
         type: 'list',
         name: 'selectedCategory',
         message: categoryMessage,
         choices: categoryChoices,
-      }]);
+      }], null);
       category = selectedCategory;
     }
 
@@ -119,20 +119,20 @@ export default class FeedbackSubmit extends Command {
         return;
       }
 
-      const { inputTitle } = await inquirer.prompt([{
+      const { inputTitle } = await this.prompt<{ inputTitle: string }>([{
         type: 'input',
         name: 'inputTitle',
         message: titleMessage,
-        validate: (input: string) => {
-          if (!input.trim()) {
+        validate: (input: unknown) => {
+          if (!(input as string).trim()) {
             return 'Title is required';
           }
-          if (input.length > 200) {
+          if ((input as string).length > 200) {
             return 'Title must be less than 200 characters';
           }
           return true;
         },
-      }]);
+      }], null);
       title = inputTitle;
     }
 
@@ -149,17 +149,17 @@ export default class FeedbackSubmit extends Command {
         return;
       }
 
-      const { inputBody } = await inquirer.prompt([{
+      const { inputBody } = await this.prompt<{ inputBody: string }>([{
         type: 'editor',
         name: 'inputBody',
         message: bodyMessage,
-        validate: (input: string) => {
-          if (!input.trim()) {
+        validate: (input: unknown) => {
+          if (!(input as string).trim()) {
             return 'Description is required';
           }
           return true;
         },
-      }]);
+      }], null);
       body = inputBody;
     }
 
