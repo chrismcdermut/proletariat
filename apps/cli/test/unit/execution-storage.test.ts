@@ -62,7 +62,7 @@ describe('ExecutionStorage', () => {
 
     it('returns 0 when all executions are already completed', () => {
       // Create a completed execution
-      storage.createExecution({
+      const exec = storage.createExecution({
         ticketId: 'TKT-001',
         agentName: 'agent-1',
         executor: 'claude-code',
@@ -71,7 +71,7 @@ describe('ExecutionStorage', () => {
         sandboxed: true,
         sessionId: 'test-session',
       })
-      storage.updateStatus('WORK-001', 'completed')
+      storage.updateStatus(exec.id, 'completed')
 
       const cleaned = storage.cleanupStaleExecutions()
       expect(cleaned).to.equal(0)
@@ -107,7 +107,7 @@ describe('ExecutionStorage', () => {
 
     it('does not clean up recent executions without sessionId (less than 5 minutes)', () => {
       // Create a recent execution without sessionId
-      storage.createExecution({
+      const created = storage.createExecution({
         ticketId: 'TKT-001',
         agentName: 'agent-1',
         executor: 'claude-code',
@@ -121,13 +121,13 @@ describe('ExecutionStorage', () => {
       expect(cleaned).to.equal(0)
 
       // Verify execution is still starting
-      const exec = storage.getExecution('WORK-001')
+      const exec = storage.getExecution(created.id)
       expect(exec?.status).to.equal('starting')
     })
 
     it('cleans up executions with sessionId when session does not exist', () => {
       // Create an execution with a sessionId that won't exist
-      storage.createExecution({
+      const created = storage.createExecution({
         ticketId: 'TKT-001',
         agentName: 'agent-1',
         executor: 'claude-code',
@@ -136,13 +136,13 @@ describe('ExecutionStorage', () => {
         sandboxed: true,
         sessionId: 'non-existent-session-12345',
       })
-      storage.updateStatus('WORK-001', 'running')
+      storage.updateStatus(created.id, 'running')
 
       const cleaned = storage.cleanupStaleExecutions()
       expect(cleaned).to.equal(1)
 
       // Verify execution is now stopped
-      const exec = storage.getExecution('WORK-001')
+      const exec = storage.getExecution(created.id)
       expect(exec?.status).to.equal('stopped')
     })
 
@@ -166,7 +166,7 @@ describe('ExecutionStorage', () => {
       `).run('WORK-OLD2', 'TKT-002', 'agent-2', 'claude', 'host', 'terminal', 1, 'running', oldTime)
 
       // Execution with non-existent session
-      storage.createExecution({
+      const exec3 = storage.createExecution({
         ticketId: 'TKT-003',
         agentName: 'agent-3',
         executor: 'claude-code',
@@ -175,7 +175,7 @@ describe('ExecutionStorage', () => {
         sandboxed: true,
         sessionId: 'fake-session-xyz',
       })
-      storage.updateStatus('WORK-001', 'running')
+      storage.updateStatus(exec3.id, 'running')
 
       const cleaned = storage.cleanupStaleExecutions()
       expect(cleaned).to.equal(3)
@@ -183,7 +183,7 @@ describe('ExecutionStorage', () => {
 
     it('handles devcontainer executions with non-existent container sessions', () => {
       // Create an execution with devcontainer environment
-      storage.createExecution({
+      const created = storage.createExecution({
         ticketId: 'TKT-001',
         agentName: 'agent-1',
         executor: 'claude-code',
@@ -193,7 +193,7 @@ describe('ExecutionStorage', () => {
         containerId: 'abc123def456',
         sessionId: 'container-session',
       })
-      storage.updateStatus('WORK-001', 'running')
+      storage.updateStatus(created.id, 'running')
 
       // Since the container doesn't actually exist, this should clean up
       const cleaned = storage.cleanupStaleExecutions()
@@ -208,7 +208,7 @@ describe('ExecutionStorage', () => {
     })
 
     it('returns false when agent has a running execution', () => {
-      storage.createExecution({
+      const created = storage.createExecution({
         ticketId: 'TKT-001',
         agentName: 'busy-agent',
         executor: 'claude-code',
@@ -216,7 +216,7 @@ describe('ExecutionStorage', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      storage.updateStatus('WORK-001', 'running')
+      storage.updateStatus(created.id, 'running')
 
       const available = storage.isAgentAvailable('busy-agent')
       expect(available).to.be.false
@@ -238,7 +238,7 @@ describe('ExecutionStorage', () => {
     })
 
     it('returns true when agent only has completed executions', () => {
-      storage.createExecution({
+      const created = storage.createExecution({
         ticketId: 'TKT-001',
         agentName: 'done-agent',
         executor: 'claude-code',
@@ -246,14 +246,14 @@ describe('ExecutionStorage', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      storage.updateStatus('WORK-001', 'completed')
+      storage.updateStatus(created.id, 'completed')
 
       const available = storage.isAgentAvailable('done-agent')
       expect(available).to.be.true
     })
 
     it('returns true when agent only has stopped executions', () => {
-      storage.createExecution({
+      const created = storage.createExecution({
         ticketId: 'TKT-001',
         agentName: 'stopped-agent',
         executor: 'claude-code',
@@ -261,14 +261,14 @@ describe('ExecutionStorage', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      storage.updateStatus('WORK-001', 'stopped')
+      storage.updateStatus(created.id, 'stopped')
 
       const available = storage.isAgentAvailable('stopped-agent')
       expect(available).to.be.true
     })
 
     it('returns true when agent only has failed executions', () => {
-      storage.createExecution({
+      const created = storage.createExecution({
         ticketId: 'TKT-001',
         agentName: 'failed-agent',
         executor: 'claude-code',
@@ -276,15 +276,15 @@ describe('ExecutionStorage', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      storage.updateStatus('WORK-001', 'failed')
+      storage.updateStatus(created.id, 'failed')
 
       const available = storage.isAgentAvailable('failed-agent')
       expect(available).to.be.true
     })
   })
 
-  describe('createExecution ID generation (TKT-656)', () => {
-    it('generates sequential IDs', () => {
+  describe('createExecution ID generation', () => {
+    it('generates unique UUID-based IDs with WORK- prefix', () => {
       const exec1 = storage.createExecution({
         ticketId: 'TKT-001',
         agentName: 'agent-1',
@@ -293,7 +293,7 @@ describe('ExecutionStorage', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      expect(exec1.id).to.equal('WORK-001')
+      expect(exec1.id).to.match(/^WORK-[A-F0-9]{8}$/)
 
       const exec2 = storage.createExecution({
         ticketId: 'TKT-002',
@@ -303,12 +303,13 @@ describe('ExecutionStorage', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      expect(exec2.id).to.equal('WORK-002')
+      expect(exec2.id).to.match(/^WORK-[A-F0-9]{8}$/)
+      expect(exec2.id).to.not.equal(exec1.id)
     })
 
     it('does not reuse IDs after deletion', () => {
       // Create 3 executions
-      storage.createExecution({
+      const exec1 = storage.createExecution({
         ticketId: 'TKT-001',
         agentName: 'agent-1',
         executor: 'claude-code',
@@ -316,7 +317,7 @@ describe('ExecutionStorage', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      storage.createExecution({
+      const exec2 = storage.createExecution({
         ticketId: 'TKT-002',
         agentName: 'agent-1',
         executor: 'claude-code',
@@ -324,7 +325,7 @@ describe('ExecutionStorage', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      storage.createExecution({
+      const exec3 = storage.createExecution({
         ticketId: 'TKT-003',
         agentName: 'agent-1',
         executor: 'claude-code',
@@ -334,9 +335,9 @@ describe('ExecutionStorage', () => {
       })
 
       // Delete the middle one
-      storage.deleteExecution('WORK-002')
+      storage.deleteExecution(exec2.id)
 
-      // Next ID should be WORK-004, not WORK-003 (which still exists)
+      // Next ID should be unique and different from all previous IDs
       const exec4 = storage.createExecution({
         ticketId: 'TKT-004',
         agentName: 'agent-1',
@@ -345,7 +346,10 @@ describe('ExecutionStorage', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      expect(exec4.id).to.equal('WORK-004')
+      expect(exec4.id).to.match(/^WORK-[A-F0-9]{8}$/)
+      expect(exec4.id).to.not.equal(exec1.id)
+      expect(exec4.id).to.not.equal(exec2.id)
+      expect(exec4.id).to.not.equal(exec3.id)
     })
 
     it('handles empty table correctly', () => {
@@ -357,37 +361,7 @@ describe('ExecutionStorage', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      expect(exec.id).to.equal('WORK-001')
-    })
-
-    it('self-heals when sequence is behind existing IDs (migration)', () => {
-      // Simulate existing data from before sequence table existed
-      db.prepare(`
-        INSERT INTO ${PMO_TABLES.agent_work} (
-          id, ticket_id, agent_name, executor, environment, display_mode,
-          sandboxed, status, started_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run('WORK-010', 'TKT-OLD', 'old-agent', 'claude-code', 'host', 'terminal', 1, 'completed', Date.now())
-
-      // Simulate a broken sequence that was initialized to 1
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS id_sequences (
-          table_name TEXT PRIMARY KEY,
-          next_id INTEGER NOT NULL DEFAULT 1
-        )
-      `)
-      db.prepare(`INSERT OR REPLACE INTO id_sequences (table_name, next_id) VALUES ('agent_work', 1)`).run()
-
-      // Now create a new execution - should self-heal and use WORK-011, not WORK-001
-      const exec = storage.createExecution({
-        ticketId: 'TKT-NEW',
-        agentName: 'new-agent',
-        executor: 'claude-code',
-        environment: 'host',
-        displayMode: 'terminal',
-        sandboxed: true,
-      })
-      expect(exec.id).to.equal('WORK-011')
+      expect(exec.id).to.match(/^WORK-[A-F0-9]{8}$/)
     })
   })
 
@@ -409,7 +383,7 @@ describe('ExecutionStorage', () => {
       })
 
       // Create running execution
-      storage.createExecution({
+      const exec2 = storage.createExecution({
         ticketId: 'TKT-002',
         agentName: 'multi-agent',
         executor: 'claude-code',
@@ -417,10 +391,10 @@ describe('ExecutionStorage', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      storage.updateStatus('WORK-002', 'running')
+      storage.updateStatus(exec2.id, 'running')
 
       // Create completed execution (should not be returned)
-      storage.createExecution({
+      const exec3 = storage.createExecution({
         ticketId: 'TKT-003',
         agentName: 'multi-agent',
         executor: 'claude-code',
@@ -428,7 +402,7 @@ describe('ExecutionStorage', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      storage.updateStatus('WORK-003', 'completed')
+      storage.updateStatus(exec3.id, 'completed')
 
       const executions = storage.getAgentRunningExecutions('multi-agent')
       expect(executions).to.have.length(2)
