@@ -167,7 +167,7 @@ export default class ProjectSpec extends PMOCommand {
       }
 
       // eslint-disable-next-line no-await-in-loop -- Interactive user prompt
-      const { action } = await inquirer.prompt([{
+      const { action } = await this.prompt<{ action: string }>([{
         type: 'list',
         name: 'action',
         message: `Manage specs for ${projectId}:`,
@@ -177,7 +177,7 @@ export default class ProjectSpec extends PMOCommand {
           new inquirer.Separator(),
           { name: 'Done', value: 'done' },
         ],
-      }]);
+      }], null);
 
       if (action === 'done') {
         continueLoop = false;
@@ -196,7 +196,7 @@ export default class ProjectSpec extends PMOCommand {
         }
 
         // eslint-disable-next-line no-await-in-loop -- User selection prompt
-        const { selected } = await inquirer.prompt([{
+        const { selected } = await this.prompt<{ selected: string[] }>([{
           type: 'checkbox',
           name: 'selected',
           message: 'Select specs to add:',
@@ -204,7 +204,7 @@ export default class ProjectSpec extends PMOCommand {
             name: `${s.id} - ${s.title} (${s.status})`,
             value: s.id,
           })),
-        }]);
+        }], null);
 
         if (selected.length === 0) {
           this.log(styles.muted('  No specs selected.'));
@@ -226,7 +226,7 @@ export default class ProjectSpec extends PMOCommand {
         }
 
         // eslint-disable-next-line no-await-in-loop -- User selection prompt
-        const { selected } = await inquirer.prompt([{
+        const { selected } = await this.prompt<{ selected: string[] }>([{
           type: 'checkbox',
           name: 'selected',
           message: 'Select specs to remove:',
@@ -234,7 +234,7 @@ export default class ProjectSpec extends PMOCommand {
             name: `${s.id} - ${s.title} (${s.status})`,
             value: s.id,
           })),
-        }]);
+        }], null);
 
         if (selected.length === 0) {
           this.log(styles.muted('  No specs selected.'));

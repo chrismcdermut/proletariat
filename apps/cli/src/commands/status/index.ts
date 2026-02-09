@@ -1,5 +1,4 @@
 import { Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
 
@@ -84,34 +83,34 @@ export default class Status extends PMOCommand {
       case 'update': {
         // First list statuses, then prompt for selection
         await this.config.runCommand('status:list', []);
-        const { statusId } = await inquirer.prompt([{
+        const { statusId } = await this.prompt<{ statusId: string }>([{
           type: 'input',
           name: 'statusId',
           message: 'Status ID to update:',
-          validate: (input: string) => input.length > 0 || 'Status ID is required',
-        }]);
+          validate: (input: unknown) => (input as string).length > 0 || 'Status ID is required',
+        }], null);
         await this.config.runCommand('status:update', [statusId]);
         break;
       }
       case 'move': {
         await this.config.runCommand('status:list', []);
-        const { statusId } = await inquirer.prompt([{
+        const { statusId } = await this.prompt<{ statusId: string }>([{
           type: 'input',
           name: 'statusId',
           message: 'Status ID to move:',
-          validate: (input: string) => input.length > 0 || 'Status ID is required',
-        }]);
+          validate: (input: unknown) => (input as string).length > 0 || 'Status ID is required',
+        }], null);
         await this.config.runCommand('status:move', [statusId]);
         break;
       }
       case 'delete': {
         await this.config.runCommand('status:list', []);
-        const { statusId } = await inquirer.prompt([{
+        const { statusId } = await this.prompt<{ statusId: string }>([{
           type: 'input',
           name: 'statusId',
           message: 'Status ID to delete:',
-          validate: (input: string) => input.length > 0 || 'Status ID is required',
-        }]);
+          validate: (input: unknown) => (input as string).length > 0 || 'Status ID is required',
+        }], null);
         await this.config.runCommand('status:delete', [statusId]);
         break;
       }
