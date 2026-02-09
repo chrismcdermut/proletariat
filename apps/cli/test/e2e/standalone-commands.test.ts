@@ -76,6 +76,7 @@ function execFromDir(cmd: string, cwd: string): string {
   delete env.PRLT_DATABASE_PATH;
   delete env.PRLT_CONFIG_PATH;
   delete env.PRLT_TEST_ENV;
+  delete env.DEVCONTAINER;
   delete env.DEBUG;
 
   try {
