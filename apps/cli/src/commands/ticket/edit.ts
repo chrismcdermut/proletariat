@@ -308,15 +308,15 @@ export default class TicketEdit extends PMOCommand {
     category?: string;
   }> {
     // First prompt for title
-    const { title } = await inquirer.prompt<{ title: string }>([
+    const { title } = await this.prompt<{ title: string }>([
       {
         type: 'input',
         name: 'title',
         message: 'Title:',
         default: ticket.title,
-        validate: (input: string) => input.trim() ? true : 'Title cannot be empty',
+        validate: (input: unknown) => (input as string).trim() ? true : 'Title cannot be empty',
       },
-    ]);
+    ], null);
 
     // Prompt for description using inline multiline input
     const descResult = await multiLineInput({
@@ -329,12 +329,8 @@ export default class TicketEdit extends PMOCommand {
       throw new Error('Edit cancelled');
     }
 
-    // Continue with remaining prompts
-    const answers = await inquirer.prompt<{
-      priority: string;
-      categoryChoice: string;
-      customCategory?: string;
-    }>([
+    // Continue with remaining prompts - priority first
+    const { priority } = await this.prompt<{ priority: string }>([
       {
         type: 'list',
         name: 'priority',
@@ -345,6 +341,10 @@ export default class TicketEdit extends PMOCommand {
         ],
         default: ticket.priority || '',
       },
+    ], null);
+
+    // Then category
+    const { categoryChoice } = await this.prompt<{ categoryChoice: string }>([
       {
         type: 'list',
         name: 'categoryChoice',
@@ -376,14 +376,21 @@ export default class TicketEdit extends PMOCommand {
         ],
         default: ticket.category || '',
       },
-      {
+    ], null);
+
+    // Custom category prompt if needed
+    let customCategory: string | undefined;
+    if (categoryChoice === '__custom__') {
+      const result = await this.prompt<{ customCategory: string }>([{
         type: 'input',
         name: 'customCategory',
         message: 'Enter custom category:',
-        when: (promptAnswers: { categoryChoice: string }) => promptAnswers.categoryChoice === '__custom__',
-        validate: (input: string) => input.trim() ? true : 'Category cannot be empty',
-      },
-    ]);
+        validate: (input: unknown) => (input as string).trim() ? true : 'Category cannot be empty',
+      }], null);
+      customCategory = result.customCategory;
+    }
+
+    const answers = { priority, categoryChoice, customCategory };
 
     // Build updates object with only changed fields
     const updates: {

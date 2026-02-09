@@ -12,12 +12,25 @@ const CLI_PATH = path.resolve(__dirname, '../../bin/run.js');
  * Verifies that all template commands properly use machineOutputFlags for JSON mode
  */
 describe('Template Commands Machine Output Mode Support', () => {
+  // Isolated env to prevent test commands from polluting production database
+  function getIsolatedEnv(): NodeJS.ProcessEnv {
+    const env = { ...process.env };
+    delete env.PRLT_HQ_PATH;
+    delete env.PRLT_PMO_PATH;
+    delete env.PRLT_DATABASE_PATH;
+    delete env.PRLT_CONFIG_PATH;
+    delete env.DEVCONTAINER;
+    delete env.PRLT_TEST_ENV;
+    return env;
+  }
+
   // Helper to run CLI and get output
   function runCli(args: string): string {
     try {
       return execSync(`node ${CLI_PATH} ${args} 2>&1`, {
         encoding: 'utf-8',
         timeout: 10000,
+        env: getIsolatedEnv(),
       });
     } catch (error) {
       // Return stderr/stdout even on error (JSON mode exits with code 2)

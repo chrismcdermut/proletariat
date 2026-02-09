@@ -73,12 +73,13 @@ export default class TemplateSave extends PMOCommand {
         return;
       }
 
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'template save' } : null;
       const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select ticket:',
-        choices: tickets.slice(0, 20).map(t => ({ name: `${t.id} - ${t.title}`, value: t.id })),
-      }], null);
+        choices: tickets.slice(0, 20).map(t => ({ name: `${t.id} - ${t.title}`, value: t.id, command: `prlt template save ${t.id} --json` })),
+      }], jsonModeConfig);
       ticketId = selected;
     }
 
@@ -95,13 +96,14 @@ export default class TemplateSave extends PMOCommand {
         return;
       }
 
+      const jsonModeConfig2 = jsonMode ? { flags, commandName: 'template save' } : null;
       const { name } = await this.prompt<{ name: string }>([{
         type: 'input',
         name: 'name',
         message: 'Template name:',
         default: ticket.category || ticket.title.split(' ')[0],
         validate: (i: unknown) => (i as string).length > 0 || 'Required',
-      }], null);
+      }], jsonModeConfig2);
       templateName = name;
     }
 

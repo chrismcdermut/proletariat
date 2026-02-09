@@ -1,7 +1,7 @@
 import { Flags } from '@oclif/core';
-import { PromptCommand } from '../../lib/prompt-command.js';
 import { styles } from '../../lib/styles.js';
 import { shouldOutputJson, outputPromptAsJson, buildPromptConfig, createMetadata } from '../../lib/prompt-json.js';
+import { PromptCommand } from '../../lib/prompt-command.js';
 
 export default class Template extends PromptCommand {
   static description = 'Manage templates (ticket and phase)';
@@ -53,7 +53,7 @@ export default class Template extends PromptCommand {
       type: 'list',
       name: 'action',
       message: 'What would you like to do?',
-      choices: menuChoices.map(c => ({ name: c.name, value: c.value })),
+      choices: menuChoices.map(c => ({ name: c.name, value: c.value, command: c.command })),
     }], null);
 
     if (action === 'cancel') return;

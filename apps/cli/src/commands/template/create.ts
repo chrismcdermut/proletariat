@@ -104,16 +104,16 @@ export default class TemplateCreate extends PMOCommand {
         return;
       }
 
-      const { selectedType } = await this.prompt<{ selectedType: TemplateType }>([{
+      const { selectedType } = await this.prompt<{ selectedType: string }>([{
         type: 'list',
         name: 'selectedType',
         message: 'What type of template?',
         choices: [
-          { name: 'Ticket template', value: 'ticket' },
-          { name: 'Phase template', value: 'phase' },
+          { name: 'Ticket template', value: 'ticket', command: 'prlt template create --type ticket --json' },
+          { name: 'Phase template', value: 'phase', command: 'prlt template create --type phase --json' },
         ],
-      }], null);
-      templateType = selectedType;
+      }], jsonMode ? { flags, commandName: 'template create' } : null);
+      templateType = selectedType as TemplateType;
     }
 
     if (templateType === 'ticket') {
@@ -157,12 +157,13 @@ export default class TemplateCreate extends PMOCommand {
         return;
       }
 
+      const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'template create' } : null;
       const { templateName } = await this.prompt<{ templateName: string }>([{
         type: 'input',
         name: 'templateName',
         message: 'Template name:',
         validate: (input: unknown) => (input as string).trim() ? true : 'Name required',
-      }], null);
+      }], jsonModeConfig);
       name = templateName;
     }
 
@@ -249,12 +250,13 @@ export default class TemplateCreate extends PMOCommand {
         return;
       }
 
+      const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'template create' } : null;
       const { templateName } = await this.prompt<{ templateName: string }>([{
         type: 'input',
         name: 'templateName',
         message: 'Template name:',
         validate: (input: unknown) => (input as string).trim() ? true : 'Name required',
-      }], null);
+      }], jsonModeConfig);
       name = templateName;
     }
 
