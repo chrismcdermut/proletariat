@@ -1,13 +1,10 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class EpicProject extends PMOCommand {
@@ -76,25 +73,19 @@ export default class EpicProject extends PMOCommand {
         return;
       }
 
-      // In JSON mode, output epic selection prompt
-      if (jsonMode) {
-        const epicChoices = epics.map(e => ({ name: `${e.id} - ${e.title} (${e.status})`, value: e.id }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'epicId', 'Select epic to move:', epicChoices),
-          createMetadata('epic project', flags)
-        );
-        return;
-      }
+      const epicChoices = epics.map(e => ({
+        name: `${e.id} - ${e.title} (${e.status})`,
+        value: e.id,
+        command: `prlt epic project ${e.id} --json`,
+      }));
 
-      const { selected } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic project' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select epic to move:',
-        choices: epics.map(e => ({
-          name: `${e.id} - ${e.title} (${e.status})`,
-          value: e.id,
-        })),
-      }]);
+        choices: epicChoices,
+      }], jsonModeConfig);
       epicId = selected;
     }
 
@@ -109,28 +100,22 @@ export default class EpicProject extends PMOCommand {
     const otherProjects = projects.filter(p => p.id !== sourceProjectId);
 
     if (otherProjects.length === 0) {
-      if (jsonMode) {
-        const actionChoices = [
-          { name: 'Create a new project', value: 'create' },
-          { name: 'Cancel', value: 'cancel' },
-        ];
-        outputPromptAsJson(
-          buildPromptConfig('list', 'action', 'No other projects to move to. What would you like to do?', actionChoices),
-          createMetadata('epic project', flags)
-        );
-        return;
+      if (!jsonMode) {
+        this.log(styles.muted('\nNo other projects to move to.'));
       }
 
-      this.log(styles.muted('\nNo other projects to move to.'));
-      const { action } = await inquirer.prompt([{
+      const actionChoices = [
+        { name: 'Create a new project', value: 'create', command: 'prlt project create --json' },
+        { name: 'Cancel', value: 'cancel', command: '' },
+      ];
+
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic project' } : null;
+      const { action } = await this.prompt<{ action: string }>([{
         type: 'list',
         name: 'action',
-        message: 'What would you like to do?',
-        choices: [
-          { name: 'Create a new project', value: 'create' },
-          { name: 'Cancel', value: 'cancel' },
-        ],
-      }]);
+        message: 'No other projects to move to. What would you like to do?',
+        choices: actionChoices,
+      }], jsonModeConfig);
 
       if (action === 'create') {
         await this.config.runCommand('project:create', []);
@@ -141,25 +126,19 @@ export default class EpicProject extends PMOCommand {
     // Get target project
     let targetProjectId = args.targetProject;
     if (!targetProjectId) {
-      // In JSON mode, output project selection prompt
-      if (jsonMode) {
-        const projectChoices = otherProjects.map(p => ({ name: `${p.id} - ${p.name} (${p.status})`, value: p.id }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'targetProject', 'Select target project:', projectChoices),
-          createMetadata('epic project', flags)
-        );
-        return;
-      }
+      const projectChoices = otherProjects.map(p => ({
+        name: `${p.id} - ${p.name} (${p.status})`,
+        value: p.id,
+        command: `prlt epic project ${epicId} ${p.id} --json`,
+      }));
 
-      const { selected } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic project' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select target project:',
-        choices: otherProjects.map(p => ({
-          name: `${p.id} - ${p.name} (${p.status})`,
-          value: p.id,
-        })),
-      }]);
+        choices: projectChoices,
+      }], jsonModeConfig);
       targetProjectId = selected;
     }
 
@@ -183,31 +162,23 @@ export default class EpicProject extends PMOCommand {
     // Handle tickets
     let moveTickets = flags['with-tickets'];
     if (epicTickets.length > 0 && !flags['with-tickets']) {
-      // In JSON mode, output ticket handling prompt
-      if (jsonMode) {
-        const ticketActionChoices = [
-          { name: 'Move tickets with epic', value: 'move' },
-          { name: 'Keep tickets in source project (unlink from epic)', value: 'unlink' },
-          { name: 'Cancel', value: 'cancel' },
-        ];
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketAction', `Epic has ${epicTickets.length} ticket(s) assigned. How to handle tickets?`, ticketActionChoices),
-          createMetadata('epic project', flags)
-        );
-        return;
+      if (!jsonMode) {
+        this.log(styles.warning(`\nEpic has ${epicTickets.length} ticket(s) assigned.`));
       }
 
-      this.log(styles.warning(`\nEpic has ${epicTickets.length} ticket(s) assigned.`));
-      const { action } = await inquirer.prompt([{
+      const ticketActionChoices = [
+        { name: 'Move tickets with epic', value: 'move', command: `prlt epic project ${epicId} ${targetProjectId} --with-tickets --json` },
+        { name: 'Keep tickets in source project (unlink from epic)', value: 'unlink', command: `prlt epic project ${epicId} ${targetProjectId} --json` },
+        { name: 'Cancel', value: 'cancel', command: '' },
+      ];
+
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic project' } : null;
+      const { action } = await this.prompt<{ action: string }>([{
         type: 'list',
         name: 'action',
-        message: 'How to handle tickets?',
-        choices: [
-          { name: 'Move tickets with epic', value: 'move' },
-          { name: 'Keep tickets in source project (unlink from epic)', value: 'unlink' },
-          { name: 'Cancel', value: 'cancel' },
-        ],
-      }]);
+        message: `Epic has ${epicTickets.length} ticket(s) assigned. How to handle tickets?`,
+        choices: ticketActionChoices,
+      }], jsonModeConfig);
 
       if (action === 'cancel') {
         return;

@@ -1,13 +1,10 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class EpicSpec extends PMOCommand {
@@ -42,6 +39,10 @@ export default class EpicSpec extends PMOCommand {
     unlink: Flags.boolean({
       char: 'u',
       description: 'Remove spec from epic instead of adding',
+      default: false,
+    }),
+    'align-tickets': Flags.boolean({
+      description: 'Also update all tickets in the epic to use the same spec',
       default: false,
     }),
   };
@@ -83,24 +84,17 @@ export default class EpicSpec extends PMOCommand {
         return {
           name: `${e.id} ${e.title} (${e.status})${specLabel}`,
           value: e.id,
+          command: `prlt epic spec ${e.id} --json`,
         };
       });
 
-      // In JSON mode, output epic selection prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'epicId', 'Select epic:', epicChoices),
-          createMetadata('epic spec', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic spec' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select epic:',
         choices: epicChoices,
-      }]);
+      }], jsonModeConfig);
       epicId = selected;
     }
 
@@ -140,23 +134,16 @@ export default class EpicSpec extends PMOCommand {
       const specChoices = specs.map(s => ({
         name: `${s.id} - ${s.title} (${s.status})`,
         value: s.id,
+        command: `prlt epic spec ${epicId} ${s.id} --json`,
       }));
 
-      // In JSON mode, output spec selection prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'specId', `Select spec to link to ${epicId}:`, specChoices),
-          createMetadata('epic spec', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic spec' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: `Select spec to link to ${epicId}:`,
         choices: specChoices,
-      }]);
+      }], jsonModeConfig);
       specId = selected;
     }
 
@@ -183,38 +170,36 @@ export default class EpicSpec extends PMOCommand {
     const ticketsWithDifferentSpec = epicTickets.filter(t => t.specId && t.specId !== specId);
 
     if (ticketsWithDifferentSpec.length > 0) {
-      // In JSON mode, output spec mismatch handling prompt
-      if (jsonMode) {
+      // If --align-tickets flag provided, skip prompt and align all
+      let action: string;
+      if (flags['align-tickets']) {
+        action = 'align_all';
+      } else {
+        if (!jsonMode) {
+          this.log(styles.warning(`\n⚠️  ${ticketsWithDifferentSpec.length} ticket(s) in this epic have different specs:`));
+          for (const t of ticketsWithDifferentSpec.slice(0, 5)) {
+            this.log(styles.muted(`   - ${t.id}: spec "${t.specId}"`));
+          }
+          if (ticketsWithDifferentSpec.length > 5) {
+            this.log(styles.muted(`   ... and ${ticketsWithDifferentSpec.length - 5} more`));
+          }
+        }
+
         const mismatchChoices = [
-          { name: 'Update epic only (tickets keep their specs)', value: 'epic_only' },
-          { name: `Update epic AND align all tickets to "${specId}"`, value: 'align_all' },
-          { name: 'Cancel', value: 'cancel' },
+          { name: 'Update epic only (tickets keep their specs)', value: 'epic_only', command: `prlt epic spec ${epicId} ${specId} --json` },
+          { name: `Update epic AND align all tickets to "${specId}"`, value: 'align_all', command: `prlt epic spec ${epicId} ${specId} --align-tickets --json` },
+          { name: 'Cancel', value: 'cancel', command: '' },
         ];
-        outputPromptAsJson(
-          buildPromptConfig('list', 'specMismatchAction', `${ticketsWithDifferentSpec.length} ticket(s) in this epic have different specs. How to handle spec mismatch?`, mismatchChoices),
-          createMetadata('epic spec', flags)
-        );
-        return;
-      }
 
-      this.log(styles.warning(`\n⚠️  ${ticketsWithDifferentSpec.length} ticket(s) in this epic have different specs:`));
-      for (const t of ticketsWithDifferentSpec.slice(0, 5)) {
-        this.log(styles.muted(`   - ${t.id}: spec "${t.specId}"`));
+        const jsonModeConfig = jsonMode ? { flags, commandName: 'epic spec' } : null;
+        const result = await this.prompt<{ action: string }>([{
+          type: 'list',
+          name: 'action',
+          message: `${ticketsWithDifferentSpec.length} ticket(s) in this epic have different specs. How to handle spec mismatch?`,
+          choices: mismatchChoices,
+        }], jsonModeConfig);
+        action = result.action;
       }
-      if (ticketsWithDifferentSpec.length > 5) {
-        this.log(styles.muted(`   ... and ${ticketsWithDifferentSpec.length - 5} more`));
-      }
-
-      const { action } = await inquirer.prompt([{
-        type: 'list',
-        name: 'action',
-        message: 'How to handle spec mismatch?',
-        choices: [
-          { name: 'Update epic only (tickets keep their specs)', value: 'epic_only' },
-          { name: `Update epic AND align all tickets to "${specId}"`, value: 'align_all' },
-          { name: 'Cancel', value: 'cancel' },
-        ],
-      }]);
 
       if (action === 'cancel') {
         return;

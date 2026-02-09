@@ -1,5 +1,4 @@
 import { Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { EpicStatus } from '../../lib/pmo/types.js';
@@ -12,6 +11,7 @@ import {
   createMetadata,
   buildFormPromptConfig,
   FormField,
+  type JsonFlags,
 } from '../../lib/prompt-json.js';
 
 export default class EpicCreate extends PMOCommand {
@@ -110,7 +110,7 @@ export default class EpicCreate extends PMOCommand {
         );
       }
 
-      epicData = await this.promptEpicData(fields, specChoices.length > 1);
+      epicData = await this.promptEpicData(fields, specChoices.length > 1, jsonMode ? { flags, commandName: 'epic create' } : null);
     } else {
       epicData = {
         title: flags.title,
@@ -199,7 +199,8 @@ export default class EpicCreate extends PMOCommand {
 
   private async promptEpicData(
     fields: FormField[],
-    hasSpecs: boolean
+    hasSpecs: boolean,
+    jsonModeConfig: { flags: JsonFlags & Record<string, unknown>; commandName: string } | null
   ): Promise<{
     title: string;
     status: EpicStatus;
@@ -207,18 +208,21 @@ export default class EpicCreate extends PMOCommand {
     specId?: string;
   }> {
     // Build inquirer prompts from fields, adding validators and conditionals
-    const answers = await inquirer.prompt<{
+    const promptFields = fields
+      .filter(field => field.name !== 'specId' || hasSpecs)
+      .map(field => ({
+        ...field,
+        validate: field.name === 'title'
+          ? ((input: unknown) => (input as string).trim() ? true : 'Title cannot be empty')
+          : undefined,
+      }));
+
+    const answers = await this.prompt<{
       title: string;
       status: string;
       description?: string;
       specId?: string;
-    }>(fields.map(field => ({
-      ...field,
-      validate: field.name === 'title'
-        ? ((input: string) => input.trim() ? true : 'Title cannot be empty')
-        : undefined,
-      when: field.name === 'specId' ? () => hasSpecs : undefined,
-    })));
+    }>(promptFields, jsonModeConfig);
 
     return {
       title: answers.title,
