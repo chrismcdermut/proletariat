@@ -54,6 +54,14 @@ export default class EpicTicket extends PMOCommand {
       description: 'Remove spec link from epic',
       default: false,
     }),
+    reconcile: Flags.string({
+      description: 'How to handle spec mismatch: keep (keep ticket spec), epic (use epic spec), skip',
+      options: ['keep', 'epic', 'skip'],
+    }),
+    'inherit-spec': Flags.boolean({
+      description: 'Inherit spec from epic when ticket has no spec',
+      allowNo: true,
+    }),
   };
 
   async execute(): Promise<void> {
@@ -254,25 +262,33 @@ export default class EpicTicket extends PMOCommand {
         const epicSpecId = epic.specId;
 
         if (ticketSpecId && epicSpecId && ticketSpecId !== epicSpecId) {
-          // Both have specs but they differ - warn user
-          if (!jsonMode) {
-            this.log(styles.warning(`  ⚠️  Spec mismatch: ticket has "${ticketSpecId}", epic has "${epicSpecId}"`));
+          // Both have specs but they differ - determine action
+          let action: string;
+
+          // Check if --reconcile flag was provided
+          if (flags.reconcile) {
+            action = flags.reconcile === 'keep' ? 'keep_ticket' : flags.reconcile === 'epic' ? 'use_epic' : 'skip';
+          } else {
+            if (!jsonMode) {
+              this.log(styles.warning(`  ⚠️  Spec mismatch: ticket has "${ticketSpecId}", epic has "${epicSpecId}"`));
+            }
+
+            const specReconcileChoices = [
+              { name: `Keep ticket spec (${ticketSpecId})`, value: 'keep_ticket', command: `prlt epic ticket ${epicId} ${ticketId} --reconcile keep --json` },
+              { name: `Use epic spec (${epicSpecId})`, value: 'use_epic', command: `prlt epic ticket ${epicId} ${ticketId} --reconcile epic --json` },
+              { name: 'Skip this ticket', value: 'skip', command: `prlt epic ticket ${epicId} ${ticketId} --reconcile skip --json` },
+            ];
+
+            const jsonModeConfig = jsonMode ? { flags, commandName: 'epic ticket' } : null;
+            // eslint-disable-next-line no-await-in-loop
+            const result = await this.prompt<{ action: string }>([{
+              type: 'list',
+              name: 'action',
+              message: `Spec mismatch for ${ticketId}: ticket has "${ticketSpecId}", epic has "${epicSpecId}". How to reconcile?`,
+              choices: specReconcileChoices,
+            }], jsonModeConfig);
+            action = result.action;
           }
-
-          const specReconcileChoices = [
-            { name: `Keep ticket spec (${ticketSpecId})`, value: 'keep_ticket', command: `prlt epic ticket ${epicId} ${ticketId} --json` },
-            { name: `Use epic spec (${epicSpecId})`, value: 'use_epic', command: `prlt epic ticket ${epicId} ${ticketId} --json` },
-            { name: 'Skip this ticket', value: 'skip', command: '' },
-          ];
-
-          const jsonModeConfig = jsonMode ? { flags, commandName: 'epic ticket' } : null;
-          // eslint-disable-next-line no-await-in-loop
-          const { action } = await this.prompt<{ action: string }>([{
-            type: 'list',
-            name: 'action',
-            message: `Spec mismatch for ${ticketId}: ticket has "${ticketSpecId}", epic has "${epicSpecId}". How to reconcile?`,
-            choices: specReconcileChoices,
-          }], jsonModeConfig);
 
           if (action === 'skip') {
             this.log(styles.muted(`  Skipping ${ticketId}`));
@@ -289,20 +305,28 @@ export default class EpicTicket extends PMOCommand {
             this.log(styles.muted(`  Updated ${ticketId} to use spec "${epicSpecId}"`));
           }
         } else if (!ticketSpecId && epicSpecId) {
-          // Ticket has no spec but epic does - offer to inherit
-          const inheritChoices = [
-            { name: 'Yes', value: true, command: `prlt epic ticket ${epicId} ${ticketId} --json` },
-            { name: 'No', value: false, command: `prlt epic ticket ${epicId} ${ticketId} --json` },
-          ];
+          // Ticket has no spec but epic does - determine if should inherit
+          let inherit: boolean;
 
-          const jsonModeConfig = jsonMode ? { flags, commandName: 'epic ticket' } : null;
-          // eslint-disable-next-line no-await-in-loop
-          const { inherit } = await this.prompt<{ inherit: boolean }>([{
-            type: 'list',
-            name: 'inherit',
-            message: `${ticketId} has no spec. Inherit epic's spec "${epicSpecId}"?`,
-            choices: inheritChoices,
-          }], jsonModeConfig);
+          // Check if --inherit-spec flag was provided
+          if (flags['inherit-spec'] !== undefined) {
+            inherit = flags['inherit-spec'];
+          } else {
+            const inheritChoices = [
+              { name: 'Yes', value: true, command: `prlt epic ticket ${epicId} ${ticketId} --inherit-spec --json` },
+              { name: 'No', value: false, command: `prlt epic ticket ${epicId} ${ticketId} --no-inherit-spec --json` },
+            ];
+
+            const jsonModeConfig = jsonMode ? { flags, commandName: 'epic ticket' } : null;
+            // eslint-disable-next-line no-await-in-loop
+            const result = await this.prompt<{ inherit: boolean }>([{
+              type: 'list',
+              name: 'inherit',
+              message: `${ticketId} has no spec. Inherit epic's spec "${epicSpecId}"?`,
+              choices: inheritChoices,
+            }], jsonModeConfig);
+            inherit = result.inherit;
+          }
 
           if (inherit) {
             db.prepare(`

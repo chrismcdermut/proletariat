@@ -41,6 +41,10 @@ export default class EpicSpec extends PMOCommand {
       description: 'Remove spec from epic instead of adding',
       default: false,
     }),
+    'align-tickets': Flags.boolean({
+      description: 'Also update all tickets in the epic to use the same spec',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
@@ -166,29 +170,36 @@ export default class EpicSpec extends PMOCommand {
     const ticketsWithDifferentSpec = epicTickets.filter(t => t.specId && t.specId !== specId);
 
     if (ticketsWithDifferentSpec.length > 0) {
-      if (!jsonMode) {
-        this.log(styles.warning(`\n⚠️  ${ticketsWithDifferentSpec.length} ticket(s) in this epic have different specs:`));
-        for (const t of ticketsWithDifferentSpec.slice(0, 5)) {
-          this.log(styles.muted(`   - ${t.id}: spec "${t.specId}"`));
+      // If --align-tickets flag provided, skip prompt and align all
+      let action: string;
+      if (flags['align-tickets']) {
+        action = 'align_all';
+      } else {
+        if (!jsonMode) {
+          this.log(styles.warning(`\n⚠️  ${ticketsWithDifferentSpec.length} ticket(s) in this epic have different specs:`));
+          for (const t of ticketsWithDifferentSpec.slice(0, 5)) {
+            this.log(styles.muted(`   - ${t.id}: spec "${t.specId}"`));
+          }
+          if (ticketsWithDifferentSpec.length > 5) {
+            this.log(styles.muted(`   ... and ${ticketsWithDifferentSpec.length - 5} more`));
+          }
         }
-        if (ticketsWithDifferentSpec.length > 5) {
-          this.log(styles.muted(`   ... and ${ticketsWithDifferentSpec.length - 5} more`));
-        }
+
+        const mismatchChoices = [
+          { name: 'Update epic only (tickets keep their specs)', value: 'epic_only', command: `prlt epic spec ${epicId} ${specId} --json` },
+          { name: `Update epic AND align all tickets to "${specId}"`, value: 'align_all', command: `prlt epic spec ${epicId} ${specId} --align-tickets --json` },
+          { name: 'Cancel', value: 'cancel', command: '' },
+        ];
+
+        const jsonModeConfig = jsonMode ? { flags, commandName: 'epic spec' } : null;
+        const result = await this.prompt<{ action: string }>([{
+          type: 'list',
+          name: 'action',
+          message: `${ticketsWithDifferentSpec.length} ticket(s) in this epic have different specs. How to handle spec mismatch?`,
+          choices: mismatchChoices,
+        }], jsonModeConfig);
+        action = result.action;
       }
-
-      const mismatchChoices = [
-        { name: 'Update epic only (tickets keep their specs)', value: 'epic_only', command: `prlt epic spec ${epicId} ${specId} --json` },
-        { name: `Update epic AND align all tickets to "${specId}"`, value: 'align_all', command: `prlt epic spec ${epicId} ${specId} --json` },
-        { name: 'Cancel', value: 'cancel', command: '' },
-      ];
-
-      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic spec' } : null;
-      const { action } = await this.prompt<{ action: string }>([{
-        type: 'list',
-        name: 'action',
-        message: `${ticketsWithDifferentSpec.length} ticket(s) in this epic have different specs. How to handle spec mismatch?`,
-        choices: mismatchChoices,
-      }], jsonModeConfig);
 
       if (action === 'cancel') {
         return;
