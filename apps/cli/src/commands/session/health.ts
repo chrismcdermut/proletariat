@@ -13,6 +13,12 @@ import {
   findSessionForExecution,
 } from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import {
+  shouldOutputJson,
+  outputSuccessAsJson,
+  outputErrorAsJson,
+  createMetadata,
+} from '../../lib/prompt-json.js'
 
 // =============================================================================
 // Types
@@ -177,18 +183,23 @@ export default class SessionHealth extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(SessionHealth)
+    const jsonMode = shouldOutputJson(flags)
 
     if (flags.watch) {
       await this.watchMode(flags.interval, flags.threshold)
     } else {
-      await this.runHealthCheck(flags.fix)
+      await this.runHealthCheck(flags.fix, jsonMode, flags)
     }
   }
 
   /**
    * Single health check pass. Returns the list of agent health infos.
    */
-  private async runHealthCheck(fix: boolean): Promise<AgentHealthInfo[]> {
+  private async runHealthCheck(
+    fix: boolean,
+    jsonMode: boolean = false,
+    flags: Record<string, unknown> = {},
+  ): Promise<AgentHealthInfo[]> {
     let executionStorage: ExecutionStorage | null = null
     let db: Database.Database | null = null
 
@@ -198,6 +209,13 @@ export default class SessionHealth extends PMOCommand {
       db = new Database(dbPath)
       executionStorage = new ExecutionStorage(db)
     } catch {
+      if (jsonMode) {
+        outputErrorAsJson(
+          'NOT_IN_WORKSPACE',
+          'Not in a workspace. Run from a proletariat HQ directory.',
+          createMetadata('session health', flags),
+        )
+      }
       this.log('')
       this.log(styles.error('Not in a workspace. Run from a proletariat HQ directory.'))
       this.log('')
@@ -316,6 +334,48 @@ export default class SessionHealth extends PMOCommand {
             paneContent: paneContent || undefined,
           })
         }
+      }
+
+      // JSON mode: output structured data and exit
+      if (jsonMode) {
+        const hungAgents = agents.filter(a => a.state === 'HUNG')
+        const fixResults: Array<{ agentName: string; ticketId: string; recovered: boolean }> = []
+
+        if (fix && hungAgents.length > 0) {
+          for (const agent of hungAgents) {
+            const success = sendEscape(agent.sessionId, agent.containerId)
+            fixResults.push({
+              agentName: agent.agentName,
+              ticketId: agent.ticketId,
+              recovered: success,
+            })
+          }
+        }
+
+        outputSuccessAsJson({
+          agents: agents.map(a => ({
+            ticketId: a.ticketId,
+            agentName: a.agentName,
+            state: a.state,
+            environment: a.environment,
+            containerId: a.containerId,
+            sessionId: a.sessionId,
+            elapsed: a.elapsed,
+          })),
+          summary: {
+            total: agents.length,
+            hung: agents.filter(a => a.state === 'HUNG').length,
+            working: agents.filter(a => a.state === 'WORKING').length,
+            done: agents.filter(a => a.state === 'DONE').length,
+            idle: agents.filter(a => a.state === 'IDLE').length,
+            unknown: agents.filter(a => a.state === 'UNKNOWN').length,
+          },
+          ...(fix && fixResults.length > 0 ? { recovered: fixResults } : {}),
+          commands: {
+            fix: 'prlt session health --fix',
+            watch: 'prlt session health --watch',
+          },
+        }, createMetadata('session health', flags))
       }
 
       // Display status table
