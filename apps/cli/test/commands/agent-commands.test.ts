@@ -32,14 +32,14 @@ describe('CLI Commands', () => {
     it('shows agent subcommands', async () => {
       const { stdout } = await runCommand(['agent', '--help'], { root });
       // Test actual existing commands
-      expect(stdout).to.contain('agent remove');
+      expect(stdout).to.contain('agent staff');
       expect(stdout).to.contain('agent visit');
       expect(stdout).to.contain('agent status');
       expect(stdout).to.contain('agent shell');
     });
 
-    it('agent remove shows proper help', async () => {
-      const { stdout } = await runCommand(['agent', 'remove', '--help'], { root });
+    it('agent staff remove shows proper help', async () => {
+      const { stdout } = await runCommand(['agent', 'staff', 'remove', '--help'], { root });
       expect(stdout).to.contain('Remove');
       expect(stdout).to.contain('USAGE');
     });
@@ -73,7 +73,7 @@ describe('CLI Commands', () => {
 describe('Agent Command Contract', () => {
   // Test actual existing agent commands
   const expectedAgentCommands = [
-    'agent remove',
+    'agent staff remove',
     'agent visit',
     'agent status',
     'agent shell',
@@ -93,7 +93,7 @@ describe('Agent Command Contract', () => {
   it('agent command shows all subcommands', async () => {
     const { stdout } = await runCommand(['agent', '--help'], { root });
     // Test that key subcommands appear in help
-    expect(stdout).to.contain('remove');
+    expect(stdout).to.contain('staff');
     expect(stdout).to.contain('visit');
     expect(stdout).to.contain('status');
   });
@@ -103,7 +103,7 @@ describe('Command Contract', () => {
   // Test commands that actually exist
   const expectedCommands = [
     'init',
-    'agent remove',
+    'agent staff remove',
     'agent visit',
     'agent status',
     'ticket create',
