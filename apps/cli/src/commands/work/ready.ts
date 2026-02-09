@@ -2,7 +2,6 @@ import { Args, Flags } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import Database from 'better-sqlite3';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
@@ -176,7 +175,8 @@ export default class WorkReady extends PMOCommand {
 
       // Handle PR creation
       let prUrl: string | undefined;
-      const shouldCreatePR = flags.pr || flags['draft-pr'] || (!flags['no-pr'] && await this.shouldOfferPRCreation());
+      const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work ready' } : null;
+    const shouldCreatePR = flags.pr || flags['draft-pr'] || (!flags['no-pr'] && await this.shouldOfferPRCreation(jsonModeConfig));
 
       if (shouldCreatePR) {
         // Get branch and worktree path from the execution record
@@ -241,7 +241,9 @@ export default class WorkReady extends PMOCommand {
   /**
    * Check if we should offer PR creation (gh is available, on a feature branch, etc.)
    */
-  private async shouldOfferPRCreation(): Promise<boolean> {
+  private async shouldOfferPRCreation(
+    jsonModeConfig: { flags: Record<string, unknown>; commandName: string } | null
+  ): Promise<boolean> {
     // Check if gh CLI is available
     if (!isGHInstalled() || !isGHAuthenticated()) {
       return false;
@@ -266,16 +268,16 @@ export default class WorkReady extends PMOCommand {
     }
 
     // Prompt user
-    const { createPR: wantPR } = await inquirer.prompt([{
+    const { createPR: wantPR } = await this.prompt<{ createPR: boolean }>([{
       type: 'list',
       name: 'createPR',
       message: 'Create a pull request for this work?',
       choices: [
-        { name: 'Yes', value: true },
-        { name: 'No', value: false },
+        { name: 'Yes', value: true, command: 'prlt work ready --pr --json' },
+        { name: 'No', value: false, command: 'prlt work ready --no-pr --json' },
       ],
       default: true,
-    }]);
+    }], jsonModeConfig);
 
     return wantPR;
   }
