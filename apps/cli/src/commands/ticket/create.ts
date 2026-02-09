@@ -1,6 +1,7 @@
 import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+// Note: inquirer import kept for inquirer.Separator usage in interactive mode
 import { styles } from '../../lib/styles.js';
 import { updateEpicTicketsSection } from '../../lib/pmo/epic-files.js';
 import { TicketTemplate, PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types.js';
@@ -359,7 +360,7 @@ export default class TicketCreate extends PMOCommand {
     if (!template && !flags.template) {
       const templates = await storage.listTicketTemplates();
       if (templates.length > 0) {
-        const { selectedTemplate } = await inquirer.prompt<{ selectedTemplate: string }>([
+        const { selectedTemplate } = await this.prompt<{ selectedTemplate: string }>([
           {
             type: 'list',
             name: 'selectedTemplate',
@@ -373,7 +374,7 @@ export default class TicketCreate extends PMOCommand {
               })),
             ],
           },
-        ]);
+        ], null);
 
         if (selectedTemplate) {
           template = templates.find(t => t.id === selectedTemplate) || null;
@@ -381,27 +382,30 @@ export default class TicketCreate extends PMOCommand {
       }
     }
 
-    const answers = await inquirer.prompt<{
-      title: string;
-      column: string;
-      priority?: string;
-      categoryChoice: string;
-      customCategory?: string;
-    }>([
+    // Prompt for title
+    const { title: answerTitle } = await this.prompt<{ title: string }>([
       {
         type: 'input',
         name: 'title',
         message: 'Ticket title:',
         default: flags.title || template?.titlePattern,
-        validate: (input: string) => input.trim() ? true : 'Title cannot be empty',
+        validate: (input: unknown) => (input as string).trim() ? true : 'Title cannot be empty',
       },
+    ], null);
+
+    // Prompt for column
+    const { column: answerColumn } = await this.prompt<{ column: string }>([
       {
         type: 'list',
         name: 'column',
         message: 'Column:',
-        choices: columns,
+        choices: columns.map(c => ({ name: c, value: c })),
         default: flags.column || columns[0],
       },
+    ], null);
+
+    // Prompt for priority
+    const { priority: answerPriority } = await this.prompt<{ priority?: string }>([
       {
         type: 'list',
         name: 'priority',
@@ -412,6 +416,10 @@ export default class TicketCreate extends PMOCommand {
         ],
         default: flags.priority || template?.defaultPriority,
       },
+    ], null);
+
+    // Prompt for category
+    const { categoryChoice } = await this.prompt<{ categoryChoice: string }>([
       {
         type: 'list',
         name: 'categoryChoice',
@@ -443,14 +451,21 @@ export default class TicketCreate extends PMOCommand {
         ],
         default: flags.category || template?.defaultCategory || '',
       },
-      {
+    ], null);
+
+    // Custom category prompt if needed
+    let customCategory: string | undefined;
+    if (categoryChoice === '__custom__') {
+      const result = await this.prompt<{ customCategory: string }>([{
         type: 'input',
         name: 'customCategory',
         message: 'Enter custom category:',
-        when: (answers: { categoryChoice: string }) => answers.categoryChoice === '__custom__',
-        validate: (input: string) => input.trim() ? true : 'Category cannot be empty',
-      },
-    ]);
+        validate: (input: unknown) => (input as string).trim() ? true : 'Category cannot be empty',
+      }], null);
+      customCategory = result.customCategory;
+    }
+
+    const answers = { title: answerTitle, column: answerColumn, priority: answerPriority, categoryChoice, customCategory };
 
     // Resolve category from choice or custom input
     const category = answers.categoryChoice === '__custom__'
@@ -488,14 +503,14 @@ export default class TicketCreate extends PMOCommand {
     this.log(styles.muted('\n─── Ticket Description (for agent execution) ───'));
 
     // Prompt for "What" - the main outcome
-    const { what } = await inquirer.prompt<{ what: string }>([
+    const { what } = await this.prompt<{ what: string }>([
       {
         type: 'input',
         name: 'what',
         message: 'What is the concrete outcome? (one sentence):',
-        validate: (input: string) => input.trim() ? true : 'Outcome cannot be empty - what does success look like?',
+        validate: (input: unknown) => (input as string).trim() ? true : 'Outcome cannot be empty - what does success look like?',
       },
-    ]);
+    ], null);
 
     // Prompt for acceptance criteria using multiline input
     const doneWhenResult = await multiLineInput({
@@ -508,23 +523,23 @@ export default class TicketCreate extends PMOCommand {
     }
 
     // Continue with remaining prompts
-    const { context, notInScope } = await inquirer.prompt<{
-      context: string;
-      notInScope: string;
-    }>([
+    const { context } = await this.prompt<{ context: string }>([
       {
         type: 'input',
         name: 'context',
         message: 'Context (files, patterns, hints - optional):',
         default: '',
       },
+    ], null);
+
+    const { notInScope } = await this.prompt<{ notInScope: string }>([
       {
         type: 'input',
         name: 'notInScope',
         message: 'Not in scope (explicit exclusions - optional):',
         default: '',
       },
-    ]);
+    ], null);
 
     // Build structured description
     const parts: string[] = [];
