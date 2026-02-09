@@ -1,5 +1,6 @@
-import { Command, Flags } from '@oclif/core'
+import { Flags } from '@oclif/core'
 import inquirer from 'inquirer'
+import { PromptCommand } from '../../lib/prompt-command.js'
 import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import Database from 'better-sqlite3'
@@ -10,7 +11,7 @@ import { isDockerRunning } from '../../lib/execution/runners.js'
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
 import { machineOutputFlags } from '../../lib/pmo/base-command.js'
 
-export default class Docker extends Command {
+export default class Docker extends PromptCommand {
   static description = 'Manage Docker containers used by agents'
 
   static examples = [
@@ -231,18 +232,18 @@ export default class Docker extends Command {
 
       if (choices.length <= 2) {
         // Only manual option, just ask for input
-        const { target } = await inquirer.prompt([
+        const { target } = await this.prompt<{ target: string }>([
           {
             type: 'input',
             name: 'target',
             message: 'No containers found. Enter container ID:',
-            validate: (input: string) => input.trim().length > 0 || 'Target is required',
+            validate: (input: unknown) => (input as string).trim().length > 0 || 'Target is required',
           },
-        ])
+        ], null)
         return target.trim()
       }
 
-      const { target } = await inquirer.prompt([
+      const { target } = await this.prompt<{ target: string }>([
         {
           type: 'list',
           name: 'target',
@@ -250,21 +251,21 @@ export default class Docker extends Command {
           choices,
           pageSize: 15,
         },
-      ])
+      ], null)
 
       if (target === '__cancel__') {
         return null
       }
 
       if (target === '__manual__') {
-        const { manualTarget } = await inquirer.prompt([
+        const { manualTarget } = await this.prompt<{ manualTarget: string }>([
           {
             type: 'input',
             name: 'manualTarget',
             message: 'Enter execution ID (WORK-XXX), agent name, or container ID:',
-            validate: (input: string) => input.trim().length > 0 || 'Target is required',
+            validate: (input: unknown) => (input as string).trim().length > 0 || 'Target is required',
           },
-        ])
+        ], null)
         return manualTarget.trim()
       }
 

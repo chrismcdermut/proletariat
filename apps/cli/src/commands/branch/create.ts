@@ -258,7 +258,7 @@ export default class BranchCreate extends PMOCommand {
 
       if (!createCommit && !args.name && !jsonMode) {
         // Only prompt in interactive mode (non-quick, not JSON mode)
-        const { wantCommit } = await inquirer.prompt([
+        const { wantCommit } = await this.prompt<{ wantCommit: boolean }>([
           {
             type: 'list',
             name: 'wantCommit',
@@ -269,7 +269,7 @@ export default class BranchCreate extends PMOCommand {
             ],
             default: true,
           },
-        ])
+        ], null)
         createCommit = wantCommit
       }
 
@@ -283,14 +283,14 @@ export default class BranchCreate extends PMOCommand {
         // In autoCommit mode or JSON mode, skip the prompt
         let commitMessage = defaultCommitMessage
         if (!autoCommit && !jsonMode) {
-          const result = await inquirer.prompt([
+          const result = await this.prompt<{ commitMessage: string }>([
             {
               type: 'input',
               name: 'commitMessage',
               message: 'Enter commit message:',
               default: defaultCommitMessage,
             },
-          ])
+          ], null)
           commitMessage = result.commitMessage
         }
 
@@ -471,7 +471,7 @@ export default class BranchCreate extends PMOCommand {
       value: t,
     }))
 
-    const { ticket } = await inquirer.prompt([
+    const { ticket } = await this.prompt<{ ticket: { id: string; title: string; category?: string } }>([
       {
         type: 'list',
         name: 'ticket',
@@ -479,7 +479,7 @@ export default class BranchCreate extends PMOCommand {
         choices: ticketChoices,
         pageSize: 15,
       },
-    ])
+    ], null)
 
     // Auto-generate branch name with defaults
     const type = getBranchType(ticket.category) as BranchType
@@ -512,7 +512,7 @@ export default class BranchCreate extends PMOCommand {
       value: t,
     }))
 
-    const { ticket } = await inquirer.prompt([
+    const { ticket } = await this.prompt<{ ticket: { id: string; title: string; category?: string } }>([
       {
         type: 'list',
         name: 'ticket',
@@ -520,10 +520,10 @@ export default class BranchCreate extends PMOCommand {
         choices: ticketChoices,
         pageSize: 15,
       },
-    ])
+    ], null)
 
     // Get owner (defaults to GitHub username)
-    const { owner } = await inquirer.prompt([
+    const { owner } = await this.prompt<{ owner: string }>([
       {
         type: 'input',
         name: 'owner',
@@ -531,14 +531,14 @@ export default class BranchCreate extends PMOCommand {
           ? `Owner (default: ${defaultOwnerName}):`
           : 'Owner (optional):',
         default: defaultOwnerName,
-        validate: (input: string) => {
-          if (input && !isKebabCase(input)) {
+        validate: (input: unknown) => {
+          if ((input as string) && !isKebabCase(input as string)) {
             return 'Owner must be kebab-case (lowercase, hyphens only)'
           }
           return true
         },
       },
-    ])
+    ], null)
 
     // Auto-generate branch name from ticket
     const type = getBranchType(ticket.category) as BranchType
@@ -555,7 +555,7 @@ export default class BranchCreate extends PMOCommand {
     this.log(styles.muted(`   Generated: ${branchName}`))
 
     // Confirm or allow edit
-    const { confirmed } = await inquirer.prompt([
+    const { confirmed } = await this.prompt<{ confirmed: boolean }>([
       {
         type: 'list',
         name: 'confirmed',
@@ -565,10 +565,10 @@ export default class BranchCreate extends PMOCommand {
           { name: 'No, let me edit', value: false },
         ],
       },
-    ])
+    ], null)
 
     // Ask where to branch from
-    const { branchFrom } = await inquirer.prompt([
+    const { branchFrom } = await this.prompt<{ branchFrom: string }>([
       {
         type: 'list',
         name: 'branchFrom',
@@ -580,7 +580,7 @@ export default class BranchCreate extends PMOCommand {
         ],
         default: 0,
       },
-    ])
+    ], null)
 
     const fromOrigin = branchFrom === 'origin-main'
     let customStartPoint: string | undefined
@@ -591,14 +591,14 @@ export default class BranchCreate extends PMOCommand {
 
     if (!confirmed) {
       // Allow manual edit
-      const { customName } = await inquirer.prompt([
+      const { customName } = await this.prompt<{ customName: string }>([
         {
           type: 'input',
           name: 'customName',
           message: 'Enter branch name:',
           default: branchName,
         },
-      ])
+      ], null)
       // Still return ticket info for commit message even with custom branch name
       return { branchName: customName, ticket: { id: ticket.id, title: ticket.title }, fromOrigin, customStartPoint }
     }
@@ -624,17 +624,17 @@ export default class BranchCreate extends PMOCommand {
       })),
     ]
 
-    const { type } = await inquirer.prompt([
+    const { type } = await this.prompt<{ type: string }>([
       {
         type: 'list',
         name: 'type',
         message: 'Select branch type:',
         choices: typeChoices,
       },
-    ])
+    ], null)
 
     // Enter owner (defaults to GitHub username)
-    const { owner } = await inquirer.prompt([
+    const { owner } = await this.prompt<{ owner: string }>([
       {
         type: 'input',
         name: 'owner',
@@ -642,45 +642,46 @@ export default class BranchCreate extends PMOCommand {
           ? `Owner (default: ${defaultOwnerName}):`
           : 'Owner (optional):',
         default: defaultOwnerName,
-        validate: (input: string) => {
-          if (input && !isKebabCase(input)) {
+        validate: (input: unknown) => {
+          if ((input as string) && !isKebabCase(input as string)) {
             return 'Owner must be kebab-case (lowercase, hyphens only)'
           }
           return true
         },
       },
-    ])
+    ], null)
 
     // Enter description
-    const { description } = await inquirer.prompt([
+    const { description } = await this.prompt<{ description: string }>([
       {
         type: 'input',
         name: 'description',
         message: 'Description (kebab-case):',
-        validate: (input: string) => {
-          if (!input.trim()) {
+        validate: (input: unknown) => {
+          const val = input as string
+          if (!val.trim()) {
             return 'Description is required'
           }
           // Auto-convert to kebab case for validation preview
-          const kebab = toKebabCase(input)
-          if (kebab !== input && input.includes(' ')) {
+          const kebab = toKebabCase(val)
+          if (kebab !== val && val.includes(' ')) {
             return `Will be converted to: ${kebab}. Use that? (press enter) or type kebab-case directly`
           }
-          if (!isKebabCase(input)) {
+          if (!isKebabCase(val)) {
             return 'Description must be kebab-case (lowercase, hyphens only)'
           }
           return true
         },
-        filter: (input: string) => toKebabCase(input),
+        filter: (input: unknown) => toKebabCase(input as string),
       },
-    ])
+    ], null)
 
-    const branchName = buildBranchName(type, description, {
+    const branchName = buildBranchName(type as BranchType, description, {
       owner: owner || undefined,
     })
 
     // Ask where to branch from
-    const { branchFrom } = await inquirer.prompt([
+    const { branchFrom } = await this.prompt<{ branchFrom: string }>([
       {
         type: 'list',
         name: 'branchFrom',
@@ -692,7 +693,7 @@ export default class BranchCreate extends PMOCommand {
         ],
         default: 0,
       },
-    ])
+    ], null)
 
     const fromOrigin = branchFrom === 'origin-main'
     let customStartPoint: string | undefined
@@ -723,7 +724,7 @@ export default class BranchCreate extends PMOCommand {
       return undefined
     }
 
-    const { selectedBranch } = await inquirer.prompt([
+    const { selectedBranch } = await this.prompt<{ selectedBranch: string }>([
       {
         type: 'list',
         name: 'selectedBranch',
@@ -731,7 +732,7 @@ export default class BranchCreate extends PMOCommand {
         choices: branches,
         pageSize: 15,
       },
-    ])
+    ], null)
 
     return selectedBranch
   }

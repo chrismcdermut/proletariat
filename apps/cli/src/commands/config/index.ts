@@ -2,7 +2,7 @@ import { Flags } from '@oclif/core'
 import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
-import { Command } from '@oclif/core'
+import { PromptCommand } from '../../lib/prompt-command.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
@@ -15,17 +15,14 @@ import {
 import { TerminalApp, Shell } from '../../lib/execution/types.js'
 import {
   shouldOutputJson,
-  isAgentMode,
   isNonTTY,
-  outputPromptAsJson,
   outputSuccessAsJson,
   outputErrorAsJson,
   createMetadata,
-  normalizeChoices,
   type JsonFlags,
 } from '../../lib/prompt-json.js'
 
-export default class Config extends Command {
+export default class Config extends PromptCommand {
   static description = 'View and update workspace configuration'
 
   static examples = [
@@ -56,54 +53,6 @@ export default class Config extends Command {
     setting: Flags.string({
       description: 'Navigate to a specific setting prompt (for agent navigation)',
     }),
-  }
-
-  /**
-   * Prompt wrapper - drop-in replacement for inquirer.prompt
-   *
-   * Works in BOTH modes:
-   * - Interactive mode: calls inquirer.prompt normally (human sees menu)
-   * - JSON/Agent mode: outputs prompt as structured JSON and exits
-   */
-  private async promptUser<T extends Record<string, unknown>>(
-    questions: Array<{
-      type: string;
-      name: string;
-      message: string;
-      choices?: Array<
-        | string
-        | { name: string; value: unknown; disabled?: boolean | string; command?: string }
-        | unknown
-      >;
-      default?: unknown;
-    }>,
-    jsonModeConfig?: {
-      flags: JsonFlags & Record<string, unknown>;
-      commandName: string;
-    } | null
-  ): Promise<T> {
-    if (jsonModeConfig && isAgentMode(jsonModeConfig.flags)) {
-      const firstQuestion = questions[0];
-      if (firstQuestion) {
-        const choices = firstQuestion.choices
-          ? normalizeChoices(firstQuestion.choices)
-          : undefined;
-
-        outputPromptAsJson(
-          {
-            type: firstQuestion.type as 'list' | 'checkbox' | 'input' | 'confirm' | 'editor',
-            name: firstQuestion.name,
-            message: firstQuestion.message,
-            choices,
-            default: firstQuestion.default as string | boolean | string[] | undefined,
-          },
-          createMetadata(jsonModeConfig.commandName, jsonModeConfig.flags)
-        );
-      }
-      return {} as T;
-    }
-
-    return inquirer.prompt(questions as Parameters<typeof inquirer.prompt>[0]) as Promise<T>;
   }
 
   async run(): Promise<void> {
@@ -214,7 +163,7 @@ export default class Config extends Command {
         { name: `Tmux Control Mode (iTerm -CC): ${config.tmux.controlMode}`, value: 'tmux.controlMode', command: 'prlt config --setting tmux.controlMode --json' },
       ]
 
-      const { setting } = await this.promptUser<{ setting: string }>([
+      const { setting } = await this.prompt<{ setting: string }>([
         {
           type: 'list',
           name: 'setting',
@@ -268,7 +217,7 @@ export default class Config extends Command {
           { name: 'Warp', value: 'Warp', command: 'prlt config --set "terminal.app Warp" --json' },
           { name: 'tmux', value: 'tmux', command: 'prlt config --set "terminal.app tmux" --json' },
         ]
-        const { newApp } = await this.promptUser<{ newApp: string }>([
+        const { newApp } = await this.prompt<{ newApp: string }>([
           {
             type: 'list',
             name: 'newApp',
@@ -287,7 +236,7 @@ export default class Config extends Command {
           { name: 'Yes - Open tabs in background (don\'t steal focus)', value: 'true', command: 'prlt config --set "terminal.openInBackground true" --json' },
           { name: 'No - Bring terminal to foreground when opening tabs', value: 'false', command: 'prlt config --set "terminal.openInBackground false" --json' },
         ]
-        const { openInBg } = await this.promptUser<{ openInBg: string }>([
+        const { openInBg } = await this.prompt<{ openInBg: string }>([
           {
             type: 'list',
             name: 'openInBg',
@@ -307,7 +256,7 @@ export default class Config extends Command {
           { name: 'bash', value: 'bash', command: 'prlt config --set "shell bash" --json' },
           { name: 'fish', value: 'fish', command: 'prlt config --set "shell fish" --json' },
         ]
-        const { newShell } = await this.promptUser<{ newShell: string }>([
+        const { newShell } = await this.prompt<{ newShell: string }>([
           {
             type: 'list',
             name: 'newShell',
@@ -326,7 +275,7 @@ export default class Config extends Command {
           { name: 'Yes - Use tmux -CC for native iTerm integration', value: 'true', command: 'prlt config --set "tmux.controlMode true" --json' },
           { name: 'No - Standard tmux interface', value: 'false', command: 'prlt config --set "tmux.controlMode false" --json' },
         ]
-        const { controlMode } = await this.promptUser<{ controlMode: string }>([
+        const { controlMode } = await this.prompt<{ controlMode: string }>([
           {
             type: 'list',
             name: 'controlMode',
