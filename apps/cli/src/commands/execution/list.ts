@@ -7,6 +7,7 @@ import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { ExecutionStatus } from '../../lib/execution/types.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
+import { visualPadEnd } from '../../lib/string-utils.js'
 
 export default class ExecutionList extends PMOCommand {
   static description = 'List running and recent executions'
@@ -85,13 +86,13 @@ export default class ExecutionList extends PMOCommand {
       this.log('═'.repeat(100))
       this.log(
         styles.muted(
-          padEnd('ID', 14) +
-            padEnd('Ticket', 9) +
-            padEnd('Agent', 10) +
-            padEnd('Env', 13) +
-            padEnd('Display', 11) +
-            padEnd('Perms', 8) +
-            padEnd('Status', 10) +
+          visualPadEnd('ID', 14) +
+            visualPadEnd('Ticket', 9) +
+            visualPadEnd('Agent', 10) +
+            visualPadEnd('Env', 13) +
+            visualPadEnd('Display', 11) +
+            visualPadEnd('Perms', 8) +
+            visualPadEnd('Status', 10) +
             'Started'
         )
       )
@@ -107,13 +108,13 @@ export default class ExecutionList extends PMOCommand {
         const permsColor = exec.sandboxed ? styles.success : styles.warning
 
         this.log(
-          padEnd(exec.id, 14) +
-            padEnd(exec.ticketId, 9) +
-            padEnd(exec.agentName, 10) +
-            padEnd(envStr, 13) +
-            padEnd(exec.displayMode, 11) +
-            permsColor(padEnd(permsStr, 8)) +
-            statusColor(padEnd(exec.status, 10)) +
+          visualPadEnd(exec.id, 14) +
+            visualPadEnd(exec.ticketId, 9) +
+            visualPadEnd(exec.agentName, 10) +
+            visualPadEnd(envStr, 13) +
+            visualPadEnd(exec.displayMode, 11) +
+            permsColor(visualPadEnd(permsStr, 8)) +
+            statusColor(visualPadEnd(exec.status, 10)) +
             styles.muted(timeAgo)
         )
       }
@@ -149,10 +150,6 @@ export default class ExecutionList extends PMOCommand {
 // =============================================================================
 // Helper Functions
 // =============================================================================
-
-function padEnd(str: string, length: number): string {
-  return str.padEnd(length)
-}
 
 function getStatusColor(status: string): (s: string) => string {
   switch (status) {

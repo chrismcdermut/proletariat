@@ -8,6 +8,7 @@ import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
+import { visualPadEnd } from '../../lib/string-utils.js'
 
 interface ContainerInfo {
   id: string
@@ -103,10 +104,10 @@ export default class DockerList extends Command {
       if (activeExecutions.length > 0) {
         this.log(styles.subheader('\nActive Executions:'))
         this.log(styles.muted(
-          padEnd('ID', 15) +
-          padEnd('Agent', 15) +
-          padEnd('Ticket', 12) +
-          padEnd('Status', 12) +
+          visualPadEnd('ID', 15) +
+          visualPadEnd('Agent', 15) +
+          visualPadEnd('Ticket', 12) +
+          visualPadEnd('Status', 12) +
           'Container'
         ))
         this.log('-'.repeat(80))
@@ -123,10 +124,10 @@ export default class DockerList extends Command {
           }
 
           this.log(
-            padEnd(exec.id, 15) +
-            padEnd(exec.agentName, 15) +
-            padEnd(exec.ticketId, 12) +
-            statusColor(padEnd(exec.status, 12)) +
+            visualPadEnd(exec.id, 15) +
+            visualPadEnd(exec.agentName, 15) +
+            visualPadEnd(exec.ticketId, 12) +
+            statusColor(visualPadEnd(exec.status, 12)) +
             containerId + containerStatus
           )
         }
@@ -140,9 +141,9 @@ export default class DockerList extends Command {
       if (filteredContainers.length > 0) {
         this.log(styles.subheader('\nDocker Containers' + (flags.all ? ' (all)' : ' (devcontainers)') + ':'))
         this.log(styles.muted(
-          padEnd('Container ID', 15) +
-          padEnd('Agent', 15) +
-          padEnd('Status', 15) +
+          visualPadEnd('Container ID', 15) +
+          visualPadEnd('Agent', 15) +
+          visualPadEnd('Status', 15) +
           'Uptime'
         ))
         this.log('-'.repeat(70))
@@ -155,9 +156,9 @@ export default class DockerList extends Command {
           const agentName = dbContainer?.agentName || this.extractAgentFromImage(container.image) || container.name
 
           this.log(
-            padEnd(container.id, 15) +
-            padEnd(agentName, 15) +
-            statusColor(padEnd(container.status, 15)) +
+            visualPadEnd(container.id, 15) +
+            visualPadEnd(agentName, 15) +
+            statusColor(visualPadEnd(container.status, 15)) +
             styles.muted(container.uptime)
           )
         }
@@ -235,10 +236,6 @@ export default class DockerList extends Command {
     const match = image.match(/^vsc-([^-]+)-/)
     return match ? match[1] : null
   }
-}
-
-function padEnd(str: string, length: number): string {
-  return str.padEnd(length)
 }
 
 function getStatusColor(status: string): (s: string) => string {

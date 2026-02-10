@@ -3,7 +3,16 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { exec } from './test-helpers.js';
+import {
+  exec,
+  createTestEnvironment,
+  cleanupTestEnvironment,
+  setupProductionSchema,
+  createTestProject,
+  createHQConfig,
+  createPMODirectories,
+  type TestEnvironment,
+} from './test-helpers.js';
 
 /**
  * End-to-end tests for PMO Ticket Commands
@@ -541,6 +550,52 @@ describe('PMO Ticket Commands E2E Tests', () => {
       const lowTickets = db.prepare('SELECT * FROM pmo_tickets WHERE priority = ?').all('LOW');
       expect(lowTickets).to.have.lengthOf(2);
     });
+  });
+});
+
+/**
+ * Tests for --label alias (TKT-937)
+ * Uses production schema to avoid schema drift issues.
+ */
+describe('ticket create --label alias', () => {
+  let env: TestEnvironment;
+  let db: Database.Database;
+
+  beforeEach(() => {
+    env = createTestEnvironment('ticket-label-alias-');
+    db = setupProductionSchema(env.dbPath, env.pmoPath);
+    createTestProject(db, { id: 'test-project', name: 'Test Project' });
+    createHQConfig(env.proletariatDir);
+    createPMODirectories(env.pmoPath, 'test-project');
+
+    // Close DB before CLI commands to avoid locking
+    db.close();
+  });
+
+  afterEach(() => {
+    cleanupTestEnvironment(env);
+  });
+
+  it('should accept --label as alias for --labels', () => {
+    const output = exec(
+      'ticket create --title "Label alias test" --column Backlog --label "bug,ui"'
+    );
+
+    expect(output).to.not.contain('Nonexistent flag');
+    expect(output).to.contain('Created ticket');
+    expect(output).to.contain('Label alias test');
+    expect(output).to.contain('bug, ui');
+  });
+
+  it('should accept --labels (plural) as before', () => {
+    const output = exec(
+      'ticket create --title "Labels plural test" --column Backlog --labels "feature,backend"'
+    );
+
+    expect(output).to.not.contain('Nonexistent flag');
+    expect(output).to.contain('Created ticket');
+    expect(output).to.contain('Labels plural test');
+    expect(output).to.contain('feature, backend');
   });
 });
 

@@ -7,6 +7,7 @@ import {
   isGitRepo,
 } from '../../lib/branch/index.js'
 import { isNonTTY } from '../../lib/prompt-json.js'
+import { visualPadEnd } from '../../lib/string-utils.js'
 
 export default class BranchList extends PMOCommand {
   static description = 'List branches with conventional naming information'
@@ -97,10 +98,10 @@ export default class BranchList extends PMOCommand {
     // Header
     this.log(
       styles.muted(
-        padEnd('Name', 35) +
-          padEnd('Type', 8) +
-          padEnd('Owner', 12) +
-          padEnd('Description', 25) +
+        visualPadEnd('Name', 35) +
+          visualPadEnd('Type', 8) +
+          visualPadEnd('Owner', 12) +
+          visualPadEnd('Description', 25) +
           'Status'
       )
     )
@@ -124,10 +125,10 @@ export default class BranchList extends PMOCommand {
 
       this.log(
         marker +
-          nameStyle(padEnd(branch.name.substring(0, 33), 33)) +
-          padEnd(typeDisplay, 8) +
-          padEnd(ownerDisplay.substring(0, 10), 12) +
-          padEnd(descDisplay.substring(0, 23), 25) +
+          nameStyle(visualPadEnd(branch.name.substring(0, 33), 33)) +
+          visualPadEnd(typeDisplay, 8) +
+          visualPadEnd(ownerDisplay.substring(0, 10), 12) +
+          visualPadEnd(descDisplay.substring(0, 23), 25) +
           styles.muted(status)
       )
     }
@@ -151,8 +152,4 @@ export default class BranchList extends PMOCommand {
 
     this.log('')
   }
-}
-
-function padEnd(str: string, length: number): string {
-  return str.padEnd(length)
 }

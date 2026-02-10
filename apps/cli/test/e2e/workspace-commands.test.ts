@@ -323,14 +323,14 @@ describe('Workspace Commands E2E Tests', () => {
       expect(output).to.include('[DRY RUN]');
     });
 
-    it('should remove stale entries when not using --dry-run', () => {
+    it('should remove stale entries with --force flag', () => {
       execWorkspace(`workspace add ${testWorkspace1}`);
       execWorkspace(`workspace add ${testWorkspace2}`);
 
       // Delete workspace2 from disk
       fs.rmSync(testWorkspace2, { recursive: true, force: true });
 
-      const output = execWorkspace('workspace prune');
+      const output = execWorkspace('workspace prune --force');
 
       expect(output).to.include('Pruned');
       expect(output).to.include('1 workspace registration(s)');
@@ -343,7 +343,28 @@ describe('Workspace Commands E2E Tests', () => {
       expect(hqs[0].name).to.equal('workspace-one');
     });
 
-    it('should support --json flag', () => {
+    it('should default to dry-run in non-TTY mode', () => {
+      execWorkspace(`workspace add ${testWorkspace1}`);
+      execWorkspace(`workspace add ${testWorkspace2}`);
+
+      // Delete workspace2 from disk
+      fs.rmSync(testWorkspace2, { recursive: true, force: true });
+
+      // Running without --dry-run or --force in non-TTY (execSync) should default to dry-run
+      const output = execWorkspace('workspace prune');
+
+      expect(output).to.include('[DRY RUN]');
+      expect(output).to.include('Non-TTY environment detected');
+      expect(output).to.include('--force');
+
+      // Verify workspace2 is still in registry (not deleted)
+      const configPath = path.join(testDir, '.proletariat', 'config.json');
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      const hqs = (config.headquarters || config.workspaces) as Array<{ name: string; path: string }>;
+      expect(hqs).to.have.length(2);
+    });
+
+    it('should support --json flag with --dry-run', () => {
       execWorkspace(`workspace add ${testWorkspace1}`);
       execWorkspace(`workspace add ${testWorkspace2}`);
 
@@ -361,19 +382,53 @@ describe('Workspace Commands E2E Tests', () => {
       expect(json.totalRemoved).to.equal(0);
     });
 
-    it('should report totalRemoved when actually pruning', () => {
+    it('should default to dry-run in JSON mode without --force (non-TTY)', () => {
       execWorkspace(`workspace add ${testWorkspace1}`);
       execWorkspace(`workspace add ${testWorkspace2}`);
 
       // Delete workspace2 from disk
       fs.rmSync(testWorkspace2, { recursive: true, force: true });
 
+      // In non-TTY (execSync), --json without --force defaults to dry-run
       const output = execWorkspace('workspace prune --json');
+      const json = JSON.parse(output);
+
+      expect(json.dryRun).to.be.true;
+      expect(json.totalFound).to.equal(1);
+      expect(json.totalRemoved).to.equal(0);
+    });
+
+    it('should report totalRemoved when pruning with --force --json', () => {
+      execWorkspace(`workspace add ${testWorkspace1}`);
+      execWorkspace(`workspace add ${testWorkspace2}`);
+
+      // Delete workspace2 from disk
+      fs.rmSync(testWorkspace2, { recursive: true, force: true });
+
+      const output = execWorkspace('workspace prune --force --json');
       const json = JSON.parse(output);
 
       expect(json.dryRun).to.be.false;
       expect(json.totalFound).to.equal(1);
       expect(json.totalRemoved).to.equal(1);
+    });
+
+    it('should not delete anything with --dry-run even when --force is set', () => {
+      execWorkspace(`workspace add ${testWorkspace1}`);
+      execWorkspace(`workspace add ${testWorkspace2}`);
+
+      // Delete workspace2 from disk
+      fs.rmSync(testWorkspace2, { recursive: true, force: true });
+
+      const output = execWorkspace('workspace prune --dry-run --force');
+
+      expect(output).to.include('[DRY RUN]');
+
+      // Verify workspace2 is still in registry
+      const configPath = path.join(testDir, '.proletariat', 'config.json');
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      const hqs = (config.headquarters || config.workspaces) as Array<{ name: string; path: string }>;
+      expect(hqs).to.have.length(2);
     });
   });
 });

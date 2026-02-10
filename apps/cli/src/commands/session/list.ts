@@ -13,6 +13,7 @@ import {
 } from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
+import { visualPadEnd } from '../../lib/string-utils.js'
 
 interface VerifiedSession {
   sessionId: string
@@ -200,10 +201,10 @@ export default class SessionList extends PMOCommand {
         this.log(
           styles.muted(
             '  ' +
-            'Session'.padEnd(34) +
-            'Ticket'.padEnd(12) +
-            'Agent'.padEnd(18) +
-            'Type'.padEnd(15) +
+            visualPadEnd('Session', 34) +
+            visualPadEnd('Ticket', 12) +
+            visualPadEnd('Agent', 18) +
+            visualPadEnd('Type', 15) +
             'Status'
           )
         )
@@ -226,10 +227,10 @@ export default class SessionList extends PMOCommand {
 
           this.log(
             '  ' +
-            displaySession.padEnd(34) +
-            session.ticketId.padEnd(12) +
-            session.agentName.padEnd(18) +
-            typeIcon.padEnd(15) +
+            visualPadEnd(displaySession, 34) +
+            visualPadEnd(session.ticketId, 12) +
+            visualPadEnd(session.agentName, 18) +
+            visualPadEnd(typeIcon, 15) +
             statusColor(statusText)
           )
         }

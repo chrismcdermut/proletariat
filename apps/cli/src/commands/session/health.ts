@@ -13,6 +13,7 @@ import {
   findSessionForExecution,
 } from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { visualPadEnd } from '../../lib/string-utils.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -430,11 +431,11 @@ export default class SessionHealth extends PMOCommand {
     this.log(
       styles.muted(
         '  ' +
-        'Ticket'.padEnd(12) +
-        'Agent'.padEnd(20) +
-        'State'.padEnd(12) +
-        'Type'.padEnd(15) +
-        'Elapsed'.padEnd(10) +
+        visualPadEnd('Ticket', 12) +
+        visualPadEnd('Agent', 20) +
+        visualPadEnd('State', 12) +
+        visualPadEnd('Type', 15) +
+        visualPadEnd('Elapsed', 10) +
         'Session'
       )
     )
@@ -460,11 +461,11 @@ export default class SessionHealth extends PMOCommand {
 
       this.log(
         '  ' +
-        agent.ticketId.padEnd(12) +
-        agent.agentName.padEnd(20) +
-        stateColor(`${stateIcon} ${agent.state}`).padEnd(22) +
-        typeIcon.padEnd(15) +
-        agent.elapsed.padEnd(10) +
+        visualPadEnd(agent.ticketId, 12) +
+        visualPadEnd(agent.agentName, 20) +
+        stateColor(visualPadEnd(`${stateIcon} ${agent.state}`, 12)) +
+        visualPadEnd(typeIcon, 15) +
+        visualPadEnd(agent.elapsed, 10) +
         styles.muted(displaySession)
       )
     }

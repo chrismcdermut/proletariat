@@ -1,6 +1,7 @@
-import { Command, Flags } from '@oclif/core';
+import { Flags } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { PromptCommand } from '../../lib/prompt-command.js';
 import { styles } from '../../lib/styles.js';
 import {
   getRegisteredHeadquarters,
@@ -11,6 +12,10 @@ import {
   removeAgentsFromDatabase,
   getDatabasePath,
 } from '../../lib/database/index.js';
+import {
+  outputConfirmationNeededAsJson,
+  createMetadata,
+} from '../../lib/prompt-json.js';
 
 interface StaleWorkspace {
   name: string;
@@ -24,18 +29,24 @@ interface StaleAgent {
   expectedPath: string;
 }
 
-export default class WorkspacePrune extends Command {
+export default class WorkspacePrune extends PromptCommand {
   static description = 'Remove stale workspace entries and agents with deleted worktrees';
 
   static examples = [
     '<%= config.bin %> <%= command.id %> --dry-run',
     '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> --force',
   ];
 
   static flags = {
     'dry-run': Flags.boolean({
       char: 'd',
       description: 'Show what would be removed without removing',
+      default: false,
+    }),
+    force: Flags.boolean({
+      char: 'f',
+      description: 'Skip confirmation prompt and prune immediately',
       default: false,
     }),
     json: Flags.boolean({
@@ -47,6 +58,11 @@ export default class WorkspacePrune extends Command {
   async run(): Promise<void> {
     const { flags } = await this.parse(WorkspacePrune);
 
+    // In non-TTY mode without --json (CI, scripts, piped), default to dry-run unless --force is set.
+    // In --json mode, we use confirmation_needed output instead of auto-dry-run so agents can review and confirm.
+    const isNonTTY = !process.stdout.isTTY;
+    const effectiveDryRun = flags['dry-run'] || (!flags.json && isNonTTY && !flags.force);
+
     // Find stale entries
     const staleWorkspaces = this.findStaleWorkspaces();
     const staleAgents = this.findStaleAgents();
@@ -56,7 +72,7 @@ export default class WorkspacePrune extends Command {
     // JSON output
     if (flags.json) {
       const output = {
-        dryRun: flags['dry-run'],
+        dryRun: effectiveDryRun,
         staleWorkspaces: staleWorkspaces.map(w => ({
           name: w.name,
           path: w.path,
@@ -66,14 +82,30 @@ export default class WorkspacePrune extends Command {
           agentName: a.agentName,
           expectedPath: a.expectedPath,
         })),
-        totalRemoved: flags['dry-run'] ? 0 : totalStale,
+        totalRemoved: effectiveDryRun ? 0 : totalStale,
         totalFound: totalStale,
       };
-      this.log(JSON.stringify(output, null, 2));
 
-      if (!flags['dry-run'] && totalStale > 0) {
+      if (!effectiveDryRun && totalStale > 0 && !flags.force) {
+        // In JSON mode without --force, output confirmation needed
+        outputConfirmationNeededAsJson(
+          {
+            staleWorkspaces: staleWorkspaces.map(w => ({ name: w.name, path: w.path })),
+            staleAgents: staleAgents.map(a => ({ workspaceName: a.workspaceName, agentName: a.agentName })),
+            totalFound: totalStale,
+          },
+          'prlt workspace prune --force --json',
+          `Found ${totalStale} stale entries. Run with --force to remove them.`,
+          createMetadata('workspace prune', flags),
+        );
+        return;
+      }
+
+      if (!effectiveDryRun && totalStale > 0) {
         this.performPrune(staleWorkspaces, staleAgents);
       }
+
+      this.log(JSON.stringify(output, null, 2));
       return;
     }
 
@@ -118,7 +150,7 @@ export default class WorkspacePrune extends Command {
 
     // Summary
     this.log('');
-    if (flags['dry-run']) {
+    if (effectiveDryRun) {
       this.log(styles.warning(`[DRY RUN] Would remove:`));
       if (staleWorkspaces.length > 0) {
         this.log(styles.muted(`  • ${staleWorkspaces.length} workspace registration(s)`));
@@ -127,9 +159,13 @@ export default class WorkspacePrune extends Command {
         this.log(styles.muted(`  • ${staleAgents.length} agent record(s)`));
       }
       this.log('');
-      this.log(styles.muted('Run without --dry-run to remove these entries.'));
-    } else {
-      // Perform the actual prune
+      if (isNonTTY) {
+        this.log(styles.muted('Non-TTY environment detected. Run with --force to remove these entries.'));
+      } else {
+        this.log(styles.muted('Run without --dry-run to remove these entries.'));
+      }
+    } else if (flags.force) {
+      // --force: skip confirmation
       this.performPrune(staleWorkspaces, staleAgents);
 
       this.log(styles.success('Pruned:'));
@@ -138,6 +174,42 @@ export default class WorkspacePrune extends Command {
       }
       if (staleAgents.length > 0) {
         this.log(styles.muted(`  • ${staleAgents.length} agent record(s)`));
+      }
+    } else {
+      // Interactive confirmation
+      const summary = [];
+      if (staleWorkspaces.length > 0) {
+        summary.push(`${staleWorkspaces.length} workspace registration(s)`);
+      }
+      if (staleAgents.length > 0) {
+        summary.push(`${staleAgents.length} agent record(s)`);
+      }
+
+      const choices = [
+        { name: 'Yes', value: true },
+        { name: 'No', value: false },
+      ];
+      const message = `Remove ${summary.join(' and ')}?`;
+
+      const { confirmed } = await this.prompt<{ confirmed: boolean }>([{
+        type: 'list',
+        name: 'confirmed',
+        message,
+        choices,
+      }], { flags: flags as Record<string, unknown> & { json?: boolean }, commandName: 'workspace prune' });
+
+      if (confirmed) {
+        this.performPrune(staleWorkspaces, staleAgents);
+
+        this.log(styles.success('\nPruned:'));
+        if (staleWorkspaces.length > 0) {
+          this.log(styles.muted(`  • ${staleWorkspaces.length} workspace registration(s)`));
+        }
+        if (staleAgents.length > 0) {
+          this.log(styles.muted(`  • ${staleAgents.length} agent record(s)`));
+        }
+      } else {
+        this.log(styles.muted('\nPrune cancelled.'));
       }
     }
     this.log('');

@@ -11,6 +11,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { visualPadEnd } from '../../lib/string-utils.js';
 
 export default class View extends PMOCommand {
   static description = 'View detailed information about a repository';
@@ -140,7 +141,7 @@ export default class View extends PMOCommand {
       for (const wt of worktrees) {
         const wtStatus = wt.is_clean ? 'clean' : 'dirty';
         const wtColor = wt.is_clean ? colors.repoClean : colors.repoDirty;
-        let line = `  • ${colors.agentName(wt.agent_name.padEnd(10))} - ${wtColor(wtStatus)}`;
+        let line = `  • ${colors.agentName(visualPadEnd(wt.agent_name, 10))} - ${wtColor(wtStatus)}`;
         if (wt.commits_ahead > 0) {
           line += colors.commitsAhead(` (${wt.commits_ahead} ahead)`);
         }
