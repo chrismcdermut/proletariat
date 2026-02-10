@@ -6,10 +6,10 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Ticket } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
-import { formatTicket, errorResponse } from '../helpers.js'
+import { formatTicket, errorResponse, strictTool } from '../helpers.js'
 
 export function registerWorkTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'work_status',
     'Get current work status (in-progress tickets)',
     {},
@@ -41,7 +41,7 @@ export function registerWorkTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'work_start',
     'Start working on a ticket (moves to In Progress)',
     {
@@ -76,7 +76,7 @@ export function registerWorkTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'work_complete',
     'Mark ticket complete (moves to Done)',
     { ticket_id: z.string().describe('Ticket ID') },
@@ -105,7 +105,7 @@ export function registerWorkTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'work_ready',
     'Mark ticket ready for review',
     { ticket_id: z.string().describe('Ticket ID') },
@@ -136,7 +136,7 @@ export function registerWorkTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'work_revise',
     'Send ticket back for revision',
     { ticket_id: z.string().describe('Ticket ID') },

@@ -6,10 +6,10 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Epic, Ticket } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
-import { errorResponse } from '../helpers.js'
+import { errorResponse, strictTool } from '../helpers.js'
 
 export function registerEpicTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'epic_list',
     'List epics',
     {
@@ -48,7 +48,7 @@ export function registerEpicTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'epic_create',
     'Create an epic',
     {
@@ -84,7 +84,7 @@ export function registerEpicTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'epic_show',
     'Get epic details with tickets',
     { id: z.string().describe('Epic ID') },
@@ -114,7 +114,7 @@ export function registerEpicTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'epic_update',
     'Update an epic',
     {
@@ -142,7 +142,7 @@ export function registerEpicTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'epic_delete',
     'Delete an epic',
     { id: z.string().describe('Epic ID') },
@@ -161,7 +161,7 @@ export function registerEpicTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'epic_reorder',
     'Reorder an epic',
     {
@@ -186,7 +186,7 @@ export function registerEpicTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'epic_add_blocker',
     'Add epic dependency',
     {

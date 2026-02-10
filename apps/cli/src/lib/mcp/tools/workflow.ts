@@ -6,10 +6,10 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Workflow, WorkflowStatus } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
-import { errorResponse } from '../helpers.js'
+import { errorResponse, strictTool } from '../helpers.js'
 
 export function registerWorkflowTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'workflow_list',
     'List all workflows',
     { include_builtin: z.boolean().optional() },
@@ -38,7 +38,7 @@ export function registerWorkflowTools(server: McpServer, ctx: McpToolContext): v
     }
   )
 
-  server.tool(
+  strictTool(server,
     'workflow_show',
     'Get workflow details with statuses',
     { id: z.string().describe('Workflow ID') },
@@ -71,7 +71,7 @@ export function registerWorkflowTools(server: McpServer, ctx: McpToolContext): v
     }
   )
 
-  server.tool(
+  strictTool(server,
     'workflow_create',
     'Create a new workflow',
     {
@@ -97,7 +97,7 @@ export function registerWorkflowTools(server: McpServer, ctx: McpToolContext): v
     }
   )
 
-  server.tool(
+  strictTool(server,
     'workflow_delete',
     'Delete a workflow',
     { id: z.string().describe('Workflow ID') },

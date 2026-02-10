@@ -8,10 +8,10 @@
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { McpToolContext } from '../types.js'
-import { errorResponse, textResponse } from '../helpers.js'
+import { errorResponse, textResponse, strictTool } from '../helpers.js'
 
 export function registerAgentTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'agent_list',
     'List all agents',
     { type: z.enum(['staff', 'temp', 'all']).optional() },
@@ -26,7 +26,7 @@ export function registerAgentTools(server: McpServer, ctx: McpToolContext): void
     }
   )
 
-  server.tool(
+  strictTool(server,
     'agent_status',
     'Check agent status',
     {},
@@ -40,7 +40,7 @@ export function registerAgentTools(server: McpServer, ctx: McpToolContext): void
     }
   )
 
-  server.tool(
+  strictTool(server,
     'agent_add',
     'Add new agents',
     {
@@ -61,7 +61,7 @@ export function registerAgentTools(server: McpServer, ctx: McpToolContext): void
     }
   )
 
-  server.tool(
+  strictTool(server,
     'agent_remove',
     'Remove an agent',
     { name: z.string().describe('Agent name') },
@@ -77,7 +77,7 @@ export function registerAgentTools(server: McpServer, ctx: McpToolContext): void
 }
 
 export function registerDockerTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'docker_status',
     'Check Docker daemon status',
     {},
@@ -91,7 +91,7 @@ export function registerDockerTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'docker_list',
     'List Docker containers',
     {},
@@ -105,7 +105,7 @@ export function registerDockerTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'docker_start',
     'Start Docker containers',
     { agent: z.string().optional().describe('Agent name') },
@@ -120,7 +120,7 @@ export function registerDockerTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'docker_stop',
     'Stop Docker containers',
     { agent: z.string().optional().describe('Agent name') },
@@ -135,7 +135,7 @@ export function registerDockerTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'docker_logs',
     'Get container logs',
     {
@@ -155,7 +155,7 @@ export function registerDockerTools(server: McpServer, ctx: McpToolContext): voi
 }
 
 export function registerRepoTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'repo_list',
     'List repositories in workspace',
     {},
@@ -169,7 +169,7 @@ export function registerRepoTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'repo_add',
     'Add a repository',
     {
@@ -187,7 +187,7 @@ export function registerRepoTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'repo_remove',
     'Remove a repository',
     { name: z.string().describe('Repository name') },
@@ -203,7 +203,7 @@ export function registerRepoTools(server: McpServer, ctx: McpToolContext): void 
 }
 
 export function registerBranchTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'branch_list',
     'List branches',
     {},
@@ -217,7 +217,7 @@ export function registerBranchTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'branch_create',
     'Create a branch for a ticket',
     {
@@ -235,7 +235,7 @@ export function registerBranchTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'branch_where',
     'Show which ticket/branch you are on',
     {},
@@ -251,7 +251,7 @@ export function registerBranchTools(server: McpServer, ctx: McpToolContext): voi
 }
 
 export function registerGitHubTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'gh_status',
     'Check GitHub CLI status',
     {},
@@ -265,7 +265,7 @@ export function registerGitHubTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'gh_login',
     'Login to GitHub',
     {},
@@ -279,7 +279,7 @@ export function registerGitHubTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'pr_create',
     'Create a pull request',
     {
@@ -302,7 +302,7 @@ export function registerGitHubTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'pr_list',
     'List pull requests',
     {},
@@ -316,7 +316,7 @@ export function registerGitHubTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'pr_status',
     'Check PR status',
     {},
@@ -332,7 +332,7 @@ export function registerGitHubTools(server: McpServer, ctx: McpToolContext): voi
 }
 
 export function registerInitTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'init',
     'Initialize an HQ workspace',
     {
@@ -356,7 +356,7 @@ export function registerInitTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'pmo_init',
     'Initialize PMO in existing workspace',
     {
@@ -377,7 +377,7 @@ export function registerInitTools(server: McpServer, ctx: McpToolContext): void 
 }
 
 export function registerUtilityTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'whoami',
     'Show current context (agent, workspace)',
     {},
@@ -391,7 +391,7 @@ export function registerUtilityTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'commit',
     'Create a commit with ticket reference',
     {
@@ -409,7 +409,7 @@ export function registerUtilityTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'execution_list',
     'List work executions',
     {},
@@ -423,7 +423,7 @@ export function registerUtilityTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'execution_view',
     'View execution details',
     { id: z.string().describe('Execution ID') },
@@ -437,7 +437,7 @@ export function registerUtilityTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'execution_logs',
     'Get execution logs',
     { id: z.string().describe('Execution ID') },
@@ -451,7 +451,7 @@ export function registerUtilityTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'session_list',
     'List tmux sessions',
     {},
@@ -465,7 +465,7 @@ export function registerUtilityTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'config_show',
     'Show configuration',
     {},

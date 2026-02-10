@@ -6,10 +6,10 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Column, Ticket } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
-import { errorResponse } from '../helpers.js'
+import { errorResponse, strictTool } from '../helpers.js'
 
 export function registerBoardTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'board_show',
     'Show the kanban board',
     { project: z.string().optional().describe('Project ID') },
@@ -52,7 +52,7 @@ export function registerBoardTools(server: McpServer, ctx: McpToolContext): void
     }
   )
 
-  server.tool(
+  strictTool(server,
     'board_columns',
     'Get column names for a project',
     { project: z.string().optional().describe('Project ID') },
@@ -77,7 +77,7 @@ export function registerBoardTools(server: McpServer, ctx: McpToolContext): void
     }
   )
 
-  server.tool(
+  strictTool(server,
     'board_create_column',
     'Add a new column to the board',
     {
@@ -100,7 +100,7 @@ export function registerBoardTools(server: McpServer, ctx: McpToolContext): void
     }
   )
 
-  server.tool(
+  strictTool(server,
     'board_rename_column',
     'Rename a column',
     {
@@ -123,7 +123,7 @@ export function registerBoardTools(server: McpServer, ctx: McpToolContext): void
     }
   )
 
-  server.tool(
+  strictTool(server,
     'board_move_column',
     'Reorder a column',
     {
@@ -146,7 +146,7 @@ export function registerBoardTools(server: McpServer, ctx: McpToolContext): void
     }
   )
 
-  server.tool(
+  strictTool(server,
     'board_delete_column',
     'Delete a column',
     {

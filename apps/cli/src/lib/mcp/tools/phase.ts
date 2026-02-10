@@ -6,10 +6,10 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { ProjectPhase, PhaseTemplate } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
-import { errorResponse } from '../helpers.js'
+import { errorResponse, strictTool } from '../helpers.js'
 
 export function registerPhaseTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'phase_list',
     'List project phases',
     { category: z.enum(['triage', 'backlog', 'unstarted', 'started', 'completed', 'canceled']).optional() },
@@ -37,7 +37,7 @@ export function registerPhaseTools(server: McpServer, ctx: McpToolContext): void
     }
   )
 
-  server.tool(
+  strictTool(server,
     'phase_create',
     'Create a project phase',
     {
@@ -66,7 +66,7 @@ export function registerPhaseTools(server: McpServer, ctx: McpToolContext): void
     }
   )
 
-  server.tool(
+  strictTool(server,
     'phase_update',
     'Update a phase',
     {
@@ -92,7 +92,7 @@ export function registerPhaseTools(server: McpServer, ctx: McpToolContext): void
     }
   )
 
-  server.tool(
+  strictTool(server,
     'phase_delete',
     'Delete a phase',
     { id: z.string().describe('Phase ID') },
@@ -111,7 +111,7 @@ export function registerPhaseTools(server: McpServer, ctx: McpToolContext): void
     }
   )
 
-  server.tool(
+  strictTool(server,
     'phase_template_list',
     'List phase templates',
     {},
@@ -138,7 +138,7 @@ export function registerPhaseTools(server: McpServer, ctx: McpToolContext): void
     }
   )
 
-  server.tool(
+  strictTool(server,
     'phase_template_apply',
     'Apply a phase template',
     { template_id: z.string().describe('Template ID') },

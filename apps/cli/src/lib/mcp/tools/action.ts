@@ -6,10 +6,10 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { WorkAction } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
-import { errorResponse } from '../helpers.js'
+import { errorResponse, strictTool } from '../helpers.js'
 
 export function registerActionTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'action_list',
     'List work actions',
     { include_builtin: z.boolean().optional() },
@@ -39,7 +39,7 @@ export function registerActionTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'action_show',
     'Get action details',
     { id: z.string().describe('Action ID') },
@@ -59,7 +59,7 @@ export function registerActionTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'action_create',
     'Create a work action',
     {
@@ -90,7 +90,7 @@ export function registerActionTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'action_delete',
     'Delete an action',
     { id: z.string().describe('Action ID') },

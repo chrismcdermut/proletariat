@@ -6,10 +6,10 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Project, Column, Spec } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
-import { errorResponse } from '../helpers.js'
+import { errorResponse, strictTool } from '../helpers.js'
 
 export function registerProjectTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'project_list',
     'List all projects',
     {
@@ -48,7 +48,7 @@ export function registerProjectTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'project_create',
     'Create a new project',
     {
@@ -78,7 +78,7 @@ export function registerProjectTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'project_show',
     'Get project details',
     { id: z.string().describe('Project ID') },
@@ -113,7 +113,7 @@ export function registerProjectTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'project_update',
     'Update a project',
     {
@@ -139,7 +139,7 @@ export function registerProjectTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'project_archive',
     'Archive a project',
     { id: z.string().describe('Project ID') },
@@ -158,7 +158,7 @@ export function registerProjectTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'project_unarchive',
     'Unarchive a project',
     { id: z.string().describe('Project ID') },
@@ -177,7 +177,7 @@ export function registerProjectTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'project_delete',
     'Delete a project',
     { id: z.string().describe('Project ID') },
@@ -196,7 +196,7 @@ export function registerProjectTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'project_link_to_spec',
     'Link project to a spec',
     {
@@ -218,7 +218,7 @@ export function registerProjectTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'project_get_specs',
     'Get specs linked to a project',
     { project_id: z.string().describe('Project ID') },

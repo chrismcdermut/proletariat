@@ -6,10 +6,10 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Ticket } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
-import { formatTicket, formatTicketFull, errorResponse } from '../helpers.js'
+import { formatTicket, formatTicketFull, errorResponse, strictTool } from '../helpers.js'
 
 export function registerTicketTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'ticket_list',
     'List tickets with optional filters',
     {
@@ -69,7 +69,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_create',
     'Create a new ticket',
     {
@@ -117,7 +117,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_show',
     'Get detailed ticket information',
     { id: z.string().describe('Ticket ID') },
@@ -137,7 +137,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_update',
     'Update a ticket',
     {
@@ -173,7 +173,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_move',
     'Move ticket to a different column/status',
     {
@@ -198,7 +198,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_delete',
     'Delete a ticket',
     { id: z.string().describe('Ticket ID') },
@@ -217,7 +217,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_move_to_project',
     'Move ticket to a different project',
     {
@@ -239,7 +239,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_add_subtask',
     'Add a subtask to a ticket',
     {
@@ -261,7 +261,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_toggle_subtask',
     'Toggle subtask completion',
     {
@@ -283,7 +283,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_remove_subtask',
     'Remove a subtask',
     {
@@ -305,7 +305,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_add_acceptance_criterion',
     'Add acceptance criterion to a ticket',
     {
@@ -327,7 +327,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_remove_acceptance_criterion',
     'Remove acceptance criterion',
     {
@@ -349,7 +349,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_link_to_epic',
     'Link ticket to an epic',
     {
@@ -371,7 +371,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_unlink_from_epic',
     'Unlink ticket from its epic',
     { ticket_id: z.string().describe('Ticket ID') },
@@ -390,7 +390,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_link_to_spec',
     'Link ticket to a spec',
     {
@@ -412,7 +412,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_add_blocker',
     'Add a blocking dependency',
     {
@@ -434,7 +434,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_remove_blocker',
     'Remove a blocking dependency',
     {
@@ -456,7 +456,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_get_blockers',
     'Get tickets blocking this ticket',
     { ticket_id: z.string().describe('Ticket ID') },

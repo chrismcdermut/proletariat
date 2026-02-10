@@ -6,10 +6,10 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Category } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
-import { errorResponse } from '../helpers.js'
+import { errorResponse, strictTool } from '../helpers.js'
 
 export function registerCategoryTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'category_list',
     'List categories',
     { type: z.enum(['ticket', 'status']).optional() },
@@ -36,7 +36,7 @@ export function registerCategoryTools(server: McpServer, ctx: McpToolContext): v
     }
   )
 
-  server.tool(
+  strictTool(server,
     'category_create',
     'Create a category',
     {
@@ -65,7 +65,7 @@ export function registerCategoryTools(server: McpServer, ctx: McpToolContext): v
     }
   )
 
-  server.tool(
+  strictTool(server,
     'category_rename',
     'Rename a category',
     {
@@ -87,7 +87,7 @@ export function registerCategoryTools(server: McpServer, ctx: McpToolContext): v
     }
   )
 
-  server.tool(
+  strictTool(server,
     'category_delete',
     'Delete a category',
     { id: z.string().describe('Category ID') },

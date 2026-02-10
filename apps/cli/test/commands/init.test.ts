@@ -185,6 +185,39 @@ describe('prlt init', () => {
     });
   });
 
+  describe('unknown flag rejection (TKT-936)', () => {
+    it('should reject unknown flags', () => {
+      const binPath = path.resolve(root, 'bin', 'run.js');
+      try {
+        execSync(`node ${binPath} init --json --name test --unknown-flag value 2>&1`, {
+          cwd: testDir,
+          timeout: 10000,
+        });
+        // Should not reach here
+        expect.fail('Expected command to fail with unknown flag');
+      } catch (error: unknown) {
+        const e = error as { stderr?: Buffer; stdout?: Buffer; status?: number };
+        const output = (e.stderr?.toString() || '') + (e.stdout?.toString() || '');
+        expect(output).to.contain('Nonexistent flag');
+      }
+    });
+
+    it('should reject unknown short flags', () => {
+      const binPath = path.resolve(root, 'bin', 'run.js');
+      try {
+        execSync(`node ${binPath} init --json --name test -z value 2>&1`, {
+          cwd: testDir,
+          timeout: 10000,
+        });
+        expect.fail('Expected command to fail with unknown flag');
+      } catch (error: unknown) {
+        const e = error as { stderr?: Buffer; stdout?: Buffer; status?: number };
+        const output = (e.stderr?.toString() || '') + (e.stdout?.toString() || '');
+        expect(output).to.contain('Nonexistent flag');
+      }
+    });
+  });
+
   describe('theme validation', () => {
     it('should have valid built-in themes', async () => {
       const { BUILTIN_THEMES } = await import('../../src/lib/themes.js');
