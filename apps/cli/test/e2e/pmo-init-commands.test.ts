@@ -100,6 +100,23 @@ describe('PMO Init Commands E2E Tests', () => {
       expect(pmoPath!.value).to.equal('pmo');
     });
 
+    it('should not prompt and use defaults when --json is passed without flags', () => {
+      // In non-TTY mode (exec runs non-TTY), shouldOutputJson returns true.
+      // Without this fix, the command would hang waiting for interactive prompts.
+      const output = exec('pmo init --json');
+
+      expect(output).to.contain('PMO initialized successfully');
+
+      // Verify defaults were applied: template=kanban, location=separate
+      db.close();
+      db = new Database(dbPath);
+
+      const pmoPath = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
+      expect(pmoPath).to.not.be.undefined;
+      // separate location creates pmo/ directory
+      expect(pmoPath!.value).to.equal('pmo');
+    });
+
     it('should initialize with linear template', () => {
       exec('pmo init --location separate --template linear --name "linear-board"');
 
