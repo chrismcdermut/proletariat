@@ -5,6 +5,7 @@ node_modules/
 # Build outputs
 dist/
 *.tsbuildinfo
+node-compile-cache/
 
 # Environment
 .env
