@@ -166,6 +166,9 @@ export default class PMOInit extends PromptCommand {
     let columns = getColumnsForTemplate(template);
     if (template === 'custom' && !jsonMode) {
       columns = await promptForCustomColumns();
+    } else if (template === 'custom' && jsonMode) {
+      // Custom column prompts not supported in JSON mode — use default columns
+      this.log(JSON.stringify({ warning: 'Custom columns not supported in JSON mode, using default columns. Use a named template (e.g. --template kanban) for predictable results.' }));
     }
 
     // Get board name using shared prompt (or from flag)
