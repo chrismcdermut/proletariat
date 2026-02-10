@@ -62,6 +62,7 @@ interface McpResponse {
     protocolVersion?: string;
     serverInfo?: { name: string; version: string };
     capabilities?: unknown;
+    isError?: boolean;
   };
   error?: { code: number; message: string };
   jsonrpc: string;
@@ -1269,6 +1270,7 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
      */
     function expectUnknownKeyRejected(response: McpResponse, keyName: string): void {
       const errorText = response.result?.content?.[0]?.text || '';
+      expect(response.result?.isError).to.equal(true);
       expect(errorText).to.include('unrecognized_key');
       expect(errorText).to.include(keyName);
     }

@@ -31,6 +31,7 @@ export function strictTool<T extends Record<string, z.ZodType>>(
   server.registerTool(name, {
     description,
     inputSchema: strictSchema,
+  // Cast needed: registerTool's handler type is not generic over the schema shape
   }, handler as Parameters<typeof server.registerTool>[2])
 }
 
