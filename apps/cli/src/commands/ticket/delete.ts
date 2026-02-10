@@ -104,14 +104,14 @@ export default class TicketDelete extends PMOCommand {
       this.error(`Ticket "${ticketId}" not found.`);
     }
 
-    // Get board for project name
-    const board = await this.storage.getBoard(ticket.projectId!);
+    // Get board for project name (may be null if project was deleted/orphaned)
+    const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
 
     // Confirmation prompt (unless --force)
     if (!flags.force) {
       this.log(`\nDelete ticket ${styles.emphasis(ticketId)}?`);
       this.log(`  Title: ${ticket.title}`);
-      this.log(`  Project: ${board.name}`);
+      this.log(`  Project: ${board?.name || ticket.projectId || 'Unknown'}`);
       this.log(`  Status: ${ticket.statusName}`);
 
       const jsonModeConfig = jsonMode ? { flags, commandName: 'ticket delete' } : null;

@@ -231,6 +231,59 @@ export function runMigrations(db: Database.Database): void {
     }
   }
 
+  // Migration: Reassign orphaned tickets (TKT-940)
+  // Tickets with project_id that doesn't match any existing project are "orphaned".
+  // This can happen when a 'default' project never existed or was deleted.
+  // NOTE: This runs on every init but is idempotent — if no orphaned tickets exist, it's a no-op.
+  // Kept as a runtime check rather than a one-time migration since orphaned tickets could
+  // reappear if projects are deleted in the future.
+  if (tableExists(T.tickets) && tableExists(T.projects)) {
+    try {
+      // Find orphaned tickets (project_id doesn't match any project)
+      const orphanedTickets = db.prepare(`
+        SELECT t.id, t.project_id
+        FROM ${T.tickets} t
+        LEFT JOIN ${T.projects} p ON t.project_id = p.id
+        WHERE p.id IS NULL
+      `).all() as Array<{ id: string; project_id: string }>
+
+      if (orphanedTickets.length > 0) {
+        // Get the first available project to reassign to
+        const firstProject = db.prepare(`
+          SELECT id FROM ${T.projects} ORDER BY created_at ASC LIMIT 1
+        `).get() as { id: string } | undefined
+
+        if (firstProject) {
+          // Get the default status for the target project's workflow
+          const project = db.prepare(`
+            SELECT workflow_id FROM ${T.projects} WHERE id = ?
+          `).get(firstProject.id) as { workflow_id: string | null } | undefined
+
+          const workflowId = project?.workflow_id || 'default'
+          const defaultStatus = db.prepare(`
+            SELECT id FROM ${T.workflow_statuses}
+            WHERE workflow_id = ? AND is_default = 1
+          `).get(workflowId) as { id: string } | undefined
+
+          // Reassign orphaned tickets to the first project
+          const updateStmt = defaultStatus
+            ? db.prepare(`UPDATE ${T.tickets} SET project_id = ?, status_id = COALESCE(status_id, ?) WHERE id = ?`)
+            : db.prepare(`UPDATE ${T.tickets} SET project_id = ? WHERE id = ?`)
+
+          for (const ticket of orphanedTickets) {
+            if (defaultStatus) {
+              updateStmt.run(firstProject.id, defaultStatus.id, ticket.id)
+            } else {
+              updateStmt.run(firstProject.id, ticket.id)
+            }
+          }
+        }
+      }
+    } catch {
+      // Non-critical migration - don't fail initialization
+    }
+  }
+
 }
 
 /**

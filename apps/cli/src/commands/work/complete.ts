@@ -113,8 +113,8 @@ export default class WorkComplete extends PMOCommand {
       // Get configured column name (from pmo_settings or default)
       const targetColumnName = getWorkColumnSetting(db, 'done');
 
-      const board = await this.storage.getBoard(ticket.projectId!);
-      const columnNames = board.columns.map(col => col.name);
+      const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
+      const columnNames = board ? board.columns.map(col => col.name) : [];
       const doneColumn = findColumnByName(columnNames, targetColumnName);
 
       if (!doneColumn) {

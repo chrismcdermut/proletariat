@@ -372,8 +372,8 @@ export default class WorkRevise extends PMOCommand {
       // Move ticket back to In Progress column
       const inProgressColumnName = getWorkColumnSetting(db, 'in_progress')
 
-      const board = await this.storage.getBoard(ticket.projectId!)
-      const columnNames = board.columns.map(col => col.name)
+      const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null
+      const columnNames = board ? board.columns.map(col => col.name) : []
       const inProgressColumn = findColumnByName(columnNames, inProgressColumnName)
 
       if (inProgressColumn && ticket.statusName !== inProgressColumn) {

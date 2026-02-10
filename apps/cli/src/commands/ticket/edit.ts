@@ -181,8 +181,8 @@ export default class TicketEdit extends PMOCommand {
       }
 
       // Interactive mode - prompt for all editable fields
-      const board = await this.storage.getBoard(ticket.projectId!);
-      const columns = board.columns.map(col => col.name);
+      const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
+      const columns = board ? board.columns.map(col => col.name) : [];
       updates = await this.promptForEdits(ticket, columns);
     } else {
       // Use flag values

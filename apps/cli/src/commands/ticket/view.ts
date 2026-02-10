@@ -81,12 +81,14 @@ export default class TicketView extends PMOCommand {
       this.error(`Ticket "${ticketId}" not found.`);
     }
 
-    const board = await this.storage.getBoard(ticket.projectId!);
+    // Get project board (may be null if project was deleted/orphaned)
+    const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
+    const projectName = board?.name || ticket.projectId || 'Unknown';
 
     // Display ticket details
     this.log(`\n${styles.header('📄 Ticket')} ${styles.emphasis(ticket.id)}\n`);
     this.log(`${styles.header('Title:')}       ${ticket.title}`);
-    this.log(`${styles.header('Project:')}     ${board.name}`);
+    this.log(`${styles.header('Project:')}     ${projectName}`);
     this.log(`${styles.header('Status:')}      ${ticket.statusName}`);
     this.log(`${styles.header('Priority:')}    ${ticket.priority || 'none'}`);
     this.log(`${styles.header('Category:')}    ${ticket.category || 'none'}`);

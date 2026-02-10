@@ -1622,8 +1622,8 @@ export default class WorkStart extends PMOCommand {
         // If action has a target category, find the matching column; otherwise use "started" default
         const targetCategory = selectedAction?.defaultMoveToCategory || 'started'
 
-        const board = await this.storage.getBoard(ticket.projectId!)
-        const columnNames = board.columns.map(col => col.name)
+        const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null
+        const columnNames = board ? board.columns.map(col => col.name) : []
 
         // Map category to column type for lookup
         const columnType = targetCategory === 'started' ? 'in_progress' :
@@ -2121,8 +2121,8 @@ export default class WorkStart extends PMOCommand {
       // Move ticket to In Progress column ONLY after successful spawn
       const targetColumnName = getWorkColumnSetting(db, 'in_progress')
 
-      const board = await this.storage.getBoard(ticket.projectId!)
-      const columnNames = board.columns.map(col => col.name)
+      const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null
+      const columnNames = board ? board.columns.map(col => col.name) : []
       const inProgressColumn = findColumnByName(columnNames, targetColumnName)
 
       if (inProgressColumn && ticket.status !== inProgressColumn) {

@@ -135,10 +135,12 @@ export default class TicketList extends Command {
         // Get the project board to validate the column
         const targetProjectId = projectId || (await pmoContext.storage.listProjectSummaries())[0]?.id;
         if (targetProjectId) {
-          const board = await pmoContext.storage.getBoard(targetProjectId);
-          const validColumns = board.columns.map(c => c.name);
-          if (!validColumns.includes(flags.column)) {
-            this.error(`Column "${flags.column}" not found. Valid columns: ${validColumns.join(', ')}`);
+          const board = await pmoContext.storage.getProjectBoard(targetProjectId);
+          if (board) {
+            const validColumns = board.columns.map(c => c.name);
+            if (!validColumns.includes(flags.column)) {
+              this.error(`Column "${flags.column}" not found. Valid columns: ${validColumns.join(', ')}`);
+            }
           }
         }
       }
@@ -176,7 +178,19 @@ export default class TicketList extends Command {
           this.log(styles.warning('No project found.'));
           return;
         }
-        const board = await pmoContext.storage.getBoard(actualProjectId);
+        const board = await pmoContext.storage.getProjectBoard(actualProjectId);
+        if (!board) {
+          // Project doesn't exist (orphaned tickets) - fall back to cross-project view
+          this.log(styles.warning(`Project "${actualProjectId}" not found. Showing tickets without board layout.`));
+          switch (flags.format) {
+            case 'json':
+              this.log(JSON.stringify(tickets, null, 2));
+              break;
+            default:
+              this.outputCrossProjectTable(tickets, groupBy);
+          }
+          return;
+        }
         const columns = board.columns.map(col => col.name);
 
         switch (flags.format) {

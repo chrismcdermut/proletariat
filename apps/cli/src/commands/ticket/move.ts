@@ -266,7 +266,10 @@ export default class TicketMove extends PMOCommand {
     }
 
     // Get columns
-    const board = await this.storage.getBoard(projectId);
+    const board = await this.storage.getProjectBoard(projectId);
+    if (!board) {
+      this.error(`Project "${projectId}" not found. The ticket may belong to an orphaned project.`);
+    }
     const columns = board.columns.map(col => col.name);
 
     // Agent mode config for prompts

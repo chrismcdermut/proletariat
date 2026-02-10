@@ -149,8 +149,8 @@ export default class WorkReady extends PMOCommand {
       // "ready" moves ticket to Review column (work complete moves to Done)
       const targetColumnName = getWorkColumnSetting(db, 'review');
 
-      const board = await this.storage.getBoard(ticket.projectId!);
-      const columnNames = board.columns.map(col => col.name);
+      const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
+      const columnNames = board ? board.columns.map(col => col.name) : [];
       const reviewColumn = findColumnByName(columnNames, targetColumnName);
 
       if (!reviewColumn) {
