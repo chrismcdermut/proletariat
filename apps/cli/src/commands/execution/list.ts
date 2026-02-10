@@ -6,6 +6,7 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { ExecutionStatus } from '../../lib/execution/types.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { shouldOutputJson } from '../../lib/prompt-json.js'
 
 export default class ExecutionList extends PMOCommand {
   static description = 'List running and recent executions'
@@ -42,6 +43,7 @@ export default class ExecutionList extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(ExecutionList)
+    const jsonMode = shouldOutputJson(flags)
 
     // Get workspace info
     let workspaceInfo
@@ -64,7 +66,16 @@ export default class ExecutionList extends PMOCommand {
       })
 
       if (executions.length === 0) {
+        if (jsonMode) {
+          this.log(JSON.stringify([], null, 2))
+          return
+        }
         this.log(styles.muted('\nNo executions found.\n'))
+        return
+      }
+
+      if (jsonMode) {
+        this.log(JSON.stringify(executions, null, 2))
         return
       }
 

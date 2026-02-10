@@ -6,6 +6,7 @@ import {
   listBranches,
   isGitRepo,
 } from '../../lib/branch/index.js'
+import { isNonTTY } from '../../lib/prompt-json.js'
 
 export default class BranchList extends PMOCommand {
   static description = 'List branches with conventional naming information'
@@ -43,6 +44,11 @@ export default class BranchList extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(BranchList)
+
+    // Default format to 'json' in non-TTY environments (piped output, CI, agents)
+    if (flags.format === 'table' && isNonTTY()) {
+      flags.format = 'json'
+    }
 
     // Check if in git repo
     if (!isGitRepo()) {

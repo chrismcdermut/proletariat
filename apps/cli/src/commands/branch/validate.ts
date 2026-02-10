@@ -7,6 +7,7 @@ import {
   getCurrentBranch,
   isGitRepo,
 } from '../../lib/branch/index.js'
+import { shouldOutputJson } from '../../lib/prompt-json.js'
 
 export default class BranchValidate extends PMOCommand {
   static description = 'Validate branch name against conventional format'
@@ -33,7 +34,8 @@ export default class BranchValidate extends PMOCommand {
   }
 
   async execute(): Promise<void> {
-    const { args } = await this.parse(BranchValidate)
+    const { args, flags } = await this.parse(BranchValidate)
+    const jsonMode = shouldOutputJson(flags)
 
     let branchName: string = args.name || ''
 
@@ -51,6 +53,14 @@ export default class BranchValidate extends PMOCommand {
     }
 
     const result = validateBranchName(branchName)
+
+    if (jsonMode) {
+      this.log(JSON.stringify({ branch: branchName, ...result }, null, 2))
+      if (!result.valid) {
+        this.exit(1)
+      }
+      return
+    }
 
     this.log('')
 

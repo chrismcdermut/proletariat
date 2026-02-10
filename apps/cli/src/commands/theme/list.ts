@@ -3,6 +3,8 @@ import chalk from 'chalk';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ensureBuiltinThemes } from '../../lib/themes.js';
 import { getThemes, getThemeNames, getAvailableThemeNames } from '../../lib/database/index.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 
 export default class ThemeList extends Command {
   static description = 'List available agent themes';
@@ -11,7 +13,14 @@ export default class ThemeList extends Command {
     '<%= config.bin %> <%= command.id %>',
   ];
 
+  static flags = {
+    ...machineOutputFlags,
+  };
+
   async run(): Promise<void> {
+    const { flags } = await this.parse(ThemeList);
+    const jsonMode = shouldOutputJson(flags);
+
     try {
       const workspaceInfo = getWorkspaceInfo();
 
@@ -21,7 +30,26 @@ export default class ThemeList extends Command {
       const themes = getThemes(workspaceInfo.path);
 
       if (themes.length === 0) {
+        if (jsonMode) {
+          this.log(JSON.stringify([], null, 2));
+          return;
+        }
         this.log(chalk.yellow('No themes found.'));
+        return;
+      }
+
+      if (jsonMode) {
+        const themesWithNames = themes.map(theme => {
+          const allNames = getThemeNames(workspaceInfo.path, theme.id);
+          const availableNames = getAvailableThemeNames(workspaceInfo.path, theme.id);
+          return {
+            ...theme,
+            availableNames: availableNames.length,
+            inUse: allNames.length - availableNames.length,
+            totalNames: allNames.length,
+          };
+        });
+        this.log(JSON.stringify(themesWithNames, null, 2));
         return;
       }
 

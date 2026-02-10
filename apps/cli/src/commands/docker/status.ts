@@ -2,6 +2,8 @@ import { Command } from '@oclif/core'
 import { execSync } from 'node:child_process'
 import { styles } from '../../lib/styles.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
+import { shouldOutputJson } from '../../lib/prompt-json.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 
 export default class DockerStatus extends Command {
   static description = 'Check if Docker daemon is running'
@@ -10,13 +12,38 @@ export default class DockerStatus extends Command {
     '<%= config.bin %> <%= command.id %>',
   ]
 
-  static flags = {}
+  static flags = {
+    ...machineOutputFlags,
+  }
 
   async run(): Promise<void> {
-    this.log(`\n${styles.header('Docker Status')}`)
-    this.log('─'.repeat(50))
+    const { flags } = await this.parse(DockerStatus)
+    const jsonMode = shouldOutputJson(flags)
 
     const running = isDockerRunning()
+
+    if (jsonMode) {
+      const result: Record<string, unknown> = { running }
+      if (running) {
+        try {
+          result.version = execSync('docker version --format "{{.Server.Version}}"', {
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe'],
+          }).trim()
+          result.info = execSync('docker info --format "{{.Containers}} containers ({{.ContainersRunning}} running)"', {
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe'],
+          }).trim()
+        } catch {
+          // Ignore errors getting additional info
+        }
+      }
+      this.log(JSON.stringify(result, null, 2))
+      return
+    }
+
+    this.log(`\n${styles.header('Docker Status')}`)
+    this.log('─'.repeat(50))
 
     if (running) {
       this.log(`${styles.success('Running')} Docker daemon is available`)
