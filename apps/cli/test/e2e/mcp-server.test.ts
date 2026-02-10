@@ -1250,6 +1250,139 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
   });
 
   // ===========================================================================
+  // STRICT PARAMETER VALIDATION TESTS (TKT-936)
+  // ===========================================================================
+
+  describe('Strict Parameter Validation (TKT-936)', function () {
+    let projectId: string;
+    let ticketId: string;
+
+    beforeEach(function () {
+      projectId = createTestProject(db, { id: 'mcp-strict-proj', name: 'Strict Validation Project' });
+      ticketId = createTestTicket(db, projectId, { id: 'TKT-STRICT-001', title: 'Strict Test Ticket' });
+    });
+
+    /**
+     * Helper: assert that an MCP response is an error containing a specific key name.
+     * The MCP SDK returns validation errors as result.content with isError: true,
+     * with the error text containing "unrecognized_keys" and the offending key name.
+     */
+    function expectUnknownKeyRejected(response: McpResponse, keyName: string): void {
+      const errorText = response.result?.content?.[0]?.text || '';
+      expect(errorText).to.include('unrecognized_key');
+      expect(errorText).to.include(keyName);
+    }
+
+    it('should reject unknown params on ticket_update', function () {
+      const toolMsg = JSON.stringify({
+        jsonrpc: '2.0',
+        id: 100,
+        method: 'tools/call',
+        params: {
+          name: 'ticket_update',
+          arguments: {
+            id: ticketId,
+            title: 'Valid Title',
+            unknown_field: 'should be rejected',
+          },
+        },
+      });
+      const response = mcpCall([INIT_MSG, INITIALIZED_MSG, toolMsg]);
+      expectUnknownKeyRejected(response, 'unknown_field');
+    });
+
+    it('should reject unknown params on ticket_create', function () {
+      const toolMsg = JSON.stringify({
+        jsonrpc: '2.0',
+        id: 100,
+        method: 'tools/call',
+        params: {
+          name: 'ticket_create',
+          arguments: {
+            title: 'Test',
+            project: projectId,
+            bogus_param: 'should fail',
+          },
+        },
+      });
+      const response = mcpCall([INIT_MSG, INITIALIZED_MSG, toolMsg]);
+      expectUnknownKeyRejected(response, 'bogus_param');
+    });
+
+    it('should reject unknown params on ticket_list', function () {
+      const toolMsg = JSON.stringify({
+        jsonrpc: '2.0',
+        id: 100,
+        method: 'tools/call',
+        params: {
+          name: 'ticket_list',
+          arguments: { project: projectId, nonexistent: true },
+        },
+      });
+      const response = mcpCall([INIT_MSG, INITIALIZED_MSG, toolMsg]);
+      expectUnknownKeyRejected(response, 'nonexistent');
+    });
+
+    it('should reject unknown params on zero-arg tools', function () {
+      const toolMsg = JSON.stringify({
+        jsonrpc: '2.0',
+        id: 100,
+        method: 'tools/call',
+        params: {
+          name: 'work_status',
+          arguments: { extra_param: 'should be rejected' },
+        },
+      });
+      const response = mcpCall([INIT_MSG, INITIALIZED_MSG, toolMsg]);
+      expectUnknownKeyRejected(response, 'extra_param');
+    });
+
+    it('should reject unknown params on project_update', function () {
+      const toolMsg = JSON.stringify({
+        jsonrpc: '2.0',
+        id: 100,
+        method: 'tools/call',
+        params: {
+          name: 'project_update',
+          arguments: {
+            id: projectId,
+            name: 'Valid Name',
+            invalid_flag: 'value',
+          },
+        },
+      });
+      const response = mcpCall([INIT_MSG, INITIALIZED_MSG, toolMsg]);
+      expectUnknownKeyRejected(response, 'invalid_flag');
+    });
+
+    it('should still accept valid params', function () {
+      const result = callTool('ticket_update', {
+        id: ticketId,
+        title: 'Updated via Strict Test',
+      });
+      expect(result.success).to.be.true;
+      expect((result.ticket as { title: string }).title).to.equal('Updated via Strict Test');
+    });
+
+    it('should reject unknown params on init tool', function () {
+      const toolMsg = JSON.stringify({
+        jsonrpc: '2.0',
+        id: 100,
+        method: 'tools/call',
+        params: {
+          name: 'init',
+          arguments: {
+            name: 'test-hq',
+            unknown_option: 'should fail',
+          },
+        },
+      });
+      const response = mcpCall([INIT_MSG, INITIALIZED_MSG, toolMsg]);
+      expectUnknownKeyRejected(response, 'unknown_option');
+    });
+  });
+
+  // ===========================================================================
   // CLI PASSTHROUGH TOOLS TESTS (smoke tests only)
   // ===========================================================================
 
