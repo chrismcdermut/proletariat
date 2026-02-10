@@ -122,6 +122,10 @@ export default class TicketCreate extends PMOCommand {
       const filePath = flags['description-file'];
       try {
         if (filePath === '-') {
+          // Guard: prevent hanging when no input is piped
+          if (process.stdin.isTTY) {
+            return handleError('DESCRIPTION_FILE_ERROR', 'Cannot read from stdin: no input piped. Use --description-file <path> with a file path instead, or pipe content via: echo "desc" | prlt ticket create --description-file -');
+          }
           // Read from stdin
           flags.description = fs.readFileSync(0, 'utf-8');
         } else {
