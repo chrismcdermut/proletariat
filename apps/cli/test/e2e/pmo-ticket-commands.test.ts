@@ -563,7 +563,7 @@ describe('ticket create --label alias', () => {
 
   beforeEach(() => {
     env = createTestEnvironment('ticket-label-alias-');
-    db = setupProductionSchema(env.dbPath, 'pmo');
+    db = setupProductionSchema(env.dbPath, env.pmoPath);
     createTestProject(db, { id: 'test-project', name: 'Test Project' });
     createHQConfig(env.proletariatDir);
     createPMODirectories(env.pmoPath, 'test-project');
