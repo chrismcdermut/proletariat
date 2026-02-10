@@ -9,6 +9,7 @@ import { isDockerRunning } from '../../lib/execution/runners.js'
 import { sanitizeContainerId } from '../../lib/docker/resolve.js'
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
 import { machineOutputFlags } from '../../lib/pmo/base-command.js'
+import { visualPadEnd } from '../../lib/string-utils.js'
 
 interface OrphanedContainer {
   id: string
@@ -94,18 +95,18 @@ export default class DockerClean extends Command {
       this.log(`\n${styles.header('Orphaned Containers')}`)
       this.log('='.repeat(80))
       this.log(styles.muted(
-        padEnd('Container ID', 15) +
-        padEnd('Name', 30) +
-        padEnd('Status', 15) +
+        visualPadEnd('Container ID', 15) +
+        visualPadEnd('Name', 30) +
+        visualPadEnd('Status', 15) +
         'Reason'
       ))
       this.log('-'.repeat(80))
 
       for (const container of orphanedContainers) {
         this.log(
-          padEnd(container.id, 15) +
-          padEnd(truncate(container.name, 28), 30) +
-          padEnd(container.status, 15) +
+          visualPadEnd(container.id, 15) +
+          visualPadEnd(truncate(container.name, 28), 30) +
+          visualPadEnd(container.status, 15) +
           styles.muted(container.reason)
         )
       }
@@ -262,9 +263,6 @@ export default class DockerClean extends Command {
   }
 }
 
-function padEnd(str: string, length: number): string {
-  return str.padEnd(length)
-}
 
 function truncate(str: string, maxLength: number): string {
   if (str.length <= maxLength) return str

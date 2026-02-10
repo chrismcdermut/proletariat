@@ -10,6 +10,7 @@ import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
 import { machineOutputFlags } from '../../lib/pmo/base-command.js'
+import { visualPadEnd } from '../../lib/string-utils.js'
 
 export default class Docker extends PromptCommand {
   static description = 'Manage Docker containers used by agents'
@@ -149,7 +150,7 @@ export default class Docker extends PromptCommand {
       const choices: Array<{ name: string; value: string } | inquirer.Separator> = []
 
       // Column header
-      const header = styles.muted(`  ${'ID'.padEnd(14)} ${'Agent'.padEnd(15)} Status`)
+      const header = styles.muted(`  ${visualPadEnd('ID', 14)} ${visualPadEnd('Agent', 15)} Status`)
 
       // Add active executions first (with container info from DB)
       const activeExecutions = trackedExecutions.filter(e => e.status === 'running' || e.status === 'starting')
@@ -167,7 +168,7 @@ export default class Docker extends PromptCommand {
 
           // Use agent name from execution record (DB source of truth)
           choices.push({
-            name: `${statusIcon} ${exec.id.padEnd(14)} ${exec.agentName.padEnd(15)} ${styles.success(exec.status)}`,
+            name: `${statusIcon} ${visualPadEnd(exec.id, 14)} ${visualPadEnd(exec.agentName, 15)} ${styles.success(exec.status)}`,
             value: exec.id,
           })
 
@@ -196,7 +197,7 @@ export default class Docker extends PromptCommand {
 
           // Agent name from DB (source of truth)
           choices.push({
-            name: `${statusIcon} ${container.dockerId.substring(0, 12).padEnd(14)} ${container.agentName.padEnd(15)} ${statusText}`,
+            name: `${statusIcon} ${visualPadEnd(container.dockerId.substring(0, 12), 14)} ${visualPadEnd(container.agentName, 15)} ${statusText}`,
             value: container.dockerId,
           })
 
@@ -217,7 +218,7 @@ export default class Docker extends PromptCommand {
           const agentName = this.extractAgentFromImage(container.image)
 
           choices.push({
-            name: `${statusIcon} ${container.id.substring(0, 12).padEnd(14)} ${agentName.padEnd(15)} ${statusText}`,
+            name: `${statusIcon} ${visualPadEnd(container.id.substring(0, 12), 14)} ${visualPadEnd(agentName, 15)} ${statusText}`,
             value: container.id,
           })
         }

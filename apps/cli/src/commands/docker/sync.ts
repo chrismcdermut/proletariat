@@ -6,6 +6,7 @@ import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ContainerStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
+import { visualPadEnd } from '../../lib/string-utils.js'
 
 export default class DockerSync extends Command {
   static description = 'Sync container status from Docker into the database'
@@ -65,9 +66,9 @@ export default class DockerSync extends Command {
         this.log(styles.subheader('Tracked Containers:'))
         this.log(styles.muted(
           '  ' +
-          'ID'.padEnd(18) +
-          'Agent'.padEnd(15) +
-          'Status'.padEnd(12) +
+          visualPadEnd('ID', 18) +
+          visualPadEnd('Agent', 15) +
+          visualPadEnd('Status', 12) +
           'Docker ID'
         ))
         this.log(styles.muted('  ' + '-'.repeat(65)))
@@ -78,9 +79,9 @@ export default class DockerSync extends Command {
                              container.status === 'removed' ? styles.error : styles.warning
           this.log(
             '  ' +
-            container.id.padEnd(18) +
-            container.agentName.padEnd(15) +
-            statusColor(container.status.padEnd(12)) +
+            visualPadEnd(container.id, 18) +
+            visualPadEnd(container.agentName, 15) +
+            statusColor(visualPadEnd(container.status, 12)) +
             styles.muted(container.dockerId.substring(0, 12))
           )
         }
