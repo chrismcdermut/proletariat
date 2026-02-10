@@ -7,6 +7,7 @@ import { isValidAgentName, getSuggestedAgentNames, BUILTIN_THEMES, getThemePersi
 import { getWorkspaceRepositories, getActiveTheme } from '../database/index.js';
 import { styles } from '../styles.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
+import { getGitIdentity } from '../pr/index.js';
 
 export interface HQConfig {
   type: 'hq';
@@ -119,6 +120,12 @@ function getRemoteUrl(repoPath: string): string | null {
 export async function createAgentWorktrees(workspacePath: string, agents: string[], hqPath?: string, options?: CreateAgentOptions): Promise<void> {
   const mountMode = options?.mountMode || 'worktree';  // Default to worktree for real-time file sync
   const modeLabel = mountMode === 'worktree' ? 'worktree' : 'clone';
+
+  // Detect git identity once for all agents (TKT-934)
+  const gitIdentity = getGitIdentity();
+  if (!gitIdentity.name && !gitIdentity.email) {
+    console.log(chalk.yellow('Warning: Could not detect git identity for devcontainer. Commits may use default identity.'));
+  }
 
   if (hqPath) {
     // HQ mode - create worktrees/clones for all repos in repos/ directory
@@ -259,6 +266,8 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
               agentDir,
               repoWorktrees: mountMode === 'worktree' && createdRepos.length > 0 ? createdRepos : undefined,
               mountMode,
+              gitUserName: gitIdentity.name || undefined,
+              gitUserEmail: gitIdentity.email || undefined,
             });
           }
 
@@ -281,6 +290,8 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
             agentName: agent,
             agentDir,
             mountMode: mountMode,
+            gitUserName: gitIdentity.name || undefined,
+            gitUserEmail: gitIdentity.email || undefined,
           });
         }
 
@@ -402,6 +413,8 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
             agentDir,
             repoWorktrees: mountMode === 'worktree' ? [repoName] : undefined,  // Only pass repos for worktree mode
             mountMode,
+            gitUserName: gitIdentity.name || undefined,
+            gitUserEmail: gitIdentity.email || undefined,
           });
         }
 

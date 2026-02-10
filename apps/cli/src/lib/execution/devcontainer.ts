@@ -23,6 +23,10 @@ export interface DevcontainerOptions {
   prltChannel?: string
   /** Mount mode: 'worktree' needs parent repo mounts + git wrapper, 'clone' is self-contained */
   mountMode?: MountMode
+  /** Git user.name for commit attribution (detected from gh/git config on host) */
+  gitUserName?: string
+  /** Git user.email for commit attribution (detected from gh/git config on host) */
+  gitUserEmail?: string
 }
 
 export interface DevcontainerJson {
@@ -153,6 +157,9 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       PRLT_HOST_PATH: options.agentDir,
       // Mount mode - allows scripts to know if git wrapper is needed
       PRLT_MOUNT_MODE: mountMode,
+      // Git identity for commit attribution (detected from host's gh/git config)
+      ...(options.gitUserName ? { PRLT_GIT_USER_NAME: options.gitUserName } : {}),
+      ...(options.gitUserEmail ? { PRLT_GIT_USER_EMAIL: options.gitUserEmail } : {}),
       // /hq/.proletariat/bin contains prlt wrapper with ESM loader for native modules
       PATH: '/hq/.proletariat/bin:/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin',
     },
@@ -503,6 +510,66 @@ if [ -n "$TOKEN" ]; then
 else
     echo "Warning: No GitHub token found, git push will require manual auth"
 fi
+
+# Configure git user identity for commit attribution
+# Uses env vars set by host (from gh/git config), with fallback detection
+configure_git_identity() {
+    local git_name="\${PRLT_GIT_USER_NAME:-}"
+    local git_email="\${PRLT_GIT_USER_EMAIL:-}"
+
+    # Fallback: try gh api user if env vars are empty and gh is authenticated
+    if { [ -z "$git_name" ] || [ -z "$git_email" ]; } && command -v gh &> /dev/null && gh auth status &>/dev/null; then
+        if [ -z "$git_name" ]; then
+            git_name=$(gh api user -q '.name // .login' 2>/dev/null || true)
+        fi
+        if [ -z "$git_email" ]; then
+            git_email=$(gh api user -q '.email // empty' 2>/dev/null || true)
+            # Try emails API if public email is not set
+            if [ -z "$git_email" ]; then
+                git_email=$(gh api user/emails -q '[.[] | select(.primary)] | .[0].email' 2>/dev/null || true)
+            fi
+        fi
+    fi
+
+    # Fallback: try git config from mounted repos
+    if [ -z "$git_name" ] || [ -z "$git_email" ]; then
+        for repo_dir in /workspace/*/; do
+            if [ -d "$repo_dir/.git" ] || [ -f "$repo_dir/.git" ]; then
+                if [ -z "$git_name" ]; then
+                    git_name=$(/usr/bin/git -C "$repo_dir" config user.name 2>/dev/null || true)
+                fi
+                if [ -z "$git_email" ]; then
+                    git_email=$(/usr/bin/git -C "$repo_dir" config user.email 2>/dev/null || true)
+                fi
+                if [ -n "$git_name" ] && [ -n "$git_email" ]; then
+                    break
+                fi
+            fi
+        done
+    fi
+
+    # Apply git config
+    if [ -n "$git_name" ]; then
+        /usr/bin/git config --global user.name "$git_name"
+        echo "Git user.name set to: $git_name"
+    fi
+    if [ -n "$git_email" ]; then
+        /usr/bin/git config --global user.email "$git_email"
+        echo "Git user.email set to: $git_email"
+    fi
+
+    # Warning if identity could not be determined
+    if [ -z "$git_name" ] && [ -z "$git_email" ]; then
+        echo "Warning: Could not determine git identity. Commits may use default identity."
+        echo "  To fix: run 'gh auth login' or set git config user.name/user.email in your repo"
+    elif [ -z "$git_name" ]; then
+        echo "Warning: Could not determine git user.name"
+    elif [ -z "$git_email" ]; then
+        echo "Warning: Could not determine git user.email"
+    fi
+}
+
+configure_git_identity
 
 # Check if prlt is already installed globally (via npm from GitHub Packages)
 if command -v prlt &> /dev/null; then

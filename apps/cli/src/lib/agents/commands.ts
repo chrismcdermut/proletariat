@@ -32,6 +32,7 @@ import {
   getAgentBaseName,
 } from '../themes.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
+import { getGitIdentity } from '../pr/index.js';
 import { getPMOContext } from '../pmo/index.js';
 
 /**
@@ -650,11 +651,14 @@ export async function createEphemeralAgent(
   if (!options?.skipDevcontainer) {
     const devcontainerDir = path.join(agentDir, '.devcontainer');
     if (!fs.existsSync(devcontainerDir)) {
+      const gitIdentity = getGitIdentity();
       createDevcontainerConfig({
         agentName,
         agentDir,
         repoWorktrees: mountMode === 'worktree' ? workspaceInfo.repositories.map(r => r.name) : undefined,
         mountMode,
+        gitUserName: gitIdentity.name || undefined,
+        gitUserEmail: gitIdentity.email || undefined,
       });
     }
   }
