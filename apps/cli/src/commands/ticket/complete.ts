@@ -79,7 +79,10 @@ export default class TicketComplete extends PMOCommand {
     }
 
     // Get board for columns (use the first incomplete ticket's project)
-    const board = await this.storage.getBoard(incompleteTickets[0].projectId!);
+    const board = await this.storage.getProjectBoard(incompleteTickets[0].projectId!);
+    if (!board) {
+      return handleError('PROJECT_NOT_FOUND', `Project "${incompleteTickets[0].projectId}" not found. The ticket may belong to an orphaned project.`);
+    }
 
     // Find the "Done" column (case-insensitive)
     const doneColumn = board.columns.find(col =>
