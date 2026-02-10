@@ -74,6 +74,7 @@ export default class TicketCreate extends PMOCommand {
     }),
     labels: Flags.string({
       char: 'l',
+      aliases: ['label'],
       description: 'Labels (comma-separated)',
     }),
     'dry-run': Flags.boolean({
