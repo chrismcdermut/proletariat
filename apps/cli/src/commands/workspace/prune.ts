@@ -15,7 +15,6 @@ import {
 import {
   outputConfirmationNeededAsJson,
   createMetadata,
-  shouldOutputJson,
 } from '../../lib/prompt-json.js';
 
 interface StaleWorkspace {
@@ -59,9 +58,10 @@ export default class WorkspacePrune extends PromptCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(WorkspacePrune);
 
-    // In non-TTY mode (CI, scripts, piped), default to dry-run unless --force is set
+    // In non-TTY mode without --json (CI, scripts, piped), default to dry-run unless --force is set.
+    // In --json mode, we use confirmation_needed output instead of auto-dry-run so agents can review and confirm.
     const isNonTTY = !process.stdout.isTTY;
-    const effectiveDryRun = flags['dry-run'] || (isNonTTY && !flags.force);
+    const effectiveDryRun = flags['dry-run'] || (!flags.json && isNonTTY && !flags.force);
 
     // Find stale entries
     const staleWorkspaces = this.findStaleWorkspaces();
