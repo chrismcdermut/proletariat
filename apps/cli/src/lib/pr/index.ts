@@ -100,8 +100,13 @@ export interface GitIdentity {
 /**
  * Detect the user's git identity for commit attribution.
  * Tries GitHub CLI first (gh api user), falls back to git config.
+ * Results are memoized so subprocess calls only run once per process.
  */
+let _cachedGitIdentity: GitIdentity | undefined;
+
 export function getGitIdentity(cwd?: string): GitIdentity {
+  if (_cachedGitIdentity) return _cachedGitIdentity;
+
   let name: string | null = null;
   let email: string | null = null;
 
@@ -160,7 +165,8 @@ export function getGitIdentity(cwd?: string): GitIdentity {
     }
   }
 
-  return { name, email };
+  _cachedGitIdentity = { name, email };
+  return _cachedGitIdentity;
 }
 
 // =============================================================================
