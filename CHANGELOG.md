@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.27] - 2026-02-10
+
+### Added
+- TKT-932: Add JSON output and non-TTY auto-detection to remaining commands
+- TKT-933: Add `--description-file` flag to `ticket create`
+- TKT-937: Add `--label` as alias for `--labels` on `ticket create`
+- TKT-931: Add git tagging to npm publish script
+
+### Fixed
+- TKT-936: Add strict parameter validation to all MCP tools
+- TKT-940: Orphaned default project causes ticket command crashes
+- TKT-934: Devcontainer should set git config to user's GitHub identity
+- TKT-938: `workspace prune` needs confirmation or dry-run default
+- TKT-939: Execution list table formatting broken by emoji characters
+- TKT-935: `pmo init --json` still triggers interactive prompt for board template
+
 ## [0.3.24] - 2026-02-06
 
 ### Changed
