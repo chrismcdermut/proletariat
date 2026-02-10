@@ -1,4 +1,4 @@
-import { Command } from '@oclif/core';
+import { Command, Flags } from '@oclif/core';
 import chalk from 'chalk';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
@@ -6,6 +6,8 @@ import {
   getWorkspaceInfo,
   getAllAgentsStatus
 } from '../../lib/agents/commands.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 
 export default class List extends Command {
   static description = 'List all staff (persistent) agents and their status';
@@ -14,9 +16,14 @@ export default class List extends Command {
     '<%= config.bin %> <%= command.id %>',
   ];
 
-  static flags = {};
+  static flags = {
+    ...machineOutputFlags,
+  };
 
   async run(): Promise<void> {
+    const { flags } = await this.parse(List);
+    const jsonMode = shouldOutputJson(flags);
+
     try {
       // Get workspace information
       const workspaceInfo = getWorkspaceInfo();
@@ -25,6 +32,10 @@ export default class List extends Command {
       const staffAgents = workspaceInfo.agents.filter(a => a.type === 'persistent');
 
       if (staffAgents.length === 0) {
+        if (jsonMode) {
+          this.log(JSON.stringify([], null, 2));
+          return;
+        }
         this.log(chalk.yellow('No staff agents found. Add staff agents with "prlt staff add"'));
         return;
       }
@@ -34,6 +45,11 @@ export default class List extends Command {
       const staffStatus = agentsStatus.filter(a =>
         staffAgents.some(s => s.name === a.name)
       );
+
+      if (jsonMode) {
+        this.log(JSON.stringify(staffStatus, null, 2));
+        return;
+      }
 
       this.log(chalk.bold.cyan('\n Staff Agents:\n'));
 

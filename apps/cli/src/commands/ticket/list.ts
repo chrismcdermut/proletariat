@@ -11,6 +11,7 @@ import {
   divider,
   getPriorityStyle,
 } from '../../lib/styles.js';
+import { isNonTTY } from '../../lib/prompt-json.js';
 
 // Priority order for grouping: P0, P1, P2, P3, None
 const PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3', 'None'];
@@ -80,6 +81,11 @@ export default class TicketList extends Command {
 
   async run(): Promise<void> {
     const { flags } = await this.parse(TicketList);
+
+    // Default format to 'json' in non-TTY environments (piped output, CI, agents)
+    if (flags.format === 'table' && isNonTTY()) {
+      flags.format = 'json';
+    }
 
     // When --all is set, we don't need to select a specific project
     // Otherwise, use the normal project selection flow

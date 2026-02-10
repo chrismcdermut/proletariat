@@ -12,6 +12,7 @@ import {
   findSessionForExecution,
 } from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { shouldOutputJson } from '../../lib/prompt-json.js'
 import { visualPadEnd } from '../../lib/string-utils.js'
 
 interface VerifiedSession {
@@ -48,6 +49,7 @@ export default class SessionList extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(SessionList)
+    const jsonMode = shouldOutputJson(flags)
 
     // Get workspace info for execution records
     let executionStorage: ExecutionStorage | null = null
@@ -184,6 +186,11 @@ export default class SessionList extends PMOCommand {
             source: 'discovered',
           })
         }
+      }
+
+      if (jsonMode) {
+        this.log(JSON.stringify(sessions, null, 2))
+        return
       }
 
       if (sessions.length > 0) {

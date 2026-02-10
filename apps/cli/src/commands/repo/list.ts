@@ -2,6 +2,7 @@ import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { colors, format } from '../../lib/colors.js';
 import { findHQRoot, getWorkspaceRepoInfo } from '../../lib/repos/index.js';
+import { isNonTTY } from '../../lib/prompt-json.js';
 import { visualPadEnd } from '../../lib/string-utils.js';
 
 export default class List extends PMOCommand {
@@ -29,6 +30,11 @@ export default class List extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(List);
+
+    // Default format to 'json' in non-TTY environments (piped output, CI, agents)
+    if (flags.format === 'table' && isNonTTY()) {
+      flags.format = 'json';
+    }
 
     // Find HQ root
     const hqPath = findHQRoot();

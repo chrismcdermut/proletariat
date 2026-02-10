@@ -6,6 +6,8 @@ import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
+import { shouldOutputJson } from '../../lib/prompt-json.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { visualPadEnd } from '../../lib/string-utils.js'
 
 interface ContainerInfo {
@@ -27,6 +29,7 @@ export default class DockerList extends Command {
   ]
 
   static flags = {
+    ...machineOutputFlags,
     all: Flags.boolean({
       char: 'a',
       description: 'Show all containers (including non-devcontainer)',
@@ -41,9 +44,14 @@ export default class DockerList extends Command {
 
   async run(): Promise<void> {
     const { flags } = await this.parse(DockerList)
+    const jsonMode = shouldOutputJson(flags)
 
     // Check Docker status first
     if (!isDockerRunning()) {
+      if (jsonMode) {
+        this.log(JSON.stringify({ error: 'Docker is not running' }, null, 2))
+        return
+      }
       this.log(`\n${styles.error('Docker is not running')}`)
       this.log(`${styles.muted('Start Docker Desktop or the Docker daemon first.')}\n`)
       return
@@ -78,6 +86,15 @@ export default class DockerList extends Command {
 
       // Get running docker containers
       const runningContainers = this.getDockerContainers(workspaceInfo.agentsPath, flags.all)
+
+      if (jsonMode) {
+        this.log(JSON.stringify({
+          executions: trackedExecutions,
+          containers: runningContainers,
+        }, null, 2))
+        db.close()
+        return
+      }
 
       this.log(`\n${styles.header('Docker Containers')}`)
       this.log('='.repeat(100))

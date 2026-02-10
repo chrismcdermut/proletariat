@@ -4,6 +4,8 @@ import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';
 import { colors } from '../lib/colors.js';
 import { getAgentByPath } from '../lib/database/index.js';
+import { shouldOutputJson } from '../lib/prompt-json.js';
+import { machineOutputFlags } from '../lib/pmo/index.js';
 
 export default class Whoami extends Command {
   static description = 'Show current agent/environment context';
@@ -12,13 +14,34 @@ export default class Whoami extends Command {
     '<%= config.bin %> <%= command.id %>',
   ];
 
+  static flags = {
+    ...machineOutputFlags,
+  };
+
   async run(): Promise<void> {
-    await this.parse(Whoami);
+    const { flags } = await this.parse(Whoami);
+    const jsonMode = shouldOutputJson(flags);
     const isDevcontainer = process.env.DEVCONTAINER === 'true';
     const agentName = this.detectAgentName();
     const repoName = this.detectRepoName();
     const branch = this.getCurrentBranch();
     const hqPath = process.env.PRLT_HQ_PATH;
+    const pmoPath = process.env.PRLT_PMO_PATH;
+    const hostPath = process.env.PRLT_HOST_PATH;
+
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        agent: agentName,
+        repository: repoName,
+        branch,
+        environment: isDevcontainer ? 'devcontainer' : 'host',
+        workingDir: process.cwd(),
+        hqPath: hqPath || null,
+        pmoPath: pmoPath || null,
+        hostPath: hostPath || null,
+      }, null, 2));
+      return;
+    }
 
     this.log('');
     this.log(colors.primary('🔍 Proletariat Context'));
@@ -50,14 +73,10 @@ export default class Whoami extends Command {
       this.log(`  HQ path:     ${colors.textMuted(hqPath)}`);
     }
 
-    // Show PMO path if available
-    const pmoPath = process.env.PRLT_PMO_PATH;
     if (pmoPath) {
       this.log(`  PMO path:    ${colors.textMuted(pmoPath)}`);
     }
 
-    // Show host path if available (set in devcontainer for agent identity)
-    const hostPath = process.env.PRLT_HOST_PATH;
     if (hostPath) {
       this.log(`  Host path:   ${colors.textMuted(hostPath)}`);
     }
