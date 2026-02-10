@@ -234,6 +234,9 @@ export function runMigrations(db: Database.Database): void {
   // Migration: Reassign orphaned tickets (TKT-940)
   // Tickets with project_id that doesn't match any existing project are "orphaned".
   // This can happen when a 'default' project never existed or was deleted.
+  // NOTE: This runs on every init but is idempotent — if no orphaned tickets exist, it's a no-op.
+  // Kept as a runtime check rather than a one-time migration since orphaned tickets could
+  // reappear if projects are deleted in the future.
   if (tableExists(T.tickets) && tableExists(T.projects)) {
     try {
       // Find orphaned tickets (project_id doesn't match any project)
