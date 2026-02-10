@@ -6,6 +6,7 @@ import { SQLiteStorage } from './storage-sqlite.js';
 import { createSpecFolders } from './create-spec-folders.js';
 import { slugify } from './utils.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
+import { getGitIdentity } from '../pr/index.js';
 
 // Re-export new PMO modules
 export * from './types.js';
@@ -494,10 +495,13 @@ ${columns.join(', ')}
   // Create devcontainer for separate PMO (it's its own repo)
   if (location === 'separate') {
     console.log(chalk.blue('Creating devcontainer config for PMO...'));
+    const gitIdentity = getGitIdentity();
     createDevcontainerConfig({
       agentName: 'pmo',
       agentDir: pmoPath,
       repoWorktrees: [],  // PMO is the repo itself, no nested worktrees
+      gitUserName: gitIdentity.name || undefined,
+      gitUserEmail: gitIdentity.email || undefined,
     });
     console.log(chalk.green('  ✓ Devcontainer config created'));
   }

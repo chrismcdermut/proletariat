@@ -89,6 +89,81 @@ export function isGHTokenInEnv(): boolean {
 }
 
 // =============================================================================
+// Git Identity Detection
+// =============================================================================
+
+export interface GitIdentity {
+  name: string | null;
+  email: string | null;
+}
+
+/**
+ * Detect the user's git identity for commit attribution.
+ * Tries GitHub CLI first (gh api user), falls back to git config.
+ */
+export function getGitIdentity(cwd?: string): GitIdentity {
+  let name: string | null = null;
+  let email: string | null = null;
+
+  // Method 1: Try gh api user (most reliable for GitHub identity)
+  try {
+    const userJson = execSync('gh api user', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const user = JSON.parse(userJson);
+    name = user.name || user.login || null;
+    email = user.email || null;
+
+    // If no public email, try GitHub emails API for primary email
+    if (!email) {
+      try {
+        const emailsJson = execSync('gh api user/emails', {
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        const emails = JSON.parse(emailsJson) as Array<{ email: string; primary: boolean }>;
+        const primary = emails.find(e => e.primary);
+        if (primary) {
+          email = primary.email;
+        }
+      } catch {
+        // emails API may not be accessible with current token scope
+      }
+    }
+  } catch {
+    // gh not available or not authenticated
+  }
+
+  // Method 2: Fall back to git config
+  if (!name) {
+    try {
+      name = execSync('git config user.name', {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim() || null;
+    } catch {
+      // git config not set
+    }
+  }
+
+  if (!email) {
+    try {
+      email = execSync('git config user.email', {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim() || null;
+    } catch {
+      // git config not set
+    }
+  }
+
+  return { name, email };
+}
+
+// =============================================================================
 // Git Remote Detection
 // =============================================================================
 

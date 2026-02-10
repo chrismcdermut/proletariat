@@ -6,10 +6,16 @@ import * as os from 'node:os'
 import {
   generateDevcontainerJson,
   generateDockerfile,
+  generatePrltSetupScript,
   createDevcontainerConfig,
   hasDevcontainerConfig,
   DevcontainerOptions,
 } from '../../src/lib/execution/devcontainer.js'
+
+import {
+  getGitIdentity,
+  GitIdentity,
+} from '../../src/lib/pr/index.js'
 
 /**
  * Unit tests for devcontainer generation
@@ -376,6 +382,177 @@ describe('Devcontainer', () => {
       createDevcontainerConfig(options)
 
       expect(hasDevcontainerConfig(testDir)).to.be.true
+    })
+  })
+
+  describe('git identity in devcontainer (TKT-934)', () => {
+    const makeOptions = (overrides: Partial<DevcontainerOptions> = {}): DevcontainerOptions => ({
+      agentName: 'test-agent',
+      agentDir: '/path/to/agents/staff/test-agent',
+      ...overrides,
+    })
+
+    describe('generateDevcontainerJson', () => {
+      it('should include PRLT_GIT_USER_NAME when gitUserName is provided', () => {
+        const options = makeOptions({ gitUserName: 'John Doe' })
+        const result = generateDevcontainerJson(options)
+
+        expect(result.containerEnv).to.have.property('PRLT_GIT_USER_NAME', 'John Doe')
+      })
+
+      it('should include PRLT_GIT_USER_EMAIL when gitUserEmail is provided', () => {
+        const options = makeOptions({ gitUserEmail: 'john@example.com' })
+        const result = generateDevcontainerJson(options)
+
+        expect(result.containerEnv).to.have.property('PRLT_GIT_USER_EMAIL', 'john@example.com')
+      })
+
+      it('should not include PRLT_GIT_USER_NAME when gitUserName is not provided', () => {
+        const options = makeOptions()
+        const result = generateDevcontainerJson(options)
+
+        expect(result.containerEnv).to.not.have.property('PRLT_GIT_USER_NAME')
+      })
+
+      it('should not include PRLT_GIT_USER_EMAIL when gitUserEmail is not provided', () => {
+        const options = makeOptions()
+        const result = generateDevcontainerJson(options)
+
+        expect(result.containerEnv).to.not.have.property('PRLT_GIT_USER_EMAIL')
+      })
+
+      it('should include both git identity env vars when both are provided', () => {
+        const options = makeOptions({
+          gitUserName: 'Jane Smith',
+          gitUserEmail: 'jane@example.com',
+        })
+        const result = generateDevcontainerJson(options)
+
+        expect(result.containerEnv).to.have.property('PRLT_GIT_USER_NAME', 'Jane Smith')
+        expect(result.containerEnv).to.have.property('PRLT_GIT_USER_EMAIL', 'jane@example.com')
+      })
+    })
+
+    describe('generatePrltSetupScript', () => {
+      it('should contain configure_git_identity function', () => {
+        const script = generatePrltSetupScript()
+
+        expect(script).to.include('configure_git_identity')
+      })
+
+      it('should reference PRLT_GIT_USER_NAME env var', () => {
+        const script = generatePrltSetupScript()
+
+        expect(script).to.include('PRLT_GIT_USER_NAME')
+      })
+
+      it('should reference PRLT_GIT_USER_EMAIL env var', () => {
+        const script = generatePrltSetupScript()
+
+        expect(script).to.include('PRLT_GIT_USER_EMAIL')
+      })
+
+      it('should configure git config --global user.name', () => {
+        const script = generatePrltSetupScript()
+
+        expect(script).to.include('git config --global user.name')
+      })
+
+      it('should configure git config --global user.email', () => {
+        const script = generatePrltSetupScript()
+
+        expect(script).to.include('git config --global user.email')
+      })
+
+      it('should include warning when identity cannot be determined', () => {
+        const script = generatePrltSetupScript()
+
+        expect(script).to.include('Warning: Could not determine git identity')
+      })
+
+      it('should have gh api user fallback detection', () => {
+        const script = generatePrltSetupScript()
+
+        expect(script).to.include('gh api user')
+      })
+
+      it('should have repo git config fallback detection', () => {
+        const script = generatePrltSetupScript()
+
+        expect(script).to.include('/usr/bin/git -C "$repo_dir" config user.name')
+        expect(script).to.include('/usr/bin/git -C "$repo_dir" config user.email')
+      })
+    })
+
+    describe('createDevcontainerConfig with git identity', () => {
+      let testDir: string
+
+      beforeEach(() => {
+        testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devcontainer-git-test-'))
+      })
+
+      afterEach(() => {
+        if (fs.existsSync(testDir)) {
+          fs.rmSync(testDir, { recursive: true, force: true })
+        }
+      })
+
+      it('should include git identity env vars in devcontainer.json', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'test-agent',
+          agentDir: testDir,
+          gitUserName: 'Test User',
+          gitUserEmail: 'test@example.com',
+        }
+
+        createDevcontainerConfig(options)
+
+        const jsonContent = fs.readFileSync(
+          path.join(testDir, '.devcontainer', 'devcontainer.json'),
+          'utf-8'
+        )
+        const config = JSON.parse(jsonContent)
+        expect(config.containerEnv.PRLT_GIT_USER_NAME).to.equal('Test User')
+        expect(config.containerEnv.PRLT_GIT_USER_EMAIL).to.equal('test@example.com')
+      })
+
+      it('should include git identity configuration in setup-prlt.sh', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'test-agent',
+          agentDir: testDir,
+        }
+
+        createDevcontainerConfig(options)
+
+        const setupScript = fs.readFileSync(
+          path.join(testDir, '.devcontainer', 'setup-prlt.sh'),
+          'utf-8'
+        )
+        expect(setupScript).to.include('configure_git_identity')
+        expect(setupScript).to.include('git config --global user.name')
+        expect(setupScript).to.include('git config --global user.email')
+      })
+    })
+  })
+
+  describe('getGitIdentity', () => {
+    it('should return an object with name and email properties', () => {
+      const identity = getGitIdentity()
+
+      expect(identity).to.have.property('name')
+      expect(identity).to.have.property('email')
+    })
+
+    it('should return string or null for name', () => {
+      const identity = getGitIdentity()
+
+      expect(identity.name === null || typeof identity.name === 'string').to.be.true
+    })
+
+    it('should return string or null for email', () => {
+      const identity = getGitIdentity()
+
+      expect(identity.email === null || typeof identity.email === 'string').to.be.true
     })
   })
 })

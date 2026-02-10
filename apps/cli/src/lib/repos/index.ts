@@ -12,6 +12,7 @@ import {
   Repository
 } from '../database/index.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
+import { getGitIdentity } from '../pr/index.js';
 import { findHQRoot } from '../workspace.js';
 
 export interface RepoToAdd {
@@ -554,10 +555,13 @@ export async function addRepository(
 
     // Create devcontainer config for sandboxed execution in the central repo
     console.log(styles.muted(`Creating devcontainer config for ${repoName}...`));
+    const gitIdentity = getGitIdentity();
     createDevcontainerConfig({
       agentName: repoName,  // Use repo name as identifier
       agentDir: targetPath,
       repoWorktrees: [],    // No nested worktrees - this is the repo itself
+      gitUserName: gitIdentity.name || undefined,
+      gitUserEmail: gitIdentity.email || undefined,
     });
 
     return { success: true, name: repoName };
