@@ -2,8 +2,38 @@
  * MCP Helper Functions
  */
 
+import { z } from 'zod'
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js'
+import type { ServerRequest, ServerNotification } from '@modelcontextprotocol/sdk/types.js'
 import type { Ticket } from '../pmo/types.js'
 import type { McpToolResult } from './types.js'
+
+/**
+ * Register an MCP tool with strict parameter validation.
+ *
+ * Uses z.object().strict() so that unknown/extra parameters are rejected
+ * with a clear error instead of being silently stripped.
+ * See: https://github.com/anthropics/proletariat/issues/366
+ */
+export function strictTool<T extends Record<string, z.ZodType>>(
+  server: McpServer,
+  name: string,
+  description: string,
+  shape: T,
+  handler: (
+    params: { [K in keyof T]: z.infer<T[K]> },
+    extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+  ) => CallToolResult | Promise<CallToolResult>,
+): void {
+  const strictSchema = z.object(shape).strict()
+  server.registerTool(name, {
+    description,
+    inputSchema: strictSchema,
+  }, handler as Parameters<typeof server.registerTool>[2])
+}
+
 
 export function formatTicket(t: Ticket) {
   return {

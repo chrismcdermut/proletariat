@@ -6,10 +6,10 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { BoardView } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
-import { errorResponse } from '../helpers.js'
+import { errorResponse, strictTool } from '../helpers.js'
 
 export function registerViewTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'view_list',
     'List board views for a project',
     { project: z.string().optional() },
@@ -37,7 +37,7 @@ export function registerViewTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'view_create',
     'Create a board view',
     {
@@ -74,7 +74,7 @@ export function registerViewTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'view_delete',
     'Delete a board view',
     { id: z.string().describe('View ID') },

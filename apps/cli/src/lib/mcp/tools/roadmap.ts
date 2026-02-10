@@ -6,10 +6,10 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Roadmap, Project } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
-import { errorResponse } from '../helpers.js'
+import { errorResponse, strictTool } from '../helpers.js'
 
 export function registerRoadmapTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'roadmap_list',
     'List roadmaps',
     {},
@@ -36,7 +36,7 @@ export function registerRoadmapTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'roadmap_create',
     'Create a roadmap',
     {
@@ -63,7 +63,7 @@ export function registerRoadmapTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'roadmap_show',
     'Get roadmap with projects',
     { id: z.string().describe('Roadmap ID') },
@@ -90,7 +90,7 @@ export function registerRoadmapTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'roadmap_add_project',
     'Add project to roadmap',
     {
@@ -113,7 +113,7 @@ export function registerRoadmapTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'roadmap_remove_project',
     'Remove project from roadmap',
     {
@@ -135,7 +135,7 @@ export function registerRoadmapTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  server.tool(
+  strictTool(server,
     'roadmap_delete',
     'Delete a roadmap',
     { id: z.string().describe('Roadmap ID') },

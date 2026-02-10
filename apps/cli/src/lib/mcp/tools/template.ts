@@ -6,10 +6,10 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { TicketTemplate } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
-import { errorResponse } from '../helpers.js'
+import { errorResponse, strictTool } from '../helpers.js'
 
 export function registerTemplateTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'ticket_template_list',
     'List ticket templates',
     { include_builtin: z.boolean().optional() },
@@ -38,7 +38,7 @@ export function registerTemplateTools(server: McpServer, ctx: McpToolContext): v
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_template_show',
     'Get ticket template details',
     { id: z.string().describe('Template ID') },
@@ -58,7 +58,7 @@ export function registerTemplateTools(server: McpServer, ctx: McpToolContext): v
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_template_create',
     'Create a ticket template',
     {
@@ -91,7 +91,7 @@ export function registerTemplateTools(server: McpServer, ctx: McpToolContext): v
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_template_create_from_ticket',
     'Create template from existing ticket',
     {
@@ -118,7 +118,7 @@ export function registerTemplateTools(server: McpServer, ctx: McpToolContext): v
     }
   )
 
-  server.tool(
+  strictTool(server,
     'ticket_template_delete',
     'Delete a ticket template',
     { id: z.string().describe('Template ID') },

@@ -6,10 +6,10 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { WorkflowStatus } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
-import { errorResponse } from '../helpers.js'
+import { errorResponse, strictTool } from '../helpers.js'
 
 export function registerStatusTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'status_list',
     'List statuses in a workflow',
     { workflow_id: z.string().describe('Workflow ID') },
@@ -37,7 +37,7 @@ export function registerStatusTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'status_create',
     'Create a status in a workflow',
     {
@@ -67,7 +67,7 @@ export function registerStatusTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'status_update',
     'Update a status',
     {
@@ -93,7 +93,7 @@ export function registerStatusTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'status_reorder',
     'Reorder a status',
     {
@@ -115,7 +115,7 @@ export function registerStatusTools(server: McpServer, ctx: McpToolContext): voi
     }
   )
 
-  server.tool(
+  strictTool(server,
     'status_delete',
     'Delete a status',
     { id: z.string().describe('Status ID') },

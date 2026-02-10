@@ -6,10 +6,10 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Spec, Ticket } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
-import { errorResponse } from '../helpers.js'
+import { errorResponse, strictTool } from '../helpers.js'
 
 export function registerSpecTools(server: McpServer, ctx: McpToolContext): void {
-  server.tool(
+  strictTool(server,
     'spec_list',
     'List specifications',
     {
@@ -47,7 +47,7 @@ export function registerSpecTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'spec_create',
     'Create a specification',
     {
@@ -82,7 +82,7 @@ export function registerSpecTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'spec_show',
     'Get spec details',
     { id: z.string().describe('Spec ID') },
@@ -102,7 +102,7 @@ export function registerSpecTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'spec_update',
     'Update a spec',
     {
@@ -136,7 +136,7 @@ export function registerSpecTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'spec_delete',
     'Delete a spec',
     { id: z.string().describe('Spec ID') },
@@ -155,7 +155,7 @@ export function registerSpecTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'spec_add_dependency',
     'Add spec dependency',
     {
@@ -177,7 +177,7 @@ export function registerSpecTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'spec_get_dependencies',
     'Get spec dependencies',
     { spec_id: z.string().describe('Spec ID') },
@@ -199,7 +199,7 @@ export function registerSpecTools(server: McpServer, ctx: McpToolContext): void 
     }
   )
 
-  server.tool(
+  strictTool(server,
     'spec_get_tickets',
     'Get tickets linked to a spec',
     {
