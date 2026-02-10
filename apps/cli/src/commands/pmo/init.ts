@@ -131,6 +131,8 @@ export default class PMOInit extends PromptCommand {
     let location: PMOLocation;
     if (flags.location) {
       location = flags.location as PMOLocation;
+    } else if (jsonMode) {
+      location = 'separate';
     } else {
       location = await promptForPMOLocation(hqRoot);
     }
@@ -140,6 +142,8 @@ export default class PMOInit extends PromptCommand {
     let template: string;
     if (flags.template) {
       template = flags.template;
+    } else if (jsonMode) {
+      template = 'kanban';
     } else {
       let storage: SQLiteStorage | undefined;
       if (hqRoot) {
@@ -160,15 +164,22 @@ export default class PMOInit extends PromptCommand {
 
     // Get columns for template
     let columns = getColumnsForTemplate(template);
-    if (template === 'custom') {
+    if (template === 'custom' && !jsonMode) {
       columns = await promptForCustomColumns();
     }
 
     // Get board name using shared prompt (or from flag)
     // Default to {hqname}-kanban pattern
     const hqName = hqRoot ? path.basename(hqRoot).replace(/-hq$/, '') : undefined;
-    const defaultBoardName = hqName ? `${hqName}-kanban` : undefined;
-    const boardName = flags.name || await promptForBoardName(defaultBoardName);
+    const defaultBoardName = hqName ? `${hqName}-kanban` : 'Project Board';
+    let boardName: string;
+    if (flags.name) {
+      boardName = flags.name;
+    } else if (jsonMode) {
+      boardName = defaultBoardName;
+    } else {
+      boardName = await promptForBoardName(defaultBoardName);
+    }
 
     // For standalone PMO (no HQ), we need to create mini-HQ structure first
     const isStandalone = !hqRoot;
