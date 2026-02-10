@@ -38,6 +38,7 @@ tmp/
 # PMO
 .proletariat/
 pmo/projects/*/board.md
+ROADMAP.md
 
 # Scripts - keep in source control but mark as dev tools
 # (none excluded - we want to track these)
