@@ -1,4 +1,5 @@
 import { Flags } from '@oclif/core';
+import * as fs from 'node:fs';
 import inquirer from 'inquirer';
 import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 // Note: inquirer import kept for inquirer.Separator usage in interactive mode
@@ -24,6 +25,8 @@ export default class TicketCreate extends PMOCommand {
     '<%= config.bin %> <%= command.id %> -t "Add feature" -c "In Progress" -p P1',
     '<%= config.bin %> <%= command.id %> --project mobile-app -t "New feature"',
     '<%= config.bin %> <%= command.id %> --epic EPIC-001 -t "Implement auth flow"',
+    '<%= config.bin %> <%= command.id %> --title "My ticket" --description-file ./ticket-desc.md',
+    '<%= config.bin %> <%= command.id %> --title "My ticket" --description-file -  # Read from stdin',
     '<%= config.bin %> <%= command.id %> --json  # Output column choices as JSON',
     '<%= config.bin %> <%= command.id %> --title "Test" -P PROJ-001 --dry-run --json  # Validate without creating',
   ];
@@ -55,6 +58,11 @@ export default class TicketCreate extends PMOCommand {
     description: Flags.string({
       char: 'd',
       description: 'Ticket description',
+    }),
+    'description-file': Flags.string({
+      char: 'D',
+      description: 'Path to a markdown file for the ticket description (use - for stdin)',
+      exclusive: ['description'],
     }),
     id: Flags.string({
       description: 'Custom ticket ID (auto-generated if not provided)',
@@ -109,6 +117,26 @@ export default class TicketCreate extends PMOCommand {
       }
       this.error(message);
     };
+
+    // Read description from file if --description-file is provided
+    if (flags['description-file']) {
+      const filePath = flags['description-file'];
+      try {
+        if (filePath === '-') {
+          // Guard: prevent hanging when no input is piped
+          if (process.stdin.isTTY) {
+            return handleError('DESCRIPTION_FILE_ERROR', 'Cannot read from stdin: no input piped. Use --description-file <path> with a file path instead, or pipe content via: echo "desc" | prlt ticket create --description-file -');
+          }
+          // Read from stdin
+          flags.description = fs.readFileSync(0, 'utf-8');
+        } else {
+          flags.description = fs.readFileSync(filePath, 'utf-8');
+        }
+      } catch (error: unknown) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        return handleError('DESCRIPTION_FILE_ERROR', `Failed to read description file "${filePath}": ${errMsg}`);
+      }
+    }
 
     // Validate epic if provided
     if (flags.epic) {
