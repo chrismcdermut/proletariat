@@ -819,6 +819,43 @@ export interface RoadmapFilter {
   search?: string
 }
 
+export interface AgentProfileFilter {
+  search?: string
+}
+
+// =============================================================================
+// Agent Profile Types
+// =============================================================================
+
+/**
+ * MCP server configuration for agent profiles.
+ * Matches Claude Code's settings.json format.
+ */
+export interface McpServerConfig {
+  name: string
+  command: string
+  args?: string[]
+  env?: Record<string, string>
+}
+
+/**
+ * Agent profile - defines agent behavior configuration.
+ * Profiles configure environment, hooks, prompts, and tool access.
+ * Applied per-execution when spawning agents.
+ */
+export interface AgentProfile {
+  id: string
+  name: string
+  description?: string
+  startHook?: string              // Shell command(s) to run when session begins
+  endHook?: string                // Shell command(s) to run before exit
+  systemPrompt?: string           // Additional context/instructions injected into CLAUDE.md
+  repos?: string[]                // Which repos are accessible (JSON array)
+  mcpServers?: McpServerConfig[]  // MCP server configs (JSON array)
+  createdAt: Date
+  updatedAt: Date
+}
+
 // =============================================================================
 // Result Types
 // =============================================================================
@@ -1008,6 +1045,13 @@ export interface PMOStorage {
   removeProjectFromRoadmap(roadmapId: string, projectId: string): Promise<void>
   reorderRoadmapProject(roadmapId: string, projectId: string, newPosition: number): Promise<RoadmapProject>
   getRoadmapsForProject(projectId: string): Promise<Roadmap[]>
+
+  // Agent Profile Operations
+  listProfiles(filter?: AgentProfileFilter): Promise<AgentProfile[]>
+  getProfile(id: string): Promise<AgentProfile | null>
+  createProfile(profile: Partial<AgentProfile> & { name: string }): Promise<AgentProfile>
+  updateProfile(id: string, changes: Partial<AgentProfile>): Promise<AgentProfile>
+  deleteProfile(id: string): Promise<void>
 
   // Sync Operations
   pull(): Promise<SyncResult>

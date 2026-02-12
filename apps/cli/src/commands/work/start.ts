@@ -214,6 +214,9 @@ export default class WorkStart extends PMOCommand {
       description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
       default: false,
     }),
+    profile: Flags.string({
+      description: 'Agent profile to apply (configures hooks, system prompt, MCP servers)',
+    }),
     yes: Flags.boolean({
       char: 'y',
       description: 'Skip confirmation prompt (for non-TTY/scripted execution)',
@@ -834,6 +837,33 @@ export default class WorkStart extends PMOCommand {
         }
       }
 
+      // Load profile if specified
+      const profileId = flags.profile
+      let profileContext: {
+        profileId?: string
+        profileStartHook?: string
+        profileEndHook?: string
+        profileSystemPrompt?: string
+        profileMcpServers?: Array<{ name: string; command: string; args?: string[]; env?: Record<string, string> }>
+      } = {}
+
+      if (profileId) {
+        const profile = await this.storage.getProfile(profileId)
+        if (!profile) {
+          return handleError('PROFILE_NOT_FOUND', `Profile not found: ${profileId}`)
+        }
+        profileContext = {
+          profileId: profile.id,
+          profileStartHook: profile.startHook,
+          profileEndHook: profile.endHook,
+          profileSystemPrompt: profile.systemPrompt,
+          profileMcpServers: profile.mcpServers,
+        }
+        if (!jsonMode) {
+          this.log(styles.muted(`  Profile: ${profile.name}`))
+        }
+      }
+
       // Build execution context with full ticket details
       // HQ path comes from workspaceInfo (not derived from pmoPath since pmo can be nested in repos)
       const hqPath = workspaceInfo.path
@@ -863,6 +893,8 @@ export default class WorkStart extends PMOCommand {
         actionPrompt: customPrompt || selectedAction?.prompt,
         actionEndPrompt: customPrompt ? undefined : selectedAction?.endPrompt,
         modifiesCode: customPrompt ? true : selectedAction?.modifiesCode ?? true,
+        // Profile context
+        ...profileContext,
       }
 
       // Check if agent has devcontainer config

@@ -223,6 +223,13 @@ function buildPrompt(context: ExecutionContext): string {
     prompt += `## Original Ticket Context\n\n`
   }
 
+  // Profile system prompt (additional agent context from profile)
+  if (context.profileSystemPrompt) {
+    prompt += `# Profile Instructions\n\n`
+    prompt += context.profileSystemPrompt
+    prompt += `\n\n---\n\n`
+  }
+
   // Action instruction (what the agent should do) - START HOOK
   if (context.actionPrompt) {
     prompt += `# Action: ${context.actionName || 'Work'}\n\n`
@@ -363,6 +370,11 @@ export async function runHost(
   const skipPermissions = !config.sandboxed
   const { cmd } = getExecutorCommand(executor, prompt, skipPermissions)
 
+  // Inject profile MCP servers into worktree settings
+  if (context.profileMcpServers && context.profileMcpServers.length > 0) {
+    injectProfileMcpServers(context.worktreePath, context.profileMcpServers)
+  }
+
   // Write command to temp script to avoid shell escaping issues
   // Use HQ .proletariat/scripts if available, otherwise fallback to home dir
   const baseDir = context.hqPath
@@ -384,6 +396,19 @@ export async function runHost(
 
   // Build script that runs claude and keeps shell open after completion
   const setTitleCmds = getSetTitleCommands(windowTitle)
+  const hostStartHook = context.profileStartHook
+    ? `echo "⚙️  Running profile start hook..."
+${context.profileStartHook}
+echo ""
+`
+    : ''
+  const hostEndHook = context.profileEndHook
+    ? `
+echo ""
+echo "⚙️  Running profile end hook..."
+${context.profileEndHook}
+`
+    : ''
   const scriptContent = `#!/bin/bash
 # Auto-generated script for ticket ${context.ticketId}
 SCRIPT_PATH="${scriptPath}"
@@ -392,8 +417,8 @@ ${setTitleCmds}
 echo "🚀 Starting: ${sessionName}"
 echo ""
 cd "${context.worktreePath}"
-${cmd} ${permissionsFlag}${printFlag}"$(cat "$PROMPT_PATH")"
-
+${hostStartHook}${cmd} ${permissionsFlag}${printFlag}"$(cat "$PROMPT_PATH")"
+${hostEndHook}
 # Clean up script and prompt files
 rm -f "$SCRIPT_PATH" "$PROMPT_PATH"
 
@@ -1108,6 +1133,61 @@ function copyClaudeCredentials(agentDir: string): void {
 }
 
 // =============================================================================
+// Profile MCP Server Injection
+// =============================================================================
+
+/**
+ * Inject profile MCP servers into the worktree's Claude settings.
+ * Writes to .claude/settings.local.json in the worktree so Claude Code picks them up.
+ * Merges with existing settings to avoid overwriting user configuration.
+ */
+function injectProfileMcpServers(
+  worktreePath: string,
+  mcpServers: Array<{ name: string; command: string; args?: string[]; env?: Record<string, string> }>
+): void {
+  if (!mcpServers || mcpServers.length === 0) return
+
+  const claudeDir = path.join(worktreePath, '.claude')
+  const settingsPath = path.join(claudeDir, 'settings.local.json')
+
+  try {
+    // Ensure .claude directory exists
+    fs.mkdirSync(claudeDir, { recursive: true })
+
+    // Read existing settings if file exists
+    let settings: Record<string, unknown> = {}
+    if (fs.existsSync(settingsPath)) {
+      try {
+        const content = fs.readFileSync(settingsPath, 'utf-8')
+        settings = JSON.parse(content)
+      } catch {
+        console.debug('[runners:mcp] Failed to parse existing settings.local.json, starting fresh')
+      }
+    }
+
+    // Build MCP servers config
+    const mcpConfig: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> = {}
+    for (const server of mcpServers) {
+      mcpConfig[server.name] = {
+        command: server.command,
+        ...(server.args && server.args.length > 0 ? { args: server.args } : {}),
+        ...(server.env && Object.keys(server.env).length > 0 ? { env: server.env } : {}),
+      }
+    }
+
+    // Merge with existing MCP servers (profile servers take precedence)
+    const existingMcp = (settings.mcpServers || {}) as Record<string, unknown>
+    settings.mcpServers = { ...existingMcp, ...mcpConfig }
+
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), { mode: 0o644 })
+    console.debug(`[runners:mcp] Injected ${mcpServers.length} MCP server(s) into ${settingsPath}`)
+  } catch (error) {
+    console.debug('[runners:mcp] Failed to inject MCP servers:', error)
+    // Non-fatal - agent will work without MCP servers
+  }
+}
+
+// =============================================================================
 // Devcontainer Runner (now uses raw Docker)
 // =============================================================================
 
@@ -1209,8 +1289,15 @@ function buildDevcontainerCommand(
   const bypassTrustFlag = '--permission-mode bypassPermissions '
   const permissionsFlag = !sandboxed ? '--dangerously-skip-permissions ' : ''
 
-  // Build the claude command
-  const claudeCmd = `${cdCmd}${baseCmd} ${bypassTrustFlag}${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}`
+  // Build the claude command with optional profile hooks
+  let claudeCmd = ''
+  if (context.profileStartHook) {
+    claudeCmd += `${context.profileStartHook} && `
+  }
+  claudeCmd += `${cdCmd}${baseCmd} ${bypassTrustFlag}${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}`
+  if (context.profileEndHook) {
+    claudeCmd += ` ; ${context.profileEndHook}`
+  }
 
   // Use docker exec for running commands in the container
   // Use -it flags only for terminal/foreground modes where a TTY is available
@@ -1285,6 +1372,11 @@ export async function runDevcontainer(
         success: false,
         error: 'Failed to start Docker container. Check Docker logs for details.',
       }
+    }
+
+    // Inject profile MCP servers into worktree settings (before prompt file)
+    if (context.profileMcpServers && context.profileMcpServers.length > 0) {
+      injectProfileMcpServers(context.worktreePath, context.profileMcpServers)
     }
 
     // Write prompt to file in worktree (accessible by container)
@@ -1674,13 +1766,27 @@ async function runDevcontainerInTmux(
     // TERM must be set for Claude's TUI to render properly
     // Unset CI to prevent Claude from detecting CI environment which suppresses TUI output
     // Note: We keep DEVCONTAINER set so prlt workspace detection works correctly
+    const startHookBlock = context.profileStartHook
+      ? `echo "⚙️  Running profile start hook..."
+${context.profileStartHook}
+echo ""
+`
+      : ''
+    const endHookBlock = context.profileEndHook
+      ? `
+echo ""
+echo "⚙️  Running profile end hook..."
+${context.profileEndHook}
+`
+      : ''
     const tmuxScript = `#!/bin/bash
 export TERM=xterm-256color
 export COLORTERM=truecolor
 unset CI
 echo "🚀 Starting: ${sessionName}"
 echo ""
-${claudeCmd}
+${startHookBlock}${claudeCmd}
+${endHookBlock}
 echo ""
 echo "✅ Agent work complete. Press Enter to close or run more commands."
 exec bash

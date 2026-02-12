@@ -168,6 +168,12 @@ export interface ExecutionContext {
   // PR feedback context (for work revise)
   prFeedback?: string // Formatted PR feedback markdown
   isRevision?: boolean // Whether this is a revision (addressing PR feedback)
+  // Profile context (agent behavior configuration)
+  profileId?: string              // Profile ID applied to this execution
+  profileStartHook?: string       // Shell command(s) to run when session begins
+  profileEndHook?: string         // Shell command(s) to run before exit
+  profileSystemPrompt?: string    // Additional context/instructions for agent
+  profileMcpServers?: Array<{ name: string; command: string; args?: string[]; env?: Record<string, string> }>
 }
 
 // =============================================================================

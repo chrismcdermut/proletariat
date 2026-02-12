@@ -12,6 +12,8 @@ import Database from 'better-sqlite3'
 import { createDrizzleConnection, DrizzleDB } from '../../database/drizzle.js'
 import {
   AcceptanceCriterion,
+  AgentProfile,
+  AgentProfileFilter,
   Board,
   BoardConfig,
   BoardView,
@@ -81,6 +83,7 @@ import { ActionStorage } from './actions.js'
 import { ViewStorage } from './views.js'
 import { RoadmapStorage } from './roadmaps.js'
 import { CategoryStorage } from './categories.js'
+import { ProfileStorage } from './profiles.js'
 
 const T = PMO_TABLES
 
@@ -105,6 +108,7 @@ export class SQLiteStorage implements PMOStorage {
   private viewStorage: ViewStorage
   private roadmapStorage: RoadmapStorage
   private categoryStorage: CategoryStorage
+  private profileStorage: ProfileStorage
 
   constructor(dbPath: string) {
     this.dbPath = dbPath
@@ -139,6 +143,7 @@ export class SQLiteStorage implements PMOStorage {
     this.viewStorage = new ViewStorage(ctx)
     this.roadmapStorage = new RoadmapStorage(ctx)
     this.categoryStorage = new CategoryStorage(ctx)
+    this.profileStorage = new ProfileStorage(ctx)
 
     // Ensure PMO tables exist
     this.ensurePMOTables()
@@ -711,6 +716,30 @@ export class SQLiteStorage implements PMOStorage {
 
   async getSuggestedAction(category: StateCategory): Promise<WorkAction | null> {
     return this.actionStorage.getSuggestedAction(category)
+  }
+
+  // ===========================================================================
+  // Agent Profile Operations
+  // ===========================================================================
+
+  async listProfiles(filter?: AgentProfileFilter): Promise<AgentProfile[]> {
+    return this.profileStorage.listProfiles(filter)
+  }
+
+  async getProfile(id: string): Promise<AgentProfile | null> {
+    return this.profileStorage.getProfile(id)
+  }
+
+  async createProfile(profile: Partial<AgentProfile> & { name: string }): Promise<AgentProfile> {
+    return this.profileStorage.createProfile(profile)
+  }
+
+  async updateProfile(id: string, changes: Partial<AgentProfile>): Promise<AgentProfile> {
+    return this.profileStorage.updateProfile(id, changes)
+  }
+
+  async deleteProfile(id: string): Promise<void> {
+    return this.profileStorage.deleteProfile(id)
   }
 
   // ===========================================================================

@@ -192,6 +192,19 @@ export interface WorkActionRow {
   created_at: string
 }
 
+export interface AgentProfileRow {
+  id: string
+  name: string
+  description: string | null
+  start_hook: string | null
+  end_hook: string | null
+  system_prompt: string | null
+  repos_json: string | null
+  mcp_servers_json: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface BoardViewRow {
   id: string
   project_id: string

@@ -135,6 +135,9 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
       default: false,
     }),
+    profile: Flags.string({
+      description: 'Agent profile to apply (configures hooks, system prompt, MCP servers)',
+    }),
   }
 
   async execute(): Promise<void> {
@@ -1139,6 +1142,9 @@ export default class WorkSpawn extends PMOCommand {
 
           // Pass clone flag if specified
           if (flags.clone) startArgs.push('--clone')
+
+          // Pass profile flag if specified
+          if (flags.profile) startArgs.push('--profile', flags.profile)
 
           // In JSON mode with --yes, pass --yes to work:start to skip prompts there too
           if (jsonMode && flags.yes) {

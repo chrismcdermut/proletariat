@@ -521,6 +521,22 @@ export const pmoActions = sqliteTable('pmo_actions', {
 })
 
 /**
+ * Agent profiles (config-based agent behavior)
+ */
+export const pmoAgentProfiles = sqliteTable('pmo_agent_profiles', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  description: text('description'),
+  startHook: text('start_hook'),
+  endHook: text('end_hook'),
+  systemPrompt: text('system_prompt'),
+  reposJson: text('repos_json'),
+  mcpServersJson: text('mcp_servers_json'),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`),
+})
+
+/**
  * Ticket templates
  */
 export const pmoTicketTemplates = sqliteTable('pmo_ticket_templates', {
@@ -804,6 +820,9 @@ export type NewDbPmoPhase = typeof pmoPhases.$inferInsert
 
 export type DbPmoAction = typeof pmoActions.$inferSelect
 export type NewDbPmoAction = typeof pmoActions.$inferInsert
+
+export type DbPmoAgentProfile = typeof pmoAgentProfiles.$inferSelect
+export type NewDbPmoAgentProfile = typeof pmoAgentProfiles.$inferInsert
 
 export type DbPmoTicketTemplate = typeof pmoTicketTemplates.$inferSelect
 export type NewDbPmoTicketTemplate = typeof pmoTicketTemplates.$inferInsert
