@@ -160,6 +160,9 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       // Git identity for commit attribution (detected from host's gh/git config)
       ...(options.gitUserName ? { PRLT_GIT_USER_NAME: options.gitUserName } : {}),
       ...(options.gitUserEmail ? { PRLT_GIT_USER_EMAIL: options.gitUserEmail } : {}),
+      // prlt channel info for version updates at container startup (TKT-954)
+      PRLT_REGISTRY: channel.registry,
+      ...(!useMount ? { PRLT_VERSION: channel.version || 'latest' } : {}),
       // /hq/.proletariat/bin contains prlt wrapper with ESM loader for native modules
       PATH: '/hq/.proletariat/bin:/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin',
     },
@@ -571,11 +574,30 @@ configure_git_identity() {
 
 configure_git_identity
 
-# Check if prlt is already installed globally (via npm from GitHub Packages)
+# Check if prlt is already installed globally (via npm)
+# TKT-954: Also check for updates - Docker layer caching may have installed an older version
 if command -v prlt &> /dev/null; then
     PRLT_PATH=$(which prlt)
     if [[ "$PRLT_PATH" == "/home/node/.npm-global/bin/prlt" ]]; then
-        echo "prlt installed via npm, no setup needed"
+        DESIRED_VERSION="\${PRLT_VERSION:-latest}"
+        CURRENT_VERSION=$(prlt --version 2>/dev/null | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' || echo "unknown")
+
+        # Determine the target version to compare against
+        if [ "$DESIRED_VERSION" = "latest" ] || [ "$DESIRED_VERSION" = "dev" ] || [ "$DESIRED_VERSION" = "next" ]; then
+            # For tags, check npm registry for the actual version number
+            TARGET_VERSION=$(npm view "@proletariat/cli@\${DESIRED_VERSION}" version 2>/dev/null || echo "unknown")
+        else
+            # For pinned versions (e.g., "1.2.3"), use directly
+            TARGET_VERSION="$DESIRED_VERSION"
+        fi
+
+        if [ "$TARGET_VERSION" != "unknown" ] && [ "$CURRENT_VERSION" != "$TARGET_VERSION" ]; then
+            echo "Updating prlt from v\${CURRENT_VERSION} to v\${TARGET_VERSION} (channel: \${DESIRED_VERSION})..."
+            npm install -g "@proletariat/cli@\${DESIRED_VERSION}" 2>&1
+            echo "prlt updated successfully"
+        else
+            echo "prlt v\${CURRENT_VERSION} is up to date"
+        fi
         exit 0
     fi
 fi
