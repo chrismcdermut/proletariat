@@ -878,22 +878,10 @@ export default class WorkStart extends PMOCommand {
 
       if (hasDevcontainer && !flags.display && !flags['run-on-host']) {
         // Agent has devcontainer - prompt for environment choice
-        // Check devcontainer prerequisites upfront
-        const dockerRunning = isDockerRunning()
-        const devcontainerCliInstalled = isDevcontainerCliInstalled()
-        const devcontainerReady = dockerRunning && devcontainerCliInstalled
-
-        // Build missing requirements message for devcontainer option
-        let devcontainerLabel = '🐳 devcontainer (sandboxed, recommended)'
-        if (!devcontainerReady) {
-          const missing: string[] = []
-          if (!dockerRunning) missing.push('Docker')
-          if (!devcontainerCliInstalled) missing.push('devcontainer CLI')
-          devcontainerLabel = `🐳 devcontainer (requires: ${missing.join(', ')})`
-        }
+        const devcontainerLabel = '🐳 devcontainer (sandboxed, recommended)'
 
         const envChoices = [
-          { name: devcontainerLabel, value: 'devcontainer', disabled: !devcontainerReady },
+          { name: devcontainerLabel, value: 'devcontainer' },
           { name: '💻 host (runs directly on your machine)', value: 'host' },
           { name: '✗  cancel', value: 'cancel' },
         ]
@@ -911,7 +899,7 @@ export default class WorkStart extends PMOCommand {
             flagName: 'selectedEnvironment',
             type: 'list',
             message: 'Where should the agent run?',
-            default: devcontainerReady ? 'devcontainer' : 'host',
+            default: 'devcontainer',
             choices: () => envChoices,
           })
 
@@ -931,7 +919,7 @@ export default class WorkStart extends PMOCommand {
               name: 'selectedEnvironment',
               message: 'Where should the agent run?',
               choices: envChoices,
-              default: devcontainerReady ? 'devcontainer' : 'host',
+              default: 'devcontainer',
             },
           ], jsonModeConfig)
 
@@ -942,14 +930,10 @@ export default class WorkStart extends PMOCommand {
           }
 
           if (selectedEnvironment === 'devcontainer') {
-            // Double-check prerequisites (in case user retried after starting Docker)
+            // Dynamically check Docker when selected (user may have started it)
             if (!isDockerRunning()) {
               this.log('')
-              this.warn(
-                'Docker is not running.\n' +
-                'Docker is required for devcontainer execution.\n' +
-                'Please start Docker Desktop or select "host" to run directly on your machine.'
-              )
+              this.warn('Docker is not running. Please start Docker and try again.')
               this.log('')
               continue  // Re-prompt for environment selection
             }
