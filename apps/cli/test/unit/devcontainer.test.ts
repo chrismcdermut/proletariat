@@ -149,11 +149,11 @@ describe('Devcontainer', () => {
       ...overrides,
     })
 
-    it('should use node:20 base image', () => {
+    it('should use node:22 base image', () => {
       const options = makeOptions()
       const result = generateDockerfile(options)
 
-      expect(result).to.include('FROM node:20')
+      expect(result).to.include('FROM node:22')
     })
 
     it('should set DEVCONTAINER env var', () => {
