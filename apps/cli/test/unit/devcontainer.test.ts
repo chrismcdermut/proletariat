@@ -140,6 +140,34 @@ describe('Devcontainer', () => {
       expect(result.capAdd).to.include('NET_ADMIN')
       expect(result.capAdd).to.include('NET_RAW')
     })
+
+    it('should include PRLT_REGISTRY in containerEnv (TKT-954)', () => {
+      const options = makeOptions()
+      const result = generateDevcontainerJson(options)
+
+      expect(result.containerEnv).to.have.property('PRLT_REGISTRY', 'npm')
+    })
+
+    it('should include PRLT_VERSION in containerEnv for npm channel (TKT-954)', () => {
+      const options = makeOptions()
+      const result = generateDevcontainerJson(options)
+
+      expect(result.containerEnv).to.have.property('PRLT_VERSION', 'latest')
+    })
+
+    it('should include specific PRLT_VERSION when channel specifies a version (TKT-954)', () => {
+      const options = makeOptions({ prltChannel: 'npm:1.2.3' })
+      const result = generateDevcontainerJson(options)
+
+      expect(result.containerEnv).to.have.property('PRLT_VERSION', '1.2.3')
+    })
+
+    it('should not include PRLT_VERSION for mount channel (TKT-954)', () => {
+      const options = makeOptions({ prltChannel: 'mount' })
+      const result = generateDevcontainerJson(options)
+
+      expect(result.containerEnv).to.not.have.property('PRLT_VERSION')
+    })
   })
 
   describe('generateDockerfile', () => {
@@ -481,6 +509,37 @@ describe('Devcontainer', () => {
 
         expect(script).to.include('/usr/bin/git -C "$repo_dir" config user.name')
         expect(script).to.include('/usr/bin/git -C "$repo_dir" config user.email')
+      })
+
+      it('should check for prlt version updates at startup (TKT-954)', () => {
+        const script = generatePrltSetupScript()
+
+        expect(script).to.include('PRLT_VERSION')
+        expect(script).to.include('npm view "@proletariat/cli@')
+        expect(script).to.include('npm install -g "@proletariat/cli@')
+      })
+
+      it('should compare installed version with target version (TKT-954)', () => {
+        const script = generatePrltSetupScript()
+
+        expect(script).to.include('CURRENT_VERSION')
+        expect(script).to.include('TARGET_VERSION')
+        expect(script).to.include('Updating prlt from')
+      })
+
+      it('should handle pinned versions in update check (TKT-954)', () => {
+        const script = generatePrltSetupScript()
+
+        // Should handle both tag-based (latest/dev/next) and pinned versions
+        expect(script).to.include('"$DESIRED_VERSION" = "latest"')
+        expect(script).to.include('"$DESIRED_VERSION" = "dev"')
+        expect(script).to.include('TARGET_VERSION="$DESIRED_VERSION"')
+      })
+
+      it('should log up-to-date message when no update needed (TKT-954)', () => {
+        const script = generatePrltSetupScript()
+
+        expect(script).to.include('is up to date')
       })
     })
 
