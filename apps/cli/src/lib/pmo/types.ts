@@ -128,6 +128,7 @@ export const TICKET_CATEGORIES = [
   'security',
   'database',
   'release',
+  'adhoc',
 ] as const
 
 export type TicketCategory = typeof TICKET_CATEGORIES[number]
