@@ -178,7 +178,7 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
 export function generateDockerfile(options: DevcontainerOptions): string {
   const timezone = options.timezone || 'America/Los_Angeles'
 
-  return `FROM node:20
+  return `FROM node:22
 
 # Ensure we run as root for apt-get and system setup
 USER root
