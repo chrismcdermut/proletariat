@@ -190,16 +190,32 @@ export default class Shell extends PMOCommand {
     // Interactive mode: Prompt for environment
     let environment: 'devcontainer' | 'host' = 'host';
     if (hasDevcontainer) {
-      const { selectedEnvironment } = await this.prompt<{ selectedEnvironment: 'devcontainer' | 'host' }>([{
-        type: 'list',
-        name: 'selectedEnvironment',
-        message: 'Where should the shell run?',
-        choices: [
-          { name: '🐳 devcontainer (recommended)', value: 'devcontainer', command: '' },
-          { name: '💻 host (agent worktree on your machine)', value: 'host', command: '' },
-        ],
-      }], null);
-      environment = selectedEnvironment;
+      let environmentSelected = false;
+      while (!environmentSelected) {
+        // eslint-disable-next-line no-await-in-loop -- Interactive loop with retry on Docker check
+        const { selectedEnvironment } = await this.prompt<{ selectedEnvironment: 'devcontainer' | 'host' }>([{
+          type: 'list',
+          name: 'selectedEnvironment',
+          message: 'Where should the shell run?',
+          choices: [
+            { name: '🐳 devcontainer (recommended)', value: 'devcontainer', command: '' },
+            { name: '💻 host (agent worktree on your machine)', value: 'host', command: '' },
+          ],
+        }], null);
+
+        if (selectedEnvironment === 'devcontainer') {
+          // Dynamically check Docker when selected (user may have started it)
+          if (!isDockerRunning()) {
+            this.log('');
+            this.warn('Docker is not running. Please start Docker and try again.');
+            this.log('');
+            continue;
+          }
+        }
+
+        environment = selectedEnvironment;
+        environmentSelected = true;
+      }
     }
 
     // Interactive mode: Prompt for display mode

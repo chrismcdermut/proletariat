@@ -193,51 +193,76 @@ export default class WorkWatch extends PMOCommand {
         return hasDevcontainerConfig(agentDir)
       })
 
-      // Docker check
-      const dockerRunning = isDockerRunning()
-      if (hasDevcontainer && !dockerRunning) {
-        this.warn(
-          'Docker is not running. Agents will run on host instead of devcontainer.\n' +
-          'Start Docker Desktop for sandboxed execution.'
-        )
-      }
-
-      // Devcontainer CLI check
-      const devcontainerCliInstalled = isDevcontainerCliInstalled()
-      if (hasDevcontainer && dockerRunning && !devcontainerCliInstalled) {
-        this.warn(
-          'devcontainer CLI is not installed. Agents will run on host instead of devcontainer.\n' +
-          'Install with: npm install -g @devcontainers/cli'
-        )
-      }
-
       // Prompt for environment and display mode if not provided
       this.environment = 'host'
       this.displayMode = 'terminal'
 
       if (!flags.mode) {
-        if (hasDevcontainer && dockerRunning && devcontainerCliInstalled) {
-          // Use FlagResolver for environment selection
-          const envResolver = new FlagResolver<{ selectedEnvironment?: string }>({
-            commandName: 'work watch',
-            baseCommand: 'prlt work watch',
-            jsonMode,
-            flags: {},
-          })
+        if (hasDevcontainer) {
+          const envChoices = [
+            { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
+            { name: '💻 host (runs directly on your machine)', value: 'host' },
+          ]
 
-          envResolver.addPrompt({
-            flagName: 'selectedEnvironment',
-            type: 'list',
-            message: 'Where should agents run?',
-            default: 'devcontainer',
-            choices: () => [
-              { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
-              { name: '💻 host (runs directly on your machine)', value: 'host' },
-            ],
-          })
+          if (jsonMode) {
+            // In JSON mode, use FlagResolver (outputs prompt and exits)
+            const envResolver = new FlagResolver<{ selectedEnvironment?: string }>({
+              commandName: 'work watch',
+              baseCommand: 'prlt work watch',
+              jsonMode,
+              flags: {},
+            })
 
-          const envResult = await envResolver.resolve()
-          this.environment = envResult.selectedEnvironment as ExecutionEnvironment
+            envResolver.addPrompt({
+              flagName: 'selectedEnvironment',
+              type: 'list',
+              message: 'Where should agents run?',
+              default: 'devcontainer',
+              choices: () => envChoices,
+            })
+
+            await envResolver.resolve()
+            return // unreachable, but satisfies TypeScript
+          }
+
+          // Interactive mode: loop to handle Docker not running
+          let environmentSelected = false
+          while (!environmentSelected) {
+            // eslint-disable-next-line no-await-in-loop -- Interactive loop with retry on Docker check
+            const { selectedEnvironment } = await this.prompt<{ selectedEnvironment: string }>([
+              {
+                type: 'list',
+                name: 'selectedEnvironment',
+                message: 'Where should agents run?',
+                choices: envChoices,
+                default: 'devcontainer',
+              },
+            ], null)
+
+            if (selectedEnvironment === 'devcontainer') {
+              // Dynamically check Docker when selected (user may have started it)
+              if (!isDockerRunning()) {
+                this.log('')
+                this.warn('Docker is not running. Please start Docker and try again.')
+                this.log('')
+                continue
+              }
+
+              if (!isDevcontainerCliInstalled()) {
+                this.log('')
+                this.warn(
+                  'devcontainer CLI is not installed.\n' +
+                  'Install with: npm install -g @devcontainers/cli\n' +
+                  'Or select "host" to run directly on your machine.'
+                )
+                this.log('')
+                continue
+              }
+            }
+
+            this.environment = selectedEnvironment as ExecutionEnvironment
+            environmentSelected = true
+          }
         }
 
         // Use FlagResolver for display mode
@@ -263,7 +288,7 @@ export default class WorkWatch extends PMOCommand {
         this.displayMode = displayResult.selectedDisplay as DisplayMode
       } else {
         this.displayMode = flags.mode as DisplayMode
-        this.environment = hasDevcontainer && dockerRunning ? 'devcontainer' : 'host'
+        this.environment = hasDevcontainer && isDockerRunning() ? 'devcontainer' : 'host'
       }
 
       // Prompt for execution settings (terminal, output mode, permissions, PR creation)
