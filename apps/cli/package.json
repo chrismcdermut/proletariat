@@ -64,7 +64,7 @@
     "./oclif.manifest.json",
     "README.md"
   ],
-  "homepage": "https://github.com/chrismcdermut/proletariat",
+  "homepage": "https://proletariat.ai/",
   "keywords": [
     "cli",
     "multi-agent",
