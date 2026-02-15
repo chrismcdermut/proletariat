@@ -1,6 +1,7 @@
 import { Args, Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
-import { PRIORITIES, PRIORITY_LABELS, TICKET_CATEGORIES } from '../../lib/pmo/types.js';
+import { TICKET_CATEGORIES } from '../../lib/pmo/types.js';
+import { getWorkspacePriorities } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
@@ -52,8 +53,7 @@ export default class TemplateCreate extends PMOCommand {
     }),
     priority: Flags.string({
       char: 'p',
-      description: 'Default priority (ticket only)',
-      options: [...PRIORITIES],
+      description: 'Default priority (ticket only, uses workspace priority scale)',
     }),
     category: Flags.string({
       char: 'c',
@@ -131,6 +131,8 @@ export default class TemplateCreate extends PMOCommand {
     // Check if we have required data
     if (!name) {
       if (jsonMode) {
+        const db = this.storage.getDatabase();
+        const workspacePriorities = getWorkspacePriorities(db);
         const fields: FormField[] = [
           { type: 'input', name: 'name', message: 'Template name:' },
           { type: 'input', name: 'description', message: 'Description (optional):' },
@@ -140,7 +142,7 @@ export default class TemplateCreate extends PMOCommand {
             message: 'Default priority:',
             choices: [
               { name: 'None', value: '' },
-              ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p })),
+              ...workspacePriorities.map(p => ({ name: p, value: p })),
             ],
           },
           {
@@ -186,13 +188,15 @@ export default class TemplateCreate extends PMOCommand {
     }
 
     if (!jsonMode && priority === undefined) {
+      const db = this.storage.getDatabase();
+      const workspacePriorities = getWorkspacePriorities(db);
       const { p } = await this.prompt<{ p: string }>([{
         type: 'list',
         name: 'p',
         message: 'Default priority:',
         choices: [
           { name: 'None', value: '' },
-          ...PRIORITIES.map(pr => ({ name: PRIORITY_LABELS[pr], value: pr })),
+          ...workspacePriorities.map(pr => ({ name: pr, value: pr })),
         ],
       }], null);
       priority = p || undefined;

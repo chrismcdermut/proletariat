@@ -1,6 +1,6 @@
 import { Flags, Args } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
-import { PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types.js';
+import { getWorkspacePriorities } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
@@ -48,8 +48,7 @@ export default class TemplateApply extends PMOCommand {
     }),
     priority: Flags.string({
       char: 'p',
-      description: 'Priority override (ticket only)',
-      options: [...PRIORITIES],
+      description: 'Priority override (ticket only, uses workspace priority scale)',
     }),
     category: Flags.string({
       description: 'Category override (ticket only)',
@@ -181,10 +180,12 @@ export default class TemplateApply extends PMOCommand {
 
     // Interactive mode
     if (flags.interactive || !title) {
+      const db = this.storage.getDatabase();
+      const workspacePriorities = getWorkspacePriorities(db);
       const fields: FormField[] = [
         { type: 'input', name: 'title', message: 'Title:', default: title || undefined },
         { type: 'list', name: 'column', message: 'Column:', choices: columns.map(c => ({ name: c, value: c })), default: column },
-        { type: 'list', name: 'priority', message: 'Priority:', choices: [{ name: 'None', value: '' }, ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p }))], default: priority },
+        { type: 'list', name: 'priority', message: 'Priority:', choices: [{ name: 'None', value: '' }, ...workspacePriorities.map(p => ({ name: p, value: p }))], default: priority },
       ];
 
       if (jsonMode) {
