@@ -78,19 +78,25 @@ export type TicketStatus = string
 // =============================================================================
 
 /**
- * Standardized priority values: P0 (critical) through P3 (low).
+ * Priority is now a string to support user-defined priority scales.
+ * The workspace's priority scale is stored in pmo_settings.
+ * Use getWorkspacePriorities() from utils.ts to get the current scale.
  */
-export type Priority = 'P0' | 'P1' | 'P2' | 'P3'
+export type Priority = string
 
 /**
- * Valid priority values as a const array for validation and CLI options.
+ * Default priority values as a const array.
+ * @deprecated Use getWorkspacePriorities() from utils.ts instead for runtime priority resolution.
+ * This constant is kept for backwards compatibility and as the default when no workspace scale is set.
  */
-export const PRIORITIES: readonly Priority[] = ['P0', 'P1', 'P2', 'P3'] as const
+export const PRIORITIES: readonly string[] = ['P0', 'P1', 'P2', 'P3'] as const
 
 /**
- * Priority display names for UI presentation.
+ * Default priority display names for UI presentation.
+ * @deprecated Priority labels are derived from the workspace priority scale.
+ * For user-defined priorities, the label IS the priority value.
  */
-export const PRIORITY_LABELS: Record<Priority, string> = {
+export const PRIORITY_LABELS: Record<string, string> = {
   P0: 'P0 - Critical',
   P1: 'P1 - High',
   P2: 'P2 - Medium',

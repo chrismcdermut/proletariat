@@ -269,3 +269,88 @@ export function arraysEqual<T>(a: T[], b: T[]): boolean {
   return sortedA.every((val, idx) => val === sortedB[idx])
 }
 
+// =============================================================================
+// Workspace Priority Settings
+// =============================================================================
+
+/**
+ * Default priority scale (backwards compatible with hardcoded P0-P3).
+ */
+export const DEFAULT_PRIORITIES = ['P0', 'P1', 'P2', 'P3'] as const
+
+/**
+ * Settings key for storing workspace priorities.
+ */
+const PRIORITIES_SETTING_KEY = 'priorities'
+
+/**
+ * Get the workspace priority scale from pmo_settings.
+ * Returns the user-defined priority scale, or DEFAULT_PRIORITIES if not set.
+ *
+ * Priority values are ordered strings - position in array determines sort order.
+ * Index 0 is highest priority.
+ *
+ * @param db - Database instance
+ * @returns Array of priority strings ordered from highest to lowest
+ */
+export function getWorkspacePriorities(db: DatabaseLike): string[] {
+  const row = db.prepare(
+    `SELECT value FROM pmo_settings WHERE key = ?`
+  ).get(PRIORITIES_SETTING_KEY) as { value: string } | undefined
+
+  if (!row) return [...DEFAULT_PRIORITIES]
+
+  try {
+    const parsed = JSON.parse(row.value)
+    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((p: unknown) => typeof p === 'string')) {
+      return parsed
+    }
+    return [...DEFAULT_PRIORITIES]
+  } catch {
+    return [...DEFAULT_PRIORITIES]
+  }
+}
+
+/**
+ * Set the workspace priority scale in pmo_settings.
+ *
+ * @param db - Database instance
+ * @param priorities - Array of priority strings ordered from highest to lowest
+ */
+export function setWorkspacePriorities(db: DatabaseLike, priorities: string[]): void {
+  const value = JSON.stringify(priorities)
+
+  db.prepare(`
+    INSERT INTO pmo_settings (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = ?
+  `).run(PRIORITIES_SETTING_KEY, value, value)
+}
+
+/**
+ * Check if a value is a valid priority for the workspace.
+ *
+ * @param db - Database instance
+ * @param value - Value to check
+ * @returns true if the value is in the workspace priority scale
+ */
+export function isValidWorkspacePriority(db: DatabaseLike, value: string): boolean {
+  const priorities = getWorkspacePriorities(db)
+  return priorities.includes(value)
+}
+
+/**
+ * Get the sort index for a priority value.
+ * Returns the position in the priority array (0 = highest priority).
+ * Returns Infinity for unknown priorities (sorts last).
+ *
+ * @param db - Database instance
+ * @param value - Priority value
+ * @returns Sort index (lower = higher priority)
+ */
+export function getPrioritySortIndex(db: DatabaseLike, value: string | undefined | null): number {
+  if (!value) return Infinity
+  const priorities = getWorkspacePriorities(db)
+  const index = priorities.indexOf(value)
+  return index >= 0 ? index : Infinity
+}
+
