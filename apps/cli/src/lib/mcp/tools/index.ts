@@ -16,6 +16,7 @@ export { registerRoadmapTools } from './roadmap.js'
 export { registerCategoryTools } from './category.js'
 export { registerTemplateTools } from './template.js'
 export { registerViewTools } from './view.js'
+export { registerDietTools } from './diet.js'
 
 // CLI passthrough tools
 export {
