@@ -1,0 +1,72 @@
+/**
+ * Custom CSS for prlt documentation
+ */
+
+/* Red/revolutionary color scheme */
+:root {
+  --ifm-color-primary: #c41e3a;
+  --ifm-color-primary-dark: #b01b34;
+  --ifm-color-primary-darker: #a61a32;
+  --ifm-color-primary-darkest: #891529;
+  --ifm-color-primary-light: #d82140;
+  --ifm-color-primary-lighter: #da2d4a;
+  --ifm-color-primary-lightest: #e04d65;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+/* Dark mode */
+[data-theme='dark'] {
+  --ifm-color-primary: #ff4d4d;
+  --ifm-color-primary-dark: #ff3333;
+  --ifm-color-primary-darker: #ff2626;
+  --ifm-color-primary-darkest: #f20000;
+  --ifm-color-primary-light: #ff6666;
+  --ifm-color-primary-lighter: #ff7373;
+  --ifm-color-primary-lightest: #ff9999;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
+
+/* Code blocks */
+.prism-code {
+  font-size: 14px;
+}
+
+/* Tables */
+table {
+  display: table;
+  width: 100%;
+}
+
+/* Sticky header — always visible on scroll (mobile + desktop) */
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--ifm-z-index-fixed);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: box-shadow 0.2s ease;
+}
+
+.navbar--fixed-top {
+  position: sticky;
+}
+
+/* Add shadow when the page has been scrolled */
+.navbar:not(.navbar-sidebar--show) {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme='dark'] .navbar:not(.navbar-sidebar--show) {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Navbar tweaks */
+.navbar__title {
+  font-weight: bold;
+}
+
+/* Footer */
+.footer--dark {
+  background-color: #1a1a1a;
+}
