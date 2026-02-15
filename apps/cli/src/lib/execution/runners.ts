@@ -1003,12 +1003,12 @@ function runContainerSetup(containerId: string, sandboxed: boolean = true): bool
     const tips = settings.tipsHistory as Record<string, number>
     tips['new-user-warmup'] = tips['new-user-warmup'] || 1
 
-    // Base64 encode to avoid shell escaping issues
-    const base64Content = Buffer.from(JSON.stringify(settings)).toString('base64')
-    // Write to container at /home/node/.claude.json
+    // Pipe settings via stdin to avoid ARG_MAX limits with large .claude.json files
+    const settingsJson = JSON.stringify(settings)
+    // Write to container at /home/node/.claude.json using stdin piping
     execSync(
-      `docker exec ${containerId} bash -c 'echo "${base64Content}" | base64 -d > /home/node/.claude.json'`,
-      { stdio: 'pipe' }
+      `docker exec -i ${containerId} bash -c 'cat > /home/node/.claude.json'`,
+      { input: settingsJson, stdio: ['pipe', 'pipe', 'pipe'] }
     )
     console.debug(`[runners:docker] Copied .claude.json settings to container (bypassPermissionsModeAccepted=${!sandboxed})`)
   } catch (error) {
@@ -1685,7 +1685,6 @@ echo ""
 echo "✅ Agent work complete. Press Enter to close or run more commands."
 exec bash
 `
-    const base64Script = Buffer.from(tmuxScript).toString('base64')
     const scriptPath = `/tmp/prlt-${sessionName}.sh`
 
     // Write script and start tmux session inside container
@@ -1698,10 +1697,12 @@ exec bash
     // set-titles on + set-titles-string: makes tmux set terminal title to window name
     const mouseOption = buildTmuxMouseOption(useControlMode)
 
-    // Step 1: Write the script to the container
-    const writeScriptCmd = `echo ${base64Script} | base64 -d > ${scriptPath} && chmod +x ${scriptPath}`
+    // Step 1: Write the script to the container via stdin piping to avoid ARG_MAX limits
     try {
-      execSync(`docker exec ${actualContainerId} bash -c '${writeScriptCmd}'`, { stdio: 'pipe' })
+      execSync(`docker exec -i ${actualContainerId} bash -c 'cat > ${scriptPath} && chmod +x ${scriptPath}'`, {
+        input: tmuxScript,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
     } catch (error) {
       return {
         success: false,
