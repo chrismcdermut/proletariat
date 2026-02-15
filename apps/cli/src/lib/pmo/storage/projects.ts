@@ -250,7 +250,7 @@ export class ProjectStorage {
 
   /**
    * Get tickets for a status (column).
-   * Tickets are sorted by priority (P0 first) then created_at (oldest first).
+   * Tickets are sorted by position (force-ranked) then created_at as tiebreaker.
    */
   private async getTicketsForStatus(statusId: string, projectId: string) {
     const ticketRows = this.ctx.db.prepare(`
@@ -260,15 +260,7 @@ export class ProjectStorage {
       FROM ${T.tickets} t
       LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
       WHERE t.status_id = ? AND t.project_id = ?
-      ORDER BY
-        CASE t.priority
-          WHEN 'P0' THEN 0
-          WHEN 'P1' THEN 1
-          WHEN 'P2' THEN 2
-          WHEN 'P3' THEN 3
-          ELSE 4
-        END,
-        t.created_at ASC
+      ORDER BY t.position ASC, t.created_at ASC
     `).all(statusId, projectId) as TicketRow[]
 
     return Promise.all(ticketRows.map((row) => rowToTicket(this.ctx.db, row)))

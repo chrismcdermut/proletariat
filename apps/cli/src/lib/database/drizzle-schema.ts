@@ -306,6 +306,7 @@ export const pmoTickets = sqliteTable('pmo_tickets', {
   specId: text('spec_id'),
   epicId: text('epic_id'),
   labels: text('labels').notNull().default('[]'),
+  position: integer('position').notNull().default(0),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`),
   lastSyncedFromSpec: text('last_synced_from_spec'),
@@ -320,6 +321,7 @@ export const pmoTickets = sqliteTable('pmo_tickets', {
   idxPriority: index('idx_pmo_tickets_priority').on(table.priority),
   idxCategory: index('idx_pmo_tickets_category').on(table.category),
   idxStatusId: index('idx_pmo_tickets_status_id').on(table.statusId),
+  idxStatusPosition: index('idx_pmo_tickets_status_position').on(table.statusId, table.position),
 }))
 
 /**

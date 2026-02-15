@@ -48,6 +48,7 @@ export function formatTicket(t: Ticket) {
     owner: t.owner,
     branch: t.branch,
     epicId: t.epicId,
+    position: t.position,
   }
 }
 

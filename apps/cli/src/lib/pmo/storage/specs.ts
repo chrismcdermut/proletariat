@@ -286,20 +286,12 @@ export class SpecStorage {
     const rows = this.ctx.db.prepare(`
       SELECT t.*,
              ws.id as column_id,
-             ws.position as position,
+             t.position as position,
              ws.name as column_name
       FROM ${T.tickets} t
       LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
       WHERE t.project_id = ? AND t.spec_id = ?
-      ORDER BY ws.position,
-        CASE t.priority
-          WHEN 'P0' THEN 0
-          WHEN 'P1' THEN 1
-          WHEN 'P2' THEN 2
-          WHEN 'P3' THEN 3
-          ELSE 4
-        END,
-        t.created_at ASC
+      ORDER BY ws.position, t.position ASC, t.created_at ASC
     `).all(projectId, specId) as TicketRow[]
 
     return Promise.all(rows.map((row) => rowToTicket(this.ctx.db, row)))

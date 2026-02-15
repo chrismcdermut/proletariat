@@ -119,7 +119,7 @@ export class DependencyStorage {
       SELECT t.*,
              ws.id as column_id,
              ws.name as column_name,
-             ws.position as position
+             t.position as position
       FROM ${T.tickets} t
       JOIN ${T.ticket_dependencies} d ON t.id = d.depends_on_ticket_id
       LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
@@ -137,7 +137,7 @@ export class DependencyStorage {
       SELECT t.*,
              ws.id as column_id,
              ws.name as column_name,
-             ws.position as position
+             t.position as position
       FROM ${T.tickets} t
       JOIN ${T.ticket_dependencies} d ON t.id = d.ticket_id
       LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id

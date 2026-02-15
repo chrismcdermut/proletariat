@@ -57,6 +57,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
                 owner: t.owner,
                 epicId: t.epicId,
                 branch: t.branch,
+                position: t.position,
                 createdAt: t.createdAt.toISOString(),
                 updatedAt: t.updatedAt.toISOString(),
               })),
@@ -227,6 +228,35 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     async (params) => {
       try {
         const ticket = await ctx.storage.moveTicketToProject(params.id, params.project)
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({ success: true, ticket: formatTicket(ticket) }, null, 2),
+          }],
+        }
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
+    'ticket_reorder',
+    'Reorder a ticket within its current status. Provide either a direct position value or place it after another ticket.',
+    {
+      id: z.string().describe('Ticket ID to reorder'),
+      position: z.number().optional().describe('Direct position value (gapped integers, e.g. 1000, 2000)'),
+      after_ticket_id: z.string().optional().describe('Place this ticket after the specified ticket ID'),
+    },
+    async (params) => {
+      try {
+        if (!params.position && !params.after_ticket_id) {
+          throw new Error('Must provide either position or after_ticket_id')
+        }
+        const ticket = await ctx.storage.reorderTicket(params.id, {
+          position: params.position,
+          afterTicketId: params.after_ticket_id,
+        })
         return {
           content: [{
             type: 'text' as const,
