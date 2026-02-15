@@ -7,6 +7,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Ticket } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
 import { formatTicket, formatTicketFull, errorResponse, strictTool } from '../helpers.js'
+import { getWorkspacePriorities, setWorkspacePriorities } from '../../pmo/utils.js'
 
 export function registerTicketTools(server: McpServer, ctx: McpToolContext): void {
   strictTool(server,
@@ -15,7 +16,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     {
       project: z.string().optional().describe('Project ID'),
       column: z.string().optional().describe('Filter by column/status'),
-      priority: z.enum(['P0', 'P1', 'P2', 'P3']).optional().describe('Filter by priority'),
+      priority: z.string().optional().describe('Filter by priority (uses workspace priority scale)'),
       category: z.string().optional().describe('Filter by category'),
       assignee: z.string().optional().describe('Filter by assignee'),
       owner: z.string().optional().describe('Filter by owner'),
@@ -77,7 +78,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
       title: z.string().describe('Ticket title (required)'),
       project: z.string().optional().describe('Project ID'),
       description: z.string().optional().describe('Ticket description'),
-      priority: z.enum(['P0', 'P1', 'P2', 'P3']).optional().describe('Priority'),
+      priority: z.string().optional().describe('Priority (uses workspace priority scale)'),
       category: z.string().optional().describe('Category (feature, bug, etc.)'),
       column: z.string().optional().describe('Column/status name'),
       assignee: z.string().optional().describe('Assignee'),
@@ -145,7 +146,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
       id: z.string().describe('Ticket ID'),
       title: z.string().optional().describe('New title'),
       description: z.string().optional().describe('New description'),
-      priority: z.enum(['P0', 'P1', 'P2', 'P3']).optional().describe('New priority'),
+      priority: z.string().optional().describe('New priority (uses workspace priority scale)'),
       category: z.string().optional().describe('New category'),
       assignee: z.string().optional().describe('New assignee'),
       owner: z.string().optional().describe('New owner'),
@@ -499,6 +500,59 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
             text: JSON.stringify({
               success: true,
               blockers: blockers.map((t: Ticket) => ({ id: t.id, title: t.title, statusName: t.statusName })),
+            }, null, 2),
+          }],
+        }
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
+    'priority_list',
+    'List the workspace priority scale (ordered from highest to lowest)',
+    {},
+    async () => {
+      try {
+        const db = ctx.storage.getDatabase()
+        const priorities = getWorkspacePriorities(db)
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({ success: true, priorities }, null, 2),
+          }],
+        }
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
+    'priority_set',
+    'Set the workspace priority scale (replaces all existing priorities)',
+    {
+      priorities: z.array(z.string()).min(1).describe('Priority values from highest to lowest'),
+    },
+    async (params) => {
+      try {
+        const db = ctx.storage.getDatabase()
+        // Check for duplicates
+        const seen = new Set<string>()
+        for (const p of params.priorities) {
+          if (seen.has(p)) throw new Error(`Duplicate priority value: "${p}"`)
+          seen.add(p)
+        }
+        const oldPriorities = getWorkspacePriorities(db)
+        setWorkspacePriorities(db, params.priorities)
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              success: true,
+              previous: oldPriorities,
+              priorities: params.priorities,
             }, null, 2),
           }],
         }

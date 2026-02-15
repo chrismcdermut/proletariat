@@ -7,6 +7,7 @@ import Database from 'better-sqlite3'
 import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from '../schema.js'
 import { StateCategory, TICKET_CATEGORIES, STATE_CATEGORY_ORDER } from '../types.js'
 import { BUILTIN_TEMPLATES } from '../templates-builtin.js'
+import { getWorkspacePriorities, setWorkspacePriorities, DEFAULT_PRIORITIES } from '../utils.js'
 
 const T = PMO_TABLES
 
@@ -22,6 +23,7 @@ export function initializePMOTables(db: Database.Database): void {
   seedBuiltinPhaseTemplates(db)
   seedBuiltinActions(db)
   seedBuiltinTicketTemplates(db)
+  seedDefaultPriorities(db)  // Seed default priority scale if not set
   validateTicketSchema(db)
 }
 
@@ -1039,6 +1041,24 @@ export function seedBuiltinCategories(db: Database.Database): void {
       i,
       now
     )
+  }
+}
+
+/**
+ * Seed default priorities if not already set.
+ * Preserves any existing user-defined priority scale.
+ */
+export function seedDefaultPriorities(db: Database.Database): void {
+  const existing = getWorkspacePriorities(db)
+  // getWorkspacePriorities returns DEFAULT_PRIORITIES if not set,
+  // but we need to check if it's actually stored in the DB
+  const row = db.prepare(
+    `SELECT value FROM ${T.settings} WHERE key = 'priorities'`
+  ).get() as { value: string } | undefined
+
+  if (!row) {
+    // No priorities set yet - seed with defaults
+    setWorkspacePriorities(db, [...DEFAULT_PRIORITIES])
   }
 }
 

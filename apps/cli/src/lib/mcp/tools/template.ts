@@ -66,7 +66,7 @@ export function registerTemplateTools(server: McpServer, ctx: McpToolContext): v
       description: z.string().optional(),
       title_pattern: z.string().optional(),
       description_template: z.string().optional(),
-      default_priority: z.enum(['P0', 'P1', 'P2', 'P3']).optional(),
+      default_priority: z.string().optional().describe('Default priority (uses workspace priority scale)'),
       default_category: z.string().optional(),
     },
     async (params) => {

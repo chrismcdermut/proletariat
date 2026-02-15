@@ -4,7 +4,8 @@ import * as path from 'node:path';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { slugify } from '../../lib/pmo/utils.js';
-import { normalizePriority, PRIORITIES } from '../../lib/pmo/types.js';
+import { normalizePriority } from '../../lib/pmo/types.js';
+import { getWorkspacePriorities } from '../../lib/pmo/utils.js';
 import {
   shouldOutputJson,
   outputErrorAsJson,
@@ -150,9 +151,11 @@ export default class RoadmapGenerate extends PMOCommand {
         ? tickets.filter(t => t.statusCategory !== 'completed')
         : tickets;
 
-      // Group tickets by priority
+      // Group tickets by priority (using workspace priority scale)
+      const db = this.storage.getDatabase();
+      const workspacePriorities = getWorkspacePriorities(db);
       const ticketsByPriority = new Map<string, typeof filteredTickets>();
-      for (const priority of PRIORITIES) {
+      for (const priority of workspacePriorities) {
         ticketsByPriority.set(priority, []);
       }
       ticketsByPriority.set('unset', []);
@@ -217,13 +220,15 @@ export default class RoadmapGenerate extends PMOCommand {
   }
 
   private getPriorityLabel(priority: string): string {
-    const labels: Record<string, string> = {
+    // For well-known P0-P3 priorities, provide descriptive labels
+    const defaultLabels: Record<string, string> = {
       'P0': 'Critical',
       'P1': 'High',
       'P2': 'Medium',
       'P3': 'Low',
     };
-    return labels[priority] || priority;
+    // For user-defined priorities, the value IS the label
+    return defaultLabels[priority] || priority;
   }
 
   private cleanForTable(text: string): string {

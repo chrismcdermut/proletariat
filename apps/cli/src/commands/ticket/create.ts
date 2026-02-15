@@ -5,7 +5,8 @@ import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index
 // Note: inquirer import kept for inquirer.Separator usage in interactive mode
 import { styles } from '../../lib/styles.js';
 import { updateEpicTicketsSection } from '../../lib/pmo/epic-files.js';
-import { TicketTemplate, PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types.js';
+import { TicketTemplate } from '../../lib/pmo/types.js';
+import { getWorkspacePriorities } from '../../lib/pmo/utils.js';
 import {
   shouldOutputJson,
   outputErrorAsJson,
@@ -49,8 +50,7 @@ export default class TicketCreate extends PMOCommand {
     }),
     priority: Flags.string({
       char: 'p',
-      description: 'Ticket priority',
-      options: [...PRIORITIES],
+      description: 'Ticket priority (uses workspace priority scale)',
     }),
     category: Flags.string({
       description: 'Ticket category (e.g., bug, feature, refactor)',
@@ -433,7 +433,9 @@ export default class TicketCreate extends PMOCommand {
       },
     ], null);
 
-    // Prompt for priority
+    // Prompt for priority (using workspace priority scale)
+    const db = this.storage.getDatabase();
+    const workspacePriorities = getWorkspacePriorities(db);
     const { priority: answerPriority } = await this.prompt<{ priority?: string }>([
       {
         type: 'list',
@@ -441,7 +443,7 @@ export default class TicketCreate extends PMOCommand {
         message: 'Priority:',
         choices: [
           { name: 'None', value: undefined },
-          ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p })),
+          ...workspacePriorities.map(p => ({ name: p, value: p })),
         ],
         default: flags.priority || template?.defaultPriority,
       },
