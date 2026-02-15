@@ -13,6 +13,7 @@
     "pack:cli": "pnpm --filter @proletariat/cli pack",
     "prlt": "node apps/cli/bin/run.js",
     "prlt:isolated": "PRLT_HQ_PATH=/tmp/prlt-test-$RANDOM node apps/cli/bin/run.js",
+    "publish:npm": "pnpm --filter @proletariat/cli publish:npm",
     "test": "pnpm -r test",
     "test:cli": "pnpm --filter @proletariat/cli test"
   }
