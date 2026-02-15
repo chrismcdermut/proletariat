@@ -802,6 +802,80 @@ export function getAgentTmuxSessions(agentName: string): string[] {
     .map(s => s.name);
 }
 
+export interface ExistingWorktreeInfo {
+  agentName: string;
+  agentDir: string;
+  worktreePath: string;
+  branch: string;
+}
+
+/**
+ * Find an existing worktree that has a specific branch checked out.
+ * Used to detect dead agents whose worktrees still hold a branch,
+ * allowing worktree reuse instead of creating a fresh agent.
+ *
+ * Returns null if no worktree has the branch, or if the agent is still alive.
+ */
+export function findWorktreeForBranch(
+  workspaceInfo: WorkspaceInfo,
+  branch: string
+): ExistingWorktreeInfo | null {
+  for (const repo of workspaceInfo.repositories) {
+    const sourceRepoPath = path.join(workspaceInfo.path, 'repos', repo.name);
+    if (!fs.existsSync(sourceRepoPath)) continue;
+
+    try {
+      const output = execSync('git worktree list --porcelain', {
+        cwd: sourceRepoPath,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      const blocks = output.split('\n\n').filter(Boolean);
+
+      for (const block of blocks) {
+        const lines = block.split('\n');
+        const worktreeLine = lines.find(l => l.startsWith('worktree '));
+        const branchLine = lines.find(l => l.startsWith('branch '));
+        const isPrunable = lines.some(l => l.startsWith('prunable'));
+
+        if (!worktreeLine || !branchLine || isPrunable) continue;
+
+        const worktreeFullPath = worktreeLine.replace('worktree ', '');
+        const branchRef = branchLine.replace('branch refs/heads/', '');
+
+        if (branchRef !== branch) continue;
+
+        // Found a worktree with this branch — confirm it's inside agents/
+        const relativePath = path.relative(workspaceInfo.path, worktreeFullPath);
+        if (!relativePath.startsWith('agents/')) continue;
+
+        // Extract agent name: agents/{subdir}/{agentName}/{repoName}
+        const parts = relativePath.split(path.sep);
+        if (parts.length < 4) continue;
+
+        const agentName = parts[parts.length - 2];
+        const agentDir = path.dirname(worktreeFullPath);
+
+        // Confirm agent has no active tmux sessions (it's dead)
+        const agentSessions = getAgentTmuxSessions(agentName);
+        if (agentSessions.length > 0) continue;
+
+        return {
+          agentName,
+          agentDir,
+          worktreePath: worktreeFullPath,
+          branch: branchRef,
+        };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
 /**
  * Get docker containers associated with an agent directory
  */

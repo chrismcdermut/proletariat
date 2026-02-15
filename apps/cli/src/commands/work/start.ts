@@ -20,6 +20,7 @@ import {
   createEphemeralAgent,
   getTicketTmuxSession,
   killTmuxSession,
+  findWorktreeForBranch,
   WorkspaceInfo,
 } from '../../lib/agents/commands.js'
 import { Agent } from '../../lib/database/index.js'
@@ -457,12 +458,35 @@ export default class WorkStart extends PMOCommand {
         // For 'spawn', we continue with creating a new agent
       }
 
+      // Check for existing worktree with ticket's branch (dead agent recovery)
+      let reusingWorktree = false
+
+      if (ticket.branch && !flags.agent) {
+        const existingWorktree = findWorktreeForBranch(workspaceInfo, ticket.branch)
+        if (existingWorktree) {
+          reusingWorktree = true
+          if (!jsonMode) {
+            this.log(styles.muted(`Found existing worktree for branch in dead agent "${existingWorktree.agentName}"`))
+            this.log(styles.muted(`Reusing worktree at: ${existingWorktree.agentDir}`))
+          }
+        }
+      }
+
       // Agent selection: ephemeral flag, agent flag, ticket assignee, or prompt
       let agentName: string | undefined
       let agentWorktreePath: string | undefined
       let isEphemeralAgent = flags.ephemeral
 
-      if (flags.ephemeral) {
+      if (reusingWorktree) {
+        // Reuse dead agent's worktree — skip creating a new agent
+        const existingWorktree = findWorktreeForBranch(workspaceInfo, ticket.branch!)!
+        agentName = existingWorktree.agentName
+        agentWorktreePath = existingWorktree.agentDir
+        isEphemeralAgent = true
+        if (!jsonMode) {
+          this.log(styles.success(`Reusing agent: ${agentName} (worktree recovery)`))
+        }
+      } else if (flags.ephemeral) {
         // Create ephemeral agent on-demand
         if (!jsonMode) {
           this.log(styles.muted('Creating ephemeral agent...'))
@@ -1452,8 +1476,11 @@ export default class WorkStart extends PMOCommand {
           // Note: fetch already happened above (unconditionally for all action types)
 
           try {
-            // Check if branch exists and checkout
-            if (tryGitCommand(`git rev-parse --verify ${finalBranch}`, repoPath)) {
+            if (reusingWorktree) {
+              // Branch already checked out in this worktree — just fetch latest
+              this.log(styles.muted(`   ${repoName}: reusing existing branch (worktree recovery)`))
+            } else if (tryGitCommand(`git rev-parse --verify ${finalBranch}`, repoPath)) {
+              // Check if branch exists and checkout
               execSync(`git checkout ${finalBranch}`, { cwd: repoPath, stdio: 'pipe' })
               this.log(styles.muted(`   ${repoName}: checked out branch`))
             } else {
