@@ -53,9 +53,9 @@ export function registerDietTools(server: McpServer, ctx: McpToolContext): void 
 
   strictTool(server,
     'diet_set',
-    'Set diet ratios (percentages must sum to 100)',
+    'Set diet weights (relative values normalized to percentages automatically)',
     {
-      ratios: z.string().describe('Diet ratios as "category=pct,..." e.g. "ship=40,grow=25,support=15,bizops=10,strategy=10"'),
+      ratios: z.string().describe('Diet weights as "category=weight,..." e.g. "ship=4,grow=2.5,support=1.5,bizops=1,strategy=1"'),
     },
     async (params) => {
       try {

@@ -16,7 +16,7 @@ export default class Diet extends PMOCommand {
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> --set "ship=40,grow=25,support=15,bizops=10,strategy=10"',
+    '<%= config.bin %> <%= command.id %> --set "ship=4,grow=2.5,support=1.5,bizops=1,strategy=1"',
     '<%= config.bin %> <%= command.id %> --reset',
   ]
 
@@ -24,7 +24,7 @@ export default class Diet extends PMOCommand {
     ...pmoBaseFlags,
     set: Flags.string({
       char: 's',
-      description: 'Set diet ratios (e.g., "ship=40,grow=25,support=15,bizops=10,strategy=10")',
+      description: 'Set diet weights (e.g., "ship=4,grow=2,support=1") - normalized to percentages automatically',
     }),
     reset: Flags.boolean({
       char: 'r',

@@ -2,7 +2,8 @@
  * Diet configuration for balanced ticket pulling.
  *
  * The "diet" defines target ratios for business categories (e.g., ship, grow, support).
- * When pulling tickets from Backlog → Ready, the diet ensures a balanced mix.
+ * Users specify relative weights (e.g., ship=4, grow=2, support=1) which are
+ * normalized to percentages internally. No need to sum to 100.
  */
 
 import Database from 'better-sqlite3'
@@ -16,10 +17,13 @@ const T = PMO_TABLES
 
 /**
  * Diet ratio for a single category.
+ * `weight` is the user-facing relative weight.
+ * `target` is the normalized percentage (0.0-1.0), computed from weights.
  */
 export interface DietRatio {
   category: string
-  target: number  // 0.0 - 1.0 (percentage as decimal)
+  weight: number   // User-facing relative weight (e.g., 4, 2, 1)
+  target: number   // Normalized percentage (0.0-1.0), computed from weights
 }
 
 /**
@@ -74,18 +78,42 @@ export interface PulledTicket {
 // =============================================================================
 
 /**
- * Default diet ratios matching the 5-Tool Founder business categories.
+ * Default diet weights matching the 5-Tool Founder business categories.
+ * Weights: ship=4, grow=2.5, support=1.5, bizops=1, strategy=1
+ * Normalizes to: ship=40%, grow=25%, support=15%, bizops=10%, strategy=10%
  */
-export const DEFAULT_DIET_RATIOS: DietRatio[] = [
-  { category: 'ship', target: 0.40 },
-  { category: 'grow', target: 0.25 },
-  { category: 'support', target: 0.15 },
-  { category: 'bizops', target: 0.10 },
-  { category: 'strategy', target: 0.10 },
+export const DEFAULT_DIET_WEIGHTS: Array<{ category: string; weight: number }> = [
+  { category: 'ship', weight: 4 },
+  { category: 'grow', weight: 2.5 },
+  { category: 'support', weight: 1.5 },
+  { category: 'bizops', weight: 1 },
+  { category: 'strategy', weight: 1 },
 ]
 
-export const DEFAULT_DIET_CONFIG: DietConfig = {
-  ratios: DEFAULT_DIET_RATIOS,
+export const DEFAULT_DIET_CONFIG: DietConfig = normalizeWeights(DEFAULT_DIET_WEIGHTS)
+
+// =============================================================================
+// Weight Normalization
+// =============================================================================
+
+/**
+ * Normalize an array of category weights into a DietConfig with target percentages.
+ */
+export function normalizeWeights(
+  weights: Array<{ category: string; weight: number }>,
+): DietConfig {
+  const totalWeight = weights.reduce((sum, w) => sum + w.weight, 0)
+  if (totalWeight === 0) {
+    throw new Error('Total weight must be greater than 0')
+  }
+
+  const ratios: DietRatio[] = weights.map(w => ({
+    category: w.category,
+    weight: w.weight,
+    target: w.weight / totalWeight,
+  }))
+
+  return { ratios }
 }
 
 // =============================================================================
@@ -97,6 +125,9 @@ const DIET_CONFIG_KEY = 'diet_config'
 /**
  * Load diet configuration from the database.
  * Returns default config if none is stored.
+ *
+ * Handles backward compatibility: if stored config has ratios without weights,
+ * reconstructs weights from target percentages.
  */
 export function loadDietConfig(db: Database.Database): DietConfig {
   try {
@@ -107,6 +138,15 @@ export function loadDietConfig(db: Database.Database): DietConfig {
     if (row) {
       const parsed = JSON.parse(row.value) as DietConfig
       if (parsed.ratios && Array.isArray(parsed.ratios)) {
+        // Backward compatibility: if weights are missing, reconstruct from targets
+        const needsWeights = parsed.ratios.some(r => r.weight === undefined || r.weight === null)
+        if (needsWeights) {
+          const weights = parsed.ratios.map(r => ({
+            category: r.category,
+            weight: r.weight ?? Math.round(r.target * 100),
+          }))
+          return normalizeWeights(weights)
+        }
         return parsed
       }
     }
@@ -126,39 +166,51 @@ export function saveDietConfig(db: Database.Database, config: DietConfig): void 
 }
 
 /**
- * Parse a diet string like "ship=40,grow=25,support=15,bizops=10,strategy=10"
- * into a DietConfig. Values are percentages that must sum to 100.
+ * Parse a diet string like "ship=4,grow=2.5,support=1.5,bizops=1,strategy=1"
+ * into a DietConfig. Values are relative weights that get normalized internally.
  */
 export function parseDietString(input: string): DietConfig {
   const parts = input.split(',').map(s => s.trim()).filter(Boolean)
-  const ratios: DietRatio[] = []
-  let totalPct = 0
+  const weights: Array<{ category: string; weight: number }> = []
 
   for (const part of parts) {
-    const [category, pctStr] = part.split('=').map(s => s.trim())
-    if (!category || !pctStr) {
-      throw new Error(`Invalid diet entry: "${part}". Expected format: category=percentage`)
+    const [category, weightStr] = part.split('=').map(s => s.trim())
+    if (!category || !weightStr) {
+      throw new Error(`Invalid diet entry: "${part}". Expected format: category=weight`)
     }
-    const pct = Number.parseFloat(pctStr)
-    if (Number.isNaN(pct) || pct < 0 || pct > 100) {
-      throw new Error(`Invalid percentage for "${category}": ${pctStr}. Must be 0-100.`)
+    const weight = Number.parseFloat(weightStr)
+    if (Number.isNaN(weight) || weight < 0) {
+      throw new Error(`Invalid weight for "${category}": ${weightStr}. Must be a non-negative number.`)
     }
-    totalPct += pct
-    ratios.push({ category: category.toLowerCase(), target: pct / 100 })
+    weights.push({ category: category.toLowerCase(), weight })
   }
 
-  if (Math.abs(totalPct - 100) > 0.01) {
-    throw new Error(`Diet percentages must sum to 100, got ${totalPct}`)
+  if (weights.length === 0) {
+    throw new Error('At least one category weight is required')
   }
 
-  return { ratios }
+  const totalWeight = weights.reduce((sum, w) => sum + w.weight, 0)
+  if (totalWeight === 0) {
+    throw new Error('At least one category must have a weight greater than 0')
+  }
+
+  return normalizeWeights(weights)
 }
 
 /**
- * Format a diet config as a readable string.
+ * Format a diet config showing weights and computed percentages.
  */
 export function formatDietConfig(config: DietConfig): string {
   return config.ratios
-    .map(r => `${r.category}=${Math.round(r.target * 100)}%`)
+    .map(r => `${r.category}=${r.weight} (${Math.round(r.target * 100)}%)`)
+    .join(', ')
+}
+
+/**
+ * Format a diet config showing only the weights (compact form).
+ */
+export function formatDietWeights(config: DietConfig): string {
+  return config.ratios
+    .map(r => `${r.category}=${r.weight}`)
     .join(', ')
 }
