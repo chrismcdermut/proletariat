@@ -1,6 +1,6 @@
 import { Args, Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
-import { PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types.js';
+import { getWorkspacePriorities } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
@@ -36,8 +36,7 @@ export default class TicketUpdate extends PMOCommand {
     }),
     priority: Flags.string({
       char: 'p',
-      description: 'Set priority (P0, P1, P2, P3)',
-      options: [...PRIORITIES],
+      description: 'Set priority (uses workspace priority scale)',
     }),
     category: Flags.string({
       char: 'c',
@@ -124,13 +123,15 @@ export default class TicketUpdate extends PMOCommand {
       }], jsonModeConfig);
 
       if (updateType === 'priority' || updateType === 'both') {
+        const db = this.storage.getDatabase();
+        const workspacePriorities = getWorkspacePriorities(db);
         const { priority } = await this.prompt<{ priority: string | null }>([{
           type: 'list',
           name: 'priority',
           message: 'Set priority to:',
           choices: [
             { name: `(Keep existing: ${ticket.priority || 'none'})`, value: null, command: '' },
-            ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p, command: `prlt ticket update ${ticketId} --priority ${p}${projectId ? ` -P ${projectId}` : ''} --json` })),
+            ...workspacePriorities.map(p => ({ name: p, value: p, command: `prlt ticket update ${ticketId} --priority ${p}${projectId ? ` -P ${projectId}` : ''} --json` })),
             { name: 'None (clear priority)', value: '', command: `prlt ticket update ${ticketId} --priority none${projectId ? ` -P ${projectId}` : ''} --json` },
           ],
         }], jsonModeConfig);
@@ -242,13 +243,15 @@ export default class TicketUpdate extends PMOCommand {
       }], jsonModeConfig);
 
       if (updateType === 'priority' || updateType === 'both') {
+        const db = this.storage.getDatabase();
+        const bulkWorkspacePriorities = getWorkspacePriorities(db);
         const { priority } = await this.prompt<{ priority: string | null }>([{
           type: 'list',
           name: 'priority',
           message: 'Set priority to:',
           choices: [
             { name: '(Keep existing)', value: null, command: '' },
-            ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p, command: `prlt ticket update --bulk --priority ${p} --json` })),
+            ...bulkWorkspacePriorities.map(p => ({ name: p, value: p, command: `prlt ticket update --bulk --priority ${p} --json` })),
             { name: 'None (clear priority)', value: '', command: 'prlt ticket update --bulk --priority none --json' },
           ],
         }], jsonModeConfig);

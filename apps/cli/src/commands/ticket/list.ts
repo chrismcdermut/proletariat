@@ -1,6 +1,6 @@
 import { Command, Flags } from '@oclif/core';
 import { Ticket, pmoBaseFlags, TicketFilter } from '../../lib/pmo/index.js';
-import { PRIORITIES } from '../../lib/pmo/types.js';
+import { getWorkspacePriorities } from '../../lib/pmo/utils.js';
 import { getPMOContext } from '../../lib/pmo/pmo-context.js';
 import {
   styles,
@@ -13,11 +13,18 @@ import {
 } from '../../lib/styles.js';
 import { isNonTTY } from '../../lib/prompt-json.js';
 
-// Priority order for grouping: P0, P1, P2, P3, None
-const PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3', 'None'];
+// Priority order for grouping - dynamically resolved from workspace settings
+// Computed at runtime and includes 'None' for unset priorities
+function getPriorityOrder(db: { prepare(sql: string): { get(...params: unknown[]): unknown; run(...params: unknown[]): unknown } }): string[] {
+  const priorities = getWorkspacePriorities(db);
+  return [...priorities, 'None'];
+}
 
 export default class TicketList extends Command {
   static description = 'List tickets from the PMO board';
+
+  /** Dynamic priority order (set from workspace settings in run()) */
+  private priorityOrder: string[] = ['P0', 'P1', 'P2', 'P3', 'None'];
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
@@ -41,8 +48,7 @@ export default class TicketList extends Command {
     }),
     priority: Flags.string({
       char: 'p',
-      description: 'Filter by priority',
-      options: [...PRIORITIES],
+      description: 'Filter by priority (uses workspace priority scale)',
     }),
     category: Flags.string({
       description: 'Filter by category',
@@ -96,6 +102,9 @@ export default class TicketList extends Command {
     });
 
     try {
+      // Set dynamic priority order from workspace settings
+      this.priorityOrder = getPriorityOrder(pmoContext.storage.getDatabase());
+
       // Build filter
       const filter: TicketFilter = {};
 
@@ -275,7 +284,7 @@ export default class TicketList extends Command {
   private outputCrossProjectTableByPriority(tickets: Ticket[]): void {
     // Group tickets by priority
     const byPriority: Record<string, Ticket[]> = {};
-    for (const priority of PRIORITY_ORDER) {
+    for (const priority of this.priorityOrder) {
       byPriority[priority] = [];
     }
     for (const ticket of tickets) {
@@ -286,7 +295,7 @@ export default class TicketList extends Command {
       byPriority[priority].push(ticket);
     }
 
-    for (const priority of PRIORITY_ORDER) {
+    for (const priority of this.priorityOrder) {
       const priorityTickets = byPriority[priority];
 
       // Priority header
@@ -356,7 +365,7 @@ export default class TicketList extends Command {
   private outputCrossProjectCompactByPriority(tickets: Ticket[]): void {
     // Group tickets by priority
     const byPriority: Record<string, Ticket[]> = {};
-    for (const priority of PRIORITY_ORDER) {
+    for (const priority of this.priorityOrder) {
       byPriority[priority] = [];
     }
     for (const ticket of tickets) {
@@ -367,7 +376,7 @@ export default class TicketList extends Command {
       byPriority[priority].push(ticket);
     }
 
-    for (const priority of PRIORITY_ORDER) {
+    for (const priority of this.priorityOrder) {
       const priorityTickets = byPriority[priority];
       if (priorityTickets.length === 0) continue;
 
@@ -446,7 +455,7 @@ export default class TicketList extends Command {
   private outputTableByPriority(tickets: Ticket[]): void {
     // Group tickets by priority
     const byPriority: Record<string, Ticket[]> = {};
-    for (const priority of PRIORITY_ORDER) {
+    for (const priority of this.priorityOrder) {
       byPriority[priority] = [];
     }
     for (const ticket of tickets) {
@@ -458,7 +467,7 @@ export default class TicketList extends Command {
     }
 
     // Display ALL priority groups
-    for (const priority of PRIORITY_ORDER) {
+    for (const priority of this.priorityOrder) {
       const priorityTickets = byPriority[priority];
 
       // Priority header with color
@@ -540,7 +549,7 @@ export default class TicketList extends Command {
   private outputCompactByPriority(tickets: Ticket[]): void {
     // Group by priority
     const byPriority: Record<string, Ticket[]> = {};
-    for (const priority of PRIORITY_ORDER) {
+    for (const priority of this.priorityOrder) {
       byPriority[priority] = [];
     }
     for (const ticket of tickets) {
@@ -551,7 +560,7 @@ export default class TicketList extends Command {
       byPriority[priority].push(ticket);
     }
 
-    for (const priority of PRIORITY_ORDER) {
+    for (const priority of this.priorityOrder) {
       const priorityTickets = byPriority[priority];
 
       // Show all priority groups

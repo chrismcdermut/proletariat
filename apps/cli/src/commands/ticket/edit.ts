@@ -1,7 +1,7 @@
 import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
-import { PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types.js';
+import { getWorkspacePriorities } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
@@ -41,8 +41,7 @@ export default class TicketEdit extends PMOCommand {
     }),
     priority: Flags.string({
       char: 'p',
-      description: 'New ticket priority',
-      options: [...PRIORITIES, 'none'],
+      description: 'New ticket priority (uses workspace priority scale, "none" to clear)',
     }),
     category: Flags.string({
       description: 'New ticket category',
@@ -159,15 +158,14 @@ export default class TicketEdit extends PMOCommand {
       // In JSON mode without flags, output a form prompt instead of interactive prompts
       if (jsonMode) {
         const { outputPromptAsJson, buildFormPromptConfig } = await import('../../lib/prompt-json.js');
+        const db = this.storage.getDatabase();
+        const workspacePriorities = getWorkspacePriorities(db);
         const formConfig = buildFormPromptConfig([
           { type: 'input', name: 'title', message: 'Title:', default: ticket.title },
           { type: 'multiline', name: 'description', message: 'Description:', default: ticket.description || '' },
           { type: 'list', name: 'priority', message: 'Priority:', choices: [
             { name: 'None', value: '' },
-            { name: 'P0 - Critical', value: 'P0' },
-            { name: 'P1 - High', value: 'P1' },
-            { name: 'P2 - Medium', value: 'P2' },
-            { name: 'P3 - Low', value: 'P3' },
+            ...workspacePriorities.map(p => ({ name: p, value: p })),
           ], default: ticket.priority || '' },
           { type: 'input', name: 'category', message: 'Category:', default: ticket.category || '' },
         ]);
@@ -329,7 +327,9 @@ export default class TicketEdit extends PMOCommand {
       throw new Error('Edit cancelled');
     }
 
-    // Continue with remaining prompts - priority first
+    // Continue with remaining prompts - priority first (using workspace scale)
+    const db = this.storage.getDatabase();
+    const workspacePriorities = getWorkspacePriorities(db);
     const { priority } = await this.prompt<{ priority: string }>([
       {
         type: 'list',
@@ -337,7 +337,7 @@ export default class TicketEdit extends PMOCommand {
         message: 'Priority:',
         choices: [
           { name: 'None', value: '' },
-          ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p })),
+          ...workspacePriorities.map(p => ({ name: p, value: p })),
         ],
         default: ticket.priority || '',
       },
