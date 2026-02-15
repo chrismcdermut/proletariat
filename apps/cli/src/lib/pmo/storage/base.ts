@@ -231,6 +231,42 @@ export function runMigrations(db: Database.Database): void {
     }
   }
 
+  // Migration: Add position column to tickets table (TKT-965)
+  if (!ticketsColumnNames.has('position')) {
+    try {
+      db.exec(`ALTER TABLE ${T.tickets} ADD COLUMN position INTEGER NOT NULL DEFAULT 0`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_position ON ${T.tickets}(status_id, position)`)
+
+      // Backfill existing tickets with gapped positions (1000, 2000, ...) per status
+      const statuses = db.prepare(
+        `SELECT DISTINCT status_id FROM ${T.tickets} WHERE status_id IS NOT NULL`
+      ).all() as { status_id: string }[]
+
+      const getTicketsForStatus = db.prepare(`
+        SELECT id FROM ${T.tickets} WHERE status_id = ?
+        ORDER BY
+          CASE priority
+            WHEN 'P0' THEN 0
+            WHEN 'P1' THEN 1
+            WHEN 'P2' THEN 2
+            WHEN 'P3' THEN 3
+            ELSE 4
+          END,
+          created_at ASC
+      `)
+      const updatePosition = db.prepare(`UPDATE ${T.tickets} SET position = ? WHERE id = ?`)
+
+      for (const { status_id } of statuses) {
+        const tickets = getTicketsForStatus.all(status_id) as { id: string }[]
+        for (let i = 0; i < tickets.length; i++) {
+          updatePosition.run((i + 1) * 1000, tickets[i].id)
+        }
+      }
+    } catch {
+      // Column may already exist
+    }
+  }
+
   // Migration: Reassign orphaned tickets (TKT-940)
   // Tickets with project_id that doesn't match any existing project are "orphaned".
   // This can happen when a 'default' project never existed or was deleted.
