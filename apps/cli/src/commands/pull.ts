@@ -1,6 +1,6 @@
 import { Flags } from '@oclif/core'
 import { PMOCommand, pmoBaseFlags } from '../lib/pmo/base-command.js'
-import { styles, formatPriority, formatCategory, divider } from '../lib/styles.js'
+import { styles, divider } from '../lib/styles.js'
 import {
   loadDietConfig,
   formatDietConfig,
@@ -226,7 +226,7 @@ export default class Pull extends PMOCommand {
 
           for (const ticket of catTickets) {
             if (pulled.length >= targetCount) break
-            if (currentCount >= targetForCat) break
+            if ((categoryCounts.get(ratio.category) || 0) >= targetForCat) break
 
             // eslint-disable-next-line no-await-in-loop -- Sequential dependency check
             const blocked = await this.storage.isTicketBlocked(ticket.id)
