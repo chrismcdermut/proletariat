@@ -151,6 +151,7 @@ export const PMO_TABLE_SCHEMAS = {
       spec_id TEXT,
       epic_id TEXT,
       labels TEXT NOT NULL DEFAULT '[]',
+      position INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       last_synced_from_spec TIMESTAMP,
@@ -498,6 +499,7 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_tickets_priority ON ${PMO_TABLES.tickets}(priority);
   CREATE INDEX IF NOT EXISTS idx_pmo_tickets_category ON ${PMO_TABLES.tickets}(category);
   CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_id ON ${PMO_TABLES.tickets}(status_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_position ON ${PMO_TABLES.tickets}(status_id, position);
   CREATE INDEX IF NOT EXISTS idx_pmo_subtasks_ticket ON ${PMO_TABLES.subtasks}(ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_specs_spec ON ${PMO_TABLES.ticket_specs}(spec_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_assignments_agent ON ${PMO_TABLES.ticket_assignments}(agent_name);
@@ -607,6 +609,7 @@ export const EXPECTED_TICKET_COLUMNS = [
   'spec_id',
   'epic_id',
   'labels',
+  'position',
   'created_at',
   'updated_at',
   'last_synced_from_spec',

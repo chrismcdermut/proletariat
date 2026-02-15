@@ -389,16 +389,8 @@ export class ViewStorage {
       params.push(searchTerm, searchTerm)
     }
 
-    // Order by priority then created_at
-    sql += ` ORDER BY
-      CASE t.priority
-        WHEN 'P0' THEN 0
-        WHEN 'P1' THEN 1
-        WHEN 'P2' THEN 2
-        WHEN 'P3' THEN 3
-        ELSE 4
-      END,
-      t.created_at ASC`
+    // Order by ticket position, then created_at as tiebreaker
+    sql += ` ORDER BY t.position ASC, t.created_at ASC`
 
     const rows = this.ctx.db.prepare(sql).all(...params) as Array<{
       id: string

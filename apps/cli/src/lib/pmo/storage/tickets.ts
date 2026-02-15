@@ -1,7 +1,8 @@
 /**
  * Ticket operations for PMO.
  * Tickets reference workflow statuses directly via status_id.
- * Board position is derived from priority and created_at (no separate board_tickets table).
+ * Tickets have a position column for force-ranked ordering within a status.
+ * Positions use gapped integers (1000, 2000, 3000...) for stable reordering.
  */
 
 import { PMO_TABLES } from '../schema.js'
@@ -171,6 +172,12 @@ export class TicketStorage {
       }
     }
 
+    // Get next position for the target status (append to end with gapped integer)
+    const maxPos = this.ctx.db.prepare(`
+      SELECT COALESCE(MAX(position), 0) as max_pos FROM ${T.tickets} WHERE status_id = ?
+    `).get(statusId) as { max_pos: number }
+    const position = maxPos.max_pos + 1000
+
     // Insert ticket
     const labels = ticket.labels || []
     try {
@@ -178,9 +185,9 @@ export class TicketStorage {
         INSERT INTO ${T.tickets} (
           id, project_id, title, description, priority, category,
           status_id, owner, assignee, spec_id, epic_id, labels,
-          created_at, updated_at, last_synced_from_spec, last_synced_from_board
+          position, created_at, updated_at, last_synced_from_spec, last_synced_from_board
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         projectId,
@@ -194,6 +201,7 @@ export class TicketStorage {
         specId,
         ticket.epicId || null,
         JSON.stringify(labels),
+        position,
         now,
         now,
         ticket.lastSyncedFromSpec || null,
@@ -246,7 +254,7 @@ export class TicketStorage {
     const row = this.ctx.db.prepare(`
       SELECT t.*,
              ws.id as column_id,
-             ws.position as position,
+             t.position as position,
              ws.name as column_name
       FROM ${T.tickets} t
       LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
@@ -382,9 +390,10 @@ export class TicketStorage {
   /**
    * Move a ticket to a different status (column).
    * In the workflow-based system, columns ARE statuses.
-   * The position parameter is ignored - tickets are sorted by priority then created_at.
+   * If position is provided, the ticket is placed at that position.
+   * Otherwise, the ticket is appended to the end of the target status.
    */
-  async moveTicket(projectId: string, id: string, column: string, _position?: number): Promise<Ticket> {
+  async moveTicket(projectId: string, id: string, column: string, position?: number): Promise<Ticket> {
     const existing = await this.getTicketById(id)
     if (!existing) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
@@ -411,16 +420,136 @@ export class TicketStorage {
       throw new PMOError('NOT_FOUND', `Status not found: ${column}`)
     }
 
-    // Update ticket's status_id
+    // Determine position: use provided or append to end
+    let newPosition: number
+    if (position !== undefined) {
+      newPosition = position
+    } else {
+      const maxPos = this.ctx.db.prepare(`
+        SELECT COALESCE(MAX(position), 0) as max_pos FROM ${T.tickets} WHERE status_id = ?
+      `).get(targetStatus.id) as { max_pos: number }
+      newPosition = maxPos.max_pos + 1000
+    }
+
+    // Update ticket's status_id and position
     this.ctx.db.prepare(`
       UPDATE ${T.tickets}
-      SET status_id = ?, updated_at = ?
+      SET status_id = ?, position = ?, updated_at = ?
       WHERE id = ?
-    `).run(targetStatus.id, Date.now(), id)
+    `).run(targetStatus.id, newPosition, Date.now(), id)
 
     this.ctx.updateBoardTimestamp(projectId)
 
     return (await this.getTicketById(id)) as Ticket
+  }
+
+  /**
+   * Reorder a ticket within its current status.
+   * Supports two modes:
+   * 1. Direct position: set ticket to a specific position value
+   * 2. After ticket: place ticket immediately after another ticket
+   */
+  async reorderTicket(id: string, opts: { position?: number; afterTicketId?: string }): Promise<Ticket> {
+    const existing = await this.getTicketById(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
+    }
+
+    let newPosition: number
+
+    if (opts.afterTicketId) {
+      // Place after the specified ticket
+      const afterTicket = await this.getTicketById(opts.afterTicketId)
+      if (!afterTicket) {
+        throw new PMOError('NOT_FOUND', `Ticket not found: ${opts.afterTicketId}`, opts.afterTicketId)
+      }
+
+      // The after ticket must be in the same status
+      if (afterTicket.statusId !== existing.statusId) {
+        throw new PMOError('INVALID', `Cannot reorder: ${opts.afterTicketId} is in a different status`)
+      }
+
+      const afterPosition = afterTicket.position ?? 0
+
+      // Find the next ticket after the target
+      const nextTicket = this.ctx.db.prepare(`
+        SELECT position FROM ${T.tickets}
+        WHERE status_id = ? AND position > ? AND id != ?
+        ORDER BY position ASC
+        LIMIT 1
+      `).get(existing.statusId, afterPosition, id) as { position: number } | undefined
+
+      if (nextTicket) {
+        // Place between afterTicket and nextTicket
+        const gap = nextTicket.position - afterPosition
+        if (gap > 1) {
+          newPosition = afterPosition + Math.floor(gap / 2)
+        } else {
+          // No gap - need to re-gap all tickets in this status
+          this.regapPositions(existing.statusId, id)
+          // Re-read the after ticket position after regapping
+          const refreshedAfter = await this.getTicketById(opts.afterTicketId)
+          const refreshedAfterPos = refreshedAfter?.position ?? 0
+          const refreshedNext = this.ctx.db.prepare(`
+            SELECT position FROM ${T.tickets}
+            WHERE status_id = ? AND position > ? AND id != ?
+            ORDER BY position ASC
+            LIMIT 1
+          `).get(existing.statusId, refreshedAfterPos, id) as { position: number } | undefined
+          newPosition = refreshedNext
+            ? refreshedAfterPos + Math.floor((refreshedNext.position - refreshedAfterPos) / 2)
+            : refreshedAfterPos + 1000
+        }
+      } else {
+        // Append after the target (no tickets after it)
+        newPosition = afterPosition + 1000
+      }
+    } else if (opts.position !== undefined) {
+      newPosition = opts.position
+    } else {
+      throw new PMOError('INVALID', 'Must provide either position or after_ticket_id')
+    }
+
+    this.ctx.db.prepare(`
+      UPDATE ${T.tickets}
+      SET position = ?, updated_at = ?
+      WHERE id = ?
+    `).run(newPosition, Date.now(), id)
+
+    if (existing.projectId) {
+      this.ctx.updateBoardTimestamp(existing.projectId)
+    }
+
+    return (await this.getTicketById(id)) as Ticket
+  }
+
+  /**
+   * Re-gap positions for all tickets in a status using 1000-gaps.
+   * Optionally excludes a ticket (e.g., the one being moved).
+   */
+  private regapPositions(statusId: string, excludeTicketId?: string): void {
+    let query = `
+      SELECT id FROM ${T.tickets}
+      WHERE status_id = ?
+    `
+    const params: unknown[] = [statusId]
+
+    if (excludeTicketId) {
+      query += ' AND id != ?'
+      params.push(excludeTicketId)
+    }
+
+    query += ' ORDER BY position ASC, created_at ASC'
+
+    const tickets = this.ctx.db.prepare(query).all(...params) as { id: string }[]
+    const update = this.ctx.db.prepare(`UPDATE ${T.tickets} SET position = ? WHERE id = ?`)
+
+    const regap = this.ctx.db.transaction(() => {
+      tickets.forEach((ticket, idx) => {
+        update.run((idx + 1) * 1000, ticket.id)
+      })
+    })
+    regap()
   }
 
   /**
@@ -480,7 +609,7 @@ export class TicketStorage {
     let query = `
       SELECT t.*,
              ws.id as column_id,
-             ws.position as position,
+             t.position as position,
              ws.name as column_name,
              p.name as project_name
       FROM ${T.tickets} t
@@ -538,27 +667,11 @@ export class TicketStorage {
       params.push(filter.column)
     }
 
-    // Order by project, then status position, then priority, then created_at
+    // Order by status column position, then ticket position within status
     if (projectIdOrName === undefined) {
-      query += ` ORDER BY p.name, ws.position,
-        CASE t.priority
-          WHEN 'P0' THEN 0
-          WHEN 'P1' THEN 1
-          WHEN 'P2' THEN 2
-          WHEN 'P3' THEN 3
-          ELSE 4
-        END,
-        t.created_at ASC`
+      query += ` ORDER BY p.name, ws.position, t.position ASC, t.created_at ASC`
     } else {
-      query += ` ORDER BY ws.position,
-        CASE t.priority
-          WHEN 'P0' THEN 0
-          WHEN 'P1' THEN 1
-          WHEN 'P2' THEN 2
-          WHEN 'P3' THEN 3
-          ELSE 4
-        END,
-        t.created_at ASC`
+      query += ` ORDER BY ws.position, t.position ASC, t.created_at ASC`
     }
 
     const rows = this.ctx.db.prepare(query).all(...params) as TicketRow[]
@@ -623,13 +736,20 @@ export class TicketStorage {
       }
     }
 
-    // Update ticket's project_id and status_id
+    // Get next position for the target status
+    const targetStatusId = newStatusId || existing.statusId
+    const maxPos = this.ctx.db.prepare(`
+      SELECT COALESCE(MAX(position), 0) as max_pos FROM ${T.tickets} WHERE status_id = ?
+    `).get(targetStatusId) as { max_pos: number }
+    const newTicketPosition = maxPos.max_pos + 1000
+
+    // Update ticket's project_id, status_id, and position
     const now = Date.now()
     this.ctx.db.prepare(`
       UPDATE ${T.tickets}
-      SET project_id = ?, status_id = ?, updated_at = ?
+      SET project_id = ?, status_id = ?, position = ?, updated_at = ?
       WHERE id = ?
-    `).run(newProjectId, newStatusId || existing.statusId, now, ticketId)
+    `).run(newProjectId, targetStatusId, newTicketPosition, now, ticketId)
 
     // Update timestamps for both projects
     this.updateProjectTimestamp(oldProjectId)

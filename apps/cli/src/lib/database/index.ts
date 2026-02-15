@@ -269,6 +269,50 @@ export function openWorkspaceDatabase(workspacePath: string): Database.Database 
     // Ignore migration errors - table might not exist yet or column already exists
   }
 
+  // Migration: add position column to pmo_tickets table (TKT-965)
+  try {
+    const ticketsTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_tickets'").get();
+    if (ticketsTableExists) {
+      const ticketsTableInfo = db.prepare("PRAGMA table_info(pmo_tickets)").all() as { name: string }[];
+      if (!ticketsTableInfo.some(col => col.name === 'position')) {
+        db.exec("ALTER TABLE pmo_tickets ADD COLUMN position INTEGER NOT NULL DEFAULT 0");
+        db.exec("CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_position ON pmo_tickets(status_id, position)");
+
+        // Backfill existing tickets with gapped positions (1000, 2000, ...) per status,
+        // ordered by priority then created_at
+        const statuses = db.prepare(
+          "SELECT DISTINCT status_id FROM pmo_tickets WHERE status_id IS NOT NULL"
+        ).all() as { status_id: string }[];
+
+        const getTicketsForStatus = db.prepare(`
+          SELECT id FROM pmo_tickets WHERE status_id = ?
+          ORDER BY
+            CASE priority
+              WHEN 'P0' THEN 0
+              WHEN 'P1' THEN 1
+              WHEN 'P2' THEN 2
+              WHEN 'P3' THEN 3
+              ELSE 4
+            END,
+            created_at ASC
+        `);
+        const updatePosition = db.prepare("UPDATE pmo_tickets SET position = ? WHERE id = ?");
+
+        const backfill = db.transaction(() => {
+          for (const { status_id } of statuses) {
+            const tickets = getTicketsForStatus.all(status_id) as { id: string }[];
+            tickets.forEach((ticket, idx) => {
+              updatePosition.run((idx + 1) * 1000, ticket.id);
+            });
+          }
+        });
+        backfill();
+      }
+    }
+  } catch {
+    // Ignore migration errors - table might not exist yet
+  }
+
   return db;
 }
 
