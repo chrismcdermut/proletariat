@@ -45,7 +45,7 @@ export default class Pull extends PMOCommand {
     const db = this.storage.getDatabase()
     const dietConfig = loadDietConfig(db)
 
-    // Get project workflow statuses
+    // Get project workflow statuses to find the target "Ready" status
     const project = await this.storage.getProject(projectId)
     if (!project) {
       this.error(`Project not found: ${projectId}`)
@@ -54,11 +54,10 @@ export default class Pull extends PMOCommand {
     const workflowId = project.workflowId || 'default'
     const statuses = await this.storage.listStatuses(workflowId)
 
-    // Find backlog and ready statuses
-    const backlogStatuses = statuses.filter(s => s.category === 'backlog')
+    const hasBacklog = statuses.some(s => s.category === 'backlog')
     const readyStatuses = statuses.filter(s => s.category === 'unstarted')
 
-    if (backlogStatuses.length === 0) {
+    if (!hasBacklog) {
       this.error('No backlog statuses found in workflow. Cannot pull tickets.')
     }
 
@@ -69,8 +68,9 @@ export default class Pull extends PMOCommand {
     // Target status is the first unstarted status (Ready/To Do)
     const targetStatus = readyStatuses.sort((a, b) => a.position - b.position)[0]
 
-    // Get all backlog tickets ordered by position
-    const allBacklogTickets = await this.getBacklogTickets(projectId, backlogStatuses)
+    // Get all backlog tickets ordered by position (using statusCategory filter)
+    const allBacklogTickets = await this.storage.listTickets(projectId, { statusCategory: 'backlog' })
+    allBacklogTickets.sort((a, b) => (a.position || 0) - (b.position || 0))
 
     if (allBacklogTickets.length === 0) {
       this.log(styles.warning('No tickets in backlog to pull.'))
@@ -78,7 +78,7 @@ export default class Pull extends PMOCommand {
     }
 
     // Get existing ready tickets for diet calculation
-    const existingReadyTickets = await this.getReadyTickets(projectId, readyStatuses)
+    const existingReadyTickets = await this.storage.listTickets(projectId, { statusCategory: 'unstarted' })
 
     // Run the pull algorithm
     const result = await this.runPullAlgorithm(
@@ -101,40 +101,6 @@ export default class Pull extends PMOCommand {
     } else if (dryRun && result.pulled.length > 0) {
       this.log(styles.warning(`\nDry run: ${result.pulled.length} ticket${result.pulled.length === 1 ? '' : 's'} would be moved to ${targetStatus.name}.`))
     }
-  }
-
-  /**
-   * Get all backlog tickets ordered by position.
-   */
-  private async getBacklogTickets(
-    projectId: string,
-    backlogStatuses: WorkflowStatus[],
-  ): Promise<Ticket[]> {
-    const allTickets: Ticket[] = []
-    for (const status of backlogStatuses) {
-      // eslint-disable-next-line no-await-in-loop -- Sequential status queries
-      const tickets = await this.storage.listTickets(projectId, { statusId: status.id })
-      allTickets.push(...tickets)
-    }
-    // Sort by position (force rank order)
-    allTickets.sort((a, b) => (a.position || 0) - (b.position || 0))
-    return allTickets
-  }
-
-  /**
-   * Get existing tickets in Ready/unstarted statuses.
-   */
-  private async getReadyTickets(
-    projectId: string,
-    readyStatuses: WorkflowStatus[],
-  ): Promise<Ticket[]> {
-    const allTickets: Ticket[] = []
-    for (const status of readyStatuses) {
-      // eslint-disable-next-line no-await-in-loop -- Sequential status queries
-      const tickets = await this.storage.listTickets(projectId, { statusId: status.id })
-      allTickets.push(...tickets)
-    }
-    return allTickets
   }
 
   /**
@@ -168,7 +134,7 @@ export default class Pull extends PMOCommand {
     // Track which tickets are pulled (to avoid duplicates in second pass)
     const pulledIds = new Set<string>()
 
-    // Calculate target counts per category (total includes existing ready + new pulls)
+    // Calculate ceiling per category (total = existing ready + new pulls)
     const totalTarget = existingReadyTickets.length + targetCount
     const getCeiling = (category: string): number => {
       const ratio = dietConfig.ratios.find(r => r.category === category)
@@ -181,7 +147,7 @@ export default class Pull extends PMOCommand {
     for (const ticket of backlogTickets) {
       if (pulled.length >= targetCount) break
 
-      // Check if blocked
+      // Check if blocked (all blocking dependencies must be completed/canceled)
       // eslint-disable-next-line no-await-in-loop -- Need sequential dependency check
       const blocked = await this.storage.isTicketBlocked(ticket.id)
       if (blocked) {
@@ -211,7 +177,6 @@ export default class Pull extends PMOCommand {
 
     // Pass 2: Force-pull from underrepresented categories
     if (pulled.length < targetCount) {
-      // Find underrepresented categories
       for (const ratio of dietConfig.ratios) {
         if (pulled.length >= targetCount) break
 
@@ -219,7 +184,6 @@ export default class Pull extends PMOCommand {
         const targetForCat = Math.ceil(totalTarget * ratio.target)
 
         if (currentCount < targetForCat) {
-          // Find remaining backlog tickets in this category
           const catTickets = remainingBacklog.filter(
             t => (t.category || '').toLowerCase() === ratio.category && !pulledIds.has(t.id)
           )

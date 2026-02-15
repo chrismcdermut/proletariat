@@ -70,22 +70,8 @@ export default class Diet extends PMOCommand {
    * Build a diet report comparing actual Ready distribution to targets.
    */
   private async buildDietReport(projectId: string, dietConfig: DietConfig): Promise<DietReport> {
-    const project = await this.storage.getProject(projectId)
-    if (!project) {
-      this.error(`Project not found: ${projectId}`)
-    }
-
-    const workflowId = project.workflowId || 'default'
-    const statuses = await this.storage.listStatuses(workflowId)
-    const readyStatuses = statuses.filter(s => s.category === 'unstarted')
-
-    // Get all ready tickets
-    const readyTickets = []
-    for (const status of readyStatuses) {
-      // eslint-disable-next-line no-await-in-loop -- Sequential status queries
-      const tickets = await this.storage.listTickets(projectId, { statusId: status.id })
-      readyTickets.push(...tickets)
-    }
+    // Get all ready/unstarted tickets using statusCategory filter
+    const readyTickets = await this.storage.listTickets(projectId, { statusCategory: 'unstarted' })
 
     const totalReady = readyTickets.length
 
