@@ -277,8 +277,8 @@ export default class SupportLogs extends PMOCommand {
   private copyToClipboard(text: string): boolean {
     const platform = process.platform;
     // Strip ANSI codes for clipboard
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional ANSI escape code stripping
-    const plainText = text.replace(/\x1b\[[0-9;]*m/g, '');
+    // eslint-disable-next-line no-control-regex -- intentional ANSI escape code stripping
+    const plainText = text.replace(/\u001B\[[0-9;]*m/g, '');
 
     try {
       if (platform === 'darwin') {

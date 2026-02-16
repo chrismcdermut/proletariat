@@ -1,4 +1,4 @@
-import { Flags } from '@oclif/core';
+
 import { styles } from '../../lib/styles.js';
 import { shouldOutputJson, outputPromptAsJson, buildPromptConfig, createMetadata } from '../../lib/prompt-json.js';
 import { PromptCommand } from '../../lib/prompt-command.js';

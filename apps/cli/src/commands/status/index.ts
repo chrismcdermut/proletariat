@@ -1,4 +1,4 @@
-import { Flags } from '@oclif/core';
+
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
 

@@ -29,12 +29,10 @@ interface BranchInfo {
  */
 describe('Branch Commands E2E Tests', () => {
   let env: TestEnvironment;
-  let testDir: string;
   let db: Database.Database;
 
   beforeEach(() => {
     env = createTestEnvironment('branch-e2e-');
-    testDir = env.testDir;
 
     // Initialize PMO with production schema (creates pmo_projects table needed by findPMO)
     db = setupProductionSchema(env.dbPath, env.pmoPath);

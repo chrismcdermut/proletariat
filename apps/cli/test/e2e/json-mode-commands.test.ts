@@ -1,3 +1,4 @@
+/* eslint-disable max-nested-callbacks */
 import { expect } from 'chai';
 import Database from 'better-sqlite3';
 import {
@@ -66,17 +67,6 @@ describe('JSON Mode Flag Accumulation', () => {
       INSERT INTO pmo_tickets (id, project_id, title, status, status_id)
       VALUES (?, 'test-project', ?, ?, ?)
     `).run(id, title, statusName, statusId);
-  }
-
-  /**
-   * Helper to get ticket status from database.
-   */
-  function getTicketStatus(ticketId: string): { status: string; statusId: string } {
-    const ticket = db.prepare('SELECT status, status_id FROM pmo_tickets WHERE id = ?').get(ticketId) as { status: string; status_id: string } | undefined;
-    return {
-      status: ticket?.status || 'unknown',
-      statusId: ticket?.status_id || 'unknown',
-    };
   }
 
   describe('ticket move --json', () => {

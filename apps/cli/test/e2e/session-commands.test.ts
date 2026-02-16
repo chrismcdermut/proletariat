@@ -8,7 +8,6 @@ import {
   extractJson,
   agentExec,
   findChoiceByValue,
-  type AgentPromptResponse,
 } from './test-helpers.js';
 
 /**

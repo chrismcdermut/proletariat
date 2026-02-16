@@ -1,4 +1,4 @@
-import { Args, Flags } from '@oclif/core'
+import { Args } from '@oclif/core'
 import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'

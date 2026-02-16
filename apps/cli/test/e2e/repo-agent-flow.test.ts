@@ -107,7 +107,7 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
   let env: TestEnvironment;
   let db: Database.Database;
 
-  beforeEach(function() {
+  beforeEach(() => {
     env = createTestEnvironment('repo-agent-');
     db = new Database(env.dbPath);
     setupTestDatabase(db);
@@ -115,7 +115,7 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
     fs.mkdirSync(path.join(env.testDir, 'repos'), { recursive: true });
   });
 
-  afterEach(function() {
+  afterEach(() => {
     if (db) db.close();
     cleanupTestEnvironment(env);
   });
@@ -142,8 +142,8 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
   // REPO MENU - Navigation
   // ==========================================================================
 
-  describe('repo menu --machine', function() {
-    it('returns JSON with navigable choices', function() {
+  describe('repo menu --machine', () => {
+    it('returns JSON with navigable choices', () => {
       const result = agentExec('repo --machine');
 
       expect(result).to.not.be.null;
@@ -162,8 +162,8 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
   // REPO LIST - Read
   // ==========================================================================
 
-  describe('repo list', function() {
-    it('returns repos that exist in database', function() {
+  describe('repo list', () => {
+    it('returns repos that exist in database', () => {
       // Add repos to DB
       const repoPath = path.join(env.testDir, 'repos', 'test-repo');
       fs.mkdirSync(repoPath, { recursive: true });
@@ -178,7 +178,7 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
       expect(repos[0].name).to.equal('test-repo');
     });
 
-    it('returns empty array when no repos', function() {
+    it('returns empty array when no repos', () => {
       const output = execFinal('repo list --format json');
 
       expect(output).to.satisfy((s: string) =>
@@ -191,7 +191,9 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
   // REPO ADD - Create
   // ==========================================================================
 
+  // eslint-disable-next-line prefer-arrow-callback
   describe('repo add', function(this: Mocha.Suite) {
+    // eslint-disable-next-line mocha/handle-done-callback
     it('adds repo to database and filesystem', function(this: Mocha.Context) {
       this.timeout(60000);
 
@@ -213,7 +215,7 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
       expect(fs.existsSync(path.join(env.testDir, 'repos', 'source-repo'))).to.be.true;
     });
 
-    it('shows method selection in --machine mode', function() {
+    it('shows method selection in --machine mode', () => {
       const result = agentExec('repo add --machine');
 
       expect(result).to.not.be.null;
@@ -226,8 +228,8 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
   // REPO REMOVE - Delete
   // ==========================================================================
 
-  describe('repo remove', function() {
-    it('removes repo from database and filesystem with --force', function() {
+  describe('repo remove', () => {
+    it('removes repo from database and filesystem with --force', () => {
       // Setup
       const repoPath = path.join(env.testDir, 'repos', 'to-remove');
       fs.mkdirSync(repoPath, { recursive: true });
@@ -246,7 +248,7 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
       expect(fs.existsSync(repoPath)).to.be.false;
     });
 
-    it('keeps files with --keep-files flag', function() {
+    it('keeps files with --keep-files flag', () => {
       // Setup
       const repoPath = path.join(env.testDir, 'repos', 'keep-me');
       fs.mkdirSync(repoPath, { recursive: true });
@@ -263,7 +265,7 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
       expect(fs.existsSync(path.join(repoPath, 'important.txt'))).to.be.true;
     });
 
-    it('shows repo selection in --machine mode', function() {
+    it('shows repo selection in --machine mode', () => {
       // Add a repo first
       const repoPath = path.join(env.testDir, 'repos', 'selectable');
       fs.mkdirSync(repoPath, { recursive: true });
@@ -282,8 +284,8 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
   // REPO VIEW - Read single
   // ==========================================================================
 
-  describe('repo view', function() {
-    it('shows repo details', function() {
+  describe('repo view', () => {
+    it('shows repo details', () => {
       const repoPath = path.join(env.testDir, 'repos', 'viewable');
       fs.mkdirSync(repoPath, { recursive: true });
       initGitRepo(repoPath);
@@ -294,7 +296,7 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
       expect(output).to.include('viewable');
     });
 
-    it('shows repo selection in --machine mode', function() {
+    it('shows repo selection in --machine mode', () => {
       const repoPath = path.join(env.testDir, 'repos', 'pick-me');
       fs.mkdirSync(repoPath, { recursive: true });
       initGitRepo(repoPath);
@@ -311,8 +313,8 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
   // FULL AGENT FLOW - End to end
   // ==========================================================================
 
-  describe('full agent flow', function() {
-    it('navigates menu → remove → select → confirm → verifies DB change', function() {
+  describe('full agent flow', () => {
+    it('navigates menu → remove → select → confirm → verifies DB change', () => {
       // Setup repo
       const repoPath = path.join(env.testDir, 'repos', 'flow-test');
       fs.mkdirSync(repoPath, { recursive: true });
@@ -351,8 +353,8 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
   // ERROR HANDLING
   // ==========================================================================
 
-  describe('error handling', function() {
-    it('handles not-in-HQ gracefully', function() {
+  describe('error handling', () => {
+    it('handles not-in-HQ gracefully', () => {
       fs.rmSync(path.join(env.proletariatDir, 'config.json'));
 
       const output = execFinal('repo list --format json');
@@ -362,7 +364,7 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
       );
     });
 
-    it('handles repo not found', function() {
+    it('handles repo not found', () => {
       const output = execFinal('repo view nonexistent');
 
       expect(output.toLowerCase()).to.include('not found');
@@ -376,14 +378,14 @@ describe('Branch Commands - Agent Flow Tests', function(this: Mocha.Suite) {
   let env: TestEnvironment;
   let db: Database.Database;
 
-  beforeEach(function() {
+  beforeEach(() => {
     env = createTestEnvironment('branch-agent-');
     db = new Database(env.dbPath);
     setupTestDatabase(db);
     createHQConfig(env.proletariatDir, { name: 'test-hq', hasPmo: false });
   });
 
-  afterEach(function() {
+  afterEach(() => {
     if (db) db.close();
     cleanupTestEnvironment(env);
   });
@@ -392,8 +394,8 @@ describe('Branch Commands - Agent Flow Tests', function(this: Mocha.Suite) {
   // BRANCH MENU - Navigation
   // ==========================================================================
 
-  describe('branch menu --machine', function() {
-    it('returns JSON with navigable choices', function() {
+  describe('branch menu --machine', () => {
+    it('returns JSON with navigable choices', () => {
       const result = agentExec('branch --machine');
 
       expect(result).to.not.be.null;
@@ -410,8 +412,8 @@ describe('Branch Commands - Agent Flow Tests', function(this: Mocha.Suite) {
   // BRANCH CREATE
   // ==========================================================================
 
-  describe('branch create', function() {
-    it('outputs branch name with --type and --description flags', function() {
+  describe('branch create', () => {
+    it('outputs branch name with --type and --description flags', () => {
       const output = execFinal('branch create --type feature --description "add login"');
 
       // Should output a branch name
@@ -419,7 +421,7 @@ describe('Branch Commands - Agent Flow Tests', function(this: Mocha.Suite) {
       expect(output.length).to.be.greaterThan(0);
     });
 
-    it('shows mode selection in --machine mode', function() {
+    it('shows mode selection in --machine mode', () => {
       const result = agentExec('branch create --machine');
 
       expect(result).to.not.be.null;
@@ -432,8 +434,8 @@ describe('Branch Commands - Agent Flow Tests', function(this: Mocha.Suite) {
   // BRANCH VALIDATE
   // ==========================================================================
 
-  describe('branch validate', function() {
-    it('accepts valid ticket-style branch name', function() {
+  describe('branch validate', () => {
+    it('accepts valid ticket-style branch name', () => {
       // Use the format the validator expects: TKT-123/type/description
       const output = execFinal('branch validate "TKT-123/feat/add-login"');
 
@@ -442,7 +444,7 @@ describe('Branch Commands - Agent Flow Tests', function(this: Mocha.Suite) {
       );
     });
 
-    it('rejects branch name with spaces', function() {
+    it('rejects branch name with spaces', () => {
       const output = execFinal('branch validate "invalid name with spaces"');
 
       expect(output.toLowerCase()).to.include('invalid');
@@ -453,8 +455,8 @@ describe('Branch Commands - Agent Flow Tests', function(this: Mocha.Suite) {
   // BRANCH LIST
   // ==========================================================================
 
-  describe('branch list', function() {
-    it('returns JSON array with --format json', function() {
+  describe('branch list', () => {
+    it('returns JSON array with --format json', () => {
       const output = execFinal('branch list --format json');
 
       expect(output).to.be.a('string');
@@ -466,8 +468,8 @@ describe('Branch Commands - Agent Flow Tests', function(this: Mocha.Suite) {
   // FULL AGENT FLOW
   // ==========================================================================
 
-  describe('full agent flow', function() {
-    it('navigates menu → create → mode selection', function() {
+  describe('full agent flow', () => {
+    it('navigates menu → create → mode selection', () => {
       // Step 1: Main menu
       const step1 = agentExec('branch --machine');
       expect(step1).to.not.be.null;

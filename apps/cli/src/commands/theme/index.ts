@@ -1,4 +1,4 @@
-import { Flags } from '@oclif/core';
+
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { PromptCommand } from '../../lib/prompt-command.js';

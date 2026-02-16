@@ -36,7 +36,7 @@ export default class WorkResolve extends PMOCommand {
   };
 
   async execute(): Promise<void> {
-    const { args, flags, argv } = await this.parse(WorkResolve);
+    const { flags, argv } = await this.parse(WorkResolve);
     const projectId = (flags as { project?: string }).project;
 
     const jsonMode = shouldOutputJson(flags);

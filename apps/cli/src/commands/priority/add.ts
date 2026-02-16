@@ -57,7 +57,7 @@ export default class PriorityAdd extends PMOCommand {
       insertAt = Math.max(0, Math.min(flags.position, priorities.length));
     } else if (flags.after) {
       const afterIndex = priorities.indexOf(flags.after);
-      if (afterIndex < 0) {
+      if (afterIndex === -1) {
         if (jsonMode) {
           outputErrorAsJson('PRIORITY_NOT_FOUND', `Priority "${flags.after}" not found`, createMetadata('priority add', flags));
           this.exit(1);

@@ -1,3 +1,4 @@
+/* eslint-disable max-nested-callbacks */
 import { expect } from 'chai'
 import Database from 'better-sqlite3'
 import {

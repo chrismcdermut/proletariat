@@ -1,3 +1,4 @@
+/* eslint-disable mocha/no-skipped-tests -- intentionally skipped per TKT-771 */
 /**
  * E2E Agent Flow Tests for Status Commands
  *
@@ -74,14 +75,6 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
    */
   function getStatusByName(name: string): StatusRow | undefined {
     return db.prepare(`SELECT * FROM pmo_workflow_statuses WHERE name = ?`).get(name) as StatusRow | undefined;
-  }
-
-  /**
-   * Count statuses in DB
-   */
-  function countStatuses(): number {
-    const result = db.prepare(`SELECT COUNT(*) as count FROM pmo_workflow_statuses`).get() as { count: number };
-    return result.count;
   }
 
   /**

@@ -1,3 +1,4 @@
+/* eslint-disable no-await-in-loop */
 /**
  * MCP Diet & Pull Tools
  */

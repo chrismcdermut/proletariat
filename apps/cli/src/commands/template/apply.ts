@@ -166,10 +166,10 @@ export default class TemplateApply extends PMOCommand {
     let title = (flags.title as string) || template.titlePattern || '';
     let column = (flags.column as string) || columns[0];
     let priority = (flags.priority as string) || template.defaultPriority;
-    let category = (flags.category as string) || template.defaultCategory;
-    let assignee = (flags.assignee as string) || template.defaultAssignee;
-    let owner = (flags.owner as string) || template.defaultOwner;
-    let description = (flags.description as string) || template.descriptionTemplate;
+    const category = (flags.category as string) || template.defaultCategory;
+    const assignee = (flags.assignee as string) || template.defaultAssignee;
+    const owner = (flags.owner as string) || template.defaultOwner;
+    const description = (flags.description as string) || template.descriptionTemplate;
     const labels = template.defaultLabels;
 
     // Interactive mode
@@ -219,6 +219,7 @@ export default class TemplateApply extends PMOCommand {
     // Add subtasks
     if (!flags['no-subtasks'] && template.suggestedSubtasks.length > 0) {
       for (const subtask of template.suggestedSubtasks) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.addSubtask(ticket.id, subtask.title);
       }
     }

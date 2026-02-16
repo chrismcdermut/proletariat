@@ -1,7 +1,6 @@
+/* eslint-disable max-nested-callbacks */
 import { expect } from 'chai';
 import Database from 'better-sqlite3';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import {
   exec,
   createTestEnvironment,
@@ -54,7 +53,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
   let env: TestEnvironment;
   let db: Database.Database;
 
-  beforeEach(function () {
+  beforeEach(() => {
     env = createTestEnvironment('action-agent-flow-');
 
     // Use production schema - includes all builtin actions, workflows, phases, etc.
@@ -76,8 +75,8 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
   // action index --machine (main menu)
   // ===========================================================================
 
-  describe('action index --machine', function () {
-    it('should output valid JSON prompt with --machine flag', function () {
+  describe('action index --machine', () => {
+    it('should output valid JSON prompt with --machine flag', () => {
       const output = exec('action --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
@@ -89,7 +88,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(json!.metadata.flags.machine).to.equal(true);
     });
 
-    it('should output valid JSON with --json flag (legacy)', function () {
+    it('should output valid JSON with --json flag (legacy)', () => {
       const output = exec('action --json');
       const json = extractJson<MachinePromptResponse>(output);
 
@@ -98,7 +97,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(json!.metadata.flags.json).to.equal(true);
     });
 
-    it('should work with -m shorthand', function () {
+    it('should work with -m shorthand', () => {
       const output = exec('action -m');
       const json = extractJson<MachinePromptResponse>(output);
 
@@ -106,7 +105,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(json!.metadata.flags.machine).to.equal(true);
     });
 
-    it('should include --machine flag in choice commands', function () {
+    it('should include --machine flag in choice commands', () => {
       const output = exec('action --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
@@ -118,7 +117,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       }
     });
 
-    it('should include all menu options in choices', function () {
+    it('should include all menu options in choices', () => {
       const output = exec('action --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
@@ -131,7 +130,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(values).to.include('delete');
     });
 
-    it('should have proper command format for each choice', function () {
+    it('should have proper command format for each choice', () => {
       const output = exec('action --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
@@ -148,8 +147,8 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
   // action list flags
   // ===========================================================================
 
-  describe('action list --json', function () {
-    it('should return JSON array of actions', function () {
+  describe('action list --json', () => {
+    it('should return JSON array of actions', () => {
       const output = exec('action list --json');
       const actions = extractJson<Array<{ id: string }>>(output);
 
@@ -157,7 +156,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(actions!.length).to.be.greaterThan(0);
     });
 
-    it('should include built-in actions', function () {
+    it('should include built-in actions', () => {
       const output = exec('action list --json');
       const actions = extractJson<Array<{ id: string }>>(output);
 
@@ -167,14 +166,14 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(actionIds).to.include('implement');
     });
 
-    it('should work with --machine flag (alias for --json)', function () {
+    it('should work with --machine flag (alias for --json)', () => {
       const output = exec('action list --machine');
       // action list --machine should work the same as --json
       // The output should either be JSON array or at minimum not error
       expect(output).to.not.include('Error:');
     });
 
-    it('should filter builtin actions with --builtin flag', function () {
+    it('should filter builtin actions with --builtin flag', () => {
       const output = exec('action list --json --builtin');
       const actions = extractJson<Array<{ id: string; isBuiltin: boolean }>>(output);
 
@@ -184,7 +183,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       }
     });
 
-    it('should filter custom actions with --custom flag', function () {
+    it('should filter custom actions with --custom flag', () => {
       // First create a custom action
       exec('action create "Test Custom" --prompt "Test prompt"');
 
@@ -202,8 +201,8 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
   // action create --machine
   // ===========================================================================
 
-  describe('action create --machine', function () {
-    it('should output JSON prompt when name is missing', function () {
+  describe('action create --machine', () => {
+    it('should output JSON prompt when name is missing', () => {
       const output = exec('action create --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
@@ -215,7 +214,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(json!.metadata.flags).to.be.an('object');
     });
 
-    it('should include context hints in JSON output', function () {
+    it('should include context hints in JSON output', () => {
       const output = exec('action create --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
@@ -224,7 +223,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(json!.prompt.context!.hint).to.include('prlt action create');
     });
 
-    it('should output prompt for --prompt when name provided', function () {
+    it('should output prompt for --prompt when name provided', () => {
       const output = exec('action create "Test Action" --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
@@ -233,7 +232,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(json!.prompt.context).to.exist;
     });
 
-    it('should create action when all required args provided', function () {
+    it('should create action when all required args provided', () => {
       const output = exec('action create "Direct Create" --prompt "Test prompt" --machine');
       expect(output).to.include('Created action');
 
@@ -247,13 +246,13 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
   // action update --machine
   // ===========================================================================
 
-  describe('action update --machine', function () {
-    beforeEach(function () {
+  describe('action update --machine', () => {
+    beforeEach(() => {
       // Create a custom action for update tests
       exec('action create "Update Target" --prompt "Original prompt"');
     });
 
-    it('should output JSON prompt in interactive mode', function () {
+    it('should output JSON prompt in interactive mode', () => {
       const output = exec('action update update-target --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
@@ -263,7 +262,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(json!.metadata.command).to.equal('action update');
     });
 
-    it('should include current value in context', function () {
+    it('should include current value in context', () => {
       const output = exec('action update update-target --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
@@ -272,20 +271,20 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(json!.prompt.context!.currentValue).to.equal('Update Target');
     });
 
-    it('should update with direct flags', function () {
+    it('should update with direct flags', () => {
       exec('action update update-target --name "Renamed Action" --machine');
 
       const action = db.prepare('SELECT name FROM pmo_actions WHERE id = ?').get('update-target') as { name: string };
       expect(action.name).to.equal('Renamed Action');
     });
 
-    it('should output error JSON for built-in action', function () {
+    it('should output error JSON for built-in action', () => {
       const output = exec('action update groom --name "New Name" --machine');
 
       expect(output.toLowerCase()).to.include('built-in');
     });
 
-    it('should output error JSON for non-existent action', function () {
+    it('should output error JSON for non-existent action', () => {
       const output = exec('action update nonexistent --machine');
 
       expect(output.toLowerCase()).to.include('not found');
@@ -296,13 +295,13 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
   // action delete --machine
   // ===========================================================================
 
-  describe('action delete --machine', function () {
-    beforeEach(function () {
+  describe('action delete --machine', () => {
+    beforeEach(() => {
       // Create a custom action for delete tests
       exec('action create "Delete Target" --prompt "To be deleted"');
     });
 
-    it('should output JSON confirmation prompt', function () {
+    it('should output JSON confirmation prompt', () => {
       const output = exec('action delete delete-target --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
@@ -312,7 +311,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(json!.prompt.message).to.include('Delete');
     });
 
-    it('should include choices with commands', function () {
+    it('should include choices with commands', () => {
       const output = exec('action delete delete-target --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
@@ -324,20 +323,20 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(yesChoice!.command).to.include('--force');
     });
 
-    it('should delete with --force flag', function () {
+    it('should delete with --force flag', () => {
       exec('action delete delete-target --force --machine');
 
       const action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('delete-target');
       expect(action).to.be.undefined;
     });
 
-    it('should output error JSON for built-in action', function () {
+    it('should output error JSON for built-in action', () => {
       const output = exec('action delete groom --force --machine');
 
       expect(output.toLowerCase()).to.include('built-in');
     });
 
-    it('should output error JSON for non-existent action', function () {
+    it('should output error JSON for non-existent action', () => {
       const output = exec('action delete nonexistent --force --machine');
 
       expect(output.toLowerCase()).to.include('not found');
@@ -348,8 +347,8 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
   // action CRUD operations (without --machine, for completeness)
   // ===========================================================================
 
-  describe('action CRUD operations', function () {
-    it('should create custom action', function () {
+  describe('action CRUD operations', () => {
+    it('should create custom action', () => {
       const output = exec('action create "Test Action" --prompt "Test prompt"');
       expect(output).to.include('Created action');
 
@@ -358,7 +357,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(action.name).to.equal('Test Action');
     });
 
-    it('should update custom action', function () {
+    it('should update custom action', () => {
       // Create first
       exec('action create "Update Me" --prompt "Original"');
 
@@ -369,7 +368,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(action.prompt).to.equal('Updated prompt');
     });
 
-    it('should delete custom action with --force', function () {
+    it('should delete custom action with --force', () => {
       // Create first
       exec('action create "Delete Me" --prompt "To delete"');
 
@@ -380,12 +379,12 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(action).to.be.undefined;
     });
 
-    it('should prevent deleting built-in actions', function () {
+    it('should prevent deleting built-in actions', () => {
       const output = exec('action delete groom --force');
       expect(output.toLowerCase()).to.include('built-in');
     });
 
-    it('should prevent updating built-in actions', function () {
+    it('should prevent updating built-in actions', () => {
       const output = exec('action update groom --name "New Name"');
       expect(output.toLowerCase()).to.include('built-in');
     });
@@ -395,8 +394,8 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
   // End-to-end agent flows - Complete multi-step chains
   // ===========================================================================
 
-  describe('End-to-end agent flows', function () {
-    it('should complete action index → list flow and return valid actions', function () {
+  describe('End-to-end agent flows', () => {
+    it('should complete action index → list flow and return valid actions', () => {
       // Step 1: Get the main menu
       const menuOutput = exec('action --machine');
       const menu = extractJson<MachinePromptResponse>(menuOutput);
@@ -425,7 +424,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(groomAction!.isBuiltin).to.equal(true);
     });
 
-    it('should complete full create flow: menu → name prompt → prompt prompt → verify creation', function () {
+    it('should complete full create flow: menu → name prompt → prompt prompt → verify creation', () => {
       // Step 1: Get the main menu
       const menuOutput = exec('action --machine');
       const menu = extractJson<MachinePromptResponse>(menuOutput);
@@ -474,7 +473,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(action.is_builtin).to.equal(0);
     });
 
-    it('should complete delete flow: confirmation prompt → execute Yes command → verify deletion', function () {
+    it('should complete delete flow: confirmation prompt → execute Yes command → verify deletion', () => {
       // Setup: Create a custom action to delete
       exec('action create "Delete Target" --prompt "Will be deleted"');
 
@@ -512,7 +511,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(action).to.be.undefined;
     });
 
-    it('should complete update flow: prompt for name → apply update → verify changes', function () {
+    it('should complete update flow: prompt for name → apply update → verify changes', () => {
       // Setup: Create a custom action to update
       exec('action create "Update Target" --prompt "Original prompt" --description "Original desc"');
 
@@ -551,7 +550,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(updated.description).to.equal('New description');
     });
 
-    it('should complete create with all optional flags and verify all fields', function () {
+    it('should complete create with all optional flags and verify all fields', () => {
       // Create action with all optional fields
       const output = exec('action create "Full Options Action" --prompt "Full prompt" --description "Full description" --suggested-for started,backlog --move-to completed');
       expect(output).to.include('Created action');
@@ -579,7 +578,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(categories).to.include('backlog');
     });
 
-    it('should handle error flow: update non-existent action returns error JSON', function () {
+    it('should handle error flow: update non-existent action returns error JSON', () => {
       const output = exec('action update nonexistent-action --machine');
       const errorJson = extractJson<{ error: { code: string; message: string }; metadata: object }>(output);
 
@@ -590,7 +589,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(errorJson!.metadata).to.exist;
     });
 
-    it('should handle error flow: delete built-in action returns error JSON', function () {
+    it('should handle error flow: delete built-in action returns error JSON', () => {
       const output = exec('action delete groom --force --machine');
       const errorJson = extractJson<{ error: { code: string; message: string }; metadata: object }>(output);
 
@@ -600,7 +599,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(errorJson!.error.message).to.include('built-in');
     });
 
-    it('should handle error flow: update built-in action returns error JSON', function () {
+    it('should handle error flow: update built-in action returns error JSON', () => {
       const output = exec('action update groom --name "New Groom" --machine');
       const errorJson = extractJson<{ error: { code: string; message: string }; metadata: object }>(output);
 
@@ -615,9 +614,9 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
   // Multi-step interactive flows (--interactive --machine)
   // ===========================================================================
 
-  describe('Multi-step interactive flows', function () {
-    describe('action create --interactive multi-step flow', function () {
-      it('Step 1: should prompt for name when no args provided', function () {
+  describe('Multi-step interactive flows', () => {
+    describe('action create --interactive multi-step flow', () => {
+      it('Step 1: should prompt for name when no args provided', () => {
         const output = exec('action create --interactive --machine');
         const json = extractJson<MachinePromptResponse>(output);
 
@@ -629,7 +628,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         expect(json!.prompt.context!.requiredFields).to.include('name (as first argument)');
       });
 
-      it('Step 2: should prompt for prompt after name provided', function () {
+      it('Step 2: should prompt for prompt after name provided', () => {
         const output = exec('action create "Step2 Test" --interactive --machine');
         const json = extractJson<MachinePromptResponse>(output);
 
@@ -641,7 +640,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         expect(json!.metadata.flags.name).to.equal('Step2 Test');
       });
 
-      it('Step 3: should prompt for description after name and prompt provided', function () {
+      it('Step 3: should prompt for description after name and prompt provided', () => {
         const output = exec('action create "Step3 Test" --prompt "Test prompt" --interactive --machine');
         const json = extractJson<MachinePromptResponse>(output);
 
@@ -653,7 +652,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         expect(json!.metadata.flags.prompt).to.equal('Test prompt');
       });
 
-      it('Step 4: should show suggestedFor checkbox after description provided', function () {
+      it('Step 4: should show suggestedFor checkbox after description provided', () => {
         const output = exec('action create "Step4 Test" --prompt "Test prompt" --description "Test desc" --interactive --machine');
         const json = extractJson<MachinePromptResponse>(output);
 
@@ -672,7 +671,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         }
       });
 
-      it('should include all category options in suggestedFor choices', function () {
+      it('should include all category options in suggestedFor choices', () => {
         const output = exec('action create "Categories Test" --prompt "Test" --description "Test" --interactive --machine');
         const json = extractJson<MachinePromptResponse>(output);
 
@@ -683,7 +682,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         expect(values).to.include('completed');
       });
 
-      it('should complete full create flow and verify database', function () {
+      it('should complete full create flow and verify database', () => {
         // Step 1: Get name prompt
         const step1 = extractJson<MachinePromptResponse>(exec('action create --interactive --machine'));
         expect(step1!.prompt.name).to.equal('name');
@@ -719,13 +718,13 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       });
     });
 
-    describe('action update --interactive multi-step flow', function () {
-      beforeEach(function () {
+    describe('action update --interactive multi-step flow', () => {
+      beforeEach(() => {
         // Create a custom action for update tests
         exec('action create "Update Multi Step" --prompt "Original prompt" --description "Original desc"');
       });
 
-      it('Step 1: should prompt for name with current value', function () {
+      it('Step 1: should prompt for name with current value', () => {
         const output = exec('action update update-multi-step --interactive --machine');
         const json = extractJson<MachinePromptResponse>(output);
 
@@ -736,7 +735,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         expect(json!.prompt.context!.currentValue).to.equal('Update Multi Step');
       });
 
-      it('Step 2: should prompt for description after name provided', function () {
+      it('Step 2: should prompt for description after name provided', () => {
         const output = exec('action update update-multi-step --name "New Name" --interactive --machine');
         const json = extractJson<MachinePromptResponse>(output);
 
@@ -747,7 +746,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         expect(json!.metadata.flags.name).to.equal('New Name');
       });
 
-      it('Step 3: should prompt for prompt (editor) after description provided', function () {
+      it('Step 3: should prompt for prompt (editor) after description provided', () => {
         const output = exec('action update update-multi-step --name "New Name" --description "New desc" --interactive --machine');
         const json = extractJson<MachinePromptResponse>(output);
 
@@ -759,7 +758,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         expect(json!.metadata.flags.description).to.equal('New desc');
       });
 
-      it('Step 4: should show suggestedFor checkbox after prompt provided', function () {
+      it('Step 4: should show suggestedFor checkbox after prompt provided', () => {
         const output = exec('action update update-multi-step --name "New Name" --description "New desc" --prompt "New prompt" --interactive --machine');
         const json = extractJson<MachinePromptResponse>(output);
 
@@ -774,7 +773,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         expect(choice.command).to.include('New Name');
       });
 
-      it('should complete multi-step update and verify database changes', function () {
+      it('should complete multi-step update and verify database changes', () => {
         // Verify original values
         let action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('update-multi-step') as {
           name: string;
@@ -808,8 +807,8 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       });
     });
 
-    describe('action delete confirmation flow', function () {
-      it('should show confirmation with Yes/No choices', function () {
+    describe('action delete confirmation flow', () => {
+      it('should show confirmation with Yes/No choices', () => {
         exec('action create "Confirm Delete" --prompt "To confirm"');
 
         const output = exec('action delete confirm-delete --machine');
@@ -831,7 +830,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         expect(yesChoice!.command).to.include('--json');
       });
 
-      it('should execute Yes command and delete action', function () {
+      it('should execute Yes command and delete action', () => {
         exec('action create "Execute Yes" --prompt "Execute test"');
 
         // Get confirmation prompt
@@ -854,8 +853,8 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
   // Flag combinations and edge cases
   // ===========================================================================
 
-  describe('Flag combinations and edge cases', function () {
-    it('should handle --machine and --json together (--machine takes precedence)', function () {
+  describe('Flag combinations and edge cases', () => {
+    it('should handle --machine and --json together (--machine takes precedence)', () => {
       const output = exec('action --machine --json');
       const json = extractJson<MachinePromptResponse>(output);
 
@@ -863,7 +862,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(json!.metadata.flags.machine).to.equal(true);
     });
 
-    it('should handle -m shorthand with other flags', function () {
+    it('should handle -m shorthand with other flags', () => {
       const output = exec('action -m');
       const json = extractJson<MachinePromptResponse>(output);
 
@@ -871,7 +870,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(json!.metadata.flags.machine).to.equal(true);
     });
 
-    it('should propagate --machine flag through subcommand choices', function () {
+    it('should propagate --machine flag through subcommand choices', () => {
       const output = exec('action --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
@@ -885,7 +884,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       }
     });
 
-    it('should handle action create with all optional flags', function () {
+    it('should handle action create with all optional flags', () => {
       const output = exec('action create "Full Options" --prompt "Test" --description "Test desc" --suggested-for started,backlog --move-to completed');
       expect(output).to.include('Created action');
 
@@ -899,7 +898,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(action.default_move_to_category).to.equal('completed');
     });
 
-    it('should handle empty action list gracefully', function () {
+    it('should handle empty action list gracefully', () => {
       // Delete all custom actions (built-in remain)
       const customActions = db.prepare('SELECT id FROM pmo_actions WHERE is_builtin = 0').all() as Array<{ id: string }>;
       for (const action of customActions) {

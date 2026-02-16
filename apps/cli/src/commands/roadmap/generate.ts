@@ -3,9 +3,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
-import { slugify } from '../../lib/pmo/utils.js';
+import { slugify , getWorkspacePriorities } from '../../lib/pmo/utils.js';
 import { normalizePriority } from '../../lib/pmo/types.js';
-import { getWorkspacePriorities } from '../../lib/pmo/utils.js';
 import {
   shouldOutputJson,
   outputErrorAsJson,

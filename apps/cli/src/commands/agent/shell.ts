@@ -1,8 +1,7 @@
-import { Args, Flags } from '@oclif/core';
+import { Args } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { execSync, spawn } from 'node:child_process';
-import inquirer from 'inquirer';
 import Database from 'better-sqlite3';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo, getAgentTmuxSessions, formatAgentList } from '../../lib/agents/commands.js';
@@ -18,8 +17,6 @@ import {
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
   shouldOutputJson,
-  outputErrorAsJson,
-  createMetadata,
 } from '../../lib/prompt-json.js';
 
 export default class Shell extends PMOCommand {

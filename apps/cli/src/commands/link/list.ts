@@ -1,3 +1,4 @@
+/* eslint-disable no-await-in-loop */
 import { Args, Flags } from '@oclif/core'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
@@ -131,7 +132,7 @@ export default class LinkList extends PMOCommand {
     this.log('')
   }
 
-  private async listSpecLinks(specId: string, showAll: boolean): Promise<void> {
+  private async listSpecLinks(specId: string, _showAll: boolean): Promise<void> {
     const spec = await this.storage.getSpec(specId)
     if (!spec) {
       this.error(`Spec not found: ${specId}`)
@@ -167,7 +168,7 @@ export default class LinkList extends PMOCommand {
     this.log('')
   }
 
-  private async listEpicLinks(epicId: string, showAll: boolean): Promise<void> {
+  private async listEpicLinks(epicId: string, _showAll: boolean): Promise<void> {
     const epic = await this.storage.getEpic(epicId)
     if (!epic) {
       this.error(`Epic not found: ${epicId}`)

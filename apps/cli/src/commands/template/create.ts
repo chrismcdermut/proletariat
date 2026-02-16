@@ -165,7 +165,7 @@ export default class TemplateCreate extends PMOCommand {
 
     // Get optional values
     let description = flags.description as string | undefined;
-    let titlePattern = flags['title-pattern'] as string | undefined;
+    const titlePattern = flags['title-pattern'] as string | undefined;
     let priority = flags.priority as string | undefined;
     let category = flags.category as string | undefined;
     const subtasks = (flags.subtask as string[]) || [];

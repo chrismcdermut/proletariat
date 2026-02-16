@@ -1,3 +1,4 @@
+/* eslint-disable max-nested-callbacks */
 import { expect } from 'chai';
 import Database from 'better-sqlite3';
 import {
@@ -369,14 +370,6 @@ describe('Work Commands JSON Mode', () => {
       status: ticket?.status || 'unknown',
       statusId: ticket?.status_id || 'unknown',
     };
-  }
-
-  /**
-   * Helper to get execution status from database.
-   */
-  function getExecutionStatus(executionId: string): string {
-    const execution = db.prepare('SELECT status FROM agent_work WHERE id = ?').get(executionId) as { status: string } | undefined;
-    return execution?.status || 'unknown';
   }
 
   // ===========================================================================

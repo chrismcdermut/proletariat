@@ -164,7 +164,7 @@ describe('Orphaned Project Handling (TKT-940)', () => {
     it('should allow deleting a ticket with orphaned project', () => {
       insertOrphanedTicket('TKT-ORPHAN-DEL', 'ghost-project', 'Orphaned Delete Test');
 
-      const output = exec('ticket delete TKT-ORPHAN-DEL --force');
+      exec('ticket delete TKT-ORPHAN-DEL --force');
 
       // Should delete without crashing
       const ticket = db.prepare(`

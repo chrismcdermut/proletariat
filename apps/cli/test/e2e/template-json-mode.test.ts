@@ -1,3 +1,4 @@
+/* eslint-disable max-nested-callbacks */
 import { expect } from 'chai';
 import Database from 'better-sqlite3';
 import {
@@ -5,15 +6,12 @@ import {
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
-  exec,
   execProduction,
   extractJson,
   agentExec,
   findChoice,
   execChoice,
-  execFinal,
   type TestEnvironment,
-  type AgentPromptResponse,
 } from './test-helpers.js';
 
 /**
@@ -516,7 +514,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
 
       it('should complete flow: select type → select template → confirm → deleted', () => {
         // Verify template exists before
-        let template = getTicketTemplate('del-flow-1');
+        const template = getTicketTemplate('del-flow-1');
         expect(template).to.exist;
 
         // Step 1: No type, get type selection

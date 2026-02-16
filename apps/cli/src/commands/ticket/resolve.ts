@@ -8,8 +8,6 @@ import {
   outputErrorAsJson,
   outputSuccessAsJson,
   createMetadata,
-  outputPromptAsJson,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 /**
@@ -179,7 +177,7 @@ export default class TicketResolve extends PMOCommand {
   };
 
   async execute(): Promise<void> {
-    const { args, flags, argv } = await this.parse(TicketResolve);
+    const { flags, argv } = await this.parse(TicketResolve);
     const projectId = (flags as { project?: string }).project;
 
     const jsonMode = shouldOutputJson(flags);
