@@ -43,6 +43,8 @@ export const PMO_TABLES = {
   // Roadmap tables (ordered collections of projects for documentation)
   roadmaps: 'pmo_roadmaps',  // Named roadmap definitions
   roadmap_projects: 'pmo_roadmap_projects',  // Many-to-many: roadmaps ↔ projects with ordering
+  // Review worktrees (persistent worktrees for human PR review and testing)
+  review_worktrees: 'review_worktrees',
   // Legacy tables (deprecated, kept for migration)
   columns: 'pmo_columns',  // DEPRECATED: use workflow_statuses
   board_tickets: 'pmo_board_tickets',  // DEPRECATED: tickets now use status_id directly
@@ -483,6 +485,17 @@ export const PMO_TABLE_SCHEMAS = {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (roadmap_id, project_id)
     )`,
+
+  // Review worktrees (persistent worktrees for human PR review and testing)
+  review_worktrees: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.review_worktrees} (
+      name TEXT PRIMARY KEY,
+      path TEXT NOT NULL,
+      current_branch TEXT,
+      repo_name TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
 } as const;
 
 // =============================================================================
@@ -583,6 +596,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.ticket_templates,  // Ticket templates for quick creation
   PMO_TABLE_SCHEMAS.roadmaps,  // Named roadmap definitions
   PMO_TABLE_SCHEMAS.roadmap_projects,  // Roadmap-to-project associations
+  PMO_TABLE_SCHEMAS.review_worktrees,  // Review worktrees for human PR review
   // Legacy tables (kept for migration, will be dropped after data migrated)
   PMO_TABLE_SCHEMAS.columns,  // DEPRECATED
   PMO_TABLE_SCHEMAS.board_tickets,  // DEPRECATED

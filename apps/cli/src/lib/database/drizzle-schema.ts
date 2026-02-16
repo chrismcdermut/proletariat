@@ -574,6 +574,22 @@ export const pmoRoadmapProjects = sqliteTable('pmo_roadmap_projects', {
 }))
 
 // =============================================================================
+// Review Worktrees
+// =============================================================================
+
+/**
+ * Review worktrees - persistent worktrees for human PR review and testing
+ */
+export const reviewWorktrees = sqliteTable('review_worktrees', {
+  name: text('name').primaryKey(),
+  path: text('path').notNull(),
+  currentBranch: text('current_branch'),
+  repoName: text('repo_name'),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
+  lastUsedAt: text('last_used_at').default(sql`CURRENT_TIMESTAMP`),
+})
+
+// =============================================================================
 // Legacy/Deprecated Tables (kept for migration compatibility)
 // =============================================================================
 
@@ -818,3 +834,6 @@ export type NewDbPmoBoardView = typeof pmoBoardViews.$inferInsert
 
 export type DbPmoAgentWorkRecord = typeof pmoAgentWork.$inferSelect
 export type NewDbPmoAgentWorkRecord = typeof pmoAgentWork.$inferInsert
+
+export type DbReviewWorktree = typeof reviewWorktrees.$inferSelect
+export type NewDbReviewWorktree = typeof reviewWorktrees.$inferInsert

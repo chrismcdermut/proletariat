@@ -109,6 +109,7 @@ export default class Agent extends PMOCommand {
           break;
         }
         case 'temp': {
+          // @ts-expect-error temp command module may not exist yet
           const { default: TempCommand } = await import('./temp/index.js');
           const cmd = new TempCommand([], this.config);
           await cmd.run();

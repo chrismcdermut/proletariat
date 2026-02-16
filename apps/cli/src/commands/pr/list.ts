@@ -16,10 +16,13 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 
+import { PMO_TABLES } from '../../lib/pmo/schema.js';
+
 interface PRWithTicket extends PRInfo {
   ticketId?: string;
   ticketTitle?: string;
   ticketStatus?: string;
+  reviewWorktree?: string;
 }
 
 export default class PRList extends PMOCommand {
@@ -117,7 +120,19 @@ export default class PRList extends PMOCommand {
       prs = prs.slice(0, flags.limit);
     }
 
-    // Enrich PRs with ticket info
+    // Build map of branch -> review worktree name
+    const branchToReviewWorktree = new Map<string, string>();
+    try {
+      const db = this.storage.getDatabase();
+      const reviewRows = db.prepare(
+        `SELECT name, current_branch FROM ${PMO_TABLES.review_worktrees} WHERE current_branch IS NOT NULL`
+      ).all() as Array<{ name: string; current_branch: string }>;
+      for (const row of reviewRows) {
+        branchToReviewWorktree.set(row.current_branch, row.name);
+      }
+    } catch { /* review_worktrees table may not exist yet */ }
+
+    // Enrich PRs with ticket info and review worktree status
     const enrichedPRs: PRWithTicket[] = prs.map(pr => {
       const ticketInfo = prToTicketMap.get(pr.number);
       return {
@@ -125,6 +140,7 @@ export default class PRList extends PMOCommand {
         ticketId: ticketInfo?.id,
         ticketTitle: ticketInfo?.title,
         ticketStatus: ticketInfo?.status,
+        reviewWorktree: branchToReviewWorktree.get(pr.headBranch),
       };
     });
 
@@ -165,6 +181,10 @@ export default class PRList extends PMOCommand {
         this.log(styles.muted(`   Ticket: (not linked)`));
       }
 
+      if (pr.reviewWorktree) {
+        this.log(styles.success(`   Review: ${pr.reviewWorktree}`));
+      }
+
       const created = new Date(pr.createdAt).toLocaleDateString();
       const updated = new Date(pr.updatedAt).toLocaleDateString();
       this.log(styles.muted(`   Created: ${created} | Updated: ${updated}`));
@@ -187,8 +207,9 @@ export default class PRList extends PMOCommand {
       const stateEmoji = this.getStateEmoji(pr);
       const ticketBadge = pr.ticketId ? styles.code(`[${pr.ticketId}]`) : '';
       const draftBadge = pr.isDraft ? styles.muted('[Draft]') : '';
+      const reviewBadge = pr.reviewWorktree ? styles.success(`[${pr.reviewWorktree}]`) : '';
 
-      this.log(`${stateEmoji} #${pr.number}: ${pr.title} ${ticketBadge} ${draftBadge}`);
+      this.log(`${stateEmoji} #${pr.number}: ${pr.title} ${ticketBadge} ${draftBadge} ${reviewBadge}`);
     }
 
     this.log('');
