@@ -358,6 +358,56 @@ export interface PhaseTemplatePhase {
 }
 
 // =============================================================================
+// Label Types
+// =============================================================================
+
+/**
+ * Label group - groups related labels and optionally enforces mutual exclusivity.
+ * Example: "Function" group (ship/grow/support/bizops/strategy) is exclusive.
+ */
+export interface LabelGroup {
+  id: string
+  name: string
+  description?: string
+  isExclusive: boolean       // Only one label from this group per ticket
+  isRequired: boolean        // Must have one label from this group
+  position: number
+  createdAt: Date
+}
+
+/**
+ * Label - a tag that can be applied to tickets.
+ * Labels can optionally belong to a group.
+ */
+export interface Label {
+  id: string
+  name: string
+  color?: string
+  description?: string
+  groupId?: string           // Reference to LabelGroup
+  groupName?: string         // Resolved group name (for display)
+  position: number
+  isBuiltin: boolean
+  createdAt: Date
+}
+
+/**
+ * Filter options for listing labels.
+ */
+export interface LabelFilter {
+  groupId?: string
+  search?: string
+  isBuiltin?: boolean
+}
+
+/**
+ * Filter options for listing label groups.
+ */
+export interface LabelGroupFilter {
+  search?: string
+}
+
+// =============================================================================
 // Roadmap Types
 // =============================================================================
 
@@ -762,6 +812,8 @@ export interface TicketFilter {
   column?: string
   projectId?: string          // Filter to a specific project
   allProjects?: boolean       // If true, list tickets across all projects (ignores current project scope)
+  label?: string              // Filter by label name
+  labelGroup?: string         // Filter by label group name
 }
 
 export interface SpecFilter {

@@ -24,6 +24,7 @@ export function initializePMOTables(db: Database.Database): void {
   seedBuiltinActions(db)
   seedBuiltinTicketTemplates(db)
   seedDefaultPriorities(db)  // Seed default priority scale if not set
+  seedBuiltinLabels(db)  // Seed built-in label groups and labels
   validateTicketSchema(db)
 }
 
@@ -1123,6 +1124,147 @@ export function seedDefaultPriorities(db: Database.Database): void {
   if (!row) {
     // No priorities set yet - seed with defaults
     setWorkspacePriorities(db, [...DEFAULT_PRIORITIES])
+  }
+}
+
+/**
+ * Seed built-in label groups and labels.
+ * Creates Function, Type, and Area groups with their labels.
+ * Migrates existing ticket category values to Function labels.
+ */
+export function seedBuiltinLabels(db: Database.Database): void {
+  const now = new Date().toISOString()
+
+  const insertGroup = db.prepare(`
+    INSERT OR IGNORE INTO ${T.label_groups} (id, name, description, is_exclusive, is_required, position, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  const insertLabel = db.prepare(`
+    INSERT OR IGNORE INTO ${T.labels} (id, name, color, description, group_id, position, is_builtin, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+  `)
+
+  // Built-in label groups
+  const groups = [
+    {
+      id: 'function',
+      name: 'Function',
+      description: 'Business function category (diet enforcement)',
+      isExclusive: true,
+      isRequired: true,
+      position: 0,
+      labels: [
+        { id: 'fn-ship', name: 'ship', description: 'Core product development', color: '#2da44e' },
+        { id: 'fn-grow', name: 'grow', description: 'Marketing, adoption, community', color: '#bf8700' },
+        { id: 'fn-support', name: 'support', description: 'Docs, error messages, onboarding', color: '#0969da' },
+        { id: 'fn-bizops', name: 'bizops', description: 'Infrastructure, CI/CD, operations', color: '#8250df' },
+        { id: 'fn-strategy', name: 'strategy', description: 'Design decisions, spikes, retros, planning', color: '#cf222e' },
+      ],
+    },
+    {
+      id: 'type',
+      name: 'Type',
+      description: 'Work type classification',
+      isExclusive: true,
+      isRequired: false,
+      position: 1,
+      labels: [
+        { id: 'type-bug', name: 'bug', description: 'Bug fix', color: '#cf222e' },
+        { id: 'type-feature', name: 'feature', description: 'New feature', color: '#2da44e' },
+        { id: 'type-improvement', name: 'improvement', description: 'Enhancement to existing feature', color: '#0969da' },
+        { id: 'type-task', name: 'task', description: 'General task', color: '#6e7781' },
+      ],
+    },
+    {
+      id: 'area',
+      name: 'Area',
+      description: 'System area (non-exclusive)',
+      isExclusive: false,
+      isRequired: false,
+      position: 2,
+      labels: [
+        { id: 'area-cli', name: 'cli', description: 'CLI tool', color: '#0969da' },
+        { id: 'area-pmo', name: 'pmo', description: 'Project management', color: '#8250df' },
+        { id: 'area-agent', name: 'agent', description: 'Agent system', color: '#2da44e' },
+        { id: 'area-docker', name: 'docker', description: 'Docker integration', color: '#bf8700' },
+        { id: 'area-mcp', name: 'mcp', description: 'MCP server', color: '#cf222e' },
+        { id: 'area-desktop', name: 'desktop', description: 'Desktop app', color: '#6e7781' },
+      ],
+    },
+  ]
+
+  for (const group of groups) {
+    insertGroup.run(
+      group.id,
+      group.name,
+      group.description,
+      group.isExclusive ? 1 : 0,
+      group.isRequired ? 1 : 0,
+      group.position,
+      now
+    )
+
+    for (let i = 0; i < group.labels.length; i++) {
+      const label = group.labels[i]
+      insertLabel.run(
+        label.id,
+        label.name,
+        label.color,
+        label.description,
+        group.id,
+        i,
+        now
+      )
+    }
+  }
+
+  // Migrate existing category column values to Function label group
+  // Only run if there are tickets with category set but no Function label yet
+  migrateCategoryToFunctionLabels(db)
+}
+
+/**
+ * Migrate existing ticket category values to Function label group entries.
+ * Maps known category names to function labels (e.g., 'ship' -> fn-ship).
+ * This is idempotent - only creates associations that don't exist yet.
+ */
+function migrateCategoryToFunctionLabels(db: Database.Database): void {
+  // Map of old category values to function label IDs
+  // The ticket's category field contains values like 'feature', 'bug', etc.
+  // The diet system uses ship/grow/support/bizops/strategy which are different
+  // from ticket categories. The diet categories map to the Function label group.
+  // Since existing categories (feature, bug, etc.) don't map to Function labels,
+  // we only migrate if the category field happens to contain a Function label name.
+  const functionLabelMap: Record<string, string> = {
+    ship: 'fn-ship',
+    grow: 'fn-grow',
+    support: 'fn-support',
+    bizops: 'fn-bizops',
+    strategy: 'fn-strategy',
+  }
+
+  const tickets = db.prepare(`
+    SELECT id, category FROM ${T.tickets}
+    WHERE category IS NOT NULL AND category != ''
+  `).all() as Array<{ id: string; category: string }>
+
+  const insertTicketLabel = db.prepare(`
+    INSERT OR IGNORE INTO ${T.ticket_labels} (ticket_id, label_id)
+    VALUES (?, ?)
+  `)
+
+  for (const ticket of tickets) {
+    const labelId = functionLabelMap[ticket.category.toLowerCase()]
+    if (labelId) {
+      // Check label exists before inserting
+      const labelExists = db.prepare(
+        `SELECT id FROM ${T.labels} WHERE id = ?`
+      ).get(labelId) as { id: string } | undefined
+      if (labelExists) {
+        insertTicketLabel.run(ticket.id, labelId)
+      }
+    }
   }
 }
 

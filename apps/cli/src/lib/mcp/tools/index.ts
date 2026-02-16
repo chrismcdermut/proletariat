@@ -17,6 +17,7 @@ export { registerCategoryTools } from './category.js'
 export { registerTemplateTools } from './template.js'
 export { registerViewTools } from './view.js'
 export { registerDietTools } from './diet.js'
+export { registerLabelTools } from './label.js'
 
 // CLI passthrough tools
 export {

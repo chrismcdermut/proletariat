@@ -666,6 +666,23 @@ export class TicketStorage {
       query += ' AND ws.name = ?'
       params.push(filter.column)
     }
+    if (filter?.label) {
+      query += ` AND t.id IN (
+        SELECT tl.ticket_id FROM ${T.ticket_labels} tl
+        JOIN ${T.labels} l ON tl.label_id = l.id
+        WHERE LOWER(l.name) = LOWER(?)
+      )`
+      params.push(filter.label)
+    }
+    if (filter?.labelGroup) {
+      query += ` AND t.id IN (
+        SELECT tl.ticket_id FROM ${T.ticket_labels} tl
+        JOIN ${T.labels} l ON tl.label_id = l.id
+        JOIN ${T.label_groups} lg ON l.group_id = lg.id
+        WHERE LOWER(lg.name) = LOWER(?)
+      )`
+      params.push(filter.labelGroup)
+    }
 
     // Order by status column position, then ticket position within status
     if (projectIdOrName === undefined) {
