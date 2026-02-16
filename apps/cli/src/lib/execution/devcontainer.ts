@@ -147,7 +147,9 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
     mounts,
     containerEnv: {
       DEVCONTAINER: 'true',
-      ANTHROPIC_API_KEY: '${localEnv:ANTHROPIC_API_KEY}',
+      // NOTE: ANTHROPIC_API_KEY is intentionally NOT passed by default.
+      // Claude Code prefers API key over OAuth, so passing it would cause agents
+      // to burn API credits instead of using Max subscription via OAuth.
       // GH_TOKEN enables gh CLI in container (for PR creation, etc.)
       GH_TOKEN: '${localEnv:GH_TOKEN}',
       GITHUB_TOKEN: '${localEnv:GITHUB_TOKEN}',

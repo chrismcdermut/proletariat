@@ -133,19 +133,15 @@ export function credentialsVolumeExists(): boolean {
 }
 
 /**
- * Check if valid Claude credentials exist for Docker containers.
- * Returns true if credentials are available via any method:
- * - ANTHROPIC_API_KEY env var (passed to containers via containerEnv)
- * - OAuth credentials in the Docker volume (even if access token is expired,
- *   since Claude Code handles refresh internally using stored refresh tokens)
+ * Check if valid Claude OAuth credentials exist in the Docker volume.
+ * Returns true if OAuth credentials are stored (even if access token is expired,
+ * since Claude Code handles refresh internally using stored refresh tokens).
+ *
+ * NOTE: This intentionally does NOT check for ANTHROPIC_API_KEY. If the user
+ * has an API key but no OAuth credentials, we want to prompt them to set up
+ * OAuth (which uses their Max subscription) rather than silently burning API credits.
  */
 export function dockerCredentialsExist(): boolean {
-  // If ANTHROPIC_API_KEY is set on host, it gets passed to containers
-  // via containerEnv, so credentials are effectively available
-  if (process.env.ANTHROPIC_API_KEY) {
-    return true
-  }
-
   try {
     const result = execSync(
       `docker run --rm -v ${CLAUDE_CREDENTIALS_VOLUME}:/data alpine cat /data/.credentials.json 2>/dev/null`,
@@ -899,7 +895,10 @@ function createDockerContainer(
     `-e PRLT_HQ_PATH=/hq`,
     `-e PRLT_AGENT_NAME="${context.agentName}"`,
     `-e PRLT_HOST_PATH="${context.agentDir}"`,
-    ...(process.env.ANTHROPIC_API_KEY ? [`-e ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"`] : []),
+    // Only pass ANTHROPIC_API_KEY if the user explicitly chose to use it (no OAuth creds).
+    // Claude Code prefers API key over OAuth, so passing it would cause agents to burn
+    // API credits instead of using Max subscription.
+    ...(context.useApiKey && process.env.ANTHROPIC_API_KEY ? [`-e ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"`] : []),
     ...(process.env.GITHUB_TOKEN ? [`-e GITHUB_TOKEN="${process.env.GITHUB_TOKEN}"`] : []),
     ...(process.env.GH_TOKEN ? [`-e GH_TOKEN="${process.env.GH_TOKEN}"`] : []),
     // NOTE: Do NOT pass CLAUDE_CODE_OAUTH_TOKEN - it overrides credentials file

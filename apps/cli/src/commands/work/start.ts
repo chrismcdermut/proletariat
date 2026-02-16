@@ -218,6 +218,11 @@ export default class WorkStart extends PMOCommand {
       description: 'Skip confirmation prompt (for non-TTY/scripted execution)',
       default: false,
     }),
+    'use-api-key': Flags.boolean({
+      description: 'Use ANTHROPIC_API_KEY for Docker containers instead of OAuth credentials',
+      default: false,
+      hidden: true,
+    }),
   }
 
   async execute(): Promise<void> {
@@ -1134,18 +1139,35 @@ export default class WorkStart extends PMOCommand {
       // Can be overridden via --output flag if needed
       const outputMode: OutputMode = flags.output as OutputMode || DEFAULT_EXECUTION_CONFIG.outputMode
 
+      // Track whether user explicitly chose to use API key instead of OAuth
+      let useApiKey = flags['use-api-key'] || false
+
       // Check Docker credentials for devcontainer environment
-      if (environment === 'devcontainer') {
+      if (environment === 'devcontainer' && !useApiKey) {
         const hasCredentials = dockerCredentialsExist()
         if (!hasCredentials) {
           // In JSON mode with --yes, continue anyway (agent can run /login)
           if (jsonMode && flags.yes) {
             // Continue without prompting - agent will need to handle auth
           } else {
+            const hasApiKey = !!process.env.ANTHROPIC_API_KEY
+
             this.log('')
-            this.log(styles.warning('⚠️  No Claude Code credentials found for Docker containers'))
-            this.log(styles.muted('   Agents will fail with 401 authentication errors without credentials.'))
+            this.log(styles.warning('⚠️  No Claude Code OAuth credentials found for Docker containers'))
+            this.log(styles.muted('   Agents need credentials to authenticate with Claude.'))
             this.log('')
+
+            // Build choices based on available options
+            const authChoices: Array<{ name: string; value: string }> = [
+              { name: `🔐 Run ${this.config.bin} agent auth now (recommended — uses Max subscription)`, value: 'auth' },
+            ]
+            if (hasApiKey) {
+              authChoices.push({ name: '🔑 Use ANTHROPIC_API_KEY (⚠️  uses API credits, not Max subscription)', value: 'apikey' })
+            }
+            authChoices.push(
+              { name: '💻 Switch to host environment instead', value: 'host' },
+              { name: '✗  Cancel', value: 'cancel' },
+            )
 
             // Use FlagResolver for auth action
             const authResolver = new FlagResolver<{ authAction?: string }>({
@@ -1159,12 +1181,7 @@ export default class WorkStart extends PMOCommand {
               flagName: 'authAction',
               type: 'list',
               message: 'What would you like to do?',
-              choices: () => [
-                { name: `🔐 Run ${this.config.bin} agent auth now (one-time setup)`, value: 'auth' },
-                { name: '💻 Switch to host environment instead', value: 'host' },
-                { name: '⏩ Continue anyway (must run /login in first agent)', value: 'continue' },
-                { name: '✗  Cancel', value: 'cancel' },
-              ],
+              choices: () => authChoices,
             })
 
             const authResult = await authResolver.resolve()
@@ -1179,6 +1196,11 @@ export default class WorkStart extends PMOCommand {
             if (authAction === 'host') {
               environment = 'host'
               this.log(styles.muted('Switched to host environment.'))
+            } else if (authAction === 'apikey') {
+              useApiKey = true
+              this.log(styles.warning('Using ANTHROPIC_API_KEY — this will consume API credits.'))
+              this.log(styles.muted(`Run "${this.config.bin} agent auth" to set up OAuth and use your Max subscription instead.`))
+              this.log('')
             } else if (authAction === 'auth') {
               this.log('')
               this.log(styles.primary(`Opening ${this.config.bin} agent auth in new tab...`))
@@ -1233,9 +1255,13 @@ export default class WorkStart extends PMOCommand {
               }
               this.log('')
             }
-            // authAction === 'continue' falls through
           }
         }
+      }
+
+      // Pass API key preference to execution context
+      if (useApiKey) {
+        context.useApiKey = true
       }
 
       // Prompt for permissions mode (all environments)
@@ -1816,24 +1842,37 @@ export default class WorkStart extends PMOCommand {
       return hasDevcontainerConfig(agentDir) && !flags['run-on-host']
     })
 
+    // Track whether user explicitly chose to use API key instead of OAuth
+    let batchUseApiKey = false
+
     if (anyUseDevcontainer) {
       const hasCredentials = dockerCredentialsExist()
       if (!hasCredentials) {
+        const hasApiKey = !!process.env.ANTHROPIC_API_KEY
+
         this.log('')
-        this.log(styles.warning('⚠️  No Claude Code credentials found for Docker containers'))
-        this.log(styles.muted('   Agents will fail with 401 authentication errors without credentials.'))
+        this.log(styles.warning('⚠️  No Claude Code OAuth credentials found for Docker containers'))
+        this.log(styles.muted('   Agents need credentials to authenticate with Claude.'))
         this.log('')
+
+        // Build choices based on available options
+        const batchAuthChoices: Array<{ name: string; value: string; command?: string }> = [
+          { name: `🔐 Run ${this.config.bin} agent auth now (recommended — uses Max subscription)`, value: 'auth', command: `${this.config.bin} agent auth` },
+        ]
+        if (hasApiKey) {
+          batchAuthChoices.push({ name: '🔑 Use ANTHROPIC_API_KEY (⚠️  uses API credits, not Max subscription)', value: 'apikey', command: '' })
+        }
+        batchAuthChoices.push(
+          { name: '💻 Run all agents on host instead (--run-on-host)', value: 'host', command: 'prlt work start --all --run-on-host --json' },
+          { name: '✗  Cancel', value: 'cancel', command: '' },
+        )
 
         const { authAction } = await this.prompt<{ authAction: string }>([
           {
             type: 'list',
             name: 'authAction',
             message: 'What would you like to do?',
-            choices: [
-              { name: `🔐 Run ${this.config.bin} agent auth now (one-time setup)`, value: 'auth', command: `${this.config.bin} agent auth` },
-              { name: '💻 Run all agents on host instead (--run-on-host)', value: 'host', command: 'prlt work start --all --run-on-host --json' },
-              { name: '✗  Cancel', value: 'cancel', command: '' },
-            ],
+            choices: batchAuthChoices,
           },
         ], batchJsonModeConfig)
 
@@ -1846,6 +1885,11 @@ export default class WorkStart extends PMOCommand {
         if (authAction === 'host') {
           flags['run-on-host'] = true
           this.log(styles.muted('All agents will run on host.'))
+        } else if (authAction === 'apikey') {
+          batchUseApiKey = true
+          this.log(styles.warning('Using ANTHROPIC_API_KEY — this will consume API credits.'))
+          this.log(styles.muted(`Run "${this.config.bin} agent auth" to set up OAuth and use your Max subscription instead.`))
+          this.log('')
         } else if (authAction === 'auth') {
           this.log('')
           this.log(styles.primary(`Opening ${this.config.bin} agent auth in new tab...`))
@@ -1928,6 +1972,7 @@ export default class WorkStart extends PMOCommand {
           '--display', flags.display || 'background',
           ...(flags.executor ? ['--executor', flags.executor] : []),
           ...(flags['run-on-host'] ? ['--run-on-host'] : []),
+          ...(batchUseApiKey ? ['--use-api-key'] : []),
           ...(flags.force ? ['--force'] : []),
           '--permission-mode', batchPermissionMode,
           ...((flags as { clone?: boolean }).clone ? ['--clone'] : []),
