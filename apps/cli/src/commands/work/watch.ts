@@ -64,13 +64,17 @@ export default class WorkWatch extends PMOCommand {
       description: 'Check once and exit (no continuous watching)',
       default: false,
     }),
-    mode: Flags.string({
+    display: Flags.string({
       char: 'd',
-      description: 'Display mode for agent output',
+      description: 'Display mode for agent output (terminal=new tab, background=detached)',
       options: ['terminal', 'background'],
     }),
+    'permission-mode': Flags.string({
+      description: 'Permission mode for Claude Code (danger=skip checks, safe=require approval)',
+      options: ['danger', 'safe'],
+    }),
     'skip-permissions': Flags.boolean({
-      description: 'Skip permission prompts (danger mode)',
+      description: 'Skip permission checks (shorthand for --permission-mode danger)',
       default: false,
     }),
     'create-pr': Flags.boolean({
@@ -95,6 +99,17 @@ export default class WorkWatch extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(WorkWatch)
+
+    // Handle --skip-permissions flag (alias for --permission-mode danger)
+    if (flags['skip-permissions'] && flags['permission-mode']) {
+      this.error(
+        'Cannot use both --skip-permissions and --permission-mode flags.\n' +
+        'Use only one: --skip-permissions OR --permission-mode danger/safe'
+      )
+    }
+    if (flags['skip-permissions']) {
+      flags['permission-mode'] = 'danger'
+    }
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
@@ -191,7 +206,7 @@ export default class WorkWatch extends PMOCommand {
       this.environment = 'host'
       this.displayMode = 'terminal'
 
-      if (!flags.mode) {
+      if (!flags.display) {
         if (hasDevcontainer) {
           const envChoices = [
             { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
@@ -281,7 +296,7 @@ export default class WorkWatch extends PMOCommand {
         const displayResult = await displayResolver.resolve()
         this.displayMode = displayResult.selectedDisplay as DisplayMode
       } else {
-        this.displayMode = flags.mode as DisplayMode
+        this.displayMode = flags.display as DisplayMode
         this.environment = hasDevcontainer && isDockerRunning() ? 'devcontainer' : 'host'
       }
 
@@ -289,7 +304,7 @@ export default class WorkWatch extends PMOCommand {
       const promptResult = await promptExecutionSettings(db, {
         displayMode: this.displayMode,
         environment: this.environment,
-        skipPermissions: flags['skip-permissions'] ? true : undefined,
+        skipPermissions: flags['permission-mode'] === 'danger' || flags['skip-permissions'] ? true : undefined,
         createPR: flags['create-pr'] ? true : undefined,
         log: (msg) => this.log(styles.header(msg)),
         jsonMode: jsonMode ? { flags, commandName: 'work watch' } : undefined,

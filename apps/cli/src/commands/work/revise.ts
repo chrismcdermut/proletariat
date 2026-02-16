@@ -35,6 +35,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { FlagResolver } from '../../lib/flags/index.js'
 
 export default class WorkRevise extends PMOCommand {
   static description = 'Address PR feedback on a ticket (fetches reviews/comments and spawns agent)'
@@ -54,10 +55,10 @@ export default class WorkRevise extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    mode: Flags.string({
+    display: Flags.string({
       char: 'd',
-      description: 'Runtime mode',
-      options: ['foreground', 'background', 'tmux', 'terminal', 'devcontainer'],
+      description: 'Display mode (terminal=new tab, background=detached)',
+      options: ['terminal', 'background'],
     }),
     executor: Flags.string({
       char: 'e',
@@ -79,11 +80,38 @@ export default class WorkRevise extends PMOCommand {
       options: ['tmux', 'direct'],
       default: 'tmux',
     }),
+    'permission-mode': Flags.string({
+      description: 'Permission mode for Claude Code (danger=skip checks, safe=require approval)',
+      options: ['danger', 'safe'],
+    }),
+    'skip-permissions': Flags.boolean({
+      description: 'Skip permission checks (shorthand for --permission-mode danger)',
+      default: false,
+    }),
+    focus: Flags.boolean({
+      description: 'Bring terminal to foreground when opening new tabs (default: opens in background)',
+      default: false,
+    }),
+    clone: Flags.boolean({
+      description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
+      default: false,
+    }),
   }
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkRevise)
     const projectId = (flags as { project?: string }).project
+
+    // Handle --skip-permissions flag (alias for --permission-mode danger)
+    if (flags['skip-permissions'] && flags['permission-mode']) {
+      this.error(
+        'Cannot use both --skip-permissions and --permission-mode flags.\n' +
+        'Use only one: --skip-permissions OR --permission-mode danger/safe'
+      )
+    }
+    if (flags['skip-permissions']) {
+      flags['permission-mode'] = 'danger'
+    }
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
@@ -280,43 +308,64 @@ export default class WorkRevise extends PMOCommand {
       let displayMode: DisplayMode = 'terminal'
       let sandboxed = false
 
-      const reviseJsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work revise' } : null
-
       if (hasDevcontainer && !flags['run-on-host']) {
         environment = 'devcontainer'
 
-        const { selectedDisplay } = await this.prompt<{ selectedDisplay: string }>([
-          {
+        if (flags.display) {
+          displayMode = flags.display as DisplayMode
+        } else {
+          // Prompt for display mode using FlagResolver
+          const displayResolver = new FlagResolver<{ display?: string }>({
+            commandName: 'work revise',
+            baseCommand: `prlt work revise ${ticketId}`,
+            jsonMode,
+            flags: {},
+          })
+
+          displayResolver.addPrompt({
+            flagName: 'display',
             type: 'list',
-            name: 'selectedDisplay',
             message: 'How should the agent output be displayed?',
-            choices: [
-              { name: 'terminal     - New terminal window', value: 'terminal', command: `prlt work revise ${ticketId} --mode terminal --json` },
-              { name: 'background   - Runs detached, reattach with: prlt session attach', value: 'background', command: `prlt work revise ${ticketId} --mode background --json` },
-            ],
             default: 'terminal',
-          },
-        ], reviseJsonModeConfig)
-        displayMode = selectedDisplay as DisplayMode
-      } else if (flags.mode) {
+            choices: () => [
+              { name: 'terminal     - New terminal window', value: 'terminal' },
+              { name: 'background   - Runs detached, reattach with: prlt session attach', value: 'background' },
+            ],
+          })
+
+          const displayResult = await displayResolver.resolve()
+          displayMode = displayResult.display as DisplayMode
+        }
+      } else if (flags.display) {
         // Host environment: terminal/background are display modes
-        displayMode = flags.mode as DisplayMode
+        displayMode = flags.display as DisplayMode
       }
 
       // Permission mode
-      const { permissionMode } = await this.prompt<{ permissionMode: string }>([
-        {
+      if (flags['permission-mode']) {
+        sandboxed = flags['permission-mode'] === 'safe'
+      } else {
+        const permResolver = new FlagResolver<{ 'permission-mode'?: string }>({
+          commandName: 'work revise',
+          baseCommand: `prlt work revise ${ticketId}`,
+          jsonMode,
+          flags: {},
+        })
+
+        permResolver.addPrompt({
+          flagName: 'permission-mode',
           type: 'list',
-          name: 'permissionMode',
           message: 'Permission mode for Claude Code:',
-          choices: [
-            { name: 'danger - Skip permission checks (faster for revisions)', value: 'danger', command: `prlt work revise ${ticketId} --json` },
-            { name: 'safe   - Requires approval for dangerous operations', value: 'safe', command: `prlt work revise ${ticketId} --json` },
-          ],
           default: 'danger',
-        },
-      ], reviseJsonModeConfig)
-      sandboxed = permissionMode === 'safe'
+          choices: () => [
+            { name: 'danger - Skip permission checks (faster for revisions)', value: 'danger' },
+            { name: 'safe   - Requires approval for dangerous operations', value: 'safe' },
+          ],
+        })
+
+        const permResult = await permResolver.resolve()
+        sandboxed = permResult['permission-mode'] === 'safe'
+      }
 
       const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
 

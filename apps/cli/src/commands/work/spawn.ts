@@ -109,8 +109,12 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Output mode (batch mode only)',
       options: ['interactive', 'print'],
     }),
+    'permission-mode': Flags.string({
+      description: 'Permission mode for Claude Code (danger=skip checks, safe=require approval)',
+      options: ['danger', 'safe'],
+    }),
     'skip-permissions': Flags.boolean({
-      description: 'Skip permission prompts - danger mode (batch mode only)',
+      description: 'Skip permission checks (shorthand for --permission-mode danger)',
       default: false,
     }),
     'create-pr': Flags.boolean({
@@ -165,6 +169,17 @@ export default class WorkSpawn extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags, argv } = await this.parse(WorkSpawn)
+
+    // Handle --skip-permissions flag (alias for --permission-mode danger)
+    if (flags['skip-permissions'] && flags['permission-mode']) {
+      this.error(
+        'Cannot use both --skip-permissions and --permission-mode flags.\n' +
+        'Use only one: --skip-permissions OR --permission-mode danger/safe'
+      )
+    }
+    if (flags['skip-permissions']) {
+      flags['permission-mode'] = 'danger'
+    }
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
@@ -327,7 +342,7 @@ export default class WorkSpawn extends PMOCommand {
           // Check if all required flags for non-interactive execution are provided
           const hasAction = !!flags.action
           const hasDisplay = !!flags.display || flags['run-on-host']
-          const hasPermissions = flags['skip-permissions'] || flags['per-ticket'] // per-ticket mode prompts individually
+          const hasPermissions = flags['permission-mode'] || flags['skip-permissions'] || flags['per-ticket'] // per-ticket mode prompts individually
           const allFlagsProvided = hasAction && hasDisplay && hasPermissions
 
           if (allFlagsProvided && flags.yes) {
@@ -343,7 +358,8 @@ export default class WorkSpawn extends PMOCommand {
             if (flags.action) confirmCmd += ` --action ${flags.action}`
             if (flags.display) confirmCmd += ` --display ${flags.display}`
             if (flags['run-on-host']) confirmCmd += ' --run-on-host'
-            if (flags['skip-permissions']) confirmCmd += ' --skip-permissions'
+            if (flags['permission-mode']) confirmCmd += ` --permission-mode ${flags['permission-mode']}`
+            else if (flags['skip-permissions']) confirmCmd += ' --skip-permissions'
             if (flags.executor) confirmCmd += ` --executor ${flags.executor}`
             if (flags.session) confirmCmd += ` --session ${flags.session}`
             if (flags['create-pr']) confirmCmd += ' --create-pr'
@@ -360,7 +376,7 @@ export default class WorkSpawn extends PMOCommand {
               })),
               action: flags.action,
               display: flags.display || (flags['run-on-host'] ? 'host' : 'devcontainer'),
-              permissions: flags['skip-permissions'] ? 'danger' : 'safe',
+              permissions: flags['permission-mode'] || (flags['skip-permissions'] ? 'danger' : 'safe'),
               count: ticketsToSpawn.length,
             }
 
@@ -673,7 +689,8 @@ export default class WorkSpawn extends PMOCommand {
           if (flags.action) confirmCmd += ` --action ${flags.action}`
           if (flags.display) confirmCmd += ` --display ${flags.display}`
           if (flags['run-on-host']) confirmCmd += ' --run-on-host'
-          if (flags['skip-permissions']) confirmCmd += ' --skip-permissions'
+          if (flags['permission-mode']) confirmCmd += ` --permission-mode ${flags['permission-mode']}`
+          else if (flags['skip-permissions']) confirmCmd += ' --skip-permissions'
           if (flags.executor) confirmCmd += ` --executor ${flags.executor}`
           if (flags.session) confirmCmd += ` --session ${flags.session}`
           if (flags['create-pr']) confirmCmd += ' --create-pr'
@@ -1002,7 +1019,7 @@ export default class WorkSpawn extends PMOCommand {
       let batchDisplay = flags.display
       let batchOutput = flags.output
       // Track permission mode - default to 'safe', check flag to determine if prompting needed
-      let batchPermissionMode: PermissionMode = flags['skip-permissions'] ? 'danger' : 'safe'
+      let batchPermissionMode: PermissionMode = flags['permission-mode'] ? flags['permission-mode'] as PermissionMode : (flags['skip-permissions'] ? 'danger' : 'safe')
       let batchCreatePr = flags['create-pr']
       let batchNoPr = flags['no-pr']
       let batchRunOnHost = flags['run-on-host']
@@ -1119,7 +1136,7 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         // Check if any explicit settings were provided via flags
-        const hasExplicitSettings = flags.display || flags.output || flags['skip-permissions'] ||
+        const hasExplicitSettings = flags.display || flags.output || flags['permission-mode'] || flags['skip-permissions'] ||
           flags['create-pr'] || flags['no-pr'] || flags['run-on-host']
 
         // Offer to use default settings if no explicit flags provided
@@ -1360,8 +1377,8 @@ export default class WorkSpawn extends PMOCommand {
           batchOutput = 'interactive'
         }
 
-        // Prompt for permissions mode if not explicitly set via --skip-permissions flag
-        if (!flags['skip-permissions']) {
+        // Prompt for permissions mode if not explicitly set via --permission-mode or --skip-permissions flag
+        if (!flags['permission-mode'] && !flags['skip-permissions']) {
           // Use FlagResolver for permission mode
           const permissionResolver = new FlagResolver<{ permissionMode?: string }>({
             commandName: 'work spawn',
