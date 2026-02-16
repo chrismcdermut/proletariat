@@ -9,7 +9,7 @@ import {
   killTmuxSession
 } from '../../lib/agents/commands.js'
 import { isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } from '../../lib/execution/runners.js'
-import { PermissionMode } from '../../lib/execution/types.js'
+import { ExecutorType, PermissionMode } from '../../lib/execution/types.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -25,6 +25,30 @@ import {
   type DietConfig,
 } from '../../lib/pmo/diet.js'
 import type { Ticket } from '../../lib/pmo/types.js'
+
+function getExecutorDisplayName(executor: ExecutorType): string {
+  switch (executor) {
+    case 'claude-code':
+      return 'Claude Code'
+    case 'codex':
+      return 'Codex'
+    case 'aider':
+      return 'Aider'
+    case 'custom':
+      return 'Custom executor'
+    default:
+      return executor
+  }
+}
+
+function getExecutorChoices(): Array<{ name: string; value: ExecutorType }> {
+  return [
+    { name: 'Claude Code (default)', value: 'claude-code' },
+    { name: 'Codex', value: 'codex' },
+    { name: 'Aider', value: 'aider' },
+    { name: 'Custom executor', value: 'custom' },
+  ]
+}
 
 export default class WorkSpawn extends PMOCommand {
   static description = 'Spawn work for multiple tickets by column (batch mode)'
@@ -1001,6 +1025,7 @@ export default class WorkSpawn extends PMOCommand {
       // Batch mode settings - prompt once for all tickets
       let batchDisplay = flags.display
       let batchOutput = flags.output
+      let batchExecutor = flags.executor as ExecutorType | undefined
       // Track permission mode - default to 'safe', check flag to determine if prompting needed
       let batchPermissionMode: PermissionMode = flags['skip-permissions'] ? 'danger' : 'safe'
       let batchCreatePr = flags['create-pr']
@@ -1119,7 +1144,7 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         // Check if any explicit settings were provided via flags
-        const hasExplicitSettings = flags.display || flags.output || flags['skip-permissions'] ||
+        const hasExplicitSettings = flags.display || flags.output || flags.executor || flags['skip-permissions'] ||
           flags['create-pr'] || flags['no-pr'] || flags['run-on-host']
 
         // Offer to use default settings if no explicit flags provided
@@ -1360,6 +1385,28 @@ export default class WorkSpawn extends PMOCommand {
           batchOutput = 'interactive'
         }
 
+        // Prompt for executor if not explicitly set
+        if (!batchExecutor && !flags.yes) {
+          const executorResolver = new FlagResolver<{ selectedExecutor?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+          })
+
+          executorResolver.addPrompt({
+            flagName: 'selectedExecutor',
+            type: 'list',
+            message: 'Which executor should spawned agents use?',
+            default: 'claude-code',
+            choices: () => getExecutorChoices(),
+          })
+
+          const executorResult = await executorResolver.resolve()
+          batchExecutor = executorResult.selectedExecutor as ExecutorType
+        }
+        batchExecutor ||= 'claude-code'
+
         // Prompt for permissions mode if not explicitly set via --skip-permissions flag
         if (!flags['skip-permissions']) {
           // Use FlagResolver for permission mode
@@ -1373,7 +1420,7 @@ export default class WorkSpawn extends PMOCommand {
           permissionResolver.addPrompt({
             flagName: 'permissionMode',
             type: 'list',
-            message: 'Permission mode for Claude Code:',
+            message: `Permission mode for ${getExecutorDisplayName(batchExecutor)}:`,
             default: 'danger',
             choices: () => [
               { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
@@ -1472,7 +1519,7 @@ export default class WorkSpawn extends PMOCommand {
             // batchDisplayMode is for devcontainer, batchDisplay is for host
             const displayToUse = batchDisplayMode || batchDisplay
             if (displayToUse && displayToUse !== 'devcontainer') startArgs.push('--display', displayToUse)
-            if (flags.executor) startArgs.push('--executor', flags.executor)
+            if (batchExecutor) startArgs.push('--executor', batchExecutor)
             if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
             if (flags.focus) startArgs.push('--focus')
@@ -1491,7 +1538,7 @@ export default class WorkSpawn extends PMOCommand {
             // batchDisplayMode is for devcontainer, batchDisplay is for host
             const displayToUse = batchDisplayMode || batchDisplay
             if (displayToUse && displayToUse !== 'devcontainer') startArgs.push('--display', displayToUse)
-            if (flags.executor) startArgs.push('--executor', flags.executor)
+            if (batchExecutor) startArgs.push('--executor', batchExecutor)
             if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
             if (batchOutput) startArgs.push('--output', batchOutput)

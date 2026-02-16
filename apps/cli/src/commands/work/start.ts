@@ -69,6 +69,15 @@ function getDangerModeHint(executor: ExecutorType): string {
   }
 }
 
+function getExecutorChoices(): Array<{ name: string; value: ExecutorType }> {
+  return [
+    { name: 'Claude Code (default)', value: 'claude-code' },
+    { name: 'Codex', value: 'codex' },
+    { name: 'Aider', value: 'aider' },
+    { name: 'Custom executor', value: 'custom' },
+  ]
+}
+
 /**
  * Try to execute a git command, return true if successful
  */
@@ -1153,7 +1162,27 @@ export default class WorkStart extends PMOCommand {
         }
       }
 
-      const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
+      let executor = flags.executor as ExecutorType | undefined
+      if (!executor && !flags.yes) {
+        const executorResolver = new FlagResolver<{ selectedExecutor?: string }>({
+          commandName: 'work start',
+          baseCommand: `prlt work start ${ticketId}`,
+          jsonMode,
+          flags: {},
+        })
+
+        executorResolver.addPrompt({
+          flagName: 'selectedExecutor',
+          type: 'list',
+          message: 'Which executor should run this ticket?',
+          default: DEFAULT_EXECUTION_CONFIG.defaultExecutor,
+          choices: () => getExecutorChoices(),
+        })
+
+        const executorResult = await executorResolver.resolve()
+        executor = executorResult.selectedExecutor as ExecutorType
+      }
+      executor ||= DEFAULT_EXECUTION_CONFIG.defaultExecutor
 
       // Default to interactive output mode (streaming UI)
       // Can be overridden via --output flag if needed
@@ -1820,7 +1849,20 @@ export default class WorkStart extends PMOCommand {
 
     // Prompt for permissions mode once for all tickets (TKT-513)
     let batchPermissionMode: 'danger' | 'safe' = flags['permission-mode'] as 'danger' | 'safe'
-    const batchExecutor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
+    let batchExecutor = flags.executor as ExecutorType | undefined
+    if (!batchExecutor) {
+      const { selectedExecutor } = await this.prompt<{ selectedExecutor: ExecutorType }>([
+        {
+          type: 'list',
+          name: 'selectedExecutor',
+          message: 'Select executor for this batch:',
+          choices: getExecutorChoices(),
+          default: DEFAULT_EXECUTION_CONFIG.defaultExecutor,
+        },
+      ], batchJsonModeConfig)
+      batchExecutor = selectedExecutor
+    }
+    batchExecutor ||= DEFAULT_EXECUTION_CONFIG.defaultExecutor
     const batchExecutorName = getExecutorDisplayName(batchExecutor)
     if (!batchPermissionMode) {
       const { permissionMode } = await this.prompt<{ permissionMode: string }>([
@@ -1954,7 +1996,7 @@ export default class WorkStart extends PMOCommand {
           ticket.id,
           ...(ticket.projectId ? ['--project', ticket.projectId] : []),
           '--display', flags.display || 'background',
-          ...(flags.executor ? ['--executor', flags.executor] : []),
+          ...(batchExecutor ? ['--executor', batchExecutor] : []),
           ...(flags['run-on-host'] ? ['--run-on-host'] : []),
           ...(flags.force ? ['--force'] : []),
           '--permission-mode', batchPermissionMode,
