@@ -618,6 +618,8 @@ Requirements:
 - Use \`--clear-subtasks\` if replacing existing subtasks
 - Use \`--clear-ac\` if replacing existing acceptance criteria
 
+**Tip:** Use \`prlt ticket view <id>\` to see full ticket details at any time.
+
 After updating, output a brief summary of your grooming changes.`,
       suggestedForCategories: ['backlog'],
       defaultMoveToCategory: 'unstarted',

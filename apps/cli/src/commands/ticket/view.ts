@@ -8,6 +8,8 @@ import {
 } from '../../lib/prompt-json.js';
 
 export default class TicketView extends PMOCommand {
+  static aliases = ['ticket:show'];
+
   static description = 'View detailed ticket information';
 
   static examples = [
