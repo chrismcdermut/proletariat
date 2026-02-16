@@ -516,7 +516,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
 
       it('should complete flow: select type → select template → confirm → deleted', () => {
         // Verify template exists before
-        let template = getTicketTemplate('del-flow-1');
+        const template = getTicketTemplate('del-flow-1');
         expect(template).to.exist;
 
         // Step 1: No type, get type selection

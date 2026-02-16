@@ -351,6 +351,6 @@ export function getPrioritySortIndex(db: DatabaseLike, value: string | undefined
   if (!value) return Infinity
   const priorities = getWorkspacePriorities(db)
   const index = priorities.indexOf(value)
-  return index >= 0 ? index : Infinity
+  return index !== -1 ? index : Infinity
 }
 

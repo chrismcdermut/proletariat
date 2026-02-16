@@ -97,7 +97,7 @@ function detectState(paneContent: string | null): AgentHealthState {
 
   // IDLE: shell prompt visible (agent has finished or is waiting)
   // Match common prompt patterns at end of last non-empty line
-  const lastNonEmpty = lines.filter(l => l.trim().length > 0).pop() || ''
+  const lastNonEmpty = lines.findLast(l => l.trim().length > 0) || ''
   if (/[$❯#>]\s*$/.test(lastNonEmpty) || /^\s*\$\s*$/.test(lastNonEmpty)) {
     return 'IDLE'
   }

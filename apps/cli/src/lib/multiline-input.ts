@@ -14,7 +14,7 @@
  * ```
  */
 
-import * as readline from 'readline';
+import * as readline from 'node:readline';
 import chalk from 'chalk';
 
 /**
@@ -44,14 +44,14 @@ export interface MultiLineInputResult {
 }
 
 // ANSI escape codes for terminal control
-const ESC = '\x1b';
+const ESC = '\u001B';
 const CSI = `${ESC}[`;
 
 // Control characters
-const CTRL_C = '\x03';
-const CTRL_D = '\x04';
-const BACKSPACE = '\x7f';
-const DELETE = '\x1b[3~';
+const CTRL_C = '\u0003';
+const CTRL_D = '\u0004';
+const BACKSPACE = '\u007F';
+const DELETE = '\u001B[3~';
 const ENTER = '\r';
 const NEWLINE = '\n';
 

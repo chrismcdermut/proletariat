@@ -43,7 +43,7 @@ export default class CategoryList extends PMOCommand {
     const { flags } = await this.parse(CategoryList);
     const categoryType = flags.type as CategoryType;
 
-    let filter: { type: CategoryType; isBuiltin?: boolean } = { type: categoryType };
+    const filter: { type: CategoryType; isBuiltin?: boolean } = { type: categoryType };
     if (flags.builtin) filter.isBuiltin = true;
     if (flags.custom) filter.isBuiltin = false;
 

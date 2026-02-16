@@ -552,19 +552,19 @@ export default class WorkSpawn extends PMOCommand {
 
         // Apply category filter
         if (flags.category) {
-          const categoryList = flags.category.split(',').map(c => c.trim().toLowerCase())
+          const categoryList = new Set(flags.category.split(',').map(c => c.trim().toLowerCase()))
           candidates = candidates.filter(t => {
             const ticketCat = (t.category || '').toLowerCase()
-            return categoryList.includes(ticketCat)
+            return categoryList.has(ticketCat)
           })
         }
 
         // Apply priority filter
         if (flags.priority) {
-          const priorityList = flags.priority.split(',').map(p => p.trim().toUpperCase())
+          const priorityList = new Set(flags.priority.split(',').map(p => p.trim().toUpperCase()))
           candidates = candidates.filter(t => {
             const ticketPriority = (t.priority || '').toUpperCase()
-            return priorityList.includes(ticketPriority)
+            return priorityList.has(ticketPriority)
           })
         }
 

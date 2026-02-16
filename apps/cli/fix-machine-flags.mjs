@@ -11,8 +11,8 @@
  *   -> Add import for machineOutputFlags if not already present
  */
 
-import { readFileSync, writeFileSync } from 'fs';
-import { execSync } from 'child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 
 const cmdDir = 'src/commands';
 

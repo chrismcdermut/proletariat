@@ -60,7 +60,7 @@ describe('Theme Name Generation (TKT-503)', () => {
       const inUseBaseNames = new Set(
         billionairesTheme!.names.slice(0, -3).map(n => n.toLowerCase()) // Leave only 3 available
       );
-      const unusedNames = billionairesTheme!.names.slice(-3).map(n => n.toLowerCase());
+      const unusedNames = new Set(billionairesTheme!.names.slice(-3).map(n => n.toLowerCase()));
 
       // Generate multiple names and verify they use the unused base names
       const generatedBaseNames: string[] = [];
@@ -77,7 +77,7 @@ describe('Theme Name Generation (TKT-503)', () => {
       }
 
       // At least some of the generated names should use the unused base names
-      const usedUnusedNames = generatedBaseNames.filter(n => unusedNames.includes(n));
+      const usedUnusedNames = generatedBaseNames.filter(n => unusedNames.has(n));
       expect(usedUnusedNames.length).to.be.greaterThan(0);
     });
 
