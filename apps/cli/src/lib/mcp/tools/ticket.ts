@@ -22,6 +22,8 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
       owner: z.string().optional().describe('Filter by owner'),
       search: z.string().optional().describe('Search in title/description'),
       epic: z.string().optional().describe('Filter by epic ID'),
+      label: z.string().optional().describe('Filter by label name'),
+      label_group: z.string().optional().describe('Filter by label group name'),
       all_projects: z.boolean().optional().describe('List from all projects'),
     },
     async (params) => {
@@ -36,6 +38,8 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
             owner: params.owner,
             search: params.search,
             epic: params.epic,
+            label: params.label,
+            labelGroup: params.label_group,
             allProjects: params.all_projects,
           }
         )
@@ -45,22 +49,26 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
             text: JSON.stringify({
               success: true,
               count: tickets.length,
-              tickets: tickets.map((t: Ticket) => ({
-                id: t.id,
-                title: t.title,
-                description: t.description,
-                priority: t.priority,
-                category: t.category,
-                statusName: t.statusName,
-                statusCategory: t.statusCategory,
-                projectId: t.projectId,
-                assignee: t.assignee,
-                owner: t.owner,
-                epicId: t.epicId,
-                branch: t.branch,
-                position: t.position,
-                createdAt: t.createdAt.toISOString(),
-                updatedAt: t.updatedAt.toISOString(),
+              tickets: await Promise.all(tickets.map(async (t: Ticket) => {
+                const ticketLabels = await ctx.storage.getLabelsForTicket(t.id)
+                return {
+                  id: t.id,
+                  title: t.title,
+                  description: t.description,
+                  priority: t.priority,
+                  category: t.category,
+                  statusName: t.statusName,
+                  statusCategory: t.statusCategory,
+                  projectId: t.projectId,
+                  assignee: t.assignee,
+                  owner: t.owner,
+                  epicId: t.epicId,
+                  branch: t.branch,
+                  position: t.position,
+                  labels: ticketLabels.map(l => ({ id: l.id, name: l.name, groupName: l.groupName })),
+                  createdAt: t.createdAt.toISOString(),
+                  updatedAt: t.updatedAt.toISOString(),
+                }
               })),
             }, null, 2),
           }],
@@ -107,6 +115,22 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
           labels: params.labels,
           subtasks: params.subtasks?.map((title) => ({ id: '', title, done: false })),
         })
+        // Add structured labels from the labels param via junction table
+        if (params.labels && params.labels.length > 0) {
+          for (const labelName of params.labels) {
+            try {
+              // Try to add as structured label (by name or ID)
+              const labelById = await ctx.storage.getLabel(labelName)
+              if (labelById) {
+                await ctx.storage.addLabelToTicket(ticket.id, labelById.id)
+              } else {
+                await ctx.storage.addLabelToTicketByName(ticket.id, labelName)
+              }
+            } catch {
+              // If label doesn't exist in the label system, it stays only in the legacy JSON array
+            }
+          }
+        }
         return {
           content: [{
             type: 'text' as const,
@@ -127,10 +151,20 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
       try {
         const ticket = await ctx.storage.getTicket(params.id)
         if (!ticket) throw new Error(`Ticket not found: ${params.id}`)
+        const ticketLabels = await ctx.storage.getLabelsForTicket(params.id)
+        const ticketData = formatTicketFull(ticket)
+        // Override labels with structured label data from junction table
+        ticketData.labels = ticketLabels.map(l => ({
+          id: l.id,
+          name: l.name,
+          color: l.color,
+          groupId: l.groupId,
+          groupName: l.groupName,
+        })) as unknown as string[]
         return {
           content: [{
             type: 'text' as const,
-            text: JSON.stringify({ success: true, ticket: formatTicketFull(ticket) }, null, 2),
+            text: JSON.stringify({ success: true, ticket: ticketData }, null, 2),
           }],
         }
       } catch (error) {
