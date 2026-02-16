@@ -108,8 +108,7 @@ export default class Auth extends Command {
     this.log(colors.primary('🔐 Starting Claude Code authentication...'));
     this.log('');
     this.log(colors.text('A temporary container will start with Claude Code.'));
-    this.log(colors.text('When prompted, type: /login'));
-    this.log(colors.text('Then complete the browser authentication.'));
+    this.log(colors.text('Complete the browser authentication when prompted.'));
     this.log('');
     this.log(colors.textSecondary('Press Ctrl+C to cancel.'));
     this.log('');
@@ -126,7 +125,8 @@ export default class Auth extends Command {
           'node:20',
           'bash', '-c',
           // Install as root, then run claude as node user (so credentials have correct ownership)
-          'npm install -g @anthropic-ai/claude-code@latest --silent 2>/dev/null && chown -R node:node /home/node/.claude && echo "" && echo "Type: /login" && echo "" && su -s /bin/bash -c "HOME=/home/node CLAUDE_CONFIG_DIR=/home/node/.claude claude" node'
+          // Pass "/login" as initial prompt so user doesn't have to type it manually
+          'npm install -g @anthropic-ai/claude-code@latest --silent 2>/dev/null && chown -R node:node /home/node/.claude && su -s /bin/bash -c "HOME=/home/node CLAUDE_CONFIG_DIR=/home/node/.claude claude \\"/login\\"" node'
         ],
         { stdio: 'inherit' }
       );
