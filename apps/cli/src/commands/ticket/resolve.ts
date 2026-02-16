@@ -274,14 +274,6 @@ export default class TicketResolve extends PMOCommand {
       return;
     }
 
-    this.log(
-      styles.title(
-        `\nResolving ${unanswered.length} question(s) for ${styles.emphasis(
-          ticketId
-        )} - ${ticket.title}\n`
-      )
-    );
-
     // JSON mode: output all questions for agent interaction
     if (jsonMode) {
       const questionData = unanswered.map((q) => ({
@@ -301,6 +293,14 @@ export default class TicketResolve extends PMOCommand {
       );
       return;
     }
+
+    this.log(
+      styles.title(
+        `\nResolving ${unanswered.length} question(s) for ${styles.emphasis(
+          ticketId
+        )} - ${ticket.title}\n`
+      )
+    );
 
     // Interactive mode: prompt for each answer
     const answers = new Map<number, string>();
