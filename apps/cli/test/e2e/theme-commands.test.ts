@@ -251,8 +251,14 @@ function setupTestDatabase(db: Database.Database) {
     -- Agents table
     CREATE TABLE IF NOT EXISTS agents (
       name TEXT PRIMARY KEY,
+      type TEXT DEFAULT 'persistent',
+      status TEXT DEFAULT 'active',
+      base_name TEXT,
       theme_id TEXT,
+      worktree_path TEXT,
+      mount_mode TEXT DEFAULT 'worktree',
       created_at TEXT NOT NULL,
+      cleaned_at TEXT,
       FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
     );
 
