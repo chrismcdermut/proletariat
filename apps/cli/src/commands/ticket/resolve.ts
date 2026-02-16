@@ -8,8 +8,6 @@ import {
   outputErrorAsJson,
   outputSuccessAsJson,
   createMetadata,
-  outputPromptAsJson,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 /**
