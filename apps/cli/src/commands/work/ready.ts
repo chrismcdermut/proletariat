@@ -197,16 +197,28 @@ export default class WorkReady extends PMOCommand {
               worktreePath = path.join('/workspace', repoDirs[0].name);
             }
           } else {
-            const agentsPath = path.join(workspaceInfo.path, 'agents', 'staff');
-            const agentDir = path.join(agentsPath, agentName);
-            // Look for repo directories inside agent dir
-            const entries = fs.readdirSync(agentDir, { withFileTypes: true });
-            const repoDirs = entries.filter((e) =>
-              e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules'
-            );
-            if (repoDirs.length > 0) {
-              // Use the first repo directory (typically the main worktree)
-              worktreePath = path.join(agentDir, repoDirs[0].name);
+            // Resolve agent directory based on agent type (staff vs temp)
+            const agentRecord = workspaceInfo.agents.find(a => a.name === agentName);
+            let agentDir: string;
+            if (agentRecord?.worktree_path) {
+              // Use the worktree_path from the database if available
+              agentDir = path.join(workspaceInfo.path, agentRecord.worktree_path);
+            } else if (agentRecord?.type === 'ephemeral') {
+              agentDir = path.join(workspaceInfo.path, 'agents', workspaceInfo.ephemeralAgentsDir, agentName);
+            } else {
+              agentDir = path.join(workspaceInfo.path, 'agents', workspaceInfo.persistentAgentsDir, agentName);
+            }
+
+            if (fs.existsSync(agentDir)) {
+              // Look for repo directories inside agent dir
+              const entries = fs.readdirSync(agentDir, { withFileTypes: true });
+              const repoDirs = entries.filter((e) =>
+                e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules'
+              );
+              if (repoDirs.length > 0) {
+                // Use the first repo directory (typically the main worktree)
+                worktreePath = path.join(agentDir, repoDirs[0].name);
+              }
             }
           }
         }
