@@ -32,12 +32,6 @@ export default class EpicView extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {

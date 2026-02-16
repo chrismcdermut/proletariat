@@ -42,12 +42,6 @@ export default class RoadmapCreate extends PMOCommand {
       description: 'Interactive mode',
       default: false,
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {

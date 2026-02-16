@@ -31,12 +31,6 @@ export default class TicketSpec extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     unlink: Flags.boolean({
       char: 'u',
       description: 'Remove spec from ticket instead of adding',

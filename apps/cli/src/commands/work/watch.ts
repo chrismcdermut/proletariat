@@ -35,12 +35,6 @@ export default class WorkWatch extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     column: Flags.string({
       char: 'c',
       description: 'Column to watch for new tickets (prompts if not provided)',

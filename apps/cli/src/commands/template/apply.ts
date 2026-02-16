@@ -84,12 +84,6 @@ export default class TemplateApply extends PMOCommand {
       description: 'Skip confirmation (phase only)',
       default: false,
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output as JSON for AI agents/scripts',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {

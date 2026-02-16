@@ -16,6 +16,7 @@ import {
   determinePMOPath,
   PMOLocation,
   getPickerTemplates,
+  machineOutputFlags,
 } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { isGHInstalled, isGHAuthenticated, getGHUsername, isGHTokenInEnv } from '../../lib/pr/index.js';
@@ -52,12 +53,7 @@ export default class PMOInit extends PromptCommand {
       char: 'n',
       description: 'Board name',
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
+    ...machineOutputFlags,
     action: Flags.string({
       description: 'Action for existing PMO (cancel or reinitialize)',
       options: ['cancel', 'reinitialize'],

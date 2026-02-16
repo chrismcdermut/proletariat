@@ -47,12 +47,6 @@ export default class LinkRemove extends PMOCommand {
       description: 'Link type to remove (if not specified, removes any link)',
       options: ['blocks', 'relates', 'duplicates', 'depends'],
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   }
 
   async execute(): Promise<void> {

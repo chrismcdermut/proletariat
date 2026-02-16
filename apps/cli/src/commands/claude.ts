@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 import { execSync } from 'node:child_process'
 import { PromptCommand } from '../lib/prompt-command.js'
+import { machineOutputFlags } from '../lib/pmo/index.js'
 import Database from 'better-sqlite3'
 import { findHQRoot } from '../lib/workspace.js'
 import {
@@ -75,12 +76,7 @@ export default class Claude extends PromptCommand {
   ]
 
   static flags = {
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
+    ...machineOutputFlags,
     slug: Flags.string({
       char: 's',
       description: 'Session name for pane/tab title',

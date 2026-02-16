@@ -2,6 +2,7 @@ import { Args, Flags } from '@oclif/core';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import { PromptCommand } from '../../lib/prompt-command.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 import {
   getWorkspaceInfo,
   validateAgentNames,
@@ -48,12 +49,7 @@ export default class Add extends PromptCommand {
       char: 't',
       description: 'Pick agent name(s) from a theme (billionaires, toyotas, companies, or custom)',
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output as JSON for AI agents/scripts',
-      default: false,
-    }),
+    ...machineOutputFlags,
     clone: Flags.boolean({
       description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
       default: false,

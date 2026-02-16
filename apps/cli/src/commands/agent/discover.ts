@@ -2,6 +2,7 @@ import { Command, Flags } from '@oclif/core';
 import chalk from 'chalk';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { discoverAgentsOnDisk } from '../../lib/database/index.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -22,12 +23,7 @@ export default class Discover extends Command {
       description: 'Show what would be discovered without making changes',
       default: false,
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output discovery results as JSON',
-      default: false,
-    }),
+    ...machineOutputFlags,
   };
 
   async run(): Promise<void> {

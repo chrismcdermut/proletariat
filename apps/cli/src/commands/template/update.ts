@@ -35,12 +35,6 @@ export default class TemplateUpdate extends PMOCommand {
       char: 'd',
       description: 'New template description',
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output as JSON for AI agents/scripts',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {

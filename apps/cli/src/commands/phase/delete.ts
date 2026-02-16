@@ -58,11 +58,11 @@ export default class PhaseDelete extends PMOCommand {
 
     if (!flags.force) {
       // Use FlagResolver for confirmation
-      const resolver = new FlagResolver<{ confirmed?: boolean; json?: boolean }>({
+      const resolver = new FlagResolver<{ confirmed?: boolean; json?: boolean; machine?: boolean }>({
         commandName: 'phase delete',
         baseCommand: `prlt phase delete ${args.id}`,
         jsonMode,
-        flags: { json: flags.json },
+        flags: { json: flags.json, machine: flags.machine },
       });
 
       resolver.addPrompt({

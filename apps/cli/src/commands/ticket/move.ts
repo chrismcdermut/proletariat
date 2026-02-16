@@ -36,12 +36,6 @@ export default class TicketMove extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     position: Flags.integer({
       description: 'Position within the column (0 = top)',
     }),
@@ -257,11 +251,11 @@ export default class TicketMove extends PMOCommand {
 
   private async executeBulk(
     allTickets: Awaited<ReturnType<typeof this.storage.listTickets>>,
-    flags: { force: boolean; json: boolean; bulk: boolean; position?: number; project?: string },
+    flags: { force: boolean; json: boolean; machine: boolean; bulk: boolean; position?: number; project?: string },
     projectId: string
   ): Promise<void> {
     // Only show header in interactive mode
-    if (!flags.json) {
+    if (!(flags.json || flags.machine)) {
       this.log(styles.emphasis('📦 Move Multiple Tickets\n'));
     }
 
@@ -273,7 +267,7 @@ export default class TicketMove extends PMOCommand {
     const columns = board.columns.map(col => col.name);
 
     // Agent mode config for prompts
-    const jsonModeConfig = flags.json ? { flags, commandName: 'ticket move --bulk' } : null;
+    const jsonModeConfig = (flags.json || flags.machine) ? { flags, commandName: 'ticket move --bulk' } : null;
 
     // Select tickets to move (now agent-compatible!)
     const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{

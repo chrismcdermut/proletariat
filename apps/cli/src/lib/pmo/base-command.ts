@@ -18,8 +18,11 @@ import {
  */
 export const jsonModeFlags = {
   json: Flags.boolean({
+    description: 'Output as JSON for AI agents/scripts',
+    default: false,
+  }),
+  machine: Flags.boolean({
     char: 'm',
-    aliases: ['machine'],
     description: 'Output as JSON for AI agents/scripts',
     default: false,
   }),
@@ -28,12 +31,15 @@ export const jsonModeFlags = {
 /**
  * Base flags for machine-readable output mode
  * Include these in your command's flags by spreading: ...machineOutputFlags
- * --json is the primary flag, -m/--machine are aliases
+ * --json and --machine/-m both trigger JSON output mode
  */
 export const machineOutputFlags = {
   json: Flags.boolean({
+    description: 'Output as JSON for AI agents/scripts',
+    default: false,
+  }),
+  machine: Flags.boolean({
     char: 'm',
-    aliases: ['machine'],
     description: 'Output as JSON for AI agents/scripts',
     default: false,
   }),

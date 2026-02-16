@@ -42,12 +42,6 @@ export default class RoadmapGenerate extends PMOCommand {
       description: 'Exclude completed tickets from roadmap',
       default: false,
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {

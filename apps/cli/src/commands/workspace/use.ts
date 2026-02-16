@@ -2,6 +2,7 @@ import { Args, Flags } from '@oclif/core';
 import chalk from 'chalk';
 import * as fs from 'node:fs';
 import { PromptCommand } from '../../lib/prompt-command.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 import { isValidHQ } from '../../lib/workspace.js';
 import {
   findWorkspacesByName,
@@ -27,12 +28,7 @@ export default class WorkspaceUse extends PromptCommand {
   };
 
   static flags = {
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
+    ...machineOutputFlags,
   };
 
   async run(): Promise<void> {

@@ -83,12 +83,6 @@ export default class TicketEdit extends PMOCommand {
       description: 'Interactive mode - prompts for all fields',
       default: false,
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {

@@ -33,12 +33,6 @@ export default class RoadmapAddProject extends PMOCommand {
       char: 'p',
       description: 'Position in the roadmap (0-indexed)',
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {

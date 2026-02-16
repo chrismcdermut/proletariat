@@ -1,6 +1,7 @@
 import { Command, Flags } from '@oclif/core';
 import { execSync, spawnSync } from 'node:child_process';
 import { colors } from '../../lib/colors.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 import { isDockerRunning } from '../../lib/execution/runners.js';
 import {
   shouldOutputJson,
@@ -29,12 +30,7 @@ export default class Auth extends Command {
       description: 'Force re-authentication even if credentials exist',
       default: false,
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output status as JSON',
-      default: false,
-    }),
+    ...machineOutputFlags,
   };
 
   /**

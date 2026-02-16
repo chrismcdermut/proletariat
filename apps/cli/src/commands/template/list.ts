@@ -31,12 +31,6 @@ export default class TemplateList extends PMOCommand {
       description: 'Show only custom templates',
       exclusive: ['builtin'],
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output as JSON',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -60,7 +54,7 @@ export default class TemplateList extends PMOCommand {
       showPhase ? this.storage.listPhaseTemplates(builtinFilter) : Promise.resolve([]),
     ]);
 
-    if (flags.json) {
+    if (flags.json || flags.machine) {
       const result: Record<string, unknown[]> = {};
       if (showTicket) result.ticket = ticketTemplates;
       if (showPhase) result.phase = phaseTemplates;

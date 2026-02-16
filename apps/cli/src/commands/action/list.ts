@@ -28,12 +28,6 @@ export default class ActionList extends PMOCommand {
       description: 'Filter to actions suggested for a category',
       options: ['backlog', 'unstarted', 'started', 'completed', 'canceled'],
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output as JSON',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {

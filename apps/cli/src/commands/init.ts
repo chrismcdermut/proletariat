@@ -11,7 +11,7 @@ import {
 } from '../lib/init/index.js';
 import { promptForAgentsWithTheme } from '../lib/agents/index.js';
 import { promptForRepositories } from '../lib/repos/index.js';
-import { promptForPMOSetup } from '../lib/pmo/index.js';
+import { promptForPMOSetup, machineOutputFlags } from '../lib/pmo/index.js';
 
 export default class Init extends Command {
   static description = 'Initialize an HQ (headquarters) for managing repositories, agents, and projects';
@@ -25,12 +25,7 @@ export default class Init extends Command {
   ];
 
   static flags = {
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Agent mode: use flags instead of prompts, output JSON',
-      default: false,
-    }),
+    ...machineOutputFlags,
     name: Flags.string({
       description: 'HQ name (required in --json mode)',
       char: 'n',
@@ -57,7 +52,7 @@ export default class Init extends Command {
   async run(): Promise<void> {
     const { flags } = await this.parse(Init);
 
-    if (flags.json) {
+    if (flags.json || flags.machine) {
       await this.runAgentMode(flags);
     } else if (!process.stdin.isTTY) {
       // Non-interactive environment (likely an AI agent)
