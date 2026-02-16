@@ -13,6 +13,7 @@ import {
   createPMODirectories,
   type TestEnvironment,
 } from './test-helpers.js';
+import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
 
 /**
  * End-to-end tests for PMO Ticket Commands
@@ -601,313 +602,14 @@ describe('ticket create --label alias', () => {
 
 // Helper functions
 function setupTestDatabase(db: Database.Database) {
-  // Create complete PMO schema (matches schema.ts)
-  db.exec(`
-    -- Settings table
-    CREATE TABLE IF NOT EXISTS pmo_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
+  // Use production PMO schema (ensures all columns including position, labels,
+  // depends_on_ticket_id, epic_id, and correct FK references)
+  initializePMOTables(db);
 
-    -- Workflows table (shared workflow definitions)
-    CREATE TABLE IF NOT EXISTS pmo_workflows (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      description TEXT,
-      is_builtin INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Workflow statuses table (board columns)
-    CREATE TABLE IF NOT EXISTS pmo_workflow_statuses (
-      id TEXT PRIMARY KEY,
-      workflow_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (workflow_id) REFERENCES pmo_workflows(id) ON DELETE CASCADE,
-      UNIQUE(workflow_id, name)
-    );
-
-    -- Projects table
-    CREATE TABLE IF NOT EXISTS pmo_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      template TEXT,
-      description TEXT,
-      status TEXT NOT NULL DEFAULT 'active',
-      workflow_id TEXT,
-      initiative_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (workflow_id) REFERENCES pmo_workflows(id) ON DELETE SET NULL
-    );
-
-    -- Initiatives table
-    CREATE TABLE IF NOT EXISTS pmo_initiatives (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      objective TEXT,
-      key_results TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Columns table
-    CREATE TABLE IF NOT EXISTS pmo_columns (
-      id TEXT NOT NULL,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      name TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, id)
-    );
-
-    -- Specs table (must be before tickets and epics due to FK)
-    CREATE TABLE IF NOT EXISTS pmo_specs (
-      id TEXT PRIMARY KEY,
-      path TEXT NOT NULL,
-      title TEXT,
-      overview TEXT,
-      status TEXT DEFAULT 'active',
-      spec_type TEXT DEFAULT 'domain',
-      domain TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Spec abilities table
-    CREATE TABLE IF NOT EXISTS pmo_spec_abilities (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      description TEXT,
-      position INTEGER NOT NULL DEFAULT 0,
-      UNIQUE(spec_id, name)
-    );
-
-    -- Spec implementations table
-    CREATE TABLE IF NOT EXISTS pmo_spec_implementations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ability_id INTEGER NOT NULL REFERENCES pmo_spec_abilities(id) ON DELETE CASCADE,
-      modality TEXT NOT NULL,
-      signature TEXT NOT NULL,
-      UNIQUE(ability_id, modality)
-    );
-
-    -- Spec fields table
-    CREATE TABLE IF NOT EXISTS pmo_spec_fields (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      field_type TEXT NOT NULL,
-      required TEXT DEFAULT 'optional',
-      default_value TEXT,
-      description TEXT,
-      position INTEGER NOT NULL DEFAULT 0,
-      UNIQUE(spec_id, name)
-    );
-
-    -- Spec rules table
-    CREATE TABLE IF NOT EXISTS pmo_spec_rules (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0
-    );
-
-    -- Spec relations table
-    CREATE TABLE IF NOT EXISTS pmo_spec_relations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-      related_domain TEXT NOT NULL,
-      relationship TEXT,
-      UNIQUE(spec_id, related_domain)
-    );
-
-    -- Epics table (must be before tickets due to FK)
-    CREATE TABLE IF NOT EXISTS pmo_epics (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT,
-      status TEXT NOT NULL DEFAULT 'active',
-      position INTEGER NOT NULL DEFAULT 0,
-      file_path TEXT,
-      spec_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (spec_id) REFERENCES pmo_specs(id) ON DELETE SET NULL
-    );
-
-    -- Workflow statuses table
-    CREATE TABLE IF NOT EXISTS pmo_statuses (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      UNIQUE(project_id, name)
-    );
-
-    -- Tickets table
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      title TEXT NOT NULL,
-      description TEXT,
-      priority TEXT,
-      category TEXT,
-      status TEXT NOT NULL DEFAULT 'backlog',
-      status_id TEXT,
-      owner TEXT,
-      assignee TEXT,
-      branch TEXT,
-      spec_id TEXT,
-      epic_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      last_synced_from_spec TIMESTAMP,
-      last_synced_from_board TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (status_id) REFERENCES pmo_statuses(id),
-      FOREIGN KEY (spec_id) REFERENCES pmo_specs(id) ON DELETE SET NULL,
-      FOREIGN KEY (epic_id) REFERENCES pmo_epics(id) ON DELETE SET NULL
-    );
-
-    -- Board tickets table
-    CREATE TABLE IF NOT EXISTS pmo_board_tickets (
-      project_id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL,
-      column_id TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      PRIMARY KEY (project_id, ticket_id),
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      FOREIGN KEY (project_id, column_id) REFERENCES pmo_columns(project_id, id) ON DELETE CASCADE
-    );
-
-    -- Subtasks table
-    CREATE TABLE IF NOT EXISTS pmo_subtasks (
-      id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      title TEXT NOT NULL,
-      done INTEGER DEFAULT 0,
-      position INTEGER NOT NULL,
-      PRIMARY KEY (ticket_id, id)
-    );
-
-    -- Ticket metadata table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_metadata (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      key TEXT NOT NULL,
-      value TEXT,
-      PRIMARY KEY (ticket_id, key)
-    );
-
-    -- Ticket dependencies table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_dependencies (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE RESTRICT,
-      depends_on_ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE RESTRICT,
-      dependency_type TEXT NOT NULL DEFAULT 'blocks' CHECK (dependency_type IN ('blocks', 'relates_to', 'duplicates')),
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (ticket_id, depends_on_ticket_id, dependency_type),
-      CHECK (ticket_id != depends_on_ticket_id)
-    );
-
-    -- Ticket affected paths table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_affected_paths (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      path_pattern TEXT NOT NULL,
-      path_type TEXT NOT NULL DEFAULT 'file',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Ticket acceptance criteria table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_acceptance_criteria (
-      id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      criterion TEXT NOT NULL,
-      verifiable INTEGER DEFAULT 1,
-      verified INTEGER DEFAULT 0,
-      verified_at TIMESTAMP,
-      verified_by TEXT,
-      position INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (ticket_id, id)
-    );
-
-    -- Ticket specs table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_specs (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-      PRIMARY KEY (ticket_id, spec_id)
-    );
-
-    -- Ticket assignments table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_assignments (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      agent_name TEXT NOT NULL,
-      assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (ticket_id, agent_name)
-    );
-
-    -- Cache metadata table
-    CREATE TABLE IF NOT EXISTS pmo_cache_metadata (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    -- Agent work table
-    CREATE TABLE IF NOT EXISTS agent_work (
-      id TEXT PRIMARY KEY,
-      ticket_id TEXT NOT NULL,
-      agent_name TEXT NOT NULL,
-      executor TEXT NOT NULL,
-      mode TEXT NOT NULL,
-      environment TEXT NOT NULL DEFAULT 'host',
-      display_mode TEXT NOT NULL DEFAULT 'terminal',
-      sandboxed INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'starting',
-      branch TEXT,
-      pid TEXT,
-      container_id TEXT,
-      session_id TEXT,
-      host TEXT,
-      log_path TEXT,
-      started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      completed_at TIMESTAMP,
-      exit_code INTEGER,
-      FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE
-    );
-
-    -- Indexes
-    CREATE INDEX IF NOT EXISTS idx_pmo_columns_project ON pmo_columns(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_project ON pmo_tickets(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status ON pmo_tickets(status);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_epic ON pmo_tickets(epic_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_epics_project ON pmo_epics(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_spec_abilities_spec ON pmo_spec_abilities(spec_id);
-  `);
-
-  // Insert test data
-
-  // Create a workflow first (required for project)
+  // Create a custom kanban workflow for this test (name must not conflict with builtin 'Kanban')
   db.prepare(`
-    INSERT INTO pmo_workflows (id, name, description, is_builtin)
-    VALUES ('kanban-workflow', 'Kanban', 'Default kanban workflow', 1)
+    INSERT OR IGNORE INTO pmo_workflows (id, name, description, is_builtin)
+    VALUES ('kanban-workflow', 'Test Kanban', 'Test kanban workflow', 0)
   `).run();
 
   // Create workflow statuses (these are the board columns now)
@@ -922,7 +624,7 @@ function setupTestDatabase(db: Database.Database) {
 
   for (const status of workflowStatuses) {
     db.prepare(`
-      INSERT INTO pmo_workflow_statuses (id, workflow_id, name, category, position, is_default)
+      INSERT OR IGNORE INTO pmo_workflow_statuses (id, workflow_id, name, category, position, is_default)
       VALUES (?, 'kanban-workflow', ?, ?, ?, ?)
     `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
   }
@@ -933,8 +635,12 @@ function setupTestDatabase(db: Database.Database) {
   `).run();
 
   db.prepare(`
-    INSERT INTO pmo_settings (key, value)
-    VALUES ('pmo_path', 'pmo'), ('current_project', 'test-project')
+    INSERT OR REPLACE INTO pmo_settings (key, value)
+    VALUES ('pmo_path', 'pmo')
+  `).run();
+  db.prepare(`
+    INSERT OR REPLACE INTO pmo_settings (key, value)
+    VALUES ('current_project', 'test-project')
   `).run();
 
   // Legacy columns (kept for backwards compatibility with some tests)
@@ -952,23 +658,6 @@ function setupTestDatabase(db: Database.Database) {
       INSERT INTO pmo_columns (id, project_id, name, position)
       VALUES (?, 'test-project', ?, ?)
     `).run(col.id, col.name, col.position);
-  }
-
-  // Legacy statuses (kept for backwards compatibility)
-  const statuses = [
-    { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
-    { id: 'status-todo', name: 'Todo', category: 'unstarted', position: 0 },
-    { id: 'status-in-progress', name: 'In Progress', category: 'started', position: 0 },
-    { id: 'status-in-review', name: 'In Review', category: 'started', position: 1 },
-    { id: 'status-done', name: 'Done', category: 'completed', position: 0 },
-    { id: 'status-canceled', name: 'Canceled', category: 'canceled', position: 0 },
-  ];
-
-  for (const status of statuses) {
-    db.prepare(`
-      INSERT INTO pmo_statuses (id, project_id, name, category, position, is_default)
-      VALUES (?, 'test-project', ?, ?, ?, ?)
-    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
   }
 
   // Create HQ config file (required for findPMO to work)
