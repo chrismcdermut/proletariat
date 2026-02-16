@@ -147,6 +147,9 @@ export default class WorkStart extends PMOCommand {
       char: 'p',
       description: 'Custom prompt (overrides action)',
     }),
+    message: Flags.string({
+      description: 'Additional instructions appended to any action prompt',
+    }),
     watch: Flags.boolean({
       char: 'w',
       description: 'Stream output in real-time',
@@ -887,6 +890,8 @@ export default class WorkStart extends PMOCommand {
         actionPrompt: customPrompt || selectedAction?.prompt,
         actionEndPrompt: customPrompt ? undefined : selectedAction?.endPrompt,
         modifiesCode: customPrompt ? true : selectedAction?.modifiesCode ?? true,
+        // Additional instructions from --message flag
+        customMessage: flags.message,
       }
 
       // Check if agent has devcontainer config

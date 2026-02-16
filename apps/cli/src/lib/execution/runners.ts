@@ -262,6 +262,11 @@ function buildPrompt(context: ExecutionContext): string {
   // Note: Branch setup (fetch + checkout/create) is now handled programmatically
   // in work/start.ts before the agent spawns, so no prompt instructions needed
 
+  // Additional instructions from --message flag (appended to any action)
+  if (context.customMessage) {
+    prompt += `\n## Additional Instructions\n\n${context.customMessage}\n`
+  }
+
   // END HOOK - Action-specific completion instructions
   prompt += `\n---\n\n## When Complete\n\n`
 

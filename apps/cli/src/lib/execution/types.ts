@@ -165,6 +165,8 @@ export interface ExecutionContext {
   actionPrompt?: string   // The action prompt (start instruction for agent)
   actionEndPrompt?: string // The action end prompt (completion instructions)
   modifiesCode?: boolean  // Whether this action modifies code (needs branch)
+  // Custom message (appended as additional instructions to any action)
+  customMessage?: string
   // PR feedback context (for work revise)
   prFeedback?: string // Formatted PR feedback markdown
   isRevision?: boolean // Whether this is a revision (addressing PR feedback)
