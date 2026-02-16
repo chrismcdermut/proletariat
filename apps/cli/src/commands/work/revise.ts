@@ -36,6 +36,21 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 
+function getExecutorDisplayName(executor: ExecutorType): string {
+  switch (executor) {
+    case 'claude-code':
+      return 'Claude Code'
+    case 'codex':
+      return 'Codex'
+    case 'aider':
+      return 'Aider'
+    case 'custom':
+      return 'Custom executor'
+    default:
+      return executor
+  }
+}
+
 export default class WorkRevise extends PMOCommand {
   static description = 'Address PR feedback on a ticket (fetches reviews/comments and spawns agent)'
 
@@ -303,12 +318,14 @@ export default class WorkRevise extends PMOCommand {
         displayMode = flags.mode as DisplayMode
       }
 
+      const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
+
       // Permission mode
       const { permissionMode } = await this.prompt<{ permissionMode: string }>([
         {
           type: 'list',
           name: 'permissionMode',
-          message: 'Permission mode for Claude Code:',
+          message: `Permission mode for ${getExecutorDisplayName(executor)}:`,
           choices: [
             { name: 'danger - Skip permission checks (faster for revisions)', value: 'danger', command: `prlt work revise ${ticketId} --json` },
             { name: 'safe   - Requires approval for dangerous operations', value: 'safe', command: `prlt work revise ${ticketId} --json` },
@@ -317,8 +334,6 @@ export default class WorkRevise extends PMOCommand {
         },
       ], reviseJsonModeConfig)
       sandboxed = permissionMode === 'safe'
-
-      const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
 
       // Show execution info
       this.log('')

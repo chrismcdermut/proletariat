@@ -184,32 +184,88 @@ export function getDockerCredentialInfo(): { expiresAt: Date; subscriptionType?:
 // Executor Commands
 // =============================================================================
 
-function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissions: boolean = true): { cmd: string; args: string[] } {
+type RunnerPath = 'host' | 'devcontainer' | 'docker' | 'vm'
+
+type PromptSource =
+  | { type: 'literal'; value: string }
+  | { type: 'shell'; value: string }
+
+interface ExecutorCommandTemplate {
+  cmd: string
+  args: string[]
+  promptMode: 'positional' | 'flag' | 'none'
+  promptFlag?: string
+}
+
+function shellEscapeSingle(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+export function buildExecutorCommandTemplate(
+  executor: ExecutorType,
+  runnerPath: RunnerPath,
+  outputMode: OutputMode = 'interactive',
+  sandboxed: boolean = true
+): ExecutorCommandTemplate {
   switch (executor) {
-    case 'claude-code':
-      if (skipPermissions) {
-        // Skip permissions - agent runs autonomously without prompting
-        // Note: NO -p flag - we want interactive mode for streaming output in terminal
-        // --permission-mode bypassPermissions: skips the "trust this folder" dialog
-        // --dangerously-skip-permissions: skips tool permission checks
-        return { cmd: 'claude', args: ['--permission-mode', 'bypassPermissions', '--dangerously-skip-permissions', prompt] }
+    case 'claude-code': {
+      const args: string[] = []
+      // Preserve existing behavior: devcontainer always bypasses trust prompt.
+      if (runnerPath === 'devcontainer') {
+        args.push('--permission-mode', 'bypassPermissions')
       }
-      // Manual mode - will prompt for each action (still interactive, no -p)
-      return { cmd: 'claude', args: [prompt] }
-    case 'codex':
-      return { cmd: 'codex', args: ['--prompt', prompt] }
+      if (!sandboxed) {
+        args.push('--dangerously-skip-permissions')
+      }
+      if (outputMode === 'print') {
+        args.push('-p')
+      }
+      return { cmd: 'claude', args, promptMode: 'positional' }
+    }
+    case 'codex': {
+      const args: string[] = []
+      // codex exec is the non-interactive path for print-style output.
+      if (outputMode === 'print') {
+        args.push('exec')
+      }
+      if (!sandboxed) {
+        args.push('--dangerously-bypass-approvals-and-sandbox')
+      }
+      return { cmd: 'codex', args, promptMode: 'positional' }
+    }
     case 'aider':
-      return { cmd: 'aider', args: ['--message', prompt] }
+      return { cmd: 'aider', args: [], promptMode: 'flag', promptFlag: '--message' }
     case 'custom':
-      // Custom executor should be configured
-      return { cmd: 'echo', args: ['Custom executor not configured'] }
+      return { cmd: 'echo', args: ['Custom executor not configured'], promptMode: 'none' }
     default:
-      if (skipPermissions) {
-        // Note: NO -p flag - we want interactive mode for streaming output
-        return { cmd: 'claude', args: ['--permission-mode', 'bypassPermissions', '--dangerously-skip-permissions', prompt] }
-      }
-      return { cmd: 'claude', args: [prompt] }
+      return { cmd: 'claude', args: [], promptMode: 'positional' }
   }
+}
+
+export function buildExecutorShellCommand(
+  executor: ExecutorType,
+  runnerPath: RunnerPath,
+  promptSource: PromptSource,
+  outputMode: OutputMode = 'interactive',
+  sandboxed: boolean = true
+): string {
+  const template = buildExecutorCommandTemplate(executor, runnerPath, outputMode, sandboxed)
+  const parts: string[] = [
+    template.cmd,
+    ...template.args.map(arg => shellEscapeSingle(arg)),
+  ]
+
+  const promptArg = promptSource.type === 'literal'
+    ? shellEscapeSingle(promptSource.value)
+    : promptSource.value
+
+  if (template.promptMode === 'flag' && template.promptFlag) {
+    parts.push(template.promptFlag, promptArg)
+  } else if (template.promptMode === 'positional') {
+    parts.push(promptArg)
+  }
+
+  return parts.join(' ')
 }
 
 function buildPrompt(context: ExecutionContext): string {
@@ -364,9 +420,6 @@ export async function runHost(
   const windowTitle = buildWindowTitle(context)
 
   const prompt = buildPrompt(context)
-  // Terminal - use sandboxed setting
-  const skipPermissions = !config.sandboxed
-  const { cmd } = getExecutorCommand(executor, prompt, skipPermissions)
 
   // Write command to temp script to avoid shell escaping issues
   // Use HQ .proletariat/scripts if available, otherwise fallback to home dir
@@ -382,10 +435,13 @@ export async function runHost(
   // Write prompt to separate file to avoid any shell escaping issues
   fs.writeFileSync(promptPath, prompt, { mode: 0o644 })
 
-  // Build flags based on config
-  const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
-  // outputMode: 'print' adds -p flag (final result only), 'interactive' shows streaming UI
-  const printFlag = config.outputMode === 'print' ? '-p ' : ''
+  const executorCommand = buildExecutorShellCommand(
+    executor,
+    'host',
+    { type: 'shell', value: '"$(cat "$PROMPT_PATH")"' },
+    config.outputMode,
+    config.sandboxed
+  )
 
   // Build script that runs claude and keeps shell open after completion
   const setTitleCmds = getSetTitleCommands(windowTitle)
@@ -397,7 +453,7 @@ ${setTitleCmds}
 echo "🚀 Starting: ${sessionName}"
 echo ""
 cd "${context.worktreePath}"
-${cmd} ${permissionsFlag}${printFlag}"$(cat "$PROMPT_PATH")"
+${executorCommand}
 
 # Clean up script and prompt files
 rm -f "$SCRIPT_PATH" "$PROMPT_PATH"
@@ -1184,38 +1240,18 @@ function buildDevcontainerCommand(
   sandboxed: boolean = true,
   displayMode: DisplayMode = 'terminal'
 ): string {
-  // Get base command (just 'claude' for claude-code)
-  let baseCmd: string
-  switch (executor) {
-    case 'claude-code':
-      baseCmd = 'claude'
-      break
-    case 'codex':
-      baseCmd = 'codex'
-      break
-    case 'aider':
-      baseCmd = 'aider'
-      break
-    default:
-      baseCmd = 'claude'
-  }
-
   // Calculate the relative path from agentDir to worktreePath for cd
   const relativePath = path.relative(context.agentDir, context.worktreePath)
   const cdCmd = relativePath ? `cd /workspace/${relativePath} && ` : ''
-
-  // Build Claude flags based on output mode and sandboxed setting
-  // - interactive: No -p flag, shows streaming UI (watch Claude work in real-time)
-  // - print: Uses -p flag, outputs final result only (better for logs/automation)
-  const printFlag = outputMode === 'print' ? '-p ' : ''
-  // sandboxed=true means safe mode (no --dangerously-skip-permissions)
-  // sandboxed=false means danger mode (use --dangerously-skip-permissions)
-  // --permission-mode bypassPermissions: skips the "trust this folder" dialog
-  const bypassTrustFlag = '--permission-mode bypassPermissions '
-  const permissionsFlag = !sandboxed ? '--dangerously-skip-permissions ' : ''
-
-  // Build the claude command
-  const claudeCmd = `${cdCmd}${baseCmd} ${bypassTrustFlag}${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}`
+  const promptExpression = `"$(cat ${shellEscapeSingle(promptFile)})"`
+  const executorCommand = buildExecutorShellCommand(
+    executor,
+    'devcontainer',
+    { type: 'shell', value: promptExpression },
+    outputMode,
+    sandboxed
+  )
+  const containerCommand = `${cdCmd}${executorCommand} && rm -f ${shellEscapeSingle(promptFile)}`
 
   // Use docker exec for running commands in the container
   // Use -it flags only for terminal/foreground modes where a TTY is available
@@ -1223,7 +1259,7 @@ function buildDevcontainerCommand(
   const ttyFlags = displayMode === 'background' ? '' : '-it '
 
   // Direct mode - run claude directly (tmux setup is handled by runDevcontainerInTmux)
-  return `docker exec ${ttyFlags}${containerId} bash -c '${claudeCmd}'`
+  return `docker exec ${ttyFlags}${containerId} bash -c ${shellEscapeSingle(containerCommand)}`
 }
 
 
@@ -2007,10 +2043,15 @@ export async function runDocker(
       dockerCmd += ` --cpus ${config.docker.cpus}`
     }
 
-    // Escape prompt for shell
-    const escapedPrompt = prompt.replace(/'/g, "'\\''")
+    const executorCommand = buildExecutorShellCommand(
+      executor,
+      'docker',
+      { type: 'literal', value: prompt },
+      'print',
+      config.sandboxed
+    )
     dockerCmd += ` ${config.docker.image}`
-    dockerCmd += ` claude --print '${escapedPrompt}'`
+    dockerCmd += ` sh -lc ${shellEscapeSingle(executorCommand)}`
 
     const containerId = execSync(dockerCmd, { encoding: 'utf-8' }).trim()
 
@@ -2072,9 +2113,15 @@ export async function runVm(
     }
 
     // Execute on remote
-    const escapedPrompt = prompt.replace(/'/g, "'\\''")
-    const remoteCmd = `cd ${remoteWorkspace} && claude --print '${escapedPrompt}'`
-    const sshCmd = `ssh ${sshOpts} ${user}@${targetHost} "nohup ${remoteCmd} > /tmp/work-${context.ticketId}.log 2>&1 &"`
+    const executorCommand = buildExecutorShellCommand(
+      executor,
+      'vm',
+      { type: 'literal', value: prompt },
+      'print',
+      config.sandboxed
+    )
+    const remoteCmd = `cd ${shellEscapeSingle(remoteWorkspace)} && ${executorCommand}`
+    const sshCmd = `ssh ${sshOpts} ${user}@${targetHost} "nohup sh -lc ${shellEscapeSingle(remoteCmd)} > /tmp/work-${context.ticketId}.log 2>&1 &"`
 
     execSync(sshCmd, { stdio: 'pipe' })
 

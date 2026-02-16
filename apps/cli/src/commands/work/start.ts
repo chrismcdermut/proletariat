@@ -43,6 +43,32 @@ import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import { detectRepoWorktrees, resolveWorktreePath } from '../../lib/execution/context.js'
 import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js'
 
+function getExecutorDisplayName(executor: ExecutorType): string {
+  switch (executor) {
+    case 'claude-code':
+      return 'Claude Code'
+    case 'codex':
+      return 'Codex'
+    case 'aider':
+      return 'Aider'
+    case 'custom':
+      return 'Custom executor'
+    default:
+      return executor
+  }
+}
+
+function getDangerModeHint(executor: ExecutorType): string {
+  switch (executor) {
+    case 'claude-code':
+      return '--dangerously-skip-permissions'
+    case 'codex':
+      return '--dangerously-bypass-approvals-and-sandbox'
+    default:
+      return 'executor-specific safety bypass'
+  }
+}
+
 /**
  * Try to execute a git command, return true if successful
  */
@@ -166,7 +192,7 @@ export default class WorkStart extends PMOCommand {
       default: false,
     }),
     'permission-mode': Flags.string({
-      description: 'Permission mode for Claude Code (danger=skip checks, safe=require approval)',
+      description: 'Permission mode for selected executor (danger=skip checks, safe=require approval when supported)',
       options: ['danger', 'safe'],
     }),
     'skip-permissions': Flags.boolean({
@@ -1242,6 +1268,7 @@ export default class WorkStart extends PMOCommand {
       if (flags['permission-mode']) {
         sandboxed = flags['permission-mode'] === 'safe'
       } else {
+        const executorName = getExecutorDisplayName(executor)
         const containerNote = environment === 'devcontainer'
           ? ' (container provides additional isolation)'
           : ''
@@ -1257,7 +1284,7 @@ export default class WorkStart extends PMOCommand {
         permissionResolver.addPrompt({
           flagName: 'permission-mode',
           type: 'list',
-          message: `Permission mode for Claude Code${containerNote}:`,
+          message: `Permission mode for ${executorName}${containerNote}:`,
           default: 'danger',
           choices: () => [
             { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
@@ -1325,10 +1352,10 @@ export default class WorkStart extends PMOCommand {
         if (sandboxed) {
           this.log(styles.success(`   Permissions: 🔒 safe`))
         } else {
-          this.log(styles.warning(`   Permissions: ⚠️  danger (--dangerously-skip-permissions)`))
+          this.log(styles.warning(`   Permissions: ⚠️  danger (${getDangerModeHint(executor)})`))
         }
 
-        this.log(styles.muted(`   Output: ${outputMode === 'interactive' ? 'streaming (watch Claude work)' : 'print (final result only)'}`))
+        this.log(styles.muted(`   Output: ${outputMode === 'interactive' ? 'streaming (watch executor work)' : 'print (final result only)'}`))
         if (ghAvailable) {
           this.log(styles.muted(`   Create PR: ${createPR ? 'yes (when work is ready)' : 'no'}`))
         }
@@ -1793,12 +1820,14 @@ export default class WorkStart extends PMOCommand {
 
     // Prompt for permissions mode once for all tickets (TKT-513)
     let batchPermissionMode: 'danger' | 'safe' = flags['permission-mode'] as 'danger' | 'safe'
+    const batchExecutor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
+    const batchExecutorName = getExecutorDisplayName(batchExecutor)
     if (!batchPermissionMode) {
       const { permissionMode } = await this.prompt<{ permissionMode: string }>([
         {
           type: 'list',
           name: 'permissionMode',
-          message: 'Permission mode for Claude Code:',
+          message: `Permission mode for ${batchExecutorName}:`,
           choices: [
             { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger', command: 'prlt work start --all --permission-mode danger --json' },
             { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe', command: 'prlt work start --all --permission-mode safe --json' },
