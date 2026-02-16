@@ -19,6 +19,12 @@ import {
   outputExecutionResultAsJson,
 } from '../../lib/prompt-json.js'
 import { FlagResolver } from '../../lib/flags/index.js'
+import {
+  loadDietConfig,
+  formatDietConfig,
+  type DietConfig,
+} from '../../lib/pmo/diet.js'
+import type { Ticket } from '../../lib/pmo/types.js'
 
 export default class WorkSpawn extends PMOCommand {
   static description = 'Spawn work for multiple tickets by column (batch mode)'
@@ -34,6 +40,11 @@ export default class WorkSpawn extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --dry-run          # Preview without executing',
     '<%= config.bin %> <%= command.id %> --many --json      # Output ticket choices as JSON (for agents)',
     '<%= config.bin %> <%= command.id %> TKT-001 --action custom --message "Add unit tests"  # Custom prompt',
+    '<%= config.bin %> <%= command.id %> --count 5 --action implement  # Top 5 by rank',
+    '<%= config.bin %> <%= command.id %> --count 10 --diet --action groom  # Diet-balanced',
+    '<%= config.bin %> <%= command.id %> --count 5 --category ship --action implement  # Filtered by category',
+    '<%= config.bin %> <%= command.id %> --count 5 --priority P0 --action implement  # Filtered by priority',
+    '<%= config.bin %> <%= command.id %> --count 10 --diet --category ship,grow --action groom  # Combined',
   ]
 
   static flags = {
@@ -135,6 +146,27 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
       default: false,
     }),
+    count: Flags.integer({
+      char: 'n',
+      description: 'Number of tickets to spawn (selects top N by rank)',
+      min: 1,
+    }),
+    diet: Flags.boolean({
+      description: 'Apply diet-balanced category weighting when selecting tickets',
+      default: false,
+    }),
+    category: Flags.string({
+      description: 'Filter tickets by category (comma-separated, e.g., ship,grow)',
+    }),
+    priority: Flags.string({
+      description: 'Filter tickets by priority (comma-separated, e.g., P0,P1)',
+    }),
+    epic: Flags.string({
+      description: 'Filter tickets by epic ID',
+    }),
+    status: Flags.string({
+      description: 'Filter tickets by status name (e.g., Backlog, Ready)',
+    }),
   }
 
   async execute(): Promise<void> {
@@ -235,12 +267,15 @@ export default class WorkSpawn extends PMOCommand {
       // Note: With ephemeral agents, we no longer need to check for available pre-registered agents
       // Agents are created on-demand when spawning
 
-      // Determine spawn mode: All, Many, or Args (positional ticket IDs)
-      let spawnMode: 'all' | 'many' | 'args' = 'all'
+      // Determine spawn mode: All, Many, Args, or Count
+      let spawnMode: 'all' | 'many' | 'args' | 'count' = 'all'
 
       if (ticketIdArgs.length > 0) {
         // Ticket IDs provided as positional args
         spawnMode = 'args'
+      } else if (flags.count) {
+        // Count-based selection with optional filters
+        spawnMode = 'count'
       } else if (flags.all) {
         spawnMode = 'all'
       } else if (flags.many) {
@@ -260,6 +295,7 @@ export default class WorkSpawn extends PMOCommand {
           type: 'list',
           message: 'How would you like to spawn work?',
           choices: () => [
+            { name: jsonMode ? 'Count - Spawn next N tickets (with optional filters)' : '🔢 Count  - Spawn next N tickets (with optional filters)', value: 'count' },
             { name: jsonMode ? 'All - Spawn all tickets in a column' : '📦 All    - Spawn all tickets tickets in a column', value: 'all' },
             { name: jsonMode ? 'Many - Select specific tickets to spawn' : '✅ Many   - Select specific tickets to spawn', value: 'many' },
           ],
@@ -268,7 +304,7 @@ export default class WorkSpawn extends PMOCommand {
         const resolved = await modeResolver.resolve()
         // In JSON mode, resolve() exits after outputting prompt, so we never reach here
         // In interactive mode, we get the selected value
-        spawnMode = resolved.mode as 'all' | 'many'
+        spawnMode = resolved.mode as 'all' | 'many' | 'count'
       }
 
       let ticketsToSpawn: typeof allTickets = []
@@ -369,6 +405,317 @@ export default class WorkSpawn extends PMOCommand {
         this.log('')
         this.log(styles.header(`🚀 Spawn: ${ticketsToSpawn.length} ticket(s)`))
         this.log(styles.muted(`Tickets: ${ticketsToSpawn.map(t => t.id).join(', ')}`))
+
+      } else if (spawnMode === 'count') {
+        // COUNT MODE: Select top N tickets by rank with optional filters and diet balancing
+        let targetCount = flags.count
+
+        // If count not provided via flag (interactive mode selected 'count'), prompt for it
+        if (!targetCount) {
+          const countResolver = new FlagResolver<{ spawnCount?: number }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+            context: { projectId },
+          })
+
+          countResolver.addPrompt({
+            flagName: 'spawnCount',
+            type: 'input',
+            message: 'How many agents to spawn?',
+            default: '5',
+            validate: (value) => {
+              const num = Number.parseInt(String(value), 10)
+              if (Number.isNaN(num) || num < 1) return 'Please enter a number >= 1'
+              return true
+            },
+            transform: (value) => Number.parseInt(String(value), 10),
+          })
+
+          const countResult = await countResolver.resolve()
+          targetCount = countResult.spawnCount as number
+        }
+
+        // Determine selection strategy
+        let useDiet = flags.diet
+
+        // In interactive mode, prompt for selection strategy if not specified via flags
+        const hasFilterFlags = flags.category || flags.priority || flags.epic || flags.status
+        if (!useDiet && !hasFilterFlags && !flags.count) {
+          // Interactive mode - let user choose strategy
+          const strategyResolver = new FlagResolver<{ strategy?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+          })
+
+          strategyResolver.addPrompt({
+            flagName: 'strategy',
+            type: 'list',
+            message: 'Selection strategy:',
+            choices: () => [
+              { name: jsonMode ? 'Top ranked - Select by position order' : '📊 Top ranked      - Select by position order', value: 'top' },
+              { name: jsonMode ? 'Diet-balanced - Balance across category weights' : '⚖️  Diet-balanced   - Balance across category weights', value: 'diet' },
+              { name: jsonMode ? 'Filtered - Pick filters to narrow selection' : '🔍 Filtered        - Pick filters to narrow selection', value: 'filtered' },
+            ],
+          })
+
+          const strategyResult = await strategyResolver.resolve()
+
+          if (strategyResult.strategy === 'diet') {
+            useDiet = true
+          } else if (strategyResult.strategy === 'filtered') {
+            // Prompt for filters interactively
+            const filterResolver = new FlagResolver<{
+              filterCategory?: string
+              filterPriority?: string
+              filterEpic?: string
+              filterStatus?: string
+            }>({
+              commandName: 'work spawn',
+              baseCommand: 'prlt work spawn',
+              jsonMode,
+              flags: {},
+            })
+
+            // Get unique categories from tickets for choices
+            const categories = [...new Set(allTickets.map(t => t.category).filter(Boolean))] as string[]
+            if (categories.length > 0) {
+              filterResolver.addPrompt({
+                flagName: 'filterCategory',
+                type: 'checkbox',
+                message: 'Filter by category (space to toggle, enter to continue):',
+                choices: () => categories.map(c => ({ name: c, value: c })),
+              })
+            }
+
+            // Get unique priorities
+            const priorities = [...new Set(allTickets.map(t => t.priority).filter(Boolean))] as string[]
+            if (priorities.length > 0) {
+              const priorityOrder = ['P0', 'P1', 'P2', 'P3']
+              priorities.sort((a, b) => {
+                const ai = priorityOrder.indexOf(a)
+                const bi = priorityOrder.indexOf(b)
+                return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
+              })
+              filterResolver.addPrompt({
+                flagName: 'filterPriority',
+                type: 'checkbox',
+                message: 'Filter by priority (space to toggle, enter to continue):',
+                choices: () => priorities.map(p => ({ name: p, value: p })),
+              })
+            }
+
+            // Get epics for choices
+            const epics = await this.storage.listEpics(projectId)
+            if (epics.length > 0) {
+              filterResolver.addPrompt({
+                flagName: 'filterEpic',
+                type: 'list',
+                message: 'Filter by epic:',
+                choices: () => [
+                  { name: jsonMode ? 'Any epic' : '(any)', value: '' },
+                  ...epics.map(e => ({ name: `${e.id} - ${e.title}`, value: e.id })),
+                ],
+              })
+            }
+
+            // Status filter
+            filterResolver.addPrompt({
+              flagName: 'filterStatus',
+              type: 'list',
+              message: 'Filter by status:',
+              choices: () => [
+                { name: jsonMode ? 'Any status' : '(any)', value: '' },
+                ...columnNames.map(name => {
+                  const count = allTickets.filter(t => t.statusName === name).length
+                  return { name: `${name} (${count})`, value: name }
+                }),
+              ],
+            })
+
+            const filterResult = await filterResolver.resolve()
+            // Apply interactive filter selections to flags for use below
+            if (filterResult.filterCategory && (filterResult.filterCategory as unknown as string[]).length > 0) {
+              flags.category = (filterResult.filterCategory as unknown as string[]).join(',')
+            }
+            if (filterResult.filterPriority && (filterResult.filterPriority as unknown as string[]).length > 0) {
+              flags.priority = (filterResult.filterPriority as unknown as string[]).join(',')
+            }
+            if (filterResult.filterEpic) {
+              flags.epic = filterResult.filterEpic
+            }
+            if (filterResult.filterStatus) {
+              flags.status = filterResult.filterStatus
+            }
+          }
+        }
+
+        // Build candidate pool: start with all tickets, apply filters
+        let candidates = [...allTickets]
+
+        // Apply category filter
+        if (flags.category) {
+          const categoryList = flags.category.split(',').map(c => c.trim().toLowerCase())
+          candidates = candidates.filter(t => {
+            const ticketCat = (t.category || '').toLowerCase()
+            return categoryList.includes(ticketCat)
+          })
+        }
+
+        // Apply priority filter
+        if (flags.priority) {
+          const priorityList = flags.priority.split(',').map(p => p.trim().toUpperCase())
+          candidates = candidates.filter(t => {
+            const ticketPriority = (t.priority || '').toUpperCase()
+            return priorityList.includes(ticketPriority)
+          })
+        }
+
+        // Apply epic filter
+        if (flags.epic) {
+          candidates = candidates.filter(t => t.epicId === flags.epic)
+        }
+
+        // Apply status filter
+        if (flags.status) {
+          const statusName = flags.status.toLowerCase()
+          candidates = candidates.filter(t => (t.statusName || '').toLowerCase() === statusName)
+        }
+
+        // Sort by position (rank order)
+        candidates.sort((a, b) => (a.position || 0) - (b.position || 0))
+
+        // Filter out blocked tickets
+        const unblockedCandidates: Ticket[] = []
+        let skippedBlocked = 0
+        for (const ticket of candidates) {
+          // eslint-disable-next-line no-await-in-loop -- Sequential dependency check
+          const blocked = await this.storage.isTicketBlocked(ticket.id)
+          if (blocked) {
+            skippedBlocked++
+          } else {
+            unblockedCandidates.push(ticket)
+          }
+        }
+
+        if (unblockedCandidates.length === 0) {
+          db.close()
+          const msg = `No eligible tickets found${skippedBlocked > 0 ? ` (${skippedBlocked} blocked)` : ''}.`
+          return handleError('NO_ELIGIBLE_TICKETS', msg)
+        }
+
+        // Select tickets using chosen strategy
+        if (useDiet) {
+          // Diet-balanced selection
+          const dietConfig = loadDietConfig(db)
+          ticketsToSpawn = this.selectDietBalanced(unblockedCandidates, targetCount!, dietConfig)
+        } else {
+          // Top ranked (position order) - just take the first N
+          ticketsToSpawn = unblockedCandidates.slice(0, targetCount!)
+        }
+
+        if (ticketsToSpawn.length === 0) {
+          db.close()
+          return handleError('NO_TICKETS_SELECTED', 'No tickets could be selected with the given criteria.')
+        }
+
+        // Show preview
+        this.log('')
+        this.log(styles.header(`🚀 Spawn: ${ticketsToSpawn.length} ticket(s)${useDiet ? ' (diet-balanced)' : ''}`))
+
+        if (useDiet) {
+          const dietConfig = loadDietConfig(db)
+          // Show category breakdown
+          const catCounts = new Map<string, number>()
+          for (const t of ticketsToSpawn) {
+            const cat = t.category || 'uncategorized'
+            catCounts.set(cat, (catCounts.get(cat) || 0) + 1)
+          }
+          const breakdown = [...catCounts.entries()].map(([cat, count]) => `${count}x ${cat}`).join(', ')
+          this.log(styles.muted(`  Diet:      ${formatDietConfig(dietConfig)}`))
+          this.log(styles.muted(`  Breakdown: ${breakdown}`))
+        }
+
+        if (skippedBlocked > 0) {
+          this.log(styles.muted(`  Skipped:   ${skippedBlocked} blocked ticket(s)`))
+        }
+        this.log(styles.muted(`  Tickets:   ${ticketsToSpawn.map(t => t.id).join(', ')}`))
+
+        // Confirmation (unless --yes)
+        if (!flags.yes && !jsonMode) {
+          const confirmResolver = new FlagResolver<{ confirmed?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+          })
+
+          confirmResolver.addPrompt({
+            flagName: 'confirmed',
+            type: 'list',
+            message: `Spawn ${ticketsToSpawn.length} ticket(s)?`,
+            choices: () => [
+              { name: 'Yes', value: 'yes' },
+              { name: 'No', value: 'no' },
+            ],
+          })
+
+          const confirmResult = await confirmResolver.resolve()
+          if (confirmResult.confirmed === 'no') {
+            db.close()
+            this.log(styles.muted('Cancelled.'))
+            return
+          }
+        }
+
+        // In JSON mode without --yes, return confirmation_needed
+        if (jsonMode && !flags.yes) {
+          const metadata = createMetadata('work spawn', flags)
+          const ticketIds = ticketsToSpawn.map(t => t.id).join(' ')
+          let confirmCmd = `prlt work spawn ${ticketIds}`
+          if (flags.action) confirmCmd += ` --action ${flags.action}`
+          if (flags.display) confirmCmd += ` --display ${flags.display}`
+          if (flags['run-on-host']) confirmCmd += ' --run-on-host'
+          if (flags['skip-permissions']) confirmCmd += ' --skip-permissions'
+          if (flags.executor) confirmCmd += ` --executor ${flags.executor}`
+          if (flags.session) confirmCmd += ` --session ${flags.session}`
+          if (flags['create-pr']) confirmCmd += ' --create-pr'
+          if (flags['no-pr']) confirmCmd += ' --no-pr'
+          if (flags.clone) confirmCmd += ' --clone'
+          if (flags.focus) confirmCmd += ' --focus'
+          confirmCmd += ' --yes'
+
+          const plan = {
+            tickets: ticketsToSpawn.map(t => ({
+              id: t.id,
+              title: t.title,
+              status: t.statusName,
+              category: t.category,
+              priority: t.priority,
+            })),
+            action: flags.action,
+            count: ticketsToSpawn.length,
+            diet: useDiet,
+            filters: {
+              category: flags.category || null,
+              priority: flags.priority || null,
+              epic: flags.epic || null,
+              status: flags.status || null,
+            },
+          }
+
+          db.close()
+          outputConfirmationNeededAsJson(
+            plan,
+            confirmCmd,
+            `Ready to spawn ${ticketsToSpawn.length} agent(s). Run with --yes to execute.`,
+            metadata
+          )
+          return
+        }
 
       } else if (spawnMode === 'all') {
         // ALL MODE: Column picker, then spawn all tickets in that column
@@ -1221,5 +1568,85 @@ export default class WorkSpawn extends PMOCommand {
       db.close()
       throw error
     }
+  }
+
+  /**
+   * Select tickets using diet-balanced category weighting.
+   * Uses a two-pass algorithm:
+   * Pass 1: Walk candidates in position order, pull if category not over ceiling.
+   * Pass 2: Force-pull from underrepresented categories.
+   */
+  private selectDietBalanced(candidates: Ticket[], targetCount: number, dietConfig: DietConfig): Ticket[] {
+    const selected: Ticket[] = []
+    const selectedIds = new Set<string>()
+
+    // Build category count map (start from zero since we're selecting fresh)
+    const categoryCounts = new Map<string, number>()
+    for (const ratio of dietConfig.ratios) {
+      categoryCounts.set(ratio.category, 0)
+    }
+
+    // Calculate ceiling per category
+    const getCeiling = (category: string): number => {
+      const ratio = dietConfig.ratios.find(r => r.category === category)
+      if (!ratio) return targetCount // No ceiling for uncategorized
+      return Math.ceil(targetCount * ratio.target)
+    }
+
+    // Pass 1: Walk candidates in order, pull if under ceiling
+    const skipped: Ticket[] = []
+    for (const ticket of candidates) {
+      if (selected.length >= targetCount) break
+
+      const cat = (ticket.category || '').toLowerCase()
+      const currentCount = categoryCounts.get(cat) || 0
+      const ceiling = getCeiling(cat)
+
+      if (currentCount < ceiling) {
+        selected.push(ticket)
+        selectedIds.add(ticket.id)
+        categoryCounts.set(cat, currentCount + 1)
+      } else {
+        skipped.push(ticket)
+      }
+    }
+
+    // Pass 2: Force-pull from underrepresented categories
+    if (selected.length < targetCount) {
+      for (const ratio of dietConfig.ratios) {
+        if (selected.length >= targetCount) break
+
+        const currentCount = categoryCounts.get(ratio.category) || 0
+        const targetForCat = Math.ceil(targetCount * ratio.target)
+
+        if (currentCount < targetForCat) {
+          const catTickets = skipped.filter(
+            t => (t.category || '').toLowerCase() === ratio.category && !selectedIds.has(t.id)
+          )
+
+          for (const ticket of catTickets) {
+            if (selected.length >= targetCount) break
+            if ((categoryCounts.get(ratio.category) || 0) >= targetForCat) break
+
+            selected.push(ticket)
+            selectedIds.add(ticket.id)
+            categoryCounts.set(ratio.category, (categoryCounts.get(ratio.category) || 0) + 1)
+          }
+        }
+      }
+    }
+
+    // If still under target, fill from any remaining candidates
+    if (selected.length < targetCount) {
+      for (const ticket of candidates) {
+        if (selected.length >= targetCount) break
+        if (!selectedIds.has(ticket.id)) {
+          selected.push(ticket)
+          selectedIds.add(ticket.id)
+        }
+      }
+    }
+
+    return selected
   }
 }
