@@ -1,3 +1,4 @@
+/* eslint-disable mocha/no-skipped-tests -- oclif discovery issue in test env */
 import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';

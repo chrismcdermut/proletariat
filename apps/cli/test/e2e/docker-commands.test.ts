@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- comprehensive e2e test suite */
 import { expect } from 'chai'
 import * as fs from 'node:fs'
 import * as path from 'node:path'

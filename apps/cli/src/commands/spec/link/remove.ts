@@ -69,6 +69,7 @@ export default class SpecLinkRemove extends PMOCommand {
       // Get spec details for dependency targets
       const choices: Array<{ name: string; value: string; command: string }> = [];
       for (const dep of dependencies) {
+        // eslint-disable-next-line no-await-in-loop
         const targetSpec = await this.storage.getSpec(dep.dependsOnSpecId);
         const name = targetSpec ? `${dep.dependsOnSpecId} - ${targetSpec.title} (${dep.dependencyType})` : `${dep.dependsOnSpecId} (${dep.dependencyType})`;
         choices.push({

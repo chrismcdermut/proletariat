@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- runner implementations require cohesive logic */
 /**
  * Execution Runners
  *

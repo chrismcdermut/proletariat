@@ -219,6 +219,7 @@ export default class TemplateApply extends PMOCommand {
     // Add subtasks
     if (!flags['no-subtasks'] && template.suggestedSubtasks.length > 0) {
       for (const subtask of template.suggestedSubtasks) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.addSubtask(ticket.id, subtask.title);
       }
     }

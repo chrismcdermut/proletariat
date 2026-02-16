@@ -1,3 +1,4 @@
+/* eslint-disable max-nested-callbacks */
 /**
  * E2E tests for project commands - JSON mode and agent flow
  *

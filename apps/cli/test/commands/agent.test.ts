@@ -129,6 +129,7 @@ describe('Agent Command Architecture', () => {
       const commands = [['agent', 'staff', 'remove'], ['agent', 'visit'], ['agent', 'status'], ['agent', 'shell']];
 
       for (const cmd of commands) {
+        // eslint-disable-next-line no-await-in-loop
         const { stdout } = await runCommand([...cmd, '--help'], { root });
         expect(stdout).to.contain('USAGE');
         // Consistent format across all commands
@@ -150,6 +151,7 @@ describe('Agent Command Architecture', () => {
 
         for (const cmd of commands) {
           try {
+            // eslint-disable-next-line no-await-in-loop
             await runCommand(cmd, { root: testDir });
           } catch (error: unknown) {
             // Expect an error when not in workspace

@@ -1,3 +1,4 @@
+/* eslint-disable no-await-in-loop */
 /**
  * FlagResolver - Unified flag resolution for human and machine interactive modes
  *

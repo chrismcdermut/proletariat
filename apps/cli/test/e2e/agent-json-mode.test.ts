@@ -1,3 +1,4 @@
+/* eslint-disable max-nested-callbacks, max-lines */
 /**
  * E2E tests for agent namespace commands with --machine/--json flag support.
  *

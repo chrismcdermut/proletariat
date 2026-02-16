@@ -1,3 +1,4 @@
+/* eslint-disable mocha/no-skipped-tests -- intentionally skipped per TKT-771 */
 /**
  * E2E Agent Flow Tests for Status Commands
  *

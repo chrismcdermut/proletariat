@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- large command with many execution paths */
 import { Args, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
