@@ -7,7 +7,6 @@ import {
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
-  exec,
   execProduction,
   extractJson,
   agentExec,
@@ -15,7 +14,6 @@ import {
   execChoice,
   execFinal,
   type TestEnvironment,
-  type AgentPromptResponse,
 } from './test-helpers.js';
 
 /**

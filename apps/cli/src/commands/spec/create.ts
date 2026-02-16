@@ -10,7 +10,6 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
-import { multiLineInput } from '../../lib/multiline-input.js';
 
 export default class SpecCreate extends PMOCommand {
   static description = 'Create a new spec';

@@ -1,4 +1,4 @@
-import { Args, Flags } from '@oclif/core';
+import { Args } from '@oclif/core';
 import * as path from 'node:path';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo, formatAgentList } from '../../lib/agents/commands.js';

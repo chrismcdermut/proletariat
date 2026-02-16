@@ -19,7 +19,6 @@ import {
   createTestTicket,
   type TestEnvironment,
   type AgentPromptResponse,
-  type AgentPromptChoice,
 } from './test-helpers.js';
 
 /**

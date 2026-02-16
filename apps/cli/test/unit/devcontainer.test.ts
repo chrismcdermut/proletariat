@@ -14,7 +14,6 @@ import {
 
 import {
   getGitIdentity,
-  GitIdentity,
 } from '../../src/lib/pr/index.js'
 
 /**

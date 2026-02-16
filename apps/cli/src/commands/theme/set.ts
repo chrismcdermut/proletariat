@@ -1,4 +1,4 @@
-import { Args, Flags } from '@oclif/core';
+import { Args } from '@oclif/core';
 import chalk from 'chalk';
 import { PromptCommand } from '../../lib/prompt-command.js';
 import { machineOutputFlags } from '../../lib/pmo/index.js';

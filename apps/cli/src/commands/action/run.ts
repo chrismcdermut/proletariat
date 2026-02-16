@@ -1,7 +1,7 @@
 import { Args, Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
-import { StateCategory, Ticket } from '../../lib/pmo/types.js';
+import { Ticket } from '../../lib/pmo/types.js';
 import {
   shouldOutputJson,
   outputErrorAsJson,

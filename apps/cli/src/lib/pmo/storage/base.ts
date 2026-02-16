@@ -1113,7 +1113,6 @@ export function seedBuiltinCategories(db: Database.Database): void {
  * Preserves any existing user-defined priority scale.
  */
 export function seedDefaultPriorities(db: Database.Database): void {
-  const existing = getWorkspacePriorities(db)
   // getWorkspacePriorities returns DEFAULT_PRIORITIES if not set,
   // but we need to check if it's actually stored in the DB
   const row = db.prepare(

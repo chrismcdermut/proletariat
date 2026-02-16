@@ -68,17 +68,6 @@ describe('JSON Mode Flag Accumulation', () => {
     `).run(id, title, statusName, statusId);
   }
 
-  /**
-   * Helper to get ticket status from database.
-   */
-  function getTicketStatus(ticketId: string): { status: string; statusId: string } {
-    const ticket = db.prepare('SELECT status, status_id FROM pmo_tickets WHERE id = ?').get(ticketId) as { status: string; status_id: string } | undefined;
-    return {
-      status: ticket?.status || 'unknown',
-      statusId: ticket?.status_id || 'unknown',
-    };
-  }
-
   describe('ticket move --json', () => {
     beforeEach(() => {
       createLocalTestTicket('TKT-001', 'Test ticket 1');

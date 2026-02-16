@@ -1,7 +1,6 @@
 import { Command, Flags } from '@oclif/core';
 import {
   isMachineOutput,
-  createMetadata,
 } from '../../lib/prompt-json.js';
 import { machineOutputFlags } from '../../lib/pmo/index.js';
 import { FlagResolver } from '../../lib/flags/index.js';

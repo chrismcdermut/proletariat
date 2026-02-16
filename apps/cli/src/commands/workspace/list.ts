@@ -1,4 +1,4 @@
-import { Command, Flags } from '@oclif/core';
+import { Command } from '@oclif/core';
 import chalk from 'chalk';
 import { findAllHQs, findHQRootWithSource, isValidHQ } from '../../lib/workspace.js';
 import { machineOutputFlags } from '../../lib/pmo/index.js';

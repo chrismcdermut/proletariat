@@ -18,7 +18,6 @@ import {
   Shell,
   ExecutionEnvironment,
   OutputMode,
-  DEFAULT_EXECUTION_CONFIG
 } from '../../lib/execution/types.js'
 import {
   shouldOutputJson,

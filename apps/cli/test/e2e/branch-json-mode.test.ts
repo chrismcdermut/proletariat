@@ -277,10 +277,6 @@ describe('Branch Commands JSON Mode', () => {
     const findChoice = sharedFindChoice;
     const execChoice = sharedExecChoice;
 
-    function execFinal(cmd: string): string {
-      return exec(cmd.replace(' --json', '').replace(' --machine', ''));
-    }
-
     describe('branch menu navigation', () => {
       it('should navigate from branch menu to branch create', () => {
         // Agent Step 1: Get main menu

@@ -3,7 +3,6 @@ import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { colors, format } from '../../lib/colors.js';
 import {
   findHQRoot,
-  promptSelectMultipleRepos,
   removeRepository,
   getWorkspaceRepoInfo
 } from '../../lib/repos/index.js';

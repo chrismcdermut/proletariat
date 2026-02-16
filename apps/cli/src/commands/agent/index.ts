@@ -1,4 +1,4 @@
-import { Flags } from '@oclif/core';
+
 import { colors } from '../../lib/colors.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { shouldOutputJson } from '../../lib/prompt-json.js';
@@ -109,6 +109,7 @@ export default class Agent extends PMOCommand {
           break;
         }
         case 'temp': {
+          // eslint-disable-next-line import/no-unresolved -- temp subcommand not yet implemented
           const { default: TempCommand } = await import('./temp/index.js');
           const cmd = new TempCommand([], this.config);
           await cmd.run();

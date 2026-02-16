@@ -9,7 +9,6 @@ import { expect } from 'chai';
 import {
   shouldOutputJson,
   createMetadata,
-  outputSuccessAsJson,
 } from '../../src/lib/prompt-json.js';
 import { FlagResolver, ResolverChoice } from '../../src/lib/flags/resolver.js';
 

@@ -1,4 +1,4 @@
-import { Args, Flags } from '@oclif/core';
+import { Args } from '@oclif/core';
 import { colors, format } from '../../lib/colors.js';
 import {
   getWorkspaceInfo,

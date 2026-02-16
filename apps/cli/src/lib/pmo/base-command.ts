@@ -432,7 +432,6 @@ export abstract class PMOCommand extends PromptCommand {
    * @param code - Error code for JSON output (e.g., 'NOT_FOUND', 'DOCKER_NOT_RUNNING')
    * @param message - Human-readable error message (used in both modes)
    * @param options - Configuration for error handling
-   * @returns never - always throws or exits
    *
    * @example
    * ```typescript

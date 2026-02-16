@@ -371,14 +371,6 @@ describe('Work Commands JSON Mode', () => {
     };
   }
 
-  /**
-   * Helper to get execution status from database.
-   */
-  function getExecutionStatus(executionId: string): string {
-    const execution = db.prepare('SELECT status FROM agent_work WHERE id = ?').get(executionId) as { status: string } | undefined;
-    return execution?.status || 'unknown';
-  }
-
   // ===========================================================================
   // work (menu) command tests
   // ===========================================================================

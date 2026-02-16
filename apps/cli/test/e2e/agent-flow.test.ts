@@ -12,7 +12,6 @@ import {
   execChoice,
   hasContextError,
   execProduction,
-  AgentPromptResponse,
 } from './test-helpers.js';
 
 describe('Agent Flow E2E (--machine flag)', () => {

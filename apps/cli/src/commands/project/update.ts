@@ -60,9 +60,6 @@ export default class ProjectUpdate extends PMOCommand {
       this.error(message);
     };
 
-    // Agent mode config for prompts
-    const agentConfig = jsonMode ? { flags, commandName: 'project update' } : null;
-
     // Get project ID - from args or prompt
     let projectId = args.id;
 

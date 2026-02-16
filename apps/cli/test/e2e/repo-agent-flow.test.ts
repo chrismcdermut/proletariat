@@ -191,7 +191,9 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
   // REPO ADD - Create
   // ==========================================================================
 
+  // eslint-disable-next-line prefer-arrow-callback
   describe('repo add', function(this: Mocha.Suite) {
+    // eslint-disable-next-line prefer-arrow-callback, mocha/handle-done-callback
     it('adds repo to database and filesystem', function(this: Mocha.Context) {
       this.timeout(60000);
 

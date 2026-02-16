@@ -5,15 +5,12 @@ import {
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
-  exec,
   execProduction,
   extractJson,
   agentExec,
   findChoice,
   execChoice,
-  execFinal,
   type TestEnvironment,
-  type AgentPromptResponse,
 } from './test-helpers.js';
 
 /**

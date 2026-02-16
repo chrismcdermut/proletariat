@@ -1,4 +1,4 @@
-import { Flags } from '@oclif/core'
+
 import inquirer from 'inquirer'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { execSync } from 'node:child_process'

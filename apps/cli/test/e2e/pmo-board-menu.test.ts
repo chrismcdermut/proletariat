@@ -5,14 +5,11 @@ import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import {
   exec,
-  extractJson,
   agentExec,
   findChoice,
   findChoiceByValue,
   execChoice,
   execFinal,
-  execWithForce,
-  type AgentPromptResponse,
 } from './test-helpers.js';
 
 /**

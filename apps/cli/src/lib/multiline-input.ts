@@ -96,20 +96,6 @@ function moveToColumn(col: number): void {
 }
 
 /**
- * Clear from cursor to end of screen
- */
-function clearToEnd(): void {
-  process.stdout.write(`${CSI}J`);
-}
-
-/**
- * Hide cursor
- */
-function hideCursor(): void {
-  process.stdout.write(`${CSI}?25l`);
-}
-
-/**
  * Show cursor
  */
 function showCursor(): void {

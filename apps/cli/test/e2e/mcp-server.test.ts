@@ -8,7 +8,6 @@
 import { expect } from 'chai';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
-import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 
@@ -26,7 +25,6 @@ import {
   createTestSpec,
   TestEnvironment,
   getIsolatedEnv,
-  filterOutput,
 } from './test-helpers.js';
 
 // MCP protocol messages
@@ -510,10 +508,10 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
 
   describe('Spec Tools', () => {
     let specId: string;
-    let projectId: string;
+    let _projectId: string;
 
     beforeEach(() => {
-      projectId = createTestProject(db, { id: 'mcp-spec-proj', name: 'Spec Project' });
+      _projectId = createTestProject(db, { id: 'mcp-spec-proj', name: 'Spec Project' });
       specId = createTestSpec(db, { id: 'SPEC-MCP-001', title: 'MCP Test Spec' });
     });
 

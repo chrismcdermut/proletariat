@@ -1740,7 +1740,7 @@ exec bash
           `docker exec ${actualContainerId} tmux has-session -t "${sessionName}" 2>&1`,
           { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
         )
-      } catch (err) {
+      } catch {
         return {
           success: false,
           error: `Failed to verify tmux session "${sessionName}" inside container. The session may not have started correctly.`,

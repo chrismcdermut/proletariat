@@ -77,14 +77,6 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
   }
 
   /**
-   * Count statuses in DB
-   */
-  function countStatuses(): number {
-    const result = db.prepare(`SELECT COUNT(*) as count FROM pmo_workflow_statuses`).get() as { count: number };
-    return result.count;
-  }
-
-  /**
    * Check if CLI output indicates a schema/isolation error or known source bug.
    * The status create/update commands have a known issue where projectId is used
    * as workflowId, causing "Workflow not found" errors with production schema.

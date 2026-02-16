@@ -1,4 +1,4 @@
-import { Args, Flags } from '@oclif/core'
+import { Args } from '@oclif/core'
 import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
