@@ -1,7 +1,6 @@
 import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import {
   exec,
@@ -10,6 +9,15 @@ import {
   findChoiceByValue,
   execChoice,
   execFinal,
+  createTestEnvironment,
+  cleanupTestEnvironment,
+  setupProductionSchema,
+  addWorkspaceTables,
+  createHQConfig,
+  createPMODirectories,
+  createTestProject,
+  createTestTicket,
+  type TestEnvironment,
   type AgentPromptResponse,
   type AgentPromptChoice,
 } from './test-helpers.js';
@@ -25,42 +33,45 @@ import {
  * - End results verified (DB state, output content)
  */
 describe('Execution Commands E2E Tests', () => {
+  let env: TestEnvironment;
   let testDir: string;
-  let originalCwd: string;
   let dbPath: string;
   let db: Database.Database;
 
   beforeEach(() => {
     executionCounter = 0;
-    originalCwd = process.cwd();
-    testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'execution-e2e-')));
-    process.chdir(testDir);
+    env = createTestEnvironment('execution-e2e-');
+    testDir = env.testDir;
+    dbPath = env.dbPath;
 
-    // Setup test environment directories
-    const proletariatDir = path.join(testDir, '.proletariat');
-    const logsDir = path.join(proletariatDir, 'logs');
+    // Setup additional directories needed by execution commands
+    const logsDir = path.join(env.proletariatDir, 'logs');
     fs.mkdirSync(logsDir, { recursive: true });
     fs.mkdirSync(path.join(testDir, 'agents', 'staff'), { recursive: true });
-    fs.mkdirSync(path.join(testDir, 'pmo', 'projects', 'test-project'), { recursive: true });
 
-    // Create config.json
-    fs.writeFileSync(
-      path.join(proletariatDir, 'config.json'),
-      JSON.stringify({ type: 'hq', name: 'test-hq', hasPmo: true }),
-      'utf-8'
-    );
+    // Initialize PMO with production schema (creates pmo_projects table needed by findPMO)
+    db = setupProductionSchema(dbPath, env.pmoPath);
 
-    dbPath = path.join(proletariatDir, 'workspace.db');
-    db = new Database(dbPath);
-    setupTestDatabase(db);
+    // Add workspace tables (agents, repositories, etc.)
+    addWorkspaceTables(db, { type: 'hq', workspaceName: 'test-hq', hasPmo: true });
+
+    // Create HQ config and PMO directories
+    createHQConfig(env.proletariatDir);
+    createPMODirectories(env.pmoPath, 'test-project');
+
+    // Create a test project and seed tickets referenced by executions
+    createTestProject(db, { id: 'test-project', name: 'Test Project' });
+    for (let i = 1; i <= 10; i++) {
+      createTestTicket(db, 'test-project', {
+        id: `TKT-${String(i).padStart(3, '0')}`,
+        title: `Test Ticket ${i}`,
+      });
+    }
   });
 
   afterEach(() => {
     if (db) db.close();
-    process.chdir(originalCwd);
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
+    cleanupTestEnvironment(env);
   });
 
   // ===========================================================================
@@ -1136,115 +1147,6 @@ describe('Execution Commands E2E Tests', () => {
 // =============================================================================
 // Helper Functions
 // =============================================================================
-
-function setupTestDatabase(db: Database.Database) {
-  // Workspace tables (needed for getWorkspaceInfo)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS agent_themes (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      display_name TEXT NOT NULL,
-      description TEXT,
-      builtin BOOLEAN DEFAULT FALSE,
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS agent_theme_names (
-      theme_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      PRIMARY KEY (theme_id, name),
-      FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS workspace (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      type TEXT NOT NULL CHECK (type IN ('hq', 'workspace')),
-      workspace_name TEXT NOT NULL,
-      has_pmo BOOLEAN DEFAULT FALSE,
-      active_theme_id TEXT,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (active_theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS repositories (
-      name TEXT PRIMARY KEY,
-      path TEXT NOT NULL,
-      type TEXT DEFAULT 'main' CHECK (type IN ('main', 'dependency')),
-      source_url TEXT,
-      action TEXT CHECK (action IN ('clone', 'move', 'link')),
-      added_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS agents (
-      name TEXT PRIMARY KEY,
-      type TEXT NOT NULL DEFAULT 'persistent' CHECK (type IN ('persistent', 'ephemeral')),
-      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cleaned')),
-      base_name TEXT,
-      theme_id TEXT,
-      worktree_path TEXT,
-      mount_mode TEXT NOT NULL DEFAULT 'worktree' CHECK (mount_mode IN ('worktree', 'clone')),
-      created_at TEXT NOT NULL,
-      cleaned_at TEXT,
-      FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS agent_worktrees (
-      agent_name TEXT NOT NULL,
-      repo_name TEXT NOT NULL,
-      worktree_path TEXT NOT NULL,
-      branch TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      PRIMARY KEY (agent_name, repo_name),
-      FOREIGN KEY (agent_name) REFERENCES agents(name) ON DELETE CASCADE,
-      FOREIGN KEY (repo_name) REFERENCES repositories(name) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS workspace_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_worktrees_agent ON agent_worktrees(agent_name);
-    CREATE INDEX IF NOT EXISTS idx_worktrees_repo ON agent_worktrees(repo_name);
-    CREATE INDEX IF NOT EXISTS idx_theme_names_theme ON agent_theme_names(theme_id);
-    CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
-  `);
-
-  // Insert workspace config
-  db.prepare(`
-    INSERT INTO workspace (id, type, workspace_name, has_pmo, created_at)
-    VALUES (1, 'hq', 'test-hq', 1, datetime('now'))
-  `).run();
-
-  // NOTE: PMO tables are auto-created by the CLI's SQLiteStorage constructor.
-
-  // Agent work table (for ExecutionStorage)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS agent_work (
-      id TEXT PRIMARY KEY,
-      ticket_id TEXT NOT NULL,
-      agent_name TEXT NOT NULL,
-      executor TEXT NOT NULL DEFAULT 'claude-code',
-      environment TEXT NOT NULL DEFAULT 'host',
-      display_mode TEXT NOT NULL DEFAULT 'terminal',
-      sandboxed INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'starting',
-      branch TEXT,
-      pid TEXT,
-      container_id TEXT,
-      session_id TEXT,
-      host TEXT,
-      log_path TEXT,
-      started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      completed_at TIMESTAMP,
-      exit_code INTEGER
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_agent_work_agent ON agent_work(agent_name);
-    CREATE INDEX IF NOT EXISTS idx_agent_work_status ON agent_work(status);
-    CREATE INDEX IF NOT EXISTS idx_agent_work_ticket ON agent_work(ticket_id);
-  `);
-}
 
 let executionCounter = 0;
 function createExecution(
