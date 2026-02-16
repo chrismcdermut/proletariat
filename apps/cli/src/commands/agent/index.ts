@@ -109,9 +109,7 @@ export default class Agent extends PMOCommand {
           break;
         }
         case 'temp': {
-          const { default: TempCommand } = await import('./temp/index.js');
-          const cmd = new TempCommand([], this.config);
-          await cmd.run();
+          this.log('Temp agent management is not yet implemented.');
           break;
         }
         case 'cleanup': {

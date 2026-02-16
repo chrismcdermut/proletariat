@@ -407,6 +407,42 @@ export interface WorkAction {
   createdAt: Date
 }
 
+// =============================================================================
+// Agent Profile Types
+// =============================================================================
+
+/**
+ * MCP server configuration for agent profiles.
+ * Matches Claude Code's settings.json format for mcpServers.
+ */
+export interface MCPServerConfig {
+  name: string
+  command: string
+  args?: string[]
+  env?: Record<string, string>
+}
+
+/**
+ * Agent profile - defines how to configure the environment for a spawned agent.
+ * Profiles are composable with actions: actions define WHAT to do, profiles define HOW.
+ */
+export interface AgentProfile {
+  id: string
+  name: string
+  description?: string
+  startHook?: string                // Shell command(s) to run when session begins
+  endHook?: string                  // Shell command(s) to run before exit
+  systemPrompt?: string             // Additional context/instructions injected into CLAUDE.md
+  repos?: string[]                  // Which repos are accessible
+  mcpServers?: MCPServerConfig[]    // Which MCP tools are available
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface AgentProfileFilter {
+  search?: string
+}
+
 /**
  * Board represents a project's kanban board view.
  * This is what gets rendered to board.md and displayed in the UI.
@@ -983,6 +1019,13 @@ export interface PMOStorage {
   updateAction(id: string, changes: Partial<WorkAction>): Promise<WorkAction>
   deleteAction(id: string): Promise<void>
   getSuggestedAction(category: StateCategory): Promise<WorkAction | null>
+
+  // Agent Profile Operations
+  listProfiles(filter?: AgentProfileFilter): Promise<AgentProfile[]>
+  getProfile(id: string): Promise<AgentProfile | null>
+  createProfile(profile: Partial<AgentProfile>): Promise<AgentProfile>
+  updateProfile(id: string, changes: Partial<AgentProfile>): Promise<AgentProfile>
+  deleteProfile(id: string): Promise<void>
 
   // Project Operations
   getProject(id: string): Promise<Project | null>

@@ -39,6 +39,7 @@ export const PMO_TABLES = {
   phases: 'pmo_phases',  // Project lifecycle phases (workspace-scoped)
   phase_templates: 'pmo_phase_templates',  // Phase configuration templates
   actions: 'pmo_actions',  // Work actions (reusable agent prompts)
+  agent_profiles: 'pmo_agent_profiles',  // Agent profiles (config-based environment templates)
   ticket_templates: 'pmo_ticket_templates',  // Ticket templates for quick creation
   // Roadmap tables (ordered collections of projects for documentation)
   roadmaps: 'pmo_roadmaps',  // Named roadmap definitions
@@ -444,6 +445,21 @@ export const PMO_TABLE_SCHEMAS = {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
 
+  // Agent profiles (config-based environment templates for spawned agents)
+  agent_profiles: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.agent_profiles} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      start_hook TEXT,
+      end_hook TEXT,
+      system_prompt TEXT,
+      repos_json TEXT,
+      mcp_servers_json TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+
   // Ticket templates for quick ticket creation
   ticket_templates: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.ticket_templates} (
@@ -541,6 +557,7 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_roadmap_projects_position ON ${PMO_TABLES.roadmap_projects}(roadmap_id, position);
   CREATE INDEX IF NOT EXISTS idx_pmo_categories_type ON ${PMO_TABLES.categories}(type);
   CREATE INDEX IF NOT EXISTS idx_pmo_categories_position ON ${PMO_TABLES.categories}(type, position);
+  CREATE INDEX IF NOT EXISTS idx_pmo_agent_profiles_name ON ${PMO_TABLES.agent_profiles}(name);
 `;
 
 // =============================================================================
@@ -580,6 +597,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.containers,  // Docker containers per agent
   PMO_TABLE_SCHEMAS.id_sequences,  // Sequence counters for ID generation
   PMO_TABLE_SCHEMAS.actions,  // Work actions (reusable agent prompts)
+  PMO_TABLE_SCHEMAS.agent_profiles,  // Agent profiles (config-based environment templates)
   PMO_TABLE_SCHEMAS.ticket_templates,  // Ticket templates for quick creation
   PMO_TABLE_SCHEMAS.roadmaps,  // Named roadmap definitions
   PMO_TABLE_SCHEMAS.roadmap_projects,  // Roadmap-to-project associations

@@ -52,6 +52,8 @@ import {
   TicketTemplateFilter,
   WorkAction,
   WorkActionFilter,
+  AgentProfile,
+  AgentProfileFilter,
   Workflow,
   WorkflowFilter,
   WorkflowStatus,
@@ -78,6 +80,7 @@ import { StatusStorage } from './statuses.js'
 import { TemplateStorage } from './templates.js'
 import { PhaseStorage } from './phases.js'
 import { ActionStorage } from './actions.js'
+import { ProfileStorage } from './profiles.js'
 import { ViewStorage } from './views.js'
 import { RoadmapStorage } from './roadmaps.js'
 import { CategoryStorage } from './categories.js'
@@ -102,6 +105,7 @@ export class SQLiteStorage implements PMOStorage {
   private templateStorage: TemplateStorage
   private phaseStorage: PhaseStorage
   private actionStorage: ActionStorage
+  private profileStorage: ProfileStorage
   private viewStorage: ViewStorage
   private roadmapStorage: RoadmapStorage
   private categoryStorage: CategoryStorage
@@ -136,6 +140,7 @@ export class SQLiteStorage implements PMOStorage {
     this.templateStorage = new TemplateStorage(ctx)
     this.phaseStorage = new PhaseStorage(ctx)
     this.actionStorage = new ActionStorage(ctx)
+    this.profileStorage = new ProfileStorage(ctx)
     this.viewStorage = new ViewStorage(ctx)
     this.roadmapStorage = new RoadmapStorage(ctx)
     this.categoryStorage = new CategoryStorage(ctx)
@@ -715,6 +720,30 @@ export class SQLiteStorage implements PMOStorage {
 
   async getSuggestedAction(category: StateCategory): Promise<WorkAction | null> {
     return this.actionStorage.getSuggestedAction(category)
+  }
+
+  // ===========================================================================
+  // Agent Profile Operations
+  // ===========================================================================
+
+  async listProfiles(filter?: AgentProfileFilter): Promise<AgentProfile[]> {
+    return this.profileStorage.listProfiles(filter)
+  }
+
+  async getProfile(id: string): Promise<AgentProfile | null> {
+    return this.profileStorage.getProfile(id)
+  }
+
+  async createProfile(profile: Partial<AgentProfile>): Promise<AgentProfile> {
+    return this.profileStorage.createProfile(profile)
+  }
+
+  async updateProfile(id: string, changes: Partial<AgentProfile>): Promise<AgentProfile> {
+    return this.profileStorage.updateProfile(id, changes)
+  }
+
+  async deleteProfile(id: string): Promise<void> {
+    return this.profileStorage.deleteProfile(id)
   }
 
   // ===========================================================================
