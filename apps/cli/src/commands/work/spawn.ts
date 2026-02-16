@@ -131,7 +131,7 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Action to perform (e.g., groom, implement, review, custom). Prompts if not provided.',
     }),
     message: Flags.string({
-      description: 'Custom prompt/message for the agent (use with --action custom)',
+      description: 'Additional instructions for the agent (appended to any action prompt)',
     }),
     session: Flags.string({
       description: 'Session manager inside container (tmux runs agent in tmux inside container)',
@@ -1093,9 +1093,6 @@ export default class WorkSpawn extends PMOCommand {
           }
           batchAction = 'custom'
           batchCustomMessage = flags.message
-        } else if (flags.message && flags.action !== 'custom') {
-          // --message provided without --action custom - warn user
-          this.warn('--message flag is only used with --action custom, ignoring')
         }
 
         // Now fetch action details after selection is made
@@ -1491,6 +1488,10 @@ export default class WorkSpawn extends PMOCommand {
             } else if (batchAction) {
               startArgs.push('--action', batchAction)
             }
+            // Pass --message for additional instructions (non-custom actions)
+            if (flags.message && batchAction !== 'custom') {
+              startArgs.push('--message', flags.message)
+            }
           } else {
             // Batch mode: pass all settings to skip prompts
             // batchDisplayMode is for devcontainer, batchDisplay is for host
@@ -1509,6 +1510,10 @@ export default class WorkSpawn extends PMOCommand {
               startArgs.push('--prompt', batchCustomMessage)
             } else {
               startArgs.push('--action', batchAction || 'implement')
+            }
+            // Pass --message for additional instructions (non-custom actions)
+            if (flags.message && batchAction !== 'custom') {
+              startArgs.push('--message', flags.message)
             }
             // Pass session manager (tmux inside container by default)
             if (flags.session) startArgs.push('--session', flags.session)
