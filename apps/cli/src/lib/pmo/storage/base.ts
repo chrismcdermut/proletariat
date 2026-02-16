@@ -770,6 +770,200 @@ git add -A && prlt commit "your change" && git push
       position: 3,
     },
     {
+      id: 'review',
+      name: 'Code Review',
+      description: 'Review the implementation and post feedback on the PR',
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Code Review
+
+Review this ticket's implementation thoroughly:
+- Check for bugs, edge cases, and potential issues
+- Look for security vulnerabilities
+- Verify it meets all acceptance criteria
+- Check code quality and maintainability
+- Suggest improvements if appropriate
+
+After reviewing, determine your verdict:
+- **APPROVE**: Code is ready to merge, no significant issues
+- **REQUEST_CHANGES**: There are issues that must be fixed before merging
+- **COMMENT**: General feedback, no blocking issues but some suggestions
+
+Do NOT modify any code. This is a read-only review.`,
+      endPrompt: `When you have finished reviewing, post your review on the PR using \`gh pr review\`.
+
+Choose the appropriate command based on your verdict:
+
+**If approving:**
+\`\`\`bash
+gh pr review --approve --body "## Code Review
+
+### What looks good
+- ...
+
+### Verdict
+APPROVED - Code is ready to merge."
+\`\`\`
+
+**If requesting changes:**
+\`\`\`bash
+gh pr review --request-changes --body "## Code Review
+
+### What looks good
+- ...
+
+### Concerns
+- ...
+
+### Suggested improvements
+- ...
+
+### Verdict
+REQUEST CHANGES - Issues must be addressed before merging."
+\`\`\`
+
+**If commenting:**
+\`\`\`bash
+gh pr review --comment --body "## Code Review
+
+### What looks good
+- ...
+
+### Suggestions
+- ...
+
+### Verdict
+COMMENT - Some suggestions but no blocking issues."
+\`\`\`
+
+Format the body with: what looks good, concerns (if any), suggested improvements (if any), and your verdict.
+
+No commits are needed for code review.`,
+      suggestedForCategories: ['started', 'completed'],
+      modifiesCode: false,
+      position: 4,
+    },
+    {
+      id: 'review-fix',
+      name: 'Review & Fix',
+      description: 'Review the implementation, fix issues, and post feedback on the PR',
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Review & Fix
+
+Review this ticket's implementation thoroughly and fix any issues found:
+- Check for bugs, edge cases, and potential issues
+- Look for security vulnerabilities
+- Verify it meets all acceptance criteria
+- Check code quality and maintainability
+- Fix any issues you find directly in the code
+
+**IMPORTANT: Commit and push frequently!**
+- Commit after each fix or logical group of changes
+- Push after every 1-2 commits to save your work
+
+\`\`\`bash
+git add -A && prlt commit "fix: address code review findings" && git push
+\`\`\``,
+      endPrompt: `When you have finished reviewing and fixing:
+
+1. **If issues were found and fixed**, post a review summary and push your fixes:
+   \`\`\`bash
+   gh pr review --comment --body "## Code Review & Fix Summary
+
+   ### Issues found and fixed
+   - ...
+
+   ### What looks good
+   - ...
+
+   ### Changes made
+   - ...
+   "
+   prlt commit "fix: address code review findings"
+   git push
+   \`\`\`
+
+2. **If no issues were found**, approve the PR:
+   \`\`\`bash
+   gh pr review --approve --body "## Code Review
+
+   ### What looks good
+   - ...
+
+   ### Verdict
+   APPROVED - Code looks great, no issues found."
+   \`\`\``,
+      suggestedForCategories: ['started', 'completed'],
+      modifiesCode: true,
+      position: 5,
+    },
+    {
+      id: 'revise',
+      name: 'Revise',
+      description: 'Pull the branch, read PR review feedback, implement fixes, and push',
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Revise
+
+Address the feedback on this ticket's pull request:
+
+1. **Pull the latest branch** to ensure you have the most recent code:
+   \`\`\`bash
+   git pull
+   \`\`\`
+
+2. **Read all review comments and requested changes** from the PR:
+   \`\`\`bash
+   gh pr view
+   gh api repos/{owner}/{repo}/pulls/{number}/comments
+   \`\`\`
+
+3. **Understand each piece of feedback** before making changes — read carefully and understand the reviewer's intent
+
+4. **Implement the requested fixes** and address each review comment:
+   - Make the necessary code changes to address each point
+   - Respond to questions with explanations
+   - Ensure all requested changes are addressed
+
+**IMPORTANT: Commit and push frequently!**
+- Commit after each fix or logical group of changes
+- Push after every 1-2 commits to save your work
+
+\`\`\`bash
+git add -A && prlt commit "fix: address PR review feedback" && git push
+\`\`\``,
+      endPrompt: `After addressing all feedback:
+
+1. **Commit your changes**:
+   \`\`\`bash
+   git add -A
+   prlt commit "fix: address PR review feedback"
+   \`\`\`
+
+2. **Push your changes**:
+   \`\`\`bash
+   git push
+   \`\`\`
+
+3. **Optionally reply to resolved review threads** using the GitHub API:
+   \`\`\`bash
+   gh api repos/{owner}/{repo}/pulls/{number}/comments
+   \`\`\`
+
+The PR will be updated automatically with your pushed changes.`,
+      suggestedForCategories: ['completed'],
+      defaultMoveToCategory: 'started',
+      modifiesCode: true,
+      position: 6,
+    },
+    {
       id: 'test',
       name: 'Write Tests',
       description: 'Add comprehensive tests for the implementation',
@@ -809,56 +1003,7 @@ git add -A && prlt commit "add tests for X" && git push
 **IMPORTANT:** Use the global \`prlt\` command.`,
       suggestedForCategories: ['started', 'completed'],
       modifiesCode: true,
-      position: 4,
-    },
-    {
-      id: 'review',
-      name: 'Code Review',
-      description: 'Review the implementation for issues',
-      prompt: `Review this ticket's implementation thoroughly:
-- Check for bugs, edge cases, and potential issues
-- Look for security vulnerabilities
-- Verify it meets all acceptance criteria
-- Check code quality and maintainability
-- Suggest improvements if appropriate
-
-Output a review summary with your findings and any concerns.`,
-      endPrompt: `When you have finished reviewing, output a detailed review summary with:
-- ✅ What looks good
-- ⚠️ Concerns or potential issues
-- 🔧 Suggested improvements
-- 📋 Verdict: Approve, Request Changes, or Needs Discussion
-
-No commits are needed for code review.`,
-      suggestedForCategories: ['started', 'completed'],
-      modifiesCode: false,
-      position: 5,
-    },
-    {
-      id: 'revise',
-      name: 'Revise',
-      description: 'Address PR feedback and review comments',
-      prompt: `${PRLT_USAGE_RULE}
-
----
-
-# Action: Revise
-
-Address the feedback on this ticket's pull request:
-- Review all comments and requested changes carefully
-- Make the necessary code changes to address each point
-- Respond to questions with explanations
-- Push updates to the PR branch
-- Mark resolved conversations as resolved`,
-      endPrompt: `After addressing the feedback:
-1. Commit your changes using \`prlt commit "your message"\`
-2. Push your changes: \`git push\`
-
-The PR will be updated automatically.`,
-      suggestedForCategories: ['completed'],
-      defaultMoveToCategory: 'started',
-      modifiesCode: true,
-      position: 6,
+      position: 7,
     },
   ]
 
