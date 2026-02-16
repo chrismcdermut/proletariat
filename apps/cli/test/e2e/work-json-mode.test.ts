@@ -5,6 +5,7 @@ import {
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
+  addWorkspaceTables,
   exec,
   type TestEnvironment,
 } from './test-helpers.js';
@@ -305,6 +306,9 @@ describe('Work Commands JSON Mode', () => {
     db = new Database(env.dbPath);
     setupTestDatabase(db, env.pmoPath);
 
+    // Add workspace tables so getWorkspaceInfo() can find workspace config
+    addWorkspaceTables(db, { type: 'hq', workspaceName: 'test-hq', hasPmo: true });
+
     createHQConfig(env.proletariatDir);
     createPMODirectories(env.pmoPath, 'test-project');
   });
@@ -477,16 +481,16 @@ describe('Work Commands JSON Mode', () => {
       expect(choiceValues).to.not.include('TKT-003');
     });
 
-    it('should move ticket to Done when all flags provided', () => {
+    it('should move ticket to Review when all flags provided', () => {
       // Execute without prompts
       const output = exec('work ready TKT-001 -P test-project');
 
       expect(output.toLowerCase()).to.include('work ready');
       expect(output).to.include('TKT-001');
 
-      // Verify ticket moved to Done
+      // Verify ticket moved to Review (work ready moves to Review, work complete moves to Done)
       const { statusId } = getTicketStatus('TKT-001');
-      expect(statusId).to.equal('status-done');
+      expect(statusId).to.equal('status-review');
     });
 
     // Note: Execution status update is tested as part of the ticket move flow
@@ -564,9 +568,9 @@ describe('Work Commands JSON Mode', () => {
       }
     });
 
-    it('should output agent selection prompt when ticket ID provided', () => {
-      // When ticket ID is provided, next prompt is agent selection
-      // (action selection comes after agent is selected)
+    it('should output action selection prompt when ticket ID provided', () => {
+      // When ticket ID is provided and no staff agents exist, the command
+      // auto-creates an ephemeral agent and prompts for action selection
       const output = exec('work start TKT-030 -P test-project --json');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
@@ -575,24 +579,25 @@ describe('Work Commands JSON Mode', () => {
 
       expect(json.prompt).to.exist;
       expect(json.prompt.type).to.equal('list');
-      expect(json.prompt.name).to.equal('selectedAgent');
+      expect(json.prompt.name).to.equal('selectedActionId');
       expect(json.metadata.command).to.equal('work start');
 
-      // Choices should include ephemeral agent option
+      // Choices should include builtin actions
       const choiceValues = json.prompt.choices.map(c => c.value);
-      expect(choiceValues).to.include('__ephemeral__');
+      expect(choiceValues).to.include('implement');
     });
 
-    it('should include ephemeral agent option in agent choices', () => {
+    it('should include action choices in prompt', () => {
       const output = exec('work start TKT-030 -P test-project --json');
       const json = extractJson<{
         prompt: { choices: Array<{ name: string; value: string }> };
       }>(output);
 
-      // Ephemeral agent option should always be present
-      const ephemeralChoice = json.prompt.choices.find(c => c.value === '__ephemeral__');
-      expect(ephemeralChoice).to.exist;
-      expect(ephemeralChoice!.name.toLowerCase()).to.include('ephemeral');
+      // Should have builtin actions and custom/adhoc options
+      const choiceValues = json.prompt.choices.map(c => c.value);
+      expect(choiceValues).to.include('implement');
+      expect(choiceValues).to.include('__custom__');
+      expect(choiceValues).to.include('__adhoc__');
     });
 
     it('should include --json flag in ticket selection commands', () => {
@@ -665,9 +670,9 @@ describe('Work Commands JSON Mode', () => {
           prompt: { type: string; name: string };
         }>(output);
 
-        // Should skip to agent selection, not blocked confirmation
+        // Should skip to action selection (no staff agents → auto ephemeral → action prompt)
         expect(json.prompt.name).to.not.equal('startAnyway');
-        expect(json.prompt.name).to.equal('selectedAgent');
+        expect(json.prompt.name).to.equal('selectedActionId');
       });
 
       it('should skip blocked prompt with --force flag', () => {
@@ -676,9 +681,9 @@ describe('Work Commands JSON Mode', () => {
           prompt: { type: string; name: string };
         }>(output);
 
-        // Should skip to agent selection, not blocked confirmation
+        // Should skip to action selection (no staff agents → auto ephemeral → action prompt)
         expect(json.prompt.name).to.not.equal('startAnyway');
-        expect(json.prompt.name).to.equal('selectedAgent');
+        expect(json.prompt.name).to.equal('selectedActionId');
       });
     });
   });
@@ -924,13 +929,13 @@ describe('Work Commands JSON Mode', () => {
         // Step 3: Execute final command (without --json)
         const result = execFinal(execChoice(ticketChoice!));
 
-        // Verify ticket was marked ready
+        // Verify ticket was marked ready (moves to Review column)
         expect(result.toLowerCase()).to.include('work ready');
         expect(result).to.include('TKT-100');
 
-        // Verify in database
+        // Verify in database - work ready moves to Review, not Done
         const { statusId } = getTicketStatus('TKT-100');
-        expect(statusId).to.equal('status-done');
+        expect(statusId).to.equal('status-review');
       });
 
       it('should complete flow: menu → complete → ticket selection → verify result', () => {
@@ -967,7 +972,7 @@ describe('Work Commands JSON Mode', () => {
         createTestExecution('exec-200', 'TKT-200', 'agent-1', 'running');
       });
 
-      it('should complete flow: ticket selection → verify move to Done', () => {
+      it('should complete flow: ticket selection → verify move to Review', () => {
         // Step 1: Get ticket selection
         const step1Result = agentExec('work ready -P test-project --json');
         const step1 = step1Result as AgentPrompt;
@@ -982,16 +987,18 @@ describe('Work Commands JSON Mode', () => {
         const result = execFinal(execChoice(ticketChoice!));
 
         expect(result).to.include('TKT-200');
+        // work ready moves to Review column
         const { statusId } = getTicketStatus('TKT-200');
-        expect(statusId).to.equal('status-done');
+        expect(statusId).to.equal('status-review');
       });
 
       it('should skip prompts when ticket ID provided directly', () => {
         const result = exec('work ready TKT-200 -P test-project');
 
         expect(result).to.include('TKT-200');
+        // work ready moves to Review column
         const { statusId } = getTicketStatus('TKT-200');
-        expect(statusId).to.equal('status-done');
+        expect(statusId).to.equal('status-review');
       });
     });
 

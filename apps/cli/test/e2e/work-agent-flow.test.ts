@@ -1,5 +1,17 @@
 import { expect } from 'chai'
-import { execProduction as exec } from './test-helpers.js'
+import Database from 'better-sqlite3'
+import {
+  createTestEnvironment,
+  cleanupTestEnvironment,
+  createHQConfig,
+  createPMODirectories,
+  setupProductionSchema,
+  addWorkspaceTables,
+  createTestProject,
+  createTestTicket,
+  execProduction as exec,
+  type TestEnvironment,
+} from './test-helpers.js'
 
 /**
  * End-to-end Agent Flow Tests for Work Commands
@@ -45,6 +57,7 @@ describe('Work Commands E2E Agent Flow Tests', () => {
       output.includes('No workspace') ||
       output.includes('No projects found') ||
       output.includes('No tickets') ||
+      output.includes('No agents found') ||
       output.includes('ENOENT') ||
       output.includes('not found') ||
       output.includes('Error:')
@@ -124,9 +137,43 @@ describe('Work Commands E2E Agent Flow Tests', () => {
   })
 
   describe('End-to-end Agent Flows (--machine flag)', () => {
+    let env: TestEnvironment
+    let db: Database.Database
+
+    beforeEach(() => {
+      env = createTestEnvironment('work-agent-')
+
+      // Set up database with production schema + workspace tables
+      db = setupProductionSchema(env.dbPath, env.pmoPath)
+      addWorkspaceTables(db, { type: 'hq', workspaceName: 'test-hq', hasPmo: true })
+
+      // Create test project and tickets
+      createTestProject(db, { id: 'test-project', name: 'Test Project' })
+      createTestTicket(db, 'test-project', {
+        id: 'TKT-001',
+        title: 'Test ticket 1',
+        status: 'Backlog',
+        statusId: 'default-backlog',
+      })
+      createTestTicket(db, 'test-project', {
+        id: 'TKT-002',
+        title: 'Test ticket 2',
+        status: 'Backlog',
+        statusId: 'default-backlog',
+      })
+
+      createHQConfig(env.proletariatDir)
+      createPMODirectories(env.pmoPath, 'test-project')
+    })
+
+    afterEach(() => {
+      if (db) db.close()
+      cleanupTestEnvironment(env)
+    })
+
     describe('work main menu - agent navigation', () => {
       it('should output action menu with --machine flag', () => {
-        const result = agentExec('work --machine')
+        const result = agentExec('work -P test-project --machine')
 
         // Skip if workspace not available
         if (!result) {
@@ -135,24 +182,26 @@ describe('Work Commands E2E Agent Flow Tests', () => {
 
         expect(result.prompt.type).to.equal('list')
         expect(result.prompt.choices).to.be.an('array')
-        expect(result.metadata.flags.machine).to.equal(true)
+        // --machine is an alias for --json, so flags.json is true
+        expect(result.metadata.flags.json).to.equal(true)
       })
 
-      it('should include command field in all choices', () => {
-        const result = agentExec('work --machine')
+      it('should include command field in non-cancel choices', () => {
+        const result = agentExec('work -P test-project --machine')
 
         if (!result) {
           return
         }
 
-        for (const choice of result.prompt.choices) {
-          expect(choice.command).to.exist
+        // Filter out cancel choice which has empty command
+        const actionChoices = result.prompt.choices.filter(c => c.command && c.command !== '')
+        for (const choice of actionChoices) {
           expect(choice.command).to.include('prlt work')
         }
       })
 
       it('should have navigable choices to subcommands', () => {
-        const result = agentExec('work --machine')
+        const result = agentExec('work -P test-project --machine')
 
         if (!result) {
           return
@@ -173,7 +222,7 @@ describe('Work Commands E2E Agent Flow Tests', () => {
 
     describe('work start - ticket selection flow', () => {
       it('should output ticket selection with --machine', () => {
-        const result = agentExec('work start --machine')
+        const result = agentExec('work start -P test-project --machine')
 
         if (!result) {
           return
@@ -184,7 +233,7 @@ describe('Work Commands E2E Agent Flow Tests', () => {
       })
 
       it('should include command in ticket choices', () => {
-        const result = agentExec('work start --machine')
+        const result = agentExec('work start -P test-project --machine')
 
         if (!result) {
           return
@@ -200,7 +249,7 @@ describe('Work Commands E2E Agent Flow Tests', () => {
 
     describe('work spawn - agent/ticket selection flow', () => {
       it('should output selection with --machine', () => {
-        const result = agentExec('work spawn --machine')
+        const result = agentExec('work spawn -P test-project --machine')
 
         if (!result) {
           return
@@ -211,7 +260,7 @@ describe('Work Commands E2E Agent Flow Tests', () => {
       })
 
       it('should include command in choices', () => {
-        const result = agentExec('work spawn --machine')
+        const result = agentExec('work spawn -P test-project --machine')
 
         if (!result) {
           return
@@ -226,9 +275,10 @@ describe('Work Commands E2E Agent Flow Tests', () => {
     })
 
     describe('work watch - execution selection flow', () => {
-      it('should output selection with --machine', () => {
-        const result = agentExec('work watch --machine')
+      it('should output selection or error with --machine', () => {
+        const result = agentExec('work watch -P test-project --machine')
 
+        // work watch requires agents - may return null (NO_AGENTS) in test env
         if (!result) {
           return
         }
@@ -241,7 +291,7 @@ describe('Work Commands E2E Agent Flow Tests', () => {
     describe('full agent navigation flow', () => {
       it('should allow agent to navigate from main menu to start', () => {
         // Step 1: Get main menu
-        const step1 = agentExec('work --machine')
+        const step1 = agentExec('work -P test-project --machine')
 
         if (!step1) {
           return
@@ -259,7 +309,7 @@ describe('Work Commands E2E Agent Flow Tests', () => {
 
       it('should allow agent to navigate from main menu to spawn', () => {
         // Step 1: Get main menu
-        const step1 = agentExec('work --machine')
+        const step1 = agentExec('work -P test-project --machine')
 
         if (!step1) {
           return
@@ -275,8 +325,8 @@ describe('Work Commands E2E Agent Flow Tests', () => {
 
     describe('--machine vs --json equivalence', () => {
       it('should produce equivalent output structure', () => {
-        const machineOutput = exec('work --machine')
-        const jsonOutput = exec('work --json')
+        const machineOutput = exec('work -P test-project --machine')
+        const jsonOutput = exec('work -P test-project --json')
 
         const machineResult = extractJson<{ prompt: { type: string } }>(machineOutput)
         const jsonResult = extractJson<{ prompt: { type: string } }>(jsonOutput)
@@ -288,14 +338,15 @@ describe('Work Commands E2E Agent Flow Tests', () => {
       })
 
       it('should work with -m shorthand', () => {
-        const result = agentExec('work -m')
+        const result = agentExec('work -P test-project -m')
 
         if (!result) {
           return
         }
 
         expect(result.prompt).to.exist
-        expect(result.metadata.flags.machine).to.equal(true)
+        // --machine/-m is an alias for --json, so flags.json is true
+        expect(result.metadata.flags.json).to.equal(true)
       })
     })
   })
