@@ -1,7 +1,7 @@
 /**
  * Comprehensive E2E tests for MCP Server
  *
- * Tests all 119 MCP tools exposed by the mcp-server command.
+ * Tests all 125 MCP tools exposed by the mcp-server command.
  * Uses isolated test environments to prevent pollution of real workspace data.
  */
 
@@ -91,11 +91,12 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
     isolatedEnv.PRLT_TEST_ENV = 'true';
 
     try {
-      const output = execSync(`echo '${input}' | timeout 5 node ${binPath} mcp-server 2>&1`, {
+      const output = execSync(`echo '${input}' | node ${binPath} mcp-server 2>&1`, {
         encoding: 'utf-8',
         cwd: cliDir,
         env: isolatedEnv,
         maxBuffer: 10 * 1024 * 1024,
+        timeout: 5000,
       });
 
       const lines = output.trim().split('\n');
@@ -164,10 +165,10 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
       expect(response.result?.serverInfo?.name).to.equal('prlt');
     });
 
-    it('should list all 119 tools', function () {
+    it('should list all 125 tools', function () {
       const response = mcpCall([INIT_MSG, INITIALIZED_MSG, LIST_TOOLS_MSG]);
       expect(response.result?.tools).to.be.an('array');
-      expect(response.result?.tools?.length).to.equal(119);
+      expect(response.result?.tools?.length).to.equal(125);
     });
 
     it('should have tools capability', function () {
