@@ -249,3 +249,30 @@ export interface CategoryRow {
   is_builtin: number
   created_at: string
 }
+
+export interface LabelGroupRow {
+  id: string
+  name: string
+  description: string | null
+  is_exclusive: number
+  is_required: number
+  position: number
+  created_at: string
+}
+
+export interface LabelRow {
+  id: string
+  name: string
+  color: string | null
+  description: string | null
+  group_id: string | null
+  group_name?: string | null
+  position: number
+  is_builtin: number
+  created_at: string
+}
+
+export interface TicketLabelRow {
+  ticket_id: string
+  label_id: string
+}

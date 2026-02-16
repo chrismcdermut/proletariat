@@ -43,6 +43,10 @@ export const PMO_TABLES = {
   // Roadmap tables (ordered collections of projects for documentation)
   roadmaps: 'pmo_roadmaps',  // Named roadmap definitions
   roadmap_projects: 'pmo_roadmap_projects',  // Many-to-many: roadmaps ↔ projects with ordering
+  // Label system tables
+  label_groups: 'pmo_label_groups',
+  labels: 'pmo_labels',
+  ticket_labels: 'pmo_ticket_labels',
   // Legacy tables (deprecated, kept for migration)
   columns: 'pmo_columns',  // DEPRECATED: use workflow_statuses
   board_tickets: 'pmo_board_tickets',  // DEPRECATED: tickets now use status_id directly
@@ -463,6 +467,40 @@ export const PMO_TABLE_SCHEMAS = {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
 
+  // Label groups (workspace-scoped grouping for labels)
+  label_groups: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.label_groups} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      is_exclusive INTEGER NOT NULL DEFAULT 1,
+      is_required INTEGER NOT NULL DEFAULT 0,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+  // Labels (workspace-scoped, optionally grouped)
+  labels: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.labels} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      color TEXT,
+      description TEXT,
+      group_id TEXT REFERENCES ${PMO_TABLES.label_groups}(id) ON DELETE SET NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(name, group_id)
+    )`,
+
+  // Junction table: ticket-label associations (replaces JSON labels field)
+  ticket_labels: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.ticket_labels} (
+      ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
+      label_id TEXT NOT NULL REFERENCES ${PMO_TABLES.labels}(id) ON DELETE CASCADE,
+      PRIMARY KEY (ticket_id, label_id)
+    )`,
+
   // Roadmap definitions (named collections of projects for documentation)
   roadmaps: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.roadmaps} (
@@ -541,6 +579,12 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_roadmap_projects_position ON ${PMO_TABLES.roadmap_projects}(roadmap_id, position);
   CREATE INDEX IF NOT EXISTS idx_pmo_categories_type ON ${PMO_TABLES.categories}(type);
   CREATE INDEX IF NOT EXISTS idx_pmo_categories_position ON ${PMO_TABLES.categories}(type, position);
+  CREATE INDEX IF NOT EXISTS idx_pmo_label_groups_position ON ${PMO_TABLES.label_groups}(position);
+  CREATE INDEX IF NOT EXISTS idx_pmo_labels_group ON ${PMO_TABLES.labels}(group_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_labels_position ON ${PMO_TABLES.labels}(group_id, position);
+  CREATE INDEX IF NOT EXISTS idx_pmo_labels_builtin ON ${PMO_TABLES.labels}(is_builtin);
+  CREATE INDEX IF NOT EXISTS idx_pmo_ticket_labels_ticket ON ${PMO_TABLES.ticket_labels}(ticket_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_ticket_labels_label ON ${PMO_TABLES.ticket_labels}(label_id);
 `;
 
 // =============================================================================
@@ -581,6 +625,9 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.id_sequences,  // Sequence counters for ID generation
   PMO_TABLE_SCHEMAS.actions,  // Work actions (reusable agent prompts)
   PMO_TABLE_SCHEMAS.ticket_templates,  // Ticket templates for quick creation
+  PMO_TABLE_SCHEMAS.label_groups,  // Label groups (before labels for FK)
+  PMO_TABLE_SCHEMAS.labels,  // Labels (before ticket_labels for FK)
+  PMO_TABLE_SCHEMAS.ticket_labels,  // Ticket-label junction table
   PMO_TABLE_SCHEMAS.roadmaps,  // Named roadmap definitions
   PMO_TABLE_SCHEMAS.roadmap_projects,  // Roadmap-to-project associations
   // Legacy tables (kept for migration, will be dropped after data migrated)

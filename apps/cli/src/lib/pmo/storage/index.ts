@@ -55,6 +55,10 @@ import {
   Workflow,
   WorkflowFilter,
   WorkflowStatus,
+  Label,
+  LabelFilter,
+  LabelGroup,
+  LabelGroupFilter,
 } from '../types.js'
 import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from '../schema.js'
 import { StorageContext } from './types.js'
@@ -66,6 +70,7 @@ import {
   seedBuiltinActions,
   seedBuiltinTicketTemplates,
   seedBuiltinCategories,
+  seedBuiltinLabels,
   updateBoardTimestamp,
 } from './base.js'
 import { ProjectStorage } from './projects.js'
@@ -81,6 +86,7 @@ import { ActionStorage } from './actions.js'
 import { ViewStorage } from './views.js'
 import { RoadmapStorage } from './roadmaps.js'
 import { CategoryStorage } from './categories.js'
+import { LabelStorage } from './labels.js'
 
 const T = PMO_TABLES
 
@@ -105,6 +111,7 @@ export class SQLiteStorage implements PMOStorage {
   private viewStorage: ViewStorage
   private roadmapStorage: RoadmapStorage
   private categoryStorage: CategoryStorage
+  private labelStorage: LabelStorage
 
   constructor(dbPath: string) {
     this.dbPath = dbPath
@@ -139,6 +146,7 @@ export class SQLiteStorage implements PMOStorage {
     this.viewStorage = new ViewStorage(ctx)
     this.roadmapStorage = new RoadmapStorage(ctx)
     this.categoryStorage = new CategoryStorage(ctx)
+    this.labelStorage = new LabelStorage(ctx)
 
     // Ensure PMO tables exist
     this.ensurePMOTables()
@@ -175,6 +183,7 @@ export class SQLiteStorage implements PMOStorage {
     seedBuiltinActions(this.db)
     seedBuiltinTicketTemplates(this.db)
     seedBuiltinCategories(this.db)
+    seedBuiltinLabels(this.db)
 
     // Validate schema
     validateTicketSchema(this.db)
@@ -893,6 +902,78 @@ export class SQLiteStorage implements PMOStorage {
 
   async isValidCategory(name: string, type: CategoryType): Promise<boolean> {
     return this.categoryStorage.isValidCategory(name, type)
+  }
+
+  // ===========================================================================
+  // Label Operations
+  // ===========================================================================
+
+  async listLabelGroups(filter?: LabelGroupFilter): Promise<LabelGroup[]> {
+    return this.labelStorage.listLabelGroups(filter)
+  }
+
+  async getLabelGroup(id: string): Promise<LabelGroup | null> {
+    return this.labelStorage.getLabelGroup(id)
+  }
+
+  async getLabelGroupByName(name: string): Promise<LabelGroup | null> {
+    return this.labelStorage.getLabelGroupByName(name)
+  }
+
+  async createLabelGroup(group: Partial<LabelGroup> & { name: string }): Promise<LabelGroup> {
+    return this.labelStorage.createLabelGroup(group)
+  }
+
+  async updateLabelGroup(id: string, changes: Partial<LabelGroup>): Promise<LabelGroup> {
+    return this.labelStorage.updateLabelGroup(id, changes)
+  }
+
+  async deleteLabelGroup(id: string): Promise<void> {
+    return this.labelStorage.deleteLabelGroup(id)
+  }
+
+  async listLabels(filter?: LabelFilter): Promise<Label[]> {
+    return this.labelStorage.listLabels(filter)
+  }
+
+  async getLabel(id: string): Promise<Label | null> {
+    return this.labelStorage.getLabel(id)
+  }
+
+  async getLabelByName(name: string, groupId?: string): Promise<Label | null> {
+    return this.labelStorage.getLabelByName(name, groupId)
+  }
+
+  async createLabel(label: Partial<Label> & { name: string }): Promise<Label> {
+    return this.labelStorage.createLabel(label)
+  }
+
+  async updateLabel(id: string, changes: Partial<Label>): Promise<Label> {
+    return this.labelStorage.updateLabel(id, changes)
+  }
+
+  async deleteLabel(id: string): Promise<void> {
+    return this.labelStorage.deleteLabel(id)
+  }
+
+  async addLabelToTicket(ticketId: string, labelId: string): Promise<void> {
+    return this.labelStorage.addLabelToTicket(ticketId, labelId)
+  }
+
+  async removeLabelFromTicket(ticketId: string, labelId: string): Promise<void> {
+    return this.labelStorage.removeLabelFromTicket(ticketId, labelId)
+  }
+
+  async getLabelsForTicket(ticketId: string): Promise<Label[]> {
+    return this.labelStorage.getLabelsForTicket(ticketId)
+  }
+
+  async addLabelToTicketByName(ticketId: string, labelName: string): Promise<void> {
+    return this.labelStorage.addLabelToTicketByName(ticketId, labelName)
+  }
+
+  async removeLabelFromTicketByName(ticketId: string, labelName: string): Promise<void> {
+    return this.labelStorage.removeLabelFromTicketByName(ticketId, labelName)
   }
 
   // ===========================================================================
