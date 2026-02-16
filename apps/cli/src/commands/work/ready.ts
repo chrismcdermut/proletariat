@@ -318,6 +318,24 @@ export default class WorkReady extends PMOCommand {
     try {
       const baseBranch = getDefaultBaseBranch();
 
+      // Check if PR already exists for this branch
+      const existingPR = getPRForBranch(currentBranch);
+      if (existingPR) {
+        if (existingPR.state === 'MERGED') {
+          this.log(styles.muted(`   PR #${existingPR.number} already merged: ${existingPR.url}`));
+          return existingPR.url;
+        }
+        if (existingPR.state === 'OPEN') {
+          // Push any unpushed commits so the existing PR is up to date
+          if (hasUnpushedCommits(currentBranch)) {
+            this.log(styles.muted(`   Pushing unpushed commits to existing PR...`));
+            pushBranch(currentBranch);
+          }
+          this.log(styles.muted(`   PR #${existingPR.number} already exists: ${existingPR.url}`));
+          return existingPR.url;
+        }
+      }
+
       // Push branch if needed
       if (!hasBranchBeenPushed(currentBranch)) {
         this.log(styles.muted(`   Pushing branch to origin...`));
