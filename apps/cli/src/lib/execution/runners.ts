@@ -133,10 +133,19 @@ export function credentialsVolumeExists(): boolean {
 }
 
 /**
- * Check if valid Claude credentials exist in the Docker volume.
- * Returns true if credentials exist and are not expired.
+ * Check if valid Claude credentials exist for Docker containers.
+ * Returns true if credentials are available via any method:
+ * - ANTHROPIC_API_KEY env var (passed to containers via containerEnv)
+ * - OAuth credentials in the Docker volume (even if access token is expired,
+ *   since Claude Code handles refresh internally using stored refresh tokens)
  */
 export function dockerCredentialsExist(): boolean {
+  // If ANTHROPIC_API_KEY is set on host, it gets passed to containers
+  // via containerEnv, so credentials are effectively available
+  if (process.env.ANTHROPIC_API_KEY) {
+    return true
+  }
+
   try {
     const result = execSync(
       `docker run --rm -v ${CLAUDE_CREDENTIALS_VOLUME}:/data alpine cat /data/.credentials.json 2>/dev/null`,
@@ -144,12 +153,11 @@ export function dockerCredentialsExist(): boolean {
     )
 
     const creds = JSON.parse(result)
-    if (creds.claudeAiOauth?.accessToken && creds.claudeAiOauth?.expiresAt) {
-      // Check if expired
-      const expiresAt = creds.claudeAiOauth.expiresAt
-      if (expiresAt > Date.now()) {
-        return true
-      }
+    // Check if OAuth credentials exist. Don't check expiration because
+    // access tokens are short-lived but Claude Code handles token refresh
+    // internally using stored refresh tokens.
+    if (creds.claudeAiOauth?.accessToken) {
+      return true
     }
     return false
   } catch {

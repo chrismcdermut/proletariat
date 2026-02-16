@@ -57,7 +57,9 @@ export default class Auth extends Command {
   }
 
   /**
-   * Check if valid credentials exist in the volume
+   * Check if valid credentials exist in the volume.
+   * Don't check expiration - access tokens are short-lived but Claude Code
+   * handles token refresh internally using stored refresh tokens.
    */
   private credentialsExist(): boolean {
     try {
@@ -66,14 +68,9 @@ export default class Auth extends Command {
         { stdio: 'pipe', encoding: 'utf-8' }
       );
 
-      // Parse and validate the credentials
       const creds = JSON.parse(result);
-      if (creds.claudeAiOauth?.accessToken && creds.claudeAiOauth?.expiresAt) {
-        // Check if expired
-        const expiresAt = creds.claudeAiOauth.expiresAt;
-        if (expiresAt > Date.now()) {
-          return true;
-        }
+      if (creds.claudeAiOauth?.accessToken) {
+        return true;
       }
       return false;
     } catch {
