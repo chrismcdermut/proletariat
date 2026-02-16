@@ -515,6 +515,7 @@ export interface Ticket {
   blockedBy?: string[]                    // Ticket IDs this depends on
   affectedPaths?: TicketAffectedPath[]    // File/path scope hints
   acceptanceCriteria?: AcceptanceCriterion[]  // Structured verifiable criteria
+  comments?: Comment[]                    // Comments for handoffs, reviews, sync
 
   // Timestamps
   createdAt: Date
@@ -630,6 +631,20 @@ export interface AcceptanceCriterion {
   verifiedAt?: Date        // When was it verified?
   verifiedBy?: string      // Who/what verified it (e.g., 'agent:dorsey', 'human:chris', 'test:unit')
   position: number         // Display order
+}
+
+/**
+ * Comment on a ticket for agent handoffs, reviews, and Linear sync.
+ */
+export interface Comment {
+  id: string
+  ticketId: string
+  author?: string              // agent name or human identifier
+  authorType: 'human' | 'agent' | 'system'
+  body: string
+  parentId?: string            // threaded replies
+  createdAt: Date
+  updatedAt: Date
 }
 
 /**
@@ -899,6 +914,11 @@ export interface PMOStorage {
   addSubtask(ticketId: string, title: string): Promise<Subtask>
   toggleSubtask(ticketId: string, subtaskId: string): Promise<Subtask>
   removeSubtask(ticketId: string, subtaskId: string): Promise<void>
+
+  // Comment Operations
+  addComment(ticketId: string, body: string, opts?: { author?: string; authorType?: 'human' | 'agent' | 'system'; parentId?: string }): Promise<Comment>
+  listComments(ticketId: string): Promise<Comment[]>
+  deleteComment(commentId: string): Promise<void>
 
   // Spec Operations
   createSpec(spec: Partial<Spec>): Promise<Spec>

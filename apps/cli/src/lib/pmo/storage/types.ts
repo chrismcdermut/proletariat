@@ -239,6 +239,17 @@ export interface RoadmapProjectRow {
   created_at: string
 }
 
+export interface CommentRow {
+  id: string
+  ticket_id: string
+  author: string | null
+  author_type: string
+  body: string
+  parent_id: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface CategoryRow {
   id: string
   name: string

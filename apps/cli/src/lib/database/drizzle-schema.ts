@@ -436,6 +436,24 @@ export const pmoTicketAssignments = sqliteTable('pmo_ticket_assignments', {
 }))
 
 /**
+ * Comments on tickets (for agent handoffs, reviews, Linear sync)
+ */
+export const pmoComments = sqliteTable('pmo_comments', {
+  id: text('id').primaryKey(),
+  ticketId: text('ticket_id').notNull(),
+  author: text('author'),
+  authorType: text('author_type').default('human'),
+  body: text('body').notNull(),
+  parentId: text('parent_id'),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  idxTicket: index('idx_pmo_comments_ticket').on(table.ticketId),
+  idxParent: index('idx_pmo_comments_parent').on(table.parentId),
+  idxAuthor: index('idx_pmo_comments_author').on(table.author),
+}))
+
+/**
  * Cache metadata
  */
 export const pmoCacheMetadata = sqliteTable('pmo_cache_metadata', {
@@ -714,7 +732,19 @@ export const pmoTicketsRelations = relations(pmoTickets, ({ one, many }) => ({
   ticketSpecs: many(pmoTicketSpecs),
   assignments: many(pmoTicketAssignments),
   affectedPaths: many(pmoTicketAffectedPaths),
+  comments: many(pmoComments),
   agentWork: many(pmoAgentWork),
+}))
+
+export const pmoCommentsRelations = relations(pmoComments, ({ one }) => ({
+  ticket: one(pmoTickets, {
+    fields: [pmoComments.ticketId],
+    references: [pmoTickets.id],
+  }),
+  parent: one(pmoComments, {
+    fields: [pmoComments.parentId],
+    references: [pmoComments.id],
+  }),
 }))
 
 export const pmoSubtasksRelations = relations(pmoSubtasks, ({ one }) => ({
@@ -815,6 +845,9 @@ export type NewDbPmoRoadmap = typeof pmoRoadmaps.$inferInsert
 
 export type DbPmoBoardView = typeof pmoBoardViews.$inferSelect
 export type NewDbPmoBoardView = typeof pmoBoardViews.$inferInsert
+
+export type DbPmoComment = typeof pmoComments.$inferSelect
+export type NewDbPmoComment = typeof pmoComments.$inferInsert
 
 export type DbPmoAgentWorkRecord = typeof pmoAgentWork.$inferSelect
 export type NewDbPmoAgentWorkRecord = typeof pmoAgentWork.$inferInsert

@@ -29,6 +29,7 @@ export const PMO_TABLES = {
   project_specs: 'pmo_project_specs',  // Many-to-many: projects ↔ specs (specs are global)
   cache_metadata: 'pmo_cache_metadata',
   settings: 'pmo_settings',
+  comments: 'pmo_comments',
   agent_work: 'agent_work',
   containers: 'containers',  // Docker containers per agent
   id_sequences: 'id_sequences',  // Sequence counters for ID generation
@@ -341,6 +342,18 @@ export const PMO_TABLE_SCHEMAS = {
       value TEXT NOT NULL
     )`,
 
+  comments: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.comments} (
+      id TEXT PRIMARY KEY,
+      ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
+      author TEXT,
+      author_type TEXT DEFAULT 'human',
+      body TEXT NOT NULL,
+      parent_id TEXT REFERENCES ${PMO_TABLES.comments}(id),
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`,
+
   agent_work: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.agent_work} (
       id TEXT PRIMARY KEY,
@@ -511,6 +524,9 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_projects_phase ON ${PMO_TABLES.projects}(phase_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_projects_workflow ON ${PMO_TABLES.projects}(workflow_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_projects_archived ON ${PMO_TABLES.projects}(is_archived);
+  CREATE INDEX IF NOT EXISTS idx_pmo_comments_ticket ON ${PMO_TABLES.comments}(ticket_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_comments_parent ON ${PMO_TABLES.comments}(parent_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_comments_author ON ${PMO_TABLES.comments}(author);
   CREATE INDEX IF NOT EXISTS idx_agent_work_agent ON ${PMO_TABLES.agent_work}(agent_name);
   CREATE INDEX IF NOT EXISTS idx_agent_work_status ON ${PMO_TABLES.agent_work}(status);
   CREATE INDEX IF NOT EXISTS idx_agent_work_ticket ON ${PMO_TABLES.agent_work}(ticket_id);
@@ -574,6 +590,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.ticket_acceptance_criteria,  // Agent execution: structured criteria
   PMO_TABLE_SCHEMAS.ticket_specs,
   PMO_TABLE_SCHEMAS.ticket_assignments,
+  PMO_TABLE_SCHEMAS.comments,  // Comments for agent handoffs, reviews, Linear sync
   PMO_TABLE_SCHEMAS.cache_metadata,
   PMO_TABLE_SCHEMAS.settings,
   PMO_TABLE_SCHEMAS.agent_work,  // Execution tracking

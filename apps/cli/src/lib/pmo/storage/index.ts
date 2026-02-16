@@ -21,6 +21,7 @@ import {
   CategoryFilter,
   CategoryType,
   Column,
+  Comment,
   CreateTicketInput,
   Epic,
   EpicDependency,
@@ -81,6 +82,7 @@ import { ActionStorage } from './actions.js'
 import { ViewStorage } from './views.js'
 import { RoadmapStorage } from './roadmaps.js'
 import { CategoryStorage } from './categories.js'
+import { CommentStorage } from './comments.js'
 
 const T = PMO_TABLES
 
@@ -105,6 +107,7 @@ export class SQLiteStorage implements PMOStorage {
   private viewStorage: ViewStorage
   private roadmapStorage: RoadmapStorage
   private categoryStorage: CategoryStorage
+  private commentStorage: CommentStorage
 
   constructor(dbPath: string) {
     this.dbPath = dbPath
@@ -139,6 +142,7 @@ export class SQLiteStorage implements PMOStorage {
     this.viewStorage = new ViewStorage(ctx)
     this.roadmapStorage = new RoadmapStorage(ctx)
     this.categoryStorage = new CategoryStorage(ctx)
+    this.commentStorage = new CommentStorage(ctx)
 
     // Ensure PMO tables exist
     this.ensurePMOTables()
@@ -333,6 +337,22 @@ export class SQLiteStorage implements PMOStorage {
 
   async clearAcceptanceCriteria(ticketId: string): Promise<void> {
     return this.acceptanceCriteriaStorage.clearAcceptanceCriteria(ticketId)
+  }
+
+  // ===========================================================================
+  // Comment Operations
+  // ===========================================================================
+
+  async addComment(ticketId: string, body: string, opts?: { author?: string; authorType?: 'human' | 'agent' | 'system'; parentId?: string }): Promise<Comment> {
+    return this.commentStorage.addComment(ticketId, body, opts)
+  }
+
+  async listComments(ticketId: string): Promise<Comment[]> {
+    return this.commentStorage.listComments(ticketId)
+  }
+
+  async deleteComment(commentId: string): Promise<void> {
+    return this.commentStorage.deleteComment(commentId)
   }
 
   // ===========================================================================

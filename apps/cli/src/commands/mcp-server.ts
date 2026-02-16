@@ -36,6 +36,7 @@ import {
   registerCategoryTools,
   registerTemplateTools,
   registerViewTools,
+  registerCommentTools,
   registerDietTools,
   registerAgentTools,
   registerDockerTools,
@@ -112,6 +113,7 @@ export default class McpServerCommand extends Command {
     registerCategoryTools(server, ctx)
     registerTemplateTools(server, ctx)
     registerViewTools(server, ctx)
+    registerCommentTools(server, ctx)
     registerDietTools(server, ctx)
     registerAgentTools(server, ctx)
     registerDockerTools(server, ctx)

@@ -6,6 +6,7 @@ import Database from 'better-sqlite3'
 import { PMO_TABLES } from '../schema.js'
 import {
   AcceptanceCriterion,
+  Comment,
   PMOError,
   Spec,
   StateCategory,
@@ -14,6 +15,7 @@ import {
 } from '../types.js'
 import {
   AcceptanceCriterionRow,
+  CommentRow,
   SpecRow,
   TicketRow,
   WorkflowStatusRow,
@@ -189,6 +191,7 @@ export async function rowToTicket(
     labels,
     metadata,
     acceptanceCriteria: getAcceptanceCriteriaSync(db, row.id),
+    comments: getCommentsSync(db, row.id),
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
     lastSyncedFromSpec: row.last_synced_from_spec
@@ -250,6 +253,36 @@ export function rowToSpec(row: SpecRow): Spec {
     context: row.context || undefined,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
+  }
+}
+
+/**
+ * Get comments for a ticket (sync version).
+ */
+export function getCommentsSync(
+  db: Database.Database,
+  ticketId: string
+): Comment[] {
+  try {
+    const rows = db
+      .prepare(
+        `SELECT * FROM ${T.comments} WHERE ticket_id = ? ORDER BY created_at ASC`
+      )
+      .all(ticketId) as CommentRow[]
+
+    return rows.map((row) => ({
+      id: row.id,
+      ticketId: row.ticket_id,
+      author: row.author || undefined,
+      authorType: (row.author_type as 'human' | 'agent' | 'system') || 'human',
+      body: row.body,
+      parentId: row.parent_id || undefined,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+    }))
+  } catch {
+    // Table may not exist in older databases during migration
+    return []
   }
 }
 

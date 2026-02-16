@@ -94,6 +94,22 @@ export default class TicketView extends PMOCommand {
       this.log(`  ${ticket.description.split('\n').join('\n  ')}`);
     }
 
+    if (ticket.comments && ticket.comments.length > 0) {
+      this.log(`\n${styles.header('Comments:')} (${ticket.comments.length})`);
+      for (const comment of ticket.comments) {
+        const authorLabel = comment.author
+          ? `${comment.author} (${comment.authorType})`
+          : comment.authorType;
+        const timestamp = comment.createdAt
+          ? new Date(comment.createdAt).toLocaleString()
+          : '';
+        const threadPrefix = comment.parentId ? '  ↳ ' : '  ';
+        this.log(`${threadPrefix}${styles.emphasis(authorLabel)} — ${timestamp}`);
+        this.log(`${threadPrefix}  ${comment.body.split('\n').join(`\n${threadPrefix}  `)}`);
+        this.log('');
+      }
+    }
+
     this.log('');
   }
 
