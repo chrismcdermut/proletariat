@@ -546,6 +546,22 @@ Analyze this ticket and improve its definition:
 
 Do NOT implement the ticket - only improve its definition so it's ready to be worked on.
 
+## Flagging Ambiguities
+
+If you identify ambiguities or questions that need human clarification, add them to the description using this **exact format**:
+
+\`\`\`
+**Q1:** Should the API use REST or GraphQL?
+**Q2:** What is the expected timeout for sessions?
+**Q3:** Should this feature be behind a feature flag?
+\`\`\`
+
+When questions are added:
+- Add the \`needs-clarification\` label: \`--add-label "needs-clarification"\`
+- Questions can later be resolved with \`prlt ticket resolve\` or \`prlt work resolve\`
+
+If NO ambiguities are found, add the \`ready\` label instead.
+
 **AI Agent Tip:** When running \`prlt\` commands without all required arguments, use \`--json\` to receive interactive prompts as structured JSON.
 
 ## Ticket Schema Reference
@@ -608,6 +624,54 @@ After updating, output a brief summary of your grooming changes.`,
       position: 0,
     },
     {
+      id: 'resolve',
+      name: 'Resolve',
+      description: 'Help human resolve ambiguity questions flagged during grooming',
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Resolve Ambiguities
+
+This ticket has been groomed and has open questions (Q1, Q2, etc.) that need human answers.
+
+Your job is to help the human answer each question by:
+1. Reading the ticket description to find all **Q1:**, **Q2:**, etc. questions
+2. For each question, explore the codebase to find relevant context
+3. Present each question to the human with your findings and a suggested answer
+4. Collect the human's answer (they may accept your suggestion or provide their own)
+5. Write the resolved answers back into the ticket description
+
+## Process
+
+For each question:
+1. **Search the codebase** for relevant context (files, patterns, existing implementations)
+2. **Present your findings**: "Q1: Should this use REST or GraphQL? I found you're already using GraphQL in \`src/api/schema.ts\`..."
+3. **Suggest an answer** based on the codebase context
+4. **Ask the human** to confirm or provide their own answer
+5. After collecting all answers, update the ticket:
+   \`\`\`bash
+   prlt ticket edit {{TICKET_ID}} --description "updated description with answers"
+   prlt ticket edit {{TICKET_ID}} --remove-label "needs-clarification" --add-label "ready"
+   \`\`\`
+
+## Important
+- This is an INTERACTIVE session - always ask the human before writing answers
+- If the ticket has acceptance criteria or subtasks that need updating based on answers, update those too
+- After resolving, move the ticket to the Ready column if all questions are answered`,
+      endPrompt: `After resolving all questions:
+1. Update the ticket description with answers below each question
+2. Remove the \`needs-clarification\` label and add \`ready\` label
+3. Update acceptance criteria and subtasks if answers affect them
+
+\`\`\`bash
+prlt ticket edit {{TICKET_ID}} --description "..." --remove-label "needs-clarification" --add-label "ready"
+\`\`\``,
+      suggestedForCategories: [],
+      modifiesCode: false,
+      position: 1,
+    },
+    {
       id: 'implement',
       name: 'Implement',
       description: 'Write code to implement the ticket requirements',
@@ -658,7 +722,7 @@ When complete, the ticket should be ready for code review.`,
       suggestedForCategories: ['unstarted', 'started'],
       defaultMoveToCategory: 'started',
       modifiesCode: true,
-      position: 1,
+      position: 2,
     },
     {
       id: 'continue',
@@ -703,7 +767,7 @@ git add -A && prlt commit "your change" && git push
       suggestedForCategories: ['started'],
       defaultMoveToCategory: 'started',
       modifiesCode: true,
-      position: 2,
+      position: 3,
     },
     {
       id: 'test',
@@ -745,7 +809,7 @@ git add -A && prlt commit "add tests for X" && git push
 **IMPORTANT:** Use the global \`prlt\` command.`,
       suggestedForCategories: ['started', 'completed'],
       modifiesCode: true,
-      position: 3,
+      position: 4,
     },
     {
       id: 'review',
@@ -768,7 +832,7 @@ Output a review summary with your findings and any concerns.`,
 No commits are needed for code review.`,
       suggestedForCategories: ['started', 'completed'],
       modifiesCode: false,
-      position: 4,
+      position: 5,
     },
     {
       id: 'revise',
@@ -794,7 +858,7 @@ The PR will be updated automatically.`,
       suggestedForCategories: ['completed'],
       defaultMoveToCategory: 'started',
       modifiesCode: true,
-      position: 5,
+      position: 6,
     },
   ]
 
