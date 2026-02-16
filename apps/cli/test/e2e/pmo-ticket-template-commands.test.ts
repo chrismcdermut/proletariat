@@ -303,8 +303,12 @@ function setupTestDatabase(db: Database.Database) {
       name TEXT NOT NULL,
       template TEXT DEFAULT 'kanban',
       description TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
       phase_id TEXT,
+      workflow_id TEXT,
       is_archived INTEGER NOT NULL DEFAULT 0,
+      target_date TIMESTAMP,
+      initiative_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -346,6 +350,7 @@ function setupTestDatabase(db: Database.Database) {
       spec_id TEXT,
       epic_id TEXT,
       labels TEXT NOT NULL DEFAULT '[]',
+      position INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       last_synced_from_spec TIMESTAMP,
