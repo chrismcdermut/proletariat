@@ -2,6 +2,7 @@ import { Flags } from '@oclif/core';
 import { styles } from '../../lib/styles.js';
 import { shouldOutputJson, outputPromptAsJson, buildPromptConfig, createMetadata } from '../../lib/prompt-json.js';
 import { PromptCommand } from '../../lib/prompt-command.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 
 export default class Template extends PromptCommand {
   static description = 'Manage templates (ticket and phase)';
@@ -16,12 +17,7 @@ export default class Template extends PromptCommand {
   ];
 
   static flags = {
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output as JSON for AI agents/scripts',
-      default: false,
-    }),
+    ...machineOutputFlags,
   };
 
   async run(): Promise<void> {

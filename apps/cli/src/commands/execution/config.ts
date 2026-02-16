@@ -46,12 +46,6 @@ export default class ExecutionConfig extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     set: Flags.string({
       char: 's',
       description: 'Set a config value (format: key value)',
@@ -162,7 +156,7 @@ export default class ExecutionConfig extends PMOCommand {
       }
 
       // Handle --list or --json flag without --setting (just show config)
-      if ((flags.list || flags.json) && !flags.setting) {
+      if ((flags.list || (flags.json || flags.machine)) && !flags.setting) {
         if (jsonMode) {
           outputSuccessAsJson({
             terminal: {

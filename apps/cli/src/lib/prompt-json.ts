@@ -213,15 +213,18 @@ export type JsonOutput = PromptJsonOutput | SuccessJsonOutput | ErrorJsonOutput 
  */
 export interface JsonFlags {
   json?: boolean
+  machine?: boolean
 }
 
 /**
  * Flags interface for machine-readable output mode detection
- * --json is the primary flag, -m/--machine are aliases that set json=true
+ * --json and --machine/-m both trigger JSON output mode
  */
 export interface MachineOutputFlags {
-  /** Primary JSON output flag. -m and --machine are aliases to this flag */
+  /** JSON output flag */
   json?: boolean
+  /** Machine output flag (-m shorthand) */
+  machine?: boolean
 }
 
 /**
@@ -244,8 +247,8 @@ export function isNonTTY(): boolean {
  * @returns true if JSON mode should be used
  */
 export function shouldOutputJson(flags: JsonFlags): boolean {
-  // --json flag (includes -m and --machine aliases)
-  if (flags.json === true) {
+  // --json flag or --machine/-m flag
+  if (flags.json === true || flags.machine === true) {
     return true
   }
 
@@ -269,8 +272,8 @@ export const isAgentMode = shouldOutputJson
  * @returns true if machine-readable output mode should be used
  */
 export function isMachineOutput(flags: MachineOutputFlags): boolean {
-  // --json flag (includes -m and --machine aliases)
-  if (flags.json === true) {
+  // --json flag or --machine/-m flag
+  if (flags.json === true || flags.machine === true) {
     return true
   }
 

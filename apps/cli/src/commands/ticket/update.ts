@@ -28,12 +28,6 @@ export default class TicketUpdate extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     priority: Flags.string({
       char: 'p',
       description: 'Set priority (uses workspace priority scale)',

@@ -29,12 +29,6 @@ export default class ExecutionView extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output execution details as JSON',
-      default: false,
-    }),
   }
 
   protected getPMOOptions() {
@@ -86,7 +80,7 @@ export default class ExecutionView extends PMOCommand {
           return
         }
 
-        const jsonModeConfig = flags.json ? { flags, commandName: 'execution view' } : null
+        const jsonModeConfig = (flags.json || flags.machine) ? { flags, commandName: 'execution view' } : null
 
         const { selectedId } = await this.prompt<{ selectedId: string }>([
           {

@@ -44,12 +44,6 @@ export default class EpicCreate extends PMOCommand {
     spec: Flags.string({
       description: 'Link to spec ID (the design spec that describes this epic)',
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     'dry-run': Flags.boolean({
       description: 'Validate inputs without creating epic (use with --json for structured output)',
       default: false,

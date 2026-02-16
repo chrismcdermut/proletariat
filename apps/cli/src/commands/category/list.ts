@@ -49,7 +49,7 @@ export default class CategoryList extends PMOCommand {
 
     const categories = await this.storage.listCategories(filter);
 
-    if (flags.json) {
+    if (flags.json || flags.machine) {
       this.log(JSON.stringify(categories, null, 2));
       return;
     }

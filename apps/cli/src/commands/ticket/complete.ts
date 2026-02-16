@@ -29,12 +29,6 @@ export default class TicketComplete extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     bulk: Flags.boolean({
       char: 'b',
       description: 'Enable bulk mode to complete multiple tickets',
@@ -138,15 +132,15 @@ export default class TicketComplete extends PMOCommand {
   private async executeBulk(
     incompleteTickets: Awaited<ReturnType<typeof this.storage.listTickets>>,
     doneColumnName: string,
-    flags: { force: boolean; json: boolean; bulk: boolean; project?: string }
+    flags: { force: boolean; json: boolean; machine: boolean; bulk: boolean; project?: string }
   ): Promise<void> {
     // Only show header in interactive mode
-    if (!flags.json) {
+    if (!(flags.json || flags.machine)) {
       this.log(styles.emphasis('✅ Complete Multiple Tickets\n'));
     }
 
     // Agent mode config for prompts
-    const jsonModeConfig = flags.json ? { flags, commandName: 'ticket complete --bulk' } : null;
+    const jsonModeConfig = (flags.json || flags.machine) ? { flags, commandName: 'ticket complete --bulk' } : null;
 
     // Select tickets to complete (now agent-compatible!)
     const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{

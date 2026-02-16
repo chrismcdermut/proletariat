@@ -2,6 +2,7 @@ import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { PromptCommand } from '../../lib/prompt-command.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ensureBuiltinThemes } from '../../lib/themes.js';
 import { getThemes, getAvailableThemeNames } from '../../lib/database/index.js';
@@ -22,12 +23,7 @@ export default class Theme extends PromptCommand {
   ];
 
   static flags = {
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output as JSON for AI agents/scripts',
-      default: false,
-    }),
+    ...machineOutputFlags,
   };
 
   async run(): Promise<void> {

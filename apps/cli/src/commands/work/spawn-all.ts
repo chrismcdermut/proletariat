@@ -13,12 +13,6 @@ export default class WorkSpawnAll extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     force: Flags.boolean({
       char: 'f',
       description: 'Start even if work already in progress',
@@ -56,6 +50,7 @@ export default class WorkSpawnAll extends PMOCommand {
     // Pass --project to avoid re-prompting for project selection
     const args = ['--all', '--project', projectId]
     if (flags.json) args.push('--json')
+    if (flags.machine) args.push('--machine')
     if (flags.force) args.push('--force')
     if (flags['run-on-host']) args.push('--run-on-host')
     if (flags['skip-permissions']) args.push('--skip-permissions')

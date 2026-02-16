@@ -44,12 +44,6 @@ export default class LinkList extends PMOCommand {
       description: 'Show all links including reverse dependencies (what blocks this, what this blocks)',
       default: false,
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output as JSON for AI agents/scripts',
-      default: false,
-    }),
   }
 
   async execute(): Promise<void> {

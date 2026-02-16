@@ -21,12 +21,6 @@ export default class Workflow extends PMOCommand {
       description: 'Show only custom workflows',
       default: false,
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output as JSON',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -45,7 +39,7 @@ export default class Workflow extends PMOCommand {
       Object.keys(filter).length > 0 ? filter : undefined
     );
 
-    if (flags.json) {
+    if (flags.json || flags.machine) {
       this.log(JSON.stringify(workflows, null, 2));
       return;
     }

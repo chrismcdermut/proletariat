@@ -25,12 +25,6 @@ export default class BranchWhere extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output in JSON format',
-      default: false,
-    }),
   }
 
   static args = {
@@ -66,7 +60,7 @@ export default class BranchWhere extends PMOCommand {
     const allMatches = this.mergeResults(matches, dbMatches)
 
     if (allMatches.length === 0) {
-      if (flags.json) {
+      if (flags.json || flags.machine) {
         this.log(JSON.stringify({ found: false, search, matches: [] }, null, 2))
       } else {
         this.log(styles.muted(`\nNo worktree found for "${search}"\n`))
@@ -74,7 +68,7 @@ export default class BranchWhere extends PMOCommand {
       return
     }
 
-    if (flags.json) {
+    if (flags.json || flags.machine) {
       this.log(JSON.stringify({
         found: true,
         search,

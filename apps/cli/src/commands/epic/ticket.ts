@@ -35,12 +35,6 @@ export default class EpicTicket extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     unlink: Flags.boolean({
       char: 'u',
       description: 'Remove tickets from this epic instead of adding',

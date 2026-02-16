@@ -45,12 +45,6 @@ export default class EpicReorder extends PMOCommand {
       description: 'Move before this epic ID',
       exclusive: ['first', 'last', 'after'],
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {

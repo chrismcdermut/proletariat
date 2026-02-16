@@ -30,12 +30,6 @@ export default class EpicProject extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     'with-tickets': Flags.boolean({
       char: 't',
       description: 'Also move all tickets assigned to this epic',

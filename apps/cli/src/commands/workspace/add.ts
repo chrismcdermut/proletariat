@@ -8,6 +8,7 @@ import {
   isWorkspaceRegistered,
   getWorkspaceNameFromPath,
 } from '../../lib/machine-config.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 
 export default class WorkspaceAdd extends Command {
   static description = 'Register an existing workspace in the machine config';
@@ -26,6 +27,7 @@ export default class WorkspaceAdd extends Command {
   };
 
   static flags = {
+    ...machineOutputFlags,
     name: Flags.string({
       char: 'n',
       description: 'Custom name for the workspace (defaults to directory basename or workspace config name)',

@@ -1,6 +1,7 @@
 import { Command, Flags } from '@oclif/core';
 import chalk from 'chalk';
 import { findAllHQs, findHQRootWithSource, isValidHQ } from '../../lib/workspace.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 import {
   getRegisteredWorkspaces,
   getActiveWorkspace,
@@ -27,12 +28,7 @@ export default class WorkspaceList extends Command {
   ];
 
   static flags = {
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output as JSON for machine-readable format',
-      default: false,
-    }),
+    ...machineOutputFlags,
   };
 
   async run(): Promise<void> {
@@ -111,7 +107,7 @@ export default class WorkspaceList extends Command {
     }
 
     // JSON output
-    if (flags.json) {
+    if (flags.json || flags.machine) {
       const output = {
         workspaces: workspaces.map((w) => ({
           name: w.name,

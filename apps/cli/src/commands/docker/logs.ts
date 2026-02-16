@@ -7,6 +7,7 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { resolveContainerId } from '../../lib/docker/resolve.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 
 export default class DockerLogs extends Command {
   static description = 'View logs from a container (by execution ID, agent name, or container ID)'
@@ -19,6 +20,7 @@ export default class DockerLogs extends Command {
   ]
 
   static flags = {
+    ...machineOutputFlags,
     follow: Flags.boolean({
       char: 'f',
       description: 'Follow log output',

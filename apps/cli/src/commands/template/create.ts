@@ -73,12 +73,6 @@ export default class TemplateCreate extends PMOCommand {
       description: 'Add a default label (ticket only, can repeat)',
       multiple: true,
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output as JSON for AI agents/scripts',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {

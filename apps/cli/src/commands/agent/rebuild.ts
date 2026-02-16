@@ -34,12 +34,6 @@ export default class AgentRebuild extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     'no-cache': Flags.boolean({
       description: 'Build without using cache',
       default: false,

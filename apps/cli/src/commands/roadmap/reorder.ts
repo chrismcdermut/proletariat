@@ -32,12 +32,6 @@ export default class RoadmapReorder extends PMOCommand {
     position: Flags.integer({
       description: 'New position (0-indexed)',
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {

@@ -7,6 +7,7 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { resolveContainerId, isContainerRunning } from '../../lib/docker/resolve.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 
 export default class DockerShell extends Command {
   static description = 'Open a shell in a running container (by execution ID, agent name, or container ID)'
@@ -18,6 +19,7 @@ export default class DockerShell extends Command {
   ]
 
   static flags = {
+    ...machineOutputFlags,
     shell: Flags.string({
       char: 's',
       description: 'Shell to use',

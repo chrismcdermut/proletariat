@@ -39,12 +39,6 @@ export default class TemplateSave extends PMOCommand {
       char: 'd',
       description: 'Template description',
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output as JSON for AI agents/scripts',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {

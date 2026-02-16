@@ -16,6 +16,7 @@ import {
   outputConfirmationNeededAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 
 interface StaleWorkspace {
   name: string;
@@ -39,6 +40,7 @@ export default class WorkspacePrune extends PromptCommand {
   ];
 
   static flags = {
+    ...machineOutputFlags,
     'dry-run': Flags.boolean({
       char: 'd',
       description: 'Show what would be removed without removing',
@@ -49,10 +51,6 @@ export default class WorkspacePrune extends PromptCommand {
       description: 'Skip confirmation prompt and prune immediately',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output as JSON',
-      default: false,
-    }),
   };
 
   async run(): Promise<void> {
@@ -61,7 +59,7 @@ export default class WorkspacePrune extends PromptCommand {
     // In non-TTY mode without --json (CI, scripts, piped), default to dry-run unless --force is set.
     // In --json mode, we use confirmation_needed output instead of auto-dry-run so agents can review and confirm.
     const isNonTTY = !process.stdout.isTTY;
-    const effectiveDryRun = flags['dry-run'] || (!flags.json && isNonTTY && !flags.force);
+    const effectiveDryRun = flags['dry-run'] || (!(flags.json || flags.machine) && isNonTTY && !flags.force);
 
     // Find stale entries
     const staleWorkspaces = this.findStaleWorkspaces();
@@ -70,7 +68,7 @@ export default class WorkspacePrune extends PromptCommand {
     const totalStale = staleWorkspaces.length + staleAgents.length;
 
     // JSON output
-    if (flags.json) {
+    if (flags.json || flags.machine) {
       const output = {
         dryRun: effectiveDryRun,
         staleWorkspaces: staleWorkspaces.map(w => ({

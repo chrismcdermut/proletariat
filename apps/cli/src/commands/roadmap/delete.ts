@@ -31,12 +31,6 @@ export default class RoadmapDelete extends PMOCommand {
       description: 'Skip confirmation (required for default roadmap)',
       default: false,
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {

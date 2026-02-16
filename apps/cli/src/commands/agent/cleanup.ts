@@ -64,12 +64,6 @@ export default class Cleanup extends PMOCommand {
       description: 'Push unpushed commits before cleanup',
       default: false,
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     'no-interactive': Flags.boolean({
       description: 'Alias for --json flag',
       default: false,

@@ -3,6 +3,7 @@ import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
 import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
@@ -34,12 +35,7 @@ export default class Config extends PromptCommand {
   ]
 
   static flags = {
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
+    ...machineOutputFlags,
     set: Flags.string({
       char: 's',
       description: 'Set a config value (format: key value)',
@@ -103,7 +99,7 @@ export default class Config extends PromptCommand {
 
       // Handle --list or --json flag without --setting (just show config)
       // Also handle non-TTY mode without explicit flags - output config as readable list
-      const isExplicitJsonMode = flags.json === true
+      const isExplicitJsonMode = (flags.json === true || flags.machine === true)
       const shouldShowConfigList = flags.list || (isExplicitJsonMode && !flags.setting) || (isNonTTY() && !flags.setting && !flags.set?.length)
 
       if (shouldShowConfigList) {

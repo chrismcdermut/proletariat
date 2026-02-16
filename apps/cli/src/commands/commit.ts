@@ -1,6 +1,7 @@
 import { Args, Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
 import { PromptCommand } from '../lib/prompt-command.js'
+import { machineOutputFlags } from '../lib/pmo/index.js'
 import { validateBranchName, BranchType } from '../lib/branch/index.js'
 import { styles } from '../lib/styles.js'
 import {
@@ -224,12 +225,7 @@ export default class Commit extends PromptCommand {
       description: 'Show what would be committed without committing',
       default: false,
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
+    ...machineOutputFlags,
   }
 
   async run(): Promise<void> {

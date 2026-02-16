@@ -49,12 +49,6 @@ export default class LinkCreate extends PMOCommand {
       options: ['blocks', 'relates', 'duplicates', 'depends'],
       required: true,
     }),
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
   }
 
   async execute(): Promise<void> {

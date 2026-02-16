@@ -32,12 +32,6 @@ export default class TicketReassign extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      char: 'm',
-      aliases: ['machine'],
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
     to: Flags.string({
       description: 'Target agent name (for bulk mode)',
     }),
