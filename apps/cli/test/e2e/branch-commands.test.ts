@@ -1,9 +1,18 @@
 import { expect } from 'chai';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
 import { execSync } from 'node:child_process';
-import { exec } from './test-helpers.js';
+import Database from 'better-sqlite3';
+import {
+  exec,
+  createTestEnvironment,
+  cleanupTestEnvironment,
+  setupProductionSchema,
+  addWorkspaceTables,
+  createHQConfig,
+  createPMODirectories,
+  createTestProject,
+  type TestEnvironment,
+} from './test-helpers.js';
 
 /** Branch info returned by branch list --format json */
 interface BranchInfo {
@@ -19,13 +28,29 @@ interface BranchInfo {
  * Tests branch list, validate, and create (with flags)
  */
 describe('Branch Commands E2E Tests', () => {
+  let env: TestEnvironment;
   let testDir: string;
-  let originalCwd: string;
+  let db: Database.Database;
 
   beforeEach(() => {
-    originalCwd = process.cwd();
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'branch-e2e-'));
-    process.chdir(testDir);
+    env = createTestEnvironment('branch-e2e-');
+    testDir = env.testDir;
+
+    // Initialize PMO with production schema (creates pmo_projects table needed by findPMO)
+    db = setupProductionSchema(env.dbPath, env.pmoPath);
+
+    // Add workspace tables (agents, repositories, etc.)
+    addWorkspaceTables(db, { type: 'hq', workspaceName: 'test-hq', hasPmo: true });
+
+    // Create HQ config and PMO directories
+    createHQConfig(env.proletariatDir);
+    createPMODirectories(env.pmoPath, 'test-project');
+
+    // Create a test project
+    createTestProject(db, { id: 'test-project', name: 'Test Project' });
+
+    // Close DB before git operations (CLI will open its own connection)
+    db.close();
 
     // Initialize a git repo for testing
     execSync('git init', { stdio: 'pipe' });
@@ -39,10 +64,7 @@ describe('Branch Commands E2E Tests', () => {
   });
 
   afterEach(() => {
-    process.chdir(originalCwd);
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
+    cleanupTestEnvironment(env);
   });
 
   describe('prlt branch list', () => {
