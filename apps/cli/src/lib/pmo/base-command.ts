@@ -18,12 +18,12 @@ import {
  */
 export const jsonModeFlags = {
   json: Flags.boolean({
-    description: 'Output as JSON for AI agents/scripts',
+    description: 'Output as machine-readable JSON for AI agents/scripts',
     default: false,
   }),
   machine: Flags.boolean({
     char: 'm',
-    description: 'Output as JSON for AI agents/scripts',
+    description: 'Output as machine-readable JSON for AI agents/scripts',
     default: false,
   }),
 };
@@ -35,12 +35,12 @@ export const jsonModeFlags = {
  */
 export const machineOutputFlags = {
   json: Flags.boolean({
-    description: 'Output as JSON for AI agents/scripts',
+    description: 'Output as machine-readable JSON for AI agents/scripts',
     default: false,
   }),
   machine: Flags.boolean({
     char: 'm',
-    description: 'Output as JSON for AI agents/scripts',
+    description: 'Output as machine-readable JSON for AI agents/scripts',
     default: false,
   }),
 };
