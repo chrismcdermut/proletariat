@@ -212,6 +212,9 @@ export default class WorkStart extends PMOCommand {
       description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
       default: false,
     }),
+    profile: Flags.string({
+      description: 'Agent profile to apply (configures hooks, system prompt, repos)',
+    }),
     yes: Flags.boolean({
       char: 'y',
       description: 'Skip confirmation prompt (for non-TTY/scripted execution)',
@@ -859,6 +862,29 @@ export default class WorkStart extends PMOCommand {
       // HQ path comes from workspaceInfo (not derived from pmoPath since pmo can be nested in repos)
       const hqPath = workspaceInfo.path
 
+      // Load agent profile if specified
+      const profileId = flags.profile
+      let profileData: {
+        profileId?: string; profileName?: string; profileStartHook?: string;
+        profileEndHook?: string; profileSystemPrompt?: string; profileRepos?: string[];
+        profileMcpServers?: Array<{ name: string; command: string; args?: string[]; env?: Record<string, string> }>;
+      } = {}
+      if (profileId) {
+        const profile = await this.storage.getProfile(profileId)
+        if (!profile) {
+          this.error(`Profile not found: ${profileId}`)
+        }
+        profileData = {
+          profileId: profile.id,
+          profileName: profile.name,
+          profileStartHook: profile.startHook,
+          profileEndHook: profile.endHook,
+          profileSystemPrompt: profile.systemPrompt,
+          profileRepos: profile.repos,
+          profileMcpServers: profile.mcpServers,
+        }
+      }
+
       const context: ExecutionContext = {
         ticketId: ticket.id,
         ticketTitle: ticket.title,
@@ -886,6 +912,8 @@ export default class WorkStart extends PMOCommand {
         modifiesCode: customPrompt ? true : selectedAction?.modifiesCode ?? true,
         // Additional instructions from --message flag
         customMessage: flags.message,
+        // Profile context
+        ...profileData,
       }
 
       // Check if agent has devcontainer config
@@ -1967,6 +1995,7 @@ export default class WorkStart extends PMOCommand {
       'no-pr'?: boolean
       executor?: string
       session?: string
+      profile?: string
     }
   ): Promise<void> {
     const agentName = agent.name
@@ -2013,6 +2042,29 @@ export default class WorkStart extends PMOCommand {
     // Get default action for batch mode (use 'implement')
     const defaultAction = await this.storage.getAction('implement')
 
+    // Load agent profile if specified
+    const profileId = flags.profile
+    let batchProfileData: {
+      profileId?: string; profileName?: string; profileStartHook?: string;
+      profileEndHook?: string; profileSystemPrompt?: string; profileRepos?: string[];
+      profileMcpServers?: Array<{ name: string; command: string; args?: string[]; env?: Record<string, string> }>;
+    } = {}
+    if (profileId) {
+      const profile = await this.storage.getProfile(profileId)
+      if (!profile) {
+        throw new Error(`Profile not found: ${profileId}`)
+      }
+      batchProfileData = {
+        profileId: profile.id,
+        profileName: profile.name,
+        profileStartHook: profile.startHook,
+        profileEndHook: profile.endHook,
+        profileSystemPrompt: profile.systemPrompt,
+        profileRepos: profile.repos,
+        profileMcpServers: profile.mcpServers,
+      }
+    }
+
     // Build context
     const context: ExecutionContext = {
       ticketId: ticket.id,
@@ -2040,6 +2092,8 @@ export default class WorkStart extends PMOCommand {
       actionPrompt: defaultAction?.prompt,
       actionEndPrompt: defaultAction?.endPrompt,
       modifiesCode: defaultAction?.modifiesCode ?? true,
+      // Profile context
+      ...batchProfileData,
     }
 
     // Use devcontainer by default if available

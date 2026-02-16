@@ -170,6 +170,14 @@ export interface ExecutionContext {
   // PR feedback context (for work revise)
   prFeedback?: string // Formatted PR feedback markdown
   isRevision?: boolean // Whether this is a revision (addressing PR feedback)
+  // Profile context (how to configure the agent environment)
+  profileId?: string          // Profile ID
+  profileName?: string        // Profile name for display
+  profileStartHook?: string   // Shell command(s) to run at session start
+  profileEndHook?: string     // Shell command(s) to run before exit
+  profileSystemPrompt?: string // Additional instructions for CLAUDE.md
+  profileRepos?: string[]     // Which repos are accessible
+  profileMcpServers?: Array<{ name: string; command: string; args?: string[]; env?: Record<string, string> }>
 }
 
 // =============================================================================

@@ -127,6 +127,9 @@ export default class WorkSpawn extends PMOCommand {
     message: Flags.string({
       description: 'Additional instructions for the agent (appended to any action prompt)',
     }),
+    profile: Flags.string({
+      description: 'Agent profile to apply (configures hooks, system prompt, repos)',
+    }),
     session: Flags.string({
       description: 'Session manager inside container (tmux runs agent in tmux inside container)',
       options: ['tmux', 'direct'],
@@ -1486,6 +1489,8 @@ export default class WorkSpawn extends PMOCommand {
             if (flags.message && batchAction !== 'custom') {
               startArgs.push('--message', flags.message)
             }
+            // Pass --profile for agent configuration
+            if (flags.profile) startArgs.push('--profile', flags.profile)
           } else {
             // Batch mode: pass all settings to skip prompts
             // batchDisplayMode is for devcontainer, batchDisplay is for host
@@ -1513,6 +1518,8 @@ export default class WorkSpawn extends PMOCommand {
             if (flags.session) startArgs.push('--session', flags.session)
             // Pass focus flag (brings terminal to foreground)
             if (flags.focus) startArgs.push('--focus')
+            // Pass --profile for agent configuration
+            if (flags.profile) startArgs.push('--profile', flags.profile)
           }
 
           // eslint-disable-next-line no-await-in-loop

@@ -262,6 +262,11 @@ function buildPrompt(context: ExecutionContext): string {
   // Note: Branch setup (fetch + checkout/create) is now handled programmatically
   // in work/start.ts before the agent spawns, so no prompt instructions needed
 
+  // Profile system prompt (additional context/instructions from agent profile)
+  if (context.profileSystemPrompt) {
+    prompt += `\n## Profile: ${context.profileName || 'Custom'}\n\n${context.profileSystemPrompt}\n`
+  }
+
   // Additional instructions from --message flag (appended to any action)
   if (context.customMessage) {
     prompt += `\n## Additional Instructions\n\n${context.customMessage}\n`
@@ -382,6 +387,26 @@ export async function runHost(
   // Write prompt to separate file to avoid any shell escaping issues
   fs.writeFileSync(promptPath, prompt, { mode: 0o644 })
 
+  // Inject MCP server configuration from profile into worktree
+  if (context.profileMcpServers?.length) {
+    try {
+      const mcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> = {}
+      for (const server of context.profileMcpServers) {
+        mcpServers[server.name] = {
+          command: server.command,
+          ...(server.args?.length ? { args: server.args } : {}),
+          ...(server.env ? { env: server.env } : {}),
+        }
+      }
+      const claudeDir = path.join(context.worktreePath, '.claude')
+      fs.mkdirSync(claudeDir, { recursive: true })
+      const settingsPath = path.join(claudeDir, 'settings.json')
+      fs.writeFileSync(settingsPath, JSON.stringify({ mcpServers }, null, 2), { mode: 0o644 })
+    } catch (error) {
+      console.debug('[runners:host] Failed to inject MCP servers:', error)
+    }
+  }
+
   // Build flags based on config
   const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
   // outputMode: 'print' adds -p flag (final result only), 'interactive' shows streaming UI
@@ -389,6 +414,15 @@ export async function runHost(
 
   // Build script that runs claude and keeps shell open after completion
   const setTitleCmds = getSetTitleCommands(windowTitle)
+
+  // Profile hooks
+  const startHookBlock = context.profileStartHook
+    ? `\n# Profile start hook (${context.profileName || 'custom'})\nexport TICKET_ID="${context.ticketId}"\n${context.profileStartHook}\n`
+    : ''
+  const endHookBlock = context.profileEndHook
+    ? `\n# Profile end hook (${context.profileName || 'custom'})\nexport TICKET_ID="${context.ticketId}"\n${context.profileEndHook}\n`
+    : ''
+
   const scriptContent = `#!/bin/bash
 # Auto-generated script for ticket ${context.ticketId}
 SCRIPT_PATH="${scriptPath}"
@@ -397,8 +431,9 @@ ${setTitleCmds}
 echo "🚀 Starting: ${sessionName}"
 echo ""
 cd "${context.worktreePath}"
+${startHookBlock}
 ${cmd} ${permissionsFlag}${printFlag}"$(cat "$PROMPT_PATH")"
-
+${endHookBlock}
 # Clean up script and prompt files
 rm -f "$SCRIPT_PATH" "$PROMPT_PATH"
 
@@ -1214,8 +1249,16 @@ function buildDevcontainerCommand(
   const bypassTrustFlag = '--permission-mode bypassPermissions '
   const permissionsFlag = !sandboxed ? '--dangerously-skip-permissions ' : ''
 
-  // Build the claude command
-  const claudeCmd = `${cdCmd}${baseCmd} ${bypassTrustFlag}${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}`
+  // Profile hooks for devcontainer execution
+  const startHookCmd = context.profileStartHook
+    ? `export TICKET_ID="${context.ticketId}" && ${context.profileStartHook} && `
+    : ''
+  const endHookCmd = context.profileEndHook
+    ? ` && export TICKET_ID="${context.ticketId}" && ${context.profileEndHook}`
+    : ''
+
+  // Build the claude command with profile hooks
+  const claudeCmd = `${cdCmd}${startHookCmd}${baseCmd} ${bypassTrustFlag}${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}${endHookCmd}`
 
   // Use docker exec for running commands in the container
   // Use -it flags only for terminal/foreground modes where a TTY is available
@@ -1306,6 +1349,29 @@ export async function runDevcontainer(
         })
       } catch {
         // Non-fatal - token injection failed but execution can continue
+      }
+    }
+
+    // Inject MCP server configuration from profile into container
+    if (context.profileMcpServers?.length && containerId) {
+      try {
+        const mcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> = {}
+        for (const server of context.profileMcpServers) {
+          mcpServers[server.name] = {
+            command: server.command,
+            ...(server.args?.length ? { args: server.args } : {}),
+            ...(server.env ? { env: server.env } : {}),
+          }
+        }
+        const settingsContent = JSON.stringify({ mcpServers }, null, 2)
+        // Write to the workspace's .claude/settings.json inside the container
+        execSync(
+          `docker exec -i ${containerId} bash -c 'mkdir -p /workspace/.claude && cat > /workspace/.claude/settings.json'`,
+          { input: settingsContent, stdio: ['pipe', 'pipe', 'pipe'] }
+        )
+        console.debug(`[runners:devcontainer] Injected ${context.profileMcpServers.length} MCP server(s) from profile`)
+      } catch (error) {
+        console.debug('[runners:devcontainer] Failed to inject MCP servers:', error)
       }
     }
 
