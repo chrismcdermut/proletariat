@@ -125,6 +125,10 @@ CREATE TABLE IF NOT EXISTS agent_worktrees (
   worktree_path TEXT NOT NULL,
   branch TEXT NOT NULL,
   created_at TEXT NOT NULL,
+  last_commit_hash TEXT,
+  commits_ahead INTEGER NOT NULL DEFAULT 0,
+  is_clean INTEGER NOT NULL DEFAULT 1,
+  last_checked TEXT,
   PRIMARY KEY (agent_name, repo_name),
   FOREIGN KEY (agent_name) REFERENCES agents(name) ON DELETE CASCADE,
   FOREIGN KEY (repo_name) REFERENCES repositories(name) ON DELETE CASCADE
@@ -256,6 +260,22 @@ export function openWorkspaceDatabase(workspacePath: string): Database.Database 
     }
   } catch {
     // Ignore migration errors - table might not exist yet
+  }
+
+  // Migration: add missing columns to agent_worktrees table (TKT-1014)
+  try {
+    const worktreesTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_worktrees'").get();
+    if (worktreesTableExists) {
+      const worktreeTableInfo = db.prepare("PRAGMA table_info(agent_worktrees)").all() as { name: string }[];
+      if (!worktreeTableInfo.some(col => col.name === 'commits_ahead')) {
+        db.exec("ALTER TABLE agent_worktrees ADD COLUMN last_commit_hash TEXT");
+        db.exec("ALTER TABLE agent_worktrees ADD COLUMN commits_ahead INTEGER NOT NULL DEFAULT 0");
+        db.exec("ALTER TABLE agent_worktrees ADD COLUMN is_clean INTEGER NOT NULL DEFAULT 1");
+        db.exec("ALTER TABLE agent_worktrees ADD COLUMN last_checked TEXT");
+      }
+    }
+  } catch {
+    // Ignore migration errors - table might not exist yet or columns already exist
   }
 
   // Migration: add mount_mode column to agents table (TKT-686)
