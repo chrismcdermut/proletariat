@@ -9,6 +9,7 @@ import {
   killTmuxSession
 } from '../../lib/agents/commands.js'
 import { isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } from '../../lib/execution/runners.js'
+import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { PermissionMode } from '../../lib/execution/types.js'
 import {
   shouldOutputJson,
@@ -915,6 +916,14 @@ export default class WorkSpawn extends PMOCommand {
 
       // Note: With ephemeral agents, we don't need to check availability
       // Each ticket will get its own ephemeral agent created on-demand
+
+      // Clean up stale execution records before checking availability (TKT-495)
+      // This fixes agents appearing "busy" when their tmux sessions have terminated
+      const executionStorage = new ExecutionStorage(db)
+      const cleanedUp = executionStorage.cleanupStaleExecutions()
+      if (cleanedUp > 0 && !jsonMode) {
+        this.log(styles.muted(`Cleaned up ${cleanedUp} stale execution(s)`))
+      }
 
       // Check for tickets with existing tmux sessions (active work)
       const ticketsWithActiveSessions: Array<{ ticketId: string; sessionName: string; agent: string }> = []
