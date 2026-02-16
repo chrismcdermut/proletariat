@@ -167,6 +167,8 @@ export interface ExecutionContext {
   modifiesCode?: boolean  // Whether this action modifies code (needs branch)
   // Custom message (appended as additional instructions to any action)
   customMessage?: string
+  // Docker credential mode
+  useApiKey?: boolean // If true, pass ANTHROPIC_API_KEY to container (user explicitly chose this)
   // PR feedback context (for work revise)
   prFeedback?: string // Formatted PR feedback markdown
   isRevision?: boolean // Whether this is a revision (addressing PR feedback)
