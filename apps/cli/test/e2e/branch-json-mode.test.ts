@@ -15,6 +15,8 @@ import {
   type TestEnvironment,
   type AgentPromptChoice,
 } from './test-helpers.js';
+import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
+import { CREATE_TABLES_SQL } from '../../src/lib/database/index.js';
 
 // Local exec wrapper that uses execProduction with filtering
 const exec = (cmd: string): string => {
@@ -499,166 +501,11 @@ describe('Branch Commands - JSON Mode Compatibility', () => {
  * Matches the schema from src/lib/database/index.ts
  */
 function setupTestDatabase(db: Database.Database, pmoPath: string) {
-  db.exec(`
-    -- Core workspace metadata
-    CREATE TABLE IF NOT EXISTS workspace (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      type TEXT NOT NULL CHECK (type IN ('hq', 'workspace')),
-      workspace_name TEXT NOT NULL,
-      has_pmo BOOLEAN DEFAULT FALSE,
-      active_theme_id TEXT,
-      created_at TEXT NOT NULL
-    );
+  // Use production PMO schema (ensures all columns including position, epic_id, etc.)
+  initializePMOTables(db);
 
-    -- Repository management
-    CREATE TABLE IF NOT EXISTS repositories (
-      name TEXT PRIMARY KEY,
-      path TEXT NOT NULL,
-      type TEXT DEFAULT 'main' CHECK (type IN ('main', 'dependency')),
-      source_url TEXT,
-      action TEXT CHECK (action IN ('clone', 'move', 'link')),
-      added_at TEXT NOT NULL
-    );
-
-    -- Agent naming themes (optional)
-    CREATE TABLE IF NOT EXISTS agent_themes (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      display_name TEXT NOT NULL,
-      description TEXT,
-      builtin BOOLEAN DEFAULT FALSE,
-      created_at TEXT NOT NULL
-    );
-
-    -- Names available within each theme
-    CREATE TABLE IF NOT EXISTS agent_theme_names (
-      theme_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      PRIMARY KEY (theme_id, name),
-      FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE CASCADE
-    );
-
-    -- Agent instances in workspace
-    CREATE TABLE IF NOT EXISTS agents (
-      name TEXT PRIMARY KEY,
-      type TEXT NOT NULL DEFAULT 'persistent' CHECK (type IN ('persistent', 'ephemeral')),
-      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cleaned')),
-      base_name TEXT,
-      theme_id TEXT,
-      worktree_path TEXT,
-      mount_mode TEXT NOT NULL DEFAULT 'worktree' CHECK (mount_mode IN ('worktree', 'clone')),
-      created_at TEXT NOT NULL,
-      cleaned_at TEXT,
-      FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
-    );
-
-    -- Agent-owned worktrees
-    CREATE TABLE IF NOT EXISTS agent_worktrees (
-      agent_name TEXT NOT NULL,
-      repo_name TEXT NOT NULL,
-      worktree_path TEXT NOT NULL,
-      branch TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      last_commit_hash TEXT,
-      commits_ahead INTEGER NOT NULL DEFAULT 0,
-      is_clean INTEGER NOT NULL DEFAULT 1,
-      last_checked TEXT,
-      PRIMARY KEY (agent_name, repo_name),
-      FOREIGN KEY (agent_name) REFERENCES agents(name) ON DELETE CASCADE,
-      FOREIGN KEY (repo_name) REFERENCES repositories(name) ON DELETE CASCADE
-    );
-
-    -- Workspace-level settings (key-value store)
-    CREATE TABLE IF NOT EXISTS workspace_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    -- PMO tables
-    CREATE TABLE IF NOT EXISTS pmo_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_workflows (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      description TEXT,
-      is_builtin INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_workflow_statuses (
-      id TEXT PRIMARY KEY,
-      workflow_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (workflow_id) REFERENCES pmo_workflows(id) ON DELETE CASCADE,
-      UNIQUE(workflow_id, name)
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_phases (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      template TEXT,
-      description TEXT,
-      status TEXT NOT NULL DEFAULT 'active',
-      phase_id TEXT,
-      workflow_id TEXT,
-      is_archived INTEGER NOT NULL DEFAULT 0,
-      target_date TIMESTAMP,
-      initiative_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      title TEXT NOT NULL,
-      description TEXT,
-      priority TEXT,
-      category TEXT,
-      status TEXT NOT NULL DEFAULT 'backlog',
-      status_id TEXT,
-      owner TEXT,
-      assignee TEXT,
-      branch TEXT,
-      spec_id TEXT,
-      epic_id TEXT,
-      labels TEXT NOT NULL DEFAULT '[]',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      last_synced_from_spec TIMESTAMP,
-      last_synced_from_board TIMESTAMP
-    );
-
-    -- Indexes
-    CREATE INDEX IF NOT EXISTS idx_repositories_type ON repositories(type);
-    CREATE INDEX IF NOT EXISTS idx_worktrees_agent ON agent_worktrees(agent_name);
-    CREATE INDEX IF NOT EXISTS idx_worktrees_repo ON agent_worktrees(repo_name);
-    CREATE INDEX IF NOT EXISTS idx_theme_names_theme ON agent_theme_names(theme_id);
-    CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_project ON pmo_tickets(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status ON pmo_tickets(status);
-  `);
+  // Create workspace tables using production schema
+  db.exec(CREATE_TABLES_SQL);
 
   // Insert workspace record
   db.prepare(`
@@ -666,34 +513,18 @@ function setupTestDatabase(db: Database.Database, pmoPath: string) {
     VALUES (1, 'hq', 'test-workspace', 1, datetime('now'))
   `).run();
 
-  // Insert workflow
-  db.prepare(`
-    INSERT INTO pmo_workflows (id, name, description, is_builtin)
-    VALUES ('default', 'Default', 'Default kanban workflow', 1)
-  `).run();
-
-  // Insert workflow statuses
-  const statuses = [
-    { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
-    { id: 'status-in-progress', name: 'In Progress', category: 'started', position: 1 },
-    { id: 'status-done', name: 'Done', category: 'completed', position: 2 },
-  ];
-
-  for (const status of statuses) {
-    db.prepare(`
-      INSERT INTO pmo_workflow_statuses (id, workflow_id, name, category, position, is_default)
-      VALUES (?, 'default', ?, ?, ?, ?)
-    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
-  }
-
-  // Insert test project
+  // Insert test project (builtin 'default' workflow is seeded by initializePMOTables)
   db.prepare(`
     INSERT INTO pmo_projects (id, name, description, workflow_id)
     VALUES ('test-project', 'Test Project', 'E2E test project', 'default')
   `).run();
 
   db.prepare(`
-    INSERT INTO pmo_settings (key, value)
-    VALUES ('pmo_path', ?), ('current_project', 'test-project')
+    INSERT OR REPLACE INTO pmo_settings (key, value)
+    VALUES ('pmo_path', ?)
   `).run(pmoPath);
+  db.prepare(`
+    INSERT OR REPLACE INTO pmo_settings (key, value)
+    VALUES ('current_project', 'test-project')
+  `).run();
 }

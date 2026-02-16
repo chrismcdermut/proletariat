@@ -5,6 +5,8 @@ import * as os from 'node:os';
 import { execSync } from 'node:child_process';
 import Database from 'better-sqlite3';
 import { exec } from './test-helpers.js';
+import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
+import { CREATE_TABLES_SQL } from '../../src/lib/database/index.js';
 
 /**
  * End-to-end tests for PR Commands
@@ -591,105 +593,21 @@ describe('PR Commands E2E Tests', () => {
 // =============================================================================
 
 function setupTestDatabase(db: Database.Database) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS pmo_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+  // Use production schema to ensure all columns and tables are present
+  initializePMOTables(db);
+  db.exec(CREATE_TABLES_SQL);
 
-    CREATE TABLE IF NOT EXISTS pmo_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+  // Insert workspace row
+  db.prepare(`INSERT INTO workspace (id, type, workspace_name, has_pmo, created_at) VALUES (1, 'hq', 'test-workspace', 1, datetime('now'))`).run();
 
-    CREATE TABLE IF NOT EXISTS pmo_columns (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE
-    );
+  // Insert test project
+  db.prepare(`INSERT INTO pmo_projects (id, name, description, workflow_id) VALUES ('test-project', 'Test Project', 'E2E test project', 'default')`).run();
 
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT,
-      priority TEXT DEFAULT 'MEDIUM',
-      category TEXT DEFAULT 'feature',
-      status TEXT DEFAULT 'backlog',
-      owner TEXT,
-      assignee TEXT,
-      spec_id TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE
-    );
+  // Set PMO settings
+  db.prepare(`INSERT OR REPLACE INTO pmo_settings (key, value) VALUES ('pmo_path', 'pmo')`).run();
+  db.prepare(`INSERT OR REPLACE INTO pmo_settings (key, value) VALUES ('current_project', 'test-project')`).run();
 
-    CREATE TABLE IF NOT EXISTS pmo_board_tickets (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      project_id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL UNIQUE,
-      column_id TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      FOREIGN KEY (column_id) REFERENCES pmo_columns(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS pmo_ticket_metadata (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      key TEXT NOT NULL,
-      value TEXT,
-      PRIMARY KEY (ticket_id, key)
-    );
-
-    CREATE TABLE IF NOT EXISTS agents (
-      name TEXT PRIMARY KEY,
-      path TEXT,
-      worktree_path TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS agent_work (
-      id TEXT PRIMARY KEY,
-      ticket_id TEXT NOT NULL,
-      agent_name TEXT NOT NULL,
-      executor TEXT DEFAULT 'claude-code',
-      mode TEXT DEFAULT 'foreground',
-      environment TEXT,
-      display_mode TEXT,
-      sandboxed INTEGER DEFAULT 1,
-      status TEXT NOT NULL DEFAULT 'running',
-      branch TEXT,
-      pid TEXT,
-      container_id TEXT,
-      session_id TEXT,
-      host TEXT,
-      log_path TEXT,
-      started_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      completed_at TEXT,
-      exit_code INTEGER
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_pmo_ticket_metadata ON pmo_ticket_metadata(ticket_id);
-  `);
-
-  // Insert test data
-  db.prepare(`
-    INSERT INTO pmo_projects (id, name, description)
-    VALUES ('test-project', 'Test Project', 'E2E test project')
-  `).run();
-
-  db.prepare(`
-    INSERT INTO pmo_settings (key, value)
-    VALUES ('pmo_path', 'pmo'), ('current_project', 'test-project')
-  `).run();
-
+  // Create columns for test project
   const columns = [
     { id: 'backlog', name: 'Backlog', position: 0 },
     { id: 'in-progress', name: 'In Progress', position: 1 },
@@ -699,7 +617,7 @@ function setupTestDatabase(db: Database.Database) {
 
   for (const col of columns) {
     db.prepare(`
-      INSERT INTO pmo_columns (id, project_id, name, position)
+      INSERT OR IGNORE INTO pmo_columns (id, project_id, name, position)
       VALUES (?, 'test-project', ?, ?)
     `).run(col.id, col.name, col.position);
   }

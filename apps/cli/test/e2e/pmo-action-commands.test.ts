@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { exec } from './test-helpers.js';
+import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
 
 /**
  * End-to-end tests for PMO Action Commands
@@ -292,189 +293,18 @@ describe('PMO Action Commands E2E Tests', () => {
 // Helper functions
 
 function setupTestDatabase(db: Database.Database) {
-  db.exec(`
-    -- Settings table
-    CREATE TABLE IF NOT EXISTS pmo_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    -- Actions table
-    CREATE TABLE IF NOT EXISTS pmo_actions (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      description TEXT,
-      prompt TEXT NOT NULL,
-      suggested_for_categories TEXT,
-      default_move_to_category TEXT,
-      modifies_code INTEGER NOT NULL DEFAULT 1,
-      is_builtin INTEGER NOT NULL DEFAULT 0,
-      position INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Projects table
-    CREATE TABLE IF NOT EXISTS pmo_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      template TEXT,
-      description TEXT,
-      status TEXT DEFAULT 'active',
-      phase_id TEXT,
-      is_archived INTEGER NOT NULL DEFAULT 0,
-      target_date TEXT,
-      initiative_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Columns table
-    CREATE TABLE IF NOT EXISTS pmo_columns (
-      id TEXT NOT NULL,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      name TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, id)
-    );
-
-    -- Tickets table
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      title TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'backlog',
-      status_id TEXT,
-      priority TEXT,
-      category TEXT,
-      description TEXT,
-      owner TEXT,
-      assignee TEXT,
-      branch TEXT,
-      spec_id TEXT,
-      epic_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      last_synced_from_spec TIMESTAMP,
-      last_synced_from_board TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE
-    );
-
-    -- Board tickets table
-    CREATE TABLE IF NOT EXISTS pmo_board_tickets (
-      project_id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL,
-      column_id TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      PRIMARY KEY (project_id, ticket_id)
-    );
-
-    -- Workflow statuses table
-    CREATE TABLE IF NOT EXISTS pmo_statuses (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      UNIQUE(project_id, name)
-    );
-
-    -- Indexes
-    CREATE INDEX IF NOT EXISTS idx_pmo_columns_project ON pmo_columns(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_project ON pmo_tickets(project_id);
-  `);
-
-  // Seed built-in actions (in workflow order)
-  const builtinActions = [
-    {
-      id: 'groom',
-      name: 'Groom',
-      description: 'Flesh out ticket with requirements and acceptance criteria',
-      prompt: 'Analyze this ticket and improve its definition...',
-      suggestedForCategories: ['backlog'],
-      defaultMoveToCategory: 'unstarted',
-      modifiesCode: false,
-      position: 0,
-    },
-    {
-      id: 'implement',
-      name: 'Implement',
-      description: 'Write code to implement the ticket requirements',
-      prompt: 'Implement this ticket according to its requirements and acceptance criteria...',
-      suggestedForCategories: ['unstarted', 'started'],
-      defaultMoveToCategory: 'started',
-      modifiesCode: true,
-      position: 1,
-    },
-    {
-      id: 'continue',
-      name: 'Continue',
-      description: 'Continue working from where you left off',
-      prompt: 'Continue working on this ticket from where you left off...',
-      suggestedForCategories: ['started'],
-      defaultMoveToCategory: 'started',
-      modifiesCode: true,
-      position: 2,
-    },
-    {
-      id: 'test',
-      name: 'Write Tests',
-      description: 'Add comprehensive tests for the implementation',
-      prompt: 'Write comprehensive tests...',
-      suggestedForCategories: ['started', 'completed'],
-      modifiesCode: true,
-      position: 3,
-    },
-    {
-      id: 'review',
-      name: 'Code Review',
-      description: 'Review the implementation for issues',
-      prompt: 'Review this ticket...',
-      suggestedForCategories: ['started', 'completed'],
-      modifiesCode: false,
-      position: 4,
-    },
-    {
-      id: 'revise',
-      name: 'Revise',
-      description: 'Address PR feedback and review comments',
-      prompt: 'Address the feedback on this ticket...',
-      suggestedForCategories: ['completed'],
-      defaultMoveToCategory: 'started',
-      modifiesCode: true,
-      position: 5,
-    },
-  ];
-
-  for (const action of builtinActions) {
-    db.prepare(`
-      INSERT INTO pmo_actions (id, name, description, prompt, suggested_for_categories, default_move_to_category, modifies_code, is_builtin, position)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
-    `).run(
-      action.id,
-      action.name,
-      action.description,
-      action.prompt,
-      JSON.stringify(action.suggestedForCategories),
-      action.defaultMoveToCategory || null,
-      action.modifiesCode ? 1 : 0,
-      action.position
-    );
-  }
+  // Use production schema to ensure all columns and tables are present
+  initializePMOTables(db);
 
   // Create default project
   db.prepare(`
-    INSERT INTO pmo_projects (id, name, is_archived)
-    VALUES ('default', 'Default Project', 0)
+    INSERT OR IGNORE INTO pmo_projects (id, name, is_archived, workflow_id)
+    VALUES ('default', 'Default Project', 0, 'default')
   `).run();
 
-  db.prepare(`INSERT INTO pmo_settings (key, value) VALUES ('pmo_path', 'pmo')`).run();
-  db.prepare(`INSERT INTO pmo_settings (key, value) VALUES ('current_project', 'default')`).run();
+  // Set PMO settings
+  db.prepare(`INSERT OR REPLACE INTO pmo_settings (key, value) VALUES ('pmo_path', 'pmo')`).run();
+  db.prepare(`INSERT OR REPLACE INTO pmo_settings (key, value) VALUES ('current_project', 'default')`).run();
 
   // Create default columns
   const columns = [
@@ -485,7 +315,7 @@ function setupTestDatabase(db: Database.Database) {
 
   for (const col of columns) {
     db.prepare(`
-      INSERT INTO pmo_columns (id, project_id, name, position)
+      INSERT OR IGNORE INTO pmo_columns (id, project_id, name, position)
       VALUES (?, 'default', ?, ?)
     `).run(col.id, col.name, col.position);
   }
