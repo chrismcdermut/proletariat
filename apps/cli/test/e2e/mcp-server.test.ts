@@ -508,10 +508,9 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
 
   describe('Spec Tools', () => {
     let specId: string;
-    let _projectId: string;
 
     beforeEach(() => {
-      _projectId = createTestProject(db, { id: 'mcp-spec-proj', name: 'Spec Project' });
+      createTestProject(db, { id: 'mcp-spec-proj', name: 'Spec Project' });
       specId = createTestSpec(db, { id: 'SPEC-MCP-001', title: 'MCP Test Spec' });
     });
 

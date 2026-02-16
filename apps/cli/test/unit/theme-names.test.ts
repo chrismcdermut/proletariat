@@ -35,14 +35,12 @@ describe('Theme Name Generation (TKT-503)', () => {
       const existingNames = new Set(['bold-bezos'].map(n => n.toLowerCase()));
 
       // Generate names until we get one that would have conflicted with "bold-bezos"
-      let _foundNumbered = false;
       for (let i = 0; i < 100; i++) {
         const name = generateEphemeralAgentName(existingNames, { themeId: 'billionaires' });
         existingNames.add(name.toLowerCase());
 
         // If the name starts with "bold-bezos-", it means it added a number
         if (name.startsWith('bold-bezos-')) {
-          _foundNumbered = true;
           const parts = name.split('-');
           expect(parts.length).to.equal(3);
           expect(parseInt(parts[2], 10)).to.be.at.least(2);
