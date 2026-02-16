@@ -68,6 +68,9 @@ export default class TicketList extends Command {
       description: 'Show tickets across all projects',
       default: false,
     }),
+    label: Flags.string({
+      description: 'Filter by label name',
+    }),
     'group-by': Flags.string({
       char: 'g',
       description: 'Group tickets by field',
@@ -124,6 +127,9 @@ export default class TicketList extends Command {
       }
       if (flags.search) {
         filter.search = flags.search;
+      }
+      if (flags.label) {
+        filter.label = flags.label;
       }
 
       // Determine projectId for the query
