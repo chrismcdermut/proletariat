@@ -74,10 +74,13 @@ interface DatabaseLike {
  *
  * Format: TKT-001, EPIC-001, SPEC-001, PROJ-001
  *
- * Uses pmo_settings table to track the next ID for each entity type.
+ * Uses a GLOBAL counter in pmo_settings (key: next_{entityType}_id) shared
+ * across ALL projects in the workspace. This ensures IDs like TKT-001 are
+ * unique across the entire HQ, not just within a single project.
+ *
  * IDs are zero-padded to 3 digits (001-999), then expand (1000+).
  *
- * Self-healing: If counter is behind MAX(id) in the table, auto-corrects.
+ * Self-healing: If counter is behind MAX(id) across all projects, auto-corrects.
  *
  * @param db - Database instance with prepare method
  * @param entityType - Type of entity (ticket, epic, spec, project)

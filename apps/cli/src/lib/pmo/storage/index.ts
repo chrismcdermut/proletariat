@@ -87,6 +87,7 @@ import { ViewStorage } from './views.js'
 import { RoadmapStorage } from './roadmaps.js'
 import { CategoryStorage } from './categories.js'
 import { LabelStorage } from './labels.js'
+import { ENTITY_PREFIXES } from '../utils.js'
 
 const T = PMO_TABLES
 
@@ -1113,6 +1114,24 @@ export class SQLiteStorage implements PMOStorage {
           insertMeta.run(ticket.id, key, value)
         }
       }
+    }
+
+    // Update the global ticket ID counter to stay ahead of all existing ticket IDs.
+    // This ensures generateEntityId never produces a duplicate TKT-NNN, even when
+    // tickets are inserted directly from board markdown across multiple projects.
+    const ticketPrefix = ENTITY_PREFIXES.ticket
+    const prefixLen = ticketPrefix.length + 1 // "TKT-" = 4 chars
+    const maxResult = this.db.prepare(
+      `SELECT MAX(CAST(SUBSTR(id, ${prefixLen + 1}) AS INTEGER)) as max_num FROM ${T.tickets}`
+    ).get() as { max_num: number | null } | undefined
+    const maxExistingId = maxResult?.max_num || 0
+
+    if (maxExistingId > 0) {
+      const nextId = maxExistingId + 1
+      this.db.prepare(`
+        INSERT INTO ${T.settings} (key, value) VALUES ('next_ticket_id', ?)
+        ON CONFLICT(key) DO UPDATE SET value = MAX(CAST(value AS INTEGER), ?)
+      `).run(String(nextId), String(nextId))
     }
   }
 
