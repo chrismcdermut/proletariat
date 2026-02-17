@@ -1,6 +1,6 @@
-import { Command, Flags } from '@oclif/core';
+import { Flags } from '@oclif/core';
 import { execSync, spawnSync } from 'node:child_process';
-import inquirer from 'inquirer';
+import { PromptCommand } from '../../lib/prompt-command.js';
 import { colors } from '../../lib/colors.js';
 import { machineOutputFlags } from '../../lib/pmo/index.js';
 import { isDockerRunning } from '../../lib/execution/runners.js';
@@ -8,8 +8,6 @@ import {
   shouldOutputJson,
   outputSuccessAsJson,
   outputErrorAsJson,
-  outputPromptAsJson,
-  buildPromptConfig,
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { findHQRoot } from '../../lib/workspace.js';
@@ -19,7 +17,7 @@ import Database from 'better-sqlite3';
 
 const CLAUDE_CREDENTIALS_VOLUME = 'claude-credentials';
 
-export default class Auth extends Command {
+export default class Auth extends PromptCommand {
   static description = 'Set up Claude Code authentication for Docker containers (one-time setup)';
 
   static examples = [
@@ -211,6 +209,7 @@ export default class Auth extends Command {
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
+    const jsonModeConfig = jsonMode ? { flags, commandName: 'agent auth' } : null;
 
     // Handle --api-key shortcut: validate key and save preference
     if (flags['api-key']) {
@@ -223,39 +222,29 @@ export default class Auth extends Command {
       // If Docker isn't running, offer API key as alternative
       const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
 
-      if (jsonMode) {
-        outputErrorAsJson('DOCKER_NOT_RUNNING', 'Docker is not running. Please start Docker Desktop and try again.', createMetadata('agent auth', flags));
-      }
-
       if (hasApiKey && !flags.check) {
         this.log(colors.warning('Docker is not running.'));
         this.log('');
 
-        const authMethodChoices = [
-          { name: 'Use ANTHROPIC_API_KEY instead (API credits)', value: 'apikey' },
-          { name: 'Cancel (start Docker first for OAuth)', value: 'cancel' },
-        ];
-        const authMethodMessage = 'Docker is required for OAuth. Use API key instead?';
-
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'authChoice', authMethodMessage, authMethodChoices, 'apikey'),
-            createMetadata('agent auth', flags)
-          );
-        }
-
-        const { authChoice } = await inquirer.prompt([{
+        const { authChoice } = await this.prompt<{ authChoice: string }>([{
           type: 'list',
           name: 'authChoice',
-          message: authMethodMessage,
-          choices: authMethodChoices,
+          message: 'Docker is required for OAuth. Use API key instead?',
+          choices: [
+            { name: 'Use ANTHROPIC_API_KEY instead (API credits)', value: 'apikey', command: `${this.config.bin} agent auth --api-key --json` },
+            { name: 'Cancel (start Docker first for OAuth)', value: 'cancel' },
+          ],
           default: 'apikey',
-        }]);
+        }], jsonModeConfig);
 
         if (authChoice === 'apikey') {
           this.handleApiKey(jsonMode, flags);
           return;
         }
+      }
+
+      if (jsonMode) {
+        outputErrorAsJson('DOCKER_NOT_RUNNING', 'Docker is not running. Please start Docker Desktop and try again.', createMetadata('agent auth', flags));
       }
       this.error('Docker is not running. Please start Docker Desktop and try again.');
     }
@@ -324,32 +313,19 @@ export default class Auth extends Command {
     // Prompt for auth method choice (OAuth or API key)
     const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
 
-    const methodChoices = [
-      { name: 'OAuth (recommended — uses Max subscription)', value: 'oauth' },
-    ];
-    if (hasApiKey) {
-      methodChoices.push({ name: 'API key (uses API credits, not Max subscription)', value: 'apikey' });
-    }
-
     // Only prompt if there's a real choice (API key is available)
     let selectedMethod = 'oauth';
     if (hasApiKey) {
-      const methodMessage = 'Which authentication method would you like to use?';
-
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'selectedMethod', methodMessage, methodChoices, 'oauth'),
-          createMetadata('agent auth', flags)
-        );
-      }
-
-      const { selectedMethod: chosen } = await inquirer.prompt([{
+      const { selectedMethod: chosen } = await this.prompt<{ selectedMethod: string }>([{
         type: 'list',
         name: 'selectedMethod',
-        message: methodMessage,
-        choices: methodChoices,
+        message: 'Which authentication method would you like to use?',
+        choices: [
+          { name: 'OAuth (recommended — uses Max subscription)', value: 'oauth', command: `${this.config.bin} agent auth --force --json` },
+          { name: 'API key (uses API credits, not Max subscription)', value: 'apikey', command: `${this.config.bin} agent auth --api-key --json` },
+        ],
         default: 'oauth',
-      }]);
+      }], jsonModeConfig);
       selectedMethod = chosen;
     }
 
