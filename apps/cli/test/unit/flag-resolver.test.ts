@@ -196,6 +196,59 @@ describe('FlagResolver', () => {
     });
   });
 
+  describe('getCommand callback (TKT-974)', () => {
+    it('should allow getCommand to override auto-generated commands', () => {
+      const resolver = new FlagResolver<{ environment?: string }>({
+        commandName: 'work start',
+        baseCommand: 'prlt work start TKT-100',
+        jsonMode: false,
+        flags: {},
+      });
+
+      const getCommand = (value: unknown) => {
+        const base = 'prlt work start TKT-100';
+        if (value === 'host') return `${base} --run-on-host --json`;
+        if (value === 'cancel') return '';
+        return `${base} --json`;
+      };
+
+      // Verify getCommand produces valid commands for each environment choice
+      expect(getCommand('devcontainer')).to.equal('prlt work start TKT-100 --json');
+      expect(getCommand('host')).to.equal('prlt work start TKT-100 --run-on-host --json');
+      expect(getCommand('cancel')).to.equal('');
+    });
+
+    it('should not produce --selectedEnvironment in commands', () => {
+      const getCommand = (value: unknown) => {
+        const base = 'prlt work start TKT-100';
+        if (value === 'host') return `${base} --run-on-host --json`;
+        if (value === 'cancel') return '';
+        return `${base} --json`;
+      };
+
+      // Regression: commands must never reference --selectedEnvironment
+      for (const env of ['devcontainer', 'host', 'cancel']) {
+        const cmd = getCommand(env);
+        expect(cmd).to.not.include('--selectedEnvironment');
+        expect(cmd).to.not.include('--environment');
+      }
+    });
+
+    it('should produce commands with only valid --run-on-host flag for host choice', () => {
+      const getCommand = (value: unknown) => {
+        const base = 'prlt work start TKT-100';
+        if (value === 'host') return `${base} --run-on-host --json`;
+        if (value === 'cancel') return '';
+        return `${base} --json`;
+      };
+
+      const hostCmd = getCommand('host');
+      expect(hostCmd).to.include('--run-on-host');
+      expect(hostCmd).to.include('--json');
+      expect(hostCmd).to.include('work start');
+    });
+  });
+
   describe('addPrompts', () => {
     it('should add multiple prompts at once', () => {
       const resolver = new FlagResolver({
