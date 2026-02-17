@@ -1307,9 +1307,12 @@ export default class WorkStart extends PMOCommand {
       } else if (flags['no-pr']) {
         createPR = false
       } else if (ghAvailable) {
-        // In JSON mode with --yes, default to creating PR for code-modifying actions
-        if (jsonMode && flags.yes) {
-          createPR = context.modifiesCode !== false
+        if (context.modifiesCode === false) {
+          // Non-code-modifying actions (groom, review, resolve) default to no PR
+          createPR = false
+        } else if (jsonMode && flags.yes) {
+          // In JSON mode with --yes, default to creating PR for code-modifying actions
+          createPR = true
         } else {
           // Use FlagResolver for PR choice
           const prResolver = new FlagResolver<{ prChoice?: string }>({
