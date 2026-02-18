@@ -1,5 +1,4 @@
 
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
@@ -65,7 +64,7 @@ export default class TicketBulk extends PMOCommand {
       return { name: choice.emoji ? `${choice.emoji} ${choice.name}` : choice.name, value: choice.value };
     };
 
-    const { action } = await inquirer.prompt([{
+    const { action } = await this.prompt<{ action: string }>([{
       type: 'list',
       name: 'action',
       message: 'What would you like to do?',
@@ -73,18 +72,15 @@ export default class TicketBulk extends PMOCommand {
         withEmoji('list'),
         withEmoji('move'),
         withEmoji('complete'),
-        new inquirer.Separator(),
         withEmoji('reassign'),
         withEmoji('epic'),
         withEmoji('spec'),
         withEmoji('project'),
         withEmoji('update'),
-        new inquirer.Separator(),
         withEmoji('delete'),
-        new inquirer.Separator(),
         withEmoji('cancel'),
       ]
-    }]);
+    }], null);
 
     if (action === 'cancel') {
       this.log(styles.muted('Operation cancelled.'));

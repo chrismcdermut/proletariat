@@ -1,5 +1,4 @@
 
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
   shouldOutputJson,
@@ -59,18 +58,15 @@ export default class Ticket extends PMOCommand {
     }
 
     // Show interactive menu
-    const { action } = await inquirer.prompt([{
+    const { action } = await this.prompt<{ action: string }>([{
       type: 'list',
       name: 'action',
       message: '🎫 ' + message,
       choices: [
         ...menuChoices.slice(0, 11),
-        new inquirer.Separator('──────────────'),
-        menuChoices[11],
-        menuChoices[12],
-        menuChoices[13],
+        ...menuChoices.slice(11),
       ],
-    }]);
+    }], null);
 
     if (action === 'cancel') {
       return;
