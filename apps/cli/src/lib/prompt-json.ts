@@ -230,9 +230,16 @@ export interface MachineOutputFlags {
 /**
  * Check if the current environment is non-TTY (piped output)
  *
- * @returns true if stdout is not a TTY (e.g., piped to another process)
+ * Returns true if:
+ * - stdout is not a TTY (e.g., piped to another process)
+ * - PRLT_JSON=1 environment variable is set (overrides TTY detection)
+ *
+ * @returns true if stdout is not a TTY or PRLT_JSON=1 is set
  */
 export function isNonTTY(): boolean {
+  if (process.env.PRLT_JSON === '1' || process.env.PRLT_JSON === 'true') {
+    return true
+  }
   return !process.stdout.isTTY
 }
 
@@ -241,6 +248,7 @@ export function isNonTTY(): boolean {
  *
  * Returns true if:
  * - The --json flag is set (or -m/--machine aliases)
+ * - The PRLT_JSON=1 environment variable is set
  * - The environment is non-TTY (piped output)
  *
  * @param flags - Command flags object
@@ -252,7 +260,7 @@ export function shouldOutputJson(flags: JsonFlags): boolean {
     return true
   }
 
-  // Automatic detection for non-TTY environments
+  // Automatic detection for non-TTY environments (includes PRLT_JSON env var)
   return isNonTTY()
 }
 
@@ -266,6 +274,7 @@ export const isAgentMode = shouldOutputJson
  *
  * Returns true if:
  * - The --json flag is set (or -m/--machine aliases)
+ * - The PRLT_JSON=1 environment variable is set
  * - The environment is non-TTY (piped output)
  *
  * @param flags - Command flags object
@@ -277,7 +286,7 @@ export function isMachineOutput(flags: MachineOutputFlags): boolean {
     return true
   }
 
-  // Automatic detection for non-TTY environments
+  // Automatic detection for non-TTY environments (includes PRLT_JSON env var)
   return isNonTTY()
 }
 
