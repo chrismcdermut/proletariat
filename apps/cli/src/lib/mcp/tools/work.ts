@@ -42,8 +42,8 @@ export function registerWorkTools(server: McpServer, ctx: McpToolContext): void 
   )
 
   strictTool(server,
-    'work_start',
-    'Start working on a ticket (moves to In Progress)',
+    'work_assign',
+    'Assign a ticket to someone for work preparation (does NOT move to In Progress — use the CLI "work start" command to actually start work with an agent/session)',
     {
       ticket_id: z.string().describe('Ticket ID'),
       assignee: z.string().optional().describe('Who is working'),
@@ -55,18 +55,14 @@ export function registerWorkTools(server: McpServer, ctx: McpToolContext): void 
         if (params.assignee) {
           await ctx.storage.updateTicket(params.ticket_id, { assignee: params.assignee })
         }
-        const columns = ctx.storage.getColumnNames(ticket.projectId!)
-        const progressCol = columns.find((c: string) =>
-          c.toLowerCase().includes('progress') || c.toLowerCase().includes('doing')
-        ) || columns[Math.min(1, columns.length - 1)]
-        const moved = await ctx.storage.moveTicket(ticket.projectId!, params.ticket_id, progressCol)
+        const updated = await ctx.storage.getTicket(params.ticket_id)
         return {
           content: [{
             type: 'text' as const,
             text: JSON.stringify({
               success: true,
-              ticket: formatTicket(moved),
-              message: `Started ${moved.id}: ${moved.title}`,
+              ticket: formatTicket(updated!),
+              message: `Assigned ${updated!.id}: ${updated!.title}${params.assignee ? ` to ${params.assignee}` : ''}`,
             }, null, 2),
           }],
         }
