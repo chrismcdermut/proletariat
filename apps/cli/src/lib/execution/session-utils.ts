@@ -2,10 +2,38 @@
  * Session Utilities
  *
  * Shared utilities for tmux session naming, parsing, and discovery.
- * Used by session/list.ts and session/attach.ts commands.
+ * Used by session/list.ts, session/attach.ts, session/health.ts, and session/peek.ts commands.
  */
 
 import { execSync } from 'node:child_process'
+
+/**
+ * Capture the last N lines from a tmux pane.
+ * Supports both host tmux sessions and container tmux sessions (via docker exec).
+ *
+ * @param sessionId - The tmux session ID to capture from
+ * @param lines - Number of scrollback lines to capture
+ * @param containerId - Optional container ID for container-based sessions
+ * @returns The captured pane content, or null if capture fails
+ */
+export function captureTmuxPane(sessionId: string, lines: number, containerId?: string): string | null {
+  try {
+    const captureCmd = `tmux capture-pane -t "${sessionId}" -p -S -${lines}`
+    if (containerId) {
+      return execSync(
+        `docker exec ${containerId} bash -c '${captureCmd}'`,
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 }
+      ).trim()
+    }
+    return execSync(captureCmd, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+    }).trim()
+  } catch {
+    return null
+  }
+}
 
 /**
  * Known action names used in session naming.
