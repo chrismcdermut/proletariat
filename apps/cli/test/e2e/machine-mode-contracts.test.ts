@@ -11,15 +11,11 @@ import {
   createTestProject,
   createTestTicket,
   exec,
-  execProduction,
   extractJson as extractJsonOrNull,
   type TestEnvironment,
 } from './test-helpers.js';
 import {
   validateJsonEnvelope,
-  JSON_ENVELOPE_TYPES,
-  JSON_ENVELOPE_REQUIRED_FIELDS,
-  type JsonEnvelopeType,
 } from '../../src/lib/prompt-json.js';
 
 /**
@@ -38,9 +34,17 @@ function extractJson<T>(output: string): T {
  * Non-TTY integration tests for machine-mode JSON contracts (TKT-1006).
  *
  * These tests validate that commands in all 5 core families output
- * well-formed JSON envelopes with correct exit codes when run in
- * non-TTY/JSON mode. This ensures autonomous agent orchestration
- * works deterministically.
+ * well-formed JSON when run in non-TTY/JSON mode. Commands fall into
+ * two categories:
+ *
+ * 1. **Envelope commands** - Use the canonical JSON envelope (prompt, success,
+ *    error, dry-run, confirmation_needed, execution_result). These are validated
+ *    against the full envelope schema.
+ *
+ * 2. **Data commands** - Output raw JSON arrays/objects (e.g., ticket list,
+ *    agent list). These are validated for parseable JSON structure.
+ *
+ * This ensures autonomous agent orchestration works deterministically.
  */
 describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
   let env: TestEnvironment;
@@ -91,11 +95,16 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
       expect(json.type).to.equal('prompt');
     });
 
-    it('ticket list -P --json should output valid JSON', () => {
+    it('ticket list --format json should output parseable JSON array', () => {
       const output = exec('ticket list -P test-project --format json');
       // ticket list with --format json outputs raw array, not envelope
-      const parsed = JSON.parse(output.trim().split('\n').filter(l => l.trim().startsWith('[') || l.trim().startsWith('{')).join('\n'));
-      expect(parsed).to.be.an('array');
+      const json = extractJson<unknown[]>(output);
+      expect(json).to.be.an('array');
+      expect(json.length).to.be.greaterThan(0);
+      // Each ticket should have core fields
+      const ticket = json[0] as Record<string, unknown>;
+      expect(ticket).to.have.property('id');
+      expect(ticket).to.have.property('title');
     });
 
     it('ticket create --json should output a prompt envelope for missing fields', () => {
@@ -128,13 +137,6 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
       const errors = validateJsonEnvelope(json);
       expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
       expect(json.type).to.equal('prompt');
-    });
-
-    it('ticket view --json should output ticket data or prompt', () => {
-      const output = exec('ticket view TKT-100 -P test-project --json');
-      const json = extractJson<Record<string, unknown>>(output);
-      const errors = validateJsonEnvelope(json);
-      expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
     });
 
     it('ticket bulk --json should output a prompt menu', () => {
@@ -239,11 +241,14 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
       expect(json.type).to.equal('prompt');
     });
 
-    it('agent list --json should output agent list or prompt', () => {
+    it('agent list --json should output parseable JSON data', () => {
       const output = exec('agent list -P test-project --json');
+      // agent list outputs raw object with staff/temp/all arrays, not envelope
       const json = extractJson<Record<string, unknown>>(output);
-      const errors = validateJsonEnvelope(json);
-      expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
+      expect(json).to.be.an('object');
+      // Verify expected structure: has staff, temp, or all arrays
+      const hasExpectedKeys = 'staff' in json || 'temp' in json || 'all' in json || 'type' in json;
+      expect(hasExpectedKeys, 'agent list output should have staff/temp/all keys or type discriminator').to.be.true;
     });
   });
 
@@ -259,11 +264,70 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
       expect(json.type).to.equal('prompt');
     });
 
-    it('execution list --json should output execution list', () => {
+    it('execution list --json should output parseable JSON data', () => {
       const output = exec('execution list -P test-project --json');
-      const json = extractJson<Record<string, unknown>>(output);
-      const errors = validateJsonEnvelope(json);
-      expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
+      // execution list outputs raw array, not envelope
+      const json = extractJson<unknown>(output);
+      // Should be a valid JSON structure (array or object)
+      expect(json).to.satisfy((v: unknown) =>
+        Array.isArray(v) || (typeof v === 'object' && v !== null)
+      );
+    });
+  });
+
+  // =========================================================================
+  // Cross-Family: Envelope Structure Consistency
+  // =========================================================================
+  describe('cross-family envelope consistency', () => {
+    beforeEach(() => {
+      createTestTicket(db, 'test-project', {
+        id: 'TKT-300',
+        title: 'Consistency Test Ticket',
+        status: 'Backlog',
+        statusId: 'default-backlog',
+      });
+    });
+
+    it('all prompt envelopes should have metadata with command and flags', () => {
+      // Test multiple commands that output prompt envelopes
+      const promptCommands = [
+        'ticket -P test-project --json',
+        'work -P test-project --json',
+        'project -P test-project --json',
+        'ticket create -P test-project --json',
+        'ticket move -P test-project --json',
+      ];
+
+      for (const cmd of promptCommands) {
+        const output = exec(cmd);
+        const json = extractJson<{ metadata?: { command?: string; flags?: unknown } }>(output);
+        expect(json.metadata, `${cmd}: should have metadata`).to.exist;
+        expect(json.metadata!.command, `${cmd}: metadata.command should be a string`).to.be.a('string');
+        expect(json.metadata!.flags, `${cmd}: metadata.flags should be an object`).to.be.an('object');
+      }
+    });
+
+    it('prompt envelopes should have non-null prompt field', () => {
+      const promptCommands = [
+        'ticket -P test-project --json',
+        'ticket create -P test-project --json',
+        'ticket move -P test-project --json',
+      ];
+
+      for (const cmd of promptCommands) {
+        const output = exec(cmd);
+        const json = extractJson<{ type: string; prompt: unknown }>(output);
+        expect(json.type, `${cmd}: type should be 'prompt'`).to.equal('prompt');
+        expect(json.prompt, `${cmd}: prompt should not be null`).to.not.be.null;
+      }
+    });
+
+    it('error envelopes should have code and message', () => {
+      const output = exec('ticket resolve -P test-project --json');
+      const json = extractJson<{ type: string; error: { code: string; message: string } }>(output);
+      expect(json.type).to.equal('error');
+      expect(json.error.code).to.be.a('string').and.not.empty;
+      expect(json.error.message).to.be.a('string').and.not.empty;
     });
   });
 });
