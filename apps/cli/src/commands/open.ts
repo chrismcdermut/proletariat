@@ -18,7 +18,6 @@ import {
   DisplayMode,
   OutputMode,
   ExecutionContext,
-  DEFAULT_EXECUTION_CONFIG,
 } from '../lib/execution/types.js';
 import {
   runExecution,
@@ -181,21 +180,6 @@ export default class Open extends PMOCommand {
 
     const displayMode = (flags['display-mode'] || 'foreground') as DisplayMode;
     const editor = flags.editor || 'claude';
-
-    // Determine the executor command
-    let executorCmd: string;
-    switch (editor) {
-      case 'cursor':
-        executorCmd = 'cursor';
-        break;
-      case 'windsurf':
-        executorCmd = 'windsurf';
-        break;
-      case 'claude':
-      default:
-        executorCmd = 'claude-code';
-        break;
-    }
 
     // Build a lightweight execution context (no ticket, no action tracking)
     const sessionName = `open-${agentName}`;
