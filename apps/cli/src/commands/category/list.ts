@@ -1,5 +1,6 @@
 import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 import { styles } from '../../lib/styles.js';
 import { Category, CategoryType } from '../../lib/pmo/types.js';
 
@@ -49,7 +50,7 @@ export default class CategoryList extends PMOCommand {
 
     const categories = await this.storage.listCategories(filter);
 
-    if (flags.json || flags.machine) {
+    if (shouldOutputJson(flags)) {
       this.log(JSON.stringify(categories, null, 2));
       return;
     }

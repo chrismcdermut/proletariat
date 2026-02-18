@@ -80,7 +80,7 @@ export default class ExecutionView extends PMOCommand {
           return
         }
 
-        const jsonModeConfig = (flags.json || flags.machine) ? { flags, commandName: 'execution view' } : null
+        const jsonModeConfig = shouldOutputJson(flags) ? { flags, commandName: 'execution view' } : null
 
         const { selectedId } = await this.prompt<{ selectedId: string }>([
           {

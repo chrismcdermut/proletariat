@@ -1,5 +1,6 @@
 import { Args, Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 import { styles } from '../../lib/styles.js';
 
 export default class LabelDelete extends PMOCommand {
@@ -29,7 +30,7 @@ export default class LabelDelete extends PMOCommand {
 
     await this.storage.deleteLabel(args.id);
 
-    if (flags.machine || flags.json) {
+    if (shouldOutputJson(flags)) {
       this.log(JSON.stringify({ success: true, deleted: args.id }));
       return;
     }

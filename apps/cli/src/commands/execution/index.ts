@@ -1,6 +1,7 @@
 
 import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { shouldOutputJson } from '../../lib/prompt-json.js'
 
 export default class Execution extends PMOCommand {
   static description = 'Single execution operations (view, logs, stop)'
@@ -23,7 +24,7 @@ export default class Execution extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(Execution)
 
-    const jsonModeConfig = (flags.json || flags.machine) ? { flags, commandName: 'execution' } : null
+    const jsonModeConfig = shouldOutputJson(flags) ? { flags, commandName: 'execution' } : null
 
     const { action } = await this.prompt<{ action: string }>([
       {

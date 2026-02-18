@@ -15,6 +15,7 @@ import {
 import {
   outputConfirmationNeededAsJson,
   createMetadata,
+  shouldOutputJson,
 } from '../../lib/prompt-json.js';
 import { machineOutputFlags } from '../../lib/pmo/index.js';
 
@@ -59,7 +60,7 @@ export default class WorkspacePrune extends PromptCommand {
     // In non-TTY mode without --json (CI, scripts, piped), default to dry-run unless --force is set.
     // In --json mode, we use confirmation_needed output instead of auto-dry-run so agents can review and confirm.
     const isNonTTY = !process.stdout.isTTY;
-    const effectiveDryRun = flags['dry-run'] || (!(flags.json || flags.machine) && isNonTTY && !flags.force);
+    const effectiveDryRun = flags['dry-run'] || (!shouldOutputJson(flags) && isNonTTY && !flags.force);
 
     // Find stale entries
     const staleWorkspaces = this.findStaleWorkspaces();
@@ -68,7 +69,7 @@ export default class WorkspacePrune extends PromptCommand {
     const totalStale = staleWorkspaces.length + staleAgents.length;
 
     // JSON output
-    if (flags.json || flags.machine) {
+    if (shouldOutputJson(flags)) {
       const output = {
         dryRun: effectiveDryRun,
         staleWorkspaces: staleWorkspaces.map(w => ({

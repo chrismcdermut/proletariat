@@ -1,5 +1,6 @@
 import { Flags } from '@oclif/core'
 import { PMOCommand, pmoBaseFlags } from '../lib/pmo/base-command.js'
+import { shouldOutputJson } from '../lib/prompt-json.js'
 import { styles, divider } from '../lib/styles.js'
 import {
   loadDietConfig,
@@ -37,6 +38,7 @@ export default class Pull extends PMOCommand {
 
   protected async execute(): Promise<void> {
     const { flags } = await this.parse(Pull)
+    const jsonMode = shouldOutputJson(flags)
     const projectId = await this.requireProject()
     const count = flags.count
     const dryRun = flags['dry-run']
@@ -87,6 +89,29 @@ export default class Pull extends PMOCommand {
       dietConfig,
       count,
     )
+
+    // JSON output path
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        type: 'success',
+        result: {
+          dryRun,
+          pulled: result.pulled,
+          skippedBlocked: result.skippedBlocked,
+          skippedCeiling: result.skippedCeiling,
+          totalCandidates: result.totalCandidates,
+          targetStatus: targetStatus.name,
+        }
+      }, null, 2))
+      // Still move tickets if not dry-run
+      if (!dryRun && result.pulled.length > 0) {
+        for (const ticket of result.pulled) {
+          // eslint-disable-next-line no-await-in-loop -- Sequential moves to maintain ordering
+          await this.storage.moveTicket(projectId, ticket.id, targetStatus.name)
+        }
+      }
+      return
+    }
 
     // Display results
     this.displayPullResults(result, dietConfig, targetStatus, dryRun)

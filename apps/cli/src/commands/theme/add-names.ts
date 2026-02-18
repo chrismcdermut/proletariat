@@ -3,6 +3,8 @@ import chalk from 'chalk';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { isValidAgentName, normalizeAgentName } from '../../lib/themes.js';
 import { getTheme, addThemeNames, getThemeNames } from '../../lib/database/index.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 
 export default class ThemeAddNames extends Command {
   static description = 'Add names to a theme';
@@ -11,6 +13,10 @@ export default class ThemeAddNames extends Command {
     '<%= config.bin %> <%= command.id %> greek-gods zeus athena poseidon',
     '<%= config.bin %> <%= command.id %> my-theme agent-a agent-b',
   ];
+
+  static flags = {
+    ...machineOutputFlags,
+  };
 
   static args = {
     theme: Args.string({
@@ -26,7 +32,8 @@ export default class ThemeAddNames extends Command {
   static strict = false; // Allow multiple name arguments
 
   async run(): Promise<void> {
-    const { args, argv } = await this.parse(ThemeAddNames);
+    const { args, argv, flags } = await this.parse(ThemeAddNames);
+    const jsonMode = shouldOutputJson(flags)
 
     try {
       const workspaceInfo = getWorkspaceInfo();
@@ -75,6 +82,11 @@ export default class ThemeAddNames extends Command {
 
       // Get updated count
       const allNames = getThemeNames(workspaceInfo.path, theme.id);
+
+      if (jsonMode) {
+        this.log(JSON.stringify({ type: 'success', result: { theme: args.theme, added: validNames, totalNames: allNames.length } }, null, 2))
+        return
+      }
 
       this.log(chalk.green(`\n Added ${validNames.length} name(s) to ${theme.display_name}:`));
       this.log(chalk.gray(`   ${validNames.join(', ')}`));

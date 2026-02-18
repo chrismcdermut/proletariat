@@ -155,7 +155,7 @@ export default class ExecutionConfig extends PMOCommand {
       }
 
       // Handle --list or --json flag without --setting (just show config)
-      if ((flags.list || (flags.json || flags.machine)) && !flags.setting) {
+      if ((flags.list || shouldOutputJson(flags)) && !flags.setting) {
         if (jsonMode) {
           outputSuccessAsJson({
             terminal: {

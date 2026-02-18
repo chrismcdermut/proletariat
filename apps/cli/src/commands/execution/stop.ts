@@ -7,6 +7,7 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { shouldOutputJson } from '../../lib/prompt-json.js'
 import type { AgentWork } from '../../lib/execution/types.js'
 
 export default class ExecutionStop extends PMOCommand {
@@ -161,7 +162,7 @@ export default class ExecutionStop extends PMOCommand {
         return
       }
 
-      const jsonModeConfig = (flags.json || flags.machine) ? { flags: flags as Record<string, unknown>, commandName: 'execution stop' } : null
+      const jsonModeConfig = shouldOutputJson(flags as Record<string, unknown>) ? { flags: flags as Record<string, unknown>, commandName: 'execution stop' } : null
 
       const { selectedId } = await this.prompt<{ selectedId: string }>([
         {
