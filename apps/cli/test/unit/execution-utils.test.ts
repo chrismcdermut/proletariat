@@ -7,6 +7,8 @@ import {
   shouldUseControlMode,
   buildTmuxMouseOption,
   buildTmuxAttachCommand,
+  buildTmuxScript,
+  getDockerAutoRemoveFlags,
 } from '../../src/lib/execution/runners.js'
 import type { ExecutionContext, DisplayMode, TerminalApp } from '../../src/lib/execution/types.js'
 
@@ -292,6 +294,80 @@ describe('Execution Utils', () => {
       const mode: DisplayMode = 'background'
       expect(mode).to.equal('background')
       // Note: Actual execution tested in e2e tests
+    })
+  })
+
+  describe('Background Mode Container Cleanup (TKT-988)', () => {
+    describe('buildTmuxScript', () => {
+      const sessionName = 'TKT-988-implement-test-agent'
+      const claudeCmd = 'claude --permission-mode bypassPermissions "$(cat /tmp/prompt.txt)"'
+
+      it('should use kill 1 instead of exec bash in background mode', () => {
+        const script = buildTmuxScript(sessionName, claudeCmd, 'background')
+        expect(script).to.include('kill 1')
+        expect(script).to.not.include('exec bash')
+      })
+
+      it('should show cleanup message in background mode', () => {
+        const script = buildTmuxScript(sessionName, claudeCmd, 'background')
+        expect(script).to.include('Cleaning up container...')
+      })
+
+      it('should use exec bash in terminal mode (regression)', () => {
+        const script = buildTmuxScript(sessionName, claudeCmd, 'terminal')
+        expect(script).to.include('exec bash')
+        expect(script).to.not.include('kill 1')
+      })
+
+      it('should use exec bash in foreground mode (regression)', () => {
+        const script = buildTmuxScript(sessionName, claudeCmd, 'foreground')
+        expect(script).to.include('exec bash')
+        expect(script).to.not.include('kill 1')
+      })
+
+      it('should show inspection message in terminal mode', () => {
+        const script = buildTmuxScript(sessionName, claudeCmd, 'terminal')
+        expect(script).to.include('Press Enter to close or run more commands')
+      })
+
+      it('should include claude command in all modes', () => {
+        for (const mode of ['background', 'terminal', 'foreground'] as DisplayMode[]) {
+          const script = buildTmuxScript(sessionName, claudeCmd, mode)
+          expect(script).to.include(claudeCmd)
+        }
+      })
+
+      it('should set TERM and COLORTERM in all modes', () => {
+        for (const mode of ['background', 'terminal', 'foreground'] as DisplayMode[]) {
+          const script = buildTmuxScript(sessionName, claudeCmd, mode)
+          expect(script).to.include('export TERM=xterm-256color')
+          expect(script).to.include('export COLORTERM=truecolor')
+        }
+      })
+
+      it('should unset CI in all modes', () => {
+        for (const mode of ['background', 'terminal', 'foreground'] as DisplayMode[]) {
+          const script = buildTmuxScript(sessionName, claudeCmd, mode)
+          expect(script).to.include('unset CI')
+        }
+      })
+    })
+
+    describe('getDockerAutoRemoveFlags', () => {
+      it('should return --rm for background mode', () => {
+        const flags = getDockerAutoRemoveFlags('background')
+        expect(flags).to.deep.equal(['--rm'])
+      })
+
+      it('should return empty array for terminal mode', () => {
+        const flags = getDockerAutoRemoveFlags('terminal')
+        expect(flags).to.deep.equal([])
+      })
+
+      it('should return empty array for foreground mode', () => {
+        const flags = getDockerAutoRemoveFlags('foreground')
+        expect(flags).to.deep.equal([])
+      })
     })
   })
 })
