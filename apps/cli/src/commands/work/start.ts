@@ -37,7 +37,7 @@ import {
   generateBranchName,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
-import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, dockerCredentialsExist, getDockerCredentialInfo } from '../../lib/execution/runners.js'
+import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, dockerCredentialsExist, getDockerCredentialInfo, isClaudeExecutor, getExecutorDisplayName } from '../../lib/execution/runners.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
 import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
@@ -1143,7 +1143,8 @@ export default class WorkStart extends PMOCommand {
       let useApiKey = flags['use-api-key'] || false
 
       // Check Docker credentials for devcontainer environment
-      if (environment === 'devcontainer' && !useApiKey) {
+      // Only needed for Claude Code executor - other executors handle auth differently
+      if (environment === 'devcontainer' && !useApiKey && isClaudeExecutor(executor)) {
         const hasCredentials = dockerCredentialsExist()
         if (!hasCredentials) {
           // In JSON mode with --yes, continue anyway (agent can run /login)
@@ -1281,10 +1282,11 @@ export default class WorkStart extends PMOCommand {
           flags: { 'permission-mode': flags['permission-mode'] },
         })
 
+        const executorName = getExecutorDisplayName(executor)
         permissionResolver.addPrompt({
           flagName: 'permission-mode',
           type: 'list',
-          message: `Permission mode for Claude Code${containerNote}:`,
+          message: `Permission mode for ${executorName}${containerNote}:`,
           default: 'danger',
           choices: () => [
             { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
@@ -1355,7 +1357,7 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.warning(`   Permissions: ⚠️  danger (--dangerously-skip-permissions)`))
         }
 
-        this.log(styles.muted(`   Output: ${outputMode === 'interactive' ? 'streaming (watch Claude work)' : 'print (final result only)'}`))
+        this.log(styles.muted(`   Output: ${outputMode === 'interactive' ? `streaming (watch ${getExecutorDisplayName(executor)} work)` : 'print (final result only)'}`))
         if (ghAvailable) {
           this.log(styles.muted(`   Create PR: ${createPR ? 'yes (when work is ready)' : 'no'}`))
         }
@@ -1819,13 +1821,15 @@ export default class WorkStart extends PMOCommand {
     }
 
     // Prompt for permissions mode once for all tickets (TKT-513)
+    const batchExecutor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
+    const batchExecutorName = getExecutorDisplayName(batchExecutor)
     let batchPermissionMode: 'danger' | 'safe' = flags['permission-mode'] as 'danger' | 'safe'
     if (!batchPermissionMode) {
       const { permissionMode } = await this.prompt<{ permissionMode: string }>([
         {
           type: 'list',
           name: 'permissionMode',
-          message: 'Permission mode for Claude Code:',
+          message: `Permission mode for ${batchExecutorName}:`,
           choices: [
             { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger', command: 'prlt work start --all --permission-mode danger --json' },
             { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe', command: 'prlt work start --all --permission-mode safe --json' },
@@ -1845,7 +1849,8 @@ export default class WorkStart extends PMOCommand {
     // Track whether user explicitly chose to use API key instead of OAuth
     let batchUseApiKey = false
 
-    if (anyUseDevcontainer) {
+    // Credential check only applies to Claude Code executor
+    if (anyUseDevcontainer && isClaudeExecutor(batchExecutor)) {
       const hasCredentials = dockerCredentialsExist()
       if (!hasCredentials) {
         const hasApiKey = !!process.env.ANTHROPIC_API_KEY

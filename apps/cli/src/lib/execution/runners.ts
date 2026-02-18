@@ -189,7 +189,7 @@ export function getDockerCredentialInfo(): { expiresAt: Date; subscriptionType?:
 // Executor Commands
 // =============================================================================
 
-function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissions: boolean = true): { cmd: string; args: string[] } {
+export function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissions: boolean = true): { cmd: string; args: string[] } {
   switch (executor) {
     case 'claude-code':
       if (skipPermissions) {
@@ -214,6 +214,40 @@ function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissi
         return { cmd: 'claude', args: ['--permission-mode', 'bypassPermissions', '--dangerously-skip-permissions', prompt] }
       }
       return { cmd: 'claude', args: [prompt] }
+  }
+}
+
+/**
+ * Check if an executor is Claude Code.
+ * Used to gate Claude-specific flags and configuration.
+ */
+export function isClaudeExecutor(executor: ExecutorType): boolean {
+  return executor === 'claude-code'
+}
+
+/**
+ * Get the display name for an executor type.
+ */
+export function getExecutorDisplayName(executor: ExecutorType): string {
+  switch (executor) {
+    case 'claude-code': return 'Claude Code'
+    case 'codex': return 'Codex'
+    case 'aider': return 'Aider'
+    case 'custom': return 'Custom'
+    default: return 'Claude Code'
+  }
+}
+
+/**
+ * Get the npm package name for an executor (for container installation).
+ */
+export function getExecutorPackage(executor: ExecutorType): string | null {
+  switch (executor) {
+    case 'claude-code': return '@anthropic-ai/claude-code'
+    case 'codex': return '@openai/codex'
+    case 'aider': return null  // aider is Python-based, installed via pip
+    case 'custom': return null
+    default: return '@anthropic-ai/claude-code'
   }
 }
 
@@ -371,7 +405,7 @@ export async function runHost(
   const prompt = buildPrompt(context)
   // Terminal - use sandboxed setting
   const skipPermissions = !config.sandboxed
-  const { cmd } = getExecutorCommand(executor, prompt, skipPermissions)
+  const { cmd, args } = getExecutorCommand(executor, prompt, skipPermissions)
 
   // Write command to temp script to avoid shell escaping issues
   // Use HQ .proletariat/scripts if available, otherwise fallback to home dir
@@ -387,12 +421,24 @@ export async function runHost(
   // Write prompt to separate file to avoid any shell escaping issues
   fs.writeFileSync(promptPath, prompt, { mode: 0o644 })
 
-  // Build flags based on config
-  const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
-  // outputMode: 'print' adds -p flag (final result only), 'interactive' shows streaming UI
-  const printFlag = config.outputMode === 'print' ? '-p ' : ''
+  // Build the executor command using getExecutorCommand() output
+  // For Claude Code, we also support outputMode and additional flags
+  // For non-Claude executors, we use the command as-is from getExecutorCommand()
+  let executorInvocation: string
+  if (isClaudeExecutor(executor)) {
+    // Build flags based on config - Claude-specific flags
+    const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
+    // outputMode: 'print' adds -p flag (final result only), 'interactive' shows streaming UI
+    const printFlag = config.outputMode === 'print' ? '-p ' : ''
+    executorInvocation = `${cmd} ${permissionsFlag}${printFlag}"$(cat "$PROMPT_PATH")"`
+  } else {
+    // Non-Claude executors: build command from getExecutorCommand() args
+    // Replace the prompt in args with a file read to avoid shell escaping
+    const argsWithFile = args.map(a => a === prompt ? '"$(cat "$PROMPT_PATH")"' : `"${a}"`)
+    executorInvocation = `${cmd} ${argsWithFile.join(' ')}`
+  }
 
-  // Build script that runs claude and keeps shell open after completion
+  // Build script that runs executor and keeps shell open after completion
   const setTitleCmds = getSetTitleCommands(windowTitle)
   const scriptContent = `#!/bin/bash
 # Auto-generated script for ticket ${context.ticketId}
@@ -402,7 +448,7 @@ ${setTitleCmds}
 echo "🚀 Starting: ${sessionName}"
 echo ""
 cd "${context.worktreePath}"
-${cmd} ${permissionsFlag}${printFlag}"$(cat "$PROMPT_PATH")"
+${executorInvocation}
 
 # Clean up script and prompt files
 rm -f "$SCRIPT_PATH" "$PROMPT_PATH"
@@ -859,7 +905,8 @@ function createDockerContainer(
   context: ExecutionContext,
   containerName: string,
   imageName: string,
-  config: ExecutionConfig
+  config: ExecutionConfig,
+  executor: ExecutorType = 'claude-code'
 ): boolean {
   // Build mount flags
   // KEY: Use a named Docker volume for Claude credentials - this is how devcontainer.json
@@ -885,7 +932,8 @@ function createDockerContainer(
       repoName => `-v "${context.hqPath}/repos/${repoName}:/hq/repos/${repoName}:cached"`
     ),
     // Claude credentials - shared named volume (login once, all containers share)
-    `-v "claude-credentials:/home/node/.claude"`,
+    // Only needed for Claude Code executor
+    ...(isClaudeExecutor(executor) ? [`-v "claude-credentials:/home/node/.claude"`] : []),
   ]
 
   // Build environment flags
@@ -948,8 +996,9 @@ function createDockerContainer(
  * This includes firewall initialization, prlt setup, and Claude settings.
  * @param containerId - Docker container ID
  * @param sandboxed - Whether running in safe mode (true) or danger mode (false)
+ * @param executor - Which executor is being used (determines Claude-specific setup)
  */
-function runContainerSetup(containerId: string, sandboxed: boolean = true): boolean {
+function runContainerSetup(containerId: string, sandboxed: boolean = true, executor: ExecutorType = 'claude-code'): boolean {
   try {
     // Run firewall init (requires sudo since we're running as node user)
     execSync(
@@ -981,58 +1030,63 @@ function runContainerSetup(containerId: string, sandboxed: boolean = true): bool
   }
 
   // Copy Claude settings file (.claude.json) from host to container
-  // This is needed for Claude Code to recognize settings and bypass prompts
-  // Note: Auth tokens are in the claude-credentials volume at /home/node/.claude/.credentials.json
-  // But settings (.claude.json) need to be at /home/node/.claude.json (outside the .claude dir)
-  try {
-    const hostClaudeJson = path.join(os.homedir(), '.claude.json')
-    let settings: Record<string, unknown> = {}
+  // Only needed for Claude Code executor - other executors have their own config
+  if (isClaudeExecutor(executor)) {
+    // This is needed for Claude Code to recognize settings and bypass prompts
+    // Note: Auth tokens are in the claude-credentials volume at /home/node/.claude/.credentials.json
+    // But settings (.claude.json) need to be at /home/node/.claude.json (outside the .claude dir)
+    try {
+      const hostClaudeJson = path.join(os.homedir(), '.claude.json')
+      let settings: Record<string, unknown> = {}
 
-    if (fs.existsSync(hostClaudeJson)) {
-      // Read host file content as base
-      const content = fs.readFileSync(hostClaudeJson, 'utf-8')
-      try {
-        settings = JSON.parse(content)
-      } catch {
-        console.debug('[runners:docker] Failed to parse host .claude.json, using empty settings')
+      if (fs.existsSync(hostClaudeJson)) {
+        // Read host file content as base
+        const content = fs.readFileSync(hostClaudeJson, 'utf-8')
+        try {
+          settings = JSON.parse(content)
+        } catch {
+          console.debug('[runners:docker] Failed to parse host .claude.json, using empty settings')
+        }
       }
+
+      // Only set bypassPermissionsModeAccepted when user chose danger mode (!sandboxed)
+      // This doesn't modify the host file - only the container copy
+      if (!sandboxed) {
+        settings.bypassPermissionsModeAccepted = true
+      }
+
+      // Skip first-run onboarding (theme picker, tips, etc.) for automated agents
+      // These flags indicate Claude Code has been run before
+      settings.numStartups = settings.numStartups || 1
+      settings.hasCompletedOnboarding = true
+      settings.theme = settings.theme || 'dark'
+      // Ensure tipsHistory exists to prevent tip prompts
+      if (!settings.tipsHistory || typeof settings.tipsHistory !== 'object') {
+        settings.tipsHistory = {}
+      }
+      const tips = settings.tipsHistory as Record<string, number>
+      tips['new-user-warmup'] = tips['new-user-warmup'] || 1
+
+      // Pipe settings via stdin to avoid ARG_MAX limits with large .claude.json files
+      const settingsJson = JSON.stringify(settings)
+      // Write to container at /home/node/.claude.json using stdin piping
+      execSync(
+        `docker exec -i ${containerId} bash -c 'cat > /home/node/.claude.json'`,
+        { input: settingsJson, stdio: ['pipe', 'pipe', 'pipe'] }
+      )
+      console.debug(`[runners:docker] Copied .claude.json settings to container (bypassPermissionsModeAccepted=${!sandboxed})`)
+    } catch (error) {
+      console.debug('[runners:docker] Failed to copy .claude.json to container:', error)
+      // Non-fatal - Claude will just prompt for settings
     }
 
-    // Only set bypassPermissionsModeAccepted when user chose danger mode (!sandboxed)
-    // This doesn't modify the host file - only the container copy
-    if (!sandboxed) {
-      settings.bypassPermissionsModeAccepted = true
-    }
-
-    // Skip first-run onboarding (theme picker, tips, etc.) for automated agents
-    // These flags indicate Claude Code has been run before
-    settings.numStartups = settings.numStartups || 1
-    settings.hasCompletedOnboarding = true
-    settings.theme = settings.theme || 'dark'
-    // Ensure tipsHistory exists to prevent tip prompts
-    if (!settings.tipsHistory || typeof settings.tipsHistory !== 'object') {
-      settings.tipsHistory = {}
-    }
-    const tips = settings.tipsHistory as Record<string, number>
-    tips['new-user-warmup'] = tips['new-user-warmup'] || 1
-
-    // Pipe settings via stdin to avoid ARG_MAX limits with large .claude.json files
-    const settingsJson = JSON.stringify(settings)
-    // Write to container at /home/node/.claude.json using stdin piping
-    execSync(
-      `docker exec -i ${containerId} bash -c 'cat > /home/node/.claude.json'`,
-      { input: settingsJson, stdio: ['pipe', 'pipe', 'pipe'] }
-    )
-    console.debug(`[runners:docker] Copied .claude.json settings to container (bypassPermissionsModeAccepted=${!sandboxed})`)
-  } catch (error) {
-    console.debug('[runners:docker] Failed to copy .claude.json to container:', error)
-    // Non-fatal - Claude will just prompt for settings
+    // NOTE: Auth credentials come from the claude-credentials volume.
+    // Run "prlt agent auth" to set up authentication (one-time).
+    // Do NOT sync CLAUDE_CODE_OAUTH_TOKEN env var - it causes issues
+    // (setup-token generates invalid tokens, and env var overrides valid credentials file).
+  } else {
+    console.debug(`[runners:docker] Skipping .claude.json settings injection for ${executor} executor`)
   }
-
-  // NOTE: Auth credentials come from the claude-credentials volume.
-  // Run "prlt agent auth" to set up authentication (one-time).
-  // Do NOT sync CLAUDE_CODE_OAUTH_TOKEN env var - it causes issues
-  // (setup-token generates invalid tokens, and env var overrides valid credentials file).
 
   return true
 }
@@ -1044,7 +1098,8 @@ function runContainerSetup(containerId: string, sandboxed: boolean = true): bool
  */
 function ensureDockerContainer(
   context: ExecutionContext,
-  config: ExecutionConfig
+  config: ExecutionConfig,
+  executor: ExecutorType = 'claude-code'
 ): string | null {
   const containerName = getContainerName(context.agentName)
   const imageName = getImageName(context.agentName)
@@ -1076,7 +1131,7 @@ function ensureDockerContainer(
 
   // Create and start container
   console.debug(`[runners:docker] Creating container ${containerName}`)
-  if (!createDockerContainer(context, containerName, imageName, config)) {
+  if (!createDockerContainer(context, containerName, imageName, config, executor)) {
     return null
   }
 
@@ -1087,8 +1142,9 @@ function ensureDockerContainer(
 
   // Run post-start setup (firewall, prlt, Claude settings)
   // Pass sandboxed config to determine whether to set bypassPermissionsModeAccepted
-  console.debug(`[runners:docker] Running container setup (sandboxed=${config.sandboxed})`)
-  if (!runContainerSetup(containerId, config.sandboxed)) {
+  // Pass executor to skip Claude-specific setup for non-Claude executors
+  console.debug(`[runners:docker] Running container setup (sandboxed=${config.sandboxed}, executor=${executor})`)
+  if (!runContainerSetup(containerId, config.sandboxed, executor)) {
     console.debug(`[runners:docker] Setup failed, but continuing...`)
     // Don't fail completely - setup might partially work
   }
@@ -1192,46 +1248,42 @@ function buildDevcontainerCommand(
   sandboxed: boolean = true,
   displayMode: DisplayMode = 'terminal'
 ): string {
-  // Get base command (just 'claude' for claude-code)
-  let baseCmd: string
-  switch (executor) {
-    case 'claude-code':
-      baseCmd = 'claude'
-      break
-    case 'codex':
-      baseCmd = 'codex'
-      break
-    case 'aider':
-      baseCmd = 'aider'
-      break
-    default:
-      baseCmd = 'claude'
-  }
-
   // Calculate the relative path from agentDir to worktreePath for cd
   const relativePath = path.relative(context.agentDir, context.worktreePath)
   const cdCmd = relativePath ? `cd /workspace/${relativePath} && ` : ''
 
-  // Build Claude flags based on output mode and sandboxed setting
-  // - interactive: No -p flag, shows streaming UI (watch Claude work in real-time)
-  // - print: Uses -p flag, outputs final result only (better for logs/automation)
-  const printFlag = outputMode === 'print' ? '-p ' : ''
-  // sandboxed=true means safe mode (no --dangerously-skip-permissions)
-  // sandboxed=false means danger mode (use --dangerously-skip-permissions)
-  // --permission-mode bypassPermissions: skips the "trust this folder" dialog
-  const bypassTrustFlag = '--permission-mode bypassPermissions '
-  const permissionsFlag = !sandboxed ? '--dangerously-skip-permissions ' : ''
+  // Build executor command using the centralized getExecutorCommand()
+  // This ensures all runners use consistent executor invocation
+  let executorCmd: string
+  if (isClaudeExecutor(executor)) {
+    // Claude-specific flags based on output mode and sandboxed setting
+    // - interactive: No -p flag, shows streaming UI (watch Claude work in real-time)
+    // - print: Uses -p flag, outputs final result only (better for logs/automation)
+    const printFlag = outputMode === 'print' ? '-p ' : ''
+    // sandboxed=true means safe mode (no --dangerously-skip-permissions)
+    // sandboxed=false means danger mode (use --dangerously-skip-permissions)
+    // --permission-mode bypassPermissions: skips the "trust this folder" dialog
+    const bypassTrustFlag = '--permission-mode bypassPermissions '
+    const permissionsFlag = !sandboxed ? '--dangerously-skip-permissions ' : ''
+    executorCmd = `claude ${bypassTrustFlag}${permissionsFlag}${printFlag}"$(cat ${promptFile})"`
+  } else {
+    // Non-Claude executors: use getExecutorCommand() to get correct command and args
+    const { cmd, args } = getExecutorCommand(executor, `PLACEHOLDER`, false)
+    // Replace the placeholder prompt with a file read for shell safety
+    const argsStr = args.map(a => a === 'PLACEHOLDER' ? `"$(cat ${promptFile})"` : a).join(' ')
+    executorCmd = `${cmd} ${argsStr}`
+  }
 
-  // Build the claude command
-  const claudeCmd = `${cdCmd}${baseCmd} ${bypassTrustFlag}${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}`
+  // Build the full command with cd, executor invocation, and cleanup
+  const fullCmd = `${cdCmd}${executorCmd} && rm -f ${promptFile}`
 
   // Use docker exec for running commands in the container
   // Use -it flags only for terminal/foreground modes where a TTY is available
   // Background mode runs without a TTY, so -it flags would cause "not a TTY" error
   const ttyFlags = displayMode === 'background' ? '' : '-it '
 
-  // Direct mode - run claude directly (tmux setup is handled by runDevcontainerInTmux)
-  return `docker exec ${ttyFlags}${containerId} bash -c '${claudeCmd}'`
+  // Direct mode - run executor directly (tmux setup is handled by runDevcontainerInTmux)
+  return `docker exec ${ttyFlags}${containerId} bash -c '${fullCmd}'`
 }
 
 
@@ -1287,12 +1339,15 @@ export async function runDevcontainer(
     }
 
     // Copy Claude credentials into agent directory so container can access them
-    // This was the original working approach - credentials at /workspace/.claude.json
-    copyClaudeCredentials(context.agentDir)
+    // Only needed for Claude Code executor
+    if (isClaudeExecutor(executor)) {
+      // This was the original working approach - credentials at /workspace/.claude.json
+      copyClaudeCredentials(context.agentDir)
+    }
 
     // Start or reuse container using raw Docker commands
     // No devcontainer CLI required!
-    const containerId = ensureDockerContainer(context, config)
+    const containerId = ensureDockerContainer(context, config, executor)
     if (!containerId) {
       return {
         success: false,
@@ -2015,10 +2070,19 @@ export async function runDocker(
       dockerCmd += ` --cpus ${config.docker.cpus}`
     }
 
-    // Escape prompt for shell
+    // Build executor command using getExecutorCommand() for correct invocation
     const escapedPrompt = prompt.replace(/'/g, "'\\''")
+    const { cmd, args } = getExecutorCommand(executor, escapedPrompt, !config.sandboxed)
+
+    // For Claude Code in Docker, use --print for non-interactive output
+    // Non-Claude executors use their native command format from getExecutorCommand()
     dockerCmd += ` ${config.docker.image}`
-    dockerCmd += ` claude --print '${escapedPrompt}'`
+    if (isClaudeExecutor(executor)) {
+      dockerCmd += ` ${cmd} --print '${escapedPrompt}'`
+    } else {
+      const argsStr = args.map(a => a === escapedPrompt ? `'${escapedPrompt}'` : a).join(' ')
+      dockerCmd += ` ${cmd} ${argsStr}`
+    }
 
     const containerId = execSync(dockerCmd, { encoding: 'utf-8' }).trim()
 
@@ -2079,9 +2143,18 @@ export async function runVm(
       execSync(`ssh ${sshOpts} ${user}@${targetHost} "${gitPullCmd}"`, { stdio: 'pipe' })
     }
 
-    // Execute on remote
+    // Execute on remote using executor-appropriate command
     const escapedPrompt = prompt.replace(/'/g, "'\\''")
-    const remoteCmd = `cd ${remoteWorkspace} && claude --print '${escapedPrompt}'`
+    const { cmd: executorCmd, args: executorArgs } = getExecutorCommand(executor, escapedPrompt, !config.sandboxed)
+
+    // Build the remote command based on executor type
+    let remoteCmd: string
+    if (isClaudeExecutor(executor)) {
+      remoteCmd = `cd ${remoteWorkspace} && ${executorCmd} --print '${escapedPrompt}'`
+    } else {
+      const argsStr = executorArgs.map(a => a === escapedPrompt ? `'${escapedPrompt}'` : a).join(' ')
+      remoteCmd = `cd ${remoteWorkspace} && ${executorCmd} ${argsStr}`
+    }
     const sshCmd = `ssh ${sshOpts} ${user}@${targetHost} "nohup ${remoteCmd} > /tmp/work-${context.ticketId}.log 2>&1 &"`
 
     execSync(sshCmd, { stdio: 'pipe' })

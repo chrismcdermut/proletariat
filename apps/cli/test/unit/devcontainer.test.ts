@@ -6,6 +6,7 @@ import * as os from 'node:os'
 import {
   generateDevcontainerJson,
   generateDockerfile,
+  generateFirewallScript,
   generatePrltSetupScript,
   createDevcontainerConfig,
   hasDevcontainerConfig,
@@ -611,6 +612,189 @@ describe('Devcontainer', () => {
       const identity = getGitIdentity()
 
       expect(identity.email === null || typeof identity.email === 'string').to.be.true
+    })
+  })
+
+  // =============================================================================
+  // TKT-1005: Codex executor support in devcontainer
+  // =============================================================================
+
+  describe('Codex executor support (TKT-1005)', () => {
+    const makeOptions = (overrides: Partial<DevcontainerOptions> = {}): DevcontainerOptions => ({
+      agentName: 'test-agent',
+      agentDir: '/path/to/agents/staff/test-agent',
+      ...overrides,
+    })
+
+    describe('generateDevcontainerJson', () => {
+      it('should include claude-credentials mount for claude-code executor', () => {
+        const options = makeOptions({ executor: 'claude-code' })
+        const result = generateDevcontainerJson(options)
+
+        const credentialMount = result.mounts.find(m => m.includes('claude-credentials'))
+        expect(credentialMount).to.exist
+      })
+
+      it('should include claude-credentials mount when executor is not specified (default)', () => {
+        const options = makeOptions()
+        const result = generateDevcontainerJson(options)
+
+        const credentialMount = result.mounts.find(m => m.includes('claude-credentials'))
+        expect(credentialMount).to.exist
+      })
+
+      it('should NOT include claude-credentials mount for codex executor', () => {
+        const options = makeOptions({ executor: 'codex' })
+        const result = generateDevcontainerJson(options)
+
+        const credentialMount = result.mounts.find(m => m.includes('claude-credentials'))
+        expect(credentialMount).to.not.exist
+      })
+
+      it('should NOT include claude-credentials mount for aider executor', () => {
+        const options = makeOptions({ executor: 'aider' })
+        const result = generateDevcontainerJson(options)
+
+        const credentialMount = result.mounts.find(m => m.includes('claude-credentials'))
+        expect(credentialMount).to.not.exist
+      })
+    })
+
+    describe('generateDockerfile', () => {
+      it('should install Claude Code for default executor', () => {
+        const options = makeOptions()
+        const result = generateDockerfile(options)
+
+        expect(result).to.include('@anthropic-ai/claude-code')
+      })
+
+      it('should install Codex CLI when executor is codex', () => {
+        const options = makeOptions({ executor: 'codex' })
+        const result = generateDockerfile(options)
+
+        expect(result).to.include('@openai/codex')
+      })
+
+      it('should still install Claude Code even when executor is codex', () => {
+        // Claude Code is always installed as it provides infrastructure
+        const options = makeOptions({ executor: 'codex' })
+        const result = generateDockerfile(options)
+
+        expect(result).to.include('@anthropic-ai/claude-code')
+      })
+
+      it('should NOT install Codex when executor is claude-code', () => {
+        const options = makeOptions({ executor: 'claude-code' })
+        const result = generateDockerfile(options)
+
+        expect(result).to.not.include('@openai/codex')
+      })
+    })
+
+    describe('generateFirewallScript', () => {
+      it('should include api.anthropic.com for default executor', () => {
+        const script = generateFirewallScript()
+
+        expect(script).to.include('api.anthropic.com')
+      })
+
+      it('should include api.openai.com for codex executor', () => {
+        const script = generateFirewallScript('codex')
+
+        expect(script).to.include('api.openai.com')
+      })
+
+      it('should NOT include api.openai.com for claude-code executor', () => {
+        const script = generateFirewallScript('claude-code')
+
+        expect(script).to.not.include('api.openai.com')
+      })
+
+      it('should still include api.anthropic.com for codex executor', () => {
+        // Anthropic domains always whitelisted (Claude Code may be installed alongside)
+        const script = generateFirewallScript('codex')
+
+        expect(script).to.include('api.anthropic.com')
+      })
+    })
+
+    describe('createDevcontainerConfig with codex executor', () => {
+      let testDir: string
+
+      beforeEach(() => {
+        testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devcontainer-codex-test-'))
+      })
+
+      afterEach(() => {
+        if (fs.existsSync(testDir)) {
+          fs.rmSync(testDir, { recursive: true, force: true })
+        }
+      })
+
+      it('should create all devcontainer files for codex executor', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'codex-agent',
+          agentDir: testDir,
+          executor: 'codex',
+        }
+
+        createDevcontainerConfig(options)
+
+        expect(fs.existsSync(path.join(testDir, '.devcontainer', 'devcontainer.json'))).to.be.true
+        expect(fs.existsSync(path.join(testDir, '.devcontainer', 'Dockerfile'))).to.be.true
+        expect(fs.existsSync(path.join(testDir, '.devcontainer', 'init-firewall.sh'))).to.be.true
+        expect(fs.existsSync(path.join(testDir, '.devcontainer', 'setup-prlt.sh'))).to.be.true
+      })
+
+      it('should include Codex install in Dockerfile for codex executor', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'codex-agent',
+          agentDir: testDir,
+          executor: 'codex',
+        }
+
+        createDevcontainerConfig(options)
+
+        const dockerfile = fs.readFileSync(
+          path.join(testDir, '.devcontainer', 'Dockerfile'),
+          'utf-8'
+        )
+        expect(dockerfile).to.include('@openai/codex')
+      })
+
+      it('should include OpenAI domains in firewall for codex executor', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'codex-agent',
+          agentDir: testDir,
+          executor: 'codex',
+        }
+
+        createDevcontainerConfig(options)
+
+        const firewall = fs.readFileSync(
+          path.join(testDir, '.devcontainer', 'init-firewall.sh'),
+          'utf-8'
+        )
+        expect(firewall).to.include('api.openai.com')
+      })
+
+      it('should NOT include claude-credentials mount in devcontainer.json for codex executor', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'codex-agent',
+          agentDir: testDir,
+          executor: 'codex',
+        }
+
+        createDevcontainerConfig(options)
+
+        const jsonContent = fs.readFileSync(
+          path.join(testDir, '.devcontainer', 'devcontainer.json'),
+          'utf-8'
+        )
+        const config = JSON.parse(jsonContent)
+        const credentialMount = config.mounts.find((m: string) => m.includes('claude-credentials'))
+        expect(credentialMount).to.not.exist
+      })
     })
   })
 })

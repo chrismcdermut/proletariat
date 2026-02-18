@@ -7,8 +7,12 @@ import {
   shouldUseControlMode,
   buildTmuxMouseOption,
   buildTmuxAttachCommand,
+  getExecutorCommand,
+  isClaudeExecutor,
+  getExecutorDisplayName,
+  getExecutorPackage,
 } from '../../src/lib/execution/runners.js'
-import type { ExecutionContext, DisplayMode, TerminalApp } from '../../src/lib/execution/types.js'
+import type { ExecutionContext, DisplayMode, TerminalApp, ExecutorType } from '../../src/lib/execution/types.js'
 
 /**
  * Unit tests for execution utility functions
@@ -292,6 +296,147 @@ describe('Execution Utils', () => {
       const mode: DisplayMode = 'background'
       expect(mode).to.equal('background')
       // Note: Actual execution tested in e2e tests
+    })
+  })
+
+  // =============================================================================
+  // TKT-1005: Executor-aware command building tests
+  // =============================================================================
+
+  describe('getExecutorCommand (TKT-1005)', () => {
+    const testPrompt = 'Test prompt for agent'
+
+    describe('claude-code executor', () => {
+      it('should return claude command with permissions flags when skipPermissions=true', () => {
+        const result = getExecutorCommand('claude-code', testPrompt, true)
+        expect(result.cmd).to.equal('claude')
+        expect(result.args).to.include('--permission-mode')
+        expect(result.args).to.include('bypassPermissions')
+        expect(result.args).to.include('--dangerously-skip-permissions')
+        expect(result.args).to.include(testPrompt)
+      })
+
+      it('should return claude command without permissions flags when skipPermissions=false', () => {
+        const result = getExecutorCommand('claude-code', testPrompt, false)
+        expect(result.cmd).to.equal('claude')
+        expect(result.args).to.deep.equal([testPrompt])
+        expect(result.args).to.not.include('--dangerously-skip-permissions')
+      })
+
+      it('should default skipPermissions to true', () => {
+        const result = getExecutorCommand('claude-code', testPrompt)
+        expect(result.args).to.include('--dangerously-skip-permissions')
+      })
+    })
+
+    describe('codex executor', () => {
+      it('should return codex command with --prompt flag', () => {
+        const result = getExecutorCommand('codex', testPrompt)
+        expect(result.cmd).to.equal('codex')
+        expect(result.args).to.deep.equal(['--prompt', testPrompt])
+      })
+
+      it('should NOT include Claude-specific flags', () => {
+        const result = getExecutorCommand('codex', testPrompt, true)
+        expect(result.args).to.not.include('--dangerously-skip-permissions')
+        expect(result.args).to.not.include('--permission-mode')
+        expect(result.args).to.not.include('bypassPermissions')
+      })
+
+      it('should ignore skipPermissions parameter', () => {
+        const resultTrue = getExecutorCommand('codex', testPrompt, true)
+        const resultFalse = getExecutorCommand('codex', testPrompt, false)
+        expect(resultTrue.args).to.deep.equal(resultFalse.args)
+      })
+    })
+
+    describe('aider executor', () => {
+      it('should return aider command with --message flag', () => {
+        const result = getExecutorCommand('aider', testPrompt)
+        expect(result.cmd).to.equal('aider')
+        expect(result.args).to.deep.equal(['--message', testPrompt])
+      })
+
+      it('should NOT include Claude-specific flags', () => {
+        const result = getExecutorCommand('aider', testPrompt, true)
+        expect(result.args).to.not.include('--dangerously-skip-permissions')
+        expect(result.args).to.not.include('-p')
+      })
+    })
+
+    describe('custom executor', () => {
+      it('should return echo fallback', () => {
+        const result = getExecutorCommand('custom', testPrompt)
+        expect(result.cmd).to.equal('echo')
+        expect(result.args).to.include('Custom executor not configured')
+      })
+    })
+
+    describe('all executor types', () => {
+      const executors: ExecutorType[] = ['claude-code', 'codex', 'aider', 'custom']
+
+      it('should return a cmd and args for every executor type', () => {
+        for (const executor of executors) {
+          const result = getExecutorCommand(executor, testPrompt)
+          expect(result).to.have.property('cmd').that.is.a('string')
+          expect(result).to.have.property('args').that.is.an('array')
+          expect(result.cmd.length).to.be.greaterThan(0)
+        }
+      })
+    })
+  })
+
+  describe('isClaudeExecutor (TKT-1005)', () => {
+    it('should return true for claude-code', () => {
+      expect(isClaudeExecutor('claude-code')).to.be.true
+    })
+
+    it('should return false for codex', () => {
+      expect(isClaudeExecutor('codex')).to.be.false
+    })
+
+    it('should return false for aider', () => {
+      expect(isClaudeExecutor('aider')).to.be.false
+    })
+
+    it('should return false for custom', () => {
+      expect(isClaudeExecutor('custom')).to.be.false
+    })
+  })
+
+  describe('getExecutorDisplayName (TKT-1005)', () => {
+    it('should return "Claude Code" for claude-code', () => {
+      expect(getExecutorDisplayName('claude-code')).to.equal('Claude Code')
+    })
+
+    it('should return "Codex" for codex', () => {
+      expect(getExecutorDisplayName('codex')).to.equal('Codex')
+    })
+
+    it('should return "Aider" for aider', () => {
+      expect(getExecutorDisplayName('aider')).to.equal('Aider')
+    })
+
+    it('should return "Custom" for custom', () => {
+      expect(getExecutorDisplayName('custom')).to.equal('Custom')
+    })
+  })
+
+  describe('getExecutorPackage (TKT-1005)', () => {
+    it('should return @anthropic-ai/claude-code for claude-code', () => {
+      expect(getExecutorPackage('claude-code')).to.equal('@anthropic-ai/claude-code')
+    })
+
+    it('should return @openai/codex for codex', () => {
+      expect(getExecutorPackage('codex')).to.equal('@openai/codex')
+    })
+
+    it('should return null for aider (Python-based)', () => {
+      expect(getExecutorPackage('aider')).to.be.null
+    })
+
+    it('should return null for custom', () => {
+      expect(getExecutorPackage('custom')).to.be.null
     })
   })
 })

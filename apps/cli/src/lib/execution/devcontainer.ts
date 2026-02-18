@@ -7,7 +7,7 @@
 
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG } from './types.js'
+import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, ExecutorType } from './types.js'
 import { parseChannel } from '../workspace-config.js'
 
 export type MountMode = 'worktree' | 'clone'
@@ -27,6 +27,8 @@ export interface DevcontainerOptions {
   gitUserName?: string
   /** Git user.email for commit attribution (detected from gh/git config on host) */
   gitUserEmail?: string
+  /** Executor type - determines which CLI tools to install and which API domains to whitelist */
+  executor?: ExecutorType
 }
 
 export interface DevcontainerJson {
@@ -83,13 +85,17 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
     buildArgs.GITHUB_TOKEN = '${localEnv:GITHUB_TOKEN}'
   }
 
+  // Determine if this is a Claude Code executor (for Claude-specific mounts/config)
+  const isClaude = !options.executor || options.executor === 'claude-code'
+
   // Build mounts array - parent repo mounts only needed for worktree mode
   // TKT-801: Use consistency=cached to reduce grpcfuse contention on Docker Desktop.
   // This helps prevent kernel panics when multiple containers mount the same paths concurrently.
   const mounts: string[] = [
     'source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached',
     'source=claude-bash-history,target=/commandhistory,type=volume',
-    'source=claude-credentials,target=/home/node/.claude,type=volume',
+    // Claude credentials volume - only needed for Claude Code executor
+    ...(isClaude ? ['source=claude-credentials,target=/home/node/.claude,type=volume'] : []),
     // NOTE: ~/.claude.json is COPIED (not mounted) to /workspace/.claude.json
     // to avoid corruption from concurrent writes by multiple containers
     // NOTE: SSH agent socket mounting doesn't work reliably on Docker Desktop for Mac
@@ -224,9 +230,9 @@ RUN mkdir -p /home/node/.npm-global/bin /home/node/.npm-global/lib \\
 ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
 ENV PATH=/home/node/.npm-global/bin:\$PATH
 
-# Install pnpm and Claude Code as node user so files are owned correctly
+# Install pnpm and executor CLI as node user so files are owned correctly
 USER node
-RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code
+RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code${options.executor === 'codex' ? ' && npm install -g @openai/codex' : ''}
 USER root
 
 # Install prlt CLI from public npm
@@ -262,9 +268,10 @@ WORKDIR /workspace
 
 /**
  * Generate firewall initialization script.
- * Whitelists only necessary domains for Claude Code operation.
+ * Whitelists only necessary domains for the configured executor.
+ * Claude Code requires api.anthropic.com; Codex requires api.openai.com.
  */
-export function generateFirewallScript(): string {
+export function generateFirewallScript(executor?: ExecutorType): string {
   return `#!/bin/bash
 set -e
 
@@ -346,9 +353,12 @@ add_domain "objects.githubusercontent.com"
 add_domain "raw.githubusercontent.com"
 add_domain "npm.pkg.github.com"
 
-# Add other allowed domains
+# Add executor-specific API domains
 add_domain "api.anthropic.com"
 add_domain "console.anthropic.com"
+${executor === 'codex' ? `# Codex API domains
+add_domain "api.openai.com"
+add_domain "openai.com"` : ''}
 add_domain "statsigapi.net"
 add_domain "sentry.io"
 add_domain "registry.npmjs.org"
@@ -708,8 +718,8 @@ export function createDevcontainerConfig(options: DevcontainerOptions, config?: 
   const dockerfilePath = path.join(devcontainerDir, 'Dockerfile')
   fs.writeFileSync(dockerfilePath, dockerfile)
 
-  // Generate and write firewall script
-  const firewallScript = generateFirewallScript()
+  // Generate and write firewall script (executor-aware for API domain whitelisting)
+  const firewallScript = generateFirewallScript(options.executor)
   const firewallScriptPath = path.join(devcontainerDir, 'init-firewall.sh')
   fs.writeFileSync(firewallScriptPath, firewallScript, { mode: 0o755 })
 
