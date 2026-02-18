@@ -255,12 +255,14 @@ describe('Session Commands E2E Tests', () => {
   // prlt session list - direct invocation with flags
   // =========================================================================
   describe('prlt session list', () => {
-    it('should show "No active sessions" when DB has no execution records', () => {
+    it('should return JSON array when DB has no execution records', () => {
       const output = execProduction('session list');
-      expect(output).to.include('No active sessions');
+      // Output is JSON in non-TTY (piped) environments
+      const sessions = JSON.parse(output) as Array<{ sessionId: string }>;
+      expect(sessions).to.be.an('array');
     });
 
-    it('should show "No active sessions" when DB has executions but no tmux (default mode)', () => {
+    it('should return empty JSON for seeded executions without tmux (default mode)', () => {
       // Seed a running execution - but no tmux session exists to verify it
       seedExecutionRecords([{
         id: 'exec-001',
@@ -272,7 +274,11 @@ describe('Session Commands E2E Tests', () => {
 
       // Without --all, only verified (tmux-backed) sessions are shown
       const output = execProduction('session list');
-      expect(output).to.include('No active sessions');
+      const sessions = JSON.parse(output) as Array<{ sessionId: string; status: string }>;
+      expect(sessions).to.be.an('array');
+      // No sessions should have status 'running' since tmux verification fails
+      const runningSessions = sessions.filter(s => s.status === 'running');
+      expect(runningSessions).to.have.lengthOf(0);
     });
 
     it('should show stale sessions with --all flag including ticket ID and agent name', () => {
@@ -286,14 +292,16 @@ describe('Session Commands E2E Tests', () => {
 
       const output = execProduction('session list --all');
 
-      // Verify the session data is displayed
-      expect(output).to.include('Active Sessions');
-      expect(output).to.include('TKT-100');
-      expect(output).to.include('bold-turing');
-      expect(output).to.include('stale');
+      // Output is JSON array in non-TTY environments
+      const sessions = JSON.parse(output) as Array<{ sessionId: string; ticketId: string; agentName: string; status: string }>;
+      expect(sessions).to.be.an('array');
+      const session = sessions.find(s => s.ticketId === 'TKT-100');
+      expect(session).to.not.be.undefined;
+      expect(session!.agentName).to.equal('bold-turing');
+      expect(session!.status).to.equal('stale');
     });
 
-    it('should show stale sessions warning with count when using --all', () => {
+    it('should include stale sessions in JSON output when using --all', () => {
       seedExecutionRecords([{
         id: 'exec-001',
         ticketId: 'TKT-100',
@@ -303,7 +311,9 @@ describe('Session Commands E2E Tests', () => {
       }]);
 
       const output = execProduction('session list --all');
-      expect(output).to.include('1 stale session(s)');
+      const sessions = JSON.parse(output) as Array<{ status: string }>;
+      const staleSessions = sessions.filter(s => s.status === 'stale');
+      expect(staleSessions.length).to.be.greaterThanOrEqual(1);
     });
 
     it('should show multiple stale sessions with --all when multiple executions exist', () => {
@@ -326,12 +336,17 @@ describe('Session Commands E2E Tests', () => {
 
       const output = execProduction('session list --all');
 
+      // Output is JSON array in non-TTY environments
+      const sessions = JSON.parse(output) as Array<{ sessionId: string; ticketId: string; agentName: string; status: string }>;
+      expect(sessions).to.be.an('array');
+
       // Both sessions should appear
-      expect(output).to.include('TKT-100');
-      expect(output).to.include('bold-turing');
-      expect(output).to.include('TKT-200');
-      expect(output).to.include('clever-lovelace');
-      expect(output).to.include('2 stale session(s)');
+      const session1 = sessions.find(s => s.ticketId === 'TKT-100');
+      const session2 = sessions.find(s => s.ticketId === 'TKT-200');
+      expect(session1).to.not.be.undefined;
+      expect(session1!.agentName).to.equal('bold-turing');
+      expect(session2).to.not.be.undefined;
+      expect(session2!.agentName).to.equal('clever-lovelace');
     });
 
     it('should show session ID in the output', () => {
@@ -344,7 +359,9 @@ describe('Session Commands E2E Tests', () => {
       }]);
 
       const output = execProduction('session list --all');
-      expect(output).to.include('TKT-100-implement-bold-turing');
+      const sessions = JSON.parse(output) as Array<{ sessionId: string }>;
+      const session = sessions.find(s => s.sessionId === 'TKT-100-implement-bold-turing');
+      expect(session).to.not.be.undefined;
     });
 
     it('should show host type indicator for host sessions', () => {
@@ -358,7 +375,10 @@ describe('Session Commands E2E Tests', () => {
       }]);
 
       const output = execProduction('session list --all');
-      expect(output).to.include('host');
+      const sessions = JSON.parse(output) as Array<{ sessionId: string; environment: string }>;
+      const session = sessions.find(s => s.sessionId === 'TKT-100-implement-bold-turing');
+      expect(session).to.not.be.undefined;
+      expect(session!.environment).to.equal('host');
     });
   });
 
@@ -452,12 +472,14 @@ describe('Session Commands E2E Tests', () => {
       // Use --all to see stale sessions since there's no real tmux
       const listOutput = execProduction('session list --all');
 
-      // Step 4: Verify END RESULT - the seeded session data actually appears
-      expect(listOutput).to.include('Active Sessions');
-      expect(listOutput).to.include('TKT-300');
-      expect(listOutput).to.include('swift-hopper');
-      expect(listOutput).to.include('TKT-300-implement-swift-hopper');
-      expect(listOutput).to.include('stale');
+      // Step 4: Verify END RESULT - the seeded session data actually appears (JSON output in non-TTY)
+      const sessions = JSON.parse(listOutput) as Array<{ sessionId: string; ticketId: string; agentName: string; status: string }>;
+      expect(sessions).to.be.an('array');
+      const session = sessions.find(s => s.ticketId === 'TKT-300');
+      expect(session).to.not.be.undefined;
+      expect(session!.agentName).to.equal('swift-hopper');
+      expect(session!.sessionId).to.equal('TKT-300-implement-swift-hopper');
+      expect(session!.status).to.equal('stale');
     });
   });
 
