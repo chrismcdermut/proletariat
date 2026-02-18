@@ -209,6 +209,128 @@ export interface ExecutionResultJsonOutput {
 export type JsonOutput = PromptJsonOutput | SuccessJsonOutput | ErrorJsonOutput | DryRunJsonOutput | ConfirmationNeededJsonOutput | ExecutionResultJsonOutput
 
 /**
+ * All valid JSON envelope type discriminators.
+ * Used for contract tests and schema validation.
+ */
+export const JSON_ENVELOPE_TYPES = [
+  'prompt',
+  'success',
+  'error',
+  'dry-run',
+  'confirmation_needed',
+  'execution_result',
+] as const
+
+export type JsonEnvelopeType = typeof JSON_ENVELOPE_TYPES[number]
+
+/**
+ * Required fields per envelope type for contract validation.
+ * Tests use this to verify no fields are accidentally removed.
+ */
+export const JSON_ENVELOPE_REQUIRED_FIELDS: Record<JsonEnvelopeType, string[]> = {
+  prompt: ['type', 'prompt', 'metadata'],
+  success: ['type', 'prompt', 'success', 'result', 'metadata'],
+  error: ['type', 'error', 'metadata'],
+  'dry-run': ['type', 'valid', 'metadata'],
+  confirmation_needed: ['type', 'plan', 'confirm_command', 'message', 'metadata'],
+  execution_result: ['type', 'result', 'metadata'],
+}
+
+/**
+ * Validate that a parsed JSON object conforms to the machine-mode envelope schema.
+ *
+ * Returns an array of validation errors (empty = valid).
+ * Useful for contract tests and runtime validation of JSON output.
+ *
+ * @param obj - Parsed JSON object to validate
+ * @returns Array of validation error strings (empty if valid)
+ */
+export function validateJsonEnvelope(obj: unknown): string[] {
+  const errors: string[] = []
+
+  if (typeof obj !== 'object' || obj === null) {
+    errors.push('Output must be a non-null object')
+    return errors
+  }
+
+  const record = obj as Record<string, unknown>
+
+  // Check type discriminator
+  if (!('type' in record)) {
+    errors.push('Missing required field: type')
+    return errors
+  }
+
+  const type = record.type as string
+  if (!JSON_ENVELOPE_TYPES.includes(type as JsonEnvelopeType)) {
+    errors.push(`Invalid envelope type: "${type}". Must be one of: ${JSON_ENVELOPE_TYPES.join(', ')}`)
+    return errors
+  }
+
+  // Check required fields for this type
+  const requiredFields = JSON_ENVELOPE_REQUIRED_FIELDS[type as JsonEnvelopeType]
+  for (const field of requiredFields) {
+    if (!(field in record)) {
+      errors.push(`Missing required field for type "${type}": ${field}`)
+    }
+  }
+
+  // Validate metadata structure
+  if ('metadata' in record && record.metadata !== undefined) {
+    const metadata = record.metadata as Record<string, unknown>
+    if (typeof metadata !== 'object' || metadata === null) {
+      errors.push('metadata must be a non-null object')
+    } else {
+      if (!('command' in metadata) || typeof metadata.command !== 'string') {
+        errors.push('metadata.command must be a string')
+      }
+      if (!('flags' in metadata) || typeof metadata.flags !== 'object') {
+        errors.push('metadata.flags must be an object')
+      }
+    }
+  }
+
+  // Type-specific validation
+  if (type === 'prompt' && 'prompt' in record && record.prompt !== null) {
+    const prompt = record.prompt as Record<string, unknown>
+    if (!('type' in prompt)) {
+      errors.push('prompt.type is required when prompt is non-null')
+    }
+  }
+
+  if (type === 'error' && 'error' in record) {
+    const error = record.error as Record<string, unknown>
+    if (typeof error !== 'object' || error === null) {
+      errors.push('error must be a non-null object')
+    } else {
+      if (!('code' in error) || typeof error.code !== 'string') {
+        errors.push('error.code must be a string')
+      }
+      if (!('message' in error) || typeof error.message !== 'string') {
+        errors.push('error.message must be a string')
+      }
+    }
+  }
+
+  if (type === 'success') {
+    if (record.success !== true) {
+      errors.push('success field must be true for success type')
+    }
+    if (record.prompt !== null) {
+      errors.push('prompt field must be null for success type')
+    }
+  }
+
+  if (type === 'confirmation_needed') {
+    if (typeof record.confirm_command !== 'string' || !record.confirm_command) {
+      errors.push('confirm_command must be a non-empty string')
+    }
+  }
+
+  return errors
+}
+
+/**
  * Flags interface for JSON mode detection
  */
 export interface JsonFlags {
