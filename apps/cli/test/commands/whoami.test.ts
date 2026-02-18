@@ -57,8 +57,9 @@ describe('prlt whoami', () => {
 
       try {
         const { stdout } = await runCommand(['whoami'], { root });
-        expect(stdout).to.contain('test-worker');
-        expect(stdout).to.contain('Agent:');
+        // Output is JSON in non-TTY (test) environments
+        const json = JSON.parse(stdout);
+        expect(json.agent).to.equal('test-worker');
       } catch (error) {
         // If command fails, check the error message
         console.log('Command error:', error);
@@ -71,8 +72,8 @@ describe('prlt whoami', () => {
 
       try {
         const { stdout } = await runCommand(['whoami'], { root });
-        expect(stdout).to.contain('/home/user/hq/agents/staff/test-worker');
-        expect(stdout).to.contain('Host path:');
+        const json = JSON.parse(stdout);
+        expect(json.hostPath).to.equal('/home/user/hq/agents/staff/test-worker');
       } catch (error) {
         console.log('Command error:', error);
         throw error;
@@ -85,8 +86,9 @@ describe('prlt whoami', () => {
 
       try {
         const { stdout } = await runCommand(['whoami'], { root });
-        expect(stdout).to.contain('my-agent');
-        expect(stdout).to.contain('/path/to/agent');
+        const json = JSON.parse(stdout);
+        expect(json.agent).to.equal('my-agent');
+        expect(json.hostPath).to.equal('/path/to/agent');
       } catch (error) {
         console.log('Command error:', error);
         throw error;
@@ -102,8 +104,9 @@ describe('prlt whoami', () => {
 
       try {
         const { stdout } = await runCommand(['whoami'], { root });
-        expect(stdout).to.contain('Environment:');
-        expect(stdout).to.contain('host');
+        // Output is JSON in non-TTY (test) environments
+        const json = JSON.parse(stdout);
+        expect(json.environment).to.equal('host');
       } catch (error) {
         console.log('Command error:', error);
         throw error;
@@ -120,8 +123,8 @@ describe('prlt whoami', () => {
 
       try {
         const { stdout } = await runCommand(['whoami'], { root });
-        expect(stdout).to.contain('Environment:');
-        expect(stdout).to.contain('devcontainer');
+        const json = JSON.parse(stdout);
+        expect(json.environment).to.equal('devcontainer');
       } catch (error) {
         console.log('Command error:', error);
         throw error;
@@ -139,17 +142,23 @@ describe('prlt whoami', () => {
     it('displays working directory', async () => {
       try {
         const { stdout } = await runCommand(['whoami'], { root });
-        expect(stdout).to.contain('Working dir:');
+        // Output is JSON in non-TTY (test) environments
+        const json = JSON.parse(stdout);
+        expect(json.workingDir).to.be.a('string');
+        expect(json.workingDir.length).to.be.greaterThan(0);
       } catch (error) {
         console.log('Command error:', error);
         throw error;
       }
     });
 
-    it('displays Proletariat Context header', async () => {
+    it('outputs valid JSON with expected fields', async () => {
       try {
         const { stdout } = await runCommand(['whoami'], { root });
-        expect(stdout).to.contain('Proletariat Context');
+        const json = JSON.parse(stdout);
+        expect(json).to.have.property('agent');
+        expect(json).to.have.property('environment');
+        expect(json).to.have.property('workingDir');
       } catch (error) {
         console.log('Command error:', error);
         throw error;
