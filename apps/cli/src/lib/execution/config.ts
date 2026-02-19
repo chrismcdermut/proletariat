@@ -7,7 +7,7 @@
 
 import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
-import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell, DisplayMode, OutputMode, ExecutionEnvironment } from './types.js'
+import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell, DisplayMode, OutputMode, ExecutionEnvironment, AuthMethod } from './types.js'
 import { isGHInstalled, isGHAuthenticated } from '../pr/index.js'
 import {
   shouldOutputJson,
@@ -43,6 +43,7 @@ const CONFIG_KEYS = {
   vmKeyPath: 'execution.vm.key_path',
   vmSyncMethod: 'execution.vm.sync_method',
   coderName: 'coder.name',
+  authMethod: 'execution.auth_method',
 }
 
 /**
@@ -118,6 +119,12 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
   const sandboxed = getSetting(db, CONFIG_KEYS.sandboxed)
   if (sandboxed !== null) {
     config.sandboxed = sandboxed === 'true'
+  }
+
+  // Load auth method preference
+  const authMethod = getSetting(db, CONFIG_KEYS.authMethod)
+  if (authMethod) {
+    config.authMethod = authMethod as AuthMethod
   }
 
   // Load tmux settings
@@ -208,6 +215,30 @@ export function saveTmuxControlMode(db: Database.Database, enabled: boolean): vo
  */
 export function saveTerminalOpenInBackground(db: Database.Database, enabled: boolean): void {
   setSetting(db, CONFIG_KEYS.terminalOpenInBackground, enabled.toString())
+}
+
+/**
+ * Save auth method preference (oauth or apikey)
+ */
+export function saveAuthMethod(db: Database.Database, method: AuthMethod): void {
+  setSetting(db, CONFIG_KEYS.authMethod, method)
+}
+
+/**
+ * Get saved auth method preference.
+ * Returns null if no preference has been saved (user should be prompted).
+ */
+export function getAuthMethod(db: Database.Database): AuthMethod | null {
+  const value = getSetting(db, CONFIG_KEYS.authMethod)
+  if (value === 'oauth' || value === 'apikey') return value
+  return null
+}
+
+/**
+ * Clear saved auth method preference (will prompt again next time)
+ */
+export function clearAuthMethod(db: Database.Database): void {
+  db.prepare(`DELETE FROM ${SETTINGS_TABLE} WHERE key = ?`).run(CONFIG_KEYS.authMethod)
 }
 
 /**

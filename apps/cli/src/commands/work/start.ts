@@ -39,7 +39,7 @@ import {
 } from '../../lib/execution/types.js'
 import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, dockerCredentialsExist, getDockerCredentialInfo } from '../../lib/execution/runners.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
-import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName } from '../../lib/execution/config.js'
+import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName, getAuthMethod, saveAuthMethod } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import { detectRepoWorktrees, resolveWorktreePath } from '../../lib/execution/context.js'
 import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js'
@@ -1149,118 +1149,182 @@ export default class WorkStart extends PMOCommand {
       // Track whether user explicitly chose to use API key instead of OAuth
       let useApiKey = flags['use-api-key'] || false
 
-      // Check Docker credentials for devcontainer environment
+      // Auth method resolution for devcontainer environment
       if (environment === 'devcontainer' && !useApiKey) {
-        const hasCredentials = dockerCredentialsExist()
-        if (!hasCredentials) {
-          // In JSON mode with --yes, continue anyway (agent can run /login)
-          if (jsonMode && flags.yes) {
-            // Continue without prompting - agent will need to handle auth
+        // Check for saved auth method preference
+        const savedAuthMethod = getAuthMethod(db)
+        const hasApiKey = !!process.env.ANTHROPIC_API_KEY
+
+        if (savedAuthMethod === 'apikey') {
+          // Saved preference: API key — validate it's still set
+          if (!hasApiKey) {
+            this.log('')
+            this.log(styles.warning('⚠️  Saved auth method is "apikey" but ANTHROPIC_API_KEY is not set in your environment.'))
+            this.log(styles.muted('   Set the env var or run "' + this.config.bin + ' agent auth" to switch to OAuth.'))
+            db.close()
+            return
+          }
+          useApiKey = true
+        } else if (savedAuthMethod === 'oauth') {
+          // Saved preference: OAuth — validate credentials exist
+          const hasCredentials = dockerCredentialsExist()
+          if (!hasCredentials) {
+            this.log('')
+            this.log(styles.warning('⚠️  Saved auth method is "oauth" but no OAuth credentials found.'))
+            this.log(styles.muted('   Run "' + this.config.bin + ' agent auth" to authenticate.'))
+            db.close()
+            return
+          }
+          // OAuth credentials valid — continue (useApiKey stays false)
+        } else {
+          // No saved preference — show auth method menu
+          const hasCredentials = dockerCredentialsExist()
+
+          if (hasCredentials) {
+            // OAuth credentials exist, use them silently (no menu needed)
+            // useApiKey stays false
           } else {
-            const hasApiKey = !!process.env.ANTHROPIC_API_KEY
-
-            this.log('')
-            this.log(styles.warning('⚠️  No Claude Code OAuth credentials found for Docker containers'))
-            this.log(styles.muted('   Agents need credentials to authenticate with Claude.'))
-            this.log('')
-
-            // Build choices based on available options
-            const authChoices: Array<{ name: string; value: string }> = [
-              { name: `🔐 Run ${this.config.bin} agent auth now (recommended — uses Max subscription)`, value: 'auth' },
-            ]
-            if (hasApiKey) {
-              authChoices.push({ name: '🔑 Use ANTHROPIC_API_KEY (⚠️  uses API credits, not Max subscription)', value: 'apikey' })
-            }
-            authChoices.push(
-              { name: '💻 Switch to host environment instead', value: 'host' },
-              { name: '✗  Cancel', value: 'cancel' },
-            )
-
-            // Use FlagResolver for auth action
-            const authResolver = new FlagResolver<{ authAction?: string }>({
-              commandName: 'work start',
-              baseCommand: `prlt work start ${ticketId}`,
-              jsonMode,
-              flags: {},
-            })
-
-            authResolver.addPrompt({
-              flagName: 'authAction',
-              type: 'list',
-              message: 'What would you like to do?',
-              choices: () => authChoices,
-            })
-
-            const authResult = await authResolver.resolve()
-            const authAction = authResult.authAction
-
-            if (authAction === 'cancel') {
-              db.close()
-              this.log(styles.muted('Cancelled.'))
-              return
-            }
-
-            if (authAction === 'host') {
-              environment = 'host'
-              this.log(styles.muted('Switched to host environment.'))
-            } else if (authAction === 'apikey') {
-              useApiKey = true
-              this.log(styles.warning('Using ANTHROPIC_API_KEY — this will consume API credits.'))
-              this.log(styles.muted(`Run "${this.config.bin} agent auth" to set up OAuth and use your Max subscription instead.`))
+            // No saved preference and no OAuth credentials — prompt user
+            // In JSON mode with --yes, continue anyway (agent can run /login)
+            if (jsonMode && flags.yes) {
+              // Continue without prompting - agent will need to handle auth
+            } else {
               this.log('')
-            } else if (authAction === 'auth') {
-              this.log('')
-              this.log(styles.primary(`Opening ${this.config.bin} agent auth in new tab...`))
+              this.log(styles.warning('⚠️  No Claude Code OAuth credentials found for Docker containers'))
+              this.log(styles.muted('   Agents need credentials to authenticate with Claude.'))
               this.log('')
 
-              // Open auth in a new terminal tab
-              const authCmd = `${process.argv[1]} agent auth`
-              try {
-                execSync(`osascript -e '
-                  tell application "iTerm"
-                    tell current window
-                      create tab with default profile
-                      tell current session
-                        write text "${authCmd}"
-                      end tell
-                    end tell
-                  end tell
-                '`)
-              } catch {
-                // Fallback: try Terminal.app
-                try {
-                  execSync(`osascript -e 'tell application "Terminal" to do script "${authCmd}"'`)
-                } catch {
-                  this.log(styles.warning('Could not open new terminal tab.'))
-                  this.log(styles.muted(`Please run manually: ${authCmd}`))
-                }
+              // Build auth method choices
+              const authChoices: Array<{ name: string; value: string }> = [
+                { name: `🔐 OAuth (recommended — uses Max subscription)`, value: 'oauth' },
+              ]
+              if (hasApiKey) {
+                authChoices.push({ name: '🔑 API key (uses API credits, not Max subscription)', value: 'apikey' })
               }
+              authChoices.push(
+                { name: '💻 Switch to host environment instead', value: 'host' },
+                { name: '✗  Cancel', value: 'cancel' },
+              )
 
-              this.log(styles.muted('Complete the /login flow in the new tab, then press Enter here...'))
-              this.log('')
+              // Use FlagResolver for auth method selection
+              const authResolver = new FlagResolver<{ authAction?: string }>({
+                commandName: 'work start',
+                baseCommand: `prlt work start ${ticketId}`,
+                jsonMode,
+                flags: {},
+              })
 
-              // Wait for user to complete auth
-              await this.prompt<{ done: string }>([{
-                type: 'input',
-                name: 'done',
-                message: 'Press Enter when authentication is complete:',
-              }])
+              authResolver.addPrompt({
+                flagName: 'authAction',
+                type: 'list',
+                message: 'How should the agent authenticate with Claude?',
+                choices: () => authChoices,
+              })
 
-              // Check if credentials now exist
-              if (!dockerCredentialsExist()) {
-                this.log('')
-                this.log(styles.warning('Authentication did not complete. No credentials found.'))
+              const authResult = await authResolver.resolve()
+              const authAction = authResult.authAction
+
+              if (authAction === 'cancel') {
                 db.close()
+                this.log(styles.muted('Cancelled.'))
                 return
               }
-              const info = getDockerCredentialInfo()
-              this.log('')
-              this.log(styles.success('✓ Credentials configured'))
-              if (info) {
-                this.log(styles.muted(`   Subscription: ${info.subscriptionType || 'unknown'}`))
-                this.log(styles.muted(`   Expires: ${info.expiresAt.toLocaleDateString()}`))
+
+              if (authAction === 'host') {
+                environment = 'host'
+                this.log(styles.muted('Switched to host environment.'))
+              } else if (authAction === 'apikey') {
+                useApiKey = true
+                this.log(styles.warning('Using ANTHROPIC_API_KEY — this will consume API credits.'))
+                this.log(styles.muted(`Run "${this.config.bin} agent auth" to set up OAuth and use your Max subscription instead.`))
+                this.log('')
+              } else if (authAction === 'oauth') {
+                this.log('')
+                this.log(styles.primary(`Opening ${this.config.bin} agent auth in new tab...`))
+                this.log('')
+
+                // Open auth in a new terminal tab
+                const authCmd = `${process.argv[1]} agent auth`
+                try {
+                  execSync(`osascript -e '
+                    tell application "iTerm"
+                      tell current window
+                        create tab with default profile
+                        tell current session
+                          write text "${authCmd}"
+                        end tell
+                      end tell
+                    end tell
+                  '`)
+                } catch {
+                  // Fallback: try Terminal.app
+                  try {
+                    execSync(`osascript -e 'tell application "Terminal" to do script "${authCmd}"'`)
+                  } catch {
+                    this.log(styles.warning('Could not open new terminal tab.'))
+                    this.log(styles.muted(`Please run manually: ${authCmd}`))
+                  }
+                }
+
+                this.log(styles.muted('Complete the /login flow in the new tab, then press Enter here...'))
+                this.log('')
+
+                // Wait for user to complete auth
+                await this.prompt<{ done: string }>([{
+                  type: 'input',
+                  name: 'done',
+                  message: 'Press Enter when authentication is complete:',
+                }])
+
+                // Check if credentials now exist
+                if (!dockerCredentialsExist()) {
+                  this.log('')
+                  this.log(styles.warning('Authentication did not complete. No credentials found.'))
+                  db.close()
+                  return
+                }
+                const info = getDockerCredentialInfo()
+                this.log('')
+                this.log(styles.success('✓ Credentials configured'))
+                if (info) {
+                  this.log(styles.muted(`   Subscription: ${info.subscriptionType || 'unknown'}`))
+                  this.log(styles.muted(`   Expires: ${info.expiresAt.toLocaleDateString()}`))
+                }
+                this.log('')
               }
-              this.log('')
+
+              // Prompt "Save as default?" after a successful auth method choice
+              // (only if they chose oauth or apikey, not host/cancel)
+              if (authAction === 'oauth' || authAction === 'apikey') {
+                const saveChoices = [
+                  { name: 'Yes — skip this menu next time', value: true },
+                  { name: 'No — ask me each time', value: false },
+                ]
+                const saveMessage = 'Save as default auth method?'
+
+                const saveResolver = new FlagResolver<{ saveDefault?: boolean }>({
+                  commandName: 'work start',
+                  baseCommand: `prlt work start ${ticketId}`,
+                  jsonMode,
+                  flags: {},
+                })
+
+                saveResolver.addPrompt({
+                  flagName: 'saveDefault',
+                  type: 'list',
+                  message: saveMessage,
+                  default: true,
+                  choices: () => saveChoices,
+                })
+
+                const saveResult = await saveResolver.resolve()
+                if (saveResult.saveDefault) {
+                  const methodToSave = authAction === 'apikey' ? 'apikey' as const : 'oauth' as const
+                  saveAuthMethod(db, methodToSave)
+                  this.log(styles.muted(`Auth method saved: ${methodToSave}. Will skip this menu next time.`))
+                  this.log('')
+                }
+              }
             }
           }
         }
