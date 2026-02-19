@@ -593,33 +593,23 @@ describe('Session Commands E2E Tests', () => {
       expect(['SESSION_NOT_FOUND', 'SEND_FAILED']).to.include(json!.error.code);
     });
 
-    it('should output AMBIGUOUS_AGENT when multiple running executions match partial identifier', () => {
-      seedExecutionRecords([
-        {
-          id: 'exec-poke-003a',
-          ticketId: 'TKT-700',
-          ticketTitle: 'Task A',
-          agentName: 'alpha-agent',
-          sessionId: 'TKT-700-implement-alpha-agent',
-          status: 'running',
-        },
-        {
-          id: 'exec-poke-003b',
-          ticketId: 'TKT-701',
-          ticketTitle: 'Task B',
-          agentName: 'alpha-beta',
-          sessionId: 'TKT-701-implement-alpha-beta',
-          status: 'running',
-        },
-      ]);
+    it('should require exact agent name match (partial names do not match)', () => {
+      seedExecutionRecords([{
+        id: 'exec-poke-003a',
+        ticketId: 'TKT-700',
+        ticketTitle: 'Task A',
+        agentName: 'alpha-agent',
+        sessionId: 'TKT-700-implement-alpha-agent',
+        status: 'running',
+      }]);
 
+      // "alpha" is not an exact match for "alpha-agent"
       const output = execProduction('session poke alpha "test" --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       expect(json).to.not.be.null;
       expect(json!.error).to.exist;
-      expect(json!.error.code).to.equal('AMBIGUOUS_AGENT');
-      expect(json!.error.message).to.include('Multiple running executions');
+      expect(json!.error.code).to.equal('NO_ACTIVE_EXECUTION');
     });
 
     it('should include poke choice in session menu with correct command', () => {

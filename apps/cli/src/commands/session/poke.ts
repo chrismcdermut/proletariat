@@ -77,28 +77,6 @@ function sendMessage(sessionId: string, message: string, containerId?: string): 
   }
 }
 
-/**
- * Capture tmux pane content to verify message delivery.
- */
-function capturePaneContent(sessionId: string, containerId?: string): string | null {
-  try {
-    const captureCmd = `tmux capture-pane -t "${sessionId}" -p`
-    if (containerId) {
-      return execSync(
-        `docker exec ${containerId} bash -c '${captureCmd}'`,
-        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 },
-      ).trim()
-    }
-    return execSync(captureCmd, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 5000,
-    }).trim()
-  } catch {
-    return null
-  }
-}
-
 // =============================================================================
 // Command
 // =============================================================================
@@ -190,12 +168,6 @@ export default class SessionPoke extends PMOCommand {
       return
     }
 
-    // Verify delivery by capturing pane content
-    // Wait a small amount for the message to render
-    await new Promise(resolve => setTimeout(resolve, 200))
-    const paneContent = capturePaneContent(resolved.sessionId, resolved.containerId)
-    const verified = paneContent !== null && paneContent.includes(message)
-
     // Output result
     if (jsonMode) {
       outputSuccessAsJson({
@@ -203,15 +175,11 @@ export default class SessionPoke extends PMOCommand {
         agent: resolved.agentName,
         session: resolved.sessionId,
         message,
-        verified,
       }, createMetadata('session poke', flags))
     }
 
     this.log('')
     this.log(styles.success(`Message sent to ${resolved.agentName} (${resolved.ticketId})`))
-    if (!verified) {
-      this.log(styles.warning('Could not verify message delivery (timing issue - message may still have been sent).'))
-    }
     this.log('')
   }
 
@@ -252,15 +220,12 @@ export default class SessionPoke extends PMOCommand {
       const startingExecutions = executionStorage.listExecutions({ status: 'starting' })
       const activeExecutions = [...runningExecutions, ...startingExecutions]
 
-      // Find matching executions by agent name or ticket ID
-      const matchingExecutions = activeExecutions.filter(exec =>
-        exec.agentName === identifier ||
-        exec.ticketId === identifier ||
-        exec.agentName.includes(identifier) ||
-        exec.ticketId.includes(identifier),
+      // Find matching execution by exact agent name or exact ticket ID
+      const match = activeExecutions.find(exec =>
+        exec.agentName === identifier || exec.ticketId === identifier,
       )
 
-      if (matchingExecutions.length === 0) {
+      if (!match) {
         if (jsonMode) {
           outputErrorAsJson(
             'NO_ACTIVE_EXECUTION',
@@ -275,32 +240,7 @@ export default class SessionPoke extends PMOCommand {
         return null
       }
 
-      if (matchingExecutions.length > 1) {
-        // Multiple matches - check if any are exact matches first
-        const exactMatch = matchingExecutions.find(
-          exec => exec.agentName === identifier || exec.ticketId === identifier,
-        )
-        if (!exactMatch) {
-          if (jsonMode) {
-            outputErrorAsJson(
-              'AMBIGUOUS_AGENT',
-              `Multiple running executions match "${identifier}". Please be more specific. Matches: ${matchingExecutions.map(e => `${e.agentName} (${e.ticketId})`).join(', ')}`,
-              createMetadata('session poke', flags),
-            )
-          }
-          this.log('')
-          this.log(styles.error(`Multiple running executions match "${identifier}". Please be more specific:`))
-          for (const exec of matchingExecutions) {
-            this.log(styles.muted(`  - ${exec.agentName} (${exec.ticketId})`))
-          }
-          this.log('')
-          return null
-        }
-        // Use the exact match
-        return this.resolveSessionForExecution(exactMatch, jsonMode, flags)
-      }
-
-      return this.resolveSessionForExecution(matchingExecutions[0], jsonMode, flags)
+      return this.resolveSessionForExecution(match, jsonMode, flags)
     } finally {
       db?.close()
     }
