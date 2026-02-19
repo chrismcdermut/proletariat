@@ -83,6 +83,7 @@ export default class SessionPeek extends PMOCommand {
           'No active sessions found.',
           createMetadata('session peek', flags),
         )
+        return
       }
       this.log('')
       this.log(styles.muted('No active sessions found.'))
@@ -103,11 +104,34 @@ export default class SessionPeek extends PMOCommand {
             `No matching session found for "${args.target}".`,
             createMetadata('session peek', flags),
           )
+          return
         }
         this.error(`No matching session found for "${args.target}". Run "prlt session list" to see available sessions.`)
       }
 
       // Output all matched sessions
+      if (jsonMode && matched.length > 1) {
+        // Collect all captures into a single JSON response
+        const results = matched.map(session => {
+          const containerId = session.environment === 'container' ? session.containerId : undefined
+          const content = captureTmuxPane(session.sessionId, flags.lines, containerId)
+          return {
+            sessionId: session.sessionId,
+            ticketId: session.ticketId,
+            agentName: session.agentName,
+            environment: session.environment,
+            containerId: session.containerId,
+            lines: flags.lines,
+            content,
+            captureError: content === null
+              ? `Failed to capture pane content for session "${session.sessionId}".`
+              : undefined,
+          }
+        })
+        outputSuccessAsJson({ sessions: results }, createMetadata('session peek', flags))
+        return
+      }
+
       for (const session of matched) {
         this.outputPeek(session, flags.lines, jsonMode, flags)
       }
@@ -216,6 +240,7 @@ export default class SessionPeek extends PMOCommand {
           `Failed to capture pane content for session "${session.sessionId}". The session may no longer exist or tmux may not be available.`,
           createMetadata('session peek', flags),
         )
+        return
       }
       this.error(
         `Failed to capture pane content for session "${session.sessionId}". ` +
@@ -233,10 +258,10 @@ export default class SessionPeek extends PMOCommand {
         lines,
         content,
       }, createMetadata('session peek', flags))
+    } else {
+      // Raw text output — pipeable and scriptable
+      process.stdout.write(content + '\n')
     }
-
-    // Raw text output — pipeable and scriptable
-    process.stdout.write(content + '\n')
   }
 
   /**
