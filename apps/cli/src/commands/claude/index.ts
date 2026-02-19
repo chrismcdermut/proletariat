@@ -3,30 +3,30 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
 import { execSync } from 'node:child_process'
-import { PromptCommand } from '../lib/prompt-command.js'
-import { machineOutputFlags } from '../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import Database from 'better-sqlite3'
-import { findHQRoot } from '../lib/workspace.js'
+import { findHQRoot } from '../../lib/workspace.js'
 import {
   getWorkspaceInfo,
   createEphemeralAgent,
   WorkspaceInfo,
-} from '../lib/agents/commands.js'
+} from '../../lib/agents/commands.js'
 import {
   shouldOutputJson,
   outputErrorAsJson,
   createMetadata,
-} from '../lib/prompt-json.js'
-import { styles } from '../lib/styles.js'
+} from '../../lib/prompt-json.js'
+import { styles } from '../../lib/styles.js'
 import {
   DisplayMode,
   OutputMode,
   ExecutionContext,
   ExecutionEnvironment,
   DEFAULT_EXECUTION_CONFIG,
-} from '../lib/execution/types.js'
-import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } from '../lib/execution/runners.js'
-import { ExecutionStorage } from '../lib/execution/storage.js'
+} from '../../lib/execution/types.js'
+import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } from '../../lib/execution/runners.js'
+import { ExecutionStorage } from '../../lib/execution/storage.js'
 import {
   loadExecutionConfig,
   getTerminalApp,
@@ -35,8 +35,8 @@ import {
   promptShellPreference,
   hasTerminalPreference,
   hasShellPreference,
-} from '../lib/execution/config.js'
-import { hasDevcontainerConfig } from '../lib/execution/devcontainer.js'
+} from '../../lib/execution/config.js'
+import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 
 // Catch-all devcontainer image for directories without .devcontainer
 const CATCHALL_DEVCONTAINER_IMAGE = 'ghcr.io/chrismcdermut/proletariat-claude:latest'
@@ -533,7 +533,7 @@ export default class Claude extends PromptCommand {
 
     try {
       // Import PMO storage for ticket/project operations
-      const { getPMOContext } = await import('../lib/pmo/index.js')
+      const { getPMOContext } = await import('../../lib/pmo/index.js')
 
       let pmoPath: string
       let storage: Awaited<ReturnType<typeof getPMOContext>>['storage']
