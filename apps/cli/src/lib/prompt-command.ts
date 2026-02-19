@@ -140,7 +140,7 @@ export abstract class PromptCommand extends Command {
     } | null
   ): Promise<T> {
     // Auto-detect non-TTY: switch to JSON mode when no TTY present
-    if (!jsonModeConfig && !process.stdin.isTTY) {
+    if (!jsonModeConfig && isNonTTY()) {
       jsonModeConfig = { flags: { json: true }, commandName: this.id ?? 'unknown' };
     }
 

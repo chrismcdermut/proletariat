@@ -228,19 +228,24 @@ export interface MachineOutputFlags {
 }
 
 /**
- * Check if the current environment is non-TTY (piped output)
+ * Check if the current environment is non-TTY (piped input or output)
+ *
+ * Uses the "either" strategy: returns true if EITHER stdin OR stdout is non-TTY.
+ * This covers the primary use case of scripts/agents calling prlt as a subprocess,
+ * where both stdin and stdout are typically non-TTY.
  *
  * Returns true if:
- * - stdout is not a TTY (e.g., piped to another process)
+ * - stdin is not a TTY (e.g., piped input)
+ * - stdout is not a TTY (e.g., piped output)
  * - PRLT_JSON=1 environment variable is set (overrides TTY detection)
  *
- * @returns true if stdout is not a TTY or PRLT_JSON=1 is set
+ * @returns true if either stdin or stdout is not a TTY, or PRLT_JSON=1 is set
  */
 export function isNonTTY(): boolean {
   if (process.env.PRLT_JSON === '1' || process.env.PRLT_JSON === 'true') {
     return true
   }
-  return !process.stdout.isTTY
+  return !process.stdout.isTTY || !process.stdin.isTTY
 }
 
 /**
@@ -249,7 +254,7 @@ export function isNonTTY(): boolean {
  * Returns true if:
  * - The --json flag is set (or -m/--machine aliases)
  * - The PRLT_JSON=1 environment variable is set
- * - The environment is non-TTY (piped output)
+ * - Either stdin or stdout is non-TTY (piped input/output)
  *
  * @param flags - Command flags object
  * @returns true if JSON mode should be used
@@ -275,7 +280,7 @@ export const isAgentMode = shouldOutputJson
  * Returns true if:
  * - The --json flag is set (or -m/--machine aliases)
  * - The PRLT_JSON=1 environment variable is set
- * - The environment is non-TTY (piped output)
+ * - Either stdin or stdout is non-TTY (piped input/output)
  *
  * @param flags - Command flags object
  * @returns true if machine-readable output mode should be used
