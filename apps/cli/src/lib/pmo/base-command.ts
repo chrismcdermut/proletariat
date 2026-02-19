@@ -5,6 +5,7 @@ import { styles } from '../styles.js';
 import { PromptCommand } from '../prompt-command.js';
 import {
   shouldOutputJson,
+  isNonTTY,
   outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
@@ -199,7 +200,7 @@ export abstract class PMOCommand extends PromptCommand {
     });
 
     // Auto-detect non-TTY: switch to JSON mode when no TTY present
-    const effectiveJsonMode = options?.jsonMode ?? (!process.stdin.isTTY
+    const effectiveJsonMode = options?.jsonMode ?? (isNonTTY()
       ? {
           flags: { json: true } as JsonFlags & Record<string, unknown>,
           commandName: this.id ?? 'unknown',
@@ -303,7 +304,7 @@ export abstract class PMOCommand extends PromptCommand {
     } = options;
 
     // Auto-detect non-TTY: switch to JSON mode when no TTY present
-    const effectiveJsonMode = jsonMode ?? (!process.stdin.isTTY
+    const effectiveJsonMode = jsonMode ?? (isNonTTY()
       ? { flags: { json: true } as JsonFlags & Record<string, unknown>, commandName: this.id ?? 'unknown' }
       : null);
 
@@ -387,7 +388,7 @@ export abstract class PMOCommand extends PromptCommand {
     const { message, fieldName, defaultValue, validate, jsonMode } = options;
 
     // Auto-detect non-TTY: switch to JSON mode when no TTY present
-    const effectiveJsonMode = jsonMode ?? (!process.stdin.isTTY
+    const effectiveJsonMode = jsonMode ?? (isNonTTY()
       ? { flags: { json: true } as JsonFlags & Record<string, unknown>, commandName: this.id ?? 'unknown', commandHint: '', example: undefined as string | undefined }
       : null);
 

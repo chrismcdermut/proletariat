@@ -1,5 +1,6 @@
 import { Args, Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 import { styles } from '../../lib/styles.js';
 
 export default class LabelCreate extends PMOCommand {
@@ -48,7 +49,7 @@ export default class LabelCreate extends PMOCommand {
       groupId: flags.group,
     });
 
-    if (flags.machine || flags.json) {
+    if (shouldOutputJson(flags)) {
       this.log(JSON.stringify(label, null, 2));
       return;
     }

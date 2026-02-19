@@ -2,6 +2,8 @@ import { Command, Args, Flags } from '@oclif/core';
 import chalk from 'chalk';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { createTheme, getTheme } from '../../lib/database/index.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 
 export default class ThemeCreate extends Command {
   static description = 'Create a custom agent theme';
@@ -20,6 +22,7 @@ export default class ThemeCreate extends Command {
   };
 
   static flags = {
+    ...machineOutputFlags,
     description: Flags.string({
       char: 'd',
       description: 'Theme description',
@@ -31,6 +34,7 @@ export default class ThemeCreate extends Command {
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(ThemeCreate);
+    const jsonMode = shouldOutputJson(flags)
 
     try {
       const workspaceInfo = getWorkspaceInfo();
@@ -61,6 +65,11 @@ export default class ThemeCreate extends Command {
         description: flags.description,
         builtin: false,
       });
+
+      if (jsonMode) {
+        this.log(JSON.stringify({ type: 'success', result: { id: theme.id, displayName: theme.display_name, description: theme.description } }, null, 2))
+        return
+      }
 
       this.log(chalk.green(`\n Created theme: ${theme.display_name}`));
       this.log(chalk.gray(`   ID: ${theme.id}`));

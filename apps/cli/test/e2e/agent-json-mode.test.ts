@@ -162,39 +162,43 @@ describe('Agent Commands JSON Mode', () => {
       createTestAgent('temp-agent-1', 'ephemeral');
     });
 
-    it('should output type selection prompt when no type specified', () => {
+    it('should output all agents as JSON data when no type specified', () => {
       const output = exec('agent list --machine');
       const json = extractJson<{
-        prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string; command?: string }> };
-        metadata: { command: string; flags: { machine: boolean } };
+        staff: Array<{ name: string; type: string }>;
+        temp: Array<{ name: string; type: string }>;
+        all: Array<{ name: string; type: string }>;
       }>(output);
 
-      expect(json.prompt).to.exist;
-      expect(json.prompt.type).to.equal('list');
-      expect(json.prompt.name).to.equal('selectedType');
-      expect(json.prompt.choices).to.be.an('array');
-
-      // Should have type filter choices with --machine flag
-      const allChoice = json.prompt.choices.find(c => c.value === 'all');
-      expect(allChoice).to.exist;
-      expect(allChoice!.command).to.include('--type all');
-      expect(allChoice!.command).to.include('--machine');
+      // In JSON mode without --type, agent list returns grouped JSON data
+      expect(json).to.exist;
+      expect(json.staff).to.be.an('array');
+      expect(json.temp).to.be.an('array');
+      expect(json.all).to.be.an('array');
     });
 
     it('should work with --json flag (legacy)', () => {
       const output = exec('agent list --json');
-      const json = extractJson<{ prompt: { type: string } }>(output);
+      const json = extractJson<{
+        staff: Array<{ name: string }>;
+        temp: Array<{ name: string }>;
+        all: Array<{ name: string }>;
+      }>(output);
 
-      expect(json.prompt).to.exist;
-      expect(json.prompt.type).to.equal('list');
+      expect(json).to.exist;
+      expect(json.all).to.be.an('array');
     });
 
     it('should work with -m shorthand', () => {
       const output = exec('agent list -m');
-      const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
+      const json = extractJson<{
+        staff: Array<{ name: string }>;
+        temp: Array<{ name: string }>;
+        all: Array<{ name: string }>;
+      }>(output);
 
-      expect(json.prompt).to.exist;
-      expect(json.metadata.flags.machine).to.equal(true);
+      expect(json).to.exist;
+      expect(json.all).to.be.an('array');
     });
 
     it('should bypass prompt when --type is specified', () => {
@@ -364,7 +368,7 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('flow-agent-2', 'persistent');
       });
 
-      it('should complete flow: agent index → select list → select type → view agents', () => {
+      it('should complete flow: agent index → select list → view agents as JSON data', () => {
         // Step 1: Agent index menu
         const step1 = agentExec('agent --machine');
         expect(step1).to.exist;
@@ -377,25 +381,19 @@ describe('Agent Commands JSON Mode', () => {
         expect(listChoice!.command).to.include('agent list');
         expect(listChoice!.command).to.include('--machine');
 
-        // Step 2: Execute list command, get type selection
-        const step2 = agentExec(execChoice(listChoice!));
-        expect(step2).to.exist;
-        expect(step2!.prompt.type).to.equal('list');
-        expect(step2!.prompt.name).to.equal('selectedType');
+        // Step 2: Execute list command - now returns JSON data directly (no prompt)
+        const listCmd = execChoice(listChoice!);
+        const output = exec(listCmd);
 
-        // Find 'All' choice
-        const allChoice = findChoice(step2!.prompt.choices!, 'All');
-        expect(allChoice).to.exist;
-        expect(allChoice!.command).to.include('--type all');
+        // In JSON mode without --type, agent list returns grouped JSON data
+        const json = extractJson<{
+          staff: Array<{ name: string }>;
+          temp: Array<{ name: string }>;
+          all: Array<{ name: string }>;
+        }>(output);
 
-        // Step 3: Execute with type flag (final result)
-        const finalCmd = execChoice(allChoice!).replace(' --machine', '').replace(' --json', '');
-        const result = exec(finalCmd);
-
-        // Should show agent listing
-        expect(result).to.satisfy((o: string) =>
-          o.includes('flow-agent') || o.includes('Staff') || o.includes('Summary')
-        );
+        expect(json).to.exist;
+        expect(json.all).to.be.an('array');
       });
     });
 
@@ -506,20 +504,24 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('list-temp-1', 'ephemeral');
       });
 
-      it('should complete flow: agent list → select Staff → view only staff agents', () => {
-        // Step 1: Get type filter prompt
-        const step1 = agentExec('agent list --machine');
-        expect(step1).to.exist;
-        expect(step1!.prompt.name).to.equal('selectedType');
+      it('should complete flow: agent list --machine → view staff agents in JSON data', () => {
+        // agent list --machine now returns all agents as JSON data directly
+        const output = exec('agent list --machine');
+        const json = extractJson<{
+          staff: Array<{ name: string; type: string }>;
+          temp: Array<{ name: string; type: string }>;
+          all: Array<{ name: string; type: string }>;
+        }>(output);
 
-        // Find 'Staff' choice
-        const staffChoice = findChoice(step1!.prompt.choices!, 'Staff');
-        expect(staffChoice).to.exist;
-        expect(staffChoice!.command).to.include('--type staff');
+        expect(json).to.exist;
+        expect(json.staff).to.be.an('array');
+        expect(json.temp).to.be.an('array');
+        expect(json.all).to.be.an('array');
+      });
 
-        // Step 2: Execute with staff filter
-        const finalCmd = execChoice(staffChoice!).replace(' --machine', '').replace(' --json', '');
-        const result = exec(finalCmd);
+      it('should complete flow: agent list --type staff → view only staff agents', () => {
+        // Use --type flag to filter directly
+        const result = exec('agent list --type staff');
 
         // Should show staff agents section (or "no active staff agents" message)
         expect(result.toLowerCase()).to.satisfy((o: string) =>
@@ -527,19 +529,9 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should complete flow: agent list → select Temp → view only temp agents', () => {
-        // Step 1: Get type filter prompt
-        const step1 = agentExec('agent list --machine');
-        expect(step1).to.exist;
-
-        // Find 'Temp' choice
-        const tempChoice = findChoice(step1!.prompt.choices!, 'Temp');
-        expect(tempChoice).to.exist;
-        expect(tempChoice!.command).to.include('--type temp');
-
-        // Step 2: Execute with temp filter
-        const finalCmd = execChoice(tempChoice!).replace(' --machine', '').replace(' --json', '');
-        const result = exec(finalCmd);
+      it('should complete flow: agent list --type temp → view only temp agents', () => {
+        // Use --type flag to filter directly
+        const result = exec('agent list --type temp');
 
         // Should show temp agents section (or "no active temp agents" message)
         expect(result.toLowerCase()).to.satisfy((o: string) =>
@@ -563,10 +555,18 @@ describe('Agent Commands JSON Mode', () => {
         const listChoice = findChoice(step1!.prompt.choices!, 'List');
         expect(listChoice).to.exist;
 
-        // Execute next step with --json
-        const step2 = agentExec(execChoice(listChoice!));
-        expect(step2).to.exist;
-        expect(step2!.prompt.type).to.equal('list');
+        // Execute next step with --json - now returns JSON data directly (no prompt)
+        const listCmd = execChoice(listChoice!);
+        const output = exec(listCmd);
+
+        // agent list --json returns grouped JSON data
+        const json = extractJson<{
+          staff: Array<{ name: string }>;
+          all: Array<{ name: string }>;
+        }>(output);
+
+        expect(json).to.exist;
+        expect(json.all).to.be.an('array');
       });
     });
 
@@ -683,100 +683,63 @@ describe('Agent Commands JSON Mode', () => {
       });
     });
 
-    describe('agent index → temp submenu flow', () => {
+    describe('agent index → cleanup flow', () => {
       beforeEach(() => {
         createTestAgent('temp-flow-agent', 'ephemeral');
       });
 
-      it('should complete flow: agent index → temp → get submenu', () => {
+      it('should complete flow: agent index → cleanup → get agent checkbox', () => {
         // Step 1: Agent index menu
         const step1 = agentExec('agent --machine');
         expect(step1).to.exist;
 
-        // Find 'temp' choice
-        const tempChoice = findChoice(step1!.prompt.choices!, 'temp');
-        expect(tempChoice).to.exist;
-        expect(tempChoice!.command).to.include('agent temp');
-
-        // Step 2: Execute temp command, get submenu
-        const step2 = agentExec(execChoice(tempChoice!));
-        expect(step2).to.exist;
-        expect(step2!.prompt.type).to.equal('list');
-        expect(step2!.prompt.name).to.equal('action');
-
-        // Verify submenu choices have command fields
-        const listChoice = findChoice(step2!.prompt.choices!, 'List');
-        expect(listChoice).to.exist;
-        expect(listChoice!.command).to.include('agent temp list');
-        expect(listChoice!.command).to.include('--machine');
-      });
-
-      it('should complete flow: agent index → temp → list → view temp agents', () => {
-        // Step 1: Agent index menu
-        const step1 = agentExec('agent --machine');
-        expect(step1).to.exist;
-
-        // Find 'temp' choice
-        const tempChoice = findChoice(step1!.prompt.choices!, 'temp');
-        expect(tempChoice).to.exist;
-
-        // Step 2: Execute temp command, get submenu
-        const step2 = agentExec(execChoice(tempChoice!));
-        expect(step2).to.exist;
-
-        // Find 'List' choice
-        const listChoice = findChoice(step2!.prompt.choices!, 'List');
-        expect(listChoice).to.exist;
-
-        // Step 3: Execute list command (returns data, not prompt)
-        const finalCmd = execChoice(listChoice!).replace(' --machine', '').replace(' --json', '');
-        const result = exec(finalCmd);
-
-        // Should show temp agents or summary
-        expect(result.toLowerCase()).to.satisfy((o: string) =>
-          o.includes('temp') || o.includes('temporary') || o.includes('active') || o.includes('no')
-        );
-      });
-
-      it('should complete flow: agent index → temp → cleanup → get agent checkbox', () => {
-        // Step 1: Agent index menu
-        const step1 = agentExec('agent --machine');
-        expect(step1).to.exist;
-
-        // Find 'temp' choice
-        const tempChoice = findChoice(step1!.prompt.choices!, 'temp');
-        expect(tempChoice).to.exist;
-
-        // Step 2: Execute temp command, get submenu
-        const step2 = agentExec(execChoice(tempChoice!));
-        expect(step2).to.exist;
-
-        // Find 'cleanup' choice
-        const cleanupChoice = findChoice(step2!.prompt.choices!, 'Clean');
+        // Find 'cleanup' choice (cleanup is now a top-level action, not under temp submenu)
+        const cleanupChoice = findChoice(step1!.prompt.choices!, 'Cleanup');
         expect(cleanupChoice).to.exist;
-        expect(cleanupChoice!.command).to.include('agent temp cleanup');
+        expect(cleanupChoice!.command).to.include('agent cleanup');
 
-        // Step 3: Execute cleanup command, get agent checkbox prompt
-        const step3 = agentExec(execChoice(cleanupChoice!));
-        expect(step3).to.exist;
-        expect(step3!.prompt.type).to.equal('checkbox');
-        expect(step3!.prompt.name).to.equal('agents');
+        // Step 2: Execute cleanup command, get agent checkbox prompt
+        const step2 = agentExec(execChoice(cleanupChoice!));
+        expect(step2).to.exist;
+        expect(step2!.prompt.type).to.equal('checkbox');
+        expect(step2!.prompt.name).to.equal('agents');
 
         // Should include "All temp agents" option or our test agent
-        expect(step3!.prompt.choices).to.be.an('array');
-        const hasAllOption = step3!.prompt.choices!.some(
+        expect(step2!.prompt.choices).to.be.an('array');
+        const hasAllOption = step2!.prompt.choices!.some(
           (c: { name?: string; value?: string }) => c.value === '__all_temp__' || c.name?.includes('All')
         );
-        const hasTestAgent = step3!.prompt.choices!.some(
+        const hasTestAgent = step2!.prompt.choices!.some(
           (c: { name?: string; value?: string }) => c.value === 'temp-flow-agent'
         );
-        expect(hasAllOption || hasTestAgent || step3!.prompt.choices!.length > 0).to.be.true;
+        expect(hasAllOption || hasTestAgent || step2!.prompt.choices!.length > 0).to.be.true;
       });
 
-      it('should complete flow: temp cleanup → select agent → get confirmation prompt', () => {
-        // Step 1: Direct cleanup with specific agent
-        // Using the agent name directly triggers the confirmation prompt
-        const step1 = agentExec('agent temp cleanup temp-flow-agent --machine');
+      it('should complete flow: agent index → cleanup → view temp agents in list', () => {
+        // Step 1: Agent index menu
+        const step1 = agentExec('agent --machine');
+        expect(step1).to.exist;
+
+        // Find 'List' choice to view temp agents
+        const listChoice = findChoice(step1!.prompt.choices!, 'List');
+        expect(listChoice).to.exist;
+
+        // Step 2: Execute list command - returns JSON data with temp agents
+        const listCmd = execChoice(listChoice!);
+        const output = exec(listCmd);
+
+        const json = extractJson<{
+          temp: Array<{ name: string }>;
+          all: Array<{ name: string }>;
+        }>(output);
+
+        expect(json).to.exist;
+        expect(json.temp).to.be.an('array');
+      });
+
+      it('should complete flow: direct cleanup with agent → get confirmation prompt', () => {
+        // Direct cleanup with specific agent triggers the confirmation prompt
+        const step1 = agentExec('agent cleanup temp-flow-agent --machine');
         expect(step1).to.exist;
         expect(step1!.prompt.type).to.equal('list');
         expect(step1!.prompt.name).to.equal('confirmed');
@@ -1340,14 +1303,14 @@ describe('Agent Commands JSON Mode', () => {
       });
     });
 
-    describe('agent temp cleanup flags', () => {
+    describe('agent cleanup flags', () => {
       beforeEach(() => {
         createTestAgent('cleanup-temp-1', 'ephemeral');
         createTestAgent('cleanup-temp-2', 'ephemeral');
       });
 
       it('should support --temp flag (cleanup idle temp agents)', () => {
-        const output = exec('agent temp cleanup --temp --machine');
+        const output = exec('agent cleanup --temp --machine');
 
         // Should either show confirmation prompt or no agents message
         expect(output).to.satisfy((o: string) =>
@@ -1359,7 +1322,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support --all flag (cleanup all temp agents)', () => {
-        const output = exec('agent temp cleanup --all --machine');
+        const output = exec('agent cleanup --all --machine');
 
         // Should either show confirmation prompt or no agents message
         expect(output).to.satisfy((o: string) =>
@@ -1370,7 +1333,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support --dry-run flag (show what would be cleaned)', () => {
-        const output = exec('agent temp cleanup cleanup-temp-1 --dry-run --machine');
+        const output = exec('agent cleanup cleanup-temp-1 --dry-run --machine');
 
         // Dry run should show results without prompting
         expect(output).to.satisfy((o: string) =>
@@ -1382,7 +1345,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support --yes flag (skip confirmation)', () => {
-        const output = exec('agent temp cleanup cleanup-temp-1 --yes --machine');
+        const output = exec('agent cleanup cleanup-temp-1 --yes --machine');
 
         // Should skip confirmation and proceed (or fail to find agent)
         expect(output).to.satisfy((o: string) =>
@@ -1394,7 +1357,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support -y shorthand for --yes', () => {
-        const output = exec('agent temp cleanup cleanup-temp-1 -y --machine');
+        const output = exec('agent cleanup cleanup-temp-1 -y --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"success"') ||
@@ -1405,7 +1368,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support --force flag (force cleanup with uncommitted work)', () => {
-        const output = exec('agent temp cleanup cleanup-temp-1 --force --machine');
+        const output = exec('agent cleanup cleanup-temp-1 --force --machine');
 
         // Should proceed with force flag
         expect(output).to.satisfy((o: string) =>
@@ -1417,7 +1380,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support -f shorthand for --force', () => {
-        const output = exec('agent temp cleanup cleanup-temp-1 -f --machine');
+        const output = exec('agent cleanup cleanup-temp-1 -f --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"prompt"') ||
@@ -1428,7 +1391,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support combined flags --temp --dry-run', () => {
-        const output = exec('agent temp cleanup --temp --dry-run --machine');
+        const output = exec('agent cleanup --temp --dry-run --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"success"') ||
@@ -1438,7 +1401,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support combined flags --all --yes', () => {
-        const output = exec('agent temp cleanup --all --yes --machine');
+        const output = exec('agent cleanup --all --yes --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"success"') ||
@@ -1448,7 +1411,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support --push flag (push before cleanup)', () => {
-        const output = exec('agent temp cleanup cleanup-temp-1 --push --machine');
+        const output = exec('agent cleanup cleanup-temp-1 --push --machine');
 
         // Should either prompt for confirmation or handle the agent
         expect(output).to.satisfy((o: string) =>
@@ -1461,7 +1424,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support combined flags --push --yes', () => {
-        const output = exec('agent temp cleanup cleanup-temp-1 --push --yes --machine');
+        const output = exec('agent cleanup cleanup-temp-1 --push --yes --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"success"') ||
@@ -1751,12 +1714,14 @@ describe('Agent Commands JSON Mode', () => {
       it('should support --force flag to skip confirmation', () => {
         const output = exec('agent staff remove remove-agent-1 --force 2>&1');
 
-        // Should proceed without confirmation (may fail due to Docker)
+        // Should proceed without confirmation (may fail due to Docker or return JSON error)
         expect(output).to.satisfy((o: string) =>
           o.includes('Removing') ||
           o.includes('removed') ||
           o.includes('Docker') ||
-          o.includes('Error')
+          o.includes('Error') ||
+          o.includes('"error"') ||
+          o.includes('"success"')
         );
       });
 
@@ -1767,7 +1732,9 @@ describe('Agent Commands JSON Mode', () => {
           o.includes('Removing') ||
           o.includes('removed') ||
           o.includes('Docker') ||
-          o.includes('Error')
+          o.includes('Error') ||
+          o.includes('"error"') ||
+          o.includes('"success"')
         );
       });
 

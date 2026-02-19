@@ -1,5 +1,6 @@
 import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 import { styles } from '../../lib/styles.js';
 
 export default class Workflow extends PMOCommand {
@@ -39,7 +40,7 @@ export default class Workflow extends PMOCommand {
       Object.keys(filter).length > 0 ? filter : undefined
     );
 
-    if (flags.json || flags.machine) {
+    if (shouldOutputJson(flags)) {
       this.log(JSON.stringify(workflows, null, 2));
       return;
     }

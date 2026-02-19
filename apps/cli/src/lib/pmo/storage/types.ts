@@ -187,6 +187,7 @@ export interface WorkActionRow {
   prompt: string
   end_prompt: string | null
   default_category: string | null
+  modifies_code: number
   is_builtin: number
   position: number
   created_at: string
