@@ -1,4 +1,5 @@
 
+import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
   shouldOutputJson,
@@ -64,7 +65,10 @@ export default class Ticket extends PMOCommand {
       message: '🎫 ' + message,
       choices: [
         ...menuChoices.slice(0, 11),
-        ...menuChoices.slice(11),
+        new inquirer.Separator('──────────────'),
+        menuChoices[11],
+        menuChoices[12],
+        menuChoices[13],
       ],
     }], null);
 

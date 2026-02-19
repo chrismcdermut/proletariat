@@ -1,6 +1,7 @@
 import { Flags } from '@oclif/core'
 import * as path from 'node:path'
 import Database from 'better-sqlite3'
+import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
@@ -175,7 +176,15 @@ export default class ExecutionConfig extends PMOCommand {
           name: 'setting',
           message: 'Select setting to configure:',
           choices: [
-            ...settingChoices,
+            new inquirer.Separator('── Execution ──'),
+            ...settingChoices.slice(0, 3),
+            new inquirer.Separator('── Terminal ──'),
+            ...settingChoices.slice(3, 5),
+            new inquirer.Separator('── Shell ──'),
+            settingChoices[5],
+            new inquirer.Separator('── Tmux ──'),
+            settingChoices[6],
+            new inquirer.Separator(),
             { name: 'Exit', value: '__exit__' },
           ],
         },

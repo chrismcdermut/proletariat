@@ -1,4 +1,5 @@
 
+import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
@@ -72,12 +73,15 @@ export default class TicketBulk extends PMOCommand {
         withEmoji('list'),
         withEmoji('move'),
         withEmoji('complete'),
+        new inquirer.Separator(),
         withEmoji('reassign'),
         withEmoji('epic'),
         withEmoji('spec'),
         withEmoji('project'),
         withEmoji('update'),
+        new inquirer.Separator(),
         withEmoji('delete'),
+        new inquirer.Separator(),
         withEmoji('cancel'),
       ]
     }], null);
