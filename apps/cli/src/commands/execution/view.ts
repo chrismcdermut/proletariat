@@ -8,6 +8,7 @@ import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import {
   outputErrorAsJson,
+  outputSuccessAsJson,
   createMetadata,
   shouldOutputJson,
 } from '../../lib/prompt-json.js'
@@ -105,30 +106,26 @@ export default class ExecutionView extends PMOCommand {
 
       // If JSON mode with ID provided, output the execution data as JSON
       if (jsonMode && args.id) {
-        console.log(JSON.stringify({
-          success: true,
-          data: {
-            id: execution.id,
-            ticketId: execution.ticketId,
-            agentName: execution.agentName,
-            executor: execution.executor,
-            environment: execution.environment,
-            displayMode: execution.displayMode,
-            sandboxed: execution.sandboxed,
-            status: execution.status,
-            branch: execution.branch || null,
-            pid: execution.pid || null,
-            containerId: execution.containerId || null,
-            sessionId: execution.sessionId || null,
-            host: execution.host || null,
-            logPath: execution.logPath || null,
-            startedAt: execution.startedAt.toISOString(),
-            completedAt: execution.completedAt?.toISOString() || null,
-            exitCode: execution.exitCode ?? null,
-          },
-          metadata: createMetadata('execution view', flags),
-        }, null, 2))
-        return
+        db.close()
+        outputSuccessAsJson({
+          id: execution.id,
+          ticketId: execution.ticketId,
+          agentName: execution.agentName,
+          executor: execution.executor,
+          environment: execution.environment,
+          displayMode: execution.displayMode,
+          sandboxed: execution.sandboxed,
+          status: execution.status,
+          branch: execution.branch || null,
+          pid: execution.pid || null,
+          containerId: execution.containerId || null,
+          sessionId: execution.sessionId || null,
+          host: execution.host || null,
+          logPath: execution.logPath || null,
+          startedAt: execution.startedAt.toISOString(),
+          completedAt: execution.completedAt?.toISOString() || null,
+          exitCode: execution.exitCode ?? null,
+        }, createMetadata('execution view', flags))
       }
 
       // Display execution details

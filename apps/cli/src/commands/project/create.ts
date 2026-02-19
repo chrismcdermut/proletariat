@@ -1,7 +1,6 @@
 import { Flags, Args } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import inquirer from 'inquirer';
 import { createBoardContent, createSpecFolders, PMOCommand, pmoBaseFlags, BUILTIN_TEMPLATES } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { slugify } from '../../lib/pmo/utils.js';
@@ -219,7 +218,7 @@ export default class ProjectCreate extends PMOCommand {
     template: string;
   }> {
     // Build inquirer prompts from fields, adding validators and dynamic defaults
-    const answers = await inquirer.prompt<{
+    const answers = await this.prompt<{
       name: string;
       id: string;
       description: string;
@@ -227,13 +226,13 @@ export default class ProjectCreate extends PMOCommand {
     }>(fields.map(field => ({
       ...field,
       validate: field.name === 'name'
-        ? ((input: string) => input.length > 0 || 'Name is required')
+        ? ((input: unknown) => String(input).length > 0 || 'Name is required')
         : undefined,
       // Dynamic default for id based on name
       default: field.name === 'id'
         ? ((answers: { name: string }) => slugify(answers.name))
         : field.default,
-    })));
+    })), null);
 
     return {
       name: answers.name,

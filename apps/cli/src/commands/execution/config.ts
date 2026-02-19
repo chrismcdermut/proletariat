@@ -21,12 +21,9 @@ import {
 } from '../../lib/execution/types.js'
 import {
   shouldOutputJson,
-  isAgentMode,
-  outputPromptAsJson,
   outputSuccessAsJson,
   outputErrorAsJson,
   createMetadata,
-  normalizeChoices,
   type JsonFlags,
 } from '../../lib/prompt-json.js'
 
@@ -62,50 +59,6 @@ export default class ExecutionConfig extends PMOCommand {
 
   protected getPMOOptions() {
     return { promptIfMultiple: false }
-  }
-
-  /**
-   * Prompt wrapper - drop-in replacement for inquirer.prompt
-   */
-  private async promptUser<T extends Record<string, unknown>>(
-    questions: Array<{
-      type: string;
-      name: string;
-      message: string;
-      choices?: Array<
-        | string
-        | { name: string; value: unknown; disabled?: boolean | string; command?: string }
-        | unknown
-      >;
-      default?: unknown;
-    }>,
-    jsonModeConfig?: {
-      flags: JsonFlags & Record<string, unknown>;
-      commandName: string;
-    } | null
-  ): Promise<T> {
-    if (jsonModeConfig && isAgentMode(jsonModeConfig.flags)) {
-      const firstQuestion = questions[0];
-      if (firstQuestion) {
-        const choices = firstQuestion.choices
-          ? normalizeChoices(firstQuestion.choices)
-          : undefined;
-
-        outputPromptAsJson(
-          {
-            type: firstQuestion.type as 'list' | 'checkbox' | 'input' | 'confirm' | 'editor',
-            name: firstQuestion.name,
-            message: firstQuestion.message,
-            choices,
-            default: firstQuestion.default as string | boolean | string[] | undefined,
-          },
-          createMetadata(jsonModeConfig.commandName, jsonModeConfig.flags)
-        );
-      }
-      return {} as T;
-    }
-
-    return inquirer.prompt(questions as Parameters<typeof inquirer.prompt>[0]) as Promise<T>;
   }
 
   async execute(): Promise<void> {
@@ -217,7 +170,7 @@ export default class ExecutionConfig extends PMOCommand {
         { name: `Tmux Control Mode: ${config.tmux.controlMode}`, value: 'tmux.controlMode', command: 'prlt execution config --setting tmux.controlMode --json' },
       ]
 
-      const { setting } = await this.promptUser<{ setting: string }>([
+      const { setting } = await this.prompt<{ setting: string }>([
         {
           type: 'list',
           name: 'setting',
@@ -269,7 +222,7 @@ export default class ExecutionConfig extends PMOCommand {
           { name: 'docker - Run in a Docker container', value: 'docker', command: 'prlt execution config --set "defaultEnvironment docker" --json' },
           { name: 'vm - Run on a remote VM', value: 'vm', command: 'prlt execution config --set "defaultEnvironment vm" --json' },
         ]
-        const { newEnv } = await this.promptUser<{ newEnv: string }>([
+        const { newEnv } = await this.prompt<{ newEnv: string }>([
           {
             type: 'list',
             name: 'newEnv',
@@ -288,7 +241,7 @@ export default class ExecutionConfig extends PMOCommand {
           { name: 'interactive - Watch Claude work in real-time (streaming UI)', value: 'interactive', command: 'prlt execution config --set "outputMode interactive" --json' },
           { name: 'print - Show final result only (better for logs)', value: 'print', command: 'prlt execution config --set "outputMode print" --json' },
         ]
-        const { newOutput } = await this.promptUser<{ newOutput: string }>([
+        const { newOutput } = await this.prompt<{ newOutput: string }>([
           {
             type: 'list',
             name: 'newOutput',
@@ -307,7 +260,7 @@ export default class ExecutionConfig extends PMOCommand {
           { name: 'safe - Requires approval for dangerous operations (recommended)', value: 'true', command: 'prlt execution config --set "sandboxed true" --json' },
           { name: 'danger - Skip permission checks (--dangerously-skip-permissions)', value: 'false', command: 'prlt execution config --set "sandboxed false" --json' },
         ]
-        const { newPerm } = await this.promptUser<{ newPerm: string }>([
+        const { newPerm } = await this.prompt<{ newPerm: string }>([
           {
             type: 'list',
             name: 'newPerm',
@@ -332,7 +285,7 @@ export default class ExecutionConfig extends PMOCommand {
           { name: 'Warp', value: 'Warp', command: 'prlt execution config --set "terminal.app Warp" --json' },
           { name: 'tmux', value: 'tmux', command: 'prlt execution config --set "terminal.app tmux" --json' },
         ]
-        const { newApp } = await this.promptUser<{ newApp: string }>([
+        const { newApp } = await this.prompt<{ newApp: string }>([
           {
             type: 'list',
             name: 'newApp',
@@ -351,7 +304,7 @@ export default class ExecutionConfig extends PMOCommand {
           { name: 'Yes - Open tabs in background (don\'t steal focus)', value: 'true', command: 'prlt execution config --set "terminal.openInBackground true" --json' },
           { name: 'No - Bring terminal to foreground when opening tabs', value: 'false', command: 'prlt execution config --set "terminal.openInBackground false" --json' },
         ]
-        const { openInBg } = await this.promptUser<{ openInBg: string }>([
+        const { openInBg } = await this.prompt<{ openInBg: string }>([
           {
             type: 'list',
             name: 'openInBg',
@@ -371,7 +324,7 @@ export default class ExecutionConfig extends PMOCommand {
           { name: 'bash', value: 'bash', command: 'prlt execution config --set "shell bash" --json' },
           { name: 'fish', value: 'fish', command: 'prlt execution config --set "shell fish" --json' },
         ]
-        const { newShell } = await this.promptUser<{ newShell: string }>([
+        const { newShell } = await this.prompt<{ newShell: string }>([
           {
             type: 'list',
             name: 'newShell',
@@ -390,7 +343,7 @@ export default class ExecutionConfig extends PMOCommand {
           { name: 'Yes - Use tmux -CC for native iTerm integration', value: 'true', command: 'prlt execution config --set "tmux.controlMode true" --json' },
           { name: 'No - Standard tmux interface', value: 'false', command: 'prlt execution config --set "tmux.controlMode false" --json' },
         ]
-        const { controlMode } = await this.promptUser<{ controlMode: string }>([
+        const { controlMode } = await this.prompt<{ controlMode: string }>([
           {
             type: 'list',
             name: 'controlMode',

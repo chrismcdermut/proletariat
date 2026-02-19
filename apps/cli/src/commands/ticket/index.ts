@@ -59,7 +59,7 @@ export default class Ticket extends PMOCommand {
     }
 
     // Show interactive menu
-    const { action } = await inquirer.prompt([{
+    const { action } = await this.prompt<{ action: string }>([{
       type: 'list',
       name: 'action',
       message: '🎫 ' + message,
@@ -70,7 +70,7 @@ export default class Ticket extends PMOCommand {
         menuChoices[12],
         menuChoices[13],
       ],
-    }]);
+    }], null);
 
     if (action === 'cancel') {
       return;

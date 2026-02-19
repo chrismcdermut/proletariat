@@ -1,5 +1,4 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { Ticket } from '../../lib/pmo/types.js';
 import { styles } from '../../lib/styles.js';
@@ -308,17 +307,17 @@ export default class TicketResolve extends PMOCommand {
       this.log(styles.emphasis(`  Q${question.number}: ${question.text}`));
 
       // eslint-disable-next-line no-await-in-loop
-      const { answer } = await inquirer.prompt([
+      const { answer } = await this.prompt<{ answer: string }>([
         {
           type: 'input',
           name: 'answer',
           message: `  A${question.number}:`,
-          validate: (input: string) => {
-            if (!input.trim()) return 'Please provide an answer (or type "skip" to skip)';
+          validate: (input: unknown) => {
+            if (!String(input).trim()) return 'Please provide an answer (or type "skip" to skip)';
             return true;
           },
         },
-      ]);
+      ], null);
 
       if (answer.toLowerCase() === 'cancel') {
         cancelled = true;
