@@ -44,9 +44,10 @@ function sendMessage(sessionId: string, message: string, containerId?: string): 
   // Escape single quotes in the message for shell safety
   const escapedMessage = message.replace(/'/g, "'\\''")
 
-  // Send the text first (without Enter)
-  const sendTextCmd = `tmux send-keys -t "${sessionId}" '${escapedMessage}'`
-  // Then send Enter separately
+  // Send the text first (without Enter), using -l (literal) flag so tmux
+  // does not interpret special characters - message is delivered verbatim
+  const sendTextCmd = `tmux send-keys -l -t "${sessionId}" '${escapedMessage}'`
+  // Then send Enter separately (Enter is a tmux key name, not literal text)
   const sendEnterCmd = `tmux send-keys -t "${sessionId}" Enter`
 
   if (containerId) {
