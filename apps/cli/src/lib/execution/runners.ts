@@ -115,6 +115,50 @@ export function configureITermTmuxWindowMode(mode: 'tab' | 'window'): void {
 }
 
 // =============================================================================
+// Background Mode Cleanup Helpers (TKT-988)
+// =============================================================================
+
+/**
+ * Build the tmux script that runs inside the container.
+ * In background mode: kills PID 1 (sleep infinity) after Claude exits to stop/remove container.
+ * In terminal/foreground mode: drops into exec bash for user inspection.
+ */
+export function buildTmuxScript(sessionName: string, claudeCmd: string, displayMode: DisplayMode): string {
+  if (displayMode === 'background') {
+    return `#!/bin/bash
+export TERM=xterm-256color
+export COLORTERM=truecolor
+unset CI
+echo "🚀 Starting: ${sessionName}"
+echo ""
+${claudeCmd}
+echo ""
+echo "✅ Agent work complete. Cleaning up container..."
+kill 1
+`
+  }
+  return `#!/bin/bash
+export TERM=xterm-256color
+export COLORTERM=truecolor
+unset CI
+echo "🚀 Starting: ${sessionName}"
+echo ""
+${claudeCmd}
+echo ""
+echo "✅ Agent work complete. Press Enter to close or run more commands."
+exec bash
+`
+}
+
+/**
+ * Get the auto-remove flags for docker run based on display mode.
+ * Background mode containers get --rm so Docker removes them when they stop.
+ */
+export function getDockerAutoRemoveFlags(displayMode: DisplayMode): string[] {
+  return displayMode === 'background' ? ['--rm'] : []
+}
+
+// =============================================================================
 // Docker Credential Helpers
 // =============================================================================
 
@@ -859,7 +903,8 @@ function createDockerContainer(
   context: ExecutionContext,
   containerName: string,
   imageName: string,
-  config: ExecutionConfig
+  config: ExecutionConfig,
+  displayMode: DisplayMode = 'terminal'
 ): boolean {
   // Build mount flags
   // KEY: Use a named Docker volume for Claude credentials - this is how devcontainer.json
@@ -920,12 +965,17 @@ function createDockerContainer(
     // Note: After firewall is set up, the container is network-restricted
   ]
 
+  // Auto-remove container on stop for background mode (R5)
+  // Background containers should be cleaned up after work completes — nobody will attach to inspect
+  const autoRemoveFlags = getDockerAutoRemoveFlags(displayMode)
+
   try {
     const createCmd = [
       'docker run -d',
       `--name ${containerName}`,
       '--user node',
       '-w /workspace',
+      ...autoRemoveFlags,
       ...mounts,
       ...envVars,
       ...resourceFlags,
@@ -1044,7 +1094,8 @@ function runContainerSetup(containerId: string, sandboxed: boolean = true): bool
  */
 function ensureDockerContainer(
   context: ExecutionContext,
-  config: ExecutionConfig
+  config: ExecutionConfig,
+  displayMode: DisplayMode = 'terminal'
 ): string | null {
   const containerName = getContainerName(context.agentName)
   const imageName = getImageName(context.agentName)
@@ -1076,7 +1127,7 @@ function ensureDockerContainer(
 
   // Create and start container
   console.debug(`[runners:docker] Creating container ${containerName}`)
-  if (!createDockerContainer(context, containerName, imageName, config)) {
+  if (!createDockerContainer(context, containerName, imageName, config, displayMode)) {
     return null
   }
 
@@ -1292,7 +1343,7 @@ export async function runDevcontainer(
 
     // Start or reuse container using raw Docker commands
     // No devcontainer CLI required!
-    const containerId = ensureDockerContainer(context, config)
+    const containerId = ensureDockerContainer(context, config, displayMode)
     if (!containerId) {
       return {
         success: false,
@@ -1683,21 +1734,10 @@ async function runDevcontainerInTmux(
     const cmdMatch = devcontainerCmd.match(/bash -c '(.+)'$/)
     const claudeCmd = cmdMatch ? cmdMatch[1] : devcontainerCmd
 
-    // Create a script inside the container that runs claude and keeps shell open
-    // TERM must be set for Claude's TUI to render properly
-    // Unset CI to prevent Claude from detecting CI environment which suppresses TUI output
-    // Note: We keep DEVCONTAINER set so prlt workspace detection works correctly
-    const tmuxScript = `#!/bin/bash
-export TERM=xterm-256color
-export COLORTERM=truecolor
-unset CI
-echo "🚀 Starting: ${sessionName}"
-echo ""
-${claudeCmd}
-echo ""
-echo "✅ Agent work complete. Press Enter to close or run more commands."
-exec bash
-`
+    // Create a script inside the container that runs claude
+    // Background mode (R1): kills PID 1 to stop container after completion
+    // Terminal/foreground mode (R2): drops into exec bash for user inspection
+    const tmuxScript = buildTmuxScript(sessionName, claudeCmd, displayMode)
     const scriptPath = `/tmp/prlt-${sessionName}.sh`
 
     // Write script and start tmux session inside container
