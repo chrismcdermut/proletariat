@@ -11,6 +11,7 @@ import {
   getContainerTmuxSessionMap,
   flattenContainerSessions,
   findSessionForExecution,
+  captureTmuxPane,
 } from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { visualPadEnd } from '../../lib/string-utils.js'
@@ -41,28 +42,6 @@ interface AgentHealthInfo {
 // =============================================================================
 // Detection Logic
 // =============================================================================
-
-/**
- * Capture the last N lines from a tmux pane.
- */
-function captureTmuxPane(sessionId: string, lines: number, containerId?: string): string | null {
-  try {
-    const captureCmd = `tmux capture-pane -t "${sessionId}" -p -S -${lines}`
-    if (containerId) {
-      return execSync(
-        `docker exec ${containerId} bash -c '${captureCmd}'`,
-        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 }
-      ).trim()
-    }
-    return execSync(captureCmd, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 5000,
-    }).trim()
-  } catch {
-    return null
-  }
-}
 
 /**
  * Detect agent health state from tmux pane content.
