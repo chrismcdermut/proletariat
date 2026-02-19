@@ -81,7 +81,7 @@ export default class ExecutionLogs extends PMOCommand {
           this.error('No executions found.')
         }
 
-        const jsonModeConfig = (flags.json || flags.machine) ? { flags, commandName: 'execution logs' } : null
+        const jsonModeConfig = shouldOutputJson(flags) ? { flags, commandName: 'execution logs' } : null
 
         const { selectedId } = await this.prompt<{ selectedId: string }>([
           {

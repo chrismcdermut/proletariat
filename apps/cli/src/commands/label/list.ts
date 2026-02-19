@@ -1,7 +1,8 @@
 import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
-import { styles } from '../../lib/styles.js';
 import type { Label } from '../../lib/pmo/types.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
+import { styles } from '../../lib/styles.js';
 
 export default class LabelList extends PMOCommand {
   static description = 'List labels, optionally filtered by group';
@@ -35,7 +36,7 @@ export default class LabelList extends PMOCommand {
       groupId: flags.group,
     });
 
-    if (flags.json || flags.machine) {
+    if (shouldOutputJson(flags)) {
       this.log(JSON.stringify(labels, null, 2));
       return;
     }

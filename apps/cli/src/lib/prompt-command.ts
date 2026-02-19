@@ -2,11 +2,13 @@ import { Command } from '@oclif/core';
 import inquirer from 'inquirer';
 import {
   isAgentMode,
+  isNonTTY,
   outputPromptAsJson,
   createMetadata,
   normalizeChoices,
   type JsonFlags,
 } from './prompt-json.js';
+import { isPlainOutput, plainText } from './styles.js';
 
 /**
  * Lightweight base command with prompt() method for JSON mode support.
@@ -38,6 +40,43 @@ import {
  * ```
  */
 export abstract class PromptCommand extends Command {
+  /**
+   * TTY-aware log method - strips ANSI codes and emoji in non-TTY mode.
+   *
+   * Use this instead of this.log() when outputting styled text (chalk colors, emoji prefixes).
+   * In TTY mode, outputs styled text as-is. In non-TTY mode, strips ANSI and emoji.
+   *
+   * @param message - The styled message (may contain ANSI codes and emoji)
+   * @param args - Additional arguments passed to this.log()
+   */
+  protected logPlain(message?: string, ...args: string[]): void {
+    if (message === undefined) {
+      this.log();
+      return;
+    }
+    if (isPlainOutput()) {
+      this.log(plainText(message), ...args);
+    } else {
+      this.log(message, ...args);
+    }
+  }
+
+  /**
+   * Check if plain output mode is active (non-TTY, PRLT_PLAIN, NO_COLOR).
+   * Convenience wrapper for use in commands.
+   */
+  protected get isPlain(): boolean {
+    return isPlainOutput();
+  }
+
+  /**
+   * Check if running in non-TTY environment.
+   * Convenience wrapper for use in commands.
+   */
+  protected get isNonTTY(): boolean {
+    return isNonTTY();
+  }
+
   /**
    * Prompt wrapper - drop-in replacement for inquirer.prompt
    *
@@ -101,7 +140,7 @@ export abstract class PromptCommand extends Command {
     } | null
   ): Promise<T> {
     // Auto-detect non-TTY: switch to JSON mode when no TTY present
-    if (!jsonModeConfig && !process.stdin.isTTY) {
+    if (!jsonModeConfig && isNonTTY()) {
       jsonModeConfig = { flags: { json: true }, commandName: this.id ?? 'unknown' };
     }
 

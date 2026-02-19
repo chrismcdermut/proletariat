@@ -1,5 +1,6 @@
 import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, TicketTemplate, PhaseTemplate } from '../../lib/pmo/types.js';
 
@@ -54,7 +55,7 @@ export default class TemplateList extends PMOCommand {
       showPhase ? this.storage.listPhaseTemplates(builtinFilter) : Promise.resolve([]),
     ]);
 
-    if (flags.json || flags.machine) {
+    if (shouldOutputJson(flags)) {
       const result: Record<string, unknown[]> = {};
       if (showTicket) result.ticket = ticketTemplates;
       if (showPhase) result.phase = phaseTemplates;

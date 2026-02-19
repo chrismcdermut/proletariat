@@ -16,6 +16,7 @@
 
 import * as readline from 'node:readline';
 import chalk from 'chalk';
+import { isNonTTY } from './prompt-json.js';
 
 /**
  * Options for multiLineInput
@@ -126,7 +127,7 @@ export async function multiLineInput(options: MultiLineInputOptions): Promise<Mu
   } = options;
 
   // If not a TTY, return the default value
-  if (!process.stdin.isTTY) {
+  if (isNonTTY()) {
     return { value: defaultValue, cancelled: false };
   }
 

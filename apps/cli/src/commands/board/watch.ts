@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import chalk from 'chalk';
 import { PMOCommand, pmoBaseFlags, runWatcherForeground } from '../../lib/pmo/index.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 import { styles } from '../../lib/styles.js';
 
 interface PMOConfigFile {
@@ -36,6 +37,12 @@ export default class BoardWatch extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(BoardWatch);
+
+    if (shouldOutputJson(flags)) {
+      this.log(JSON.stringify({ type: 'error', error: { code: 'REQUIRES_TTY', message: 'board watch is a long-running interactive command. Use "prlt board" for non-interactive board data.' } }))
+      this.exit(1)
+      return
+    }
 
     // Load PMO config
     const configPath = path.join(this.pmoPath, 'config.json');

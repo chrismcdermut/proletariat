@@ -255,7 +255,7 @@ export default class TicketMove extends PMOCommand {
     projectId: string
   ): Promise<void> {
     // Only show header in interactive mode
-    if (!(flags.json || flags.machine)) {
+    if (!shouldOutputJson(flags)) {
       this.log(styles.emphasis('📦 Move Multiple Tickets\n'));
     }
 
@@ -267,7 +267,7 @@ export default class TicketMove extends PMOCommand {
     const columns = board.columns.map(col => col.name);
 
     // Agent mode config for prompts
-    const jsonModeConfig = (flags.json || flags.machine) ? { flags, commandName: 'ticket move --bulk' } : null;
+    const jsonModeConfig = shouldOutputJson(flags) ? { flags, commandName: 'ticket move --bulk' } : null;
 
     // Select tickets to move (now agent-compatible!)
     const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{

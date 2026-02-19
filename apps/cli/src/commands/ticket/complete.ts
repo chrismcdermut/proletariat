@@ -135,12 +135,12 @@ export default class TicketComplete extends PMOCommand {
     flags: { force: boolean; json: boolean; machine: boolean; bulk: boolean; project?: string }
   ): Promise<void> {
     // Only show header in interactive mode
-    if (!(flags.json || flags.machine)) {
+    if (!shouldOutputJson(flags)) {
       this.log(styles.emphasis('✅ Complete Multiple Tickets\n'));
     }
 
     // Agent mode config for prompts
-    const jsonModeConfig = (flags.json || flags.machine) ? { flags, commandName: 'ticket complete --bulk' } : null;
+    const jsonModeConfig = shouldOutputJson(flags) ? { flags, commandName: 'ticket complete --bulk' } : null;
 
     // Select tickets to complete (now agent-compatible!)
     const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{
