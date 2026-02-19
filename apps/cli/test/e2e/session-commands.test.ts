@@ -184,7 +184,7 @@ describe('Session Commands E2E Tests', () => {
       expect(result!.prompt.name).to.equal('action');
       expect(result!.prompt.message).to.include('Session Management');
       expect(result!.prompt.choices).to.be.an('array');
-      expect(result!.prompt.choices.length).to.equal(4); // list, attach, health, cancel
+      expect(result!.prompt.choices.length).to.equal(5); // list, attach, health, poke, cancel
     });
 
     it('should include List choice with correct value and command', () => {
@@ -531,18 +531,132 @@ describe('Session Commands E2E Tests', () => {
     });
   });
 
+  // =========================================================================
+  // prlt session poke - direct invocation with flags
+  // Note: poke requires real tmux sessions for message delivery. Without tmux,
+  // we can only test error paths (no matching execution, no active session).
+  // =========================================================================
+  describe('prlt session poke', () => {
+    it('should output JSON error NO_ACTIVE_EXECUTION when no executions match agent name (--json)', () => {
+      const output = execProduction('session poke nonexistent-agent "hello" --json');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      expect(json!.error.code).to.equal('NO_ACTIVE_EXECUTION');
+      expect(json!.error.message).to.include('nonexistent-agent');
+      expect(json!.error.message).to.include('no active session');
+    });
+
+    it('should output JSON error NO_ACTIVE_EXECUTION when no executions match ticket ID (--json)', () => {
+      const output = execProduction('session poke TKT-999 "hello" --json');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      expect(json!.error.code).to.equal('NO_ACTIVE_EXECUTION');
+      expect(json!.error.message).to.include('TKT-999');
+    });
+
+    it('should output JSON error NO_ACTIVE_EXECUTION when execution exists but is not running', () => {
+      // Seed a completed execution - should not be matched
+      seedExecutionRecords([{
+        id: 'exec-done-001',
+        ticketId: 'TKT-500',
+        ticketTitle: 'Finished task',
+        agentName: 'done-agent',
+        sessionId: 'TKT-500-implement-done-agent',
+        status: 'completed',
+      }]);
+
+      const output = execProduction('session poke done-agent "hello" --json');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      expect(json!.error.code).to.equal('NO_ACTIVE_EXECUTION');
+    });
+
+    it('should resolve agent by exact agent name and fail at tmux level (no tmux in test env)', () => {
+      seedExecutionRecords([{
+        id: 'exec-poke-001',
+        ticketId: 'TKT-600',
+        ticketTitle: 'Poke test task',
+        agentName: 'poke-target',
+        sessionId: 'TKT-600-implement-poke-target',
+        status: 'running',
+      }]);
+
+      const output = execProduction('session poke poke-target "test message" --json');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      // Should resolve execution but fail at tmux send-keys (no tmux in test)
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      // Either SESSION_NOT_FOUND (can't verify tmux) or SEND_FAILED (tmux not available)
+      expect(['SESSION_NOT_FOUND', 'SEND_FAILED']).to.include(json!.error.code);
+    });
+
+    it('should resolve agent by ticket ID and fail at tmux level', () => {
+      seedExecutionRecords([{
+        id: 'exec-poke-002',
+        ticketId: 'TKT-601',
+        ticketTitle: 'Poke by ticket',
+        agentName: 'ticket-agent',
+        sessionId: 'TKT-601-implement-ticket-agent',
+        status: 'running',
+      }]);
+
+      const output = execProduction('session poke TKT-601 "test message" --json');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      expect(['SESSION_NOT_FOUND', 'SEND_FAILED']).to.include(json!.error.code);
+    });
+
+    it('should require exact agent name match (partial names do not match)', () => {
+      seedExecutionRecords([{
+        id: 'exec-poke-003a',
+        ticketId: 'TKT-700',
+        ticketTitle: 'Task A',
+        agentName: 'alpha-agent',
+        sessionId: 'TKT-700-implement-alpha-agent',
+        status: 'running',
+      }]);
+
+      // "alpha" is not an exact match for "alpha-agent"
+      const output = execProduction('session poke alpha "test" --json');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      expect(json!.error.code).to.equal('NO_ACTIVE_EXECUTION');
+    });
+
+    it('should include poke choice in session menu with correct command', () => {
+      const result = agentExec('session --machine');
+      expect(result).to.not.be.null;
+
+      const pokeChoice = findChoiceByValue(result!.prompt.choices, 'poke');
+      expect(pokeChoice).to.not.be.undefined;
+      expect(pokeChoice!.name).to.include('Poke');
+      expect(pokeChoice!.command).to.equal('prlt session poke --json');
+    });
+  });
+
   describe('Agent flow: command fields enable correct navigation', () => {
     it('every non-cancel choice should have a --json command for agent chaining', () => {
       const result = agentExec('session --machine');
       expect(result).to.not.be.null;
 
       const actionableChoices = result!.prompt.choices.filter(c => c.value !== 'cancel');
-      expect(actionableChoices.length).to.equal(3); // list, attach, health
+      expect(actionableChoices.length).to.equal(4); // list, attach, health, poke
 
       for (const choice of actionableChoices) {
         expect(choice.command).to.exist;
         expect(choice.command).to.include('--json');
-        expect(choice.command).to.match(/^prlt session (list|attach|health) --json$/);
+        expect(choice.command).to.match(/^prlt session (list|attach|health|poke) --json$/);
       }
     });
 

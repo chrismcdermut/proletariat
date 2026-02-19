@@ -32,6 +32,7 @@ export default class Session extends PMOCommand {
         { name: 'List active sessions', value: 'list', command: 'prlt session list --json' },
         { name: 'Attach to a session', value: 'attach', command: 'prlt session attach --json' },
         { name: 'Check agent health', value: 'health', command: 'prlt session health --json' },
+        { name: 'Poke a running agent', value: 'poke', command: 'prlt session poke --json' },
         { name: 'Cancel', value: 'cancel' },
       ],
     }], jsonModeConfig)
@@ -50,6 +51,9 @@ export default class Session extends PMOCommand {
         break
       case 'health':
         await this.config.runCommand('session:health', [])
+        break
+      case 'poke':
+        await this.config.runCommand('session:poke', [])
         break
     }
   }
