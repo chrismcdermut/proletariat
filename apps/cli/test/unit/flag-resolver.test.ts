@@ -286,33 +286,40 @@ describe('FlagResolver', () => {
 });
 
 describe('shouldOutputJson', () => {
-  let originalIsTTY: boolean | undefined;
+  let originalStdoutIsTTY: boolean | undefined;
+  let originalStdinIsTTY: boolean | undefined;
 
   beforeEach(() => {
-    originalIsTTY = process.stdout.isTTY;
+    originalStdoutIsTTY = process.stdout.isTTY;
+    originalStdinIsTTY = process.stdin.isTTY;
   });
 
   afterEach(() => {
-    Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, configurable: true });
+    Object.defineProperty(process.stdout, 'isTTY', { value: originalStdoutIsTTY, configurable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinIsTTY, configurable: true });
   });
 
   it('should return true when json flag is true', () => {
     Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     expect(shouldOutputJson({ json: true })).to.be.true;
   });
 
   it('should return true in non-TTY environment', () => {
     Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
     expect(shouldOutputJson({})).to.be.true;
   });
 
   it('should return false when no flags and in TTY environment', () => {
     Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     expect(shouldOutputJson({})).to.be.false;
   });
 
   it('should return false when json flag is explicitly false in TTY', () => {
     Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     expect(shouldOutputJson({ json: false })).to.be.false;
   });
 });
