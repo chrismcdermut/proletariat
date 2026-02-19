@@ -917,7 +917,7 @@ export default class WorkStart extends PMOCommand {
 
         // In JSON mode, use FlagResolver (outputs prompt and exits)
         if (jsonMode) {
-          const envResolver = new FlagResolver<{ selectedEnvironment?: string }>({
+          const envResolver = new FlagResolver<{ environment?: string }>({
             commandName: 'work start',
             baseCommand: `prlt work start ${ticketId}`,
             jsonMode,
@@ -925,11 +925,18 @@ export default class WorkStart extends PMOCommand {
           })
 
           envResolver.addPrompt({
-            flagName: 'selectedEnvironment',
+            flagName: 'environment',
             type: 'list',
             message: 'Where should the agent run?',
             default: 'devcontainer',
             choices: () => envChoices,
+            getCommand: (value) => {
+              const base = `prlt work start ${ticketId}`
+              if (value === 'host') return `${base} --run-on-host --json`
+              if (value === 'cancel') return ''
+              // devcontainer is the default when available
+              return `${base} --json`
+            },
           })
 
           await envResolver.resolve()

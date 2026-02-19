@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 
@@ -168,6 +169,29 @@ describe('Work Start Command', () => {
     it('shows PR creation flags', () => {
       expect(helpOutput).to.contain('--create-pr');
       expect(helpOutput).to.contain('--no-pr');
+    });
+  });
+
+  describe('Environment Selection JSON Commands (TKT-974)', () => {
+    it('source code should not reference selectedEnvironment as a flag name', () => {
+      // Regression test: the FlagResolver in work/start.ts must not use
+      // 'selectedEnvironment' as a flagName, because that generates invalid
+      // --selectedEnvironment CLI flags in JSON prompt commands
+      const startTsPath = path.resolve(__dirname, '../../src/commands/work/start.ts');
+      const source = fs.readFileSync(startTsPath, 'utf-8');
+
+      // Should not have flagName: 'selectedEnvironment' anywhere
+      expect(source).to.not.include("flagName: 'selectedEnvironment'");
+    });
+
+    it('environment selection should use getCommand callback', () => {
+      const startTsPath = path.resolve(__dirname, '../../src/commands/work/start.ts');
+      const source = fs.readFileSync(startTsPath, 'utf-8');
+
+      // The environment prompt should use getCommand to generate valid commands
+      expect(source).to.include('getCommand');
+      // And should reference --run-on-host for host environment
+      expect(source).to.include('--run-on-host --json');
     });
   });
 
