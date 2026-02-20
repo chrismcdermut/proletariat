@@ -1,14 +1,22 @@
 /**
  * Spec operations for PMO.
+ *
+ * This module uses Drizzle ORM for type-safe database queries.
  */
 
-import { PMO_TABLES } from '../schema.js'
+import { eq, and, like, or, asc, sql } from 'drizzle-orm'
+import {
+  pmoSpecs,
+  pmoProjects,
+  pmoTickets,
+  pmoWorkflowStatuses,
+  pmoProjectSpecs,
+  pmoSpecDependencies,
+} from '../../database/drizzle-schema.js'
 import { PMOError, Project, Spec, SpecFilter, Ticket } from '../types.js'
 import { generateEntityId } from '../utils.js'
-import { StorageContext, SpecRow, TicketRow } from './types.js'
+import { StorageContext, TicketRow } from './types.js'
 import { rowToSpec, rowToTicket, wrapSqliteError } from './helpers.js'
-
-const T = PMO_TABLES
 
 export class SpecStorage {
   constructor(private ctx: StorageContext) {}
@@ -21,34 +29,25 @@ export class SpecStorage {
     const now = Date.now()
 
     try {
-      this.ctx.db.prepare(`
-        INSERT INTO ${T.specs} (
-          id, title, status, type, tags,
-          problem, solution, decisions, not_now, ui_ux,
-          acceptance_criteria, open_questions,
-          requirements_functional, requirements_technical,
-          context, created_at, updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      this.ctx.drizzle.insert(pmoSpecs).values({
         id,
-        spec.title || 'Untitled Spec',
-        spec.status || 'draft',
-        spec.type || null,
-        spec.tags ? JSON.stringify(spec.tags) : null,
-        spec.problem || null,
-        spec.solution || null,
-        spec.decisions || null,
-        spec.notNow || null,
-        spec.uiUx || null,
-        spec.acceptanceCriteria || null,
-        spec.openQuestions || null,
-        spec.requirementsFunctional || null,
-        spec.requirementsTechnical || null,
-        spec.context || null,
-        now,
-        now
-      )
+        title: spec.title || 'Untitled Spec',
+        status: spec.status || 'draft',
+        type: spec.type || null,
+        tags: spec.tags ? JSON.stringify(spec.tags) : null,
+        problem: spec.problem || null,
+        solution: spec.solution || null,
+        decisions: spec.decisions || null,
+        notNow: spec.notNow || null,
+        uiUx: spec.uiUx || null,
+        acceptanceCriteria: spec.acceptanceCriteria || null,
+        openQuestions: spec.openQuestions || null,
+        requirementsFunctional: spec.requirementsFunctional || null,
+        requirementsTechnical: spec.requirementsTechnical || null,
+        context: spec.context || null,
+        createdAt: String(now),
+        updatedAt: String(now),
+      }).run()
     } catch (err) {
       wrapSqliteError('Spec', 'create', err)
     }
@@ -80,57 +79,90 @@ export class SpecStorage {
    * Get a spec by ID.
    */
   async getSpec(id: string): Promise<Spec | null> {
-    const row = this.ctx.db.prepare(`
-      SELECT id, title, status, type, tags,
-             problem, solution, decisions, not_now, ui_ux,
-             acceptance_criteria, open_questions,
-             requirements_functional, requirements_technical,
-             context, created_at, updated_at
-      FROM ${T.specs} WHERE id = ?
-    `).get(id) as SpecRow | undefined
+    const row = this.ctx.drizzle
+      .select({
+        id: pmoSpecs.id,
+        title: pmoSpecs.title,
+        status: pmoSpecs.status,
+        type: pmoSpecs.type,
+        tags: pmoSpecs.tags,
+        problem: pmoSpecs.problem,
+        solution: pmoSpecs.solution,
+        decisions: pmoSpecs.decisions,
+        not_now: pmoSpecs.notNow,
+        ui_ux: pmoSpecs.uiUx,
+        acceptance_criteria: pmoSpecs.acceptanceCriteria,
+        open_questions: pmoSpecs.openQuestions,
+        requirements_functional: pmoSpecs.requirementsFunctional,
+        requirements_technical: pmoSpecs.requirementsTechnical,
+        context: pmoSpecs.context,
+        created_at: pmoSpecs.createdAt,
+        updated_at: pmoSpecs.updatedAt,
+      })
+      .from(pmoSpecs)
+      .where(eq(pmoSpecs.id, id))
+      .get()
 
     if (!row) return null
 
-    return rowToSpec(row)
+    return rowToSpec(row as any)
   }
 
   /**
    * List specs with optional filters.
    */
   async listSpecs(filter?: SpecFilter): Promise<Spec[]> {
-    let query = `
-      SELECT id, title, status, type, tags,
-             problem, solution, decisions, not_now, ui_ux,
-             acceptance_criteria, open_questions,
-             requirements_functional, requirements_technical,
-             context, created_at, updated_at
-      FROM ${T.specs} WHERE 1=1
-    `
-    const params: unknown[] = []
+    let query = this.ctx.drizzle
+      .select({
+        id: pmoSpecs.id,
+        title: pmoSpecs.title,
+        status: pmoSpecs.status,
+        type: pmoSpecs.type,
+        tags: pmoSpecs.tags,
+        problem: pmoSpecs.problem,
+        solution: pmoSpecs.solution,
+        decisions: pmoSpecs.decisions,
+        not_now: pmoSpecs.notNow,
+        ui_ux: pmoSpecs.uiUx,
+        acceptance_criteria: pmoSpecs.acceptanceCriteria,
+        open_questions: pmoSpecs.openQuestions,
+        requirements_functional: pmoSpecs.requirementsFunctional,
+        requirements_technical: pmoSpecs.requirementsTechnical,
+        context: pmoSpecs.context,
+        created_at: pmoSpecs.createdAt,
+        updated_at: pmoSpecs.updatedAt,
+      })
+      .from(pmoSpecs)
+      .$dynamic()
+
+    const conditions = []
 
     if (filter?.status) {
-      query += ' AND status = ?'
-      params.push(filter.status)
+      conditions.push(eq(pmoSpecs.status, filter.status))
     }
     if (filter?.type) {
-      query += ' AND type = ?'
-      params.push(filter.type)
+      conditions.push(eq(pmoSpecs.type, filter.type))
     }
     if (filter?.search) {
-      query += ' AND (id LIKE ? OR title LIKE ? OR problem LIKE ? OR solution LIKE ?)'
-      params.push(
-        `%${filter.search}%`,
-        `%${filter.search}%`,
-        `%${filter.search}%`,
-        `%${filter.search}%`
+      conditions.push(
+        or(
+          like(pmoSpecs.id, `%${filter.search}%`),
+          like(pmoSpecs.title, `%${filter.search}%`),
+          like(pmoSpecs.problem, `%${filter.search}%`),
+          like(pmoSpecs.solution, `%${filter.search}%`)
+        )
       )
     }
 
-    query += ' ORDER BY title'
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions))
+    }
 
-    const rows = this.ctx.db.prepare(query).all(...params) as SpecRow[]
+    const rows = query
+      .orderBy(asc(pmoSpecs.title))
+      .all()
 
-    return rows.map(rowToSpec)
+    return rows.map((row) => rowToSpec(row as any))
   }
 
   /**
@@ -142,74 +174,30 @@ export class SpecStorage {
       throw new PMOError('NOT_FOUND', `Spec not found: ${id}`)
     }
 
-    const updates: string[] = []
-    const params: unknown[] = []
+    const updates: Partial<typeof pmoSpecs.$inferInsert> = {}
 
-    if (changes.title !== undefined) {
-      updates.push('title = ?')
-      params.push(changes.title)
-    }
-    if (changes.status !== undefined) {
-      updates.push('status = ?')
-      params.push(changes.status)
-    }
-    if (changes.type !== undefined) {
-      updates.push('type = ?')
-      params.push(changes.type)
-    }
-    if (changes.tags !== undefined) {
-      updates.push('tags = ?')
-      params.push(JSON.stringify(changes.tags))
-    }
-    if (changes.problem !== undefined) {
-      updates.push('problem = ?')
-      params.push(changes.problem)
-    }
-    if (changes.solution !== undefined) {
-      updates.push('solution = ?')
-      params.push(changes.solution)
-    }
-    if (changes.decisions !== undefined) {
-      updates.push('decisions = ?')
-      params.push(changes.decisions)
-    }
-    if (changes.notNow !== undefined) {
-      updates.push('not_now = ?')
-      params.push(changes.notNow)
-    }
-    if (changes.uiUx !== undefined) {
-      updates.push('ui_ux = ?')
-      params.push(changes.uiUx)
-    }
-    if (changes.acceptanceCriteria !== undefined) {
-      updates.push('acceptance_criteria = ?')
-      params.push(changes.acceptanceCriteria)
-    }
-    if (changes.openQuestions !== undefined) {
-      updates.push('open_questions = ?')
-      params.push(changes.openQuestions)
-    }
-    if (changes.requirementsFunctional !== undefined) {
-      updates.push('requirements_functional = ?')
-      params.push(changes.requirementsFunctional)
-    }
-    if (changes.requirementsTechnical !== undefined) {
-      updates.push('requirements_technical = ?')
-      params.push(changes.requirementsTechnical)
-    }
-    if (changes.context !== undefined) {
-      updates.push('context = ?')
-      params.push(changes.context)
-    }
+    if (changes.title !== undefined) updates.title = changes.title
+    if (changes.status !== undefined) updates.status = changes.status
+    if (changes.type !== undefined) updates.type = changes.type
+    if (changes.tags !== undefined) updates.tags = JSON.stringify(changes.tags)
+    if (changes.problem !== undefined) updates.problem = changes.problem
+    if (changes.solution !== undefined) updates.solution = changes.solution
+    if (changes.decisions !== undefined) updates.decisions = changes.decisions
+    if (changes.notNow !== undefined) updates.notNow = changes.notNow
+    if (changes.uiUx !== undefined) updates.uiUx = changes.uiUx
+    if (changes.acceptanceCriteria !== undefined) updates.acceptanceCriteria = changes.acceptanceCriteria
+    if (changes.openQuestions !== undefined) updates.openQuestions = changes.openQuestions
+    if (changes.requirementsFunctional !== undefined) updates.requirementsFunctional = changes.requirementsFunctional
+    if (changes.requirementsTechnical !== undefined) updates.requirementsTechnical = changes.requirementsTechnical
+    if (changes.context !== undefined) updates.context = changes.context
 
-    if (updates.length > 0) {
-      updates.push('updated_at = ?')
-      params.push(Date.now())
-      params.push(id)
-
-      this.ctx.db.prepare(`UPDATE ${T.specs} SET ${updates.join(', ')} WHERE id = ?`).run(
-        ...params
-      )
+    if (Object.keys(updates).length > 0) {
+      updates.updatedAt = String(Date.now())
+      this.ctx.drizzle
+        .update(pmoSpecs)
+        .set(updates)
+        .where(eq(pmoSpecs.id, id))
+        .run()
     }
 
     return (await this.getSpec(id)) as Spec
@@ -225,8 +213,12 @@ export class SpecStorage {
     }
 
     try {
-      this.ctx.db.prepare(`DELETE FROM ${T.specs} WHERE id = ?`).run(id)
-      this.ctx.db.prepare(`UPDATE ${T.tickets} SET spec_id = NULL WHERE spec_id = ?`).run(id)
+      this.ctx.drizzle.delete(pmoSpecs).where(eq(pmoSpecs.id, id)).run()
+      this.ctx.drizzle
+        .update(pmoTickets)
+        .set({ specId: null })
+        .where(eq(pmoTickets.specId, id))
+        .run()
     } catch (err) {
       wrapSqliteError('Spec', 'delete', err)
     }
@@ -237,9 +229,12 @@ export class SpecStorage {
    */
   async linkTicketToSpec(ticketId: string, specId: string): Promise<void> {
     // Verify ticket exists and get its project
-    const ticket = this.ctx.db.prepare(`
-      SELECT id, project_id FROM ${T.tickets} WHERE id = ?
-    `).get(ticketId) as { id: string; project_id: string } | undefined
+    const ticket = this.ctx.drizzle
+      .select({ id: pmoTickets.id, projectId: pmoTickets.projectId })
+      .from(pmoTickets)
+      .where(eq(pmoTickets.id, ticketId))
+      .get()
+
     if (!ticket) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${ticketId}`, ticketId)
     }
@@ -250,13 +245,13 @@ export class SpecStorage {
       throw new PMOError('NOT_FOUND', `Spec not found: ${specId}`)
     }
 
-    this.ctx.db.prepare(`
-      UPDATE ${T.tickets}
-      SET spec_id = ?, updated_at = ?
-      WHERE id = ?
-    `).run(specId, Date.now(), ticketId)
+    this.ctx.drizzle
+      .update(pmoTickets)
+      .set({ specId, updatedAt: String(Date.now()) })
+      .where(eq(pmoTickets.id, ticketId))
+      .run()
 
-    this.ctx.updateBoardTimestamp(ticket.project_id)
+    this.ctx.updateBoardTimestamp(ticket.projectId)
   }
 
   /**
@@ -264,18 +259,23 @@ export class SpecStorage {
    */
   async unlinkTicketFromSpec(ticketId: string, specId: string): Promise<void> {
     // Get ticket's project for board timestamp update
-    const ticket = this.ctx.db.prepare(`
-      SELECT project_id FROM ${T.tickets} WHERE id = ?
-    `).get(ticketId) as { project_id: string } | undefined
+    const ticket = this.ctx.drizzle
+      .select({ projectId: pmoTickets.projectId })
+      .from(pmoTickets)
+      .where(eq(pmoTickets.id, ticketId))
+      .get()
 
-    this.ctx.db.prepare(`
-      UPDATE ${T.tickets}
-      SET spec_id = NULL, updated_at = ?
-      WHERE id = ? AND spec_id = ?
-    `).run(Date.now(), ticketId, specId)
+    this.ctx.drizzle
+      .update(pmoTickets)
+      .set({ specId: null, updatedAt: String(Date.now()) })
+      .where(and(
+        eq(pmoTickets.id, ticketId),
+        eq(pmoTickets.specId, specId)
+      ))
+      .run()
 
     if (ticket) {
-      this.ctx.updateBoardTimestamp(ticket.project_id)
+      this.ctx.updateBoardTimestamp(ticket.projectId)
     }
   }
 
@@ -283,33 +283,57 @@ export class SpecStorage {
    * Get tickets for a spec.
    */
   async getTicketsForSpec(projectId: string, specId: string): Promise<Ticket[]> {
-    const rows = this.ctx.db.prepare(`
-      SELECT t.*,
-             ws.id as column_id,
-             t.position as position,
-             ws.name as column_name
-      FROM ${T.tickets} t
-      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
-      WHERE t.project_id = ? AND t.spec_id = ?
-      ORDER BY ws.position, t.position ASC, t.created_at ASC
-    `).all(projectId, specId) as TicketRow[]
+    const rows = this.ctx.drizzle
+      .select({
+        id: pmoTickets.id,
+        project_id: pmoTickets.projectId,
+        title: pmoTickets.title,
+        description: pmoTickets.description,
+        priority: pmoTickets.priority,
+        category: pmoTickets.category,
+        status_id: pmoTickets.statusId,
+        owner: pmoTickets.owner,
+        assignee: pmoTickets.assignee,
+        branch: pmoTickets.branch,
+        spec_id: pmoTickets.specId,
+        epic_id: pmoTickets.epicId,
+        labels: pmoTickets.labels,
+        position: pmoTickets.position,
+        created_at: pmoTickets.createdAt,
+        updated_at: pmoTickets.updatedAt,
+        last_synced_from_spec: pmoTickets.lastSyncedFromSpec,
+        last_synced_from_board: pmoTickets.lastSyncedFromBoard,
+        column_id: pmoWorkflowStatuses.id,
+        column_name: pmoWorkflowStatuses.name,
+        project_name: sql<string | null>`NULL`,
+      })
+      .from(pmoTickets)
+      .leftJoin(pmoWorkflowStatuses, eq(pmoTickets.statusId, pmoWorkflowStatuses.id))
+      .where(and(
+        eq(pmoTickets.projectId, projectId),
+        eq(pmoTickets.specId, specId)
+      ))
+      .orderBy(asc(pmoWorkflowStatuses.position), asc(pmoTickets.position), asc(pmoTickets.createdAt))
+      .all() as unknown as TicketRow[]
 
-    return Promise.all(rows.map((row) => rowToTicket(this.ctx.db, row)))
+    return Promise.all(rows.map((row) => rowToTicket(this.ctx.drizzle, row)))
   }
 
   /**
    * Get specs for a ticket.
    */
   async getSpecsForTicket(ticketId: string): Promise<Spec[]> {
-    const ticket = this.ctx.db.prepare(`
-      SELECT spec_id FROM ${T.tickets} WHERE id = ?
-    `).get(ticketId) as { spec_id: string | null } | undefined
+    const ticket = this.ctx.drizzle
+      .select({ specId: pmoTickets.specId })
+      .from(pmoTickets)
+      .where(eq(pmoTickets.id, ticketId))
+      .get()
 
-    if (!ticket || !ticket.spec_id) {
+    if (!ticket || !ticket.specId) {
       return []
     }
 
-    const spec = await this.getSpec(ticket.spec_id)
+    const spec = await this.getSpec(ticket.specId)
     return spec ? [spec] : []
   }
 
@@ -327,34 +351,44 @@ export class SpecStorage {
       throw new PMOError('NOT_FOUND', `Spec not found: ${dependsOnId}`)
     }
 
-    this.ctx.db.prepare(`
-      INSERT OR IGNORE INTO ${T.spec_dependencies} (spec_id, depends_on_spec_id, created_at)
-      VALUES (?, ?, ?)
-    `).run(specId, dependsOnId, Date.now())
+    this.ctx.drizzle
+      .insert(pmoSpecDependencies)
+      .values({
+        specId,
+        dependsOnSpecId: dependsOnId,
+        createdAt: String(Date.now()),
+      })
+      .onConflictDoNothing()
+      .run()
   }
 
   /**
    * Remove a spec dependency.
    */
   async removeSpecDependency(specId: string, dependsOnId: string): Promise<void> {
-    this.ctx.db.prepare(`
-      DELETE FROM ${T.spec_dependencies}
-      WHERE spec_id = ? AND depends_on_spec_id = ?
-    `).run(specId, dependsOnId)
+    this.ctx.drizzle
+      .delete(pmoSpecDependencies)
+      .where(and(
+        eq(pmoSpecDependencies.specId, specId),
+        eq(pmoSpecDependencies.dependsOnSpecId, dependsOnId)
+      ))
+      .run()
   }
 
   /**
    * Get dependencies for a spec.
    */
   async getSpecDependencies(specId: string): Promise<Spec[]> {
-    const rows = this.ctx.db.prepare(`
-      SELECT depends_on_spec_id FROM ${T.spec_dependencies} WHERE spec_id = ?
-    `).all(specId) as Array<{ depends_on_spec_id: string }>
+    const rows = this.ctx.drizzle
+      .select({ dependsOnSpecId: pmoSpecDependencies.dependsOnSpecId })
+      .from(pmoSpecDependencies)
+      .where(eq(pmoSpecDependencies.specId, specId))
+      .all()
 
     const specs: Spec[] = []
     for (const row of rows) {
       // eslint-disable-next-line no-await-in-loop -- Sequential lookup for relationship chain
-      const spec = await this.getSpec(row.depends_on_spec_id)
+      const spec = await this.getSpec(row.dependsOnSpecId)
       if (spec) specs.push(spec)
     }
     return specs
@@ -364,14 +398,16 @@ export class SpecStorage {
    * Get specs that depend on a spec.
    */
   async getSpecDependents(specId: string): Promise<Spec[]> {
-    const rows = this.ctx.db.prepare(`
-      SELECT spec_id FROM ${T.spec_dependencies} WHERE depends_on_spec_id = ?
-    `).all(specId) as Array<{ spec_id: string }>
+    const rows = this.ctx.drizzle
+      .select({ specId: pmoSpecDependencies.specId })
+      .from(pmoSpecDependencies)
+      .where(eq(pmoSpecDependencies.dependsOnSpecId, specId))
+      .all()
 
     const specs: Spec[] = []
     for (const row of rows) {
       // eslint-disable-next-line no-await-in-loop -- Sequential lookup for relationship chain
-      const spec = await this.getSpec(row.spec_id)
+      const spec = await this.getSpec(row.specId)
       if (spec) specs.push(spec)
     }
     return specs
@@ -382,9 +418,12 @@ export class SpecStorage {
    */
   async linkProjectToSpec(projectId: string, specId: string): Promise<void> {
     // Verify project exists
-    const project = this.ctx.db.prepare(`
-      SELECT id FROM ${T.projects} WHERE id = ?
-    `).get(projectId)
+    const project = this.ctx.drizzle
+      .select({ id: pmoProjects.id })
+      .from(pmoProjects)
+      .where(eq(pmoProjects.id, projectId))
+      .get()
+
     if (!project) {
       throw new PMOError('NOT_FOUND', `Project "${projectId}" not found`)
     }
@@ -395,63 +434,87 @@ export class SpecStorage {
       throw new PMOError('NOT_FOUND', `Spec "${specId}" not found`)
     }
 
-    this.ctx.db.prepare(`
-      INSERT OR IGNORE INTO ${T.project_specs} (project_id, spec_id, created_at)
-      VALUES (?, ?, ?)
-    `).run(projectId, specId, Date.now())
+    this.ctx.drizzle
+      .insert(pmoProjectSpecs)
+      .values({
+        projectId,
+        specId,
+        createdAt: String(Date.now()),
+      })
+      .onConflictDoNothing()
+      .run()
   }
 
   /**
    * Unlink a project from a spec.
    */
   async unlinkProjectFromSpec(projectId: string, specId: string): Promise<void> {
-    this.ctx.db.prepare(`
-      DELETE FROM ${T.project_specs}
-      WHERE project_id = ? AND spec_id = ?
-    `).run(projectId, specId)
+    this.ctx.drizzle
+      .delete(pmoProjectSpecs)
+      .where(and(
+        eq(pmoProjectSpecs.projectId, projectId),
+        eq(pmoProjectSpecs.specId, specId)
+      ))
+      .run()
   }
 
   /**
    * Get specs for a project.
    */
   async getSpecsForProject(projectId: string): Promise<Spec[]> {
-    const rows = this.ctx.db.prepare(`
-      SELECT s.id, s.title, s.status, s.type, s.tags,
-             s.problem, s.solution, s.decisions, s.not_now, s.ui_ux,
-             s.acceptance_criteria, s.open_questions,
-             s.requirements_functional, s.requirements_technical,
-             s.context, s.created_at, s.updated_at
-      FROM ${T.specs} s
-      JOIN ${T.project_specs} ps ON s.id = ps.spec_id
-      WHERE ps.project_id = ?
-      ORDER BY s.title
-    `).all(projectId) as SpecRow[]
+    const rows = this.ctx.drizzle
+      .select({
+        id: pmoSpecs.id,
+        title: pmoSpecs.title,
+        status: pmoSpecs.status,
+        type: pmoSpecs.type,
+        tags: pmoSpecs.tags,
+        problem: pmoSpecs.problem,
+        solution: pmoSpecs.solution,
+        decisions: pmoSpecs.decisions,
+        not_now: pmoSpecs.notNow,
+        ui_ux: pmoSpecs.uiUx,
+        acceptance_criteria: pmoSpecs.acceptanceCriteria,
+        open_questions: pmoSpecs.openQuestions,
+        requirements_functional: pmoSpecs.requirementsFunctional,
+        requirements_technical: pmoSpecs.requirementsTechnical,
+        context: pmoSpecs.context,
+        created_at: pmoSpecs.createdAt,
+        updated_at: pmoSpecs.updatedAt,
+      })
+      .from(pmoSpecs)
+      .innerJoin(pmoProjectSpecs, eq(pmoSpecs.id, pmoProjectSpecs.specId))
+      .where(eq(pmoProjectSpecs.projectId, projectId))
+      .orderBy(asc(pmoSpecs.title))
+      .all()
 
-    return rows.map(rowToSpec)
+    return rows.map((row) => rowToSpec(row as any))
   }
 
   /**
    * Get projects for a spec.
    */
   async getProjectsForSpec(specId: string): Promise<Project[]> {
-    const rows = this.ctx.db.prepare(`
-      SELECT p.*
-      FROM ${T.projects} p
-      JOIN ${T.project_specs} ps ON p.id = ps.project_id
-      WHERE ps.spec_id = ?
-      ORDER BY p.name
-    `).all(specId) as Array<{
-      id: string
-      name: string
-      template: string | null
-      description: string | null
-      status: string
-      phase_id: string | null
-      is_archived: number
-      target_date: string | null
-      created_at: string
-      updated_at: string
-    }>
+    const rows = this.ctx.drizzle
+      .select({
+        id: pmoProjects.id,
+        name: pmoProjects.name,
+        template: pmoProjects.template,
+        description: pmoProjects.description,
+        status: pmoProjects.status,
+        phaseId: pmoProjects.phaseId,
+        workflowId: pmoProjects.workflowId,
+        isArchived: pmoProjects.isArchived,
+        targetDate: pmoProjects.targetDate,
+        initiativeId: pmoProjects.initiativeId,
+        createdAt: pmoProjects.createdAt,
+        updatedAt: pmoProjects.updatedAt,
+      })
+      .from(pmoProjects)
+      .innerJoin(pmoProjectSpecs, eq(pmoProjects.id, pmoProjectSpecs.projectId))
+      .where(eq(pmoProjectSpecs.specId, specId))
+      .orderBy(asc(pmoProjects.name))
+      .all()
 
     return rows.map((row) => ({
       id: row.id,
@@ -459,11 +522,11 @@ export class SpecStorage {
       template: row.template || undefined,
       description: row.description || undefined,
       status: (row.status || 'active') as 'draft' | 'active' | 'completed' | 'archived',
-      phaseId: row.phase_id || undefined,
-      isArchived: row.is_archived === 1,
-      targetDate: row.target_date ? new Date(row.target_date) : undefined,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
+      phaseId: row.phaseId || undefined,
+      isArchived: row.isArchived ?? false,
+      targetDate: row.targetDate ? new Date(row.targetDate) : undefined,
+      createdAt: new Date(row.createdAt || Date.now()),
+      updatedAt: new Date(row.updatedAt || Date.now()),
     }))
   }
 }
