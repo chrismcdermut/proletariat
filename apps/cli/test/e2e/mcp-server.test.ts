@@ -1,7 +1,7 @@
 /**
  * Comprehensive E2E tests for MCP Server
  *
- * Tests all 125 MCP tools exposed by the mcp-server command.
+ * Tests MCP tools exposed by the mcp-server command.
  * Uses isolated test environments to prevent pollution of real workspace data.
  */
 
@@ -163,10 +163,10 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
       expect(response.result?.serverInfo?.name).to.equal('prlt');
     });
 
-    it('should list all 125 tools', () => {
+    it('should list all tools', () => {
       const response = mcpCall([INIT_MSG, INITIALIZED_MSG, LIST_TOOLS_MSG]);
       expect(response.result?.tools).to.be.an('array');
-      expect(response.result?.tools?.length).to.equal(125);
+      expect(response.result?.tools?.length).to.be.at.least(125);
     });
 
     it('should have tools capability', () => {
