@@ -374,7 +374,7 @@ export function runExecutorPreflight(
 // Executor Commands
 // =============================================================================
 
-function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissions: boolean = true): { cmd: string; args: string[] } {
+export function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissions: boolean = true): { cmd: string; args: string[] } {
   switch (executor) {
     case 'claude-code':
       if (skipPermissions) {
@@ -2177,6 +2177,9 @@ export async function runDocker(
   const prompt = buildPrompt(context)
   const containerName = `work-${context.ticketId}-${Date.now()}`
 
+  // Get the correct executor command (claude, codex, aider, etc.)
+  const { cmd, args } = getExecutorCommand(executor, prompt, !config.sandboxed)
+
   try {
     // Check if docker is available
     execSync('which docker', { stdio: 'pipe' })
@@ -2205,10 +2208,10 @@ export async function runDocker(
       dockerCmd += ` --cpus ${config.docker.cpus}`
     }
 
-    // Escape prompt for shell
-    const escapedPrompt = prompt.replace(/'/g, "'\\''")
+    // Build executor command with properly escaped args
+    const escapedArgs = args.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')
     dockerCmd += ` ${config.docker.image}`
-    dockerCmd += ` claude --print '${escapedPrompt}'`
+    dockerCmd += ` ${cmd} ${escapedArgs}`
 
     const containerId = execSync(dockerCmd, { encoding: 'utf-8' }).trim()
 
@@ -2247,6 +2250,9 @@ export async function runVm(
   const keyPath = config.vm.keyPath
   const remoteWorkspace = `/workspace/${context.agentName}`
 
+  // Get the correct executor command (claude, codex, aider, etc.)
+  const { cmd, args } = getExecutorCommand(executor, prompt, !config.sandboxed)
+
   try {
     // Build SSH options
     let sshOpts = ''
@@ -2269,9 +2275,9 @@ export async function runVm(
       execSync(`ssh ${sshOpts} ${user}@${targetHost} "${gitPullCmd}"`, { stdio: 'pipe' })
     }
 
-    // Execute on remote
-    const escapedPrompt = prompt.replace(/'/g, "'\\''")
-    const remoteCmd = `cd ${remoteWorkspace} && claude --print '${escapedPrompt}'`
+    // Execute on remote using the correct executor
+    const escapedArgs = args.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')
+    const remoteCmd = `cd ${remoteWorkspace} && ${cmd} ${escapedArgs}`
     const sshCmd = `ssh ${sshOpts} ${user}@${targetHost} "nohup ${remoteCmd} > /tmp/work-${context.ticketId}.log 2>&1 &"`
 
     execSync(sshCmd, { stdio: 'pipe' })
