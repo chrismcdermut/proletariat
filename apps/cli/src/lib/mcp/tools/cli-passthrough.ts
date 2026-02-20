@@ -237,11 +237,13 @@ export function registerBranchTools(server: McpServer, ctx: McpToolContext): voi
 
   strictTool(server,
     'branch_where',
-    'Show which ticket/branch you are on',
-    {},
-    async () => {
+    'Find which directory a branch is checked out in',
+    {
+      search: z.string().describe('Branch name or ticket ID to search for'),
+    },
+    async (params) => {
       try {
-        const output = ctx.runCommand('prlt branch where')
+        const output = ctx.runCommand(`prlt branch where ${params.search}`)
         return textResponse(output)
       } catch (error) {
         return errorResponse(error)
