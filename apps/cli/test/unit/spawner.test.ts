@@ -115,7 +115,7 @@ describe('Spawner', () => {
       const workspaceInfo = createMockWorkspaceInfo(agents)
 
       // Create a running execution for 'busy' agent
-      executionStorage.createExecution({
+      const exec = executionStorage.createExecution({
         ticketId: 'TKT-001',
         agentName: 'busy',
         executor: 'claude-code',
@@ -123,7 +123,7 @@ describe('Spawner', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      executionStorage.updateStatus('WORK-001', 'running')
+      executionStorage.updateStatus(exec.id, 'running')
 
       const available = getAvailableAgents(workspaceInfo, executionStorage)
 
@@ -163,7 +163,7 @@ describe('Spawner', () => {
       const workspaceInfo = createMockWorkspaceInfo(agents)
 
       // Create a completed execution
-      executionStorage.createExecution({
+      const exec = executionStorage.createExecution({
         ticketId: 'TKT-001',
         agentName: 'done-agent',
         executor: 'claude-code',
@@ -171,7 +171,7 @@ describe('Spawner', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      executionStorage.updateStatus('WORK-001', 'completed')
+      executionStorage.updateStatus(exec.id, 'completed')
 
       const available = getAvailableAgents(workspaceInfo, executionStorage)
 
@@ -199,7 +199,7 @@ describe('Spawner', () => {
       const workspaceInfo = createMockWorkspaceInfo(agents)
 
       // Both agents are busy
-      executionStorage.createExecution({
+      const exec1 = executionStorage.createExecution({
         ticketId: 'TKT-001',
         agentName: 'staff-1',
         executor: 'claude-code',
@@ -207,9 +207,9 @@ describe('Spawner', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      executionStorage.updateStatus('WORK-001', 'running')
+      executionStorage.updateStatus(exec1.id, 'running')
 
-      executionStorage.createExecution({
+      const exec2 = executionStorage.createExecution({
         ticketId: 'TKT-002',
         agentName: 'staff-2',
         executor: 'claude-code',
@@ -217,7 +217,7 @@ describe('Spawner', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      executionStorage.updateStatus('WORK-002', 'running')
+      executionStorage.updateStatus(exec2.id, 'running')
 
       const available = getAvailableAgents(workspaceInfo, executionStorage)
 
@@ -288,7 +288,7 @@ describe('Spawner', () => {
       const availableAgents = ['busy-agent', 'new-agent']
 
       // Create some history for busy-agent
-      executionStorage.createExecution({
+      const execA = executionStorage.createExecution({
         ticketId: 'TKT-001',
         agentName: 'busy-agent',
         executor: 'claude-code',
@@ -296,9 +296,9 @@ describe('Spawner', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      executionStorage.updateStatus('WORK-001', 'completed')
+      executionStorage.updateStatus(execA.id, 'completed')
 
-      executionStorage.createExecution({
+      const execB = executionStorage.createExecution({
         ticketId: 'TKT-002',
         agentName: 'busy-agent',
         executor: 'claude-code',
@@ -306,7 +306,7 @@ describe('Spawner', () => {
         displayMode: 'terminal',
         sandboxed: true,
       })
-      executionStorage.updateStatus('WORK-002', 'completed')
+      executionStorage.updateStatus(execB.id, 'completed')
 
       const selected = selectAgent('least-busy', availableAgents, executionStorage)
       expect(selected).to.equal('new-agent')

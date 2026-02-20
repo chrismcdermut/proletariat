@@ -48,7 +48,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
       `).run();
 
       // Create a ticket
-      exec('ticket create --title "Ticket for spec" --column "SHIP BL"');
+      exec('ticket create --title "Ticket for spec" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Ticket for spec') as { id: string };
 
       // Link ticket to spec
@@ -70,7 +70,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
         VALUES ('spec-unlink', 'Spec to Unlink', 'active')
       `).run();
 
-      exec('ticket create --title "Ticket to unlink" --column "SHIP BL"');
+      exec('ticket create --title "Ticket to unlink" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Ticket to unlink') as { id: string };
 
       // Link first
@@ -92,7 +92,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
         VALUES ('spec-same', 'Same Spec', 'active')
       `).run();
 
-      exec('ticket create --title "Same spec ticket" --column "SHIP BL"');
+      exec('ticket create --title "Same spec ticket" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Same spec ticket') as { id: string };
 
       // Link first
@@ -105,7 +105,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
     });
 
     it('should error for non-existent spec', () => {
-      exec('ticket create --title "Bad spec ticket" --column "SHIP BL"');
+      exec('ticket create --title "Bad spec ticket" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bad spec ticket') as { id: string };
 
       const output = exec(`ticket spec ${ticket.id} NON-EXISTENT`);
@@ -281,7 +281,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
 
       // Add columns to target project
       const columns = [
-        { id: 'backlog', name: 'SHIP BL', position: 0 },
+        { id: 'backlog', name: 'Backlog', position: 0 },
         { id: 'in-progress', name: 'In Progress', position: 1 },
         { id: 'done', name: 'Done', position: 2 },
       ];
@@ -298,7 +298,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
     });
 
     it('should move ticket to different project', () => {
-      exec('ticket create --title "Move me" --column "SHIP BL"');
+      exec('ticket create --title "Move me" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Move me') as { id: string };
 
       const output = exec(`ticket project ${ticket.id} target-project`);
@@ -313,7 +313,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
     });
 
     it('should update board position when moving ticket', () => {
-      exec('ticket create --title "Board move" --column "SHIP BL"');
+      exec('ticket create --title "Board move" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Board move') as { id: string };
 
       exec(`ticket project ${ticket.id} target-project`);
@@ -327,7 +327,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
     });
 
     it('should error if ticket is already in target project', () => {
-      exec('ticket create --title "Same project" --column "SHIP BL"');
+      exec('ticket create --title "Same project" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Same project') as { id: string };
 
       const output = exec(`ticket project ${ticket.id} test-project`);
@@ -342,7 +342,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
     });
 
     it('should error for non-existent target project', () => {
-      exec('ticket create --title "Bad project" --column "SHIP BL"');
+      exec('ticket create --title "Bad project" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bad project') as { id: string };
 
       const output = exec(`ticket project ${ticket.id} NON-EXISTENT`);
@@ -361,7 +361,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
 
       // Add columns to target project
       const columns = [
-        { id: 'backlog', name: 'SHIP BL', position: 0 },
+        { id: 'backlog', name: 'Backlog', position: 0 },
         { id: 'in-progress', name: 'In Progress', position: 1 },
         { id: 'done', name: 'Done', position: 2 },
       ];
@@ -477,7 +477,7 @@ function setupTestDatabase(db: Database.Database) {
 
   // Legacy columns (kept for backwards compatibility with board_tickets tests)
   const columns = [
-    { id: 'backlog', name: 'SHIP BL', position: 0 },
+    { id: 'backlog', name: 'Backlog', position: 0 },
     { id: 'ready', name: 'Ready', position: 1 },
     { id: 'in-progress', name: 'In Progress', position: 2 },
     { id: 'in-review', name: 'In Review', position: 3 },

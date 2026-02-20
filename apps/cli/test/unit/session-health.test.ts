@@ -32,7 +32,7 @@ function detectState(paneContent: string | null): AgentHealthState {
     return 'DONE'
   }
 
-  const lastNonEmpty = lines.findLast(l => l.trim().length > 0) || ''
+  const lastNonEmpty = [...lines].reverse().find(l => l.trim().length > 0) || ''
   if (/[$❯#>]\s*$/.test(lastNonEmpty) || /^\s*\$\s*$/.test(lastNonEmpty)) {
     return 'IDLE'
   }

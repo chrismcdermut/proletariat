@@ -11,6 +11,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { formatTicket } from '../../lib/mcp/helpers.js';
 
 export default class TicketMove extends PMOCommand {
   static description = 'Move ticket(s) to a different column';
@@ -239,6 +240,15 @@ export default class TicketMove extends PMOCommand {
     // Auto-export to board.md after write
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
 
+    // JSON output mode - match MCP tool response shape
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        ticket: formatTicket(moved),
+      }, null, 2));
+      return;
+    }
+
     this.log(styles.success(`\n✅ Moved ticket ${styles.emphasis(moved.id)}`));
     if (targetColumn !== ticket.statusName) {
       this.log(styles.muted(`   From: ${ticket.statusName}`));
@@ -255,7 +265,7 @@ export default class TicketMove extends PMOCommand {
     projectId: string
   ): Promise<void> {
     // Only show header in interactive mode
-    if (!(flags.json || flags.machine)) {
+    if (!shouldOutputJson(flags)) {
       this.log(styles.emphasis('📦 Move Multiple Tickets\n'));
     }
 
@@ -267,7 +277,7 @@ export default class TicketMove extends PMOCommand {
     const columns = board.columns.map(col => col.name);
 
     // Agent mode config for prompts
-    const jsonModeConfig = (flags.json || flags.machine) ? { flags, commandName: 'ticket move --bulk' } : null;
+    const jsonModeConfig = shouldOutputJson(flags) ? { flags, commandName: 'ticket move --bulk' } : null;
 
     // Select tickets to move (now agent-compatible!)
     const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{
@@ -405,6 +415,14 @@ export default class TicketMove extends PMOCommand {
 
         await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
 
+        if (jsonMode && updatedTicket) {
+          this.log(JSON.stringify({
+            success: true,
+            ticket: formatTicket(updatedTicket),
+          }, null, 2));
+          return;
+        }
+
         this.log(styles.success(`\n✅ Moved ticket ${styles.emphasis(ticketId)} to project ${styles.emphasis(targetProject.id)}`));
         this.log(styles.muted(`   From project: ${sourceProjectId}`));
         this.log(styles.muted(`   To project: ${targetProject.id}`));
@@ -421,6 +439,14 @@ export default class TicketMove extends PMOCommand {
     }
 
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        ticket: formatTicket(movedTicket),
+      }, null, 2));
+      return;
+    }
 
     this.log(styles.success(`\n✅ Moved ticket ${styles.emphasis(ticketId)} to project ${styles.emphasis(targetProject.id)}`));
     this.log(styles.muted(`   From project: ${sourceProjectId}`));

@@ -1,5 +1,6 @@
 import { Flags } from '@oclif/core'
 import { PMOCommand, pmoBaseFlags } from '../lib/pmo/base-command.js'
+import { shouldOutputJson } from '../lib/prompt-json.js'
 import { styles, divider } from '../lib/styles.js'
 import {
   loadDietConfig,
@@ -35,6 +36,7 @@ export default class Diet extends PMOCommand {
 
   protected async execute(): Promise<void> {
     const { flags } = await this.parse(Diet)
+    const jsonMode = shouldOutputJson(flags)
     const projectId = await this.requireProject()
     const db = this.storage.getDatabase()
 
@@ -43,7 +45,11 @@ export default class Diet extends PMOCommand {
       try {
         const newConfig = parseDietString(flags.set)
         saveDietConfig(db, newConfig)
-        this.log(styles.success(`Diet updated: ${formatDietConfig(newConfig)}`))
+        if (jsonMode) {
+          this.log(JSON.stringify({ type: 'success', result: { action: 'set', diet: newConfig } }, null, 2))
+        } else {
+          this.log(styles.success(`Diet updated: ${formatDietConfig(newConfig)}`))
+        }
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error)
         this.error(message)
@@ -55,13 +61,22 @@ export default class Diet extends PMOCommand {
     if (flags.reset) {
       const { DEFAULT_DIET_CONFIG } = await import('../lib/pmo/diet.js')
       saveDietConfig(db, DEFAULT_DIET_CONFIG)
-      this.log(styles.success(`Diet reset to defaults: ${formatDietConfig(DEFAULT_DIET_CONFIG)}`))
+      if (jsonMode) {
+        this.log(JSON.stringify({ type: 'success', result: { action: 'reset', diet: DEFAULT_DIET_CONFIG } }, null, 2))
+      } else {
+        this.log(styles.success(`Diet reset to defaults: ${formatDietConfig(DEFAULT_DIET_CONFIG)}`))
+      }
       return
     }
 
     // Show diet report
     const dietConfig = loadDietConfig(db)
     const report = await this.buildDietReport(projectId, dietConfig)
+
+    if (jsonMode) {
+      this.log(JSON.stringify({ type: 'success', result: { diet: dietConfig, report } }, null, 2))
+      return
+    }
 
     this.displayDietReport(report, dietConfig)
   }

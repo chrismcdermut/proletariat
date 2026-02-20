@@ -2,6 +2,7 @@ import { Args } from '@oclif/core'
 import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { shouldOutputJson } from '../../lib/prompt-json.js'
 import { styles } from '../../lib/styles.js'
 import { isGitRepo, isTicketId } from '../../lib/branch/index.js'
 import { openWorkspaceDatabase, AgentWorktree } from '../../lib/database/index.js'
@@ -60,7 +61,7 @@ export default class BranchWhere extends PMOCommand {
     const allMatches = this.mergeResults(matches, dbMatches)
 
     if (allMatches.length === 0) {
-      if (flags.json || flags.machine) {
+      if (shouldOutputJson(flags)) {
         this.log(JSON.stringify({ found: false, search, matches: [] }, null, 2))
       } else {
         this.log(styles.muted(`\nNo worktree found for "${search}"\n`))
@@ -68,7 +69,7 @@ export default class BranchWhere extends PMOCommand {
       return
     }
 
-    if (flags.json || flags.machine) {
+    if (shouldOutputJson(flags)) {
       this.log(JSON.stringify({
         found: true,
         search,

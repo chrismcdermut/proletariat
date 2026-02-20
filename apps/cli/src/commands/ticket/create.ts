@@ -328,6 +328,28 @@ export default class TicketCreate extends PMOCommand {
       }
     }
 
+    // JSON output mode - match MCP tool response shape
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        ticket: {
+          id: ticket.id,
+          title: ticket.title,
+          priority: ticket.priority,
+          category: ticket.category,
+          statusName: ticket.statusName,
+          statusCategory: ticket.statusCategory,
+          projectId: ticket.projectId,
+          assignee: ticket.assignee,
+          owner: ticket.owner,
+          branch: ticket.branch,
+          epicId: ticket.epicId,
+          position: ticket.position,
+        },
+      }, null, 2));
+      return;
+    }
+
     this.log(styles.success(`\n✅ Created ticket ${styles.emphasis(ticket.id)} in project ${styles.emphasis(projectName)}`));
     if (template) {
       this.log(styles.muted(`   Template: ${template.name}`));

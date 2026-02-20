@@ -15,11 +15,14 @@ const root = path.resolve(__dirname, '../..');
  */
 describe('Agent Command JSON Mode (TKT-741)', () => {
 
-  describe('agent auth', () => {
+  describe('agent auth', function (this: Mocha.Suite) {
+    // First test in suite loads better-sqlite3 native module; allow extra time
+    this.timeout(120_000);
+
     it('should have --json flag in help', async () => {
       const { stdout } = await runCommand(['agent', 'auth', '--help'], { root });
       expect(stdout).to.include('--json');
-      expect(stdout).to.include('Output status as JSON');
+      expect(stdout).to.include('Output as JSON for AI agents/scripts');
     });
 
     it('should have --check flag for status checking', async () => {
@@ -32,7 +35,7 @@ describe('Agent Command JSON Mode (TKT-741)', () => {
     it('should have --json flag in help', async () => {
       const { stdout } = await runCommand(['agent', 'discover', '--help'], { root });
       expect(stdout).to.include('--json');
-      expect(stdout).to.include('Output discovery results as JSON');
+      expect(stdout).to.include('Output as JSON for AI agents/scripts');
     });
 
     it('should have --dry-run flag', async () => {
@@ -45,7 +48,7 @@ describe('Agent Command JSON Mode (TKT-741)', () => {
     it('should have --json flag in help', async () => {
       const { stdout } = await runCommand(['agent', 'shell', '--help'], { root });
       expect(stdout).to.include('--json');
-      expect(stdout).to.include('Output prompt configuration as JSON');
+      expect(stdout).to.include('Output as JSON for AI agents/scripts');
     });
 
     it('should accept agent name as argument', async () => {
@@ -65,7 +68,7 @@ describe('Agent Command JSON Mode (TKT-741)', () => {
     it('should have --json flag in help', async () => {
       const { stdout } = await runCommand(['agent', 'status', '--help'], { root });
       expect(stdout).to.include('--json');
-      expect(stdout).to.include('Output prompt configuration as JSON');
+      expect(stdout).to.include('Output as JSON for AI agents/scripts');
     });
 
     it('should accept agent name as argument', async () => {
@@ -84,7 +87,7 @@ describe('Agent Command JSON Mode (TKT-741)', () => {
     it('should have --json flag in help', async () => {
       const { stdout } = await runCommand(['agent', 'visit', '--help'], { root });
       expect(stdout).to.include('--json');
-      expect(stdout).to.include('Output prompt configuration as JSON');
+      expect(stdout).to.include('Output as JSON for AI agents/scripts');
     });
 
     it('should accept agent name as argument', async () => {
@@ -103,7 +106,7 @@ describe('Agent Command JSON Mode (TKT-741)', () => {
     it('should have --json flag in help', async () => {
       const { stdout } = await runCommand(['agent', 'login', '--help'], { root });
       expect(stdout).to.include('--json');
-      expect(stdout).to.include('Output prompt configuration as JSON');
+      expect(stdout).to.include('Output as JSON for AI agents/scripts');
     });
 
     it('should accept agent name as argument', async () => {
@@ -144,7 +147,7 @@ describe('Agent Command JSON Mode (TKT-741)', () => {
     it('should have --json flag in help', async () => {
       const { stdout } = await runCommand(['agent', 'restart', '--help'], { root });
       expect(stdout).to.include('--json');
-      expect(stdout).to.include('Output prompt configuration as JSON');
+      expect(stdout).to.include('Output as JSON for AI agents/scripts');
     });
 
     it('should extend PMOCommand (has -P/--project flag)', async () => {
@@ -158,7 +161,7 @@ describe('Agent Command JSON Mode (TKT-741)', () => {
     it('should have --json flag in help', async () => {
       const { stdout } = await runCommand(['agent', 'rebuild', '--help'], { root });
       expect(stdout).to.include('--json');
-      expect(stdout).to.include('Output prompt configuration as JSON');
+      expect(stdout).to.include('Output as JSON for AI agents/scripts');
     });
 
     it('should have --no-cache flag', async () => {
@@ -177,7 +180,7 @@ describe('Agent Command JSON Mode (TKT-741)', () => {
     it('should have --json flag in help', async () => {
       const { stdout } = await runCommand(['agent', '--help'], { root });
       expect(stdout).to.include('--json');
-      expect(stdout).to.include('Output prompt configuration as JSON');
+      expect(stdout).to.include('Output as JSON for AI agents/scripts');
     });
 
     it('should list all subcommands', async () => {

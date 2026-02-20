@@ -15,6 +15,8 @@ import {
 import {
   outputConfirmationNeededAsJson,
   createMetadata,
+  shouldOutputJson,
+  isNonTTY,
 } from '../../lib/prompt-json.js';
 import { machineOutputFlags } from '../../lib/pmo/index.js';
 
@@ -58,8 +60,8 @@ export default class WorkspacePrune extends PromptCommand {
 
     // In non-TTY mode without --json (CI, scripts, piped), default to dry-run unless --force is set.
     // In --json mode, we use confirmation_needed output instead of auto-dry-run so agents can review and confirm.
-    const isNonTTY = !process.stdout.isTTY;
-    const effectiveDryRun = flags['dry-run'] || (!(flags.json || flags.machine) && isNonTTY && !flags.force);
+    const nonTTY = isNonTTY();
+    const effectiveDryRun = flags['dry-run'] || (!shouldOutputJson(flags) && nonTTY && !flags.force);
 
     // Find stale entries
     const staleWorkspaces = this.findStaleWorkspaces();
@@ -68,7 +70,7 @@ export default class WorkspacePrune extends PromptCommand {
     const totalStale = staleWorkspaces.length + staleAgents.length;
 
     // JSON output
-    if (flags.json || flags.machine) {
+    if (shouldOutputJson(flags)) {
       const output = {
         dryRun: effectiveDryRun,
         staleWorkspaces: staleWorkspaces.map(w => ({
@@ -157,7 +159,7 @@ export default class WorkspacePrune extends PromptCommand {
         this.log(styles.muted(`  • ${staleAgents.length} agent record(s)`));
       }
       this.log('');
-      if (isNonTTY) {
+      if (nonTTY) {
         this.log(styles.muted('Non-TTY environment detected. Run with --force to remove these entries.'));
       } else {
         this.log(styles.muted('Run without --dry-run to remove these entries.'));

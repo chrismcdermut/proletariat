@@ -3,12 +3,13 @@ import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
 
 export default class Session extends PMOCommand {
-  static description = 'Manage agent tmux sessions (list, attach, detach)'
+  static description = 'Manage agent tmux sessions (list, attach, create, detach)'
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> list',
     '<%= config.bin %> <%= command.id %> attach TKT-347-implement',
+    '<%= config.bin %> <%= command.id %> create my-session',
   ]
 
   static flags = {
@@ -30,8 +31,11 @@ export default class Session extends PMOCommand {
       message: 'Session Management - What would you like to do?',
       choices: [
         { name: 'List active sessions', value: 'list', command: 'prlt session list --json' },
+        { name: 'Create a new session', value: 'create', command: 'prlt session create --json' },
         { name: 'Attach to a session', value: 'attach', command: 'prlt session attach --json' },
+        { name: 'Peek at agent output', value: 'peek', command: 'prlt session peek --json' },
         { name: 'Check agent health', value: 'health', command: 'prlt session health --json' },
+        { name: 'Poke a running agent', value: 'poke', command: 'prlt session poke --json' },
         { name: 'Cancel', value: 'cancel' },
       ],
     }], jsonModeConfig)
@@ -45,11 +49,20 @@ export default class Session extends PMOCommand {
       case 'list':
         await this.config.runCommand('session:list', [])
         break
+      case 'create':
+        await this.config.runCommand('session:create', [])
+        break
       case 'attach':
         await this.config.runCommand('session:attach', [])
         break
+      case 'peek':
+        await this.config.runCommand('session:peek', [])
+        break
       case 'health':
         await this.config.runCommand('session:health', [])
+        break
+      case 'poke':
+        await this.config.runCommand('session:poke', [])
         break
     }
   }
