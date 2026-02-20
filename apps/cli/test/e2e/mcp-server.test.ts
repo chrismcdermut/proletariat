@@ -196,6 +196,77 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
       expect(result.tickets).to.be.an('array');
     });
 
+    it('ticket_list - should not include descriptions', () => {
+      createTestTicket(db, projectId, { id: 'TKT-MCP-DESC', title: 'Ticket With Desc', description: 'A long description here' });
+      const result = callTool('ticket_list', { project: projectId });
+      expect(result.success).to.be.true;
+      const tickets = result.tickets as Array<Record<string, unknown>>;
+      tickets.forEach((t) => expect(t).to.not.have.property('description'));
+    });
+
+    it('ticket_list - should return pagination metadata', () => {
+      const result = callTool('ticket_list', { project: projectId });
+      expect(result.success).to.be.true;
+      expect(result).to.have.property('total');
+      expect(result).to.have.property('offset', 0);
+      expect(result).to.have.property('limit', 50);
+    });
+
+    it('ticket_list - should respect limit and offset', () => {
+      // Create several tickets
+      for (let i = 0; i < 5; i++) {
+        createTestTicket(db, projectId, { id: `TKT-MCP-PG${i}`, title: `Paginated ${i}` });
+      }
+      // Total should be 6 (1 from beforeEach + 5 created here)
+      const all = callTool('ticket_list', { project: projectId, limit: 100 });
+      expect((all.tickets as unknown[]).length).to.equal(all.total);
+
+      const page1 = callTool('ticket_list', { project: projectId, limit: 2, offset: 0 });
+      expect(page1.success).to.be.true;
+      expect((page1.tickets as unknown[]).length).to.equal(2);
+      expect(page1.total).to.equal(all.total);
+
+      const page2 = callTool('ticket_list', { project: projectId, limit: 2, offset: 2 });
+      expect(page2.success).to.be.true;
+      expect((page2.tickets as unknown[]).length).to.equal(2);
+
+      // Tickets from page1 and page2 should be different
+      const page1Ids = (page1.tickets as Array<{ id: string }>).map(t => t.id);
+      const page2Ids = (page2.tickets as Array<{ id: string }>).map(t => t.id);
+      page2Ids.forEach(id => expect(page1Ids).to.not.include(id));
+    });
+
+    it('ticket_list - should default limit to 50', () => {
+      const result = callTool('ticket_list', { project: projectId });
+      expect(result.limit).to.equal(50);
+    });
+
+    it('ticket_list - should only return summary fields', () => {
+      const result = callTool('ticket_list', { project: projectId });
+      expect(result.success).to.be.true;
+      const tickets = result.tickets as Array<Record<string, unknown>>;
+      expect(tickets.length).to.be.at.least(1);
+      const ticket = tickets[0];
+      // Should have summary fields
+      expect(ticket).to.have.property('id');
+      expect(ticket).to.have.property('title');
+      expect(ticket).to.have.property('statusName');
+      expect(ticket).to.have.property('statusCategory');
+      expect(ticket).to.have.property('priority');
+      expect(ticket).to.have.property('category');
+      expect(ticket).to.have.property('labels');
+      expect(ticket).to.have.property('assignee');
+      expect(ticket).to.have.property('position');
+      // Should NOT have detail fields
+      expect(ticket).to.not.have.property('description');
+      expect(ticket).to.not.have.property('projectId');
+      expect(ticket).to.not.have.property('owner');
+      expect(ticket).to.not.have.property('epicId');
+      expect(ticket).to.not.have.property('branch');
+      expect(ticket).to.not.have.property('createdAt');
+      expect(ticket).to.not.have.property('updatedAt');
+    });
+
     it('ticket_list - should filter by priority', () => {
       createTestTicket(db, projectId, { id: 'TKT-MCP-P0', title: 'P0 Ticket', priority: 'P0' });
       const result = callTool('ticket_list', { project: projectId, priority: 'P0' });
