@@ -187,6 +187,42 @@ export function runMigrations(db: Database.Database): void {
     }
   }
 
+  // Migration: Migrate old ticket_dependencies schema (blocked_by_ticket_id) to new format
+  if (tableExists(T.ticket_dependencies)) {
+    const depsColumns = db.pragma(`table_info(${T.ticket_dependencies})`) as Array<{ name: string }>
+    const depsColumnNames = new Set(depsColumns.map(c => c.name))
+
+    if (depsColumnNames.has('blocked_by_ticket_id') && !depsColumnNames.has('depends_on_ticket_id')) {
+      // Old schema detected - migrate to new format
+      try {
+        // Create new table with correct schema
+        db.exec(`
+          CREATE TABLE pmo_ticket_dependencies_new (
+            ticket_id TEXT NOT NULL REFERENCES ${T.tickets}(id) ON DELETE RESTRICT,
+            depends_on_ticket_id TEXT NOT NULL REFERENCES ${T.tickets}(id) ON DELETE RESTRICT,
+            dependency_type TEXT NOT NULL DEFAULT 'blocks' CHECK (dependency_type IN ('blocks', 'relates_to', 'duplicates')),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (ticket_id, depends_on_ticket_id, dependency_type),
+            CHECK (ticket_id != depends_on_ticket_id)
+          )
+        `)
+
+        // Copy existing blocking relationships (old schema: ticket_id is blocked by blocked_by_ticket_id)
+        db.exec(`
+          INSERT OR IGNORE INTO pmo_ticket_dependencies_new (ticket_id, depends_on_ticket_id, dependency_type, created_at)
+          SELECT ticket_id, blocked_by_ticket_id, 'blocks', created_at
+          FROM ${T.ticket_dependencies}
+        `)
+
+        // Replace old table with new one
+        db.exec(`DROP TABLE ${T.ticket_dependencies}`)
+        db.exec(`ALTER TABLE pmo_ticket_dependencies_new RENAME TO ${T.ticket_dependencies}`)
+      } catch {
+        // Migration may have already been applied partially
+      }
+    }
+  }
+
   // Migration: Convert legacy priority values (URGENT/HIGH/MEDIUM/LOW) to P0-P3
   if (tableExists(T.tickets)) {
     try {

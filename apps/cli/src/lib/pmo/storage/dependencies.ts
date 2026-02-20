@@ -91,14 +91,22 @@ export class DependencyStorage {
 
   /**
    * List dependencies for a ticket.
+   * For relates_to dependencies, also returns reverse relationships (symmetric).
    */
   async listTicketDependencies(ticketId: string): Promise<TicketDependency[]> {
     const rows = this.ctx.db.prepare(`
       SELECT ticket_id, depends_on_ticket_id, dependency_type, created_at
       FROM ${T.ticket_dependencies}
       WHERE ticket_id = ?
+
+      UNION
+
+      SELECT depends_on_ticket_id AS ticket_id, ticket_id AS depends_on_ticket_id, dependency_type, created_at
+      FROM ${T.ticket_dependencies}
+      WHERE depends_on_ticket_id = ? AND dependency_type = 'relates_to'
+
       ORDER BY created_at DESC
-    `).all(ticketId) as Array<{
+    `).all(ticketId, ticketId) as Array<{
       ticket_id: string
       depends_on_ticket_id: string
       dependency_type: string
