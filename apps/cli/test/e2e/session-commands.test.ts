@@ -262,8 +262,8 @@ describe('Session Commands E2E Tests', () => {
       expect(sessions).to.be.an('array');
     });
 
-    it('should return empty JSON for seeded executions without tmux (default mode)', () => {
-      // Seed a running execution - but no tmux session exists to verify it
+    it('should return DB-tracked sessions even without tmux verification (default mode)', () => {
+      // Seed a running execution - no tmux session exists to verify it
       seedExecutionRecords([{
         id: 'exec-001',
         ticketId: 'TKT-100',
@@ -272,13 +272,17 @@ describe('Session Commands E2E Tests', () => {
         sessionId: 'TKT-100-implement-bold-turing',
       }]);
 
-      // Without --all, only verified (tmux-backed) sessions are shown
+      // Sessions are always shown from DB, even without tmux verification
+      // (fixes bug where MCP session_list returned empty despite running executions)
       const output = execProduction('session list');
-      const sessions = JSON.parse(output) as Array<{ sessionId: string; status: string }>;
+      const sessions = JSON.parse(output) as Array<{ sessionId: string; status: string; exists: boolean; source: string; ticketId: string }>;
       expect(sessions).to.be.an('array');
-      // No sessions should have status 'running' since tmux verification fails
-      const runningSessions = sessions.filter(s => s.status === 'running');
-      expect(runningSessions).to.have.lengthOf(0);
+      // Filter to DB-sourced sessions for our seeded ticket (host may have real orphan tmux sessions)
+      const dbSessions = sessions.filter(s => s.source === 'db' && s.ticketId === 'TKT-100');
+      expect(dbSessions).to.have.lengthOf(1);
+      expect(dbSessions[0].sessionId).to.equal('TKT-100-implement-bold-turing');
+      expect(dbSessions[0].status).to.equal('running');
+      expect(dbSessions[0].exists).to.equal(false);
     });
 
     it('should show stale sessions with --all flag including ticket ID and agent name', () => {
@@ -468,9 +472,9 @@ describe('Session Commands E2E Tests', () => {
       expect(listChoice).to.not.be.undefined;
       expect(listChoice!.command).to.equal('prlt session list --json');
 
-      // Step 3: Agent executes the list command (strip prlt prefix, remove --json for display output)
-      // Use --all to see stale sessions since there's no real tmux
-      const listOutput = execProduction('session list --all');
+      // Step 3: Agent executes the list command
+      // Sessions now appear without --all since DB-tracked sessions are always shown
+      const listOutput = execProduction('session list');
 
       // Step 4: Verify END RESULT - the seeded session data actually appears (JSON output in non-TTY)
       const sessions = JSON.parse(listOutput) as Array<{ sessionId: string; ticketId: string; agentName: string; status: string }>;
@@ -479,7 +483,8 @@ describe('Session Commands E2E Tests', () => {
       expect(session).to.not.be.undefined;
       expect(session!.agentName).to.equal('swift-hopper');
       expect(session!.sessionId).to.equal('TKT-300-implement-swift-hopper');
-      expect(session!.status).to.equal('stale');
+      // Without tmux verification, sessions show their DB status
+      expect(session!.status).to.equal('running');
     });
   });
 
