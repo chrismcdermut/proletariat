@@ -13,20 +13,29 @@
  */
 
 import { z } from 'zod'
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { McpToolContext } from '../types.js'
 import { errorResponse, strictTool, successResponse } from '../helpers.js'
 
+const TMUX_ENV = { ...process.env, TERM: process.env.TERM || 'xterm-256color' }
+
 /**
- * Execute a tmux command and return output.
+ * Execute a tmux command with args passed as an array (no shell interpretation).
  */
-function runTmux(args: string, timeoutMs = 10_000): string {
-  return execSync(`tmux ${args}`, {
+function runTmux(args: string[], timeoutMs = 10_000): string {
+  return execFileSync('tmux', args, {
     encoding: 'utf-8',
     timeout: timeoutMs,
-    env: { ...process.env, TERM: process.env.TERM || 'xterm-256color' },
+    env: TMUX_ENV,
   }).trim()
+}
+
+/** Validate session name — alphanumeric, hyphens, underscores, dots only. */
+function validateSessionName(name: string): void {
+  if (!/^[a-zA-Z0-9_.-]+$/.test(name)) {
+    throw new Error(`Invalid session name: "${name}". Only alphanumeric, hyphens, underscores, and dots allowed.`)
+  }
 }
 
 /**
@@ -34,7 +43,7 @@ function runTmux(args: string, timeoutMs = 10_000): string {
  */
 function sessionExists(sessionName: string): boolean {
   try {
-    runTmux(`has-session -t ${JSON.stringify(sessionName)}`)
+    runTmux(['has-session', '-t', sessionName])
     return true
   } catch {
     return false
@@ -54,15 +63,18 @@ export function registerTmuxTools(server: McpServer, _ctx: McpToolContext): void
     },
     async (params) => {
       try {
+        validateSessionName(params.session)
         if (!sessionExists(params.session)) {
           return errorResponse(new Error(`Tmux session not found: ${params.session}`))
         }
 
-        const literalFlag = params.literal ? ' -l' : ''
-        runTmux(`send-keys -t ${JSON.stringify(params.session)}${literalFlag} ${JSON.stringify(params.keys)}`)
+        const args = ['send-keys', '-t', params.session]
+        if (params.literal) args.push('-l')
+        args.push(params.keys)
+        runTmux(args)
 
         // Wait for UI to render
-        const delay = params.delay_ms ?? 100
+        const delay = Math.min(params.delay_ms ?? 100, 30_000)
         if (delay > 0) {
           await new Promise((resolve) => setTimeout(resolve, delay))
         }
@@ -86,17 +98,17 @@ export function registerTmuxTools(server: McpServer, _ctx: McpToolContext): void
     },
     async (params) => {
       try {
+        validateSessionName(params.session)
         if (!sessionExists(params.session)) {
           return errorResponse(new Error(`Tmux session not found: ${params.session}`))
         }
 
-        const escFlag = params.escape_sequences ? ' -e' : ''
-        const startFlag = params.start_line !== undefined ? ` -S ${params.start_line}` : ''
-        const endFlag = params.end_line !== undefined ? ` -E ${params.end_line}` : ''
+        const args = ['capture-pane', '-t', params.session, '-p']
+        if (params.escape_sequences) args.push('-e')
+        if (params.start_line !== undefined) args.push('-S', String(params.start_line))
+        if (params.end_line !== undefined) args.push('-E', String(params.end_line))
 
-        const content = runTmux(
-          `capture-pane -t ${JSON.stringify(params.session)} -p${escFlag}${startFlag}${endFlag}`
-        )
+        const content = runTmux(args)
 
         return successResponse({
           session: params.session,
@@ -121,17 +133,17 @@ export function registerTmuxTools(server: McpServer, _ctx: McpToolContext): void
     },
     async (params) => {
       try {
+        validateSessionName(params.session)
         if (sessionExists(params.session)) {
           return errorResponse(new Error(`Tmux session already exists: ${params.session}`))
         }
 
         const width = params.width ?? 120
         const height = params.height ?? 40
-        const cmdPart = params.command ? ` ${JSON.stringify(params.command)}` : ''
+        const args = ['new-session', '-d', '-s', params.session, '-x', String(width), '-y', String(height)]
+        if (params.command) args.push(params.command)
 
-        runTmux(
-          `new-session -d -s ${JSON.stringify(params.session)} -x ${width} -y ${height}${cmdPart}`
-        )
+        runTmux(args)
 
         // Give the session a moment to initialize
         await new Promise((resolve) => setTimeout(resolve, 500))
@@ -157,7 +169,7 @@ export function registerTmuxTools(server: McpServer, _ctx: McpToolContext): void
       try {
         let output: string
         try {
-          output = runTmux('list-sessions -F "#{session_name}|#{session_width}|#{session_height}|#{session_windows}|#{session_created}"')
+          output = runTmux(['list-sessions', '-F', '#{session_name}|#{session_width}|#{session_height}|#{session_windows}|#{session_created}'])
         } catch {
           // No sessions running
           return successResponse({ sessions: [] })
@@ -190,11 +202,12 @@ export function registerTmuxTools(server: McpServer, _ctx: McpToolContext): void
     },
     async (params) => {
       try {
+        validateSessionName(params.session)
         if (!sessionExists(params.session)) {
           return errorResponse(new Error(`Tmux session not found: ${params.session}`))
         }
 
-        runTmux(`kill-session -t ${JSON.stringify(params.session)}`)
+        runTmux(['kill-session', '-t', params.session])
 
         return successResponse({
           killed: params.session,
