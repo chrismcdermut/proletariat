@@ -47,6 +47,7 @@ describe('PMO Action Commands E2E Tests', () => {
       expect(output).to.contain('Revise');
       expect(output).to.contain('Write Tests');
       expect(output).to.contain('Code Review');
+      expect(output).to.contain('Explore CLI');
     });
 
     it('should show action descriptions', () => {
