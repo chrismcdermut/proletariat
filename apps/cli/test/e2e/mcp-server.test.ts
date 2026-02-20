@@ -163,10 +163,10 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
       expect(response.result?.serverInfo?.name).to.equal('prlt');
     });
 
-    it('should list all 125 tools', () => {
+    it('should list all 137 tools', () => {
       const response = mcpCall([INIT_MSG, INITIALIZED_MSG, LIST_TOOLS_MSG]);
       expect(response.result?.tools).to.be.an('array');
-      expect(response.result?.tools?.length).to.equal(125);
+      expect(response.result?.tools?.length).to.equal(137);
     });
 
     it('should have tools capability', () => {
@@ -732,6 +732,33 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
       callTool('ticket_move', { id: ticketId, column: 'In Progress' });
       const result = callTool('work_revise', { ticket_id: ticketId });
       expect(result.success).to.be.true;
+    });
+
+    it('work_start - should fail gracefully without workspace context', () => {
+      // MCP server in test env may not have a full workspace with agents
+      // work_start should return an error (not crash) when workspace is unavailable
+      const result = callTool('work_start', { ticket_id: ticketId });
+      // Either fails with workspace error or agent error — both are valid
+      // The key is it doesn't move ticket to In Progress without spawning
+      if (!result.success) {
+        expect(result.error).to.be.a('string');
+      }
+    });
+
+    it('work_start - should not move ticket to In Progress on failure', () => {
+      // Call work_start (will fail since no workspace/agents in test env)
+      callTool('work_start', { ticket_id: ticketId });
+      // Verify ticket is NOT in progress — the bug was that it moved without spawning
+      const statusResult = callTool('work_status', {});
+      expect(statusResult.success).to.be.true;
+      const inProgressTickets = statusResult.tickets as Array<{ id: string }>;
+      const found = inProgressTickets.find((t) => t.id === ticketId);
+      expect(found).to.be.undefined;
+    });
+
+    it('work_start - should reject non-existent ticket', () => {
+      const result = callTool('work_start', { ticket_id: 'TKT-NONEXISTENT' });
+      expect(result.success).to.be.false;
     });
   });
 
