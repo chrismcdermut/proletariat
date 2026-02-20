@@ -559,7 +559,9 @@ export function addAgentsToDatabase(workspacePath: string, agentNames: string[],
 }
 
 /**
- * Add an ephemeral agent to the database
+ * Add an ephemeral agent to the database.
+ * Throws on name collision — use tryAddEphemeralAgentToDatabase for
+ * concurrency-safe insertion with conflict detection.
  */
 export function addEphemeralAgentToDatabase(
   workspacePath: string,
@@ -568,41 +570,70 @@ export function addEphemeralAgentToDatabase(
   themeId?: string,
   mountMode: MountMode = 'worktree'
 ): Agent {
+  const result = tryAddEphemeralAgentToDatabase(workspacePath, agentName, baseName, themeId, mountMode);
+  if (!result) {
+    throw new Error(`Agent name "${agentName}" already exists (UNIQUE constraint failed: agents.name)`);
+  }
+  return result;
+}
+
+/**
+ * Try to add an ephemeral agent to the database.
+ * Returns the Agent on success, or null if the name already exists
+ * (SQLITE_CONSTRAINT_PRIMARYKEY). This is concurrency-safe: parallel
+ * processes that generate the same name will not crash — the loser
+ * simply gets null and can retry with a different name.
+ */
+export function tryAddEphemeralAgentToDatabase(
+  workspacePath: string,
+  agentName: string,
+  baseName: string,
+  themeId?: string,
+  mountMode: MountMode = 'worktree'
+): Agent | null {
   const db = openWorkspaceDatabase(workspacePath);
 
-  const now = new Date().toISOString();
-  const worktreePath = `agents/temp/${agentName}`;
+  try {
+    const now = new Date().toISOString();
+    const worktreePath = `agents/temp/${agentName}`;
 
-  db.prepare(`
-    INSERT INTO agents (name, type, status, base_name, theme_id, worktree_path, mount_mode, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(agentName, 'ephemeral', 'active', baseName, themeId || null, worktreePath, mountMode, now);
+    db.prepare(`
+      INSERT INTO agents (name, type, status, base_name, theme_id, worktree_path, mount_mode, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(agentName, 'ephemeral', 'active', baseName, themeId || null, worktreePath, mountMode, now);
 
-  const agent = db.prepare('SELECT * FROM agents WHERE name = ?').get(agentName) as {
-    name: string;
-    type: string;
-    status: string;
-    base_name: string | null;
-    theme_id: string | null;
-    worktree_path: string | null;
-    mount_mode: string | null;
-    created_at: string;
-    cleaned_at: string | null;
-  };
+    const agent = db.prepare('SELECT * FROM agents WHERE name = ?').get(agentName) as {
+      name: string;
+      type: string;
+      status: string;
+      base_name: string | null;
+      theme_id: string | null;
+      worktree_path: string | null;
+      mount_mode: string | null;
+      created_at: string;
+      cleaned_at: string | null;
+    };
 
-  db.close();
-
-  return {
-    name: agent.name,
-    type: agent.type as AgentType,
-    status: agent.status as AgentStatus,
-    base_name: agent.base_name,
-    theme_id: agent.theme_id,
-    worktree_path: agent.worktree_path,
-    mount_mode: (agent.mount_mode || 'clone') as MountMode,
-    created_at: agent.created_at,
-    cleaned_at: agent.cleaned_at,
-  };
+    return {
+      name: agent.name,
+      type: agent.type as AgentType,
+      status: agent.status as AgentStatus,
+      base_name: agent.base_name,
+      theme_id: agent.theme_id,
+      worktree_path: agent.worktree_path,
+      mount_mode: (agent.mount_mode || 'clone') as MountMode,
+      created_at: agent.created_at,
+      cleaned_at: agent.cleaned_at,
+    };
+  } catch (err: unknown) {
+    const sqliteErr = err as { code?: string };
+    if (sqliteErr.code === 'SQLITE_CONSTRAINT_PRIMARYKEY' || sqliteErr.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      return null;
+    }
+    throw err;
+  } finally {
+    db.close();
+  }
 }
 
 /**
