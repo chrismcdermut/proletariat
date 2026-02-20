@@ -134,7 +134,7 @@ export class DependencyStorage {
       WHERE d.ticket_id = ? AND d.dependency_type = 'blocks'
     `).all(ticketId) as TicketRow[]
 
-    return Promise.all(rows.map((row) => rowToTicket(this.ctx.db, row)))
+    return Promise.all(rows.map((row) => rowToTicket(this.ctx.drizzle, row)))
   }
 
   /**
@@ -152,7 +152,7 @@ export class DependencyStorage {
       WHERE d.depends_on_ticket_id = ? AND d.dependency_type = 'blocks'
     `).all(ticketId) as TicketRow[]
 
-    return Promise.all(rows.map((row) => rowToTicket(this.ctx.db, row)))
+    return Promise.all(rows.map((row) => rowToTicket(this.ctx.drizzle, row)))
   }
 
   /**

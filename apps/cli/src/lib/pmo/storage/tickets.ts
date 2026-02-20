@@ -19,13 +19,10 @@ import {
   pmoLabels,
   pmoLabelGroups,
 } from '../../database/drizzle-schema.js'
-import { PMO_TABLES } from '../schema.js'
 import { CreateTicketInput, PMOError, Ticket, TicketFilter } from '../types.js'
 import { slugify, generateEntityId } from '../utils.js'
 import { StorageContext, TicketRow } from './types.js'
 import { rowToTicket, wrapSqliteError } from './helpers.js'
-
-const T = PMO_TABLES
 
 export class TicketStorage {
   constructor(private ctx: StorageContext) {}
@@ -291,19 +288,39 @@ export class TicketStorage {
    * Joins workflow_statuses to get column name (status name is the column).
    */
   async getTicketById(id: string): Promise<Ticket | null> {
-    const row = this.ctx.db.prepare(`
-      SELECT t.*,
-             ws.id as column_id,
-             t.position as position,
-             ws.name as column_name
-      FROM ${T.tickets} t
-      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
-      WHERE LOWER(t.id) = LOWER(?)
-    `).get(id) as TicketRow | undefined
+    const rows = this.ctx.drizzle
+      .select({
+        id: pmoTickets.id,
+        project_id: pmoTickets.projectId,
+        title: pmoTickets.title,
+        description: pmoTickets.description,
+        priority: pmoTickets.priority,
+        category: pmoTickets.category,
+        status_id: pmoTickets.statusId,
+        owner: pmoTickets.owner,
+        assignee: pmoTickets.assignee,
+        branch: pmoTickets.branch,
+        spec_id: pmoTickets.specId,
+        epic_id: pmoTickets.epicId,
+        labels: pmoTickets.labels,
+        position: pmoTickets.position,
+        created_at: pmoTickets.createdAt,
+        updated_at: pmoTickets.updatedAt,
+        last_synced_from_spec: pmoTickets.lastSyncedFromSpec,
+        last_synced_from_board: pmoTickets.lastSyncedFromBoard,
+        column_id: pmoWorkflowStatuses.id,
+        column_name: pmoWorkflowStatuses.name,
+        project_name: sql<string | null>`NULL`,
+      })
+      .from(pmoTickets)
+      .leftJoin(pmoWorkflowStatuses, eq(pmoTickets.statusId, pmoWorkflowStatuses.id))
+      .where(sql`LOWER(${pmoTickets.id}) = LOWER(${id})`)
+      .all()
 
-    if (!row) return null
+    if (rows.length === 0) return null
+    const row = rows[0] as unknown as TicketRow
 
-    return rowToTicket(this.ctx.db, row)
+    return rowToTicket(this.ctx.drizzle, row)
   }
 
   /**
@@ -576,16 +593,14 @@ export class TicketStorage {
       .orderBy(asc(pmoTickets.position), asc(pmoTickets.createdAt))
       .all()
 
-    const regap = this.ctx.db.transaction(() => {
+    this.ctx.drizzle.transaction((tx) => {
       tickets.forEach((ticket, idx) => {
-        this.ctx.drizzle
-          .update(pmoTickets)
+        tx.update(pmoTickets)
           .set({ position: (idx + 1) * 1000 })
           .where(eq(pmoTickets.id, ticket.id))
           .run()
       })
     })
-    regap()
   }
 
   /**
@@ -629,8 +644,6 @@ export class TicketStorage {
    * @param filter - Additional filters to apply.
    */
   async listTickets(projectIdOrName: string | undefined, filter?: TicketFilter): Promise<Ticket[]> {
-    const params: unknown[] = []
-
     // Resolve project identifier to actual ID if provided
     let resolvedProjectId: string | undefined
     if (projectIdOrName !== undefined) {
@@ -641,96 +654,110 @@ export class TicketStorage {
       }
     }
 
-    // Build the base query using workflow_statuses
-    // NOTE: We use raw SQL here because this query requires complex dynamic
-    // WHERE clauses with subqueries for label/labelGroup filtering that are
-    // more natural with raw SQL string building.
-    let query = `
-      SELECT t.*,
-             ws.id as column_id,
-             t.position as position,
-             ws.name as column_name,
-             p.name as project_name
-      FROM ${T.tickets} t
-      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
-      LEFT JOIN ${T.projects} p ON t.project_id = p.id
-      WHERE 1=1
-    `
+    // Build conditions array for dynamic WHERE clause
+    const conditions: ReturnType<typeof eq>[] = []
 
     // Apply project scoping
     if (resolvedProjectId !== undefined) {
-      query += ' AND t.project_id = ?'
-      params.push(resolvedProjectId)
+      conditions.push(eq(pmoTickets.projectId, resolvedProjectId))
     }
 
     if (filter?.statusId) {
-      query += ' AND t.status_id = ?'
-      params.push(filter.statusId)
+      conditions.push(eq(pmoTickets.statusId, filter.statusId))
     }
     if (filter?.statusCategory) {
-      query += ' AND ws.category = ?'
-      params.push(filter.statusCategory)
+      conditions.push(eq(pmoWorkflowStatuses.category, filter.statusCategory))
     }
     if (filter?.priority) {
-      query += ' AND t.priority = ?'
-      params.push(filter.priority)
+      conditions.push(eq(pmoTickets.priority, filter.priority))
     }
     if (filter?.category) {
-      query += ' AND t.category = ?'
-      params.push(filter.category)
+      conditions.push(eq(pmoTickets.category, filter.category))
     }
     if (filter?.owner) {
-      query += ' AND t.owner = ?'
-      params.push(filter.owner)
+      conditions.push(eq(pmoTickets.owner, filter.owner))
     }
     if (filter?.assignee) {
-      query += ' AND t.assignee = ?'
-      params.push(filter.assignee)
+      conditions.push(eq(pmoTickets.assignee, filter.assignee))
     }
     if (filter?.search) {
-      query += ' AND (t.title LIKE ? OR t.description LIKE ?)'
-      params.push(`%${filter.search}%`, `%${filter.search}%`)
+      conditions.push(
+        or(
+          like(pmoTickets.title, `%${filter.search}%`),
+          like(pmoTickets.description, `%${filter.search}%`)
+        )!
+      )
     }
     if (filter?.spec) {
-      query += ' AND t.spec_id = ?'
-      params.push(filter.spec)
+      conditions.push(eq(pmoTickets.specId, filter.spec))
     }
     if (filter?.epic) {
-      query += ' AND t.epic_id = ?'
-      params.push(filter.epic)
+      conditions.push(eq(pmoTickets.epicId, filter.epic))
     }
     if (filter?.column) {
-      query += ' AND ws.name = ?'
-      params.push(filter.column)
+      conditions.push(eq(pmoWorkflowStatuses.name, filter.column))
     }
     if (filter?.label) {
-      query += ` AND t.id IN (
-        SELECT tl.ticket_id FROM ${T.ticket_labels} tl
-        JOIN ${T.labels} l ON tl.label_id = l.id
-        WHERE LOWER(l.name) = LOWER(?)
-      )`
-      params.push(filter.label)
+      conditions.push(
+        sql`${pmoTickets.id} IN (
+          SELECT ${pmoTicketLabels.ticketId} FROM ${pmoTicketLabels}
+          JOIN ${pmoLabels} ON ${pmoTicketLabels.labelId} = ${pmoLabels.id}
+          WHERE LOWER(${pmoLabels.name}) = LOWER(${filter.label})
+        )`
+      )
     }
     if (filter?.labelGroup) {
-      query += ` AND t.id IN (
-        SELECT tl.ticket_id FROM ${T.ticket_labels} tl
-        JOIN ${T.labels} l ON tl.label_id = l.id
-        JOIN ${T.label_groups} lg ON l.group_id = lg.id
-        WHERE LOWER(lg.name) = LOWER(?)
-      )`
-      params.push(filter.labelGroup)
+      conditions.push(
+        sql`${pmoTickets.id} IN (
+          SELECT ${pmoTicketLabels.ticketId} FROM ${pmoTicketLabels}
+          JOIN ${pmoLabels} ON ${pmoTicketLabels.labelId} = ${pmoLabels.id}
+          JOIN ${pmoLabelGroups} ON ${pmoLabels.groupId} = ${pmoLabelGroups.id}
+          WHERE LOWER(${pmoLabelGroups.name}) = LOWER(${filter.labelGroup})
+        )`
+      )
     }
 
-    // Order by status column position, then ticket position within status
-    if (projectIdOrName === undefined) {
-      query += ` ORDER BY p.name, ws.position, t.position ASC, t.created_at ASC`
-    } else {
-      query += ` ORDER BY ws.position, t.position ASC, t.created_at ASC`
+    // Build order clause
+    const orderClauses = projectIdOrName === undefined
+      ? [asc(pmoProjects.name), asc(pmoWorkflowStatuses.position), asc(pmoTickets.position), asc(pmoTickets.createdAt)]
+      : [asc(pmoWorkflowStatuses.position), asc(pmoTickets.position), asc(pmoTickets.createdAt)]
+
+    let query = this.ctx.drizzle
+      .select({
+        id: pmoTickets.id,
+        project_id: pmoTickets.projectId,
+        title: pmoTickets.title,
+        description: pmoTickets.description,
+        priority: pmoTickets.priority,
+        category: pmoTickets.category,
+        status_id: pmoTickets.statusId,
+        owner: pmoTickets.owner,
+        assignee: pmoTickets.assignee,
+        branch: pmoTickets.branch,
+        spec_id: pmoTickets.specId,
+        epic_id: pmoTickets.epicId,
+        labels: pmoTickets.labels,
+        position: pmoTickets.position,
+        created_at: pmoTickets.createdAt,
+        updated_at: pmoTickets.updatedAt,
+        last_synced_from_spec: pmoTickets.lastSyncedFromSpec,
+        last_synced_from_board: pmoTickets.lastSyncedFromBoard,
+        column_id: pmoWorkflowStatuses.id,
+        column_name: pmoWorkflowStatuses.name,
+        project_name: pmoProjects.name,
+      })
+      .from(pmoTickets)
+      .leftJoin(pmoWorkflowStatuses, eq(pmoTickets.statusId, pmoWorkflowStatuses.id))
+      .leftJoin(pmoProjects, eq(pmoTickets.projectId, pmoProjects.id))
+      .$dynamic()
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions))
     }
 
-    const rows = this.ctx.db.prepare(query).all(...params) as TicketRow[]
+    const rows = query.orderBy(...orderClauses).all() as unknown as TicketRow[]
 
-    return Promise.all(rows.map((row) => rowToTicket(this.ctx.db, row)))
+    return Promise.all(rows.map((row) => rowToTicket(this.ctx.drizzle, row)))
   }
 
   /**

@@ -13,13 +13,10 @@ import {
   pmoProjectSpecs,
   pmoSpecDependencies,
 } from '../../database/drizzle-schema.js'
-import { PMO_TABLES } from '../schema.js'
 import { PMOError, Project, Spec, SpecFilter, Ticket } from '../types.js'
 import { generateEntityId } from '../utils.js'
 import { StorageContext, TicketRow } from './types.js'
 import { rowToSpec, rowToTicket, wrapSqliteError } from './helpers.js'
-
-const T = PMO_TABLES
 
 export class SpecStorage {
   constructor(private ctx: StorageContext) {}
@@ -286,18 +283,40 @@ export class SpecStorage {
    * Get tickets for a spec.
    */
   async getTicketsForSpec(projectId: string, specId: string): Promise<Ticket[]> {
-    const rows = this.ctx.db.prepare(`
-      SELECT t.*,
-             ws.id as column_id,
-             t.position as position,
-             ws.name as column_name
-      FROM ${T.tickets} t
-      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
-      WHERE t.project_id = ? AND t.spec_id = ?
-      ORDER BY ws.position, t.position ASC, t.created_at ASC
-    `).all(projectId, specId) as TicketRow[]
+    const rows = this.ctx.drizzle
+      .select({
+        id: pmoTickets.id,
+        project_id: pmoTickets.projectId,
+        title: pmoTickets.title,
+        description: pmoTickets.description,
+        priority: pmoTickets.priority,
+        category: pmoTickets.category,
+        status_id: pmoTickets.statusId,
+        owner: pmoTickets.owner,
+        assignee: pmoTickets.assignee,
+        branch: pmoTickets.branch,
+        spec_id: pmoTickets.specId,
+        epic_id: pmoTickets.epicId,
+        labels: pmoTickets.labels,
+        position: pmoTickets.position,
+        created_at: pmoTickets.createdAt,
+        updated_at: pmoTickets.updatedAt,
+        last_synced_from_spec: pmoTickets.lastSyncedFromSpec,
+        last_synced_from_board: pmoTickets.lastSyncedFromBoard,
+        column_id: pmoWorkflowStatuses.id,
+        column_name: pmoWorkflowStatuses.name,
+        project_name: sql<string | null>`NULL`,
+      })
+      .from(pmoTickets)
+      .leftJoin(pmoWorkflowStatuses, eq(pmoTickets.statusId, pmoWorkflowStatuses.id))
+      .where(and(
+        eq(pmoTickets.projectId, projectId),
+        eq(pmoTickets.specId, specId)
+      ))
+      .orderBy(asc(pmoWorkflowStatuses.position), asc(pmoTickets.position), asc(pmoTickets.createdAt))
+      .all() as unknown as TicketRow[]
 
-    return Promise.all(rows.map((row) => rowToTicket(this.ctx.db, row)))
+    return Promise.all(rows.map((row) => rowToTicket(this.ctx.drizzle, row)))
   }
 
   /**
@@ -332,10 +351,15 @@ export class SpecStorage {
       throw new PMOError('NOT_FOUND', `Spec not found: ${dependsOnId}`)
     }
 
-    this.ctx.db.prepare(`
-      INSERT OR IGNORE INTO ${T.spec_dependencies} (spec_id, depends_on_spec_id, created_at)
-      VALUES (?, ?, ?)
-    `).run(specId, dependsOnId, Date.now())
+    this.ctx.drizzle
+      .insert(pmoSpecDependencies)
+      .values({
+        specId,
+        dependsOnSpecId: dependsOnId,
+        createdAt: String(Date.now()),
+      })
+      .onConflictDoNothing()
+      .run()
   }
 
   /**
@@ -410,10 +434,15 @@ export class SpecStorage {
       throw new PMOError('NOT_FOUND', `Spec "${specId}" not found`)
     }
 
-    this.ctx.db.prepare(`
-      INSERT OR IGNORE INTO ${T.project_specs} (project_id, spec_id, created_at)
-      VALUES (?, ?, ?)
-    `).run(projectId, specId, Date.now())
+    this.ctx.drizzle
+      .insert(pmoProjectSpecs)
+      .values({
+        projectId,
+        specId,
+        createdAt: String(Date.now()),
+      })
+      .onConflictDoNothing()
+      .run()
   }
 
   /**

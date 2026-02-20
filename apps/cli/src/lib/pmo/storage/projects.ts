@@ -20,13 +20,10 @@ import {
   Project,
   ProjectFilter,
 } from '../types.js'
-import { PMO_TABLES } from '../schema.js'
 import { generateEntityId, slugify } from '../utils.js'
 import { generateBoardMarkdown } from '../markdown.js'
 import { StorageContext, TicketRow } from './types.js'
 import { rowToTicket, wrapSqliteError } from './helpers.js'
-
-const T = PMO_TABLES
 
 export class ProjectStorage {
   constructor(private ctx: StorageContext) {}
@@ -101,13 +98,28 @@ export class ProjectStorage {
    */
   async init(projectId: string, config: BoardConfig): Promise<Board> {
     const projectName = config.name || 'Project Board'
-    const now = Date.now()
+    const now = String(Date.now())
 
     // Create or update project with default workflow
-    this.ctx.db.prepare(`
-      INSERT OR REPLACE INTO ${T.projects} (id, name, template, workflow_id, updated_at)
-      VALUES (?, ?, ?, 'default', ?)
-    `).run(projectId, projectName, 'kanban', now)
+    this.ctx.drizzle
+      .insert(pmoProjects)
+      .values({
+        id: projectId,
+        name: projectName,
+        template: 'kanban',
+        workflowId: 'default',
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: pmoProjects.id,
+        set: {
+          name: projectName,
+          template: 'kanban',
+          workflowId: 'default',
+          updatedAt: now,
+        },
+      })
+      .run()
 
     return this.getBoard(projectId)
   }
@@ -201,10 +213,29 @@ export class ProjectStorage {
 
     // Insert project with workflow
     try {
-      this.ctx.db.prepare(`
-        INSERT OR REPLACE INTO ${T.projects} (id, name, template, description, workflow_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(id, project.name, workflowId, project.description || null, finalWorkflowId, now, now)
+      this.ctx.drizzle
+        .insert(pmoProjects)
+        .values({
+          id,
+          name: project.name,
+          template: workflowId,
+          description: project.description || null,
+          workflowId: finalWorkflowId,
+          createdAt: String(now),
+          updatedAt: String(now),
+        })
+        .onConflictDoUpdate({
+          target: pmoProjects.id,
+          set: {
+            name: project.name,
+            template: workflowId,
+            description: project.description || null,
+            workflowId: finalWorkflowId,
+            createdAt: String(now),
+            updatedAt: String(now),
+          },
+        })
+        .run()
     } catch (err) {
       wrapSqliteError('Project', 'create', err)
     }
@@ -271,17 +302,40 @@ export class ProjectStorage {
    * Tickets are sorted by position (force-ranked) then created_at as tiebreaker.
    */
   private async getTicketsForStatus(statusId: string, projectId: string) {
-    const ticketRows = this.ctx.db.prepare(`
-      SELECT t.*,
-             ws.name as status_name,
-             ws.category as status_category
-      FROM ${T.tickets} t
-      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
-      WHERE t.status_id = ? AND t.project_id = ?
-      ORDER BY t.position ASC, t.created_at ASC
-    `).all(statusId, projectId) as TicketRow[]
+    const ticketRows = this.ctx.drizzle
+      .select({
+        id: pmoTickets.id,
+        project_id: pmoTickets.projectId,
+        title: pmoTickets.title,
+        description: pmoTickets.description,
+        priority: pmoTickets.priority,
+        category: pmoTickets.category,
+        status_id: pmoTickets.statusId,
+        owner: pmoTickets.owner,
+        assignee: pmoTickets.assignee,
+        branch: pmoTickets.branch,
+        spec_id: pmoTickets.specId,
+        epic_id: pmoTickets.epicId,
+        labels: pmoTickets.labels,
+        position: pmoTickets.position,
+        created_at: pmoTickets.createdAt,
+        updated_at: pmoTickets.updatedAt,
+        last_synced_from_spec: pmoTickets.lastSyncedFromSpec,
+        last_synced_from_board: pmoTickets.lastSyncedFromBoard,
+        column_id: sql<string | null>`NULL`,
+        column_name: sql<string | null>`NULL`,
+        project_name: sql<string | null>`NULL`,
+      })
+      .from(pmoTickets)
+      .leftJoin(pmoWorkflowStatuses, eq(pmoTickets.statusId, pmoWorkflowStatuses.id))
+      .where(and(
+        eq(pmoTickets.statusId, statusId),
+        eq(pmoTickets.projectId, projectId)
+      ))
+      .orderBy(asc(pmoTickets.position), asc(pmoTickets.createdAt))
+      .all() as unknown as TicketRow[]
 
-    return Promise.all(ticketRows.map((row) => rowToTicket(this.ctx.db, row)))
+    return Promise.all(ticketRows.map((row) => rowToTicket(this.ctx.drizzle, row)))
   }
 
   /**

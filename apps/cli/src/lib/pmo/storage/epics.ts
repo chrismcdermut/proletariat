@@ -227,7 +227,7 @@ export class EpicStorage {
       ORDER BY ws.position, t.position ASC, t.created_at ASC
     `).all(projectId, epicId) as TicketRow[]
 
-    return Promise.all(rows.map((row) => rowToTicket(this.ctx.db, row)))
+    return Promise.all(rows.map((row) => rowToTicket(this.ctx.drizzle, row)))
   }
 
   /**

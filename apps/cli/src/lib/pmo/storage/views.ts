@@ -26,11 +26,8 @@ import {
   Subtask,
   Ticket,
 } from '../types.js'
-import { PMO_TABLES } from '../schema.js'
 import { slugify } from '../utils.js'
-import { StorageContext, BoardViewRow } from './types.js'
-
-const T = PMO_TABLES
+import { StorageContext } from './types.js'
 import { getAcceptanceCriteriaSync } from './helpers.js'
 
 export class ViewStorage {
@@ -359,88 +356,87 @@ export class ViewStorage {
     projectId: string,
     filters: BoardViewFilters
   ): Promise<Ticket[]> {
-    // NOTE: We use raw SQL here because this query requires complex dynamic
-    // WHERE clauses that are more naturally expressed with string building.
-    let sqlQuery = `
-      SELECT t.*,
-             ws.position as board_position,
-             ws.name as column_name,
-             ws.name as status_name,
-             ws.category as status_category
-      FROM ${T.tickets} t
-      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
-      WHERE t.status_id = ? AND t.project_id = ?
-    `
-    const params: unknown[] = [columnId, projectId]
+    // Build conditions array for dynamic WHERE clause
+    const conditions: ReturnType<typeof eq>[] = [
+      eq(pmoTickets.statusId, columnId),
+      eq(pmoTickets.projectId, projectId),
+    ]
 
     // Apply filters
     if (filters.assignee !== undefined) {
       if (filters.assignee === 'unassigned') {
-        sqlQuery += ' AND (t.assignee IS NULL OR t.assignee = "")'
+        conditions.push(
+          or(
+            sql`${pmoTickets.assignee} IS NULL`,
+            eq(pmoTickets.assignee, '')
+          )!
+        )
       } else {
-        sqlQuery += ' AND t.assignee = ?'
-        params.push(filters.assignee)
+        conditions.push(eq(pmoTickets.assignee, filters.assignee))
       }
     }
 
     if (filters.owner !== undefined) {
-      sqlQuery += ' AND t.owner = ?'
-      params.push(filters.owner)
+      conditions.push(eq(pmoTickets.owner, filters.owner))
     }
 
     if (filters.priority !== undefined) {
-      sqlQuery += ' AND UPPER(t.priority) = UPPER(?)'
-      params.push(filters.priority)
+      conditions.push(sql`UPPER(${pmoTickets.priority}) = UPPER(${filters.priority})`)
     }
 
     if (filters.statusCategory !== undefined) {
-      sqlQuery += ' AND ws.category = ?'
-      params.push(filters.statusCategory)
+      conditions.push(eq(pmoWorkflowStatuses.category, filters.statusCategory))
     }
 
     if (filters.statusId !== undefined) {
-      sqlQuery += ' AND t.status_id = ?'
-      params.push(filters.statusId)
+      conditions.push(eq(pmoTickets.statusId, filters.statusId))
     }
 
     if (filters.epicId !== undefined) {
-      sqlQuery += ' AND t.epic_id = ?'
-      params.push(filters.epicId)
+      conditions.push(eq(pmoTickets.epicId, filters.epicId))
     }
 
     if (filters.search !== undefined) {
-      sqlQuery += ' AND (t.title LIKE ? OR t.description LIKE ?)'
       const searchTerm = `%${filters.search}%`
-      params.push(searchTerm, searchTerm)
+      conditions.push(
+        or(
+          like(pmoTickets.title, searchTerm),
+          like(pmoTickets.description, searchTerm)
+        )!
+      )
     }
 
-    // Order by ticket position, then created_at as tiebreaker
-    sqlQuery += ` ORDER BY t.position ASC, t.created_at ASC`
-
-    const rows = this.ctx.db.prepare(sqlQuery).all(...params) as Array<{
-      id: string
-      project_id: string
-      title: string
-      description: string | null
-      priority: string | null
-      category: string | null
-      status: string
-      status_id: string | null
-      owner: string | null
-      assignee: string | null
-      branch: string | null
-      spec_id: string | null
-      epic_id: string | null
-      labels: string | null
-      created_at: string
-      updated_at: string
-      last_synced_from_spec: string | null
-      last_synced_from_board: string | null
-      board_position: number
-      column_name: string
-      status_name: string | null
-      status_category: string | null
-    }>
+    const rows = this.ctx.drizzle
+      .select({
+        id: pmoTickets.id,
+        project_id: pmoTickets.projectId,
+        title: pmoTickets.title,
+        description: pmoTickets.description,
+        priority: pmoTickets.priority,
+        category: pmoTickets.category,
+        status: pmoTickets.status,
+        status_id: pmoTickets.statusId,
+        owner: pmoTickets.owner,
+        assignee: pmoTickets.assignee,
+        branch: pmoTickets.branch,
+        spec_id: pmoTickets.specId,
+        epic_id: pmoTickets.epicId,
+        labels: pmoTickets.labels,
+        position: pmoTickets.position,
+        created_at: pmoTickets.createdAt,
+        updated_at: pmoTickets.updatedAt,
+        last_synced_from_spec: pmoTickets.lastSyncedFromSpec,
+        last_synced_from_board: pmoTickets.lastSyncedFromBoard,
+        board_position: pmoWorkflowStatuses.position,
+        column_name: pmoWorkflowStatuses.name,
+        status_name: pmoWorkflowStatuses.name,
+        status_category: pmoWorkflowStatuses.category,
+      })
+      .from(pmoTickets)
+      .leftJoin(pmoWorkflowStatuses, eq(pmoTickets.statusId, pmoWorkflowStatuses.id))
+      .where(and(...conditions))
+      .orderBy(asc(pmoTickets.position), asc(pmoTickets.createdAt))
+      .all()
 
     return Promise.all(rows.map((row) => this.rowToTicketWithColumn(row)))
   }
@@ -459,12 +455,13 @@ export class ViewStorage {
     spec_id: string | null
     epic_id: string | null
     labels: string | null
-    created_at: string
-    updated_at: string
+    position: number
+    created_at: string | null
+    updated_at: string | null
     last_synced_from_spec: string | null
     last_synced_from_board: string | null
-    board_position: number
-    column_name: string
+    board_position: number | null
+    column_name: string | null
     status_name: string | null
     status_category: string | null
   }): Promise<Ticket> {
@@ -520,9 +517,9 @@ export class ViewStorage {
       subtasks,
       labels,
       metadata,
-      acceptanceCriteria: getAcceptanceCriteriaSync(this.ctx.db, row.id),
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
+      acceptanceCriteria: getAcceptanceCriteriaSync(this.ctx.drizzle, row.id),
+      createdAt: new Date(row.created_at || Date.now()),
+      updatedAt: new Date(row.updated_at || Date.now()),
       lastSyncedFromSpec: row.last_synced_from_spec
         ? new Date(row.last_synced_from_spec)
         : undefined,

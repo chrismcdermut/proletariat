@@ -2,8 +2,14 @@
  * Helper functions for converting database rows to domain types.
  */
 
-import Database from 'better-sqlite3'
-import { PMO_TABLES } from '../schema.js'
+import { eq, asc } from 'drizzle-orm'
+import {
+  pmoSubtasks,
+  pmoTicketMetadata,
+  pmoWorkflowStatuses,
+  pmoTicketAcceptanceCriteria,
+} from '../../database/drizzle-schema.js'
+import type { DrizzleDB } from '../../database/drizzle.js'
 import {
   AcceptanceCriterion,
   PMOError,
@@ -13,7 +19,6 @@ import {
   normalizePriority,
 } from '../types.js'
 import {
-  AcceptanceCriterionRow,
   SpecRow,
   TicketRow,
   WorkflowStatusRow,
@@ -104,44 +109,45 @@ export function wrapSqliteError(
   throw err
 }
 
-const T = PMO_TABLES
-
 /**
  * Convert a database row to a Ticket object.
- * Fetches related data (subtasks, metadata, status info).
+ * Fetches related data (subtasks, metadata, status info) using Drizzle ORM.
  */
 export async function rowToTicket(
-  db: Database.Database,
+  drizzle: DrizzleDB,
   row: TicketRow
 ): Promise<Ticket> {
   // Get subtasks
-  const subtasks = db
-    .prepare(`SELECT * FROM ${T.subtasks} WHERE ticket_id = ? ORDER BY position`)
-    .all(row.id) as Array<{
-    id: string
-    title: string
-    done: number
-  }>
+  const subtaskRows = drizzle
+    .select()
+    .from(pmoSubtasks)
+    .where(eq(pmoSubtasks.ticketId, row.id))
+    .orderBy(asc(pmoSubtasks.position))
+    .all()
 
   // Get metadata
-  const metaRows = db
-    .prepare(`SELECT key, value FROM ${T.ticket_metadata} WHERE ticket_id = ?`)
-    .all(row.id) as Array<{ key: string; value: string }>
+  const metaRows = drizzle
+    .select({ key: pmoTicketMetadata.key, value: pmoTicketMetadata.value })
+    .from(pmoTicketMetadata)
+    .where(eq(pmoTicketMetadata.ticketId, row.id))
+    .all()
   const metadata: Record<string, string> = {}
   for (const m of metaRows) {
-    metadata[m.key] = m.value
+    metadata[m.key] = m.value || ''
   }
 
   // Get status info from workflow_statuses
   let statusName: string | undefined
   let statusCategory: StateCategory | undefined
   if (row.status_id) {
-    const statusRow = db
-      .prepare(`SELECT name, category FROM ${T.workflow_statuses} WHERE id = ?`)
-      .get(row.status_id) as { name: string; category: StateCategory } | undefined
+    const statusRow = drizzle
+      .select({ name: pmoWorkflowStatuses.name, category: pmoWorkflowStatuses.category })
+      .from(pmoWorkflowStatuses)
+      .where(eq(pmoWorkflowStatuses.id, row.status_id))
+      .get()
     if (statusRow) {
       statusName = statusRow.name
-      statusCategory = statusRow.category
+      statusCategory = statusRow.category as StateCategory
     }
   }
 
@@ -181,14 +187,14 @@ export async function rowToTicket(
     branch: row.branch || undefined,
     specId: row.spec_id || undefined,
     epicId: row.epic_id || undefined,
-    subtasks: subtasks.map((st) => ({
+    subtasks: subtaskRows.map((st) => ({
       id: st.id,
       title: st.title,
-      done: st.done === 1,
+      done: st.done ?? false,
     })),
     labels,
     metadata,
-    acceptanceCriteria: getAcceptanceCriteriaSync(db, row.id),
+    acceptanceCriteria: getAcceptanceCriteriaSync(drizzle, row.id),
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
     lastSyncedFromSpec: row.last_synced_from_spec
@@ -205,23 +211,24 @@ export async function rowToTicket(
  * Get acceptance criteria for a ticket (sync version).
  */
 export function getAcceptanceCriteriaSync(
-  db: Database.Database,
+  drizzle: DrizzleDB,
   ticketId: string
 ): AcceptanceCriterion[] {
-  const rows = db
-    .prepare(
-      `SELECT * FROM ${T.ticket_acceptance_criteria} WHERE ticket_id = ? ORDER BY position`
-    )
-    .all(ticketId) as AcceptanceCriterionRow[]
+  const rows = drizzle
+    .select()
+    .from(pmoTicketAcceptanceCriteria)
+    .where(eq(pmoTicketAcceptanceCriteria.ticketId, ticketId))
+    .orderBy(asc(pmoTicketAcceptanceCriteria.position))
+    .all()
 
   return rows.map((row) => ({
     id: row.id,
-    ticketId: row.ticket_id,
+    ticketId: row.ticketId,
     criterion: row.criterion,
-    verifiable: row.verifiable === 1,
-    verified: row.verified === 1,
-    verifiedAt: row.verified_at ? new Date(row.verified_at) : undefined,
-    verifiedBy: row.verified_by || undefined,
+    verifiable: row.verifiable ?? true,
+    verified: row.verified ?? false,
+    verifiedAt: row.verifiedAt ? new Date(row.verifiedAt) : undefined,
+    verifiedBy: row.verifiedBy || undefined,
     position: row.position,
   }))
 }
