@@ -84,11 +84,10 @@ export default class TicketEpic extends PMOCommand {
     // Get all epics
     const epics = await this.storage.listEpics(projectId);
 
-    // Get epic_id for each ticket via direct DB query
-    const db = (this.storage as unknown as { db: { prepare: (sql: string) => { get: (...args: unknown[]) => unknown; run: (...args: unknown[]) => void } } }).db;
+    // Helper to get ticket's epic ID via storage layer
     const getTicketEpicId = (ticketId: string): string | null => {
-      const row = db.prepare(`SELECT epic_id FROM pmo_tickets WHERE id = ?`).get(ticketId) as { epic_id: string | null } | undefined;
-      return row?.epic_id || null;
+      const ticket = allTickets.find((t: Ticket) => t.id === ticketId);
+      return ticket?.epicId ?? null;
     };
 
     let ticketId = args.id;
@@ -145,11 +144,7 @@ export default class TicketEpic extends PMOCommand {
       const currentEpic = epics.find(e => e.id === currentEpicId);
 
       // Update the ticket
-      db.prepare(`
-        UPDATE pmo_tickets
-        SET epic_id = NULL, updated_at = ?
-        WHERE id = ?
-      `).run(Date.now(), ticketId);
+      await this.storage.unlinkTicketFromEpic(ticketId!);
 
       await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
 
@@ -190,11 +185,7 @@ export default class TicketEpic extends PMOCommand {
 
       if (selected === '__none__') {
         // Unlink
-        db.prepare(`
-          UPDATE pmo_tickets
-          SET epic_id = NULL, updated_at = ?
-          WHERE id = ?
-        `).run(Date.now(), ticketId);
+        await this.storage.unlinkTicketFromEpic(ticketId!);
 
         const currentEpic = epics.find(e => e.id === currentEpicId);
         await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
@@ -220,11 +211,7 @@ export default class TicketEpic extends PMOCommand {
     }
 
     // Update the ticket
-    db.prepare(`
-      UPDATE pmo_tickets
-      SET epic_id = ?, updated_at = ?
-      WHERE id = ?
-    `).run(epicId, Date.now(), ticketId);
+    await this.storage.linkTicketToEpic(ticketId!, epicId!);
 
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
 
@@ -255,24 +242,13 @@ export default class TicketEpic extends PMOCommand {
       return;
     }
 
-    // Get epics from database
-    const db = (this.storage as unknown as { db: { prepare: (sql: string) => { all: (...args: unknown[]) => unknown[]; get: (...args: unknown[]) => unknown; run: (...args: unknown[]) => unknown } } }).db;
-    const epics = db.prepare(`
-      SELECT id, title, status FROM pmo_epics
-      WHERE project_id = ?
-      ORDER BY status, title
-    `).all(projectId) as Array<{ id: string; title: string; status: string }>;
+    // Get epics via storage layer
+    const epics = await this.storage.listEpics(projectId);
 
     // Filter tickets if --from-epic specified
     let filteredTickets = allTickets;
     if (flags['from-epic']) {
-      // Get tickets with matching epic_id via metadata or direct query
-      const epicTickets = db.prepare(`
-        SELECT id FROM pmo_tickets
-        WHERE project_id = ? AND epic_id = ?
-      `).all(projectId, flags['from-epic']) as Array<{ id: string }>;
-      const epicTicketIds = new Set(epicTickets.map(t => t.id));
-      filteredTickets = allTickets.filter(t => epicTicketIds.has(t.id));
+      filteredTickets = allTickets.filter(t => t.epicId === flags['from-epic']);
     }
 
     if (filteredTickets.length === 0) {
@@ -280,13 +256,10 @@ export default class TicketEpic extends PMOCommand {
       return;
     }
 
-    // Get current epic for each ticket
+    // Get current epic for each ticket (already available on Ticket objects)
     const ticketEpics = new Map<string, string | null>();
     for (const ticket of filteredTickets) {
-      const row = db.prepare(`
-        SELECT epic_id FROM pmo_tickets WHERE id = ?
-      `).get(ticket.id) as { epic_id: string | null } | undefined;
-      ticketEpics.set(ticket.id, row?.epic_id || null);
+      ticketEpics.set(ticket.id, ticket.epicId ?? null);
     }
 
     // Select tickets to link
@@ -368,11 +341,11 @@ export default class TicketEpic extends PMOCommand {
 
     for (const ticketId of selectedTickets) {
       try {
-        db.prepare(`
-          UPDATE pmo_tickets
-          SET epic_id = ?, updated_at = ?
-          WHERE id = ?
-        `).run(targetEpic, Date.now(), ticketId);
+        if (targetEpic) {
+          await this.storage.linkTicketToEpic(ticketId, targetEpic);
+        } else {
+          await this.storage.unlinkTicketFromEpic(ticketId);
+        }
 
         const action = targetEpic ? `Linked to ${targetEpic}` : 'Removed epic link';
         this.log(styles.success(`${ticketId}: ${action}`));

@@ -877,6 +877,40 @@ export function getAgentWorktrees(workspacePath: string, agentName: string): Age
   return worktrees;
 }
 
+/**
+ * Find agent worktrees matching a branch pattern (case-insensitive LIKE).
+ */
+export function findWorktreesByBranch(workspacePath: string, branchPattern: string): AgentWorktree[] {
+  const db = openWorkspaceDatabase(workspacePath);
+  const worktrees = db.prepare(
+    'SELECT * FROM agent_worktrees WHERE LOWER(branch) LIKE ?'
+  ).all(branchPattern) as AgentWorktree[];
+  db.close();
+  return worktrees;
+}
+
+/**
+ * Get agent worktrees for a specific repository.
+ */
+export function getWorktreesForRepo(workspacePath: string, repoName: string): Array<{ agent_name: string; is_clean: number; commits_ahead: number; branch: string }> {
+  const db = openWorkspaceDatabase(workspacePath);
+  const worktrees = db.prepare(
+    'SELECT agent_name, is_clean, commits_ahead, branch FROM agent_worktrees WHERE repo_name = ?'
+  ).all(repoName) as Array<{ agent_name: string; is_clean: number; commits_ahead: number; branch: string }>;
+  db.close();
+  return worktrees;
+}
+
+/**
+ * Upsert a workspace setting (key-value pair).
+ */
+export function upsertWorkspaceSetting(db: Database.Database, key: string, value: string): void {
+  db.prepare(`
+    INSERT INTO workspace_settings (key, value)
+    VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(key, value);
+}
 
 /**
  * Remove agents from database

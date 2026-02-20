@@ -98,11 +98,10 @@ export default class EpicTicket extends PMOCommand {
       return;
     }
 
-    // Get epic_id for each ticket via direct DB query
-    const db = (this.storage as unknown as { db: { prepare: (sql: string) => { get: (...args: unknown[]) => unknown; run: (...args: unknown[]) => void } } }).db;
+    // Helper to get ticket's epic ID from the loaded ticket list
     const getTicketEpicId = (ticketId: string): string | null => {
-      const row = db.prepare(`SELECT epic_id FROM pmo_tickets WHERE id = ?`).get(ticketId) as { epic_id: string | null } | undefined;
-      return row?.epic_id || null;
+      const ticket = allTickets.find((t: Ticket) => t.id === ticketId);
+      return ticket?.epicId ?? null;
     };
 
     let epicId = args.id;
@@ -233,11 +232,7 @@ export default class EpicTicket extends PMOCommand {
           continue;
         }
 
-        db.prepare(`
-          UPDATE pmo_tickets
-          SET epic_id = NULL, updated_at = ?
-          WHERE id = ?
-        `).run(Date.now(), ticketId);
+        await this.storage.unlinkTicketFromEpic(ticketId);
       } else {
         // Link: check if already linked to same epic
         if (currentEpicId === epicId) {
@@ -291,11 +286,7 @@ export default class EpicTicket extends PMOCommand {
 
           if (action === 'use_epic') {
             // Update ticket to use epic's spec
-            db.prepare(`
-              UPDATE pmo_tickets
-              SET spec_id = ?, updated_at = ?
-              WHERE id = ?
-            `).run(epicSpecId, Date.now(), ticketId);
+            await this.storage.updateTicket(ticketId, { specId: epicSpecId });
             this.log(styles.muted(`  Updated ${ticketId} to use spec "${epicSpecId}"`));
           }
         } else if (!ticketSpecId && epicSpecId) {
@@ -323,20 +314,12 @@ export default class EpicTicket extends PMOCommand {
           }
 
           if (inherit) {
-            db.prepare(`
-              UPDATE pmo_tickets
-              SET spec_id = ?, updated_at = ?
-              WHERE id = ?
-            `).run(epicSpecId, Date.now(), ticketId);
+            await this.storage.updateTicket(ticketId, { specId: epicSpecId });
             this.log(styles.muted(`  Assigned spec "${epicSpecId}" to ${ticketId}`));
           }
         }
 
-        db.prepare(`
-          UPDATE pmo_tickets
-          SET epic_id = ?, updated_at = ?
-          WHERE id = ?
-        `).run(epicId, Date.now(), ticketId);
+        await this.storage.linkTicketToEpic(ticketId, epicId!);
       }
 
       linkedTickets.push(`${ticketId}: ${ticket.title}`);

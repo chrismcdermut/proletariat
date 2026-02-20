@@ -437,21 +437,13 @@ export default class ExecutionConfig extends PMOCommand {
    * Save output mode to workspace settings
    */
   private setOutputMode(db: Database.Database, mode: OutputMode): void {
-    db.prepare(`
-      INSERT INTO workspace_settings (key, value)
-      VALUES (?, ?)
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `).run('execution.output_mode', mode)
+    saveExecutionSetting(db, 'outputMode', mode)
   }
 
   /**
    * Save sandboxed preference to workspace settings
    */
   private setSandboxed(db: Database.Database, sandboxed: boolean): void {
-    db.prepare(`
-      INSERT INTO workspace_settings (key, value)
-      VALUES (?, ?)
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `).run('execution.sandboxed', sandboxed.toString())
+    saveExecutionSetting(db, 'sandboxed', sandboxed.toString())
   }
 }
