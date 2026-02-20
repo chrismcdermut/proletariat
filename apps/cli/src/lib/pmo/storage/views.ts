@@ -1,8 +1,18 @@
 /**
  * Board view operations.
+ *
+ * This module uses Drizzle ORM for type-safe database queries.
  */
 
-import { PMO_TABLES } from '../schema.js'
+import { eq, and, like, or, asc, desc, sql } from 'drizzle-orm'
+import {
+  pmoBoardViews,
+  pmoProjects,
+  pmoTickets,
+  pmoWorkflowStatuses,
+  pmoSubtasks,
+  pmoTicketMetadata,
+} from '../../database/drizzle-schema.js'
 import {
   Board,
   BoardView,
@@ -20,8 +30,6 @@ import { slugify } from '../utils.js'
 import { StorageContext, BoardViewRow } from './types.js'
 import { getAcceptanceCriteriaSync } from './helpers.js'
 
-const T = PMO_TABLES
-
 export class ViewStorage {
   constructor(private ctx: StorageContext) {}
 
@@ -38,33 +46,42 @@ export class ViewStorage {
     if (!identifier) return null
 
     // 1. Exact ID match
-    const exactMatch = this.ctx.db.prepare(`
-      SELECT id FROM ${T.projects} WHERE id = ?
-    `).get(identifier) as { id: string } | undefined
+    const exactMatch = this.ctx.drizzle
+      .select({ id: pmoProjects.id })
+      .from(pmoProjects)
+      .where(eq(pmoProjects.id, identifier))
+      .get()
     if (exactMatch) return exactMatch.id
 
     // 2. Case-insensitive ID match
-    const caseInsensitiveId = this.ctx.db.prepare(`
-      SELECT id FROM ${T.projects} WHERE LOWER(id) = LOWER(?)
-    `).get(identifier) as { id: string } | undefined
+    const caseInsensitiveId = this.ctx.drizzle
+      .select({ id: pmoProjects.id })
+      .from(pmoProjects)
+      .where(sql`LOWER(${pmoProjects.id}) = LOWER(${identifier})`)
+      .get()
     if (caseInsensitiveId) return caseInsensitiveId.id
 
     // 3. Exact name match
-    const nameMatch = this.ctx.db.prepare(`
-      SELECT id FROM ${T.projects} WHERE name = ?
-    `).get(identifier) as { id: string } | undefined
+    const nameMatch = this.ctx.drizzle
+      .select({ id: pmoProjects.id })
+      .from(pmoProjects)
+      .where(eq(pmoProjects.name, identifier))
+      .get()
     if (nameMatch) return nameMatch.id
 
     // 4. Case-insensitive name match
-    const caseInsensitiveName = this.ctx.db.prepare(`
-      SELECT id FROM ${T.projects} WHERE LOWER(name) = LOWER(?)
-    `).get(identifier) as { id: string } | undefined
+    const caseInsensitiveName = this.ctx.drizzle
+      .select({ id: pmoProjects.id })
+      .from(pmoProjects)
+      .where(sql`LOWER(${pmoProjects.name}) = LOWER(${identifier})`)
+      .get()
     if (caseInsensitiveName) return caseInsensitiveName.id
 
     // 5. Slugified name match
-    const allProjects = this.ctx.db.prepare(`
-      SELECT id, name FROM ${T.projects}
-    `).all() as Array<{ id: string; name: string }>
+    const allProjects = this.ctx.drizzle
+      .select({ id: pmoProjects.id, name: pmoProjects.name })
+      .from(pmoProjects)
+      .all()
 
     const identifierLower = identifier.toLowerCase()
     for (const project of allProjects) {
@@ -81,33 +98,37 @@ export class ViewStorage {
    * List board views.
    */
   async listBoardViews(filter?: BoardViewFilter): Promise<BoardView[]> {
-    let sql = `SELECT * FROM ${T.board_views}`
-    const conditions: string[] = []
-    const params: unknown[] = []
+    let query = this.ctx.drizzle
+      .select()
+      .from(pmoBoardViews)
+      .$dynamic()
+
+    const conditions = []
 
     if (filter?.projectId) {
-      conditions.push('project_id = ?')
-      params.push(filter.projectId)
+      conditions.push(eq(pmoBoardViews.projectId, filter.projectId))
     }
 
     if (filter?.isDefault !== undefined) {
-      conditions.push('is_default = ?')
-      params.push(filter.isDefault ? 1 : 0)
+      conditions.push(eq(pmoBoardViews.isDefault, filter.isDefault))
     }
 
     if (filter?.search) {
-      conditions.push('(name LIKE ? OR description LIKE ?)')
-      const searchTerm = `%${filter.search}%`
-      params.push(searchTerm, searchTerm)
+      conditions.push(
+        or(
+          like(pmoBoardViews.name, `%${filter.search}%`),
+          like(pmoBoardViews.description, `%${filter.search}%`)
+        )
+      )
     }
 
     if (conditions.length > 0) {
-      sql += ' WHERE ' + conditions.join(' AND ')
+      query = query.where(and(...conditions))
     }
 
-    sql += ' ORDER BY is_default DESC, name ASC'
-
-    const rows = this.ctx.db.prepare(sql).all(...params) as BoardViewRow[]
+    const rows = query
+      .orderBy(desc(pmoBoardViews.isDefault), asc(pmoBoardViews.name))
+      .all()
 
     return rows.map((row) => this.rowToBoardView(row))
   }
@@ -116,9 +137,11 @@ export class ViewStorage {
    * Get a board view by ID.
    */
   async getBoardView(id: string): Promise<BoardView | null> {
-    const row = this.ctx.db.prepare(`SELECT * FROM ${T.board_views} WHERE id = ?`).get(
-      id
-    ) as BoardViewRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoBoardViews)
+      .where(eq(pmoBoardViews.id, id))
+      .get()
 
     if (!row) return null
     return this.rowToBoardView(row)
@@ -141,26 +164,25 @@ export class ViewStorage {
 
     // If this is set as default, unset other defaults for this project
     if (view.isDefault) {
-      this.ctx.db.prepare(`
-        UPDATE ${T.board_views} SET is_default = 0 WHERE project_id = ?
-      `).run(view.projectId)
+      this.ctx.drizzle
+        .update(pmoBoardViews)
+        .set({ isDefault: false })
+        .where(eq(pmoBoardViews.projectId, view.projectId))
+        .run()
     }
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.board_views} (id, project_id, name, description, is_default, filters, group_by, sort_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    this.ctx.drizzle.insert(pmoBoardViews).values({
       id,
-      view.projectId,
-      view.name,
-      view.description || null,
-      view.isDefault ? 1 : 0,
+      projectId: view.projectId,
+      name: view.name,
+      description: view.description || null,
+      isDefault: view.isDefault || false,
       filters,
-      view.groupBy || null,
-      view.sortBy || null,
-      now,
-      now
-    )
+      groupBy: view.groupBy || null,
+      sortBy: view.sortBy || null,
+      createdAt: String(now),
+      updatedAt: String(now),
+    }).run()
 
     return (await this.getBoardView(id))!
   }
@@ -174,44 +196,32 @@ export class ViewStorage {
       throw new PMOError('NOT_FOUND', `Board view not found: ${id}`)
     }
 
-    const updates: string[] = ['updated_at = ?']
-    const params: unknown[] = [Date.now()]
+    const updates: Partial<typeof pmoBoardViews.$inferInsert> = {
+      updatedAt: String(Date.now()),
+    }
 
-    if (changes.name !== undefined) {
-      updates.push('name = ?')
-      params.push(changes.name)
-    }
-    if (changes.description !== undefined) {
-      updates.push('description = ?')
-      params.push(changes.description || null)
-    }
+    if (changes.name !== undefined) updates.name = changes.name
+    if (changes.description !== undefined) updates.description = changes.description || null
     if (changes.isDefault !== undefined) {
       // If setting as default, unset other defaults for this project
       if (changes.isDefault) {
-        this.ctx.db.prepare(`
-          UPDATE ${T.board_views} SET is_default = 0 WHERE project_id = ?
-        `).run(existing.projectId)
+        this.ctx.drizzle
+          .update(pmoBoardViews)
+          .set({ isDefault: false })
+          .where(eq(pmoBoardViews.projectId, existing.projectId))
+          .run()
       }
-      updates.push('is_default = ?')
-      params.push(changes.isDefault ? 1 : 0)
+      updates.isDefault = changes.isDefault
     }
-    if (changes.filters !== undefined) {
-      updates.push('filters = ?')
-      params.push(JSON.stringify(changes.filters))
-    }
-    if (changes.groupBy !== undefined) {
-      updates.push('group_by = ?')
-      params.push(changes.groupBy || null)
-    }
-    if (changes.sortBy !== undefined) {
-      updates.push('sort_by = ?')
-      params.push(changes.sortBy || null)
-    }
+    if (changes.filters !== undefined) updates.filters = JSON.stringify(changes.filters)
+    if (changes.groupBy !== undefined) updates.groupBy = changes.groupBy || null
+    if (changes.sortBy !== undefined) updates.sortBy = changes.sortBy || null
 
-    params.push(id)
-    this.ctx.db.prepare(`UPDATE ${T.board_views} SET ${updates.join(', ')} WHERE id = ?`).run(
-      ...params
-    )
+    this.ctx.drizzle
+      .update(pmoBoardViews)
+      .set(updates)
+      .where(eq(pmoBoardViews.id, id))
+      .run()
 
     return (await this.getBoardView(id))!
   }
@@ -220,7 +230,11 @@ export class ViewStorage {
    * Delete a board view.
    */
   async deleteBoardView(id: string): Promise<void> {
-    const result = this.ctx.db.prepare(`DELETE FROM ${T.board_views} WHERE id = ?`).run(id)
+    const result = this.ctx.drizzle
+      .delete(pmoBoardViews)
+      .where(eq(pmoBoardViews.id, id))
+      .run()
+
     if (result.changes === 0) {
       throw new PMOError('NOT_FOUND', `Board view not found: ${id}`)
     }
@@ -230,9 +244,14 @@ export class ViewStorage {
    * Get the default board view for a project.
    */
   async getDefaultBoardView(projectId: string): Promise<BoardView | null> {
-    const row = this.ctx.db.prepare(`
-      SELECT * FROM ${T.board_views} WHERE project_id = ? AND is_default = 1
-    `).get(projectId) as BoardViewRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoBoardViews)
+      .where(and(
+        eq(pmoBoardViews.projectId, projectId),
+        eq(pmoBoardViews.isDefault, true)
+      ))
+      .get()
 
     if (!row) return null
     return this.rowToBoardView(row)
@@ -265,33 +284,35 @@ export class ViewStorage {
     const effectiveFilters = { ...viewFilters, ...filters }
 
     // Get project metadata using resolved ID
-    const projectRow = this.ctx.db.prepare(`SELECT * FROM ${T.projects} WHERE id = ?`).get(
-      resolvedId
-    ) as { id: string; name: string; updated_at: string } | undefined
+    const projectRow = this.ctx.drizzle
+      .select({
+        id: pmoProjects.id,
+        name: pmoProjects.name,
+        workflowId: pmoProjects.workflowId,
+        updatedAt: pmoProjects.updatedAt,
+      })
+      .from(pmoProjects)
+      .where(eq(pmoProjects.id, resolvedId))
+      .get()
 
     if (!projectRow) {
       throw new PMOError('NOT_FOUND', `Project not found: ${projectIdOrName}. Run init() first.`)
     }
 
-    // Get the project's workflow
-    const projectMeta = this.ctx.db.prepare(`
-      SELECT workflow_id FROM ${T.projects} WHERE id = ?
-    `).get(resolvedId) as { workflow_id: string | null } | undefined
-
-    const workflowId = projectMeta?.workflow_id || 'default'
+    const workflowId = projectRow.workflowId || 'default'
 
     // Get workflow statuses as columns
-    const columnRows = this.ctx.db.prepare(`
-      SELECT id, workflow_id, name, position
-      FROM ${T.workflow_statuses}
-      WHERE workflow_id = ?
-      ORDER BY position
-    `).all(workflowId) as Array<{
-      id: string
-      workflow_id: string
-      name: string
-      position: number
-    }>
+    const columnRows = this.ctx.drizzle
+      .select({
+        id: pmoWorkflowStatuses.id,
+        workflowId: pmoWorkflowStatuses.workflowId,
+        name: pmoWorkflowStatuses.name,
+        position: pmoWorkflowStatuses.position,
+      })
+      .from(pmoWorkflowStatuses)
+      .where(eq(pmoWorkflowStatuses.workflowId, workflowId))
+      .orderBy(asc(pmoWorkflowStatuses.position))
+      .all()
 
     // Filter columns if columnIds filter is set
     const filteredColumnRows = effectiveFilters.columnIds?.length
@@ -323,7 +344,7 @@ export class ViewStorage {
       id: projectRow.id,
       name: projectRow.name,
       columns,
-      updatedAt: new Date(projectRow.updated_at),
+      updatedAt: new Date(projectRow.updatedAt!),
     }
   }
 
@@ -335,15 +356,16 @@ export class ViewStorage {
     projectId: string,
     filters: BoardViewFilters
   ): Promise<Ticket[]> {
-    // columnId is now a workflow_status id
-    let sql = `
+    // NOTE: We use raw SQL here because this query requires complex dynamic
+    // WHERE clauses that are more naturally expressed with string building.
+    let sqlQuery = `
       SELECT t.*,
              ws.position as board_position,
              ws.name as column_name,
              ws.name as status_name,
              ws.category as status_category
-      FROM ${T.tickets} t
-      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
+      FROM ${pmoTickets._.name} t
+      LEFT JOIN ${pmoWorkflowStatuses._.name} ws ON t.status_id = ws.id
       WHERE t.status_id = ? AND t.project_id = ?
     `
     const params: unknown[] = [columnId, projectId]
@@ -351,48 +373,48 @@ export class ViewStorage {
     // Apply filters
     if (filters.assignee !== undefined) {
       if (filters.assignee === 'unassigned') {
-        sql += ' AND (t.assignee IS NULL OR t.assignee = "")'
+        sqlQuery += ' AND (t.assignee IS NULL OR t.assignee = "")'
       } else {
-        sql += ' AND t.assignee = ?'
+        sqlQuery += ' AND t.assignee = ?'
         params.push(filters.assignee)
       }
     }
 
     if (filters.owner !== undefined) {
-      sql += ' AND t.owner = ?'
+      sqlQuery += ' AND t.owner = ?'
       params.push(filters.owner)
     }
 
     if (filters.priority !== undefined) {
-      sql += ' AND UPPER(t.priority) = UPPER(?)'
+      sqlQuery += ' AND UPPER(t.priority) = UPPER(?)'
       params.push(filters.priority)
     }
 
     if (filters.statusCategory !== undefined) {
-      sql += ' AND ws.category = ?'
+      sqlQuery += ' AND ws.category = ?'
       params.push(filters.statusCategory)
     }
 
     if (filters.statusId !== undefined) {
-      sql += ' AND t.status_id = ?'
+      sqlQuery += ' AND t.status_id = ?'
       params.push(filters.statusId)
     }
 
     if (filters.epicId !== undefined) {
-      sql += ' AND t.epic_id = ?'
+      sqlQuery += ' AND t.epic_id = ?'
       params.push(filters.epicId)
     }
 
     if (filters.search !== undefined) {
-      sql += ' AND (t.title LIKE ? OR t.description LIKE ?)'
+      sqlQuery += ' AND (t.title LIKE ? OR t.description LIKE ?)'
       const searchTerm = `%${filters.search}%`
       params.push(searchTerm, searchTerm)
     }
 
     // Order by ticket position, then created_at as tiebreaker
-    sql += ` ORDER BY t.position ASC, t.created_at ASC`
+    sqlQuery += ` ORDER BY t.position ASC, t.created_at ASC`
 
-    const rows = this.ctx.db.prepare(sql).all(...params) as Array<{
+    const rows = this.ctx.db.prepare(sqlQuery).all(...params) as Array<{
       id: string
       project_id: string
       title: string
@@ -444,24 +466,29 @@ export class ViewStorage {
     status_category: string | null
   }): Promise<Ticket> {
     // Get subtasks
-    const subtaskRows = this.ctx.db.prepare(`
-      SELECT * FROM ${T.subtasks} WHERE ticket_id = ? ORDER BY position
-    `).all(row.id) as Array<{ id: string; title: string; done: number }>
+    const subtaskRows = this.ctx.drizzle
+      .select()
+      .from(pmoSubtasks)
+      .where(eq(pmoSubtasks.ticketId, row.id))
+      .orderBy(asc(pmoSubtasks.position))
+      .all()
 
     const subtasks: Subtask[] = subtaskRows.map((s) => ({
       id: s.id,
       title: s.title,
-      done: s.done === 1,
+      done: s.done ?? false,
     }))
 
     // Get metadata
-    const metadataRows = this.ctx.db.prepare(`
-      SELECT key, value FROM ${T.ticket_metadata} WHERE ticket_id = ?
-    `).all(row.id) as Array<{ key: string; value: string }>
+    const metadataRows = this.ctx.drizzle
+      .select({ key: pmoTicketMetadata.key, value: pmoTicketMetadata.value })
+      .from(pmoTicketMetadata)
+      .where(eq(pmoTicketMetadata.ticketId, row.id))
+      .all()
 
     const metadata: Record<string, string> = {}
     for (const m of metadataRows) {
-      metadata[m.key] = m.value
+      metadata[m.key] = m.value || ''
     }
 
     // Parse labels from JSON
@@ -532,18 +559,29 @@ export class ViewStorage {
     return sorted
   }
 
-  private rowToBoardView(row: BoardViewRow): BoardView {
+  private rowToBoardView(row: {
+    id: string
+    projectId: string
+    name: string
+    description: string | null
+    isDefault: boolean | null
+    filters: string
+    groupBy: string | null
+    sortBy: string | null
+    createdAt: string | null
+    updatedAt: string | null
+  }): BoardView {
     return {
       id: row.id,
-      projectId: row.project_id,
+      projectId: row.projectId,
       name: row.name,
       description: row.description || undefined,
-      isDefault: row.is_default === 1,
+      isDefault: row.isDefault ?? false,
       filters: row.filters ? JSON.parse(row.filters) : {},
-      groupBy: row.group_by as BoardViewGroupBy | undefined,
-      sortBy: row.sort_by as BoardViewSortBy | undefined,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
+      groupBy: row.groupBy as BoardViewGroupBy | undefined,
+      sortBy: row.sortBy as BoardViewSortBy | undefined,
+      createdAt: new Date(row.createdAt || Date.now()),
+      updatedAt: new Date(row.updatedAt || Date.now()),
     }
   }
 }

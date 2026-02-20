@@ -1,9 +1,17 @@
 /**
  * Project operations.
  * Board columns are now derived from workflow statuses (single source of truth).
+ *
+ * This module uses Drizzle ORM for type-safe database queries.
  */
 
-import { PMO_TABLES } from '../schema.js'
+import { eq, and, like, or, asc, desc, sql, count } from 'drizzle-orm'
+import {
+  pmoProjects,
+  pmoTickets,
+  pmoWorkflows,
+  pmoWorkflowStatuses,
+} from '../../database/drizzle-schema.js'
 import {
   Board,
   BoardConfig,
@@ -14,10 +22,8 @@ import {
 } from '../types.js'
 import { generateEntityId, slugify } from '../utils.js'
 import { generateBoardMarkdown } from '../markdown.js'
-import { StorageContext, ProjectRow, TicketRow } from './types.js'
+import { StorageContext, TicketRow } from './types.js'
 import { rowToTicket, wrapSqliteError } from './helpers.js'
-
-const T = PMO_TABLES
 
 export class ProjectStorage {
   constructor(private ctx: StorageContext) {}
@@ -38,34 +44,42 @@ export class ProjectStorage {
     if (!identifier) return null
 
     // 1. Exact ID match
-    const exactMatch = this.ctx.db.prepare(`
-      SELECT id FROM ${T.projects} WHERE id = ?
-    `).get(identifier) as { id: string } | undefined
+    const exactMatch = this.ctx.drizzle
+      .select({ id: pmoProjects.id })
+      .from(pmoProjects)
+      .where(eq(pmoProjects.id, identifier))
+      .get()
     if (exactMatch) return exactMatch.id
 
     // 2. Case-insensitive ID match
-    const caseInsensitiveId = this.ctx.db.prepare(`
-      SELECT id FROM ${T.projects} WHERE LOWER(id) = LOWER(?)
-    `).get(identifier) as { id: string } | undefined
+    const caseInsensitiveId = this.ctx.drizzle
+      .select({ id: pmoProjects.id })
+      .from(pmoProjects)
+      .where(sql`LOWER(${pmoProjects.id}) = LOWER(${identifier})`)
+      .get()
     if (caseInsensitiveId) return caseInsensitiveId.id
 
     // 3. Exact name match
-    const nameMatch = this.ctx.db.prepare(`
-      SELECT id FROM ${T.projects} WHERE name = ?
-    `).get(identifier) as { id: string } | undefined
+    const nameMatch = this.ctx.drizzle
+      .select({ id: pmoProjects.id })
+      .from(pmoProjects)
+      .where(eq(pmoProjects.name, identifier))
+      .get()
     if (nameMatch) return nameMatch.id
 
     // 4. Case-insensitive name match
-    const caseInsensitiveName = this.ctx.db.prepare(`
-      SELECT id FROM ${T.projects} WHERE LOWER(name) = LOWER(?)
-    `).get(identifier) as { id: string } | undefined
+    const caseInsensitiveName = this.ctx.drizzle
+      .select({ id: pmoProjects.id })
+      .from(pmoProjects)
+      .where(sql`LOWER(${pmoProjects.name}) = LOWER(${identifier})`)
+      .get()
     if (caseInsensitiveName) return caseInsensitiveName.id
 
     // 5. Slugified name match - check if identifier is a slug of any project name
-    // Get all projects and compare slugified names
-    const allProjects = this.ctx.db.prepare(`
-      SELECT id, name FROM ${T.projects}
-    `).all() as Array<{ id: string; name: string }>
+    const allProjects = this.ctx.drizzle
+      .select({ id: pmoProjects.id, name: pmoProjects.name })
+      .from(pmoProjects)
+      .all()
 
     const identifierLower = identifier.toLowerCase()
     for (const project of allProjects) {
@@ -88,7 +102,7 @@ export class ProjectStorage {
 
     // Create or update project with default workflow
     this.ctx.db.prepare(`
-      INSERT OR REPLACE INTO ${T.projects} (id, name, template, workflow_id, updated_at)
+      INSERT OR REPLACE INTO ${pmoProjects._.name} (id, name, template, workflow_id, updated_at)
       VALUES (?, ?, ?, 'default', ?)
     `).run(projectId, projectName, 'kanban', now)
 
@@ -110,28 +124,29 @@ export class ProjectStorage {
     }
 
     // Get project metadata with workflow using resolved ID
-    const projectRow = this.ctx.db.prepare(`
-      SELECT id, name, workflow_id, updated_at FROM ${T.projects} WHERE id = ?
-    `).get(resolvedId) as { id: string; name: string; workflow_id: string | null; updated_at: string } | undefined
+    const projectRow = this.ctx.drizzle
+      .select({
+        id: pmoProjects.id,
+        name: pmoProjects.name,
+        workflowId: pmoProjects.workflowId,
+        updatedAt: pmoProjects.updatedAt,
+      })
+      .from(pmoProjects)
+      .where(eq(pmoProjects.id, resolvedId))
+      .get()
 
     if (!projectRow) {
       throw new PMOError('NOT_FOUND', `Project not found: ${projectIdOrName}. Run init() first.`)
     }
 
     // Get workflow statuses as columns
-    const workflowId = projectRow.workflow_id || 'default'
-    const statusRows = this.ctx.db.prepare(`
-      SELECT * FROM ${T.workflow_statuses}
-      WHERE workflow_id = ?
-      ORDER BY position
-    `).all(workflowId) as Array<{
-      id: string
-      workflow_id: string
-      name: string
-      category: string
-      position: number
-      color: string | null
-    }>
+    const workflowId = projectRow.workflowId || 'default'
+    const statusRows = this.ctx.drizzle
+      .select()
+      .from(pmoWorkflowStatuses)
+      .where(eq(pmoWorkflowStatuses.workflowId, workflowId))
+      .orderBy(asc(pmoWorkflowStatuses.position))
+      .all()
 
     // Build columns from statuses, with tickets sorted by priority then created_at
     const columns: Column[] = await Promise.all(
@@ -148,7 +163,7 @@ export class ProjectStorage {
       id: projectRow.id,
       name: projectRow.name,
       columns,
-      updatedAt: new Date(projectRow.updated_at),
+      updatedAt: new Date(projectRow.updatedAt!),
     }
   }
 
@@ -172,9 +187,11 @@ export class ProjectStorage {
     const now = Date.now()
 
     // Try to find a workflow with matching ID
-    const workflow = this.ctx.db.prepare(`
-      SELECT id FROM ${T.workflows} WHERE id = ?
-    `).get(workflowId) as { id: string } | undefined
+    const workflow = this.ctx.drizzle
+      .select({ id: pmoWorkflows.id })
+      .from(pmoWorkflows)
+      .where(eq(pmoWorkflows.id, workflowId))
+      .get()
 
     // Use the requested workflow if it exists, otherwise fall back to default
     const finalWorkflowId = workflow ? workflowId : 'default'
@@ -182,7 +199,7 @@ export class ProjectStorage {
     // Insert project with workflow
     try {
       this.ctx.db.prepare(`
-        INSERT OR REPLACE INTO ${T.projects} (id, name, template, description, workflow_id, created_at, updated_at)
+        INSERT OR REPLACE INTO ${pmoProjects._.name} (id, name, template, description, workflow_id, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(id, project.name, workflowId, project.description || null, finalWorkflowId, now, now)
     } catch (err) {
@@ -202,33 +219,31 @@ export class ProjectStorage {
       return null
     }
 
-    const projectRow = this.ctx.db.prepare(`
-      SELECT id, name, template, description, workflow_id, updated_at FROM ${T.projects} WHERE id = ?
-    `).get(resolvedId) as {
-      id: string
-      name: string
-      template: string | null
-      description: string | null
-      workflow_id: string | null
-      updated_at: string
-    } | undefined
+    const projectRow = this.ctx.drizzle
+      .select({
+        id: pmoProjects.id,
+        name: pmoProjects.name,
+        template: pmoProjects.template,
+        description: pmoProjects.description,
+        workflowId: pmoProjects.workflowId,
+        updatedAt: pmoProjects.updatedAt,
+      })
+      .from(pmoProjects)
+      .where(eq(pmoProjects.id, resolvedId))
+      .get()
 
     if (!projectRow) {
       return null
     }
 
     // Get workflow statuses as columns
-    const workflowId = projectRow.workflow_id || 'default'
-    const statusRows = this.ctx.db.prepare(`
-      SELECT * FROM ${T.workflow_statuses}
-      WHERE workflow_id = ?
-      ORDER BY position
-    `).all(workflowId) as Array<{
-      id: string
-      name: string
-      category: string
-      position: number
-    }>
+    const workflowId = projectRow.workflowId || 'default'
+    const statusRows = this.ctx.drizzle
+      .select()
+      .from(pmoWorkflowStatuses)
+      .where(eq(pmoWorkflowStatuses.workflowId, workflowId))
+      .orderBy(asc(pmoWorkflowStatuses.position))
+      .all()
 
     const columns: Column[] = await Promise.all(
       statusRows.map(async (status) => ({
@@ -244,7 +259,7 @@ export class ProjectStorage {
       id: projectRow.id,
       name: projectRow.name,
       columns,
-      updatedAt: new Date(projectRow.updated_at),
+      updatedAt: new Date(projectRow.updatedAt!),
     }
   }
 
@@ -257,8 +272,8 @@ export class ProjectStorage {
       SELECT t.*,
              ws.name as status_name,
              ws.category as status_category
-      FROM ${T.tickets} t
-      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
+      FROM ${pmoTickets._.name} t
+      LEFT JOIN ${pmoWorkflowStatuses._.name} ws ON t.status_id = ws.id
       WHERE t.status_id = ? AND t.project_id = ?
       ORDER BY t.position ASC, t.created_at ASC
     `).all(statusId, projectId) as TicketRow[]
@@ -278,26 +293,26 @@ export class ProjectStorage {
       ticketCount: number
     }>
   > {
-    const projects = this.ctx.db.prepare(`
-      SELECT p.*, COUNT(t.id) as ticket_count
-      FROM ${T.projects} p
-      LEFT JOIN ${T.tickets} t ON p.id = t.project_id
-      GROUP BY p.id
-      ORDER BY p.created_at
-    `).all() as Array<{
-      id: string
-      name: string
-      template: string | null
-      description: string | null
-      ticket_count: number
-    }>
+    const projects = this.ctx.drizzle
+      .select({
+        id: pmoProjects.id,
+        name: pmoProjects.name,
+        template: pmoProjects.template,
+        description: pmoProjects.description,
+        ticketCount: count(pmoTickets.id),
+      })
+      .from(pmoProjects)
+      .leftJoin(pmoTickets, eq(pmoProjects.id, pmoTickets.projectId))
+      .groupBy(pmoProjects.id)
+      .orderBy(asc(pmoProjects.createdAt))
+      .all()
 
     return projects.map((p) => ({
       id: p.id,
       name: p.name,
       template: p.template,
       description: p.description,
-      ticketCount: p.ticket_count,
+      ticketCount: p.ticketCount,
     }))
   }
 
@@ -316,7 +331,10 @@ export class ProjectStorage {
     }
 
     try {
-      const result = this.ctx.db.prepare(`DELETE FROM ${T.projects} WHERE id = ?`).run(resolvedId)
+      const result = this.ctx.drizzle
+        .delete(pmoProjects)
+        .where(eq(pmoProjects.id, resolvedId))
+        .run()
 
       if (result.changes === 0) {
         throw new PMOError('NOT_FOUND', `Project not found: ${projectIdOrName}`)
@@ -337,9 +355,11 @@ export class ProjectStorage {
     const resolvedId = this.resolveProjectId(idOrName)
     if (!resolvedId) return null
 
-    const row = this.ctx.db.prepare(`SELECT * FROM ${T.projects} WHERE id = ?`).get(
-      resolvedId
-    ) as ProjectRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoProjects)
+      .where(eq(pmoProjects.id, resolvedId))
+      .get()
 
     if (!row) return null
 
@@ -358,42 +378,25 @@ export class ProjectStorage {
     // Use the resolved ID for the update
     const resolvedId = existing.id
 
-    const updates: string[] = ['updated_at = ?']
-    const params: unknown[] = [Date.now()]
+    const updates: Partial<typeof pmoProjects.$inferInsert> = {
+      updatedAt: String(Date.now()),
+    }
 
-    if (changes.name !== undefined) {
-      updates.push('name = ?')
-      params.push(changes.name)
-    }
-    if (changes.description !== undefined) {
-      updates.push('description = ?')
-      params.push(changes.description || null)
-    }
-    if (changes.status !== undefined) {
-      updates.push('status = ?')
-      params.push(changes.status)
-    }
-    if (changes.phaseId !== undefined) {
-      updates.push('phase_id = ?')
-      params.push(changes.phaseId || null)
-    }
-    if (changes.workflowId !== undefined) {
-      updates.push('workflow_id = ?')
-      params.push(changes.workflowId || null)
-    }
-    if (changes.isArchived !== undefined) {
-      updates.push('is_archived = ?')
-      params.push(changes.isArchived ? 1 : 0)
-    }
+    if (changes.name !== undefined) updates.name = changes.name
+    if (changes.description !== undefined) updates.description = changes.description || null
+    if (changes.status !== undefined) updates.status = changes.status
+    if (changes.phaseId !== undefined) updates.phaseId = changes.phaseId || null
+    if (changes.workflowId !== undefined) updates.workflowId = changes.workflowId || null
+    if (changes.isArchived !== undefined) updates.isArchived = changes.isArchived
     if (changes.targetDate !== undefined) {
-      updates.push('target_date = ?')
-      params.push(changes.targetDate ? changes.targetDate.toISOString() : null)
+      updates.targetDate = changes.targetDate ? changes.targetDate.toISOString() : null
     }
 
-    params.push(resolvedId)
-    this.ctx.db.prepare(`UPDATE ${T.projects} SET ${updates.join(', ')} WHERE id = ?`).run(
-      ...params
-    )
+    this.ctx.drizzle
+      .update(pmoProjects)
+      .set(updates)
+      .where(eq(pmoProjects.id, resolvedId))
+      .run()
 
     return (await this.getProject(resolvedId))!
   }
@@ -402,35 +405,40 @@ export class ProjectStorage {
    * List projects with optional filter.
    */
   async listProjects(filter?: ProjectFilter): Promise<Project[]> {
-    let sql = `SELECT * FROM ${T.projects}`
-    const conditions: string[] = []
-    const params: unknown[] = []
+    let query = this.ctx.drizzle
+      .select()
+      .from(pmoProjects)
+      .$dynamic()
+
+    const conditions = []
 
     // Filter by archived status if explicitly specified
     if (filter?.isArchived === true) {
-      conditions.push('is_archived = 1')
+      conditions.push(eq(pmoProjects.isArchived, true))
     } else if (filter?.isArchived === false) {
-      conditions.push('is_archived = 0')
+      conditions.push(eq(pmoProjects.isArchived, false))
     }
 
     if (filter?.phaseId) {
-      conditions.push('phase_id = ?')
-      params.push(filter.phaseId)
+      conditions.push(eq(pmoProjects.phaseId, filter.phaseId))
     }
 
     if (filter?.search) {
-      conditions.push('(name LIKE ? OR description LIKE ?)')
-      const searchTerm = `%${filter.search}%`
-      params.push(searchTerm, searchTerm)
+      conditions.push(
+        or(
+          like(pmoProjects.name, `%${filter.search}%`),
+          like(pmoProjects.description, `%${filter.search}%`)
+        )
+      )
     }
 
     if (conditions.length > 0) {
-      sql += ' WHERE ' + conditions.join(' AND ')
+      query = query.where(and(...conditions))
     }
 
-    sql += ' ORDER BY updated_at DESC'
-
-    const rows = this.ctx.db.prepare(sql).all(...params) as ProjectRow[]
+    const rows = query
+      .orderBy(desc(pmoProjects.updatedAt))
+      .all()
 
     return rows.map((row) => this.rowToProject(row))
   }
@@ -467,20 +475,33 @@ export class ProjectStorage {
     return this.updateProject(existing.id, { isArchived: false })
   }
 
-  private rowToProject(row: ProjectRow): Project {
+  private rowToProject(row: {
+    id: string
+    name: string
+    template: string | null
+    description: string | null
+    status: string
+    phaseId: string | null
+    workflowId: string | null
+    isArchived: boolean | null
+    targetDate: string | null
+    initiativeId: string | null
+    createdAt: string | null
+    updatedAt: string | null
+  }): Project {
     return {
       id: row.id,
       name: row.name,
       template: row.template || undefined,
       description: row.description || undefined,
       status: (row.status || 'active') as 'draft' | 'active' | 'completed' | 'archived',
-      phaseId: row.phase_id || undefined,
-      workflowId: row.workflow_id || undefined,
-      isArchived: row.is_archived === 1,
-      targetDate: row.target_date ? new Date(row.target_date) : undefined,
-      initiativeId: row.initiative_id || undefined,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
+      phaseId: row.phaseId || undefined,
+      workflowId: row.workflowId || undefined,
+      isArchived: row.isArchived ?? false,
+      targetDate: row.targetDate ? new Date(row.targetDate) : undefined,
+      initiativeId: row.initiativeId || undefined,
+      createdAt: new Date(row.createdAt || Date.now()),
+      updatedAt: new Date(row.updatedAt || Date.now()),
     }
   }
 }
