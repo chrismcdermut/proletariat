@@ -115,14 +115,15 @@ export const BUILTIN_THEMES: BuiltinThemeDefinition[] = [
     persistentDir: 'staff',
     ephemeralDir: 'temp',
     names: [
-      'altman', 'ballmer', 'benioff', 'bezos', 'branson', 'brin',
-      'buffett', 'chesky', 'collison', 'cook', 'dalio', 'dell',
+      'altman', 'andreesen', 'ballmer', 'benioff', 'bezos', 'branson',
+      'brin', 'buffett', 'chesky', 'collison', 'cook', 'dalio', 'dell',
       'dorsey', 'durov', 'ellison', 'fink', 'gates', 'grove',
-      'hastings', 'hoffman', 'huang', 'jobs', 'knight', 'ma',
-      'mcnealy', 'musk', 'nadella', 'neumann', 'omidyar', 'packard',
-      'page', 'parker', 'pichai', 'ross', 'sandberg', 'schmidt',
-      'schultz', 'siebel', 'silbermann', 'spiegel', 'sweeney',
-      'systrom', 'thiel', 'yang', 'zuck'
+      'hastings', 'hoffman', 'horowitz', 'huang', 'jobs', 'kalanick',
+      'khosla', 'knight', 'kutcher', 'levinson', 'ma', 'mcnealy',
+      'musk', 'nadella', 'neumann', 'omidyar', 'packard', 'page',
+      'parker', 'pichai', 'rabois', 'ross', 'sandberg', 'schmidt',
+      'schultz', 'sequoia', 'siebel', 'silbermann', 'spiegel',
+      'sweeney', 'systrom', 'thiel', 'yang', 'zuck'
     ]
   },
   {
@@ -139,12 +140,10 @@ export const BUILTIN_THEMES: BuiltinThemeDefinition[] = [
       'sinofsky', 'spolsky', 'torvalds', 'wozniak', 'yegge',
       // Podcasters & educators
       'fridman',
-      // VCs & non-billionaire figures
-      'andreesen', 'horowitz', 'khosla', 'levinson', 'rabois', 'sequoia',
       // Other tech figures
-      'hurd', 'iger', 'ive', 'kalanick', 'kutcher', 'levie', 'lynch',
-      'marcus', 'mayer', 'morin', 'powell', 'rometty', 'wales',
-      'wojcicki', 'zhang', 'zhong'
+      'hurd', 'iger', 'ive', 'levie', 'lynch', 'marcus', 'mayer',
+      'morin', 'powell', 'rometty', 'wales', 'wojcicki', 'zhang',
+      'zhong'
     ]
   },
   {
