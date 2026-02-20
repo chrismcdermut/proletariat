@@ -93,6 +93,8 @@ export interface OutputMetadata {
   flags: Record<string, unknown>
   /** Timestamp of the output */
   timestamp?: string
+  /** Resolved PR mode after flag precedence ('create-pr' | 'no-pr') */
+  resolvedPRMode?: string
 }
 
 /**
