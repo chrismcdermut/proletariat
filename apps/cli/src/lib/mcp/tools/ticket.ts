@@ -25,8 +25,8 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
       label: z.string().optional().describe('Filter by label name'),
       label_group: z.string().optional().describe('Filter by label group name'),
       all_projects: z.boolean().optional().describe('List from all projects'),
-      limit: z.number().optional().describe('Maximum number of tickets to return (default: 50)'),
-      offset: z.number().optional().describe('Number of tickets to skip for pagination (default: 0)'),
+      limit: z.number().min(1).optional().describe('Maximum number of tickets to return (default: 50)'),
+      offset: z.number().min(0).optional().describe('Number of tickets to skip for pagination (default: 0)'),
     },
     async (params) => {
       try {
