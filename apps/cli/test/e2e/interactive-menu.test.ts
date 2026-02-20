@@ -69,6 +69,8 @@ const skipSuite = !hasTmux() || !hasPrlt();
 (skipSuite ? describe.skip : describe)('Interactive Menu E2E Tests (tmux)', function (this: Mocha.Suite) {
   // These tests involve real tmux sessions with I/O delays
   this.timeout(120000);
+  // SQLite can throw transient I/O errors under concurrent access; allow retries
+  this.retries(2);
 
   let session: InteractiveTestSession;
   const hqPath = getHqPath();

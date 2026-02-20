@@ -125,6 +125,7 @@
     "test:unit": "mocha --forbid-only \"test/unit/**/*.test.ts\"",
     "test:e2e": "mocha --forbid-only \"test/e2e/**/*.test.ts\"",
     "test:e2e:pmo": "mocha --forbid-only \"test/e2e/pmo-*.test.ts\"",
+    "test:e2e:interactive": "mocha --forbid-only --timeout 120000 \"test/e2e/interactive-menu.test.ts\"",
     "test:commands": "mocha --forbid-only \"test/commands/**/*.test.ts\"",
     "version": "oclif readme && git add README.md",
     "publish:npm": "pnpm build && pnpm publish --access public --no-git-checks && git tag v$(node -p \"require('./package.json').version\") && git push origin v$(node -p \"require('./package.json').version\") && gh release create v$(node -p \"require('./package.json').version\") --generate-notes --title \"v$(node -p \"require('./package.json').version\")\"",
