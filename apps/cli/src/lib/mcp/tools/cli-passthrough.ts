@@ -477,7 +477,7 @@ export function registerUtilityTools(server: McpServer, ctx: McpToolContext): vo
     {},
     async () => {
       try {
-        const output = ctx.runCommand('prlt session list')
+        const output = ctx.runCommand('prlt session list --json')
         return textResponse(output)
       } catch (error) {
         return errorResponse(error)

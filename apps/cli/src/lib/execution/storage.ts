@@ -322,9 +322,9 @@ export class ExecutionStorage {
       let sessionExists = false
 
       if (exec.environment === 'devcontainer' && exec.containerId) {
-        // Check if session exists in container
-        const containerSessions = containerTmuxSessions.get(exec.containerId)
-        sessionExists = containerSessions?.includes(exec.sessionId) ?? false
+        // Check if session exists in container (use prefix matching for ID format differences)
+        const containerSessions = this.findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
+        sessionExists = containerSessions.includes(exec.sessionId)
       } else {
         // Check if session exists on host
         sessionExists = hostTmuxSessions.includes(exec.sessionId)
@@ -338,6 +338,26 @@ export class ExecutionStorage {
     }
 
     return cleanedCount
+  }
+
+  /**
+   * Find container sessions using prefix matching.
+   * Handles cases where the stored containerId format differs from docker ps output.
+   */
+  private findContainerSessionsByPrefix(
+    containerTmuxSessions: Map<string, string[]>,
+    containerId: string
+  ): string[] {
+    const exact = containerTmuxSessions.get(containerId)
+    if (exact) return exact
+
+    for (const [key, sessions] of containerTmuxSessions) {
+      if (key.startsWith(containerId) || containerId.startsWith(key)) {
+        return sessions
+      }
+    }
+
+    return []
   }
 
   /**
