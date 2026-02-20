@@ -11,6 +11,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { formatTicket } from '../../lib/mcp/helpers.js';
 
 export default class TicketMove extends PMOCommand {
   static description = 'Move ticket(s) to a different column';
@@ -243,20 +244,7 @@ export default class TicketMove extends PMOCommand {
     if (jsonMode) {
       this.log(JSON.stringify({
         success: true,
-        ticket: {
-          id: moved.id,
-          title: moved.title,
-          priority: moved.priority,
-          category: moved.category,
-          statusName: moved.statusName,
-          statusCategory: moved.statusCategory,
-          projectId: moved.projectId,
-          assignee: moved.assignee,
-          owner: moved.owner,
-          branch: moved.branch,
-          epicId: moved.epicId,
-          position: moved.position,
-        },
+        ticket: formatTicket(moved),
       }, null, 2));
       return;
     }
@@ -430,20 +418,7 @@ export default class TicketMove extends PMOCommand {
         if (jsonMode && updatedTicket) {
           this.log(JSON.stringify({
             success: true,
-            ticket: {
-              id: updatedTicket.id,
-              title: updatedTicket.title,
-              priority: updatedTicket.priority,
-              category: updatedTicket.category,
-              statusName: updatedTicket.statusName,
-              statusCategory: updatedTicket.statusCategory,
-              projectId: updatedTicket.projectId,
-              assignee: updatedTicket.assignee,
-              owner: updatedTicket.owner,
-              branch: updatedTicket.branch,
-              epicId: updatedTicket.epicId,
-              position: updatedTicket.position,
-            },
+            ticket: formatTicket(updatedTicket),
           }, null, 2));
           return;
         }
@@ -468,20 +443,7 @@ export default class TicketMove extends PMOCommand {
     if (jsonMode) {
       this.log(JSON.stringify({
         success: true,
-        ticket: {
-          id: movedTicket.id,
-          title: movedTicket.title,
-          priority: movedTicket.priority,
-          category: movedTicket.category,
-          statusName: movedTicket.statusName,
-          statusCategory: movedTicket.statusCategory,
-          projectId: movedTicket.projectId,
-          assignee: movedTicket.assignee,
-          owner: movedTicket.owner,
-          branch: movedTicket.branch,
-          epicId: movedTicket.epicId,
-          position: movedTicket.position,
-        },
+        ticket: formatTicket(movedTicket),
       }, null, 2));
       return;
     }
