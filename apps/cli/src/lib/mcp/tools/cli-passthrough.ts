@@ -28,11 +28,29 @@ export function registerAgentTools(server: McpServer, ctx: McpToolContext): void
 
   strictTool(server,
     'agent_status',
-    'Check agent status',
-    {},
-    async () => {
+    'Check agent status. With agent param, returns that agent\'s status. Without, auto-detects current agent or returns all agent statuses.',
+    { agent: z.string().optional().describe('Agent name. If omitted, auto-detects current agent or returns all.') },
+    async (params) => {
       try {
-        const output = ctx.runCommand('prlt agent status --json 2>/dev/null || prlt agent status')
+        if (params.agent) {
+          const output = ctx.runCommand(`prlt agent status ${params.agent} --json`)
+          return textResponse(output)
+        }
+
+        // Try auto-detecting current agent via whoami
+        try {
+          const whoamiOutput = ctx.runCommand('prlt whoami --json')
+          const whoami = JSON.parse(whoamiOutput)
+          if (whoami.agent) {
+            const output = ctx.runCommand(`prlt agent status ${whoami.agent} --json`)
+            return textResponse(output)
+          }
+        } catch {
+          // whoami failed or no agent detected, fall through
+        }
+
+        // No agent detected - return all agent statuses
+        const output = ctx.runCommand('prlt agent status --json')
         return textResponse(output)
       } catch (error) {
         return errorResponse(error)

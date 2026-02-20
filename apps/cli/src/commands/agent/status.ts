@@ -3,6 +3,7 @@ import { colors, format } from '../../lib/colors.js';
 import {
   getWorkspaceInfo,
   getAgentStatus,
+  getAllAgentsStatus,
   WorkspaceInfo,
   formatAgentList
 } from '../../lib/agents/commands.js';
@@ -10,6 +11,7 @@ import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
   shouldOutputJson,
   outputErrorAsJson,
+  outputSuccessAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
 
@@ -55,6 +57,14 @@ export default class Status extends PMOCommand {
     }
 
     let agentName = args.name;
+
+    // In JSON mode with no agent specified, return all agent statuses
+    if (jsonMode && !agentName) {
+      const allStatuses = getAllAgentsStatus(workspaceInfo);
+      outputSuccessAsJson({
+        agents: allStatuses,
+      }, createMetadata('agent status', flags));
+    }
 
     // Agent mode config for prompts
     const agentConfig = jsonMode ? { flags, commandName: 'agent status' } : null;
