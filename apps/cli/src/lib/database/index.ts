@@ -1,8 +1,15 @@
 import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { eq, and, or, isNull, asc, desc, sql, like } from 'drizzle-orm';
 import { getThemePersistentDir, isEphemeralAgentName } from '../themes.js';
 import { PMO_SCHEMA_SQL } from '../pmo/schema.js';
+import { createDrizzleConnection, DrizzleDB } from './drizzle.js';
+import * as schema from './drizzle-schema.js';
+import { CREATE_TABLES_SQL, runAllMigrations } from './migrations.js';
+
+// Re-export CREATE_TABLES_SQL for backward compatibility
+export { CREATE_TABLES_SQL };
 
 export interface WorkspaceConfig {
   id: number;
@@ -64,126 +71,123 @@ export interface AgentWorktree {
   last_checked?: string;
 }
 
-export const CREATE_TABLES_SQL = `
--- Core workspace metadata
-CREATE TABLE IF NOT EXISTS workspace (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  type TEXT NOT NULL CHECK (type IN ('hq', 'workspace')),
-  workspace_name TEXT NOT NULL,
-  has_pmo BOOLEAN DEFAULT FALSE,
-  active_theme_id TEXT,
-  created_at TEXT NOT NULL,
-  FOREIGN KEY (active_theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
-);
+// =============================================================================
+// Drizzle row → domain type mappers
+// =============================================================================
 
--- Repository management
-CREATE TABLE IF NOT EXISTS repositories (
-  name TEXT PRIMARY KEY,
-  path TEXT NOT NULL,
-  type TEXT DEFAULT 'main' CHECK (type IN ('main', 'dependency')),
-  source_url TEXT,
-  action TEXT CHECK (action IN ('clone', 'move', 'link')),
-  added_at TEXT NOT NULL
-);
+function dbRowToAgent(row: typeof schema.agents.$inferSelect): Agent {
+  return {
+    name: row.name,
+    type: (row.type || 'persistent') as AgentType,
+    status: (row.status || 'active') as AgentStatus,
+    base_name: row.baseName,
+    theme_id: row.themeId,
+    worktree_path: row.worktreePath,
+    mount_mode: (row.mountMode || 'worktree') as MountMode,
+    created_at: row.createdAt,
+    cleaned_at: row.cleanedAt,
+  };
+}
 
--- Agent naming themes (optional)
-CREATE TABLE IF NOT EXISTS agent_themes (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE,
-  display_name TEXT NOT NULL,
-  description TEXT,
-  builtin BOOLEAN DEFAULT FALSE,
-  created_at TEXT NOT NULL
-);
+function dbRowToTheme(row: typeof schema.agentThemes.$inferSelect): AgentTheme {
+  return {
+    id: row.id,
+    name: row.name,
+    display_name: row.displayName,
+    description: row.description,
+    builtin: !!row.builtin,
+    created_at: row.createdAt,
+  };
+}
 
--- Names available within each theme
-CREATE TABLE IF NOT EXISTS agent_theme_names (
-  theme_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  PRIMARY KEY (theme_id, name),
-  FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE CASCADE
-);
+function dbRowToWorkspaceConfig(row: typeof schema.workspace.$inferSelect): WorkspaceConfig {
+  return {
+    id: row.id!,
+    type: row.type as 'hq' | 'workspace',
+    workspace_name: row.workspaceName,
+    has_pmo: !!row.hasPmo,
+    active_theme_id: row.activeThemeId,
+    created_at: row.createdAt,
+  };
+}
 
--- Agent instances in workspace
-CREATE TABLE IF NOT EXISTS agents (
-  name TEXT PRIMARY KEY,
-  type TEXT NOT NULL DEFAULT 'persistent' CHECK (type IN ('persistent', 'ephemeral')),
-  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cleaned')),
-  base_name TEXT,
-  theme_id TEXT,
-  worktree_path TEXT,
-  mount_mode TEXT NOT NULL DEFAULT 'worktree' CHECK (mount_mode IN ('worktree', 'clone')),
-  created_at TEXT NOT NULL,
-  cleaned_at TEXT,
-  FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
-);
+function dbRowToRepository(row: typeof schema.repositories.$inferSelect): Repository {
+  return {
+    name: row.name,
+    path: row.path,
+    type: (row.type || 'main') as 'main' | 'dependency',
+    source_url: row.sourceUrl ?? undefined,
+    action: (row.action ?? undefined) as 'clone' | 'move' | 'link' | undefined,
+    added_at: row.addedAt,
+  };
+}
 
--- Agent-owned worktrees
-CREATE TABLE IF NOT EXISTS agent_worktrees (
-  agent_name TEXT NOT NULL,
-  repo_name TEXT NOT NULL,
-  worktree_path TEXT NOT NULL,
-  branch TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  last_commit_hash TEXT,
-  commits_ahead INTEGER NOT NULL DEFAULT 0,
-  is_clean INTEGER NOT NULL DEFAULT 1,
-  last_checked TEXT,
-  PRIMARY KEY (agent_name, repo_name),
-  FOREIGN KEY (agent_name) REFERENCES agents(name) ON DELETE CASCADE,
-  FOREIGN KEY (repo_name) REFERENCES repositories(name) ON DELETE CASCADE
-);
-
--- Workspace-level settings (key-value store)
-CREATE TABLE IF NOT EXISTS workspace_settings (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
-
--- =============================================================================
--- Indexes
--- =============================================================================
-
-CREATE INDEX IF NOT EXISTS idx_worktrees_agent ON agent_worktrees(agent_name);
-CREATE INDEX IF NOT EXISTS idx_worktrees_repo ON agent_worktrees(repo_name);
-CREATE INDEX IF NOT EXISTS idx_theme_names_theme ON agent_theme_names(theme_id);
-CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
-`;
+function dbRowToWorktree(row: typeof schema.agentWorktrees.$inferSelect): AgentWorktree {
+  return {
+    agent_name: row.agentName,
+    repo_name: row.repoName,
+    worktree_path: row.worktreePath,
+    branch: row.branch,
+    created_at: row.createdAt,
+    last_commit_hash: row.lastCommitHash ?? undefined,
+    commits_ahead: row.commitsAhead ?? 0,
+    is_clean: row.isClean ?? true,
+    last_checked: row.lastChecked ?? undefined,
+  };
+}
 
 /**
- * Ensure ephemeral agents are correctly typed based on their worktree path or naming pattern
+ * Ensure ephemeral agents are correctly typed based on their worktree path or naming pattern.
+ * Uses Drizzle for typed queries where possible; GLOB patterns require raw SQL.
  */
-function ensureEphemeralAgentTypes(db: Database.Database): void {
-  // Check if agents table exists
-  const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'").get();
+function ensureEphemeralAgentTypes(drizzle: DrizzleDB, rawDb: Database.Database): void {
+  // Check if agents table exists (raw DDL introspection — unavoidable)
+  const tableExists = rawDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'").get();
   if (!tableExists) {
     return;
   }
 
   // Agents in temp directory should be ephemeral
-  db.exec("UPDATE agents SET type = 'ephemeral' WHERE worktree_path LIKE 'agents/temp/%' AND type != 'ephemeral'");
+  drizzle.update(schema.agents)
+    .set({ type: 'ephemeral' })
+    .where(
+      and(
+        like(schema.agents.worktreePath, 'agents/temp/%'),
+        sql`${schema.agents.type} != 'ephemeral'`
+      )
+    )
+    .run();
 
   // Detect ephemeral agents by naming pattern: adjective-name-number (e.g., blue-khosla-1)
-  // Staff agents are single names like 'lecun', 'musk', 'gates'
-  db.exec(`
-    UPDATE agents SET type = 'ephemeral'
-    WHERE type != 'ephemeral'
-    AND name GLOB '*-*-[0-9]*'
-  `);
+  // GLOB is SQLite-specific and not available in Drizzle, so use raw sql expression
+  drizzle.update(schema.agents)
+    .set({ type: 'ephemeral' })
+    .where(
+      and(
+        sql`${schema.agents.type} != 'ephemeral'`,
+        sql`${schema.agents.name} GLOB '*-*-[0-9]*'`
+      )
+    )
+    .run();
 
   // Also detect numberless ephemeral names (e.g., bold-bezos) using isEphemeralAgentName()
-  // This catches agents that match the adjective-name pattern but don't have a number suffix
-  const potentialEphemeral = db.prepare(`
-    SELECT name FROM agents
-    WHERE type != 'ephemeral'
-    AND name LIKE '%-%'
-    AND name NOT GLOB '*-*-[0-9]*'
-  `).all() as { name: string }[];
+  const potentialEphemeral = drizzle.select({ name: schema.agents.name })
+    .from(schema.agents)
+    .where(
+      and(
+        sql`${schema.agents.type} != 'ephemeral'`,
+        like(schema.agents.name, '%-%'),
+        sql`${schema.agents.name} NOT GLOB '*-*-[0-9]*'`
+      )
+    )
+    .all();
 
-  const updateStmt = db.prepare("UPDATE agents SET type = 'ephemeral' WHERE name = ?");
   for (const agent of potentialEphemeral) {
     if (isEphemeralAgentName(agent.name)) {
-      updateStmt.run(agent.name);
+      drizzle.update(schema.agents)
+        .set({ type: 'ephemeral' })
+        .where(eq(schema.agents.name, agent.name))
+        .run();
     }
   }
 }
@@ -203,7 +207,8 @@ export function getConfigPath(workspacePath: string): string {
 }
 
 /**
- * Open workspace database connection
+ * Open workspace database connection (raw better-sqlite3).
+ * Runs migrations and ensures schema is up-to-date.
  */
 export function openWorkspaceDatabase(workspacePath: string): Database.Database {
   const dbPath = getDatabasePath(workspacePath);
@@ -216,124 +221,24 @@ export function openWorkspaceDatabase(workspacePath: string): Database.Database 
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');  // Wait up to 5 seconds if database is locked
 
-  // Ensure ephemeral agents are correctly typed
-  ensureEphemeralAgentTypes(db);
+  // Run all DDL migrations (isolated in migrations module)
+  runAllMigrations(db);
 
-  // Ensure theme tables exist
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS agent_themes (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      display_name TEXT NOT NULL,
-      description TEXT,
-      builtin BOOLEAN DEFAULT FALSE,
-      created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS agent_theme_names (
-      theme_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      PRIMARY KEY (theme_id, name),
-      FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE CASCADE
-    );
-    CREATE INDEX IF NOT EXISTS idx_theme_names_theme ON agent_theme_names(theme_id);
-    CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
-  `);
-
-  // Migration: drop 'used' column if it exists (no longer needed)
-  try {
-    const tableInfo = db.prepare("PRAGMA table_info(agent_theme_names)").all() as { name: string }[];
-    if (tableInfo.some(col => col.name === 'used')) {
-      // SQLite doesn't support DROP COLUMN directly, so recreate the table
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS agent_theme_names_new (
-          theme_id TEXT NOT NULL,
-          name TEXT NOT NULL,
-          PRIMARY KEY (theme_id, name),
-          FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE CASCADE
-        );
-        INSERT OR IGNORE INTO agent_theme_names_new (theme_id, name)
-          SELECT theme_id, name FROM agent_theme_names;
-        DROP TABLE agent_theme_names;
-        ALTER TABLE agent_theme_names_new RENAME TO agent_theme_names;
-        CREATE INDEX IF NOT EXISTS idx_theme_names_theme ON agent_theme_names(theme_id);
-      `);
-    }
-  } catch {
-    // Ignore migration errors - table might not exist yet
-  }
-
-  // Migration: add missing columns to agent_worktrees table (TKT-1014)
-  try {
-    const worktreesTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_worktrees'").get();
-    if (worktreesTableExists) {
-      const worktreeTableInfo = db.prepare("PRAGMA table_info(agent_worktrees)").all() as { name: string }[];
-      if (!worktreeTableInfo.some(col => col.name === 'commits_ahead')) {
-        db.exec("ALTER TABLE agent_worktrees ADD COLUMN last_commit_hash TEXT");
-        db.exec("ALTER TABLE agent_worktrees ADD COLUMN commits_ahead INTEGER NOT NULL DEFAULT 0");
-        db.exec("ALTER TABLE agent_worktrees ADD COLUMN is_clean INTEGER NOT NULL DEFAULT 1");
-        db.exec("ALTER TABLE agent_worktrees ADD COLUMN last_checked TEXT");
-      }
-    }
-  } catch {
-    // Ignore migration errors - table might not exist yet or columns already exist
-  }
-
-  // Migration: add mount_mode column to agents table (TKT-686)
-  try {
-    const agentsTableInfo = db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
-    if (!agentsTableInfo.some(col => col.name === 'mount_mode')) {
-      // Add mount_mode column with default 'worktree' for existing agents (backward compat)
-      db.exec("ALTER TABLE agents ADD COLUMN mount_mode TEXT NOT NULL DEFAULT 'worktree' CHECK (mount_mode IN ('worktree', 'clone'))");
-    }
-  } catch {
-    // Ignore migration errors - table might not exist yet or column already exists
-  }
-
-  // Migration: add position column to pmo_tickets table (TKT-965)
-  try {
-    const ticketsTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_tickets'").get();
-    if (ticketsTableExists) {
-      const ticketsTableInfo = db.prepare("PRAGMA table_info(pmo_tickets)").all() as { name: string }[];
-      if (!ticketsTableInfo.some(col => col.name === 'position')) {
-        db.exec("ALTER TABLE pmo_tickets ADD COLUMN position INTEGER NOT NULL DEFAULT 0");
-        db.exec("CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_position ON pmo_tickets(status_id, position)");
-
-        // Backfill existing tickets with gapped positions (1000, 2000, ...) per status,
-        // ordered by priority then created_at
-        const statuses = db.prepare(
-          "SELECT DISTINCT status_id FROM pmo_tickets WHERE status_id IS NOT NULL"
-        ).all() as { status_id: string }[];
-
-        const getTicketsForStatus = db.prepare(`
-          SELECT id FROM pmo_tickets WHERE status_id = ?
-          ORDER BY
-            CASE priority
-              WHEN 'P0' THEN 0
-              WHEN 'P1' THEN 1
-              WHEN 'P2' THEN 2
-              WHEN 'P3' THEN 3
-              ELSE 4
-            END,
-            created_at ASC
-        `);
-        const updatePosition = db.prepare("UPDATE pmo_tickets SET position = ? WHERE id = ?");
-
-        const backfill = db.transaction(() => {
-          for (const { status_id } of statuses) {
-            const tickets = getTicketsForStatus.all(status_id) as { id: string }[];
-            tickets.forEach((ticket, idx) => {
-              updatePosition.run((idx + 1) * 1000, ticket.id);
-            });
-          }
-        });
-        backfill();
-      }
-    }
-  } catch {
-    // Ignore migration errors - table might not exist yet
-  }
+  // Ensure ephemeral agents are correctly typed (uses Drizzle for typed queries)
+  const drizzle = createDrizzleConnection(db);
+  ensureEphemeralAgentTypes(drizzle, db);
 
   return db;
+}
+
+/**
+ * Open workspace database and return both raw and Drizzle connections.
+ * Preferred for new code — provides typed Drizzle queries while keeping raw access for DDL.
+ */
+export function openDrizzleWorkspaceDatabase(workspacePath: string): { db: Database.Database; drizzle: DrizzleDB } {
+  const db = openWorkspaceDatabase(workspacePath);
+  const drizzle = createDrizzleConnection(db);
+  return { db, drizzle };
 }
 
 /**
@@ -367,17 +272,21 @@ export function createWorkspaceDatabase(
   // Enable foreign keys
   db.pragma('foreign_keys = ON');
 
-  // Create core workspace tables (agents, repos, etc)
+  // Create core workspace tables (raw DDL — unavoidable for CREATE TABLE IF NOT EXISTS)
   db.exec(CREATE_TABLES_SQL);
 
   // Create PMO tables (from shared schema)
   db.exec(PMO_SCHEMA_SQL);
 
-  // Insert workspace data (convert boolean to number for SQLite)
-  db.prepare(`
-    INSERT INTO workspace (id, type, workspace_name, has_pmo, created_at)
-    VALUES (1, ?, ?, ?, ?)
-  `).run(type, workspaceName, hasPMO ? 1 : 0, new Date().toISOString());
+  // Insert workspace data using Drizzle
+  const drizzle = createDrizzleConnection(db);
+  drizzle.insert(schema.workspace).values({
+    id: 1,
+    type,
+    workspaceName,
+    hasPmo: hasPMO,
+    createdAt: new Date().toISOString(),
+  }).run();
 
   return db;
 }
@@ -387,10 +296,10 @@ export function createWorkspaceDatabase(
  */
 export function getWorkspaceConfig(workspacePath: string): WorkspaceConfig | null {
   try {
-    const db = openWorkspaceDatabase(workspacePath);
-    const config = db.prepare('SELECT * FROM workspace LIMIT 1').get() as WorkspaceConfig | undefined;
+    const { db, drizzle } = openDrizzleWorkspaceDatabase(workspacePath);
+    const row = drizzle.select().from(schema.workspace).limit(1).get();
     db.close();
-    return config || null;
+    return row ? dbRowToWorkspaceConfig(row) : null;
   } catch {
     return null;
   }
@@ -409,13 +318,13 @@ export function getActiveTheme(workspacePath: string): AgentTheme | null {
   }
 
   // Auto-detect from existing agents
-  const agents = getWorkspaceAgents(workspacePath);
-  if (agents.length === 0) {
+  const agentsList = getWorkspaceAgents(workspacePath);
+  if (agentsList.length === 0) {
     return null;
   }
 
   // Check if any agent has a theme_id set
-  const themedAgent = agents.find(a => a.theme_id);
+  const themedAgent = agentsList.find(a => a.theme_id);
   if (themedAgent?.theme_id) {
     const theme = getTheme(workspacePath, themedAgent.theme_id);
     if (theme) {
@@ -432,7 +341,7 @@ export function getActiveTheme(workspacePath: string): AgentTheme | null {
     const themeNameSet = new Set(themeNames.map(n => n.name.toLowerCase()));
 
     // If any existing agent matches this theme's names
-    const matchingAgent = agents.find(a => themeNameSet.has(a.name.toLowerCase()));
+    const matchingAgent = agentsList.find(a => themeNameSet.has(a.name.toLowerCase()));
     if (matchingAgent) {
       // Auto-set it for future use
       setActiveTheme(workspacePath, theme.id);
@@ -447,18 +356,24 @@ export function getActiveTheme(workspacePath: string): AgentTheme | null {
  * Set the active theme for a workspace
  */
 export function setActiveTheme(workspacePath: string, themeId: string | null): void {
-  const db = openWorkspaceDatabase(workspacePath);
+  const { db, drizzle } = openDrizzleWorkspaceDatabase(workspacePath);
 
   if (themeId) {
     // Validate theme exists
-    const theme = db.prepare('SELECT id FROM agent_themes WHERE id = ?').get(themeId);
+    const theme = drizzle.select({ id: schema.agentThemes.id })
+      .from(schema.agentThemes)
+      .where(eq(schema.agentThemes.id, themeId))
+      .get();
     if (!theme) {
       db.close();
       throw new Error(`Theme "${themeId}" not found`);
     }
   }
 
-  db.prepare('UPDATE workspace SET active_theme_id = ? WHERE id = 1').run(themeId);
+  drizzle.update(schema.workspace)
+    .set({ activeThemeId: themeId })
+    .where(eq(schema.workspace.id, 1))
+    .run();
   db.close();
 }
 
@@ -466,27 +381,31 @@ export function setActiveTheme(workspacePath: string, themeId: string | null): v
  * Add repositories to database
  */
 export function addRepositoriesToDatabase(workspacePath: string, repos: { name: string; path: string; source_url?: string; action?: 'clone' | 'move' | 'link' }[]): void {
-  const db = openWorkspaceDatabase(workspacePath);
-  
-  const insertRepo = db.prepare(`
-    INSERT OR REPLACE INTO repositories (name, path, type, source_url, action, added_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-  
-  const transaction = db.transaction(() => {
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
+
+  const insertAll = db.transaction(() => {
     for (const repo of repos) {
-      insertRepo.run(
-        repo.name,
-        repo.path,
-        'main',
-        repo.source_url || null,
-        repo.action || null,
-        new Date().toISOString()
-      );
+      drizzleDb.insert(schema.repositories).values({
+        name: repo.name,
+        path: repo.path,
+        type: 'main',
+        sourceUrl: repo.source_url || null,
+        action: repo.action || null,
+        addedAt: new Date().toISOString(),
+      }).onConflictDoUpdate({
+        target: schema.repositories.name,
+        set: {
+          path: repo.path,
+          type: 'main',
+          sourceUrl: repo.source_url || null,
+          action: repo.action || null,
+          addedAt: new Date().toISOString(),
+        },
+      }).run();
     }
   });
-  
-  transaction();
+
+  insertAll();
   db.close();
 }
 
@@ -494,62 +413,84 @@ export function addRepositoriesToDatabase(workspacePath: string, repos: { name: 
  * Add agents to database (case-insensitive uniqueness)
  */
 export function addAgentsToDatabase(workspacePath: string, agentNames: string[], themeId?: string, mountMode: MountMode = 'worktree'): void {
-  const db = openWorkspaceDatabase(workspacePath);
-
-  // Check for existing agents (case-insensitive)
-  const checkExisting = db.prepare('SELECT name FROM agents WHERE LOWER(name) = LOWER(?)');
-
-  const insertAgent = db.prepare(`
-    INSERT OR REPLACE INTO agents (name, type, base_name, theme_id, worktree_path, mount_mode, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  const insertWorktree = db.prepare(`
-    INSERT OR REPLACE INTO agent_worktrees (agent_name, repo_name, worktree_path, branch, created_at)
-    VALUES (?, ?, ?, ?, ?)
-  `);
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
 
   // Get workspace config to determine paths
-  const workspace = db.prepare('SELECT * FROM workspace').get() as WorkspaceConfig;
+  const workspaceRow = drizzleDb.select().from(schema.workspace).get();
+  if (!workspaceRow) {
+    db.close();
+    throw new Error('Workspace not found');
+  }
+  const wsConfig = dbRowToWorkspaceConfig(workspaceRow);
 
   // Get all repos for this workspace
-  const repos = db.prepare('SELECT name FROM repositories').all() as { name: string }[];
+  const repos = drizzleDb.select({ name: schema.repositories.name })
+    .from(schema.repositories)
+    .all();
 
   // Determine the effective theme ID (provided or active theme)
-  const effectiveThemeId = themeId || workspace.active_theme_id || undefined;
+  const effectiveThemeId = themeId || wsConfig.active_theme_id || undefined;
   const persistentDir = getThemePersistentDir(effectiveThemeId);
 
   const transaction = db.transaction(() => {
     for (const agentName of agentNames) {
       // Skip if agent already exists (case-insensitive check)
-      const existing = checkExisting.get(agentName) as { name: string } | undefined;
+      const existing = drizzleDb.select({ name: schema.agents.name })
+        .from(schema.agents)
+        .where(sql`LOWER(${schema.agents.name}) = LOWER(${agentName})`)
+        .get();
       if (existing) {
-        continue; // Agent already exists with same name (different case)
+        continue;
       }
 
       const now = new Date().toISOString();
 
       // Determine worktree path for the agent
-      const agentWorktreePath = workspace.type === 'hq'
+      const agentWorktreePath = wsConfig.type === 'hq'
         ? `agents/${persistentDir}/${agentName}`
         : agentName;
 
       // Add agent (persistent type for manually added agents)
-      insertAgent.run(agentName, 'persistent', null, effectiveThemeId || null, agentWorktreePath, mountMode, now);
+      drizzleDb.insert(schema.agents).values({
+        name: agentName,
+        type: 'persistent',
+        baseName: null,
+        themeId: effectiveThemeId || null,
+        worktreePath: agentWorktreePath,
+        mountMode,
+        createdAt: now,
+      }).onConflictDoUpdate({
+        target: schema.agents.name,
+        set: {
+          type: 'persistent',
+          baseName: null,
+          themeId: effectiveThemeId || null,
+          worktreePath: agentWorktreePath,
+          mountMode,
+          createdAt: now,
+        },
+      }).run();
 
       // Add worktrees for all repos
       for (const repo of repos) {
-        const worktreePath = workspace.type === 'hq'
+        const worktreePath = wsConfig.type === 'hq'
           ? `agents/${persistentDir}/${agentName}/${repo.name}`
           : `${agentName}/${repo.name}`;
 
-        insertWorktree.run(
+        drizzleDb.insert(schema.agentWorktrees).values({
           agentName,
-          repo.name,
+          repoName: repo.name,
           worktreePath,
-          `agent-${agentName}`,
-          now
-        );
+          branch: `agent-${agentName}`,
+          createdAt: now,
+        }).onConflictDoUpdate({
+          target: [schema.agentWorktrees.agentName, schema.agentWorktrees.repoName],
+          set: {
+            worktreePath,
+            branch: `agent-${agentName}`,
+            createdAt: now,
+          },
+        }).run();
       }
     }
   });
@@ -568,59 +509,56 @@ export function addEphemeralAgentToDatabase(
   themeId?: string,
   mountMode: MountMode = 'worktree'
 ): Agent {
-  const db = openWorkspaceDatabase(workspacePath);
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
 
   const now = new Date().toISOString();
   const worktreePath = `agents/temp/${agentName}`;
 
-  db.prepare(`
-    INSERT INTO agents (name, type, status, base_name, theme_id, worktree_path, mount_mode, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(agentName, 'ephemeral', 'active', baseName, themeId || null, worktreePath, mountMode, now);
+  drizzleDb.insert(schema.agents).values({
+    name: agentName,
+    type: 'ephemeral',
+    status: 'active',
+    baseName,
+    themeId: themeId || null,
+    worktreePath,
+    mountMode,
+    createdAt: now,
+  }).run();
 
-  const agent = db.prepare('SELECT * FROM agents WHERE name = ?').get(agentName) as {
-    name: string;
-    type: string;
-    status: string;
-    base_name: string | null;
-    theme_id: string | null;
-    worktree_path: string | null;
-    mount_mode: string | null;
-    created_at: string;
-    cleaned_at: string | null;
-  };
+  const row = drizzleDb.select().from(schema.agents)
+    .where(eq(schema.agents.name, agentName))
+    .get();
 
   db.close();
 
-  return {
-    name: agent.name,
-    type: agent.type as AgentType,
-    status: agent.status as AgentStatus,
-    base_name: agent.base_name,
-    theme_id: agent.theme_id,
-    worktree_path: agent.worktree_path,
-    mount_mode: (agent.mount_mode || 'clone') as MountMode,
-    created_at: agent.created_at,
-    cleaned_at: agent.cleaned_at,
-  };
+  if (!row) {
+    throw new Error(`Failed to insert ephemeral agent "${agentName}"`);
+  }
+
+  return dbRowToAgent(row);
 }
 
 /**
  * Get all ephemeral agent names from the database
  */
 export function getEphemeralAgentNames(workspacePath: string): Set<string> {
-  const db = openWorkspaceDatabase(workspacePath);
-  const agents = db.prepare("SELECT name FROM agents WHERE type = 'ephemeral'").all() as { name: string }[];
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
+  const rows = drizzleDb.select({ name: schema.agents.name })
+    .from(schema.agents)
+    .where(eq(schema.agents.type, 'ephemeral'))
+    .all();
   db.close();
-  return new Set(agents.map(a => a.name.toLowerCase()));
+  return new Set(rows.map(a => a.name.toLowerCase()));
 }
 
 /**
  * Remove an ephemeral agent from the database
  */
 export function removeEphemeralAgent(workspacePath: string, agentName: string): void {
-  const db = openWorkspaceDatabase(workspacePath);
-  db.prepare("DELETE FROM agents WHERE name = ? AND type = 'ephemeral'").run(agentName);
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
+  drizzleDb.delete(schema.agents)
+    .where(and(eq(schema.agents.name, agentName), eq(schema.agents.type, 'ephemeral')))
+    .run();
   db.close();
 }
 
@@ -628,35 +566,22 @@ export function removeEphemeralAgent(workspacePath: string, agentName: string): 
  * Get all agents in workspace
  */
 export function getWorkspaceAgents(workspacePath: string, includeCleanedUp: boolean = false): Agent[] {
-  const db = openWorkspaceDatabase(workspacePath);
-  const query = includeCleanedUp
-    ? 'SELECT * FROM agents ORDER BY created_at'
-    : "SELECT * FROM agents WHERE status = 'active' OR status IS NULL ORDER BY created_at";
-  const rows = db.prepare(query).all() as Array<{
-    name: string;
-    type: string | null;
-    status: string | null;
-    base_name: string | null;
-    theme_id: string | null;
-    worktree_path: string | null;
-    mount_mode: string | null;
-    created_at: string;
-    cleaned_at: string | null;
-  }>;
-  db.close();
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
 
-  // Map rows to Agent type, handling missing columns in old databases
-  return rows.map(row => ({
-    name: row.name,
-    type: (row.type || 'persistent') as AgentType,
-    status: (row.status || 'active') as AgentStatus,
-    base_name: row.base_name,
-    theme_id: row.theme_id,
-    worktree_path: row.worktree_path,
-    mount_mode: (row.mount_mode || 'worktree') as MountMode,
-    created_at: row.created_at,
-    cleaned_at: row.cleaned_at,
-  }));
+  let rows: (typeof schema.agents.$inferSelect)[];
+  if (includeCleanedUp) {
+    rows = drizzleDb.select().from(schema.agents)
+      .orderBy(asc(schema.agents.createdAt))
+      .all();
+  } else {
+    rows = drizzleDb.select().from(schema.agents)
+      .where(or(eq(schema.agents.status, 'active'), isNull(schema.agents.status)))
+      .orderBy(asc(schema.agents.createdAt))
+      .all();
+  }
+
+  db.close();
+  return rows.map(dbRowToAgent);
 }
 
 /**
@@ -677,38 +602,17 @@ export function getAgentByPath(workspacePath: string, absolutePath: string): Age
   // Get relative path from workspace root
   const relativePath = path.relative(normalizedWorkspace, normalizedPath);
 
-  const db = openWorkspaceDatabase(workspacePath);
-  const agents = db.prepare(
-    "SELECT * FROM agents WHERE status = 'active' OR status IS NULL"
-  ).all() as Array<{
-    name: string;
-    type: string | null;
-    status: string | null;
-    base_name: string | null;
-    theme_id: string | null;
-    worktree_path: string | null;
-    mount_mode: string | null;
-    created_at: string;
-    cleaned_at: string | null;
-  }>;
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
+  const rows = drizzleDb.select().from(schema.agents)
+    .where(or(eq(schema.agents.status, 'active'), isNull(schema.agents.status)))
+    .all();
   db.close();
 
   // Find agent whose worktree_path matches or contains the relative path
-  for (const row of agents) {
-    if (row.worktree_path) {
-      // Check if relativePath starts with or equals the agent's worktree_path
-      if (relativePath === row.worktree_path || relativePath.startsWith(row.worktree_path + '/')) {
-        return {
-          name: row.name,
-          type: (row.type || 'persistent') as AgentType,
-          status: (row.status || 'active') as AgentStatus,
-          base_name: row.base_name,
-          theme_id: row.theme_id,
-          worktree_path: row.worktree_path,
-          mount_mode: (row.mount_mode || 'worktree') as MountMode,
-          created_at: row.created_at,
-          cleaned_at: row.cleaned_at,
-        };
+  for (const row of rows) {
+    if (row.worktreePath) {
+      if (relativePath === row.worktreePath || relativePath.startsWith(row.worktreePath + '/')) {
+        return dbRowToAgent(row);
       }
     }
   }
@@ -720,9 +624,12 @@ export function getAgentByPath(workspacePath: string, absolutePath: string): Age
  * Mark an agent as cleaned up (keeps the record for history)
  */
 export function markAgentCleaned(workspacePath: string, agentName: string): void {
-  const db = openWorkspaceDatabase(workspacePath);
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
   const now = new Date().toISOString();
-  db.prepare("UPDATE agents SET status = 'cleaned', cleaned_at = ? WHERE name = ?").run(now, agentName);
+  drizzleDb.update(schema.agents)
+    .set({ status: 'cleaned', cleanedAt: now })
+    .where(eq(schema.agents.name, agentName))
+    .run();
   db.close();
 }
 
@@ -732,10 +639,10 @@ export function markAgentCleaned(workspacePath: string, agentName: string): void
  * Returns list of agents that were cleaned up.
  */
 export function syncAgentsWithDisk(workspacePath: string): string[] {
-  const agents = getWorkspaceAgents(workspacePath, false); // Only active agents
+  const agentsList = getWorkspaceAgents(workspacePath, false); // Only active agents
   const cleanedAgents: string[] = [];
 
-  for (const agent of agents) {
+  for (const agent of agentsList) {
     // Determine expected directory path
     let agentDir: string;
     if (agent.worktree_path) {
@@ -778,11 +685,11 @@ export function discoverAgentsOnDisk(workspacePath: string): DiscoverResult {
 
   // Get ALL agents including cleaned (for reactivation)
   const allAgents = getWorkspaceAgents(workspacePath, true);
-  const cleanedAgents = new Map(
+  const cleanedAgentsMap = new Map(
     allAgents.filter(a => a.status === 'cleaned').map(a => [a.name.toLowerCase(), a])
   );
 
-  const db = openWorkspaceDatabase(workspacePath);
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
 
   try {
     // Scan staff directory
@@ -796,20 +703,23 @@ export function discoverAgentsOnDisk(workspacePath: string): DiscoverResult {
             const worktreePath = `agents/staff/${entry.name}`;
             const now = new Date().toISOString();
 
-            // Check if this is a cleaned agent that should be reactivated
-            const cleanedAgent = cleanedAgents.get(nameLower);
+            const cleanedAgent = cleanedAgentsMap.get(nameLower);
             if (cleanedAgent) {
               // Reactivate the cleaned agent
-              db.prepare(`
-                UPDATE agents SET status = 'active', cleaned_at = NULL, worktree_path = ?
-                WHERE LOWER(name) = LOWER(?)
-              `).run(worktreePath, entry.name);
+              drizzleDb.update(schema.agents)
+                .set({ status: 'active', cleanedAt: null, worktreePath })
+                .where(sql`LOWER(${schema.agents.name}) = LOWER(${entry.name})`)
+                .run();
             } else {
-              // Register new agent - discovered agents default to 'worktree' mode (legacy behavior)
-              db.prepare(`
-                INSERT INTO agents (name, type, status, worktree_path, mount_mode, created_at)
-                VALUES (?, 'persistent', 'active', ?, 'worktree', ?)
-              `).run(entry.name, worktreePath, now);
+              // Register new agent - discovered agents default to 'worktree' mode
+              drizzleDb.insert(schema.agents).values({
+                name: entry.name,
+                type: 'persistent',
+                status: 'active',
+                worktreePath,
+                mountMode: 'worktree',
+                createdAt: now,
+              }).run();
             }
             result.discovered.push({ name: entry.name, type: 'persistent', path: worktreePath });
             activeNames.add(nameLower);
@@ -829,20 +739,23 @@ export function discoverAgentsOnDisk(workspacePath: string): DiscoverResult {
             const worktreePath = `agents/temp/${entry.name}`;
             const now = new Date().toISOString();
 
-            // Check if this is a cleaned agent that should be reactivated
-            const cleanedAgent = cleanedAgents.get(nameLower);
+            const cleanedAgent = cleanedAgentsMap.get(nameLower);
             if (cleanedAgent) {
               // Reactivate the cleaned agent
-              db.prepare(`
-                UPDATE agents SET status = 'active', cleaned_at = NULL, worktree_path = ?
-                WHERE LOWER(name) = LOWER(?)
-              `).run(worktreePath, entry.name);
+              drizzleDb.update(schema.agents)
+                .set({ status: 'active', cleanedAt: null, worktreePath })
+                .where(sql`LOWER(${schema.agents.name}) = LOWER(${entry.name})`)
+                .run();
             } else {
-              // Register new agent - discovered agents default to 'worktree' mode (legacy behavior)
-              db.prepare(`
-                INSERT INTO agents (name, type, status, worktree_path, mount_mode, created_at)
-                VALUES (?, 'ephemeral', 'active', ?, 'worktree', ?)
-              `).run(entry.name, worktreePath, now);
+              // Register new agent - discovered agents default to 'worktree' mode
+              drizzleDb.insert(schema.agents).values({
+                name: entry.name,
+                type: 'ephemeral',
+                status: 'active',
+                worktreePath,
+                mountMode: 'worktree',
+                createdAt: now,
+              }).run();
             }
             result.discovered.push({ name: entry.name, type: 'ephemeral', path: worktreePath });
             activeNames.add(nameLower);
@@ -861,20 +774,24 @@ export function discoverAgentsOnDisk(workspacePath: string): DiscoverResult {
  * Get all repositories in workspace
  */
 export function getWorkspaceRepositories(workspacePath: string): Repository[] {
-  const db = openWorkspaceDatabase(workspacePath);
-  const repos = db.prepare('SELECT * FROM repositories ORDER BY added_at').all() as Repository[];
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
+  const rows = drizzleDb.select().from(schema.repositories)
+    .orderBy(asc(schema.repositories.addedAt))
+    .all();
   db.close();
-  return repos;
+  return rows.map(dbRowToRepository);
 }
 
 /**
  * Get worktrees for a specific agent
  */
 export function getAgentWorktrees(workspacePath: string, agentName: string): AgentWorktree[] {
-  const db = openWorkspaceDatabase(workspacePath);
-  const worktrees = db.prepare('SELECT * FROM agent_worktrees WHERE agent_name = ?').all(agentName) as AgentWorktree[];
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
+  const rows = drizzleDb.select().from(schema.agentWorktrees)
+    .where(eq(schema.agentWorktrees.agentName, agentName))
+    .all();
   db.close();
-  return worktrees;
+  return rows.map(dbRowToWorktree);
 }
 
 
@@ -882,14 +799,14 @@ export function getAgentWorktrees(workspacePath: string, agentName: string): Age
  * Remove agents from database
  */
 export function removeAgentsFromDatabase(workspacePath: string, agentNames: string[]): void {
-  const db = openWorkspaceDatabase(workspacePath);
-
-  const deleteAgent = db.prepare('DELETE FROM agents WHERE name = ?');
-  // Note: agent_worktrees will be deleted automatically due to CASCADE
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
 
   const transaction = db.transaction(() => {
     for (const agentName of agentNames) {
-      deleteAgent.run(agentName);
+      // Note: agent_worktrees will be deleted automatically due to CASCADE
+      drizzleDb.delete(schema.agents)
+        .where(eq(schema.agents.name, agentName))
+        .run();
     }
   });
 
@@ -905,20 +822,24 @@ export function removeAgentsFromDatabase(workspacePath: string, agentNames: stri
  * Get all themes
  */
 export function getThemes(workspacePath: string): AgentTheme[] {
-  const db = openWorkspaceDatabase(workspacePath);
-  const themes = db.prepare('SELECT * FROM agent_themes ORDER BY builtin DESC, name').all() as AgentTheme[];
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
+  const rows = drizzleDb.select().from(schema.agentThemes)
+    .orderBy(desc(schema.agentThemes.builtin), asc(schema.agentThemes.name))
+    .all();
   db.close();
-  return themes;
+  return rows.map(dbRowToTheme);
 }
 
 /**
  * Get a theme by ID
  */
 export function getTheme(workspacePath: string, themeId: string): AgentTheme | null {
-  const db = openWorkspaceDatabase(workspacePath);
-  const theme = db.prepare('SELECT * FROM agent_themes WHERE id = ?').get(themeId) as AgentTheme | undefined;
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
+  const row = drizzleDb.select().from(schema.agentThemes)
+    .where(eq(schema.agentThemes.id, themeId))
+    .get();
   db.close();
-  return theme || null;
+  return row ? dbRowToTheme(row) : null;
 }
 
 /**
@@ -928,27 +849,40 @@ export function createTheme(
   workspacePath: string,
   theme: { id: string; name: string; displayName: string; description?: string; builtin?: boolean }
 ): AgentTheme {
-  const db = openWorkspaceDatabase(workspacePath);
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
   const now = new Date().toISOString();
 
-  db.prepare(`
-    INSERT INTO agent_themes (id, name, display_name, description, builtin, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(theme.id, theme.name, theme.displayName, theme.description || null, theme.builtin ? 1 : 0, now);
+  drizzleDb.insert(schema.agentThemes).values({
+    id: theme.id,
+    name: theme.name,
+    displayName: theme.displayName,
+    description: theme.description || null,
+    builtin: theme.builtin || false,
+    createdAt: now,
+  }).run();
 
-  const created = db.prepare('SELECT * FROM agent_themes WHERE id = ?').get(theme.id) as AgentTheme;
+  const created = drizzleDb.select().from(schema.agentThemes)
+    .where(eq(schema.agentThemes.id, theme.id))
+    .get();
   db.close();
-  return created;
+
+  if (!created) {
+    throw new Error(`Failed to create theme "${theme.id}"`);
+  }
+  return dbRowToTheme(created);
 }
 
 /**
  * Delete a theme (cannot delete builtin themes)
  */
 export function deleteTheme(workspacePath: string, themeId: string): boolean {
-  const db = openWorkspaceDatabase(workspacePath);
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
 
   // Check if builtin
-  const theme = db.prepare('SELECT builtin FROM agent_themes WHERE id = ?').get(themeId) as { builtin: number } | undefined;
+  const theme = drizzleDb.select({ builtin: schema.agentThemes.builtin })
+    .from(schema.agentThemes)
+    .where(eq(schema.agentThemes.id, themeId))
+    .get();
   if (!theme) {
     db.close();
     return false;
@@ -958,7 +892,9 @@ export function deleteTheme(workspacePath: string, themeId: string): boolean {
     throw new Error('Cannot delete built-in themes');
   }
 
-  db.prepare('DELETE FROM agent_themes WHERE id = ?').run(themeId);
+  drizzleDb.delete(schema.agentThemes)
+    .where(eq(schema.agentThemes.id, themeId))
+    .run();
   db.close();
   return true;
 }
@@ -967,10 +903,13 @@ export function deleteTheme(workspacePath: string, themeId: string): boolean {
  * Get names for a theme
  */
 export function getThemeNames(workspacePath: string, themeId: string): AgentThemeName[] {
-  const db = openWorkspaceDatabase(workspacePath);
-  const names = db.prepare('SELECT * FROM agent_theme_names WHERE theme_id = ? ORDER BY name').all(themeId) as AgentThemeName[];
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
+  const rows = drizzleDb.select().from(schema.agentThemeNames)
+    .where(eq(schema.agentThemeNames.themeId, themeId))
+    .orderBy(asc(schema.agentThemeNames.name))
+    .all();
   db.close();
-  return names;
+  return rows.map(row => ({ theme_id: row.themeId, name: row.name }));
 }
 
 /**
@@ -980,27 +919,36 @@ export function getThemeNames(workspacePath: string, themeId: string): AgentThem
  * 2. The agent exists but its worktree directory is missing (manually deleted)
  */
 export function getAvailableThemeNames(workspacePath: string, themeId: string): string[] {
-  const db = openWorkspaceDatabase(workspacePath);
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
 
   // Get all theme names
-  const names = db.prepare(
-    'SELECT name FROM agent_theme_names WHERE theme_id = ? ORDER BY name'
-  ).all(themeId) as { name: string }[];
+  const names = drizzleDb.select({ name: schema.agentThemeNames.name })
+    .from(schema.agentThemeNames)
+    .where(eq(schema.agentThemeNames.themeId, themeId))
+    .orderBy(asc(schema.agentThemeNames.name))
+    .all();
 
   // Get existing staff agents with their worktree paths (persistent type only)
-  const existingAgents = db.prepare(`
-    SELECT LOWER(name) as name, worktree_path
-    FROM agents
-    WHERE type = 'persistent' AND (status = 'active' OR status IS NULL)
-  `).all() as { name: string; worktree_path: string | null }[];
+  const existingAgents = drizzleDb.select({
+    name: sql<string>`LOWER(${schema.agents.name})`,
+    worktreePath: schema.agents.worktreePath,
+  })
+    .from(schema.agents)
+    .where(
+      and(
+        eq(schema.agents.type, 'persistent'),
+        or(eq(schema.agents.status, 'active'), isNull(schema.agents.status))
+      )
+    )
+    .all();
 
   db.close();
 
   // Build a set of names that are truly in use (agent exists AND worktree exists)
   const inUseNames = new Set<string>();
   for (const agent of existingAgents) {
-    if (agent.worktree_path) {
-      const fullPath = path.join(workspacePath, agent.worktree_path);
+    if (agent.worktreePath) {
+      const fullPath = path.join(workspacePath, agent.worktreePath);
       if (fs.existsSync(fullPath)) {
         inUseNames.add(agent.name);
       }
@@ -1020,24 +968,27 @@ export function getAvailableThemeNames(workspacePath: string, themeId: string): 
  * Add names to a theme (case-insensitive uniqueness)
  */
 export function addThemeNames(workspacePath: string, themeId: string, names: string[]): void {
-  const db = openWorkspaceDatabase(workspacePath);
-
-  // Check for existing name (case-insensitive)
-  const checkExisting = db.prepare('SELECT name FROM agent_theme_names WHERE theme_id = ? AND LOWER(name) = LOWER(?)');
-
-  const insertName = db.prepare(`
-    INSERT INTO agent_theme_names (theme_id, name)
-    VALUES (?, ?)
-  `);
+  const { db, drizzle: drizzleDb } = openDrizzleWorkspaceDatabase(workspacePath);
 
   const transaction = db.transaction(() => {
     for (const name of names) {
-      // Skip if name already exists (case-insensitive)
-      const existing = checkExisting.get(themeId, name) as { name: string } | undefined;
+      // Check for existing name (case-insensitive)
+      const existing = drizzleDb.select({ name: schema.agentThemeNames.name })
+        .from(schema.agentThemeNames)
+        .where(
+          and(
+            eq(schema.agentThemeNames.themeId, themeId),
+            sql`LOWER(${schema.agentThemeNames.name}) = LOWER(${name})`
+          )
+        )
+        .get();
       if (existing) {
         continue;
       }
-      insertName.run(themeId, name);
+      drizzleDb.insert(schema.agentThemeNames).values({
+        themeId,
+        name,
+      }).run();
     }
   });
 

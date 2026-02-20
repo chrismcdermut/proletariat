@@ -85,6 +85,10 @@ export const agentWorktrees = sqliteTable('agent_worktrees', {
   worktreePath: text('worktree_path').notNull(),
   branch: text('branch').notNull(),
   createdAt: text('created_at').notNull(),
+  lastCommitHash: text('last_commit_hash'),
+  commitsAhead: integer('commits_ahead').notNull().default(0),
+  isClean: integer('is_clean', { mode: 'boolean' }).notNull().default(true),
+  lastChecked: text('last_checked'),
 }, (table) => ({
   pk: primaryKey({ columns: [table.agentName, table.repoName] }),
   idxAgent: index('idx_worktrees_agent').on(table.agentName),
