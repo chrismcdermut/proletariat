@@ -13,6 +13,7 @@ import {
   addAgentsToDatabase,
   removeAgentsFromDatabase,
   addEphemeralAgentToDatabase,
+  tryAddEphemeralAgentToDatabase,
   getEphemeralAgentNames,
   getActiveTheme,
   markAgentCleaned,
@@ -518,19 +519,24 @@ export interface EphemeralAgentResult {
 }
 
 /**
+ * Maximum number of retries when a name collision is detected at the DB level.
+ * Each retry generates a fresh name to avoid repeated collisions.
+ */
+const EPHEMERAL_CREATE_MAX_RETRIES = 5;
+
+/**
  * Create an ephemeral agent on-demand for a spawn operation.
  * Creates worktree in agents/temp/{name}/
+ *
+ * Concurrency-safe: if the generated name collides at the DB level
+ * (e.g. a parallel process inserted the same name first), we clean up
+ * the on-disk artifacts, regenerate a name, and retry up to
+ * EPHEMERAL_CREATE_MAX_RETRIES times.
  */
 export async function createEphemeralAgent(
   workspaceInfo: WorkspaceInfo,
   options?: EphemeralAgentOptions
 ): Promise<EphemeralAgentResult> {
-  // Get existing agent names for uniqueness check
-  const existingNames = new Set([
-    ...Array.from(getEphemeralAgentNames(workspaceInfo.path)),
-    ...workspaceInfo.agents.map(a => a.name.toLowerCase())
-  ]);
-
   const log = options?.log;
 
   // Get theme: use provided themeId, or fall back to workspace's active theme
@@ -549,135 +555,182 @@ export async function createEphemeralAgent(
     workspaceInfo.agents.map(agent => getAgentBaseName(agent).toLowerCase())
   );
 
-  // Create a conflict checker for external resources (tmux sessions, directories)
-  const checkExternalConflict = (candidateName: string): { conflict: boolean; reason?: string } => {
-    // Check if a tmux session with this name already exists (could be from manual creation)
-    if (tmuxSessionExists(candidateName)) {
-      return { conflict: true, reason: `tmux session "${candidateName}" already exists` };
-    }
-
-    // Check if the directory already exists in agents/temp/
-    const candidateDir = path.join(tempAgentsBasePath, candidateName);
-    if (fs.existsSync(candidateDir)) {
-      return { conflict: true, reason: `directory "${candidateDir}" already exists` };
-    }
-
-    return { conflict: false };
-  };
-
-  // Log when conflicts are skipped during name generation
-  const onConflictSkipped = (name: string, reason: string) => {
-    log?.(`⚠️  Skipping name "${name}": ${reason}`);
-  };
-
-  // Generate unique ephemeral name using workspace theme
-  const nameOptions: GenerateEphemeralNameOptions = {
-    themeId,
-    checkExternalConflict,
-    onConflictSkipped,
-    inUseBaseNames
-  };
-  const agentName = generateEphemeralAgentName(existingNames, nameOptions);
-
-  // Extract base name from the generated name (e.g., "bezos" from "bold-bezos" or "bold-bezos-2")
-  const baseName = extractBaseName(agentName);
-
-  // Create temp agents directory if it doesn't exist
-  if (!fs.existsSync(tempAgentsBasePath)) {
-    fs.mkdirSync(tempAgentsBasePath, { recursive: true });
-  }
-
-  const agentDir = path.join(tempAgentsBasePath, agentName);
-
-  // Create agent directory
-  if (!fs.existsSync(agentDir)) {
-    fs.mkdirSync(agentDir, { recursive: true });
-  }
-
-  // Create worktrees/clones for each repository
   const reposPath = path.join(workspaceInfo.path, 'repos');
   const mountMode = options?.mountMode || 'worktree';
 
-  if (fs.existsSync(reposPath) && workspaceInfo.repositories.length > 0) {
-    for (const repo of workspaceInfo.repositories) {
-      const sourceRepoPath = path.join(reposPath, repo.name);
-      const targetPath = path.join(agentDir, repo.name);
+  for (let attempt = 0; attempt <= EPHEMERAL_CREATE_MAX_RETRIES; attempt++) {
+    // Re-read existing names on every attempt so we see names that were
+    // inserted by concurrent processes since our last try
+    const existingNames = new Set([
+      ...Array.from(getEphemeralAgentNames(workspaceInfo.path)),
+      ...workspaceInfo.agents.map(a => a.name.toLowerCase())
+    ]);
 
-      if (fs.existsSync(sourceRepoPath) && !fs.existsSync(targetPath)) {
-        if (mountMode === 'clone') {
-          // CLONE MODE: Create independent git clone
-          try {
-            // Get remote URL from source repo
-            const remoteUrl = execSync('git remote get-url origin', {
-              cwd: sourceRepoPath,
-              encoding: 'utf-8',
-              stdio: ['pipe', 'pipe', 'pipe']
-            }).trim();
+    // Create a conflict checker for external resources (tmux sessions, directories)
+    const checkExternalConflict = (candidateName: string): { conflict: boolean; reason?: string } => {
+      if (tmuxSessionExists(candidateName)) {
+        return { conflict: true, reason: `tmux session "${candidateName}" already exists` };
+      }
+      const candidateDir = path.join(tempAgentsBasePath, candidateName);
+      if (fs.existsSync(candidateDir)) {
+        return { conflict: true, reason: `directory "${candidateDir}" already exists` };
+      }
+      return { conflict: false };
+    };
 
-            if (remoteUrl) {
-              execSync(`git clone "${remoteUrl}" "${targetPath}"`, {
+    const onConflictSkipped = (name: string, reason: string) => {
+      log?.(`⚠️  Skipping name "${name}": ${reason}`);
+    };
+
+    const nameOptions: GenerateEphemeralNameOptions = {
+      themeId,
+      checkExternalConflict,
+      onConflictSkipped,
+      inUseBaseNames
+    };
+    const agentName = generateEphemeralAgentName(existingNames, nameOptions);
+    const baseName = extractBaseName(agentName);
+
+    // Create temp agents directory if it doesn't exist
+    if (!fs.existsSync(tempAgentsBasePath)) {
+      fs.mkdirSync(tempAgentsBasePath, { recursive: true });
+    }
+
+    const agentDir = path.join(tempAgentsBasePath, agentName);
+
+    // Create agent directory
+    if (!fs.existsSync(agentDir)) {
+      fs.mkdirSync(agentDir, { recursive: true });
+    }
+
+    // Create worktrees/clones for each repository
+    if (fs.existsSync(reposPath) && workspaceInfo.repositories.length > 0) {
+      for (const repo of workspaceInfo.repositories) {
+        const sourceRepoPath = path.join(reposPath, repo.name);
+        const targetPath = path.join(agentDir, repo.name);
+
+        if (fs.existsSync(sourceRepoPath) && !fs.existsSync(targetPath)) {
+          if (mountMode === 'clone') {
+            // CLONE MODE: Create independent git clone
+            try {
+              const remoteUrl = execSync('git remote get-url origin', {
+                cwd: sourceRepoPath,
+                encoding: 'utf-8',
+                stdio: ['pipe', 'pipe', 'pipe']
+              }).trim();
+
+              if (remoteUrl) {
+                execSync(`git clone "${remoteUrl}" "${targetPath}"`, {
+                  stdio: 'pipe'
+                });
+              }
+            } catch {
+              if (!fs.existsSync(targetPath)) {
+                fs.mkdirSync(targetPath, { recursive: true });
+              }
+            }
+          } else {
+            // WORKTREE MODE: Create git worktree
+            try {
+              execSync(`git worktree add --detach "${targetPath}"`, {
+                cwd: sourceRepoPath,
                 stdio: 'pipe'
               });
-            }
-          } catch {
-            // If clone fails, try to just create the directory
-            if (!fs.existsSync(targetPath)) {
-              fs.mkdirSync(targetPath, { recursive: true });
+            } catch {
+              if (!fs.existsSync(targetPath)) {
+                fs.mkdirSync(targetPath, { recursive: true });
+              }
             }
           }
-        } else {
-          // WORKTREE MODE: Create git worktree
+        }
+      }
+    }
+
+    // Create devcontainer config if not skipped (uses shared devcontainer generator)
+    if (!options?.skipDevcontainer) {
+      const devcontainerDir = path.join(agentDir, '.devcontainer');
+      if (!fs.existsSync(devcontainerDir)) {
+        const gitIdentity = getGitIdentity();
+        createDevcontainerConfig({
+          agentName,
+          agentDir,
+          repoWorktrees: mountMode === 'worktree' ? workspaceInfo.repositories.map(r => r.name) : undefined,
+          mountMode,
+          gitUserName: gitIdentity.name || undefined,
+          gitUserEmail: gitIdentity.email || undefined,
+        });
+      }
+    }
+
+    // Attempt atomic DB insertion — returns null on name collision
+    const agent = tryAddEphemeralAgentToDatabase(
+      workspaceInfo.path,
+      agentName,
+      baseName,
+      options?.themeId,
+      mountMode
+    );
+
+    if (agent) {
+      return {
+        name: agentName,
+        baseName,
+        worktreePath: agentDir,
+        agent
+      };
+    }
+
+    // Name collision at DB level — clean up on-disk artifacts and retry
+    log?.(`⚠️  Name collision for "${agentName}" (attempt ${attempt + 1}/${EPHEMERAL_CREATE_MAX_RETRIES + 1}), retrying with a new name...`);
+    cleanupFailedEphemeralAgent(agentDir, workspaceInfo, mountMode);
+  }
+
+  // All retries exhausted
+  throw new Error(
+    `Failed to create ephemeral agent after ${EPHEMERAL_CREATE_MAX_RETRIES + 1} attempts due to concurrent name collisions. ` +
+    `This can happen when many ephemeral agents are being created simultaneously. ` +
+    `Suggested remediation: wait a moment and retry, or specify a unique agent name with --agent.`
+  );
+}
+
+/**
+ * Clean up on-disk artifacts (directories, worktrees) for a failed ephemeral
+ * agent creation attempt. Used when a DB name collision forces a retry.
+ */
+function cleanupFailedEphemeralAgent(
+  agentDir: string,
+  workspaceInfo: WorkspaceInfo,
+  mountMode: string
+): void {
+  if (!fs.existsSync(agentDir)) return;
+
+  // Remove git worktrees first (if in worktree mode)
+  if (mountMode === 'worktree') {
+    const reposPath = path.join(workspaceInfo.path, 'repos');
+    if (fs.existsSync(reposPath)) {
+      for (const repo of workspaceInfo.repositories) {
+        const sourceRepoPath = path.join(reposPath, repo.name);
+        const worktreePath = path.join(agentDir, repo.name);
+        if (fs.existsSync(sourceRepoPath) && fs.existsSync(worktreePath)) {
           try {
-            // Create git worktree for the repository
-            // Don't create a branch yet - that happens in work:start
-            // Use --detach to create without a branch reference
-            execSync(`git worktree add --detach "${targetPath}"`, {
+            execSync(`git worktree remove "${worktreePath}" --force`, {
               cwd: sourceRepoPath,
               stdio: 'pipe'
             });
           } catch {
-            // If worktree creation fails, try to just create the directory
-            // The agent can still work without a worktree (e.g., for non-git projects)
-            if (!fs.existsSync(targetPath)) {
-              fs.mkdirSync(targetPath, { recursive: true });
-            }
+            // Ignore — rmSync below will clean up the directory
           }
         }
       }
     }
   }
 
-  // Create devcontainer config if not skipped (uses shared devcontainer generator)
-  if (!options?.skipDevcontainer) {
-    const devcontainerDir = path.join(agentDir, '.devcontainer');
-    if (!fs.existsSync(devcontainerDir)) {
-      const gitIdentity = getGitIdentity();
-      createDevcontainerConfig({
-        agentName,
-        agentDir,
-        repoWorktrees: mountMode === 'worktree' ? workspaceInfo.repositories.map(r => r.name) : undefined,
-        mountMode,
-        gitUserName: gitIdentity.name || undefined,
-        gitUserEmail: gitIdentity.email || undefined,
-      });
-    }
+  // Remove the agent directory
+  try {
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  } catch {
+    // Best-effort cleanup
   }
-
-  // Add to database
-  const agent = addEphemeralAgentToDatabase(
-    workspaceInfo.path,
-    agentName,
-    baseName,
-    options?.themeId,
-    mountMode
-  );
-
-  return {
-    name: agentName,
-    baseName,
-    worktreePath: agentDir,
-    agent
-  };
 }
 
 /**
