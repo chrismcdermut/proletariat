@@ -74,7 +74,7 @@ export default class WorkWatch extends PMOCommand {
       default: false,
     }),
     'create-pr': Flags.boolean({
-      description: 'Create PR when work is ready',
+      description: 'Create PR when work is ready (canonical flag for PR behavior)',
       default: false,
     }),
   }

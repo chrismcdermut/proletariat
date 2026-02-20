@@ -107,6 +107,7 @@ export default class WorkStart extends PMOCommand {
 
   static examples = [
     '<%= config.bin %> <%= command.id %> TKT-001',
+    '<%= config.bin %> <%= command.id %> TKT-001 --create-pr  # Create PR when work is ready',
     '<%= config.bin %> <%= command.id %> TKT-001 --mode foreground',
     '<%= config.bin %> <%= command.id %> TKT-001 --mode tmux',
     '<%= config.bin %> <%= command.id %> TKT-001 --mode terminal',
@@ -175,11 +176,11 @@ export default class WorkStart extends PMOCommand {
       default: false,
     }),
     'create-pr': Flags.boolean({
-      description: 'Create PR when work is ready',
+      description: 'Create PR when work is ready (canonical flag for PR behavior)',
       default: false,
     }),
     'no-pr': Flags.boolean({
-      description: 'Do not create PR when work is ready',
+      description: '[deprecated: use --create-pr instead] Skip PR creation when work is ready',
       default: false,
     }),
     output: Flags.string({
@@ -232,6 +233,11 @@ export default class WorkStart extends PMOCommand {
     // Check for conflicting PR flags
     if (flags['create-pr'] && flags['no-pr']) {
       this.error('--create-pr and --no-pr are mutually exclusive');
+    }
+
+    // Deprecation guidance for --no-pr
+    if (flags['no-pr']) {
+      this.warn('--no-pr is deprecated. Omit --create-pr instead (PR creation is off by default). --no-pr will continue to work.')
     }
 
     // Handle --skip-permissions flag (alias for --permission-mode danger)
@@ -327,6 +333,7 @@ export default class WorkStart extends PMOCommand {
         if (allFlagsProvided && !flags.yes) {
           // All flags provided but no --yes: return confirmation_needed with plan
           const metadata = createMetadata('work start', flags)
+          metadata.resolvedPRMode = flags['create-pr'] ? 'create-pr' : 'no-pr'
 
           // Build the confirm command with --yes
           let confirmCmd = `prlt work start ${ticketId}`
@@ -1430,9 +1437,8 @@ export default class WorkStart extends PMOCommand {
         }
 
         this.log(styles.muted(`   Output: ${outputMode === 'interactive' ? 'streaming (watch Claude work)' : 'print (final result only)'}`))
-        if (ghAvailable) {
-          this.log(styles.muted(`   Create PR: ${createPR ? 'yes (when work is ready)' : 'no'}`))
-        }
+        this.log(styles.muted(`   PR mode: ${createPR ? 'create-pr' : 'no-pr'}${ghAvailable ? '' : ' (gh CLI not available)'}`))
+
         this.log(styles.muted(`   Worktree: ${worktreePath}`))
         this.log(styles.muted(`   Branch: ${branch}`))
         this.log('')
@@ -1765,7 +1771,9 @@ export default class WorkStart extends PMOCommand {
 
         // Output results
         if (jsonMode) {
-          // Output JSON execution result
+          // Output JSON execution result with resolved PR mode
+          const metadata = createMetadata('work start', flags)
+          metadata.resolvedPRMode = createPR ? 'create-pr' : 'no-pr'
           outputExecutionResultAsJson(
             [{
               workId: execution.id,
@@ -1777,7 +1785,7 @@ export default class WorkStart extends PMOCommand {
             }],
             1,
             0,
-            createMetadata('work start', flags)
+            metadata
           )
         } else {
           this.log('')
@@ -1791,7 +1799,9 @@ export default class WorkStart extends PMOCommand {
       } else {
         executionStorage.updateStatus(execution.id, 'failed')
         if (jsonMode) {
-          // Output JSON failure result
+          // Output JSON failure result with resolved PR mode
+          const failMetadata = createMetadata('work start', flags)
+          failMetadata.resolvedPRMode = createPR ? 'create-pr' : 'no-pr'
           outputExecutionResultAsJson(
             [{
               workId: execution.id,
@@ -1801,7 +1811,7 @@ export default class WorkStart extends PMOCommand {
             }],
             0,
             1,
-            createMetadata('work start', flags)
+            failMetadata
           )
         } else {
           this.error(`Failed to start work: ${result.error}`)

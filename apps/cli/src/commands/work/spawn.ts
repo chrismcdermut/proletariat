@@ -45,6 +45,7 @@ export default class WorkSpawn extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --count 5 --category ship --action implement  # Filtered by category',
     '<%= config.bin %> <%= command.id %> --count 5 --priority P0 --action implement  # Filtered by priority',
     '<%= config.bin %> <%= command.id %> --count 10 --diet --category ship,grow --action groom  # Combined',
+    '<%= config.bin %> <%= command.id %> TKT-001 TKT-002 --create-pr  # Create PR when work is ready',
   ]
 
   static flags = {
@@ -114,11 +115,11 @@ export default class WorkSpawn extends PMOCommand {
       default: false,
     }),
     'create-pr': Flags.boolean({
-      description: 'Create PR when work is ready (batch mode only)',
+      description: 'Create PR when work is ready (canonical flag for PR behavior, batch mode only)',
       default: false,
     }),
     'no-pr': Flags.boolean({
-      description: 'Do not create PR when work is ready (batch mode only)',
+      description: '[deprecated: use --create-pr instead] Skip PR creation (batch mode only)',
       default: false,
     }),
     action: Flags.string({
@@ -176,6 +177,11 @@ export default class WorkSpawn extends PMOCommand {
         this.exit(1)
       }
       this.error(message)
+    }
+
+    // Deprecation guidance for --no-pr
+    if (flags['no-pr']) {
+      this.warn('--no-pr is deprecated. Omit --create-pr instead (PR creation is off by default). --no-pr will continue to work.')
     }
 
     // Parse ticket IDs from args (everything after flags)
@@ -336,6 +342,7 @@ export default class WorkSpawn extends PMOCommand {
           } else if (allFlagsProvided && !flags.yes) {
             // All flags provided but no --yes: return confirmation_needed with plan
             const metadata = createMetadata('work spawn', flags)
+            metadata.resolvedPRMode = flags['create-pr'] ? 'create-pr' : 'no-pr'
 
             // Build the confirm command with --yes
             const ticketIds = ticketsToSpawn.map(t => t.id).join(' ')
@@ -668,6 +675,7 @@ export default class WorkSpawn extends PMOCommand {
         // In JSON mode without --yes, return confirmation_needed
         if (jsonMode && !flags.yes) {
           const metadata = createMetadata('work spawn', flags)
+          metadata.resolvedPRMode = flags['create-pr'] ? 'create-pr' : 'no-pr'
           const ticketIds = ticketsToSpawn.map(t => t.id).join(' ')
           let confirmCmd = `prlt work spawn ${ticketIds}`
           if (flags.action) confirmCmd += ` --action ${flags.action}`
@@ -1552,16 +1560,20 @@ export default class WorkSpawn extends PMOCommand {
 
       // Output results
       if (jsonMode) {
-        // Output JSON execution results
+        // Output JSON execution results with resolved PR mode
+        const spawnMetadata = createMetadata('work spawn', flags)
+        spawnMetadata.resolvedPRMode = flags['create-pr'] ? 'create-pr' : 'no-pr'
         outputExecutionResultAsJson(
           executionResults,
           successCount,
           failCount,
-          createMetadata('work spawn', flags)
+          spawnMetadata
         )
       } else {
+        const resolvedPRMode = flags['create-pr'] ? 'create-pr' : 'no-pr'
         this.log('')
         this.log(styles.success(`✓ Spawn results: ${successCount} started, ${failCount} failed`))
+        this.log(styles.muted(`   PR mode: ${resolvedPRMode}`))
       }
     } catch (error) {
       db.close()
