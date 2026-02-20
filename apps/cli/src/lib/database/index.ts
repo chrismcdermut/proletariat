@@ -932,6 +932,73 @@ export function removeAgentsFromDatabase(workspacePath: string, agentNames: stri
 }
 
 // =============================================================================
+// PMO Bootstrapping Operations
+// =============================================================================
+
+/**
+ * Check if PMO tables exist and get basic stats.
+ * Used by pmo init to detect existing PMO before storage layer is available.
+ */
+export function checkPMOExists(dbPath: string): { exists: boolean; projectCount: number; ticketCount: number } {
+  const db = new Database(dbPath);
+  try {
+    const result = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
+    ).get();
+
+    if (result === undefined) {
+      return { exists: false, projectCount: 0, ticketCount: 0 };
+    }
+
+    const projectCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_projects').get() as { count: number };
+    const ticketCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_tickets').get() as { count: number };
+
+    return {
+      exists: true,
+      projectCount: projectCountResult.count,
+      ticketCount: ticketCountResult.count,
+    };
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Get a PMO setting from the pmo_settings table.
+ * Used for bootstrapping queries before storage layer is available.
+ */
+export function getPMOSetting(dbPath: string, key: string): string | null {
+  const db = new Database(dbPath);
+  try {
+    const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get(key) as { value: string } | undefined;
+    return result?.value ?? null;
+  } catch {
+    return null;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Drop PMO tables from the database.
+ * Used during PMO reinitialization.
+ */
+export function dropPMOTables(dbPath: string, tables: string[]): void {
+  const db = new Database(dbPath);
+  try {
+    for (const table of tables) {
+      try {
+        db.prepare(`DROP TABLE IF EXISTS ${table}`).run();
+      } catch {
+        // Ignore errors - table might not exist
+      }
+    }
+  } finally {
+    db.close();
+  }
+}
+
+// =============================================================================
 // Theme CRUD Operations
 // =============================================================================
 
