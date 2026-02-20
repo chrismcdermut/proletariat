@@ -110,26 +110,41 @@ export const BUILTIN_THEMES: BuiltinThemeDefinition[] = [
   {
     id: 'billionaires',
     name: 'billionaires',
-    displayName: 'Billionaires & Tech Elite',
+    displayName: 'Billionaires',
     description: 'The ultra-wealthy work for you',
     persistentDir: 'staff',
     ephemeralDir: 'temp',
     names: [
-      // Tech founders & executives
-      'altman', 'andreesen', 'bezos', 'branson', 'brin', 'buffett',
-      'cook', 'dalio', 'dario', 'dorsey', 'ellison', 'gates', 'huang',
-      'iger', 'jobs', 'kalanick', 'karpathy', 'lecun', 'ma', 'musk',
-      'nadella', 'page', 'pichai', 'sandberg', 'schultz', 'sutskever',
-      'thiel', 'wojcicki', 'zuck',
-      // More tech leaders
-      'ballmer', 'benioff', 'chesky', 'collison', 'dell', 'durov',
-      'fink', 'fridman', 'grove', 'hastings', 'hoffman', 'horowitz',
-      'hurd', 'ive', 'khosla', 'knight', 'kutcher', 'levie', 'levinson',
-      'lynch', 'marcus', 'mayer', 'mcnealy', 'morin', 'neumann',
-      'omidyar', 'packard', 'parker', 'powell', 'rabois', 'rometty',
-      'ross', 'schmidt', 'sequoia', 'siebel', 'silbermann', 'sinofsky',
-      'spiegel', 'spolsky', 'sweeney', 'systrom', 'torvalds', 'wales',
-      'wozniak', 'yang', 'yegge', 'zhang', 'zhong'
+      'altman', 'ballmer', 'benioff', 'bezos', 'branson', 'brin',
+      'buffett', 'chesky', 'collison', 'cook', 'dalio', 'dell',
+      'dorsey', 'durov', 'ellison', 'fink', 'gates', 'grove',
+      'hastings', 'hoffman', 'huang', 'jobs', 'knight', 'ma',
+      'mcnealy', 'musk', 'nadella', 'neumann', 'omidyar', 'packard',
+      'page', 'parker', 'pichai', 'ross', 'sandberg', 'schmidt',
+      'schultz', 'siebel', 'silbermann', 'spiegel', 'sweeney',
+      'systrom', 'thiel', 'yang', 'zuck'
+    ]
+  },
+  {
+    id: 'cracked-engineers',
+    name: 'cracked-engineers',
+    displayName: 'Cracked Engineers',
+    description: 'AI researchers, engineers, and tech legends',
+    persistentDir: 'staff',
+    ephemeralDir: 'temp',
+    names: [
+      // AI researchers
+      'dario', 'karpathy', 'lecun', 'sutskever',
+      // Engineers & creators
+      'sinofsky', 'spolsky', 'torvalds', 'wozniak', 'yegge',
+      // Podcasters & educators
+      'fridman',
+      // VCs & non-billionaire figures
+      'andreesen', 'horowitz', 'khosla', 'levinson', 'rabois', 'sequoia',
+      // Other tech figures
+      'hurd', 'iger', 'ive', 'kalanick', 'kutcher', 'levie', 'lynch',
+      'marcus', 'mayer', 'morin', 'powell', 'rometty', 'wales',
+      'wojcicki', 'zhang', 'zhong'
     ]
   },
   {
