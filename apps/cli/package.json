@@ -128,7 +128,8 @@
     "test:commands": "mocha --forbid-only \"test/commands/**/*.test.ts\"",
     "version": "oclif readme && git add README.md",
     "publish:npm": "pnpm build && pnpm publish --access public --no-git-checks && git tag v$(node -p \"require('./package.json').version\") && git push origin v$(node -p \"require('./package.json').version\") && gh release create v$(node -p \"require('./package.json').version\") --generate-notes --title \"v$(node -p \"require('./package.json').version\")\"",
-    "roadmap:generate": "node ./bin/run.js roadmap generate --all"
+    "roadmap:generate": "node ./bin/run.js roadmap generate --all",
+    "check:raw-sql": "bash ../../scripts/check-raw-sql.sh"
   },
   "types": "dist/index.d.ts"
 }
