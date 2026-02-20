@@ -674,6 +674,192 @@ describe('PMO SQLite Storage', () => {
       const isBlocked = await storage.isTicketBlocked(ticket1Id);
       expect(isBlocked).to.be.false;
     });
+
+    it('lists relates_to dependencies symmetrically', async () => {
+      // Create A relates_to B
+      await storage.createTicketDependency(ticket1Id, ticket2Id, 'relates_to');
+
+      // When querying from ticket1 (source), should see the relationship
+      const deps1 = await storage.listTicketDependencies(ticket1Id);
+      const relatesDeps1 = deps1.filter(d => d.dependencyType === 'relates_to');
+      expect(relatesDeps1).to.have.length(1);
+      expect(relatesDeps1[0].dependsOnTicketId).to.equal(ticket2Id);
+
+      // When querying from ticket2 (target), should also see the reverse relationship
+      const deps2 = await storage.listTicketDependencies(ticket2Id);
+      const relatesDeps2 = deps2.filter(d => d.dependencyType === 'relates_to');
+      expect(relatesDeps2).to.have.length(1);
+      expect(relatesDeps2[0].dependsOnTicketId).to.equal(ticket1Id);
+    });
+
+    it('does not list blocks dependencies symmetrically', async () => {
+      // Create A blocked by B (directional)
+      await storage.createTicketDependency(ticket1Id, ticket2Id, 'blocks');
+
+      // When querying from ticket1 (source), should see the relationship
+      const deps1 = await storage.listTicketDependencies(ticket1Id);
+      expect(deps1).to.have.length(1);
+
+      // When querying from ticket2 (target), should NOT see reverse
+      const deps2 = await storage.listTicketDependencies(ticket2Id);
+      expect(deps2).to.have.length(0);
+    });
+
+    it('does not list duplicates dependencies symmetrically', async () => {
+      // Create A duplicates B (directional)
+      await storage.createTicketDependency(ticket1Id, ticket2Id, 'duplicates');
+
+      // When querying from ticket1 (source), should see the relationship
+      const deps1 = await storage.listTicketDependencies(ticket1Id);
+      expect(deps1).to.have.length(1);
+
+      // When querying from ticket2 (target), should NOT see reverse
+      const deps2 = await storage.listTicketDependencies(ticket2Id);
+      expect(deps2).to.have.length(0);
+    });
+
+    it('does not duplicate relates_to when querying source', async () => {
+      // Create A relates_to B
+      await storage.createTicketDependency(ticket1Id, ticket2Id, 'relates_to');
+
+      // Source should only see it once (not duplicated by the UNION)
+      const deps = await storage.listTicketDependencies(ticket1Id);
+      const relatesDeps = deps.filter(d => d.dependencyType === 'relates_to');
+      expect(relatesDeps).to.have.length(1);
+    });
+  });
+
+  describe('Old Schema Migration', () => {
+    it('migrates old blocked_by_ticket_id schema to new format', async () => {
+      // Create a fresh database with the OLD schema
+      const oldDbPath = path.join(testDir, 'old-schema.db');
+      const oldDb = new Database(oldDbPath);
+      oldDb.pragma('journal_mode = WAL');
+      oldDb.pragma('foreign_keys = ON');
+
+      // Create minimal tables needed for the old schema
+      oldDb.exec(`
+        CREATE TABLE pmo_phases (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          category TEXT NOT NULL,
+          position INTEGER NOT NULL DEFAULT 0,
+          color TEXT,
+          description TEXT,
+          is_default INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      oldDb.exec(`
+        CREATE TABLE pmo_projects (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          template TEXT,
+          description TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          phase_id TEXT,
+          is_archived INTEGER NOT NULL DEFAULT 0,
+          target_date TIMESTAMP,
+          initiative_id TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      oldDb.exec(`
+        CREATE TABLE pmo_specs (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          status TEXT DEFAULT 'draft',
+          type TEXT,
+          tags TEXT,
+          depends_on TEXT,
+          problem TEXT,
+          solution TEXT,
+          decisions TEXT,
+          not_now TEXT,
+          ui_ux TEXT,
+          acceptance_criteria TEXT,
+          open_questions TEXT,
+          requirements_functional TEXT,
+          requirements_technical TEXT,
+          context TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      oldDb.exec(`
+        CREATE TABLE pmo_epics (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          position INTEGER NOT NULL DEFAULT 0,
+          file_path TEXT,
+          spec_id TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      oldDb.exec(`
+        CREATE TABLE pmo_tickets (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL DEFAULT 'default',
+          title TEXT NOT NULL,
+          description TEXT,
+          priority TEXT,
+          category TEXT,
+          status TEXT NOT NULL DEFAULT 'backlog',
+          status_id TEXT,
+          owner TEXT,
+          assignee TEXT,
+          branch TEXT,
+          spec_id TEXT,
+          epic_id TEXT,
+          labels TEXT NOT NULL DEFAULT '[]',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          last_synced_from_spec TIMESTAMP,
+          last_synced_from_board TIMESTAMP
+        )
+      `);
+
+      // Create OLD dependencies table with blocked_by_ticket_id column
+      oldDb.exec(`
+        CREATE TABLE pmo_ticket_dependencies (
+          ticket_id TEXT NOT NULL,
+          blocked_by_ticket_id TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (ticket_id, blocked_by_ticket_id),
+          CHECK (ticket_id != blocked_by_ticket_id)
+        )
+      `);
+
+      // Insert test tickets and a blocking relationship
+      oldDb.exec(`INSERT INTO pmo_projects (id, name) VALUES ('default', 'Default')`)
+      oldDb.exec(`INSERT INTO pmo_tickets (id, project_id, title) VALUES ('TKT-001', 'default', 'Ticket 1')`)
+      oldDb.exec(`INSERT INTO pmo_tickets (id, project_id, title) VALUES ('TKT-002', 'default', 'Ticket 2')`)
+      oldDb.exec(`INSERT INTO pmo_ticket_dependencies (ticket_id, blocked_by_ticket_id) VALUES ('TKT-001', 'TKT-002')`)
+
+      oldDb.close();
+
+      // Open with SQLiteStorage which should trigger migration
+      const migratedStorage = new SQLiteStorage(oldDbPath);
+
+      // Verify the dependency was migrated correctly
+      const deps = await migratedStorage.listTicketDependencies('TKT-001');
+      expect(deps).to.have.length(1);
+      expect(deps[0].ticketId).to.equal('TKT-001');
+      expect(deps[0].dependsOnTicketId).to.equal('TKT-002');
+      expect(deps[0].dependencyType).to.equal('blocks');
+
+      // Verify we can now create relates_to dependencies (new schema works)
+      await migratedStorage.createTicketDependency('TKT-001', 'TKT-002', 'relates_to');
+      const allDeps = await migratedStorage.listTicketDependencies('TKT-001');
+      expect(allDeps).to.have.length(2);
+
+      await migratedStorage.close();
+    });
   });
 
   describe('Spec Dependency Operations', () => {
