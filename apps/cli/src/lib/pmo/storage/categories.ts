@@ -1,14 +1,19 @@
 /**
  * Category operations.
  * Manages ticket and status categories.
+ *
+ * This module uses Drizzle ORM for type-safe database queries.
  */
 
-import { PMO_TABLES } from '../schema.js'
+import { eq, and, like, or, asc, sql } from 'drizzle-orm'
+import {
+  pmoCategories,
+  pmoTickets,
+  pmoWorkflowStatuses,
+} from '../../database/drizzle-schema.js'
 import { Category, CategoryFilter, CategoryType, PMOError } from '../types.js'
 import { slugify } from '../utils.js'
-import { StorageContext, CategoryRow } from './types.js'
-
-const T = PMO_TABLES
+import { StorageContext } from './types.js'
 
 export class CategoryStorage {
   constructor(private ctx: StorageContext) {}
@@ -17,32 +22,37 @@ export class CategoryStorage {
    * List categories.
    */
   async listCategories(filter?: CategoryFilter): Promise<Category[]> {
-    let sql = `SELECT * FROM ${T.categories}`
-    const conditions: string[] = []
-    const params: unknown[] = []
+    let query = this.ctx.drizzle
+      .select()
+      .from(pmoCategories)
+      .$dynamic()
+
+    const conditions = []
 
     if (filter?.type) {
-      conditions.push('type = ?')
-      params.push(filter.type)
+      conditions.push(eq(pmoCategories.type, filter.type))
     }
 
     if (filter?.isBuiltin !== undefined) {
-      conditions.push('is_builtin = ?')
-      params.push(filter.isBuiltin ? 1 : 0)
+      conditions.push(eq(pmoCategories.isBuiltin, filter.isBuiltin))
     }
 
     if (filter?.search) {
-      conditions.push('(name LIKE ? OR description LIKE ?)')
-      params.push(`%${filter.search}%`, `%${filter.search}%`)
+      conditions.push(
+        or(
+          like(pmoCategories.name, `%${filter.search}%`),
+          like(pmoCategories.description, `%${filter.search}%`)
+        )
+      )
     }
 
     if (conditions.length > 0) {
-      sql += ` WHERE ${conditions.join(' AND ')}`
+      query = query.where(and(...conditions))
     }
 
-    sql += ' ORDER BY type, position ASC, name ASC'
-
-    const rows = this.ctx.db.prepare(sql).all(...params) as CategoryRow[]
+    const rows = query
+      .orderBy(asc(pmoCategories.type), asc(pmoCategories.position), asc(pmoCategories.name))
+      .all()
 
     return rows.map((row) => this.rowToCategory(row))
   }
@@ -51,9 +61,11 @@ export class CategoryStorage {
    * Get a category by ID.
    */
   async getCategory(id: string): Promise<Category | null> {
-    const row = this.ctx.db.prepare(`SELECT * FROM ${T.categories} WHERE id = ?`).get(
-      id
-    ) as CategoryRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoCategories)
+      .where(eq(pmoCategories.id, id))
+      .get()
 
     if (!row) return null
 
@@ -64,9 +76,14 @@ export class CategoryStorage {
    * Get a category by name and type.
    */
   async getCategoryByName(name: string, type: CategoryType): Promise<Category | null> {
-    const row = this.ctx.db.prepare(`
-      SELECT * FROM ${T.categories} WHERE LOWER(name) = LOWER(?) AND type = ?
-    `).get(name, type) as CategoryRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoCategories)
+      .where(and(
+        sql`LOWER(${pmoCategories.name}) = LOWER(${name})`,
+        eq(pmoCategories.type, type)
+      ))
+      .get()
 
     if (!row) return null
 
@@ -87,34 +104,38 @@ export class CategoryStorage {
     const id = category.id || slugify(category.name)
 
     // Check for duplicate name within the same type
-    const existing = this.ctx.db.prepare(`
-      SELECT id FROM ${T.categories} WHERE LOWER(name) = LOWER(?) AND type = ?
-    `).get(category.name, category.type)
+    const existing = this.ctx.drizzle
+      .select({ id: pmoCategories.id })
+      .from(pmoCategories)
+      .where(and(
+        sql`LOWER(${pmoCategories.name}) = LOWER(${category.name})`,
+        eq(pmoCategories.type, category.type)
+      ))
+      .get()
     if (existing) {
       throw new PMOError('CONFLICT', `Category "${category.name}" already exists for type "${category.type}"`)
     }
 
     // Get the next position
-    const maxPos = this.ctx.db.prepare(`
-      SELECT MAX(position) as max FROM ${T.categories} WHERE type = ?
-    `).get(category.type) as { max: number | null }
-    const position = category.position ?? (maxPos.max ?? -1) + 1
+    const maxPos = this.ctx.drizzle
+      .select({ max: sql<number | null>`MAX(${pmoCategories.position})` })
+      .from(pmoCategories)
+      .where(eq(pmoCategories.type, category.type))
+      .get()
+    const position = category.position ?? ((maxPos?.max ?? -1) + 1)
 
     const now = new Date().toISOString()
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.categories} (id, name, type, description, color, position, is_builtin, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    this.ctx.drizzle.insert(pmoCategories).values({
       id,
-      category.name,
-      category.type,
-      category.description || null,
-      category.color || null,
+      name: category.name,
+      type: category.type,
+      description: category.description || null,
+      color: category.color || null,
       position,
-      category.isBuiltin ? 1 : 0,
-      now
-    )
+      isBuiltin: category.isBuiltin || false,
+      createdAt: now,
+    }).run()
 
     return {
       id,
@@ -143,39 +164,41 @@ export class CategoryStorage {
 
     // Check for duplicate name if name is changing
     if (changes.name && changes.name.toLowerCase() !== existing.name.toLowerCase()) {
-      const dup = this.ctx.db.prepare(`
-        SELECT id FROM ${T.categories} WHERE LOWER(name) = LOWER(?) AND type = ? AND id != ?
-      `).get(changes.name, existing.type, id)
+      const dup = this.ctx.drizzle
+        .select({ id: pmoCategories.id })
+        .from(pmoCategories)
+        .where(and(
+          sql`LOWER(${pmoCategories.name}) = LOWER(${changes.name})`,
+          eq(pmoCategories.type, existing.type),
+          sql`${pmoCategories.id} != ${id}`
+        ))
+        .get()
       if (dup) {
         throw new PMOError('CONFLICT', `Category "${changes.name}" already exists for type "${existing.type}"`)
       }
     }
 
-    const updates: string[] = []
-    const params: unknown[] = []
+    const updates: Partial<typeof pmoCategories.$inferInsert> = {}
 
     if (changes.name !== undefined) {
-      updates.push('name = ?')
-      params.push(changes.name)
+      updates.name = changes.name
     }
     if (changes.description !== undefined) {
-      updates.push('description = ?')
-      params.push(changes.description || null)
+      updates.description = changes.description || null
     }
     if (changes.color !== undefined) {
-      updates.push('color = ?')
-      params.push(changes.color || null)
+      updates.color = changes.color || null
     }
     if (changes.position !== undefined) {
-      updates.push('position = ?')
-      params.push(changes.position)
+      updates.position = changes.position
     }
 
-    if (updates.length > 0) {
-      params.push(id)
-      this.ctx.db.prepare(`UPDATE ${T.categories} SET ${updates.join(', ')} WHERE id = ?`).run(
-        ...params
-      )
+    if (Object.keys(updates).length > 0) {
+      this.ctx.drizzle
+        .update(pmoCategories)
+        .set(updates)
+        .where(eq(pmoCategories.id, id))
+        .run()
     }
 
     return (await this.getCategory(id))!
@@ -203,22 +226,29 @@ export class CategoryStorage {
 
     // Check if the category is in use
     if (existing.type === 'ticket') {
-      const ticketsUsing = this.ctx.db.prepare(`
-        SELECT COUNT(*) as count FROM ${T.tickets} WHERE category = ?
-      `).get(existing.name) as { count: number }
-      if (ticketsUsing.count > 0) {
+      const ticketsUsing = this.ctx.drizzle
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(pmoTickets)
+        .where(eq(pmoTickets.category, existing.name))
+        .get()
+      if (ticketsUsing && ticketsUsing.count > 0) {
         throw new PMOError('INVALID', `Cannot delete category "${existing.name}": ${ticketsUsing.count} ticket(s) are using it. Reassign tickets first.`)
       }
     } else if (existing.type === 'status') {
-      const statusesUsing = this.ctx.db.prepare(`
-        SELECT COUNT(*) as count FROM ${T.workflow_statuses} WHERE category = ?
-      `).get(existing.name) as { count: number }
-      if (statusesUsing.count > 0) {
+      const statusesUsing = this.ctx.drizzle
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(pmoWorkflowStatuses)
+        .where(eq(pmoWorkflowStatuses.category, existing.name))
+        .get()
+      if (statusesUsing && statusesUsing.count > 0) {
         throw new PMOError('INVALID', `Cannot delete category "${existing.name}": ${statusesUsing.count} status(es) are using it. Reassign statuses first.`)
       }
     }
 
-    this.ctx.db.prepare(`DELETE FROM ${T.categories} WHERE id = ?`).run(id)
+    this.ctx.drizzle
+      .delete(pmoCategories)
+      .where(eq(pmoCategories.id, id))
+      .run()
   }
 
   /**
@@ -237,7 +267,16 @@ export class CategoryStorage {
     return category !== null
   }
 
-  private rowToCategory(row: CategoryRow): Category {
+  private rowToCategory(row: {
+    id: string
+    name: string
+    type: string
+    description: string | null
+    color: string | null
+    position: number
+    isBuiltin: boolean | null
+    createdAt: string | null
+  }): Category {
     return {
       id: row.id,
       name: row.name,
@@ -245,8 +284,8 @@ export class CategoryStorage {
       description: row.description || undefined,
       color: row.color || undefined,
       position: row.position,
-      isBuiltin: row.is_builtin === 1,
-      createdAt: new Date(row.created_at),
+      isBuiltin: row.isBuiltin ?? false,
+      createdAt: new Date(row.createdAt || Date.now()),
     }
   }
 }

@@ -573,6 +573,70 @@ export const pmoRoadmapProjects = sqliteTable('pmo_roadmap_projects', {
   idxPosition: index('idx_pmo_roadmap_projects_position').on(table.roadmapId, table.position),
 }))
 
+/**
+ * Categories (ticket and status type categories)
+ */
+export const pmoCategories = sqliteTable('pmo_categories', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  type: text('type').notNull(),
+  description: text('description'),
+  color: text('color'),
+  position: integer('position').notNull().default(0),
+  isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  uniqNameType: unique().on(table.name, table.type),
+  idxType: index('idx_pmo_categories_type').on(table.type),
+  idxPosition: index('idx_pmo_categories_position').on(table.type, table.position),
+}))
+
+/**
+ * Label groups (workspace-scoped grouping for labels)
+ */
+export const pmoLabelGroups = sqliteTable('pmo_label_groups', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  description: text('description'),
+  isExclusive: integer('is_exclusive', { mode: 'boolean' }).notNull().default(true),
+  isRequired: integer('is_required', { mode: 'boolean' }).notNull().default(false),
+  position: integer('position').notNull().default(0),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  idxPosition: index('idx_pmo_label_groups_position').on(table.position),
+}))
+
+/**
+ * Labels (workspace-scoped, optionally grouped)
+ */
+export const pmoLabels = sqliteTable('pmo_labels', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  color: text('color'),
+  description: text('description'),
+  groupId: text('group_id'),
+  position: integer('position').notNull().default(0),
+  isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  uniqNameGroup: unique().on(table.name, table.groupId),
+  idxGroup: index('idx_pmo_labels_group').on(table.groupId),
+  idxPosition: index('idx_pmo_labels_position').on(table.groupId, table.position),
+  idxBuiltin: index('idx_pmo_labels_builtin').on(table.isBuiltin),
+}))
+
+/**
+ * Ticket-label associations (junction table)
+ */
+export const pmoTicketLabels = sqliteTable('pmo_ticket_labels', {
+  ticketId: text('ticket_id').notNull(),
+  labelId: text('label_id').notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.ticketId, table.labelId] }),
+  idxTicket: index('idx_pmo_ticket_labels_ticket').on(table.ticketId),
+  idxLabel: index('idx_pmo_ticket_labels_label').on(table.labelId),
+}))
+
 // =============================================================================
 // Legacy/Deprecated Tables (kept for migration compatibility)
 // =============================================================================
@@ -818,3 +882,15 @@ export type NewDbPmoBoardView = typeof pmoBoardViews.$inferInsert
 
 export type DbPmoAgentWorkRecord = typeof pmoAgentWork.$inferSelect
 export type NewDbPmoAgentWorkRecord = typeof pmoAgentWork.$inferInsert
+
+export type DbPmoCategory = typeof pmoCategories.$inferSelect
+export type NewDbPmoCategory = typeof pmoCategories.$inferInsert
+
+export type DbPmoLabelGroup = typeof pmoLabelGroups.$inferSelect
+export type NewDbPmoLabelGroup = typeof pmoLabelGroups.$inferInsert
+
+export type DbPmoLabel = typeof pmoLabels.$inferSelect
+export type NewDbPmoLabel = typeof pmoLabels.$inferInsert
+
+export type DbPmoTicketLabel = typeof pmoTicketLabels.$inferSelect
+export type NewDbPmoTicketLabel = typeof pmoTicketLabels.$inferInsert

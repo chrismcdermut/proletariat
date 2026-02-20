@@ -1,13 +1,16 @@
 /**
  * Work action operations.
+ *
+ * This module uses Drizzle ORM for type-safe database queries.
  */
 
-import { PMO_TABLES } from '../schema.js'
+import { eq, and, like, or, asc, sql } from 'drizzle-orm'
+import {
+  pmoActions,
+} from '../../database/drizzle-schema.js'
 import { PMOError, StateCategory, WorkAction, WorkActionFilter } from '../types.js'
 import { slugify } from '../utils.js'
-import { StorageContext, WorkActionRow } from './types.js'
-
-const T = PMO_TABLES
+import { StorageContext } from './types.js'
 
 export class ActionStorage {
   constructor(private ctx: StorageContext) {}
@@ -16,32 +19,37 @@ export class ActionStorage {
    * List work actions.
    */
   async listActions(filter?: WorkActionFilter): Promise<WorkAction[]> {
-    let sql = `SELECT * FROM ${T.actions}`
-    const conditions: string[] = []
-    const params: unknown[] = []
+    let query = this.ctx.drizzle
+      .select()
+      .from(pmoActions)
+      .$dynamic()
+
+    const conditions = []
 
     if (filter?.isBuiltin !== undefined) {
-      conditions.push('is_builtin = ?')
-      params.push(filter.isBuiltin ? 1 : 0)
+      conditions.push(eq(pmoActions.isBuiltin, filter.isBuiltin))
     }
 
     if (filter?.suggestedFor) {
-      conditions.push('suggested_for_categories LIKE ?')
-      params.push(`%"${filter.suggestedFor}"%`)
+      conditions.push(like(pmoActions.suggestedForCategories, `%"${filter.suggestedFor}"%`))
     }
 
     if (filter?.search) {
-      conditions.push('(name LIKE ? OR description LIKE ?)')
-      params.push(`%${filter.search}%`, `%${filter.search}%`)
+      conditions.push(
+        or(
+          like(pmoActions.name, `%${filter.search}%`),
+          like(pmoActions.description, `%${filter.search}%`)
+        )
+      )
     }
 
     if (conditions.length > 0) {
-      sql += ` WHERE ${conditions.join(' AND ')}`
+      query = query.where(and(...conditions))
     }
 
-    sql += ' ORDER BY is_builtin DESC, position ASC, name ASC'
-
-    const rows = this.ctx.db.prepare(sql).all(...params) as WorkActionRow[]
+    const rows = query
+      .orderBy(sql`${pmoActions.isBuiltin} DESC`, asc(pmoActions.position), asc(pmoActions.name))
+      .all()
 
     return rows.map((row) => this.rowToAction(row))
   }
@@ -50,9 +58,11 @@ export class ActionStorage {
    * Get a work action by ID.
    */
   async getAction(id: string): Promise<WorkAction | null> {
-    const row = this.ctx.db.prepare(`SELECT * FROM ${T.actions} WHERE id = ?`).get(
-      id
-    ) as WorkActionRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoActions)
+      .where(eq(pmoActions.id, id))
+      .get()
 
     if (!row) return null
 
@@ -73,9 +83,11 @@ export class ActionStorage {
     const id = action.id || slugify(action.name)
 
     // Check for duplicate name
-    const existing = this.ctx.db.prepare(`
-      SELECT id FROM ${T.actions} WHERE LOWER(name) = LOWER(?)
-    `).get(action.name)
+    const existing = this.ctx.drizzle
+      .select({ id: pmoActions.id })
+      .from(pmoActions)
+      .where(sql`LOWER(${pmoActions.name}) = LOWER(${action.name})`)
+      .get()
     if (existing) {
       throw new PMOError('CONFLICT', `Action with name "${action.name}" already exists`)
     }
@@ -83,21 +95,18 @@ export class ActionStorage {
     const now = new Date().toISOString()
     const modifiesCode = action.modifiesCode !== false
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.actions} (id, name, description, prompt, end_prompt, suggested_for_categories, default_move_to_category, modifies_code, is_builtin, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    this.ctx.drizzle.insert(pmoActions).values({
       id,
-      action.name,
-      action.description || null,
-      action.prompt,
-      action.endPrompt || null,
-      action.suggestedForCategories ? JSON.stringify(action.suggestedForCategories) : null,
-      action.defaultMoveToCategory || null,
-      modifiesCode ? 1 : 0,
-      action.isBuiltin ? 1 : 0,
-      now
-    )
+      name: action.name,
+      description: action.description || null,
+      prompt: action.prompt,
+      endPrompt: action.endPrompt || null,
+      suggestedForCategories: action.suggestedForCategories ? JSON.stringify(action.suggestedForCategories) : null,
+      defaultMoveToCategory: action.defaultMoveToCategory || null,
+      modifiesCode,
+      isBuiltin: action.isBuiltin || false,
+      createdAt: now,
+    }).run()
 
     return {
       id,
@@ -128,53 +137,49 @@ export class ActionStorage {
 
     // Check for duplicate name if name is changing
     if (changes.name && changes.name.toLowerCase() !== existing.name.toLowerCase()) {
-      const dup = this.ctx.db.prepare(`
-        SELECT id FROM ${T.actions} WHERE LOWER(name) = LOWER(?) AND id != ?
-      `).get(changes.name, id)
+      const dup = this.ctx.drizzle
+        .select({ id: pmoActions.id })
+        .from(pmoActions)
+        .where(and(
+          sql`LOWER(${pmoActions.name}) = LOWER(${changes.name})`,
+          sql`${pmoActions.id} != ${id}`
+        ))
+        .get()
       if (dup) {
         throw new PMOError('CONFLICT', `Action "${changes.name}" already exists`)
       }
     }
 
-    const updates: string[] = []
-    const params: unknown[] = []
+    const updates: Partial<typeof pmoActions.$inferInsert> = {}
 
     if (changes.name !== undefined) {
-      updates.push('name = ?')
-      params.push(changes.name)
+      updates.name = changes.name
     }
     if (changes.description !== undefined) {
-      updates.push('description = ?')
-      params.push(changes.description || null)
+      updates.description = changes.description || null
     }
     if (changes.prompt !== undefined) {
-      updates.push('prompt = ?')
-      params.push(changes.prompt)
+      updates.prompt = changes.prompt
     }
     if (changes.endPrompt !== undefined) {
-      updates.push('end_prompt = ?')
-      params.push(changes.endPrompt || null)
+      updates.endPrompt = changes.endPrompt || null
     }
     if (changes.suggestedForCategories !== undefined) {
-      updates.push('suggested_for_categories = ?')
-      params.push(
-        changes.suggestedForCategories ? JSON.stringify(changes.suggestedForCategories) : null
-      )
+      updates.suggestedForCategories = changes.suggestedForCategories ? JSON.stringify(changes.suggestedForCategories) : null
     }
     if (changes.defaultMoveToCategory !== undefined) {
-      updates.push('default_move_to_category = ?')
-      params.push(changes.defaultMoveToCategory || null)
+      updates.defaultMoveToCategory = changes.defaultMoveToCategory || null
     }
     if (changes.modifiesCode !== undefined) {
-      updates.push('modifies_code = ?')
-      params.push(changes.modifiesCode ? 1 : 0)
+      updates.modifiesCode = changes.modifiesCode
     }
 
-    if (updates.length > 0) {
-      params.push(id)
-      this.ctx.db.prepare(`UPDATE ${T.actions} SET ${updates.join(', ')} WHERE id = ?`).run(
-        ...params
-      )
+    if (Object.keys(updates).length > 0) {
+      this.ctx.drizzle
+        .update(pmoActions)
+        .set(updates)
+        .where(eq(pmoActions.id, id))
+        .run()
     }
 
     return (await this.getAction(id))!
@@ -193,7 +198,10 @@ export class ActionStorage {
       throw new PMOError('INVALID', 'Cannot delete built-in actions')
     }
 
-    this.ctx.db.prepare(`DELETE FROM ${T.actions} WHERE id = ?`).run(id)
+    this.ctx.drizzle
+      .delete(pmoActions)
+      .where(eq(pmoActions.id, id))
+      .run()
   }
 
   /**
@@ -204,20 +212,32 @@ export class ActionStorage {
     return actions.length > 0 ? actions[0] : null
   }
 
-  private rowToAction(row: WorkActionRow): WorkAction {
+  private rowToAction(row: {
+    id: string
+    name: string
+    description: string | null
+    prompt: string
+    endPrompt: string | null
+    suggestedForCategories: string | null
+    defaultMoveToCategory: string | null
+    modifiesCode: boolean | null
+    isBuiltin: boolean | null
+    position: number
+    createdAt: string | null
+  }): WorkAction {
     return {
       id: row.id,
       name: row.name,
       description: row.description || undefined,
       prompt: row.prompt,
-      endPrompt: row.end_prompt || undefined,
-      suggestedForCategories: row.default_category
-        ? (JSON.parse(row.default_category) as StateCategory[])
+      endPrompt: row.endPrompt || undefined,
+      suggestedForCategories: row.suggestedForCategories
+        ? (JSON.parse(row.suggestedForCategories) as StateCategory[])
         : undefined,
-      defaultMoveToCategory: row.default_category as StateCategory | undefined,
-      modifiesCode: row.modifies_code === 1,
-      isBuiltin: row.is_builtin === 1,
-      createdAt: new Date(row.created_at),
+      defaultMoveToCategory: (row.defaultMoveToCategory as StateCategory) || undefined,
+      modifiesCode: row.modifiesCode ?? true,
+      isBuiltin: row.isBuiltin ?? false,
+      createdAt: new Date(row.createdAt || Date.now()),
     }
   }
 }

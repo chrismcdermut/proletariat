@@ -1,8 +1,15 @@
 /**
  * Project phase operations.
+ *
+ * This module uses Drizzle ORM for type-safe database queries.
  */
 
-import { PMO_TABLES } from '../schema.js'
+import { eq, and, like, or, asc, sql } from 'drizzle-orm'
+import {
+  pmoPhases,
+  pmoPhaseTemplates,
+  pmoProjects,
+} from '../../database/drizzle-schema.js'
 import {
   PhaseFilter,
   PhaseTemplate,
@@ -14,9 +21,7 @@ import {
   STATE_CATEGORY_ORDER,
 } from '../types.js'
 import { slugify } from '../utils.js'
-import { StorageContext, PhaseRow, PhaseTemplateRow } from './types.js'
-
-const T = PMO_TABLES
+import { StorageContext } from './types.js'
 
 export class PhaseStorage {
   constructor(private ctx: StorageContext) {}
@@ -29,36 +34,42 @@ export class PhaseStorage {
    * List project phases.
    */
   async listPhases(filter?: PhaseFilter): Promise<ProjectPhase[]> {
-    let sql = `SELECT * FROM ${T.phases}`
-    const conditions: string[] = []
-    const params: unknown[] = []
+    let query = this.ctx.drizzle
+      .select()
+      .from(pmoPhases)
+      .$dynamic()
+
+    const conditions = []
 
     if (filter?.category) {
-      conditions.push('category = ?')
-      params.push(filter.category)
+      conditions.push(eq(pmoPhases.category, filter.category))
     }
 
     if (filter?.search) {
-      conditions.push('(name LIKE ? OR description LIKE ?)')
-      const searchTerm = `%${filter.search}%`
-      params.push(searchTerm, searchTerm)
+      conditions.push(
+        or(
+          like(pmoPhases.name, `%${filter.search}%`),
+          like(pmoPhases.description, `%${filter.search}%`)
+        )
+      )
     }
 
     if (conditions.length > 0) {
-      sql += ' WHERE ' + conditions.join(' AND ')
+      query = query.where(and(...conditions))
     }
 
-    sql += ` ORDER BY
-      CASE category
-        WHEN 'backlog' THEN 0
-        WHEN 'unstarted' THEN 1
-        WHEN 'started' THEN 2
-        WHEN 'completed' THEN 3
-        WHEN 'canceled' THEN 4
-      END,
-      position`
-
-    const rows = this.ctx.db.prepare(sql).all(...params) as PhaseRow[]
+    const rows = query
+      .orderBy(
+        sql`CASE ${pmoPhases.category}
+          WHEN 'backlog' THEN 0
+          WHEN 'unstarted' THEN 1
+          WHEN 'started' THEN 2
+          WHEN 'completed' THEN 3
+          WHEN 'canceled' THEN 4
+        END`,
+        asc(pmoPhases.position)
+      )
+      .all()
 
     return rows.map((row) => this.rowToPhase(row))
   }
@@ -67,9 +78,11 @@ export class PhaseStorage {
    * Get a phase by ID.
    */
   async getPhase(id: string): Promise<ProjectPhase | null> {
-    const row = this.ctx.db.prepare(`SELECT * FROM ${T.phases} WHERE id = ?`).get(
-      id
-    ) as PhaseRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoPhases)
+      .where(eq(pmoPhases.id, id))
+      .get()
 
     if (!row) return null
 
@@ -96,40 +109,44 @@ export class PhaseStorage {
     }
 
     // Check for duplicate name
-    const existing = this.ctx.db.prepare(`
-      SELECT id FROM ${T.phases} WHERE LOWER(name) = LOWER(?)
-    `).get(phase.name)
+    const existing = this.ctx.drizzle
+      .select({ id: pmoPhases.id })
+      .from(pmoPhases)
+      .where(sql`LOWER(${pmoPhases.name}) = LOWER(${phase.name})`)
+      .get()
     if (existing) {
       throw new PMOError('CONFLICT', `Phase "${phase.name}" already exists`)
     }
 
     // Get next position within category
-    const maxPos = this.ctx.db.prepare(`
-      SELECT MAX(position) as max FROM ${T.phases} WHERE category = ?
-    `).get(phase.category) as { max: number | null }
-    const position = phase.position ?? (maxPos.max !== null ? maxPos.max + 1 : 0)
+    const maxPos = this.ctx.drizzle
+      .select({ max: sql<number | null>`MAX(${pmoPhases.position})` })
+      .from(pmoPhases)
+      .where(eq(pmoPhases.category, phase.category))
+      .get()
+    const position = phase.position ?? (maxPos?.max !== null ? (maxPos?.max ?? -1) + 1 : 0)
 
     const id = phase.id || slugify(phase.name)
     const now = new Date().toISOString()
 
     // If setting as default, unset other defaults first
     if (phase.isDefault) {
-      this.ctx.db.prepare(`UPDATE ${T.phases} SET is_default = 0`).run()
+      this.ctx.drizzle
+        .update(pmoPhases)
+        .set({ isDefault: false })
+        .run()
     }
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.phases} (id, name, category, position, color, description, is_default, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    this.ctx.drizzle.insert(pmoPhases).values({
       id,
-      phase.name,
-      phase.category,
+      name: phase.name,
+      category: phase.category,
       position,
-      phase.color || null,
-      phase.description || null,
-      phase.isDefault ? 1 : 0,
-      now
-    )
+      color: phase.color || null,
+      description: phase.description || null,
+      isDefault: phase.isDefault || false,
+      createdAt: now,
+    }).run()
 
     return (await this.getPhase(id))!
   }
@@ -158,51 +175,54 @@ export class PhaseStorage {
       changes.name &&
       changes.name.toLowerCase() !== existing.name.toLowerCase()
     ) {
-      const dup = this.ctx.db.prepare(`
-        SELECT id FROM ${T.phases} WHERE LOWER(name) = LOWER(?) AND id != ?
-      `).get(changes.name, id)
+      const dup = this.ctx.drizzle
+        .select({ id: pmoPhases.id })
+        .from(pmoPhases)
+        .where(and(
+          sql`LOWER(${pmoPhases.name}) = LOWER(${changes.name})`,
+          sql`${pmoPhases.id} != ${id}`
+        ))
+        .get()
       if (dup) {
         throw new PMOError('CONFLICT', `Phase "${changes.name}" already exists`)
       }
     }
 
-    const updates: string[] = []
-    const params: unknown[] = []
+    const updates: Partial<typeof pmoPhases.$inferInsert> = {}
 
     if (changes.name !== undefined) {
-      updates.push('name = ?')
-      params.push(changes.name)
+      updates.name = changes.name
     }
     if (changes.category !== undefined) {
-      updates.push('category = ?')
-      params.push(changes.category)
+      updates.category = changes.category
     }
     if (changes.position !== undefined) {
-      updates.push('position = ?')
-      params.push(changes.position)
+      updates.position = changes.position
     }
     if (changes.color !== undefined) {
-      updates.push('color = ?')
-      params.push(changes.color || null)
+      updates.color = changes.color || null
     }
     if (changes.description !== undefined) {
-      updates.push('description = ?')
-      params.push(changes.description || null)
+      updates.description = changes.description || null
     }
     if (changes.isDefault !== undefined) {
-      updates.push('is_default = ?')
-      params.push(changes.isDefault ? 1 : 0)
+      updates.isDefault = changes.isDefault
 
       if (changes.isDefault) {
-        this.ctx.db.prepare(`UPDATE ${T.phases} SET is_default = 0 WHERE id != ?`).run(id)
+        this.ctx.drizzle
+          .update(pmoPhases)
+          .set({ isDefault: false })
+          .where(sql`${pmoPhases.id} != ${id}`)
+          .run()
       }
     }
 
-    if (updates.length > 0) {
-      params.push(id)
-      this.ctx.db.prepare(`UPDATE ${T.phases} SET ${updates.join(', ')} WHERE id = ?`).run(
-        ...params
-      )
+    if (Object.keys(updates).length > 0) {
+      this.ctx.drizzle
+        .update(pmoPhases)
+        .set(updates)
+        .where(eq(pmoPhases.id, id))
+        .run()
     }
 
     return (await this.getPhase(id))!
@@ -218,17 +238,22 @@ export class PhaseStorage {
     }
 
     // Check if any projects use this phase
-    const projectCount = this.ctx.db.prepare(`
-      SELECT COUNT(*) as count FROM ${T.projects} WHERE phase_id = ?
-    `).get(id) as { count: number }
-    if (projectCount.count > 0) {
+    const projectCount = this.ctx.drizzle
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(pmoProjects)
+      .where(eq(pmoProjects.phaseId, id))
+      .get()
+    if (projectCount && projectCount.count > 0) {
       throw new PMOError(
         'CONFLICT',
         `Cannot delete phase "${existing.name}" - ${projectCount.count} project(s) are using it`
       )
     }
 
-    this.ctx.db.prepare(`DELETE FROM ${T.phases} WHERE id = ?`).run(id)
+    this.ctx.drizzle
+      .delete(pmoPhases)
+      .where(eq(pmoPhases.id, id))
+      .run()
   }
 
   /**
@@ -247,23 +272,34 @@ export class PhaseStorage {
     }
 
     if (newPosition < oldPosition) {
-      this.ctx.db.prepare(`
-        UPDATE ${T.phases}
-        SET position = position + 1
-        WHERE category = ? AND position >= ? AND position < ? AND id != ?
-      `).run(phase.category, newPosition, oldPosition, id)
+      this.ctx.drizzle
+        .update(pmoPhases)
+        .set({ position: sql`${pmoPhases.position} + 1` })
+        .where(and(
+          eq(pmoPhases.category, phase.category),
+          sql`${pmoPhases.position} >= ${newPosition}`,
+          sql`${pmoPhases.position} < ${oldPosition}`,
+          sql`${pmoPhases.id} != ${id}`
+        ))
+        .run()
     } else {
-      this.ctx.db.prepare(`
-        UPDATE ${T.phases}
-        SET position = position - 1
-        WHERE category = ? AND position > ? AND position <= ? AND id != ?
-      `).run(phase.category, oldPosition, newPosition, id)
+      this.ctx.drizzle
+        .update(pmoPhases)
+        .set({ position: sql`${pmoPhases.position} - 1` })
+        .where(and(
+          eq(pmoPhases.category, phase.category),
+          sql`${pmoPhases.position} > ${oldPosition}`,
+          sql`${pmoPhases.position} <= ${newPosition}`,
+          sql`${pmoPhases.id} != ${id}`
+        ))
+        .run()
     }
 
-    this.ctx.db.prepare(`UPDATE ${T.phases} SET position = ? WHERE id = ?`).run(
-      newPosition,
-      id
-    )
+    this.ctx.drizzle
+      .update(pmoPhases)
+      .set({ position: newPosition })
+      .where(eq(pmoPhases.id, id))
+      .run()
 
     return (await this.getPhase(id))!
   }
@@ -272,19 +308,23 @@ export class PhaseStorage {
    * Get the default phase.
    */
   async getDefaultPhase(): Promise<ProjectPhase | null> {
-    const row = this.ctx.db.prepare(`SELECT * FROM ${T.phases} WHERE is_default = 1`).get() as
-      | PhaseRow
-      | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoPhases)
+      .where(eq(pmoPhases.isDefault, true))
+      .get()
 
     if (!row) {
       // Fallback to first phase
-      const firstRow = this.ctx.db.prepare(`
-        SELECT * FROM ${T.phases}
-        ORDER BY
-          CASE category WHEN 'backlog' THEN 0 WHEN 'unstarted' THEN 1 WHEN 'started' THEN 2 WHEN 'completed' THEN 3 WHEN 'canceled' THEN 4 END,
-          position
-        LIMIT 1
-      `).get() as PhaseRow | undefined
+      const firstRow = this.ctx.drizzle
+        .select()
+        .from(pmoPhases)
+        .orderBy(
+          sql`CASE ${pmoPhases.category} WHEN 'backlog' THEN 0 WHEN 'unstarted' THEN 1 WHEN 'started' THEN 2 WHEN 'completed' THEN 3 WHEN 'canceled' THEN 4 END`,
+          asc(pmoPhases.position)
+        )
+        .limit(1)
+        .get()
       if (!firstRow) return null
       return this.rowToPhase(firstRow)
     }
@@ -300,29 +340,40 @@ export class PhaseStorage {
    * List phase templates.
    */
   async listPhaseTemplates(filter?: PhaseTemplateFilter): Promise<PhaseTemplate[]> {
-    let query = `SELECT * FROM ${T.phase_templates} WHERE 1=1`
-    const params: unknown[] = []
+    let query = this.ctx.drizzle
+      .select()
+      .from(pmoPhaseTemplates)
+      .$dynamic()
+
+    const conditions = []
 
     if (filter?.isBuiltin !== undefined) {
-      query += ' AND is_builtin = ?'
-      params.push(filter.isBuiltin ? 1 : 0)
+      conditions.push(eq(pmoPhaseTemplates.isBuiltin, filter.isBuiltin))
     }
     if (filter?.search) {
-      query += ' AND (name LIKE ? OR description LIKE ?)'
-      params.push(`%${filter.search}%`, `%${filter.search}%`)
+      conditions.push(
+        or(
+          like(pmoPhaseTemplates.name, `%${filter.search}%`),
+          like(pmoPhaseTemplates.description, `%${filter.search}%`)
+        )
+      )
     }
 
-    query += ' ORDER BY is_builtin DESC, name'
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions))
+    }
 
-    const rows = this.ctx.db.prepare(query).all(...params) as PhaseTemplateRow[]
+    const rows = query
+      .orderBy(sql`${pmoPhaseTemplates.isBuiltin} DESC`, asc(pmoPhaseTemplates.name))
+      .all()
 
     return rows.map((row) => ({
       id: row.id,
       name: row.name,
       description: row.description || undefined,
-      isBuiltin: row.is_builtin === 1,
+      isBuiltin: row.isBuiltin ?? false,
       phases: JSON.parse(row.phases) as PhaseTemplatePhase[],
-      createdAt: new Date(row.created_at),
+      createdAt: new Date(row.createdAt || Date.now()),
     }))
   }
 
@@ -330,9 +381,11 @@ export class PhaseStorage {
    * Get a phase template by ID.
    */
   async getPhaseTemplate(id: string): Promise<PhaseTemplate | null> {
-    const row = this.ctx.db.prepare(`
-      SELECT * FROM ${T.phase_templates} WHERE id = ?
-    `).get(id) as PhaseTemplateRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoPhaseTemplates)
+      .where(eq(pmoPhaseTemplates.id, id))
+      .get()
 
     if (!row) return null
 
@@ -340,9 +393,9 @@ export class PhaseStorage {
       id: row.id,
       name: row.name,
       description: row.description || undefined,
-      isBuiltin: row.is_builtin === 1,
+      isBuiltin: row.isBuiltin ?? false,
       phases: JSON.parse(row.phases) as PhaseTemplatePhase[],
-      createdAt: new Date(row.created_at),
+      createdAt: new Date(row.createdAt || Date.now()),
     }
   }
 
@@ -356,29 +409,26 @@ export class PhaseStorage {
     }
 
     // Delete existing phases
-    this.ctx.db.prepare(`DELETE FROM ${T.phases}`).run()
+    this.ctx.drizzle
+      .delete(pmoPhases)
+      .run()
 
     // Create new phases from template
     const now = new Date().toISOString()
-    const insertPhase = this.ctx.db.prepare(`
-      INSERT INTO ${T.phases} (id, name, category, position, description, is_default, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `)
-
     const createdPhases: ProjectPhase[] = []
 
     for (const templatePhase of template.phases) {
       const id = slugify(templatePhase.name)
 
-      insertPhase.run(
+      this.ctx.drizzle.insert(pmoPhases).values({
         id,
-        templatePhase.name,
-        templatePhase.category,
-        templatePhase.position,
-        templatePhase.description || null,
-        templatePhase.isDefault ? 1 : 0,
-        now
-      )
+        name: templatePhase.name,
+        category: templatePhase.category,
+        position: templatePhase.position,
+        description: templatePhase.description || null,
+        isDefault: templatePhase.isDefault || false,
+        createdAt: now,
+      }).run()
 
       createdPhases.push({
         id,
@@ -405,9 +455,11 @@ export class PhaseStorage {
     }
 
     // Check for duplicate name
-    const existing = this.ctx.db.prepare(`
-      SELECT id FROM ${T.phase_templates} WHERE LOWER(name) = LOWER(?)
-    `).get(name) as { id: string } | undefined
+    const existing = this.ctx.drizzle
+      .select({ id: pmoPhaseTemplates.id })
+      .from(pmoPhaseTemplates)
+      .where(sql`LOWER(${pmoPhaseTemplates.name}) = LOWER(${name})`)
+      .get()
     if (existing) {
       throw new PMOError('CONFLICT', `Phase template "${name}" already exists`)
     }
@@ -424,10 +476,14 @@ export class PhaseStorage {
       isDefault: p.isDefault,
     }))
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.phase_templates} (id, name, description, is_builtin, phases, created_at)
-      VALUES (?, ?, ?, 0, ?, ?)
-    `).run(id, name, description || null, JSON.stringify(templatePhases), now)
+    this.ctx.drizzle.insert(pmoPhaseTemplates).values({
+      id,
+      name,
+      description: description || null,
+      isBuiltin: false,
+      phases: JSON.stringify(templatePhases),
+      createdAt: now,
+    }).run()
 
     return {
       id,
@@ -455,30 +511,32 @@ export class PhaseStorage {
       throw new PMOError('INVALID', 'Cannot modify built-in templates')
     }
 
-    const updates: string[] = []
-    const params: unknown[] = []
+    const updates: Partial<typeof pmoPhaseTemplates.$inferInsert> = {}
 
     if (changes.name !== undefined) {
-      const dup = this.ctx.db.prepare(`
-        SELECT id FROM ${T.phase_templates}
-        WHERE LOWER(name) = LOWER(?) AND id != ?
-      `).get(changes.name, id)
+      const dup = this.ctx.drizzle
+        .select({ id: pmoPhaseTemplates.id })
+        .from(pmoPhaseTemplates)
+        .where(and(
+          sql`LOWER(${pmoPhaseTemplates.name}) = LOWER(${changes.name})`,
+          sql`${pmoPhaseTemplates.id} != ${id}`
+        ))
+        .get()
       if (dup) {
         throw new PMOError('CONFLICT', `Phase template "${changes.name}" already exists`)
       }
-      updates.push('name = ?')
-      params.push(changes.name)
+      updates.name = changes.name
     }
     if (changes.description !== undefined) {
-      updates.push('description = ?')
-      params.push(changes.description || null)
+      updates.description = changes.description || null
     }
 
-    if (updates.length > 0) {
-      params.push(id)
-      this.ctx.db.prepare(`UPDATE ${T.phase_templates} SET ${updates.join(', ')} WHERE id = ?`).run(
-        ...params
-      )
+    if (Object.keys(updates).length > 0) {
+      this.ctx.drizzle
+        .update(pmoPhaseTemplates)
+        .set(updates)
+        .where(eq(pmoPhaseTemplates.id, id))
+        .run()
     }
 
     return (await this.getPhaseTemplate(id))!
@@ -497,10 +555,22 @@ export class PhaseStorage {
       throw new PMOError('INVALID', 'Cannot delete built-in templates')
     }
 
-    this.ctx.db.prepare(`DELETE FROM ${T.phase_templates} WHERE id = ?`).run(id)
+    this.ctx.drizzle
+      .delete(pmoPhaseTemplates)
+      .where(eq(pmoPhaseTemplates.id, id))
+      .run()
   }
 
-  private rowToPhase(row: PhaseRow): ProjectPhase {
+  private rowToPhase(row: {
+    id: string
+    name: string
+    category: string
+    position: number
+    color: string | null
+    description: string | null
+    isDefault: boolean | null
+    createdAt: string | null
+  }): ProjectPhase {
     return {
       id: row.id,
       name: row.name,
@@ -508,8 +578,8 @@ export class PhaseStorage {
       position: row.position,
       color: row.color || undefined,
       description: row.description || undefined,
-      isDefault: row.is_default === 1,
-      createdAt: new Date(row.created_at),
+      isDefault: row.isDefault ?? false,
+      createdAt: new Date(row.createdAt || Date.now()),
     }
   }
 }

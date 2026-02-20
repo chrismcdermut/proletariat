@@ -2,14 +2,20 @@
  * Label storage operations for PMO.
  * Handles CRUD for labels, label groups, and ticket-label associations.
  * Enforces group exclusivity constraints.
+ *
+ * This module uses Drizzle ORM for type-safe database queries.
  */
 
-import { PMO_TABLES } from '../schema.js'
+import { eq, and, like, or, asc, sql, isNull } from 'drizzle-orm'
+import {
+  pmoLabelGroups,
+  pmoLabels,
+  pmoTicketLabels,
+  pmoTickets,
+} from '../../database/drizzle-schema.js'
 import { Label, LabelFilter, LabelGroup, LabelGroupFilter, PMOError } from '../types.js'
 import { slugify } from '../utils.js'
-import { StorageContext, LabelGroupRow, LabelRow } from './types.js'
-
-const T = PMO_TABLES
+import { StorageContext } from './types.js'
 
 export class LabelStorage {
   constructor(private ctx: StorageContext) {}
@@ -19,31 +25,48 @@ export class LabelStorage {
   // ===========================================================================
 
   async listLabelGroups(filter?: LabelGroupFilter): Promise<LabelGroup[]> {
-    let query = `SELECT * FROM ${T.label_groups} WHERE 1=1`
-    const params: unknown[] = []
+    let query = this.ctx.drizzle
+      .select()
+      .from(pmoLabelGroups)
+      .$dynamic()
+
+    const conditions = []
 
     if (filter?.search) {
-      query += ' AND (name LIKE ? OR description LIKE ?)'
-      params.push(`%${filter.search}%`, `%${filter.search}%`)
+      conditions.push(
+        or(
+          like(pmoLabelGroups.name, `%${filter.search}%`),
+          like(pmoLabelGroups.description, `%${filter.search}%`)
+        )
+      )
     }
 
-    query += ' ORDER BY position ASC, name ASC'
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions))
+    }
 
-    const rows = this.ctx.db.prepare(query).all(...params) as LabelGroupRow[]
+    const rows = query
+      .orderBy(asc(pmoLabelGroups.position), asc(pmoLabelGroups.name))
+      .all()
+
     return rows.map(rowToLabelGroup)
   }
 
   async getLabelGroup(id: string): Promise<LabelGroup | null> {
-    const row = this.ctx.db.prepare(
-      `SELECT * FROM ${T.label_groups} WHERE id = ?`
-    ).get(id) as LabelGroupRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoLabelGroups)
+      .where(eq(pmoLabelGroups.id, id))
+      .get()
     return row ? rowToLabelGroup(row) : null
   }
 
   async getLabelGroupByName(name: string): Promise<LabelGroup | null> {
-    const row = this.ctx.db.prepare(
-      `SELECT * FROM ${T.label_groups} WHERE LOWER(name) = LOWER(?)`
-    ).get(name) as LabelGroupRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoLabelGroups)
+      .where(sql`LOWER(${pmoLabelGroups.name}) = LOWER(${name})`)
+      .get()
     return row ? rowToLabelGroup(row) : null
   }
 
@@ -57,23 +80,21 @@ export class LabelStorage {
     }
 
     // Get next position
-    const maxPos = this.ctx.db.prepare(
-      `SELECT COALESCE(MAX(position), -1) as max_pos FROM ${T.label_groups}`
-    ).get() as { max_pos: number }
+    const maxPos = this.ctx.drizzle
+      .select({ maxPos: sql<number>`COALESCE(MAX(${pmoLabelGroups.position}), -1)` })
+      .from(pmoLabelGroups)
+      .get()
 
     const now = new Date().toISOString()
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.label_groups} (id, name, description, is_exclusive, is_required, position, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    this.ctx.drizzle.insert(pmoLabelGroups).values({
       id,
-      group.name,
-      group.description || null,
-      group.isExclusive !== undefined ? (group.isExclusive ? 1 : 0) : 1,
-      group.isRequired !== undefined ? (group.isRequired ? 1 : 0) : 0,
-      group.position ?? maxPos.max_pos + 1,
-      now
-    )
+      name: group.name,
+      description: group.description || null,
+      isExclusive: group.isExclusive !== undefined ? group.isExclusive : true,
+      isRequired: group.isRequired !== undefined ? group.isRequired : false,
+      position: group.position ?? (maxPos?.maxPos ?? -1) + 1,
+      createdAt: now,
+    }).run()
 
     return (await this.getLabelGroup(id))!
   }
@@ -84,35 +105,30 @@ export class LabelStorage {
       throw new PMOError('NOT_FOUND', `Label group not found: ${id}`)
     }
 
-    const updates: string[] = []
-    const params: unknown[] = []
+    const updates: Partial<typeof pmoLabelGroups.$inferInsert> = {}
 
     if (changes.name !== undefined) {
-      updates.push('name = ?')
-      params.push(changes.name)
+      updates.name = changes.name
     }
     if (changes.description !== undefined) {
-      updates.push('description = ?')
-      params.push(changes.description)
+      updates.description = changes.description
     }
     if (changes.isExclusive !== undefined) {
-      updates.push('is_exclusive = ?')
-      params.push(changes.isExclusive ? 1 : 0)
+      updates.isExclusive = changes.isExclusive
     }
     if (changes.isRequired !== undefined) {
-      updates.push('is_required = ?')
-      params.push(changes.isRequired ? 1 : 0)
+      updates.isRequired = changes.isRequired
     }
     if (changes.position !== undefined) {
-      updates.push('position = ?')
-      params.push(changes.position)
+      updates.position = changes.position
     }
 
-    if (updates.length > 0) {
-      params.push(id)
-      this.ctx.db.prepare(
-        `UPDATE ${T.label_groups} SET ${updates.join(', ')} WHERE id = ?`
-      ).run(...params)
+    if (Object.keys(updates).length > 0) {
+      this.ctx.drizzle
+        .update(pmoLabelGroups)
+        .set(updates)
+        .where(eq(pmoLabelGroups.id, id))
+        .run()
     }
 
     return (await this.getLabelGroup(id))!
@@ -125,7 +141,10 @@ export class LabelStorage {
     }
 
     // Labels in this group will have group_id set to NULL (ON DELETE SET NULL)
-    this.ctx.db.prepare(`DELETE FROM ${T.label_groups} WHERE id = ?`).run(id)
+    this.ctx.drizzle
+      .delete(pmoLabelGroups)
+      .where(eq(pmoLabelGroups.id, id))
+      .run()
   }
 
   // ===========================================================================
@@ -133,58 +152,98 @@ export class LabelStorage {
   // ===========================================================================
 
   async listLabels(filter?: LabelFilter): Promise<Label[]> {
-    let query = `
-      SELECT l.*, lg.name as group_name
-      FROM ${T.labels} l
-      LEFT JOIN ${T.label_groups} lg ON l.group_id = lg.id
-      WHERE 1=1
-    `
-    const params: unknown[] = []
+    let query = this.ctx.drizzle
+      .select({
+        id: pmoLabels.id,
+        name: pmoLabels.name,
+        color: pmoLabels.color,
+        description: pmoLabels.description,
+        groupId: pmoLabels.groupId,
+        groupName: pmoLabelGroups.name,
+        position: pmoLabels.position,
+        isBuiltin: pmoLabels.isBuiltin,
+        createdAt: pmoLabels.createdAt,
+      })
+      .from(pmoLabels)
+      .leftJoin(pmoLabelGroups, eq(pmoLabels.groupId, pmoLabelGroups.id))
+      .$dynamic()
+
+    const conditions = []
 
     if (filter?.groupId) {
-      query += ' AND l.group_id = ?'
-      params.push(filter.groupId)
+      conditions.push(eq(pmoLabels.groupId, filter.groupId))
     }
     if (filter?.search) {
-      query += ' AND (l.name LIKE ? OR l.description LIKE ?)'
-      params.push(`%${filter.search}%`, `%${filter.search}%`)
+      conditions.push(
+        or(
+          like(pmoLabels.name, `%${filter.search}%`),
+          like(pmoLabels.description, `%${filter.search}%`)
+        )
+      )
     }
     if (filter?.isBuiltin !== undefined) {
-      query += ' AND l.is_builtin = ?'
-      params.push(filter.isBuiltin ? 1 : 0)
+      conditions.push(eq(pmoLabels.isBuiltin, filter.isBuiltin))
     }
 
-    query += ' ORDER BY lg.position ASC, l.position ASC, l.name ASC'
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions))
+    }
 
-    const rows = this.ctx.db.prepare(query).all(...params) as LabelRow[]
+    const rows = query
+      .orderBy(asc(pmoLabelGroups.position), asc(pmoLabels.position), asc(pmoLabels.name))
+      .all()
+
     return rows.map(rowToLabel)
   }
 
   async getLabel(id: string): Promise<Label | null> {
-    const row = this.ctx.db.prepare(`
-      SELECT l.*, lg.name as group_name
-      FROM ${T.labels} l
-      LEFT JOIN ${T.label_groups} lg ON l.group_id = lg.id
-      WHERE l.id = ?
-    `).get(id) as LabelRow | undefined
+    const row = this.ctx.drizzle
+      .select({
+        id: pmoLabels.id,
+        name: pmoLabels.name,
+        color: pmoLabels.color,
+        description: pmoLabels.description,
+        groupId: pmoLabels.groupId,
+        groupName: pmoLabelGroups.name,
+        position: pmoLabels.position,
+        isBuiltin: pmoLabels.isBuiltin,
+        createdAt: pmoLabels.createdAt,
+      })
+      .from(pmoLabels)
+      .leftJoin(pmoLabelGroups, eq(pmoLabels.groupId, pmoLabelGroups.id))
+      .where(eq(pmoLabels.id, id))
+      .get()
     return row ? rowToLabel(row) : null
   }
 
   async getLabelByName(name: string, groupId?: string): Promise<Label | null> {
-    let query = `
-      SELECT l.*, lg.name as group_name
-      FROM ${T.labels} l
-      LEFT JOIN ${T.label_groups} lg ON l.group_id = lg.id
-      WHERE LOWER(l.name) = LOWER(?)
-    `
-    const params: unknown[] = [name]
+    let query = this.ctx.drizzle
+      .select({
+        id: pmoLabels.id,
+        name: pmoLabels.name,
+        color: pmoLabels.color,
+        description: pmoLabels.description,
+        groupId: pmoLabels.groupId,
+        groupName: pmoLabelGroups.name,
+        position: pmoLabels.position,
+        isBuiltin: pmoLabels.isBuiltin,
+        createdAt: pmoLabels.createdAt,
+      })
+      .from(pmoLabels)
+      .leftJoin(pmoLabelGroups, eq(pmoLabels.groupId, pmoLabelGroups.id))
+      .$dynamic()
+
+    const conditions = [
+      sql`LOWER(${pmoLabels.name}) = LOWER(${name})`
+    ]
 
     if (groupId) {
-      query += ' AND l.group_id = ?'
-      params.push(groupId)
+      conditions.push(eq(pmoLabels.groupId, groupId))
     }
 
-    const row = this.ctx.db.prepare(query).get(...params) as LabelRow | undefined
+    const row = query
+      .where(and(...conditions))
+      .get()
     return row ? rowToLabel(row) : null
   }
 
@@ -200,32 +259,33 @@ export class LabelStorage {
     }
 
     // Get next position within group
-    let maxPos: { max_pos: number }
+    let maxPos: { maxPos: number }
     if (label.groupId) {
-      maxPos = this.ctx.db.prepare(
-        `SELECT COALESCE(MAX(position), -1) as max_pos FROM ${T.labels} WHERE group_id = ?`
-      ).get(label.groupId) as { max_pos: number }
+      maxPos = this.ctx.drizzle
+        .select({ maxPos: sql<number>`COALESCE(MAX(${pmoLabels.position}), -1)` })
+        .from(pmoLabels)
+        .where(eq(pmoLabels.groupId, label.groupId))
+        .get() as { maxPos: number }
     } else {
-      maxPos = this.ctx.db.prepare(
-        `SELECT COALESCE(MAX(position), -1) as max_pos FROM ${T.labels} WHERE group_id IS NULL`
-      ).get() as { max_pos: number }
+      maxPos = this.ctx.drizzle
+        .select({ maxPos: sql<number>`COALESCE(MAX(${pmoLabels.position}), -1)` })
+        .from(pmoLabels)
+        .where(isNull(pmoLabels.groupId))
+        .get() as { maxPos: number }
     }
 
     const now = new Date().toISOString()
     try {
-      this.ctx.db.prepare(`
-        INSERT INTO ${T.labels} (id, name, color, description, group_id, position, is_builtin, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      this.ctx.drizzle.insert(pmoLabels).values({
         id,
-        label.name,
-        label.color || null,
-        label.description || null,
-        label.groupId || null,
-        label.position ?? maxPos.max_pos + 1,
-        label.isBuiltin ? 1 : 0,
-        now
-      )
+        name: label.name,
+        color: label.color || null,
+        description: label.description || null,
+        groupId: label.groupId || null,
+        position: label.position ?? maxPos.maxPos + 1,
+        isBuiltin: label.isBuiltin || false,
+        createdAt: now,
+      }).run()
     } catch (err) {
       if (err instanceof Error && err.message.includes('UNIQUE constraint')) {
         throw new PMOError('CONFLICT', `Label "${label.name}" already exists in this group`)
@@ -242,35 +302,30 @@ export class LabelStorage {
       throw new PMOError('NOT_FOUND', `Label not found: ${id}`)
     }
 
-    const updates: string[] = []
-    const params: unknown[] = []
+    const updates: Partial<typeof pmoLabels.$inferInsert> = {}
 
     if (changes.name !== undefined) {
-      updates.push('name = ?')
-      params.push(changes.name)
+      updates.name = changes.name
     }
     if (changes.color !== undefined) {
-      updates.push('color = ?')
-      params.push(changes.color)
+      updates.color = changes.color
     }
     if (changes.description !== undefined) {
-      updates.push('description = ?')
-      params.push(changes.description)
+      updates.description = changes.description
     }
     if (changes.groupId !== undefined) {
-      updates.push('group_id = ?')
-      params.push(changes.groupId)
+      updates.groupId = changes.groupId
     }
     if (changes.position !== undefined) {
-      updates.push('position = ?')
-      params.push(changes.position)
+      updates.position = changes.position
     }
 
-    if (updates.length > 0) {
-      params.push(id)
-      this.ctx.db.prepare(
-        `UPDATE ${T.labels} SET ${updates.join(', ')} WHERE id = ?`
-      ).run(...params)
+    if (Object.keys(updates).length > 0) {
+      this.ctx.drizzle
+        .update(pmoLabels)
+        .set(updates)
+        .where(eq(pmoLabels.id, id))
+        .run()
     }
 
     return (await this.getLabel(id))!
@@ -283,7 +338,10 @@ export class LabelStorage {
     }
 
     // ticket_labels rows cascade on delete
-    this.ctx.db.prepare(`DELETE FROM ${T.labels} WHERE id = ?`).run(id)
+    this.ctx.drizzle
+      .delete(pmoLabels)
+      .where(eq(pmoLabels.id, id))
+      .run()
   }
 
   // ===========================================================================
@@ -297,9 +355,11 @@ export class LabelStorage {
    */
   async addLabelToTicket(ticketId: string, labelId: string): Promise<void> {
     // Validate ticket exists
-    const ticket = this.ctx.db.prepare(
-      `SELECT id FROM ${T.tickets} WHERE id = ?`
-    ).get(ticketId) as { id: string } | undefined
+    const ticket = this.ctx.drizzle
+      .select({ id: pmoTickets.id })
+      .from(pmoTickets)
+      .where(eq(pmoTickets.id, ticketId))
+      .get()
     if (!ticket) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${ticketId}`)
     }
@@ -315,30 +375,34 @@ export class LabelStorage {
       const group = await this.getLabelGroup(label.groupId)
       if (group?.isExclusive) {
         // Remove any existing labels from this group on this ticket
-        this.ctx.db.prepare(`
-          DELETE FROM ${T.ticket_labels}
-          WHERE ticket_id = ? AND label_id IN (
-            SELECT id FROM ${T.labels} WHERE group_id = ?
-          )
-        `).run(ticketId, label.groupId)
+        // Use raw sql for the subquery
+        this.ctx.drizzle.run(
+          sql`DELETE FROM ${pmoTicketLabels}
+            WHERE ${pmoTicketLabels.ticketId} = ${ticketId}
+            AND ${pmoTicketLabels.labelId} IN (
+              SELECT ${pmoLabels.id} FROM ${pmoLabels} WHERE ${pmoLabels.groupId} = ${label.groupId}
+            )`
+        )
       }
     }
 
     // Add the label (ignore if already exists)
-    this.ctx.db.prepare(`
-      INSERT OR IGNORE INTO ${T.ticket_labels} (ticket_id, label_id)
-      VALUES (?, ?)
-    `).run(ticketId, labelId)
+    this.ctx.drizzle.run(
+      sql`INSERT OR IGNORE INTO ${pmoTicketLabels} (ticket_id, label_id) VALUES (${ticketId}, ${labelId})`
+    )
   }
 
   /**
    * Remove a label from a ticket.
    */
   async removeLabelFromTicket(ticketId: string, labelId: string): Promise<void> {
-    const result = this.ctx.db.prepare(`
-      DELETE FROM ${T.ticket_labels}
-      WHERE ticket_id = ? AND label_id = ?
-    `).run(ticketId, labelId)
+    const result = this.ctx.drizzle
+      .delete(pmoTicketLabels)
+      .where(and(
+        eq(pmoTicketLabels.ticketId, ticketId),
+        eq(pmoTicketLabels.labelId, labelId)
+      ))
+      .run()
 
     if (result.changes === 0) {
       throw new PMOError('NOT_FOUND', `Label ${labelId} is not applied to ticket ${ticketId}`)
@@ -349,14 +413,24 @@ export class LabelStorage {
    * Get all labels for a ticket.
    */
   async getLabelsForTicket(ticketId: string): Promise<Label[]> {
-    const rows = this.ctx.db.prepare(`
-      SELECT l.*, lg.name as group_name
-      FROM ${T.ticket_labels} tl
-      JOIN ${T.labels} l ON tl.label_id = l.id
-      LEFT JOIN ${T.label_groups} lg ON l.group_id = lg.id
-      WHERE tl.ticket_id = ?
-      ORDER BY lg.position ASC, l.position ASC
-    `).all(ticketId) as LabelRow[]
+    const rows = this.ctx.drizzle
+      .select({
+        id: pmoLabels.id,
+        name: pmoLabels.name,
+        color: pmoLabels.color,
+        description: pmoLabels.description,
+        groupId: pmoLabels.groupId,
+        groupName: pmoLabelGroups.name,
+        position: pmoLabels.position,
+        isBuiltin: pmoLabels.isBuiltin,
+        createdAt: pmoLabels.createdAt,
+      })
+      .from(pmoTicketLabels)
+      .innerJoin(pmoLabels, eq(pmoTicketLabels.labelId, pmoLabels.id))
+      .leftJoin(pmoLabelGroups, eq(pmoLabels.groupId, pmoLabelGroups.id))
+      .where(eq(pmoTicketLabels.ticketId, ticketId))
+      .orderBy(asc(pmoLabelGroups.position), asc(pmoLabels.position))
+      .all()
 
     return rows.map(rowToLabel)
   }
@@ -407,28 +481,46 @@ export class LabelStorage {
 // Row Converters
 // ===========================================================================
 
-function rowToLabelGroup(row: LabelGroupRow): LabelGroup {
+function rowToLabelGroup(row: {
+  id: string
+  name: string
+  description: string | null
+  isExclusive: boolean | null
+  isRequired: boolean | null
+  position: number
+  createdAt: string | null
+}): LabelGroup {
   return {
     id: row.id,
     name: row.name,
     description: row.description || undefined,
-    isExclusive: row.is_exclusive === 1,
-    isRequired: row.is_required === 1,
+    isExclusive: row.isExclusive ?? true,
+    isRequired: row.isRequired ?? false,
     position: row.position,
-    createdAt: new Date(row.created_at),
+    createdAt: new Date(row.createdAt || Date.now()),
   }
 }
 
-function rowToLabel(row: LabelRow): Label {
+function rowToLabel(row: {
+  id: string
+  name: string
+  color: string | null
+  description: string | null
+  groupId: string | null
+  groupName: string | null
+  position: number
+  isBuiltin: boolean | null
+  createdAt: string | null
+}): Label {
   return {
     id: row.id,
     name: row.name,
     color: row.color || undefined,
     description: row.description || undefined,
-    groupId: row.group_id || undefined,
-    groupName: row.group_name || undefined,
+    groupId: row.groupId || undefined,
+    groupName: row.groupName || undefined,
     position: row.position,
-    isBuiltin: row.is_builtin === 1,
-    createdAt: new Date(row.created_at),
+    isBuiltin: row.isBuiltin ?? false,
+    createdAt: new Date(row.createdAt || Date.now()),
   }
 }
