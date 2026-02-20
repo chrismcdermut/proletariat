@@ -41,6 +41,7 @@ import {
   registerViewTools,
   registerDietTools,
   registerLabelTools,
+  registerTmuxTools,
   registerAgentTools,
   registerDockerTools,
   registerRepoTools,
@@ -140,6 +141,7 @@ export default class McpServerCommand extends Command {
     registerViewTools(server, ctx)
     registerDietTools(server, ctx)
     registerLabelTools(server, ctx)
+    registerTmuxTools(server, ctx)
     registerAgentTools(server, ctx)
     registerDockerTools(server, ctx)
     registerRepoTools(server, ctx)

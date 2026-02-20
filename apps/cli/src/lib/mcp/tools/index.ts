@@ -18,6 +18,7 @@ export { registerTemplateTools } from './template.js'
 export { registerViewTools } from './view.js'
 export { registerDietTools } from './diet.js'
 export { registerLabelTools } from './label.js'
+export { registerTmuxTools } from './tmux.js'
 
 // CLI passthrough tools
 export {
