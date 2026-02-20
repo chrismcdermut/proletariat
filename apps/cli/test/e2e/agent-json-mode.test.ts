@@ -174,7 +174,7 @@ describe('Agent Commands JSON Mode', () => {
       expect(json).to.exist;
       expect(json.staff).to.be.an('array');
       expect(json.temp).to.be.an('array');
-      expect(json.all).to.be.an('array');
+      expect(json).to.not.have.property('all');
     });
 
     it('should work with --json flag (legacy)', () => {
@@ -182,11 +182,12 @@ describe('Agent Commands JSON Mode', () => {
       const json = extractJson<{
         staff: Array<{ name: string }>;
         temp: Array<{ name: string }>;
-        all: Array<{ name: string }>;
       }>(output);
 
       expect(json).to.exist;
-      expect(json.all).to.be.an('array');
+      expect(json.staff).to.be.an('array');
+      expect(json.temp).to.be.an('array');
+      expect(json).to.not.have.property('all');
     });
 
     it('should work with -m shorthand', () => {
@@ -194,11 +195,12 @@ describe('Agent Commands JSON Mode', () => {
       const json = extractJson<{
         staff: Array<{ name: string }>;
         temp: Array<{ name: string }>;
-        all: Array<{ name: string }>;
       }>(output);
 
       expect(json).to.exist;
-      expect(json.all).to.be.an('array');
+      expect(json.staff).to.be.an('array');
+      expect(json.temp).to.be.an('array');
+      expect(json).to.not.have.property('all');
     });
 
     it('should bypass prompt when --type is specified', () => {
@@ -389,11 +391,12 @@ describe('Agent Commands JSON Mode', () => {
         const json = extractJson<{
           staff: Array<{ name: string }>;
           temp: Array<{ name: string }>;
-          all: Array<{ name: string }>;
         }>(output);
 
         expect(json).to.exist;
-        expect(json.all).to.be.an('array');
+        expect(json.staff).to.be.an('array');
+        expect(json.temp).to.be.an('array');
+        expect(json).to.not.have.property('all');
       });
     });
 
@@ -510,13 +513,12 @@ describe('Agent Commands JSON Mode', () => {
         const json = extractJson<{
           staff: Array<{ name: string; type: string }>;
           temp: Array<{ name: string; type: string }>;
-          all: Array<{ name: string; type: string }>;
         }>(output);
 
         expect(json).to.exist;
         expect(json.staff).to.be.an('array');
         expect(json.temp).to.be.an('array');
-        expect(json.all).to.be.an('array');
+        expect(json).to.not.have.property('all');
       });
 
       it('should complete flow: agent list --type staff → view only staff agents', () => {
@@ -562,11 +564,12 @@ describe('Agent Commands JSON Mode', () => {
         // agent list --json returns grouped JSON data
         const json = extractJson<{
           staff: Array<{ name: string }>;
-          all: Array<{ name: string }>;
+          temp: Array<{ name: string }>;
         }>(output);
 
         expect(json).to.exist;
-        expect(json.all).to.be.an('array');
+        expect(json.staff).to.be.an('array');
+        expect(json).to.not.have.property('all');
       });
     });
 
