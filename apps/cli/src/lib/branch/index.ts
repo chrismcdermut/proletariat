@@ -296,6 +296,7 @@ export interface BranchInfo {
   agent?: string
   description?: string
   tracking?: string
+  repo?: string
 }
 
 /**

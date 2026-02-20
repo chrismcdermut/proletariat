@@ -223,7 +223,7 @@ export function registerRepoTools(server: McpServer, ctx: McpToolContext): void 
 export function registerBranchTools(server: McpServer, ctx: McpToolContext): void {
   strictTool(server,
     'branch_list',
-    'List branches',
+    'List branches (across all HQ repos if not in a git repo)',
     {},
     async () => {
       try {
