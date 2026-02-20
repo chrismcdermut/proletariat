@@ -9,34 +9,12 @@ import {
   getHostTmuxSessionNames,
   getContainerTmuxSessionMap,
   flattenContainerSessions,
+  findContainerSessionsByPrefix,
   findSessionForExecution,
 } from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
 import { visualPadEnd } from '../../lib/string-utils.js'
-
-/**
- * Find container sessions using prefix matching.
- * Handles cases where the stored containerId format differs from docker ps output
- * (e.g., full 64-char ID vs 12-char short ID).
- */
-function findContainerSessionsByPrefix(
-  containerTmuxSessions: Map<string, string[]>,
-  containerId: string
-): string[] {
-  // Try exact match first
-  const exact = containerTmuxSessions.get(containerId)
-  if (exact) return exact
-
-  // Fall back to prefix matching (handles short vs full ID mismatches)
-  for (const [key, sessions] of containerTmuxSessions) {
-    if (key.startsWith(containerId) || containerId.startsWith(key)) {
-      return sessions
-    }
-  }
-
-  return []
-}
 
 interface VerifiedSession {
   sessionId: string

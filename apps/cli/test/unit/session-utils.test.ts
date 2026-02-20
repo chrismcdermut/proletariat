@@ -5,6 +5,7 @@ import {
   buildExpectedSessionName,
   sessionMatchesExecution,
   findSessionForExecution,
+  findContainerSessionsByPrefix,
   KNOWN_ACTIONS,
 } from '../../src/lib/execution/session-utils.js'
 
@@ -228,6 +229,36 @@ describe('Session Utils', () => {
       ]
       const result = findSessionForExecution('TKT-123', 'agent', sessions)
       expect(result).to.equal('TKT-123-Implement-agent')
+    })
+  })
+
+  describe('findContainerSessionsByPrefix', () => {
+    const sessionMap = new Map<string, string[]>([
+      ['977b5fc9f60d', ['TKT-1087-Implement-pure-pichai']],
+      ['abcdef123456', ['TKT-1005-Groom-witty-rabois']],
+    ])
+
+    it('should return exact match when container ID exists', () => {
+      const result = findContainerSessionsByPrefix(sessionMap, '977b5fc9f60d')
+      expect(result).to.deep.equal(['TKT-1087-Implement-pure-pichai'])
+    })
+
+    it('should match when DB has short ID and map has longer prefix', () => {
+      const longMap = new Map<string, string[]>([
+        ['977b5fc9f60d1234', ['TKT-1087-Implement-pure-pichai']],
+      ])
+      const result = findContainerSessionsByPrefix(longMap, '977b5fc9f60d')
+      expect(result).to.deep.equal(['TKT-1087-Implement-pure-pichai'])
+    })
+
+    it('should match when DB has longer ID and map has short ID', () => {
+      const result = findContainerSessionsByPrefix(sessionMap, '977b5fc9f60d1234')
+      expect(result).to.deep.equal(['TKT-1087-Implement-pure-pichai'])
+    })
+
+    it('should return empty array when no matching container exists', () => {
+      const result = findContainerSessionsByPrefix(sessionMap, 'doesnotexist')
+      expect(result).to.deep.equal([])
     })
   })
 
