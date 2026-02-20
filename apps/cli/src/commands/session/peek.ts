@@ -9,6 +9,7 @@ import {
   getHostTmuxSessionNames,
   getContainerTmuxSessionMap,
   flattenContainerSessions,
+  findContainerSessionsByPrefix,
   findSessionForExecution,
   captureTmuxPane,
 } from '../../lib/execution/session-utils.js'
@@ -74,7 +75,7 @@ export default class SessionPeek extends PMOCommand {
     const jsonMode = shouldOutputJson(flags)
 
     // Discover all verified sessions
-    const sessions = this.getVerifiedSessions(jsonMode, flags)
+    const sessions = this.getVerifiedSessions()
 
     if (sessions.length === 0) {
       if (jsonMode) {
@@ -268,7 +269,7 @@ export default class SessionPeek extends PMOCommand {
    * Get verified sessions from DB that have actual tmux processes.
    * Same discovery pattern as attach.ts and list.ts.
    */
-  private getVerifiedSessions(jsonMode: boolean, flags: Record<string, unknown>): VerifiedSession[] {
+  private getVerifiedSessions(): VerifiedSession[] {
     const sessions: VerifiedSession[] = []
 
     let executionStorage: ExecutionStorage | null = null
@@ -305,7 +306,7 @@ export default class SessionPeek extends PMOCommand {
 
         if (!exec.sessionId) {
           if (isContainer && exec.containerId) {
-            const containerSessions = containerTmuxSessions.get(exec.containerId) || []
+            const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
             const match = findSessionForExecution(exec.ticketId, exec.agentName, containerSessions)
             if (match) {
               actualSessionId = match
@@ -322,8 +323,8 @@ export default class SessionPeek extends PMOCommand {
           if (!actualSessionId) continue
         } else {
           if (isContainer && exec.containerId) {
-            const containerSessions = containerTmuxSessions.get(exec.containerId)
-            exists = containerSessions?.includes(exec.sessionId) ?? false
+            const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
+            exists = containerSessions.includes(exec.sessionId)
             containerId = exec.containerId
           } else {
             exists = hostTmuxSessions.includes(exec.sessionId)

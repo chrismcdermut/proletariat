@@ -12,6 +12,7 @@ import {
   getHostTmuxSessionNames,
   getContainerTmuxSessionMap,
   flattenContainerSessions,
+  findContainerSessionsByPrefix,
   findSessionForExecution,
 } from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
@@ -201,7 +202,7 @@ export default class SessionAttach extends PMOCommand {
         // If sessionId is NULL, try to find session by naming convention
         if (!exec.sessionId) {
           if (isContainer && exec.containerId) {
-            const containerSessions = containerTmuxSessions.get(exec.containerId) || []
+            const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
             const match = findSessionForExecution(exec.ticketId, exec.agentName, containerSessions)
             if (match) {
               actualSessionId = match
@@ -223,8 +224,8 @@ export default class SessionAttach extends PMOCommand {
         } else {
           // sessionId is set, verify it exists
           if (isContainer && exec.containerId) {
-            const containerSessions = containerTmuxSessions.get(exec.containerId)
-            exists = containerSessions?.includes(exec.sessionId) ?? false
+            const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
+            exists = containerSessions.includes(exec.sessionId)
             containerId = exec.containerId
           } else {
             exists = hostTmuxSessions.includes(exec.sessionId)

@@ -8,7 +8,7 @@ import { ExecutionStorage } from '../../lib/execution/index.js'
 import {
   getHostTmuxSessionNames,
   getContainerTmuxSessionMap,
-  flattenContainerSessions,
+  findContainerSessionsByPrefix,
   findSessionForExecution,
 } from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
@@ -262,7 +262,7 @@ export default class SessionPoke extends PMOCommand {
     if (!exec.sessionId) {
       if (isContainer && exec.containerId) {
         const containerTmuxSessions = getContainerTmuxSessionMap()
-        const containerSessions = containerTmuxSessions.get(exec.containerId) || []
+        const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
         const match = findSessionForExecution(exec.ticketId, exec.agentName, containerSessions)
         if (match) {
           actualSessionId = match
