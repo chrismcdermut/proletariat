@@ -133,6 +133,7 @@ export interface AgentWork {
   startedAt: Date
   completedAt?: Date
   exitCode?: number
+  errorMessage?: string
 }
 
 // =============================================================================

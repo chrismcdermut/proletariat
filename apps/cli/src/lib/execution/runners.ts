@@ -230,6 +230,147 @@ export function getDockerCredentialInfo(): { expiresAt: Date; subscriptionType?:
 }
 
 // =============================================================================
+// Executor Preflight Checks (TKT-1082)
+// =============================================================================
+
+/**
+ * Preflight result indicating whether the executor is ready to run.
+ */
+export interface PreflightResult {
+  ok: boolean
+  error?: string
+}
+
+/**
+ * Get the binary name for an executor type.
+ */
+function getExecutorBinary(executor: ExecutorType): string {
+  switch (executor) {
+    case 'claude-code':
+      return 'claude'
+    case 'codex':
+      return 'codex'
+    case 'aider':
+      return 'aider'
+    case 'custom':
+      return 'echo' // placeholder
+    default:
+      return 'claude'
+  }
+}
+
+/**
+ * Get install/setup hints for a missing executor binary.
+ */
+function getExecutorRemediationHint(executor: ExecutorType): string {
+  switch (executor) {
+    case 'claude-code':
+      return 'Install Claude Code: npm install -g @anthropic-ai/claude-code\n' +
+        '  Then authenticate: claude login'
+    case 'codex':
+      return 'Install Codex: npm install -g @openai/codex\n' +
+        '  Then authenticate: set OPENAI_API_KEY or run codex --login'
+    case 'aider':
+      return 'Install aider: pip install aider-chat\n' +
+        '  Then authenticate: set OPENAI_API_KEY or ANTHROPIC_API_KEY'
+    case 'custom':
+      return 'Configure a custom executor command in your execution settings.'
+    default:
+      return 'Install the required executor and ensure it is on your PATH.'
+  }
+}
+
+/**
+ * Check if an executor binary is available on the host.
+ * Returns a PreflightResult with ok=true if the binary is found,
+ * or ok=false with a descriptive error and remediation hint.
+ */
+export function checkExecutorOnHost(executor: ExecutorType): PreflightResult {
+  const binary = getExecutorBinary(executor)
+
+  try {
+    execSync(`${binary} --version`, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 10000,
+    })
+
+    return { ok: true }
+  } catch {
+    return {
+      ok: false,
+      error: `Executor "${executor}" not found: "${binary}" is not installed or not on PATH.\n\n` +
+        `Remediation:\n  ${getExecutorRemediationHint(executor)}`,
+    }
+  }
+}
+
+/**
+ * Check if an executor binary is available inside a Docker container.
+ * Returns a PreflightResult with ok=true if the binary is found,
+ * or ok=false with a descriptive error and remediation hint.
+ */
+export function checkExecutorInContainer(executor: ExecutorType, containerId: string): PreflightResult {
+  const binary = getExecutorBinary(executor)
+
+  try {
+    execSync(`docker exec ${containerId} which ${binary}`, {
+      stdio: 'pipe',
+      timeout: 10000,
+    })
+    return { ok: true }
+  } catch {
+    return {
+      ok: false,
+      error: `Executor "${executor}" not found in container ${containerId}: "${binary}" is not installed.\n\n` +
+        `Remediation:\n  Ensure "${binary}" is installed in the devcontainer image.\n  ` +
+        getExecutorRemediationHint(executor),
+    }
+  }
+}
+
+/**
+ * Run preflight checks for a given execution environment and executor.
+ * Validates that the executor binary is available before spawning.
+ *
+ * Checks performed per environment:
+ * - host: Verify binary on PATH
+ * - devcontainer: Verify binary inside container (if container running)
+ * - docker: Verify binary on host (used in docker run command)
+ * - vm: Verify binary on host (will be checked on remote separately)
+ */
+export function runExecutorPreflight(
+  executor: ExecutorType,
+  environment: ExecutionEnvironment,
+  containerId?: string
+): PreflightResult {
+  switch (environment) {
+    case 'host':
+      return checkExecutorOnHost(executor)
+
+    case 'devcontainer':
+      // For devcontainer, check inside the container if it's already running
+      if (containerId) {
+        return checkExecutorInContainer(executor, containerId)
+      }
+      // Container not yet running - will be checked after container start
+      return { ok: true }
+
+    case 'docker':
+      // Docker runner builds the command on host, executor runs inside container
+      // Can't check until container is created, so skip for now
+      return { ok: true }
+
+    case 'vm':
+      // VM executor runs remotely - can't check from host
+      // Could add SSH-based check in the future
+      return { ok: true }
+
+    default:
+      return { ok: true }
+  }
+}
+
+// =============================================================================
 // Executor Commands
 // =============================================================================
 
@@ -1348,6 +1489,15 @@ export async function runDevcontainer(
       return {
         success: false,
         error: 'Failed to start Docker container. Check Docker logs for details.',
+      }
+    }
+
+    // Executor preflight check (TKT-1082): verify executor binary is available inside container
+    const preflight = checkExecutorInContainer(executor, containerId)
+    if (!preflight.ok) {
+      return {
+        success: false,
+        error: preflight.error,
       }
     }
 

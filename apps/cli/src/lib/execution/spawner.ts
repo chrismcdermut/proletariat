@@ -18,7 +18,7 @@ import { hasGitHubRemote } from '../repos/git.js'
 import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
-import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } from './runners.js'
+import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight } from './runners.js'
 import { detectRepoWorktrees, resolveWorktreePath } from './context.js'
 import {
   DisplayMode,
@@ -407,6 +407,20 @@ export async function spawnAgentForTicket(
   const displayMode: DisplayMode = options.displayMode || 'terminal'
   const sandboxed = !(options.skipPermissions ?? false)
 
+  // Executor preflight check (TKT-1082): verify binary is available before proceeding
+  // For host environment, check immediately. For devcontainer, check happens after container start.
+  if (environment === 'host') {
+    const preflight = runExecutorPreflight(executor, environment)
+    if (!preflight.ok) {
+      return {
+        success: false,
+        ticketId: ticket.id,
+        agentName,
+        error: preflight.error,
+      }
+    }
+  }
+
   // Create branch in worktree(s)
   // For devcontainer environments, run git commands inside the container
   // because the worktree .git file has container paths, not host paths
@@ -576,7 +590,7 @@ export async function spawnAgentForTicket(
       agentName,
     }
   } else {
-    executionStorage.updateStatus(execution.id, 'failed')
+    executionStorage.updateStatus(execution.id, 'failed', undefined, result.error)
     return {
       success: false,
       executionId: execution.id,

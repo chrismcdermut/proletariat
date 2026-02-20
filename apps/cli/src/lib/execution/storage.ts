@@ -40,6 +40,7 @@ interface AgentWorkRow {
   started_at: number
   completed_at: number | null
   exit_code: number | null
+  error_message: string | null
 }
 
 // =============================================================================
@@ -65,6 +66,7 @@ function rowToAgentWork(row: AgentWorkRow): AgentWork {
     startedAt: new Date(row.started_at),
     completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
     exitCode: row.exit_code ?? undefined,
+    errorMessage: row.error_message || undefined,
   }
 }
 
@@ -142,15 +144,27 @@ export class ExecutionStorage {
   /**
    * Update execution status
    */
-  updateStatus(id: string, status: ExecutionStatus, exitCode?: number): void {
+  updateStatus(id: string, status: ExecutionStatus, exitCode?: number, errorMessage?: string): void {
     const completedAt = ['completed', 'failed', 'stopped'].includes(status) ? Date.now() : null
 
-    if (exitCode !== undefined) {
+    if (exitCode !== undefined && errorMessage) {
+      this.db.prepare(`
+        UPDATE ${T.agent_work}
+        SET status = ?, completed_at = ?, exit_code = ?, error_message = ?
+        WHERE id = ?
+      `).run(status, completedAt, exitCode, errorMessage, id)
+    } else if (exitCode !== undefined) {
       this.db.prepare(`
         UPDATE ${T.agent_work}
         SET status = ?, completed_at = ?, exit_code = ?
         WHERE id = ?
       `).run(status, completedAt, exitCode, id)
+    } else if (errorMessage) {
+      this.db.prepare(`
+        UPDATE ${T.agent_work}
+        SET status = ?, completed_at = ?, error_message = ?
+        WHERE id = ?
+      `).run(status, completedAt, errorMessage, id)
     } else {
       this.db.prepare(`
         UPDATE ${T.agent_work}

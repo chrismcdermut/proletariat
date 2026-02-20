@@ -125,6 +125,7 @@ export default class ExecutionView extends PMOCommand {
           startedAt: execution.startedAt.toISOString(),
           completedAt: execution.completedAt?.toISOString() || null,
           exitCode: execution.exitCode ?? null,
+          errorMessage: execution.errorMessage || null,
         }, createMetadata('execution view', flags))
       }
 
@@ -186,6 +187,14 @@ export default class ExecutionView extends PMOCommand {
         this.log(`${styles.muted('Exit Code:')}    ${exitStyle(execution.exitCode.toString())}`)
       }
       this.log('')
+
+      // Error details (TKT-1082)
+      if (execution.errorMessage) {
+        this.log(styles.header('Error'))
+        this.log('─'.repeat(40))
+        this.log(styles.error(execution.errorMessage))
+        this.log('')
+      }
 
       // Logs summary
       if (execution.logPath) {
