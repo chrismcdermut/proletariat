@@ -1,15 +1,20 @@
 /**
  * Subtask operations for tickets.
+ *
+ * This module uses Drizzle ORM for type-safe database queries.
  */
 
 import { randomUUID } from 'node:crypto'
-import { PMO_TABLES } from '../schema.js'
+import { eq, and, sql } from 'drizzle-orm'
+import {
+  pmoTickets,
+  pmoSubtasks,
+  pmoTicketAcceptanceCriteria,
+} from '../../database/drizzle-schema.js'
 import { PMOError, Subtask, AcceptanceCriterion } from '../types.js'
 import { slugify } from '../utils.js'
 import { StorageContext } from './types.js'
 import { wrapSqliteError } from './helpers.js'
-
-const T = PMO_TABLES
 
 export class SubtaskStorage {
   constructor(private ctx: StorageContext) {}
@@ -19,19 +24,22 @@ export class SubtaskStorage {
    */
   async addSubtask(ticketId: string, title: string): Promise<Subtask> {
     // Verify ticket exists and get project_id
-    const ticket = this.ctx.db.prepare(`
-      SELECT id, project_id FROM ${T.tickets} WHERE id = ?
-    `).get(ticketId) as { id: string; project_id: string } | undefined
+    const ticket = this.ctx.drizzle
+      .select({ id: pmoTickets.id, projectId: pmoTickets.projectId })
+      .from(pmoTickets)
+      .where(eq(pmoTickets.id, ticketId))
+      .get()
 
     if (!ticket) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${ticketId}`, ticketId)
     }
 
     // Get current max position
-    const maxPos = this.ctx.db.prepare(`
-      SELECT COALESCE(MAX(position), -1) as max_pos
-      FROM ${T.subtasks} WHERE ticket_id = ?
-    `).get(ticketId) as { max_pos: number }
+    const maxPos = this.ctx.drizzle
+      .select({ maxPos: sql<number>`COALESCE(MAX(${pmoSubtasks.position}), -1)` })
+      .from(pmoSubtasks)
+      .where(eq(pmoSubtasks.ticketId, ticketId))
+      .get()
 
     // Generate unique ID - start with slugified title, append counter if collision
     const baseId = slugify(title)
@@ -40,9 +48,11 @@ export class SubtaskStorage {
 
     // Check for existing subtask with same ID and append counter if needed
     while (true) {
-      const existing = this.ctx.db.prepare(`
-        SELECT 1 FROM ${T.subtasks} WHERE ticket_id = ? AND id = ?
-      `).get(ticketId, id)
+      const existing = this.ctx.drizzle
+        .select({ id: pmoSubtasks.id })
+        .from(pmoSubtasks)
+        .where(and(eq(pmoSubtasks.ticketId, ticketId), eq(pmoSubtasks.id, id)))
+        .get()
 
       if (!existing) break
 
@@ -50,23 +60,28 @@ export class SubtaskStorage {
       id = `${baseId}-${counter}`
     }
 
-    const position = maxPos.max_pos + 1
+    const position = (maxPos?.maxPos ?? -1) + 1
 
     try {
-      this.ctx.db.prepare(`
-        INSERT INTO ${T.subtasks} (id, ticket_id, title, done, position)
-        VALUES (?, ?, ?, 0, ?)
-      `).run(id, ticketId, title, position)
+      this.ctx.drizzle.insert(pmoSubtasks).values({
+        id,
+        ticketId,
+        title,
+        done: false,
+        position,
+      }).run()
     } catch (err) {
       wrapSqliteError('Subtask', 'create', err)
     }
 
     // Update ticket timestamp
-    this.ctx.db.prepare(`
-      UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?
-    `).run(Date.now(), ticketId)
+    this.ctx.drizzle
+      .update(pmoTickets)
+      .set({ updatedAt: String(Date.now()) })
+      .where(eq(pmoTickets.id, ticketId))
+      .run()
 
-    this.ctx.updateBoardTimestamp(ticket.project_id)
+    this.ctx.updateBoardTimestamp(ticket.projectId)
 
     return {
       id,
@@ -80,41 +95,44 @@ export class SubtaskStorage {
    */
   async toggleSubtask(ticketId: string, subtaskId: string): Promise<Subtask> {
     // Get ticket's project_id for board timestamp update
-    const ticket = this.ctx.db.prepare(`
-      SELECT project_id FROM ${T.tickets} WHERE id = ?
-    `).get(ticketId) as { project_id: string } | undefined
+    const ticket = this.ctx.drizzle
+      .select({ projectId: pmoTickets.projectId })
+      .from(pmoTickets)
+      .where(eq(pmoTickets.id, ticketId))
+      .get()
 
-    const existing = this.ctx.db.prepare(`
-      SELECT * FROM ${T.subtasks}
-      WHERE ticket_id = ? AND id = ?
-    `).get(ticketId, subtaskId) as
-      | { id: string; title: string; done: number }
-      | undefined
+    const existing = this.ctx.drizzle
+      .select()
+      .from(pmoSubtasks)
+      .where(and(eq(pmoSubtasks.ticketId, ticketId), eq(pmoSubtasks.id, subtaskId)))
+      .get()
 
     if (!existing) {
       throw new PMOError('NOT_FOUND', `Subtask not found: ${subtaskId}`)
     }
 
-    const newDone = existing.done === 0 ? 1 : 0
-    this.ctx.db.prepare(`
-      UPDATE ${T.subtasks}
-      SET done = ?
-      WHERE ticket_id = ? AND id = ?
-    `).run(newDone, ticketId, subtaskId)
+    const newDone = !existing.done
+    this.ctx.drizzle
+      .update(pmoSubtasks)
+      .set({ done: newDone })
+      .where(and(eq(pmoSubtasks.ticketId, ticketId), eq(pmoSubtasks.id, subtaskId)))
+      .run()
 
     // Update ticket timestamp
-    this.ctx.db.prepare(`
-      UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?
-    `).run(Date.now(), ticketId)
+    this.ctx.drizzle
+      .update(pmoTickets)
+      .set({ updatedAt: String(Date.now()) })
+      .where(eq(pmoTickets.id, ticketId))
+      .run()
 
     if (ticket) {
-      this.ctx.updateBoardTimestamp(ticket.project_id)
+      this.ctx.updateBoardTimestamp(ticket.projectId)
     }
 
     return {
       id: existing.id,
       title: existing.title,
-      done: newDone === 1,
+      done: newDone,
     }
   }
 
@@ -123,26 +141,30 @@ export class SubtaskStorage {
    */
   async removeSubtask(ticketId: string, subtaskId: string): Promise<void> {
     // Get ticket's project_id for board timestamp update
-    const ticket = this.ctx.db.prepare(`
-      SELECT project_id FROM ${T.tickets} WHERE id = ?
-    `).get(ticketId) as { project_id: string } | undefined
+    const ticket = this.ctx.drizzle
+      .select({ projectId: pmoTickets.projectId })
+      .from(pmoTickets)
+      .where(eq(pmoTickets.id, ticketId))
+      .get()
 
-    const result = this.ctx.db.prepare(`
-      DELETE FROM ${T.subtasks}
-      WHERE ticket_id = ? AND id = ?
-    `).run(ticketId, subtaskId)
+    const result = this.ctx.drizzle
+      .delete(pmoSubtasks)
+      .where(and(eq(pmoSubtasks.ticketId, ticketId), eq(pmoSubtasks.id, subtaskId)))
+      .run()
 
     if (result.changes === 0) {
       throw new PMOError('NOT_FOUND', `Subtask not found: ${subtaskId}`)
     }
 
     // Update ticket timestamp
-    this.ctx.db.prepare(`
-      UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?
-    `).run(Date.now(), ticketId)
+    this.ctx.drizzle
+      .update(pmoTickets)
+      .set({ updatedAt: String(Date.now()) })
+      .where(eq(pmoTickets.id, ticketId))
+      .run()
 
     if (ticket) {
-      this.ctx.updateBoardTimestamp(ticket.project_id)
+      this.ctx.updateBoardTimestamp(ticket.projectId)
     }
   }
 }
@@ -158,38 +180,47 @@ export class AcceptanceCriteriaStorage {
     criterion: string
   ): Promise<AcceptanceCriterion> {
     // Verify ticket exists and get project_id
-    const ticket = this.ctx.db.prepare(`
-      SELECT id, project_id FROM ${T.tickets} WHERE id = ?
-    `).get(ticketId) as { id: string; project_id: string } | undefined
+    const ticket = this.ctx.drizzle
+      .select({ id: pmoTickets.id, projectId: pmoTickets.projectId })
+      .from(pmoTickets)
+      .where(eq(pmoTickets.id, ticketId))
+      .get()
 
     if (!ticket) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${ticketId}`, ticketId)
     }
 
     // Get current max position
-    const maxPos = this.ctx.db.prepare(`
-      SELECT COALESCE(MAX(position), -1) as max_pos
-      FROM ${T.ticket_acceptance_criteria} WHERE ticket_id = ?
-    `).get(ticketId) as { max_pos: number }
+    const maxPos = this.ctx.drizzle
+      .select({ maxPos: sql<number>`COALESCE(MAX(${pmoTicketAcceptanceCriteria.position}), -1)` })
+      .from(pmoTicketAcceptanceCriteria)
+      .where(eq(pmoTicketAcceptanceCriteria.ticketId, ticketId))
+      .get()
 
     // Use UUID to guarantee uniqueness even when multiple ACs are added in the same millisecond
     const id = `ac-${randomUUID()}`
-    const position = maxPos.max_pos + 1
+    const position = (maxPos?.maxPos ?? -1) + 1
 
     try {
-      this.ctx.db.prepare(`
-        INSERT INTO ${T.ticket_acceptance_criteria} (id, ticket_id, criterion, verifiable, verified, position)
-        VALUES (?, ?, ?, 1, 0, ?)
-      `).run(id, ticketId, criterion, position)
+      this.ctx.drizzle.insert(pmoTicketAcceptanceCriteria).values({
+        id,
+        ticketId,
+        criterion,
+        verifiable: true,
+        verified: false,
+        position,
+      }).run()
     } catch (err) {
       wrapSqliteError('Acceptance criterion', 'create', err)
     }
 
-    this.ctx.db.prepare(`
-      UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?
-    `).run(Date.now(), ticketId)
+    this.ctx.drizzle
+      .update(pmoTickets)
+      .set({ updatedAt: String(Date.now()) })
+      .where(eq(pmoTickets.id, ticketId))
+      .run()
 
-    this.ctx.updateBoardTimestamp(ticket.project_id)
+    this.ctx.updateBoardTimestamp(ticket.projectId)
 
     return {
       id,
@@ -209,14 +240,21 @@ export class AcceptanceCriteriaStorage {
     criterionId: string
   ): Promise<void> {
     // Get ticket's project_id for board timestamp update
-    const ticket = this.ctx.db.prepare(`
-      SELECT project_id FROM ${T.tickets} WHERE id = ?
-    `).get(ticketId) as { project_id: string } | undefined
+    const ticket = this.ctx.drizzle
+      .select({ projectId: pmoTickets.projectId })
+      .from(pmoTickets)
+      .where(eq(pmoTickets.id, ticketId))
+      .get()
 
-    const result = this.ctx.db.prepare(`
-      DELETE FROM ${T.ticket_acceptance_criteria}
-      WHERE ticket_id = ? AND id = ?
-    `).run(ticketId, criterionId)
+    const result = this.ctx.drizzle
+      .delete(pmoTicketAcceptanceCriteria)
+      .where(
+        and(
+          eq(pmoTicketAcceptanceCriteria.ticketId, ticketId),
+          eq(pmoTicketAcceptanceCriteria.id, criterionId)
+        )
+      )
+      .run()
 
     if (result.changes === 0) {
       throw new PMOError(
@@ -225,12 +263,14 @@ export class AcceptanceCriteriaStorage {
       )
     }
 
-    this.ctx.db.prepare(`
-      UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?
-    `).run(Date.now(), ticketId)
+    this.ctx.drizzle
+      .update(pmoTickets)
+      .set({ updatedAt: String(Date.now()) })
+      .where(eq(pmoTickets.id, ticketId))
+      .run()
 
     if (ticket) {
-      this.ctx.updateBoardTimestamp(ticket.project_id)
+      this.ctx.updateBoardTimestamp(ticket.projectId)
     }
   }
 
@@ -239,20 +279,25 @@ export class AcceptanceCriteriaStorage {
    */
   async clearAcceptanceCriteria(ticketId: string): Promise<void> {
     // Get ticket's project_id for board timestamp update
-    const ticket = this.ctx.db.prepare(`
-      SELECT project_id FROM ${T.tickets} WHERE id = ?
-    `).get(ticketId) as { project_id: string } | undefined
+    const ticket = this.ctx.drizzle
+      .select({ projectId: pmoTickets.projectId })
+      .from(pmoTickets)
+      .where(eq(pmoTickets.id, ticketId))
+      .get()
 
-    this.ctx.db.prepare(`
-      DELETE FROM ${T.ticket_acceptance_criteria} WHERE ticket_id = ?
-    `).run(ticketId)
+    this.ctx.drizzle
+      .delete(pmoTicketAcceptanceCriteria)
+      .where(eq(pmoTicketAcceptanceCriteria.ticketId, ticketId))
+      .run()
 
-    this.ctx.db.prepare(`
-      UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?
-    `).run(Date.now(), ticketId)
+    this.ctx.drizzle
+      .update(pmoTickets)
+      .set({ updatedAt: String(Date.now()) })
+      .where(eq(pmoTickets.id, ticketId))
+      .run()
 
     if (ticket) {
-      this.ctx.updateBoardTimestamp(ticket.project_id)
+      this.ctx.updateBoardTimestamp(ticket.projectId)
     }
   }
 }

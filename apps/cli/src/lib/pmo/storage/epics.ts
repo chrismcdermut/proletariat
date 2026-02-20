@@ -1,14 +1,19 @@
 /**
  * Epic operations for PMO.
+ *
+ * This module uses Drizzle ORM for type-safe database queries.
  */
 
-import { PMO_TABLES } from '../schema.js'
+import { eq, and, like, or, asc, sql, gte, gt, lt, lte } from 'drizzle-orm'
+import {
+  pmoEpics,
+  pmoTickets,
+  pmoWorkflowStatuses,
+} from '../../database/drizzle-schema.js'
 import { Epic, EpicFilter, PMOError, Ticket } from '../types.js'
 import { generateEntityId } from '../utils.js'
-import { StorageContext, EpicRow, TicketRow } from './types.js'
+import { StorageContext, TicketRow } from './types.js'
 import { rowToTicket, wrapSqliteError } from './helpers.js'
-
-const T = PMO_TABLES
 
 export class EpicStorage {
   constructor(private ctx: StorageContext) {}
@@ -25,28 +30,27 @@ export class EpicStorage {
     // Get next position if not provided
     let position = epic.position
     if (position === undefined) {
-      const maxPos = this.ctx.db.prepare(`
-        SELECT COALESCE(MAX(position), -1) as max_pos FROM ${T.epics} WHERE project_id = ?
-      `).get(projectId) as { max_pos: number }
-      position = maxPos.max_pos + 1
+      const maxPos = this.ctx.drizzle
+        .select({ maxPos: sql<number>`COALESCE(MAX(${pmoEpics.position}), -1)` })
+        .from(pmoEpics)
+        .where(eq(pmoEpics.projectId, projectId))
+        .get()
+      position = (maxPos?.maxPos ?? -1) + 1
     }
 
     try {
-      this.ctx.db.prepare(`
-        INSERT INTO ${T.epics} (id, project_id, title, description, status, position, file_path, spec_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      this.ctx.drizzle.insert(pmoEpics).values({
         id,
         projectId,
         title,
-        epic.description || null,
+        description: epic.description || null,
         status,
-        position,
-        epic.filePath || null,
-        epic.specId || null,
-        now,
-        now
-      )
+        position: position!,
+        filePath: epic.filePath || null,
+        specId: epic.specId || null,
+        createdAt: String(now),
+        updatedAt: String(now),
+      }).run()
     } catch (err) {
       wrapSqliteError('Epic', 'create', err)
     }
@@ -59,7 +63,7 @@ export class EpicStorage {
       title,
       description: epic.description,
       status,
-      position,
+      position: position!,
       filePath: epic.filePath,
       specId: epic.specId,
       createdAt: new Date(now),
@@ -71,9 +75,11 @@ export class EpicStorage {
    * Get an epic by ID.
    */
   async getEpic(id: string): Promise<Epic | null> {
-    const row = this.ctx.db.prepare(`
-      SELECT * FROM ${T.epics} WHERE id = ?
-    `).get(id) as EpicRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoEpics)
+      .where(eq(pmoEpics.id, id))
+      .get()
 
     if (!row) return null
 
@@ -84,21 +90,30 @@ export class EpicStorage {
    * List epics with optional filters.
    */
   async listEpics(projectId: string, filter?: EpicFilter): Promise<Epic[]> {
-    let query = `SELECT * FROM ${T.epics} WHERE project_id = ?`
-    const params: unknown[] = [projectId]
+    let query = this.ctx.drizzle
+      .select()
+      .from(pmoEpics)
+      .$dynamic()
+
+    const conditions = [eq(pmoEpics.projectId, projectId)]
 
     if (filter?.status) {
-      query += ' AND status = ?'
-      params.push(filter.status)
+      conditions.push(eq(pmoEpics.status, filter.status))
     }
     if (filter?.search) {
-      query += ' AND (title LIKE ? OR description LIKE ?)'
-      params.push(`%${filter.search}%`, `%${filter.search}%`)
+      conditions.push(
+        or(
+          like(pmoEpics.title, `%${filter.search}%`),
+          like(pmoEpics.description, `%${filter.search}%`)
+        )!
+      )
     }
 
-    query += ' ORDER BY position ASC, created_at ASC'
+    query = query.where(and(...conditions))
 
-    const rows = this.ctx.db.prepare(query).all(...params) as EpicRow[]
+    const rows = query
+      .orderBy(asc(pmoEpics.position), asc(pmoEpics.createdAt))
+      .all()
 
     return rows.map((row) => this.rowToEpic(row))
   }
@@ -117,25 +132,39 @@ export class EpicStorage {
       return epic
     }
 
+    const now = Date.now()
+
     if (newPosition < oldPosition) {
-      this.ctx.db.prepare(`
-        UPDATE ${T.epics}
-        SET position = position + 1, updated_at = ?
-        WHERE project_id = ? AND position >= ? AND position < ?
-      `).run(Date.now(), projectId, newPosition, oldPosition)
+      this.ctx.drizzle
+        .update(pmoEpics)
+        .set({ position: sql`${pmoEpics.position} + 1`, updatedAt: String(now) })
+        .where(
+          and(
+            eq(pmoEpics.projectId, projectId),
+            gte(pmoEpics.position, newPosition),
+            lt(pmoEpics.position, oldPosition)
+          )
+        )
+        .run()
     } else {
-      this.ctx.db.prepare(`
-        UPDATE ${T.epics}
-        SET position = position - 1, updated_at = ?
-        WHERE project_id = ? AND position > ? AND position <= ?
-      `).run(Date.now(), projectId, oldPosition, newPosition)
+      this.ctx.drizzle
+        .update(pmoEpics)
+        .set({ position: sql`${pmoEpics.position} - 1`, updatedAt: String(now) })
+        .where(
+          and(
+            eq(pmoEpics.projectId, projectId),
+            gt(pmoEpics.position, oldPosition),
+            lte(pmoEpics.position, newPosition)
+          )
+        )
+        .run()
     }
 
-    this.ctx.db.prepare(`
-      UPDATE ${T.epics}
-      SET position = ?, updated_at = ?
-      WHERE id = ?
-    `).run(newPosition, Date.now(), epicId)
+    this.ctx.drizzle
+      .update(pmoEpics)
+      .set({ position: newPosition, updatedAt: String(now) })
+      .where(eq(pmoEpics.id, epicId))
+      .run()
 
     this.ctx.updateBoardTimestamp(projectId)
 
@@ -151,38 +180,31 @@ export class EpicStorage {
       throw new PMOError('NOT_FOUND', `Epic not found: ${id}`)
     }
 
-    const updates: string[] = []
-    const params: unknown[] = []
+    const updates: Partial<typeof pmoEpics.$inferInsert> = {}
 
     if (changes.title !== undefined) {
-      updates.push('title = ?')
-      params.push(changes.title)
+      updates.title = changes.title
     }
     if (changes.description !== undefined) {
-      updates.push('description = ?')
-      params.push(changes.description)
+      updates.description = changes.description
     }
     if (changes.status !== undefined) {
-      updates.push('status = ?')
-      params.push(changes.status)
+      updates.status = changes.status
     }
     if (changes.filePath !== undefined) {
-      updates.push('file_path = ?')
-      params.push(changes.filePath)
+      updates.filePath = changes.filePath
     }
     if (changes.specId !== undefined) {
-      updates.push('spec_id = ?')
-      params.push(changes.specId || null)
+      updates.specId = changes.specId || null
     }
 
-    if (updates.length > 0) {
-      updates.push('updated_at = ?')
-      params.push(Date.now())
-      params.push(id)
-
-      this.ctx.db.prepare(`UPDATE ${T.epics} SET ${updates.join(', ')} WHERE id = ?`).run(
-        ...params
-      )
+    if (Object.keys(updates).length > 0) {
+      updates.updatedAt = String(Date.now())
+      this.ctx.drizzle
+        .update(pmoEpics)
+        .set(updates)
+        .where(eq(pmoEpics.id, id))
+        .run()
     }
 
     this.ctx.updateBoardTimestamp(epic.projectId)
@@ -200,11 +222,16 @@ export class EpicStorage {
 
     try {
       // Unlink tickets from this epic
-      this.ctx.db.prepare(`
-        UPDATE ${T.tickets} SET epic_id = NULL WHERE epic_id = ?
-      `).run(id)
+      this.ctx.drizzle
+        .update(pmoTickets)
+        .set({ epicId: null })
+        .where(eq(pmoTickets.epicId, id))
+        .run()
 
-      this.ctx.db.prepare(`DELETE FROM ${T.epics} WHERE id = ?`).run(id)
+      this.ctx.drizzle
+        .delete(pmoEpics)
+        .where(eq(pmoEpics.id, id))
+        .run()
     } catch (err) {
       wrapSqliteError('Epic', 'delete', err)
     }
@@ -216,18 +243,25 @@ export class EpicStorage {
    * Get tickets for an epic.
    */
   async getTicketsForEpic(projectId: string, epicId: string): Promise<Ticket[]> {
-    const rows = this.ctx.db.prepare(`
-      SELECT t.*,
-             ws.id as column_id,
-             t.position as position,
-             ws.name as column_name
-      FROM ${T.tickets} t
-      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
-      WHERE t.project_id = ? AND t.epic_id = ?
-      ORDER BY ws.position, t.position ASC, t.created_at ASC
-    `).all(projectId, epicId) as TicketRow[]
+    const rows = this.ctx.drizzle
+      .select({
+        ticket: pmoTickets,
+        column_id: pmoWorkflowStatuses.id,
+        column_name: pmoWorkflowStatuses.name,
+      })
+      .from(pmoTickets)
+      .leftJoin(pmoWorkflowStatuses, eq(pmoTickets.statusId, pmoWorkflowStatuses.id))
+      .where(and(eq(pmoTickets.projectId, projectId), eq(pmoTickets.epicId, epicId)))
+      .orderBy(asc(pmoWorkflowStatuses.position), asc(pmoTickets.position), asc(pmoTickets.createdAt))
+      .all()
 
-    return Promise.all(rows.map((row) => rowToTicket(this.ctx.db, row)))
+    const ticketRows: TicketRow[] = rows.map((r) => ({
+      ...this.drizzleTicketToRow(r.ticket),
+      column_id: r.column_id,
+      column_name: r.column_name,
+    }))
+
+    return Promise.all(ticketRows.map((row) => rowToTicket(this.ctx.db, row)))
   }
 
   /**
@@ -235,9 +269,11 @@ export class EpicStorage {
    */
   async linkTicketToEpic(ticketId: string, epicId: string): Promise<void> {
     // Verify ticket exists and get its project
-    const ticket = this.ctx.db.prepare(`
-      SELECT id, project_id FROM ${T.tickets} WHERE id = ?
-    `).get(ticketId) as { id: string; project_id: string } | undefined
+    const ticket = this.ctx.drizzle
+      .select({ id: pmoTickets.id, projectId: pmoTickets.projectId })
+      .from(pmoTickets)
+      .where(eq(pmoTickets.id, ticketId))
+      .get()
     if (!ticket) {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${ticketId}`, ticketId)
     }
@@ -248,13 +284,13 @@ export class EpicStorage {
       throw new PMOError('NOT_FOUND', `Epic not found: ${epicId}`)
     }
 
-    this.ctx.db.prepare(`
-      UPDATE ${T.tickets}
-      SET epic_id = ?, updated_at = ?
-      WHERE id = ?
-    `).run(epicId, Date.now(), ticketId)
+    this.ctx.drizzle
+      .update(pmoTickets)
+      .set({ epicId, updatedAt: String(Date.now()) })
+      .where(eq(pmoTickets.id, ticketId))
+      .run()
 
-    this.ctx.updateBoardTimestamp(ticket.project_id)
+    this.ctx.updateBoardTimestamp(ticket.projectId)
   }
 
   /**
@@ -262,33 +298,66 @@ export class EpicStorage {
    */
   async unlinkTicketFromEpic(ticketId: string): Promise<void> {
     // Get ticket's project for board timestamp update
-    const ticket = this.ctx.db.prepare(`
-      SELECT project_id FROM ${T.tickets} WHERE id = ?
-    `).get(ticketId) as { project_id: string } | undefined
+    const ticket = this.ctx.drizzle
+      .select({ projectId: pmoTickets.projectId })
+      .from(pmoTickets)
+      .where(eq(pmoTickets.id, ticketId))
+      .get()
 
-    this.ctx.db.prepare(`
-      UPDATE ${T.tickets}
-      SET epic_id = NULL, updated_at = ?
-      WHERE id = ?
-    `).run(Date.now(), ticketId)
+    this.ctx.drizzle
+      .update(pmoTickets)
+      .set({ epicId: null, updatedAt: String(Date.now()) })
+      .where(eq(pmoTickets.id, ticketId))
+      .run()
 
     if (ticket) {
-      this.ctx.updateBoardTimestamp(ticket.project_id)
+      this.ctx.updateBoardTimestamp(ticket.projectId)
     }
   }
 
-  private rowToEpic(row: EpicRow): Epic {
+  // =========================================================================
+  // Private Helpers
+  // =========================================================================
+
+  private rowToEpic(row: typeof pmoEpics.$inferSelect): Epic {
     return {
       id: row.id,
-      projectId: row.project_id,
+      projectId: row.projectId,
       title: row.title,
       description: row.description || undefined,
       status: row.status as Epic['status'],
       position: row.position,
-      filePath: row.file_path || undefined,
-      specId: row.spec_id || undefined,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
+      filePath: row.filePath || undefined,
+      specId: row.specId || undefined,
+      createdAt: new Date(row.createdAt || Date.now()),
+      updatedAt: new Date(row.updatedAt || Date.now()),
+    }
+  }
+
+  /**
+   * Convert a Drizzle ticket select result to a TicketRow for rowToTicket compatibility.
+   */
+  private drizzleTicketToRow(ticket: typeof pmoTickets.$inferSelect): Omit<TicketRow, 'column_id' | 'column_name'> {
+    return {
+      id: ticket.id,
+      project_id: ticket.projectId,
+      title: ticket.title,
+      description: ticket.description,
+      priority: ticket.priority,
+      category: ticket.category,
+      status_id: ticket.statusId || '',
+      owner: ticket.owner,
+      assignee: ticket.assignee,
+      branch: ticket.branch,
+      spec_id: ticket.specId,
+      epic_id: ticket.epicId,
+      labels: ticket.labels,
+      project_name: null,
+      position: ticket.position,
+      created_at: ticket.createdAt || new Date().toISOString(),
+      updated_at: ticket.updatedAt || new Date().toISOString(),
+      last_synced_from_spec: ticket.lastSyncedFromSpec,
+      last_synced_from_board: ticket.lastSyncedFromBoard,
     }
   }
 }
