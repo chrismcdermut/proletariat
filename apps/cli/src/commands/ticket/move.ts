@@ -239,6 +239,28 @@ export default class TicketMove extends PMOCommand {
     // Auto-export to board.md after write
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
 
+    // JSON output mode - match MCP tool response shape
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        ticket: {
+          id: moved.id,
+          title: moved.title,
+          priority: moved.priority,
+          category: moved.category,
+          statusName: moved.statusName,
+          statusCategory: moved.statusCategory,
+          projectId: moved.projectId,
+          assignee: moved.assignee,
+          owner: moved.owner,
+          branch: moved.branch,
+          epicId: moved.epicId,
+          position: moved.position,
+        },
+      }, null, 2));
+      return;
+    }
+
     this.log(styles.success(`\n✅ Moved ticket ${styles.emphasis(moved.id)}`));
     if (targetColumn !== ticket.statusName) {
       this.log(styles.muted(`   From: ${ticket.statusName}`));
@@ -405,6 +427,27 @@ export default class TicketMove extends PMOCommand {
 
         await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
 
+        if (jsonMode && updatedTicket) {
+          this.log(JSON.stringify({
+            success: true,
+            ticket: {
+              id: updatedTicket.id,
+              title: updatedTicket.title,
+              priority: updatedTicket.priority,
+              category: updatedTicket.category,
+              statusName: updatedTicket.statusName,
+              statusCategory: updatedTicket.statusCategory,
+              projectId: updatedTicket.projectId,
+              assignee: updatedTicket.assignee,
+              owner: updatedTicket.owner,
+              branch: updatedTicket.branch,
+              epicId: updatedTicket.epicId,
+              position: updatedTicket.position,
+            },
+          }, null, 2));
+          return;
+        }
+
         this.log(styles.success(`\n✅ Moved ticket ${styles.emphasis(ticketId)} to project ${styles.emphasis(targetProject.id)}`));
         this.log(styles.muted(`   From project: ${sourceProjectId}`));
         this.log(styles.muted(`   To project: ${targetProject.id}`));
@@ -421,6 +464,27 @@ export default class TicketMove extends PMOCommand {
     }
 
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        ticket: {
+          id: movedTicket.id,
+          title: movedTicket.title,
+          priority: movedTicket.priority,
+          category: movedTicket.category,
+          statusName: movedTicket.statusName,
+          statusCategory: movedTicket.statusCategory,
+          projectId: movedTicket.projectId,
+          assignee: movedTicket.assignee,
+          owner: movedTicket.owner,
+          branch: movedTicket.branch,
+          epicId: movedTicket.epicId,
+          position: movedTicket.position,
+        },
+      }, null, 2));
+      return;
+    }
 
     this.log(styles.success(`\n✅ Moved ticket ${styles.emphasis(ticketId)} to project ${styles.emphasis(targetProject.id)}`));
     this.log(styles.muted(`   From project: ${sourceProjectId}`));

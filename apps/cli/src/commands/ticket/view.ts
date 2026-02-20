@@ -77,6 +77,37 @@ export default class TicketView extends PMOCommand {
       this.error(`Ticket "${ticketId}" not found.`);
     }
 
+    // JSON output mode
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        ticket: {
+          id: ticket.id,
+          title: ticket.title,
+          description: ticket.description,
+          priority: ticket.priority,
+          category: ticket.category,
+          statusName: ticket.statusName,
+          statusCategory: ticket.statusCategory,
+          projectId: ticket.projectId,
+          assignee: ticket.assignee,
+          owner: ticket.owner,
+          branch: ticket.branch,
+          epicId: ticket.epicId,
+          position: ticket.position,
+          subtasks: ticket.subtasks,
+          labels: ticket.labels,
+          metadata: ticket.metadata,
+          blockedBy: ticket.blockedBy,
+          acceptanceCriteria: ticket.acceptanceCriteria,
+          specId: ticket.specId,
+          createdAt: ticket.createdAt?.toISOString(),
+          updatedAt: ticket.updatedAt?.toISOString(),
+        },
+      }, null, 2));
+      return;
+    }
+
     // Get project board (may be null if project was deleted/orphaned)
     const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
     const projectName = board?.name || ticket.projectId || 'Unknown';

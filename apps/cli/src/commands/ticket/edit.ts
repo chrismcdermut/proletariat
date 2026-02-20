@@ -261,6 +261,32 @@ export default class TicketEdit extends PMOCommand {
     // Auto-export to board.md
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
 
+    // JSON output mode - match MCP tool response shape
+    if (jsonMode) {
+      // Re-fetch to get latest state including subtasks/AC changes
+      const finalTicket = (subtasksChanged || acChanged)
+        ? await this.storage.getTicket(ticketId!) ?? updatedTicket
+        : updatedTicket;
+      this.log(JSON.stringify({
+        success: true,
+        ticket: {
+          id: finalTicket.id,
+          title: finalTicket.title,
+          priority: finalTicket.priority,
+          category: finalTicket.category,
+          statusName: finalTicket.statusName,
+          statusCategory: finalTicket.statusCategory,
+          projectId: finalTicket.projectId,
+          assignee: finalTicket.assignee,
+          owner: finalTicket.owner,
+          branch: finalTicket.branch,
+          epicId: finalTicket.epicId,
+          position: finalTicket.position,
+        },
+      }, null, 2));
+      return;
+    }
+
     // Display updated ticket
     this.log(styles.success(`\n✅ Updated ticket ${styles.emphasis(updatedTicket.id)}`));
 
