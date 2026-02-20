@@ -5,7 +5,7 @@ import {
   findHQRoot,
   getWorkspaceRepoInfo,
 } from '../../lib/repos/index.js';
-import { openWorkspaceDatabase } from '../../lib/database/index.js';
+import { getWorktreesForRepo } from '../../lib/database/index.js';
 import {
   shouldOutputJson,
   outputErrorAsJson,
@@ -128,13 +128,7 @@ export default class View extends PMOCommand {
     }
 
     // Get agent worktree info
-    const db = openWorkspaceDatabase(hqPath);
-    const worktrees = db.prepare(`
-      SELECT agent_name, is_clean, commits_ahead, branch
-      FROM agent_worktrees
-      WHERE repo_name = ?
-    `).all(repoName) as { agent_name: string; is_clean: number; commits_ahead: number; branch: string }[];
-    db.close();
+    const worktrees = getWorktreesForRepo(hqPath, repoName);
 
     if (worktrees.length > 0) {
       this.log(format.subtitle('\n👥 Agent Worktrees:'));

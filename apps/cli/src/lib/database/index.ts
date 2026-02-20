@@ -908,6 +908,40 @@ export function getAgentWorktrees(workspacePath: string, agentName: string): Age
   return worktrees;
 }
 
+/**
+ * Find agent worktrees matching a branch pattern (case-insensitive LIKE).
+ */
+export function findWorktreesByBranch(workspacePath: string, branchPattern: string): AgentWorktree[] {
+  const db = openWorkspaceDatabase(workspacePath);
+  const worktrees = db.prepare(
+    'SELECT * FROM agent_worktrees WHERE LOWER(branch) LIKE ?'
+  ).all(branchPattern) as AgentWorktree[];
+  db.close();
+  return worktrees;
+}
+
+/**
+ * Get agent worktrees for a specific repository.
+ */
+export function getWorktreesForRepo(workspacePath: string, repoName: string): Array<{ agent_name: string; is_clean: number; commits_ahead: number; branch: string }> {
+  const db = openWorkspaceDatabase(workspacePath);
+  const worktrees = db.prepare(
+    'SELECT agent_name, is_clean, commits_ahead, branch FROM agent_worktrees WHERE repo_name = ?'
+  ).all(repoName) as Array<{ agent_name: string; is_clean: number; commits_ahead: number; branch: string }>;
+  db.close();
+  return worktrees;
+}
+
+/**
+ * Upsert a workspace setting (key-value pair).
+ */
+export function upsertWorkspaceSetting(db: Database.Database, key: string, value: string): void {
+  db.prepare(`
+    INSERT INTO workspace_settings (key, value)
+    VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(key, value);
+}
 
 /**
  * Remove agents from database
@@ -926,6 +960,73 @@ export function removeAgentsFromDatabase(workspacePath: string, agentNames: stri
 
   transaction();
   db.close();
+}
+
+// =============================================================================
+// PMO Bootstrapping Operations
+// =============================================================================
+
+/**
+ * Check if PMO tables exist and get basic stats.
+ * Used by pmo init to detect existing PMO before storage layer is available.
+ */
+export function checkPMOExists(dbPath: string): { exists: boolean; projectCount: number; ticketCount: number } {
+  const db = new Database(dbPath);
+  try {
+    const result = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
+    ).get();
+
+    if (result === undefined) {
+      return { exists: false, projectCount: 0, ticketCount: 0 };
+    }
+
+    const projectCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_projects').get() as { count: number };
+    const ticketCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_tickets').get() as { count: number };
+
+    return {
+      exists: true,
+      projectCount: projectCountResult.count,
+      ticketCount: ticketCountResult.count,
+    };
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Get a PMO setting from the pmo_settings table.
+ * Used for bootstrapping queries before storage layer is available.
+ */
+export function getPMOSetting(dbPath: string, key: string): string | null {
+  const db = new Database(dbPath);
+  try {
+    const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get(key) as { value: string } | undefined;
+    return result?.value ?? null;
+  } catch {
+    return null;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Drop PMO tables from the database.
+ * Used during PMO reinitialization.
+ */
+export function dropPMOTables(dbPath: string, tables: string[]): void {
+  const db = new Database(dbPath);
+  try {
+    for (const table of tables) {
+      try {
+        db.prepare(`DROP TABLE IF EXISTS ${table}`).run();
+      } catch {
+        // Ignore errors - table might not exist
+      }
+    }
+  } finally {
+    db.close();
+  }
 }
 
 // =============================================================================
