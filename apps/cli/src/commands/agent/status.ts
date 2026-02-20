@@ -96,10 +96,10 @@ export default class Status extends PMOCommand {
       agentName = selected;
     }
 
-    await this.showDetailedStatus(workspaceInfo, agentName!);
+    await this.showDetailedStatus(workspaceInfo, agentName!, jsonMode);
   }
 
-  private async showDetailedStatus(workspaceInfo: WorkspaceInfo, agentName: string): Promise<void> {
+  private async showDetailedStatus(workspaceInfo: WorkspaceInfo, agentName: string, jsonMode = false): Promise<void> {
     // Validate agent exists
     const agent = workspaceInfo.agents.find((a) => a.name === agentName);
     if (!agent) {
@@ -107,6 +107,28 @@ export default class Status extends PMOCommand {
     }
 
     const agentStatus = getAgentStatus(workspaceInfo, agentName);
+
+    // JSON output mode
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        agent: {
+          name: agentName,
+          type: agent.type,
+          exists: agentStatus.exists,
+          path: `${workspaceInfo.agentsPath}/${agentName}`,
+          branch: agentStatus.branch,
+          repositories: agentStatus.repositories.map(r => ({
+            name: r.name,
+            status: r.status,
+            commitsAhead: r.commitsAhead,
+          })),
+          assignedTickets: agentStatus.assignedTickets,
+          completedTickets: agentStatus.completedTickets,
+        },
+      }, null, 2));
+      return;
+    }
 
     this.log(format.title(`🤖 Agent: ${agentName}`));
 
