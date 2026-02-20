@@ -440,6 +440,28 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
       expect(result.board).to.have.property('columns');
     });
 
+    it('board_show - should return summary fields without description', () => {
+      const result = callTool('board_show', { project: projectId });
+      expect(result.success).to.be.true;
+      const board = result.board as any;
+      const columns = board.columns;
+      // Find the column containing our test ticket
+      const colWithTicket = columns.find((c: any) => c.tickets.length > 0);
+      expect(colWithTicket).to.exist;
+      const ticket = colWithTicket.tickets[0];
+      // Should have summary fields (id, title always present)
+      expect(ticket).to.have.property('id');
+      expect(ticket).to.have.property('title');
+      // Should have labels array (newly added summary field)
+      expect(ticket).to.have.property('labels').that.is.an('array');
+      // Should NOT have description (stripped for size)
+      expect(ticket).to.not.have.property('description');
+      // Should NOT have heavy fields
+      expect(ticket).to.not.have.property('subtasks');
+      expect(ticket).to.not.have.property('metadata');
+      expect(ticket).to.not.have.property('acceptanceCriteria');
+    });
+
     it('board_columns - should list columns', () => {
       const result = callTool('board_columns', { project: projectId });
       expect(result.success).to.be.true;

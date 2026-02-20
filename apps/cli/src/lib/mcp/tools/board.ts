@@ -6,7 +6,7 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Column, Ticket } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
-import { errorResponse, strictTool } from '../helpers.js'
+import { formatTicket, errorResponse, strictTool } from '../helpers.js'
 
 export function registerBoardTools(server: McpServer, ctx: McpToolContext): void {
   strictTool(server,
@@ -35,10 +35,8 @@ export function registerBoardTools(server: McpServer, ctx: McpToolContext): void
                   position: col.position,
                   ticketCount: col.tickets.length,
                   tickets: col.tickets.map((t: Ticket) => ({
-                    id: t.id,
-                    title: t.title,
-                    priority: t.priority,
-                    assignee: t.assignee,
+                    ...formatTicket(t),
+                    labels: t.labels,
                   })),
                 })),
                 updatedAt: board.updatedAt.toISOString(),
