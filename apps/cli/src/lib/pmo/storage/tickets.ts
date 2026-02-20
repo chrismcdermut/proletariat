@@ -19,10 +19,13 @@ import {
   pmoLabels,
   pmoLabelGroups,
 } from '../../database/drizzle-schema.js'
+import { PMO_TABLES } from '../schema.js'
 import { CreateTicketInput, PMOError, Ticket, TicketFilter } from '../types.js'
 import { slugify, generateEntityId } from '../utils.js'
 import { StorageContext, TicketRow } from './types.js'
 import { rowToTicket, wrapSqliteError } from './helpers.js'
+
+const T = PMO_TABLES
 
 export class TicketStorage {
   constructor(private ctx: StorageContext) {}
@@ -293,8 +296,8 @@ export class TicketStorage {
              ws.id as column_id,
              t.position as position,
              ws.name as column_name
-      FROM ${pmoTickets._.name} t
-      LEFT JOIN ${pmoWorkflowStatuses._.name} ws ON t.status_id = ws.id
+      FROM ${T.tickets} t
+      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
       WHERE LOWER(t.id) = LOWER(?)
     `).get(id) as TicketRow | undefined
 
@@ -648,9 +651,9 @@ export class TicketStorage {
              t.position as position,
              ws.name as column_name,
              p.name as project_name
-      FROM ${pmoTickets._.name} t
-      LEFT JOIN ${pmoWorkflowStatuses._.name} ws ON t.status_id = ws.id
-      LEFT JOIN ${pmoProjects._.name} p ON t.project_id = p.id
+      FROM ${T.tickets} t
+      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
+      LEFT JOIN ${T.projects} p ON t.project_id = p.id
       WHERE 1=1
     `
 
@@ -702,17 +705,17 @@ export class TicketStorage {
     }
     if (filter?.label) {
       query += ` AND t.id IN (
-        SELECT tl.ticket_id FROM ${pmoTicketLabels._.name} tl
-        JOIN ${pmoLabels._.name} l ON tl.label_id = l.id
+        SELECT tl.ticket_id FROM ${T.ticket_labels} tl
+        JOIN ${T.labels} l ON tl.label_id = l.id
         WHERE LOWER(l.name) = LOWER(?)
       )`
       params.push(filter.label)
     }
     if (filter?.labelGroup) {
       query += ` AND t.id IN (
-        SELECT tl.ticket_id FROM ${pmoTicketLabels._.name} tl
-        JOIN ${pmoLabels._.name} l ON tl.label_id = l.id
-        JOIN ${pmoLabelGroups._.name} lg ON l.group_id = lg.id
+        SELECT tl.ticket_id FROM ${T.ticket_labels} tl
+        JOIN ${T.labels} l ON tl.label_id = l.id
+        JOIN ${T.label_groups} lg ON l.group_id = lg.id
         WHERE LOWER(lg.name) = LOWER(?)
       )`
       params.push(filter.labelGroup)

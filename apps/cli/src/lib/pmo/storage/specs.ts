@@ -13,10 +13,13 @@ import {
   pmoProjectSpecs,
   pmoSpecDependencies,
 } from '../../database/drizzle-schema.js'
+import { PMO_TABLES } from '../schema.js'
 import { PMOError, Project, Spec, SpecFilter, Ticket } from '../types.js'
 import { generateEntityId } from '../utils.js'
 import { StorageContext, TicketRow } from './types.js'
 import { rowToSpec, rowToTicket, wrapSqliteError } from './helpers.js'
+
+const T = PMO_TABLES
 
 export class SpecStorage {
   constructor(private ctx: StorageContext) {}
@@ -288,8 +291,8 @@ export class SpecStorage {
              ws.id as column_id,
              t.position as position,
              ws.name as column_name
-      FROM ${pmoTickets._.name} t
-      LEFT JOIN ${pmoWorkflowStatuses._.name} ws ON t.status_id = ws.id
+      FROM ${T.tickets} t
+      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
       WHERE t.project_id = ? AND t.spec_id = ?
       ORDER BY ws.position, t.position ASC, t.created_at ASC
     `).all(projectId, specId) as TicketRow[]
@@ -330,7 +333,7 @@ export class SpecStorage {
     }
 
     this.ctx.db.prepare(`
-      INSERT OR IGNORE INTO ${pmoSpecDependencies._.name} (spec_id, depends_on_spec_id, created_at)
+      INSERT OR IGNORE INTO ${T.spec_dependencies} (spec_id, depends_on_spec_id, created_at)
       VALUES (?, ?, ?)
     `).run(specId, dependsOnId, Date.now())
   }
@@ -408,7 +411,7 @@ export class SpecStorage {
     }
 
     this.ctx.db.prepare(`
-      INSERT OR IGNORE INTO ${pmoProjectSpecs._.name} (project_id, spec_id, created_at)
+      INSERT OR IGNORE INTO ${T.project_specs} (project_id, spec_id, created_at)
       VALUES (?, ?, ?)
     `).run(projectId, specId, Date.now())
   }

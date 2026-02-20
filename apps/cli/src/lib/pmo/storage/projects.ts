@@ -20,10 +20,13 @@ import {
   Project,
   ProjectFilter,
 } from '../types.js'
+import { PMO_TABLES } from '../schema.js'
 import { generateEntityId, slugify } from '../utils.js'
 import { generateBoardMarkdown } from '../markdown.js'
 import { StorageContext, TicketRow } from './types.js'
 import { rowToTicket, wrapSqliteError } from './helpers.js'
+
+const T = PMO_TABLES
 
 export class ProjectStorage {
   constructor(private ctx: StorageContext) {}
@@ -102,7 +105,7 @@ export class ProjectStorage {
 
     // Create or update project with default workflow
     this.ctx.db.prepare(`
-      INSERT OR REPLACE INTO ${pmoProjects._.name} (id, name, template, workflow_id, updated_at)
+      INSERT OR REPLACE INTO ${T.projects} (id, name, template, workflow_id, updated_at)
       VALUES (?, ?, ?, 'default', ?)
     `).run(projectId, projectName, 'kanban', now)
 
@@ -199,7 +202,7 @@ export class ProjectStorage {
     // Insert project with workflow
     try {
       this.ctx.db.prepare(`
-        INSERT OR REPLACE INTO ${pmoProjects._.name} (id, name, template, description, workflow_id, created_at, updated_at)
+        INSERT OR REPLACE INTO ${T.projects} (id, name, template, description, workflow_id, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(id, project.name, workflowId, project.description || null, finalWorkflowId, now, now)
     } catch (err) {
@@ -272,8 +275,8 @@ export class ProjectStorage {
       SELECT t.*,
              ws.name as status_name,
              ws.category as status_category
-      FROM ${pmoTickets._.name} t
-      LEFT JOIN ${pmoWorkflowStatuses._.name} ws ON t.status_id = ws.id
+      FROM ${T.tickets} t
+      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
       WHERE t.status_id = ? AND t.project_id = ?
       ORDER BY t.position ASC, t.created_at ASC
     `).all(statusId, projectId) as TicketRow[]

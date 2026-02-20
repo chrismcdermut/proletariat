@@ -26,8 +26,11 @@ import {
   Subtask,
   Ticket,
 } from '../types.js'
+import { PMO_TABLES } from '../schema.js'
 import { slugify } from '../utils.js'
 import { StorageContext, BoardViewRow } from './types.js'
+
+const T = PMO_TABLES
 import { getAcceptanceCriteriaSync } from './helpers.js'
 
 export class ViewStorage {
@@ -364,8 +367,8 @@ export class ViewStorage {
              ws.name as column_name,
              ws.name as status_name,
              ws.category as status_category
-      FROM ${pmoTickets._.name} t
-      LEFT JOIN ${pmoWorkflowStatuses._.name} ws ON t.status_id = ws.id
+      FROM ${T.tickets} t
+      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
       WHERE t.status_id = ? AND t.project_id = ?
     `
     const params: unknown[] = [columnId, projectId]
