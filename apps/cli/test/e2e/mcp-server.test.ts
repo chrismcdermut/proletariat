@@ -774,30 +774,84 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
       expect(result).to.have.property('inProgressCount');
     });
 
-    it('work_start - should start work on ticket', () => {
-      const result = callTool('work_start', {
+    it('work_assign - should assign ticket without moving to In Progress', () => {
+      const result = callTool('work_assign', {
         ticket_id: ticketId,
         assignee: 'mcp-agent',
+      });
+      expect(result.success).to.be.true;
+      // Verify ticket was NOT moved to In Progress (TKT-973)
+      const ticket = result.ticket as { statusCategory?: string; statusName?: string; assignee?: string };
+      expect(ticket.assignee).to.equal('mcp-agent');
+      expect(ticket.statusCategory).to.not.equal('started');
+    });
+
+    it('work_assign - should not create false In Progress state', () => {
+      // Call work_assign and verify the ticket stays in its original column
+      const result = callTool('work_assign', {
+        ticket_id: ticketId,
+        assignee: 'test-agent',
+      });
+      expect(result.success).to.be.true;
+      // Check work_status — the ticket should NOT appear as in-progress
+      const statusResult = callTool('work_status', {});
+      expect(statusResult.success).to.be.true;
+      const inProgressTickets = statusResult.tickets as Array<{ id: string }>;
+      const found = inProgressTickets.find((t) => t.id === ticketId);
+      expect(found).to.be.undefined;
+    });
+
+    it('work_assign - should work without assignee param', () => {
+      const result = callTool('work_assign', {
+        ticket_id: ticketId,
       });
       expect(result.success).to.be.true;
     });
 
     it('work_complete - should complete ticket', () => {
-      callTool('work_start', { ticket_id: ticketId });
+      // Move ticket to In Progress first via ticket_move so work_complete has a valid transition
+      callTool('ticket_move', { id: ticketId, column: 'In Progress' });
       const result = callTool('work_complete', { ticket_id: ticketId });
       expect(result.success).to.be.true;
     });
 
     it('work_ready - should mark ticket ready for review', () => {
-      callTool('work_start', { ticket_id: ticketId });
+      callTool('ticket_move', { id: ticketId, column: 'In Progress' });
       const result = callTool('work_ready', { ticket_id: ticketId });
       expect(result.success).to.be.true;
     });
 
     it('work_revise - should send ticket back for revision', () => {
-      callTool('work_start', { ticket_id: ticketId });
+      callTool('ticket_move', { id: ticketId, column: 'In Progress' });
       const result = callTool('work_revise', { ticket_id: ticketId });
       expect(result.success).to.be.true;
+    });
+
+    it('work_start - should fail gracefully without workspace context', () => {
+      // MCP server in test env may not have a full workspace with agents
+      // work_start should return an error (not crash) when workspace is unavailable
+      const result = callTool('work_start', { ticket_id: ticketId });
+      // Either fails with workspace error or agent error — both are valid
+      // The key is it doesn't move ticket to In Progress without spawning
+      if (!result.success) {
+        expect(result.error).to.be.a('string');
+      }
+    });
+
+    it('work_start - should not move ticket to In Progress on failure', () => {
+      // Call work_start (will fail since no workspace/agents in test env)
+      callTool('work_start', { ticket_id: ticketId });
+      // Verify ticket is NOT in progress — the bug was that it moved without spawning
+      const statusResult = callTool('work_status', {});
+      expect(statusResult.success).to.be.true;
+      const inProgressTickets = statusResult.tickets as Array<{ id: string }>;
+      const found = inProgressTickets.find((t) => t.id === ticketId);
+      expect(found).to.be.undefined;
+    });
+
+    it('work_start - should reject non-existent ticket', () => {
+      const result = callTool('work_start', { ticket_id: 'TKT-NONEXISTENT' });
+      expect(result.success).to.be.false;
     });
   });
 

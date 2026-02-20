@@ -19,8 +19,11 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { execSync } from 'node:child_process'
 import * as path from 'node:path'
+import Database from 'better-sqlite3'
 import { getPMOContext } from '../lib/pmo/pmo-context.js'
 import type { McpToolContext } from '../lib/mcp/types.js'
+import { getWorkspaceInfo } from '../lib/agents/commands.js'
+import { ExecutionStorage } from '../lib/execution/storage.js'
 import {
   registerTicketTools,
   registerProjectTools,
@@ -69,6 +72,25 @@ export default class McpServerCommand extends Command {
       version: this.config.version,
     })
 
+    // Try to initialize workspace context for execution support
+    let workspaceContext: ReturnType<NonNullable<McpToolContext['getWorkspaceContext']>> | null = null
+    try {
+      const workspaceInfo = getWorkspaceInfo()
+      if (workspaceInfo && pmoContext) {
+        const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
+        const db = new Database(dbPath)
+        const executionStorage = new ExecutionStorage(db)
+        workspaceContext = {
+          workspaceInfo,
+          executionStorage,
+          db,
+          pmoPath: pmoContext.pmoPath,
+        }
+      }
+    } catch {
+      // Not in a workspace — workspace context will be null
+    }
+
     // Create tool context
     const ctx: McpToolContext = {
       get storage() {
@@ -96,6 +118,9 @@ export default class McpServerCommand extends Command {
           throw error
         }
       },
+      getWorkspaceContext: workspaceContext
+        ? () => workspaceContext!
+        : undefined,
     }
 
     // Register all tool categories
