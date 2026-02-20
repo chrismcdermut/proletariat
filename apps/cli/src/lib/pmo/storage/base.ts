@@ -306,6 +306,19 @@ export function runMigrations(db: Database.Database): void {
     }
   }
 
+  // Migration: Add error_message column to agent_work table (TKT-1082)
+  if (tableExists(T.agent_work)) {
+    const agentWorkColumns = db.pragma(`table_info(${T.agent_work})`) as Array<{ name: string }>
+    const agentWorkColumnNames = new Set(agentWorkColumns.map(c => c.name))
+    if (!agentWorkColumnNames.has('error_message')) {
+      try {
+        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN error_message TEXT`)
+      } catch {
+        // Column may already exist
+      }
+    }
+  }
+
   // Migration: Reassign orphaned tickets (TKT-940)
   // Tickets with project_id that doesn't match any existing project are "orphaned".
   // This can happen when a 'default' project never existed or was deleted.

@@ -364,6 +364,7 @@ export const PMO_TABLE_SCHEMAS = {
       started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       completed_at TIMESTAMP,
       exit_code INTEGER,
+      error_message TEXT,
       FOREIGN KEY (ticket_id) REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE
     )`,
 

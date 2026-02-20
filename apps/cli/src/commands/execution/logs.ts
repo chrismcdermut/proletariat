@@ -109,6 +109,13 @@ export default class ExecutionLogs extends PMOCommand {
         this.log(styles.muted(`\nNo log file for execution ${execId}`))
         this.log(styles.muted(`Environment: ${execution.environment}`))
 
+        // Show error message if available (TKT-1082)
+        if (execution.errorMessage) {
+          this.log('')
+          this.log(styles.error('Error:'))
+          this.log(styles.error(`  ${execution.errorMessage}`))
+        }
+
         if (execution.sessionId) {
           this.log('')
           this.log(styles.muted('View in tmux:'))
