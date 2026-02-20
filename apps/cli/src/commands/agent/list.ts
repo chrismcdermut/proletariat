@@ -49,8 +49,8 @@ export default class List extends PMOCommand {
       // Determine type filter - prompt if not provided (but not in JSON mode)
       let typeFilter = flags.type as 'staff' | 'temp' | 'all' | undefined;
 
-      // In JSON mode without type filter, output all agents grouped by type
-      if (jsonMode && !typeFilter) {
+      // In JSON mode, output agents as JSON respecting the type filter
+      if (jsonMode) {
         const staffAgents = activeAgents.filter(a => a.type === 'persistent');
         const tempAgents = activeAgents.filter(a => a.type === 'ephemeral');
         const agentsStatus = getAllAgentsStatus(workspaceInfo);
@@ -72,11 +72,18 @@ export default class List extends PMOCommand {
           });
         };
 
-        const output = {
-          staff: formatAgentJson(staffAgents),
-          temp: formatAgentJson(tempAgents),
-          all: formatAgentJson(activeAgents),
-        };
+        let output: Record<string, unknown[]>;
+        if (typeFilter === 'staff') {
+          output = { staff: formatAgentJson(staffAgents) };
+        } else if (typeFilter === 'temp') {
+          output = { temp: formatAgentJson(tempAgents) };
+        } else {
+          // No filter or 'all' - return both groups without redundant combined array
+          output = {
+            staff: formatAgentJson(staffAgents),
+            temp: formatAgentJson(tempAgents),
+          };
+        }
 
         this.log(JSON.stringify(output, null, 2));
         return;

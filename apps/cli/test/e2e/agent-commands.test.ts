@@ -234,19 +234,18 @@ describe('Agent Commands E2E Tests', () => {
           return
         }
 
-        const result = extractJson<{ staff: unknown[]; temp: unknown[]; all: unknown[] }>(output)
+        const result = extractJson<{ staff: unknown[]; temp: unknown[] }>(output)
 
         if (!result) {
           return
         }
 
-        // Should have staff, temp, and all arrays
+        // Should have staff and temp arrays (no redundant 'all' array)
         expect(result).to.have.property('staff')
         expect(result).to.have.property('temp')
-        expect(result).to.have.property('all')
+        expect(result).to.not.have.property('all')
         expect(Array.isArray(result.staff)).to.equal(true)
         expect(Array.isArray(result.temp)).to.equal(true)
-        expect(Array.isArray(result.all)).to.equal(true)
       })
 
       it('should work with --type flag to filter agents', () => {
