@@ -83,7 +83,7 @@ export function registerSpecTools(server: McpServer, ctx: McpToolContext): void 
   )
 
   strictTool(server,
-    'spec_show',
+    'spec_view',
     'Get spec details',
     { id: z.string().describe('Spec ID') },
     async (params) => {

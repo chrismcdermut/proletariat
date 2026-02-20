@@ -85,7 +85,7 @@ export function registerEpicTools(server: McpServer, ctx: McpToolContext): void 
   )
 
   strictTool(server,
-    'epic_show',
+    'epic_view',
     'Get epic details with tickets',
     { id: z.string().describe('Epic ID') },
     async (params) => {

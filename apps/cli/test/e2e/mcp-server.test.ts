@@ -434,8 +434,8 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
       createTestTicket(db, projectId, { id: 'TKT-BOARD-1', title: 'Board Test Ticket' });
     });
 
-    it('board_show - should show board', () => {
-      const result = callTool('board_show', { project: projectId });
+    it('board_view - should show board', () => {
+      const result = callTool('board_view', { project: projectId });
       expect(result.success).to.be.true;
       expect(result.board).to.have.property('columns');
     });
@@ -537,8 +537,8 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
       expect(result.spec).to.have.property('id');
     });
 
-    it('spec_show - should get spec details', () => {
-      const result = callTool('spec_show', { id: specId });
+    it('spec_view - should get spec details', () => {
+      const result = callTool('spec_view', { id: specId });
       expect(result.success).to.be.true;
       expect(result.spec).to.have.property('id', specId);
     });
@@ -609,8 +609,8 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
       expect(result.epic).to.have.property('id');
     });
 
-    it('epic_show - should get epic details', () => {
-      const result = callTool('epic_show', { id: epicId });
+    it('epic_view - should get epic details', () => {
+      const result = callTool('epic_view', { id: epicId });
       expect(result.success).to.be.true;
       expect(result.epic).to.have.property('id', epicId);
     });
