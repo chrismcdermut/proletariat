@@ -10,7 +10,7 @@ import { errorResponse, strictTool } from '../helpers.js'
 
 export function registerBoardTools(server: McpServer, ctx: McpToolContext): void {
   strictTool(server,
-    'board_show',
+    'board_view',
     'Show the kanban board',
     { project: z.string().optional().describe('Project ID') },
     async (params) => {
