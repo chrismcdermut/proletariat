@@ -372,7 +372,7 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       execAutocomplete('autocomplete setup --shell zsh --install', { home: fakeHome });
 
       // Second install - should detect already configured
-      const output = execAutocomplete('autocomplete setup --shell zsh --install', { home: fakeHome });
+      const output = execAutocomplete('autocomplete setup --shell zsh --install --machine', { home: fakeHome });
       const json = extractJson<MachineSuccessResponse>(output);
 
       expect(json).to.not.be.null;

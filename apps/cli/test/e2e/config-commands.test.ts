@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { exec } from './test-helpers.js';
+import { exec, execWithFilter } from './test-helpers.js';
 
 /**
  * End-to-end tests for Config Commands (TKT-762)
@@ -62,7 +62,7 @@ describe('Config Commands E2E Tests', () => {
     });
 
     it('should show default shell in list output', () => {
-      const output = exec('config --list');
+      const output = exec('config --list --json');
       const parsed = JSON.parse(output);
 
       expect(parsed.result).to.have.property('shell');
@@ -153,10 +153,13 @@ describe('Config Commands E2E Tests', () => {
       expect(parsed.result).to.have.property('value', 'Kitty');
     });
 
-    it('should warn on unknown config key', () => {
-      const output = exec('config --set "unknown.key value"');
+    it('should error on unknown config key with --json', () => {
+      const output = exec('config --set "unknown.key value" --json');
+      const parsed = JSON.parse(output);
 
-      expect(output.toLowerCase()).to.contain('unknown');
+      expect(parsed).to.have.property('type', 'error');
+      expect(parsed.error.code).to.equal('UNKNOWN_KEY');
+      expect(parsed.error.message.toLowerCase()).to.contain('unknown');
     });
 
     it('should round-trip terminal app through set and json', () => {
