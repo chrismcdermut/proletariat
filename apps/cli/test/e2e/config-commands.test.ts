@@ -40,12 +40,12 @@ describe('Config Commands E2E Tests', () => {
   });
 
   // =========================================================================
-  // config --list (non-TTY exec produces JSON output since shouldOutputJson detects non-TTY)
+  // config --list
   // =========================================================================
   describe('prlt config --list', () => {
-    it('should list all configuration values as JSON in non-TTY mode', () => {
-      // exec() runs in non-TTY, so --list triggers JSON output
-      const output = exec('config --list');
+    it('should list all configuration values as JSON with --json flag', () => {
+      // --list with --json triggers JSON output
+      const output = exec('config --list --json');
       const parsed = JSON.parse(output);
 
       expect(parsed).to.have.property('success', true);
@@ -55,7 +55,7 @@ describe('Config Commands E2E Tests', () => {
     });
 
     it('should show default terminal app in list output', () => {
-      const output = exec('config --list');
+      const output = exec('config --list --json');
       const parsed = JSON.parse(output);
 
       expect(parsed.result.terminal).to.have.property('app');
@@ -374,14 +374,9 @@ describe('Config Commands E2E Tests', () => {
   // Main menu JSON output
   // =========================================================================
   describe('main menu JSON prompt', () => {
-    it('should output main menu as JSON prompt when --setting is not provided but stdin is not a TTY', () => {
-      // When running via exec(), stdout is not a TTY, so JSON mode activates
-      // without --json flag. But we use --json explicitly for clarity.
-      // The main menu is only reached when --json and --list are NOT set,
-      // but since exec() runs in non-TTY, shouldOutputJson returns true.
+    it('should output main menu as JSON prompt when --setting is provided with --json', () => {
+      // With --json flag, shouldOutputJson returns true.
       // With --setting flag, we navigate to a sub-prompt.
-      // Without --setting, --list, or --json, the main menu prompt is shown.
-      // In non-TTY mode (how exec() runs), this outputs the prompt as JSON.
       const output = exec('config --setting terminal.app --json');
       const parsed = JSON.parse(output);
 

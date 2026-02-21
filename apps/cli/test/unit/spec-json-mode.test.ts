@@ -531,11 +531,11 @@ describe('Spec Commands JSON Mode with FlagResolver', () => {
       Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinIsTTY, configurable: true });
     });
 
-    it('should return true in non-TTY environment', () => {
+    it('should return false in non-TTY environment without explicit flags', () => {
       const originalIsTTY = process.stdout.isTTY;
       Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
 
-      expect(shouldOutputJson({})).to.be.true;
+      expect(shouldOutputJson({})).to.be.false;
 
       Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, configurable: true });
     });

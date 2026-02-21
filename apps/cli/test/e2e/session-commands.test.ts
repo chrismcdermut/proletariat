@@ -442,9 +442,9 @@ describe('Session Commands E2E Tests', () => {
       expect(json!.error.code).to.equal('NO_SESSIONS');
     });
 
-    // Note: Non-JSON text mode cannot be tested in piped exec environment
-    // because shouldOutputJson() detects non-TTY and auto-enables JSON output.
-    // The text-mode path works in real interactive terminals.
+    // Note: Non-JSON text mode can now be tested in piped exec environment
+    // since shouldOutputJson() no longer auto-detects non-TTY.
+    // JSON mode requires explicit --json/--machine flag or PRLT_JSON=1 env var.
   });
 
   // =========================================================================

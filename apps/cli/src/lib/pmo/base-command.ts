@@ -5,7 +5,6 @@ import { styles } from '../styles.js';
 import { PromptCommand } from '../prompt-command.js';
 import {
   shouldOutputJson,
-  isNonTTY,
   outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
@@ -199,14 +198,7 @@ export abstract class PMOCommand extends PromptCommand {
       return numA - numB;
     });
 
-    // Auto-detect non-TTY: switch to JSON mode when no TTY present
-    const effectiveJsonMode = options?.jsonMode ?? (isNonTTY()
-      ? {
-          flags: { json: true } as JsonFlags & Record<string, unknown>,
-          commandName: this.id ?? 'unknown',
-          baseCommand: `prlt ${(this.id ?? 'unknown').replace(/:/g, ' ')}`,
-        }
-      : null);
+    const effectiveJsonMode = options?.jsonMode ?? null;
 
     // If JSON mode is active, output project choices as JSON
     if (effectiveJsonMode && shouldOutputJson(effectiveJsonMode.flags)) {
@@ -303,10 +295,7 @@ export abstract class PMOCommand extends PromptCommand {
       cancelValue,
     } = options;
 
-    // Auto-detect non-TTY: switch to JSON mode when no TTY present
-    const effectiveJsonMode = jsonMode ?? (isNonTTY()
-      ? { flags: { json: true } as JsonFlags & Record<string, unknown>, commandName: this.id ?? 'unknown' }
-      : null);
+    const effectiveJsonMode = jsonMode ?? null;
 
     // Build choices with command field
     const choices = items.map(item => ({
@@ -387,10 +376,7 @@ export abstract class PMOCommand extends PromptCommand {
   }): Promise<string> {
     const { message, fieldName, defaultValue, validate, jsonMode } = options;
 
-    // Auto-detect non-TTY: switch to JSON mode when no TTY present
-    const effectiveJsonMode = jsonMode ?? (isNonTTY()
-      ? { flags: { json: true } as JsonFlags & Record<string, unknown>, commandName: this.id ?? 'unknown', commandHint: '', example: undefined as string | undefined }
-      : null);
+    const effectiveJsonMode = jsonMode ?? null;
 
     // Check for JSON mode
     if (effectiveJsonMode && shouldOutputJson(effectiveJsonMode.flags)) {

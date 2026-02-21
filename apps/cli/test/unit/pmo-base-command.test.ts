@@ -265,34 +265,35 @@ describe('PMO Base Command', () => {
       console.log = originalConsoleLog;
     });
 
-    it('should auto-switch to JSON mode when stdin is not a TTY and no jsonModeConfig provided', async () => {
-      // Simulate non-TTY environment
+    it('should NOT auto-switch to JSON mode when stdin is not a TTY and no jsonModeConfig provided', async () => {
+      // Simulate non-TTY environment - should no longer auto-switch to JSON
+      // Non-TTY environments default to human-readable text output.
+      // JSON mode requires explicit --json/--machine flag or PRLT_JSON=1 env var.
       Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
       Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
 
       const config = await Config.load({ root: path.join(__dirname, '../..') });
 
-      try {
-        await PromptWithoutConfigCommand.run([], config);
-        expect.fail('Should have called process.exit');
-      } catch (error: unknown) {
-        // Expected: process.exit was called by outputPromptAsJson
-        expect((error as Error).message).to.equal('__EXIT_2__');
-      }
+      // Run command with a short timeout - it will hang on inquirer prompt
+      // since we're in non-TTY without JSON mode. That's the expected new behavior.
+      const commandPromise = PromptWithoutConfigCommand.run([], config);
+      const timeoutPromise = new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 2000));
 
-      // Should have exited with EXIT_NEEDS_INPUT (2)
-      expect(exitCode).to.equal(2);
+      const result = await Promise.race([commandPromise.then(() => 'completed' as const), timeoutPromise]);
 
-      // Should have output JSON with the prompt config
-      expect(capturedOutput.length).to.be.greaterThan(0);
-      const jsonOutput = JSON.parse(capturedOutput[capturedOutput.length - 1]);
-      expect(jsonOutput.prompt).to.exist;
-      expect(jsonOutput.prompt.type).to.equal('list');
-      expect(jsonOutput.prompt.name).to.equal('choice');
-      expect(jsonOutput.prompt.message).to.equal('Pick one:');
-      expect(jsonOutput.prompt.choices).to.have.length(2);
-      expect(jsonOutput.metadata).to.exist;
-      expect(jsonOutput.metadata.command).to.equal('prompt:noconfig');
+      // The command should hang (timeout) because inquirer can't get input in non-TTY
+      // but it should NOT have exited with JSON output
+      const jsonOutputs = capturedOutput.filter(line => {
+        try {
+          const parsed = JSON.parse(line);
+          return parsed.type === 'prompt';
+        } catch {
+          return false;
+        }
+      });
+      expect(jsonOutputs).to.have.length(0);
+      // Either timed out (expected) or completed without JSON output
+      expect(result === 'timeout' || result === 'completed').to.be.true;
     });
   });
 });

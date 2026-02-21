@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import {
   isNonTTY,
   shouldOutputJson,
+  isMachineOutput,
   createMetadata,
   normalizeChoices,
   buildPromptConfig,
@@ -26,23 +27,56 @@ describe('prompt-json', () => {
       Object.defineProperty(process.stdout, 'isTTY', { value: originalStdoutIsTTY, configurable: true });
       Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinIsTTY, configurable: true });
     });
+
+    it('does not check PRLT_JSON env var (pure TTY detection)', () => {
+      const originalStdoutIsTTY = process.stdout.isTTY;
+      const originalStdinIsTTY = process.stdin.isTTY;
+      const originalPrltJson = process.env.PRLT_JSON;
+      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+      process.env.PRLT_JSON = '1';
+      expect(isNonTTY()).to.be.false;
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalStdoutIsTTY, configurable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinIsTTY, configurable: true });
+      if (originalPrltJson === undefined) {
+        delete process.env.PRLT_JSON;
+      } else {
+        process.env.PRLT_JSON = originalPrltJson;
+      }
+    });
   });
 
   describe('shouldOutputJson', () => {
     let originalStdoutIsTTY: boolean | undefined;
     let originalStdinIsTTY: boolean | undefined;
+    let originalPrltJson: string | undefined;
+    let originalPrltOutputFormat: string | undefined;
 
     beforeEach(() => {
       originalStdoutIsTTY = process.stdout.isTTY;
       originalStdinIsTTY = process.stdin.isTTY;
+      originalPrltJson = process.env.PRLT_JSON;
+      originalPrltOutputFormat = process.env.PRLT_OUTPUT_FORMAT;
       // Default to TTY mode for tests
       Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
       Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+      delete process.env.PRLT_JSON;
+      delete process.env.PRLT_OUTPUT_FORMAT;
     });
 
     afterEach(() => {
       Object.defineProperty(process.stdout, 'isTTY', { value: originalStdoutIsTTY, configurable: true });
       Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinIsTTY, configurable: true });
+      if (originalPrltJson === undefined) {
+        delete process.env.PRLT_JSON;
+      } else {
+        process.env.PRLT_JSON = originalPrltJson;
+      }
+      if (originalPrltOutputFormat === undefined) {
+        delete process.env.PRLT_OUTPUT_FORMAT;
+      } else {
+        process.env.PRLT_OUTPUT_FORMAT = originalPrltOutputFormat;
+      }
     });
 
     it('returns true when json flag is true', () => {
@@ -50,22 +84,91 @@ describe('prompt-json', () => {
       expect(shouldOutputJson(flags)).to.be.true;
     });
 
-    it('returns true in non-TTY environment', () => {
-      Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
-      const flags: JsonFlags = {};
+    it('returns true when machine flag is true', () => {
+      const flags: JsonFlags = { machine: true };
       expect(shouldOutputJson(flags)).to.be.true;
     });
 
+    it('returns false in non-TTY environment without explicit flag', () => {
+      Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+      const flags: JsonFlags = {};
+      expect(shouldOutputJson(flags)).to.be.false;
+    });
+
     it('returns false when no flags and in TTY environment', () => {
-      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
       const flags: JsonFlags = {};
       expect(shouldOutputJson(flags)).to.be.false;
     });
 
     it('returns false when json flag is explicitly false', () => {
-      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
       const flags: JsonFlags = { json: false };
       expect(shouldOutputJson(flags)).to.be.false;
+    });
+
+    it('returns true when PRLT_JSON=1 is set', () => {
+      process.env.PRLT_JSON = '1';
+      const flags: JsonFlags = {};
+      expect(shouldOutputJson(flags)).to.be.true;
+    });
+
+    it('returns true when PRLT_JSON=true is set', () => {
+      process.env.PRLT_JSON = 'true';
+      const flags: JsonFlags = {};
+      expect(shouldOutputJson(flags)).to.be.true;
+    });
+
+    it('returns true when PRLT_OUTPUT_FORMAT=json is set', () => {
+      process.env.PRLT_OUTPUT_FORMAT = 'json';
+      const flags: JsonFlags = {};
+      expect(shouldOutputJson(flags)).to.be.true;
+    });
+
+    it('returns false when PRLT_OUTPUT_FORMAT=text is set', () => {
+      process.env.PRLT_OUTPUT_FORMAT = 'text';
+      const flags: JsonFlags = {};
+      expect(shouldOutputJson(flags)).to.be.false;
+    });
+  });
+
+  describe('isMachineOutput', () => {
+    let originalPrltJson: string | undefined;
+    let originalPrltOutputFormat: string | undefined;
+
+    beforeEach(() => {
+      originalPrltJson = process.env.PRLT_JSON;
+      originalPrltOutputFormat = process.env.PRLT_OUTPUT_FORMAT;
+      delete process.env.PRLT_JSON;
+      delete process.env.PRLT_OUTPUT_FORMAT;
+    });
+
+    afterEach(() => {
+      if (originalPrltJson === undefined) {
+        delete process.env.PRLT_JSON;
+      } else {
+        process.env.PRLT_JSON = originalPrltJson;
+      }
+      if (originalPrltOutputFormat === undefined) {
+        delete process.env.PRLT_OUTPUT_FORMAT;
+      } else {
+        process.env.PRLT_OUTPUT_FORMAT = originalPrltOutputFormat;
+      }
+    });
+
+    it('returns true when json flag is true', () => {
+      expect(isMachineOutput({ json: true })).to.be.true;
+    });
+
+    it('returns true when machine flag is true', () => {
+      expect(isMachineOutput({ machine: true })).to.be.true;
+    });
+
+    it('returns true when PRLT_OUTPUT_FORMAT=json is set', () => {
+      process.env.PRLT_OUTPUT_FORMAT = 'json';
+      expect(isMachineOutput({})).to.be.true;
+    });
+
+    it('returns false without explicit flags or env vars', () => {
+      expect(isMachineOutput({})).to.be.false;
     });
   });
 

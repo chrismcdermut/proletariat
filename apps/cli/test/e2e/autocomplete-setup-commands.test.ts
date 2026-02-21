@@ -332,19 +332,17 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
   });
 
   // ===========================================================================
-  // Non-machine mode with --shell (piped output enters JSON mode via isNonTTY)
+  // Machine mode with --shell and --machine flag
   // ===========================================================================
 
-  describe('Non-machine mode with --shell flag (piped output)', () => {
-    // Note: In piped/test environments, isNonTTY() returns true, so the command
-    // automatically enters JSON mode even without --machine flag. This is correct
-    // behavior - it ensures agents get structured output when piping.
+  describe('Machine mode with --shell flag and --machine', () => {
+    // JSON output requires explicit --machine/--json flag.
+    // Non-TTY environments no longer auto-switch to JSON mode.
 
-    it('should output JSON for zsh config info without --machine flag', () => {
-      const output = execAutocomplete('autocomplete setup --shell zsh', { home: fakeHome });
+    it('should output JSON for zsh config info with --machine flag', () => {
+      const output = execAutocomplete('autocomplete setup --shell zsh --machine', { home: fakeHome });
       const json = extractJson<MachineSuccessResponse>(output);
 
-      // In piped mode, isNonTTY() triggers JSON output
       expect(json).to.not.be.null;
       expect(json!.result.shell).to.equal('zsh');
       expect(json!.result.snippet).to.include('autocomplete:script zsh');
@@ -360,8 +358,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(content).to.include('prlt autocomplete');
     });
 
-    it('should output JSON for bash config info without --machine flag', () => {
-      const output = execAutocomplete('autocomplete setup --shell bash', { home: fakeHome });
+    it('should output JSON for bash config info with --machine flag', () => {
+      const output = execAutocomplete('autocomplete setup --shell bash --machine', { home: fakeHome });
       const json = extractJson<MachineSuccessResponse>(output);
 
       expect(json).to.not.be.null;

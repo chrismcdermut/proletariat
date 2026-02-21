@@ -56,8 +56,7 @@ describe('prlt whoami', () => {
       process.env.PRLT_AGENT_NAME = 'test-worker';
 
       try {
-        const { stdout } = await runCommand(['whoami'], { root });
-        // Output is JSON in non-TTY (test) environments
+        const { stdout } = await runCommand(['whoami', '--json'], { root });
         const json = JSON.parse(stdout);
         expect(json.agent).to.equal('test-worker');
       } catch (error) {
@@ -71,7 +70,7 @@ describe('prlt whoami', () => {
       process.env.PRLT_HOST_PATH = '/home/user/hq/agents/staff/test-worker';
 
       try {
-        const { stdout } = await runCommand(['whoami'], { root });
+        const { stdout } = await runCommand(['whoami', '--json'], { root });
         const json = JSON.parse(stdout);
         expect(json.hostPath).to.equal('/home/user/hq/agents/staff/test-worker');
       } catch (error) {
@@ -85,7 +84,7 @@ describe('prlt whoami', () => {
       process.env.PRLT_HOST_PATH = '/path/to/agent';
 
       try {
-        const { stdout } = await runCommand(['whoami'], { root });
+        const { stdout } = await runCommand(['whoami', '--json'], { root });
         const json = JSON.parse(stdout);
         expect(json.agent).to.equal('my-agent');
         expect(json.hostPath).to.equal('/path/to/agent');
@@ -103,8 +102,7 @@ describe('prlt whoami', () => {
       delete process.env.DEVCONTAINER;
 
       try {
-        const { stdout } = await runCommand(['whoami'], { root });
-        // Output is JSON in non-TTY (test) environments
+        const { stdout } = await runCommand(['whoami', '--json'], { root });
         const json = JSON.parse(stdout);
         expect(json.environment).to.equal('host');
       } catch (error) {
@@ -122,7 +120,7 @@ describe('prlt whoami', () => {
       process.env.DEVCONTAINER = 'true';
 
       try {
-        const { stdout } = await runCommand(['whoami'], { root });
+        const { stdout } = await runCommand(['whoami', '--json'], { root });
         const json = JSON.parse(stdout);
         expect(json.environment).to.equal('devcontainer');
       } catch (error) {
@@ -141,8 +139,7 @@ describe('prlt whoami', () => {
   describe('output format', () => {
     it('displays working directory', async () => {
       try {
-        const { stdout } = await runCommand(['whoami'], { root });
-        // Output is JSON in non-TTY (test) environments
+        const { stdout } = await runCommand(['whoami', '--json'], { root });
         const json = JSON.parse(stdout);
         expect(json.workingDir).to.be.a('string');
         expect(json.workingDir.length).to.be.greaterThan(0);
@@ -154,7 +151,7 @@ describe('prlt whoami', () => {
 
     it('outputs valid JSON with expected fields', async () => {
       try {
-        const { stdout } = await runCommand(['whoami'], { root });
+        const { stdout } = await runCommand(['whoami', '--json'], { root });
         const json = JSON.parse(stdout);
         expect(json).to.have.property('agent');
         expect(json).to.have.property('environment');

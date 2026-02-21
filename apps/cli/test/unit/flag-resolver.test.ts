@@ -305,10 +305,10 @@ describe('shouldOutputJson', () => {
     expect(shouldOutputJson({ json: true })).to.be.true;
   });
 
-  it('should return true in non-TTY environment', () => {
+  it('should return false in non-TTY environment without explicit flags', () => {
     Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
-    expect(shouldOutputJson({})).to.be.true;
+    expect(shouldOutputJson({})).to.be.false;
   });
 
   it('should return false when no flags and in TTY environment', () => {

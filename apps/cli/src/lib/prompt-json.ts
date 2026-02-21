@@ -8,7 +8,7 @@
  * Design notes:
  * - Stateless functions for easy unit testing
  * - Designed for future extraction as standalone npm package
- * - Supports both explicit --json flag and automatic non-TTY detection
+ * - Supports explicit --json flag, PRLT_JSON env var, and PRLT_OUTPUT_FORMAT env var
  *
  * Exit code conventions:
  * - EXIT_SUCCESS (0): Command completed successfully
@@ -355,30 +355,32 @@ export interface MachineOutputFlags {
  * Check if the current environment is non-TTY (piped input or output)
  *
  * Uses the "either" strategy: returns true if EITHER stdin OR stdout is non-TTY.
- * This covers the primary use case of scripts/agents calling prlt as a subprocess,
- * where both stdin and stdout are typically non-TTY.
+ * This is a pure TTY detection check — it does NOT check environment variables
+ * like PRLT_JSON or PRLT_OUTPUT_FORMAT. Use shouldOutputJson() to determine
+ * whether JSON output mode is active.
  *
  * Returns true if:
  * - stdin is not a TTY (e.g., piped input)
  * - stdout is not a TTY (e.g., piped output)
- * - PRLT_JSON=1 environment variable is set (overrides TTY detection)
  *
- * @returns true if either stdin or stdout is not a TTY, or PRLT_JSON=1 is set
+ * @returns true if either stdin or stdout is not a TTY
  */
 export function isNonTTY(): boolean {
-  if (process.env.PRLT_JSON === '1' || process.env.PRLT_JSON === 'true') {
-    return true
-  }
   return !process.stdout.isTTY || !process.stdin.isTTY
 }
 
 /**
  * Determine if JSON output mode is active (for AI agents)
  *
+ * JSON output is only enabled when explicitly requested via flags or
+ * environment variables. Non-TTY environments (CI, piped output) default
+ * to human-readable text output — use --json, --machine, PRLT_JSON=1,
+ * or PRLT_OUTPUT_FORMAT=json to get JSON output.
+ *
  * Returns true if:
  * - The --json flag is set (or -m/--machine aliases)
  * - The PRLT_JSON=1 environment variable is set
- * - Either stdin or stdout is non-TTY (piped input/output)
+ * - The PRLT_OUTPUT_FORMAT=json environment variable is set
  *
  * @param flags - Command flags object
  * @returns true if JSON mode should be used
@@ -389,8 +391,16 @@ export function shouldOutputJson(flags: JsonFlags): boolean {
     return true
   }
 
-  // Automatic detection for non-TTY environments (includes PRLT_JSON env var)
-  return isNonTTY()
+  // Environment variable overrides
+  if (process.env.PRLT_JSON === '1' || process.env.PRLT_JSON === 'true') {
+    return true
+  }
+
+  if (process.env.PRLT_OUTPUT_FORMAT === 'json') {
+    return true
+  }
+
+  return false
 }
 
 /**
@@ -401,10 +411,14 @@ export const isAgentMode = shouldOutputJson
 /**
  * Determine if machine-readable output mode is active (for AI agents/scripts)
  *
+ * Machine output is only enabled when explicitly requested via flags or
+ * environment variables. Non-TTY environments (CI, piped output) default
+ * to human-readable text output.
+ *
  * Returns true if:
  * - The --json flag is set (or -m/--machine aliases)
  * - The PRLT_JSON=1 environment variable is set
- * - Either stdin or stdout is non-TTY (piped input/output)
+ * - The PRLT_OUTPUT_FORMAT=json environment variable is set
  *
  * @param flags - Command flags object
  * @returns true if machine-readable output mode should be used
@@ -415,8 +429,16 @@ export function isMachineOutput(flags: MachineOutputFlags): boolean {
     return true
   }
 
-  // Automatic detection for non-TTY environments (includes PRLT_JSON env var)
-  return isNonTTY()
+  // Environment variable overrides
+  if (process.env.PRLT_JSON === '1' || process.env.PRLT_JSON === 'true') {
+    return true
+  }
+
+  if (process.env.PRLT_OUTPUT_FORMAT === 'json') {
+    return true
+  }
+
+  return false
 }
 
 /**

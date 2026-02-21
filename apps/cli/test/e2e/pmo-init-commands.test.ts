@@ -18,9 +18,9 @@ import {
  * End-to-end tests for PMO Init Command
  * Tests: prlt pmo init (fresh init, reinitialize flow, JSON mode prompts)
  *
- * NOTE: exec() runs in non-TTY mode, so shouldOutputJson() returns true
- * automatically. This is the expected behavior for testing agent flows.
- * All prompts must be bypassed with flags to avoid hanging.
+ * NOTE: exec() runs in non-TTY mode. Commands must use --json/--machine
+ * flag or provide all flags to avoid hanging on interactive prompts.
+ * shouldOutputJson() no longer auto-detects non-TTY environments.
  */
 describe('PMO Init Commands E2E Tests', () => {
   let testDir: string;
@@ -101,8 +101,8 @@ describe('PMO Init Commands E2E Tests', () => {
     });
 
     it('should not prompt and use defaults when --json is passed without flags', () => {
-      // In non-TTY mode (exec runs non-TTY), shouldOutputJson returns true.
-      // Without this fix, the command would hang waiting for interactive prompts.
+      // With --json flag, shouldOutputJson returns true.
+      // Without flags, the command would use defaults and avoid prompts.
       const output = exec('pmo init --json');
 
       expect(output).to.contain('PMO initialized successfully');

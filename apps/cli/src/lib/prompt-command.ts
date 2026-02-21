@@ -139,11 +139,6 @@ export abstract class PromptCommand extends Command {
       commandName: string;
     } | null
   ): Promise<T> {
-    // Auto-detect non-TTY: switch to JSON mode when no TTY present
-    if (!jsonModeConfig && isNonTTY()) {
-      jsonModeConfig = { flags: { json: true }, commandName: this.id ?? 'unknown' };
-    }
-
     // Check for JSON/agent mode
     if (jsonModeConfig && isAgentMode(jsonModeConfig.flags)) {
       // Find first question that should be shown (respecting 'when' conditions)

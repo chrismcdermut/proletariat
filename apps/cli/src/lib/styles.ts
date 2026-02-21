@@ -17,10 +17,11 @@ import { isNonTTY } from './prompt-json.js';
  * Check if plain text output should be used (no colors, no emoji).
  *
  * Returns true when:
- * - stdout is not a TTY (piped output)
- * - PRLT_JSON=1 environment variable is set
+ * - stdout or stdin is not a TTY (piped output)
  * - PRLT_PLAIN=1 environment variable is set (plain text without JSON)
  * - NO_COLOR environment variable is set (standard convention)
+ * - PRLT_JSON=1 environment variable is set (JSON mode implies plain)
+ * - PRLT_OUTPUT_FORMAT=json environment variable is set
  *
  * @returns true if output should be plain text
  */
@@ -29,6 +30,12 @@ export function isPlainOutput(): boolean {
     return true
   }
   if (process.env.NO_COLOR !== undefined) {
+    return true
+  }
+  if (process.env.PRLT_JSON === '1' || process.env.PRLT_JSON === 'true') {
+    return true
+  }
+  if (process.env.PRLT_OUTPUT_FORMAT === 'json') {
     return true
   }
   return isNonTTY()
