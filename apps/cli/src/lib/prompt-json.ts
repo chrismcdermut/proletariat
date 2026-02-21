@@ -363,9 +363,18 @@ export interface MachineOutputFlags {
  * - stdout is not a TTY (e.g., piped output)
  * - PRLT_JSON=1 environment variable is set (overrides TTY detection)
  *
+ * Returns false if:
+ * - PRLT_FORCE_TEXT=1 is set (forces text output in non-TTY environments, useful for testing)
+ *
  * @returns true if either stdin or stdout is not a TTY, or PRLT_JSON=1 is set
  */
 export function isNonTTY(): boolean {
+  // PRLT_FORCE_TEXT overrides non-TTY detection, forcing human-readable text output.
+  // Used in E2E tests where execSync creates a non-TTY child process but tests
+  // assert on styled text output.
+  if (process.env.PRLT_FORCE_TEXT === '1' || process.env.PRLT_FORCE_TEXT === 'true') {
+    return false
+  }
   if (process.env.PRLT_JSON === '1' || process.env.PRLT_JSON === 'true') {
     return true
   }

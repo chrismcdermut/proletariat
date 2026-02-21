@@ -58,10 +58,10 @@ export default class WorkspacePrune extends PromptCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(WorkspacePrune);
 
-    // In non-TTY mode without --json (CI, scripts, piped), default to dry-run unless --force is set.
-    // In --json mode, we use confirmation_needed output instead of auto-dry-run so agents can review and confirm.
+    // In non-TTY mode (CI, scripts, piped), default to dry-run unless --force is set.
+    // This applies regardless of output format (text or JSON).
     const nonTTY = isNonTTY();
-    const effectiveDryRun = flags['dry-run'] || (!shouldOutputJson(flags) && nonTTY && !flags.force);
+    const effectiveDryRun = flags['dry-run'] || (nonTTY && !flags.force);
 
     // Find stale entries
     const staleWorkspaces = this.findStaleWorkspaces();
