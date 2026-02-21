@@ -44,6 +44,8 @@ const CATCHALL_DEVCONTAINER_IMAGE = 'ghcr.io/chrismcdermut/proletariat-claude:la
 export default class QA extends PromptCommand {
   static description = 'Spawn an exploratory QA agent to autonomously test the CLI (no ticket required)'
 
+  static aliases = ['explore']
+
   static examples = [
     '<%= config.bin %> <%= command.id %>                      # Quick launch QA agent',
     '<%= config.bin %> <%= command.id %> --seed                # Seed test data first',
