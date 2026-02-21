@@ -64,15 +64,29 @@ describe('Workspace Commands E2E Tests', () => {
    * Sets PRLT_HQ_PATH to testWorkspace1 to bypass the init hook
    * (which redirects to "init" flow when no workspace is detected).
    */
-  function execWorkspace(cmd: string): string {
+  /**
+   * Execute a workspace command with proper isolation.
+   * @param cmd - The CLI command to run
+   * @param options.forceText - Force text output mode (default: true).
+   *   Set to false for tests that specifically verify non-TTY behavior.
+   */
+  function execWorkspace(cmd: string, options?: { forceText?: boolean }): string {
+    const forceText = options?.forceText ?? true;
     try {
       const binPath = getBinPath();
-      const env = {
+      const env: NodeJS.ProcessEnv = {
         ...getIsolatedEnv(),
         HOME: testDir,
         PRLT_HQ_PATH: testWorkspace1,
         PRLT_TEST_ENV: 'true',
       };
+
+      // Force text output mode even though execSync creates a non-TTY child process.
+      // Without this, shouldOutputJson() returns true in non-TTY environments,
+      // causing commands to output JSON instead of the styled text we assert on.
+      if (forceText) {
+        env.PRLT_FORCE_TEXT = '1';
+      }
 
       const result = execSync(`node ${binPath} ${cmd}`, {
         encoding: 'utf-8',
@@ -350,12 +364,17 @@ describe('Workspace Commands E2E Tests', () => {
       // Delete workspace2 from disk
       fs.rmSync(testWorkspace2, { recursive: true, force: true });
 
-      // Running without --dry-run or --force in non-TTY (execSync) should default to dry-run
-      const output = execWorkspace('workspace prune');
+      // Running without --dry-run or --force in non-TTY (execSync) should default to dry-run.
+      // In non-TTY mode, the CLI outputs JSON automatically (no --json flag needed).
+      // Use forceText: false so the CLI sees itself as non-TTY (the actual behavior under test).
+      const output = execWorkspace('workspace prune', { forceText: false });
+      const json = JSON.parse(output);
 
-      expect(output).to.include('[DRY RUN]');
-      expect(output).to.include('Non-TTY environment detected');
-      expect(output).to.include('--force');
+      expect(json.dryRun).to.be.true;
+      expect(json.totalFound).to.equal(1);
+      expect(json.totalRemoved).to.equal(0);
+      expect(json.staleWorkspaces).to.be.an('array');
+      expect(json.staleWorkspaces[0].name).to.equal('workspace-two');
 
       // Verify workspace2 is still in registry (not deleted)
       const configPath = path.join(testDir, '.proletariat', 'config.json');
@@ -389,8 +408,9 @@ describe('Workspace Commands E2E Tests', () => {
       // Delete workspace2 from disk
       fs.rmSync(testWorkspace2, { recursive: true, force: true });
 
-      // In non-TTY (execSync), --json without --force defaults to dry-run
-      const output = execWorkspace('workspace prune --json');
+      // In non-TTY (execSync), --json without --force defaults to dry-run.
+      // Use forceText: false so the CLI sees itself as non-TTY (the actual behavior under test).
+      const output = execWorkspace('workspace prune --json', { forceText: false });
       const json = JSON.parse(output);
 
       expect(json.dryRun).to.be.true;
