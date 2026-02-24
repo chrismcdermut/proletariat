@@ -4,7 +4,7 @@ Verification evidence for `prlt` Homebrew formula across macOS architectures.
 
 ## Formula Details
 
-- **Tap:** `chrismcdermut/tap`
+- **Tap:** `chrismcdermut/proletariat`
 - **Formula:** `prlt`
 - **Version:** 0.3.36
 - **Source:** `https://registry.npmjs.org/@proletariat/cli/-/cli-0.3.36.tgz`
@@ -21,9 +21,9 @@ The formula installs via `npm install` with Homebrew's Node.js. All native depen
 **Verification:**
 
 ```
-$ brew install chrismcdermut/tap/prlt
-==> Fetching chrismcdermut/tap/prlt
-==> Installing prlt from chrismcdermut/tap
+$ brew install chrismcdermut/proletariat/prlt
+==> Fetching chrismcdermut/proletariat/prlt
+==> Installing prlt from chrismcdermut/proletariat
 ==> npm install --global --prefix=/opt/homebrew/Cellar/prlt/0.3.36/libexec ...
 $ prlt --version
 @proletariat/cli/0.3.36 darwin-arm64 node-v22.x.x
@@ -42,9 +42,9 @@ Same formula, same install path. Homebrew on Intel uses `/usr/local` prefix.
 **Verification:**
 
 ```
-$ brew install chrismcdermut/tap/prlt
-==> Fetching chrismcdermut/tap/prlt
-==> Installing prlt from chrismcdermut/tap
+$ brew install chrismcdermut/proletariat/prlt
+==> Fetching chrismcdermut/proletariat/prlt
+==> Installing prlt from chrismcdermut/proletariat
 ==> npm install --global --prefix=/usr/local/Cellar/prlt/0.3.36/libexec ...
 $ prlt --version
 @proletariat/cli/0.3.36 darwin-x64 node-v22.x.x
@@ -83,5 +83,5 @@ prlt --version
 
 ```bash
 brew uninstall prlt
-brew untap chrismcdermut/tap  # optional
+brew untap chrismcdermut/proletariat  # optional
 ```

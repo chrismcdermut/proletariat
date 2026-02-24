@@ -22,10 +22,10 @@ Steps to publish a new version of `@proletariat/cli` and verify distribution acr
   curl -sL "https://registry.npmjs.org/@proletariat/cli/-/cli-${VERSION}.tgz" -o /tmp/prlt-cli.tgz
   shasum -a 256 /tmp/prlt-cli.tgz
   ```
-- [ ] Update `Formula/prlt.rb` in `chrismcdermut/homebrew-tap`:
+- [ ] Update `Formula/prlt.rb` in `chrismcdermut/homebrew-proletariat`:
   - Set `url` to new tarball URL
   - Set `sha256` to new hash
-- [ ] Push formula update to `chrismcdermut/homebrew-tap`
+- [ ] Push formula update to `chrismcdermut/homebrew-proletariat`
 
 ## Homebrew Verification — macOS arm64 (Apple Silicon)
 
@@ -34,7 +34,7 @@ Run on an Apple Silicon Mac (M1/M2/M3/M4):
 ```bash
 # Clean install
 brew update
-brew install chrismcdermut/tap/prlt
+brew install chrismcdermut/proletariat/prlt
 prlt --version
 # Expected: @proletariat/cli/<VERSION> darwin-arm64 node-v<X>
 
@@ -62,7 +62,7 @@ Run on an Intel Mac (or Rosetta):
 ```bash
 # Clean install
 brew update
-brew install chrismcdermut/tap/prlt
+brew install chrismcdermut/proletariat/prlt
 prlt --version
 # Expected: @proletariat/cli/<VERSION> darwin-x64 node-v<X>
 
@@ -87,4 +87,4 @@ prlt --help
 
 - [ ] Git tag created: `git tag v<VERSION> && git push origin v<VERSION>`
 - [ ] GitHub release created (if applicable)
-- [ ] Verify `brew audit --strict chrismcdermut/tap/prlt` passes (no warnings)
+- [ ] Verify `brew audit --strict chrismcdermut/proletariat/prlt` passes (no warnings)

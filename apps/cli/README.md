@@ -24,7 +24,7 @@
 **prlt** is an agent orchestration platform for AI labor. Spin up workers on demand, coordinate multi-agent development from one CLI. Isolated workspaces, secure containers, persistent state.
 
 ```bash
-brew install chrismcdermut/tap/prlt    # macOS (Homebrew)
+brew install chrismcdermut/proletariat/prlt    # macOS (Homebrew)
 # or
 npm install -g @proletariat/cli        # any platform (npm)
 
@@ -53,7 +53,7 @@ Agent spawns in its own branch, writes code, opens PR. You review and merge.
 ```bash
 npm install -g @proletariat/cli    # Install (npm)
 # or
-brew install chrismcdermut/tap/prlt  # Install (Homebrew, macOS)
+brew install chrismcdermut/proletariat/prlt  # Install (Homebrew, macOS)
 
 prlt init                          # Create HQ, add repos, choose theme
 prlt ticket create --title "Add OAuth" --category feature
@@ -128,7 +128,7 @@ Select tickets to spawn, grouped by priority:
 #### Homebrew (macOS)
 
 ```bash
-brew install chrismcdermut/tap/prlt
+brew install chrismcdermut/proletariat/prlt
 ```
 
 Works on both Apple Silicon (arm64) and Intel (x86_64) Macs.

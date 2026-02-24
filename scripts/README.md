@@ -53,7 +53,7 @@ node scripts/test-ticket-format.mjs
 **Purpose:** Validates the `**{id}** [[{id}]] {title}` format is correctly generated.
 
 ### `bump-homebrew-formula.sh`
-Bumps the Homebrew tap formula (`chrismcdermut/homebrew-tap`) to a new CLI version.
+Bumps the Homebrew tap formula (`chrismcdermut/homebrew-proletariat`) to a new CLI version.
 
 **Usage:**
 ```bash
@@ -66,7 +66,7 @@ Bumps the Homebrew tap formula (`chrismcdermut/homebrew-tap`) to a new CLI versi
 
 **Environment Variables:**
 - `GH_TOKEN` — GitHub token with push access to the tap repo (required in CI)
-- `TAP_REPO` — Override tap repository (default: `chrismcdermut/homebrew-tap`)
+- `TAP_REPO` — Override tap repository (default: `chrismcdermut/homebrew-proletariat`)
 - `CREATE_PR` — Set to `"true"` to open a PR instead of pushing directly to main
 
 **Automation:** Runs automatically via the `bump-homebrew` GitHub Actions workflow on each release.

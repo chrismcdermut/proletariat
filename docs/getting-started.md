@@ -21,7 +21,7 @@ docker --version  # Optional
 ### Homebrew (macOS)
 
 ```bash
-brew install chrismcdermut/tap/prlt
+brew install chrismcdermut/proletariat/prlt
 ```
 
 Works on both Apple Silicon (arm64) and Intel (x86_64).
