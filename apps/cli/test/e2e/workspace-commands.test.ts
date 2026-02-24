@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { filterOutput, getIsolatedEnv, getBinPath } from './test-helpers.js';
+import { filterOutput, getIsolatedEnv, getBinPath, execAsHuman, execAsAgent } from './test-helpers.js';
 import { execSync } from 'node:child_process';
 
 /**
@@ -59,34 +59,54 @@ describe('Workspace Commands E2E Tests', () => {
   });
 
   /**
-   * Execute a workspace command with proper isolation.
-   * Sets HOME to testDir so machine config is isolated.
-   * Sets PRLT_HQ_PATH to testWorkspace1 to bypass the init hook
-   * (which redirects to "init" flow when no workspace is detected).
+   * Workspace-specific env vars shared by all exec helpers in this suite.
+   * Sets HOME to testDir for machine config isolation and PRLT_HQ_PATH
+   * to bypass the init hook.
    */
+  function getWorkspaceEnv(): NodeJS.ProcessEnv {
+    return {
+      HOME: testDir,
+      PRLT_HQ_PATH: testWorkspace1,
+      PRLT_TEST_ENV: 'true',
+    };
+  }
+
   /**
-   * Execute a workspace command with proper isolation.
-   * @param cmd - The CLI command to run
-   * @param options.forceText - Force text output mode (default: true).
-   *   Set to false for tests that specifically verify non-TTY behavior.
+   * Execute a workspace command in human-readable text mode.
+   * Uses PRLT_FORCE_TEXT=1 to override non-TTY auto-detection.
+   *
+   * Output mode: HUMAN-READABLE TEXT
    */
-  function execWorkspace(cmd: string, options?: { forceText?: boolean }): string {
-    const forceText = options?.forceText ?? true;
+  function execHuman(cmd: string): string {
+    return execAsHuman(cmd, getWorkspaceEnv());
+  }
+
+  /**
+   * Execute a workspace command in explicit JSON/agent mode.
+   * Appends --json flag to explicitly request JSON output.
+   *
+   * Output mode: JSON (explicit --json flag)
+   */
+  function execJson(cmd: string): string {
+    return execAsAgent(cmd, getWorkspaceEnv());
+  }
+
+  /**
+   * Execute a workspace command in raw non-TTY mode (no PRLT_FORCE_TEXT, no --json).
+   * The CLI auto-detects non-TTY and outputs JSON automatically.
+   *
+   * Output mode: NON-TTY AUTO-DETECTED (for testing non-TTY safety behavior)
+   *
+   * Only use this for tests that specifically verify non-TTY auto-detection behavior,
+   * such as prune dry-run safety defaults.
+   */
+  function execNonTTY(cmd: string): string {
     try {
       const binPath = getBinPath();
       const env: NodeJS.ProcessEnv = {
         ...getIsolatedEnv(),
-        HOME: testDir,
-        PRLT_HQ_PATH: testWorkspace1,
-        PRLT_TEST_ENV: 'true',
+        ...getWorkspaceEnv(),
       };
-
-      // Force text output mode even though execSync creates a non-TTY child process.
-      // Without this, shouldOutputJson() returns true in non-TTY environments,
-      // causing commands to output JSON instead of the styled text we assert on.
-      if (forceText) {
-        env.PRLT_FORCE_TEXT = '1';
-      }
 
       const result = execSync(`node ${binPath} ${cmd}`, {
         encoding: 'utf-8',
@@ -102,9 +122,10 @@ describe('Workspace Commands E2E Tests', () => {
     }
   }
 
+  // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
   describe('prlt workspace add', () => {
     it('should register a workspace', () => {
-      const output = execWorkspace(`workspace add ${testWorkspace1}`);
+      const output = execHuman(`workspace add ${testWorkspace1}`);
 
       expect(output).to.include('Registered workspace');
       expect(output).to.include('workspace-one');
@@ -119,7 +140,7 @@ describe('Workspace Commands E2E Tests', () => {
     });
 
     it('should register with custom name', () => {
-      const output = execWorkspace(`workspace add ${testWorkspace1} --name "My Custom Name"`);
+      const output = execHuman(`workspace add ${testWorkspace1} --name "My Custom Name"`);
 
       expect(output).to.include('Registered workspace');
       expect(output).to.include('My Custom Name');
@@ -133,47 +154,50 @@ describe('Workspace Commands E2E Tests', () => {
       const nonWorkspace = path.join(testDir, 'not-a-workspace');
       fs.mkdirSync(nonWorkspace, { recursive: true });
 
-      const output = execWorkspace(`workspace add ${nonWorkspace}`);
+      const output = execHuman(`workspace add ${nonWorkspace}`);
 
       expect(output).to.include('Not a valid workspace');
     });
 
     it('should reject already registered workspace', () => {
-      execWorkspace(`workspace add ${testWorkspace1}`);
-      const output = execWorkspace(`workspace add ${testWorkspace1}`);
+      execHuman(`workspace add ${testWorkspace1}`);
+      const output = execHuman(`workspace add ${testWorkspace1}`);
 
       expect(output).to.include('already registered');
     });
   });
 
+  // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
+  // except --json test which uses explicit --json flag (via execJson)
   describe('prlt workspace list', () => {
     it('should show no workspaces when none registered', () => {
-      const output = execWorkspace('workspace list');
+      const output = execHuman('workspace list');
       expect(output).to.include('No workspaces found');
     });
 
     it('should list registered workspaces', () => {
-      execWorkspace(`workspace add ${testWorkspace1}`);
-      execWorkspace(`workspace add ${testWorkspace2}`);
+      execHuman(`workspace add ${testWorkspace1}`);
+      execHuman(`workspace add ${testWorkspace2}`);
 
-      const output = execWorkspace('workspace list');
+      const output = execHuman('workspace list');
 
       expect(output).to.include('workspace-one');
       expect(output).to.include('workspace-two');
     });
 
     it('should show active workspace marker', () => {
-      execWorkspace(`workspace add ${testWorkspace1}`);
+      execHuman(`workspace add ${testWorkspace1}`);
 
-      const output = execWorkspace('workspace list');
+      const output = execHuman('workspace list');
 
       expect(output).to.include('(active)');
     });
 
+    // Output mode: JSON (explicit --json flag via execJson)
     it('should support --json flag', () => {
-      execWorkspace(`workspace add ${testWorkspace1}`);
+      execHuman(`workspace add ${testWorkspace1}`);
 
-      const output = execWorkspace('workspace list --json');
+      const output = execJson('workspace list');
       const json = JSON.parse(output);
 
       expect(json.workspaces).to.be.an('array');
@@ -184,23 +208,24 @@ describe('Workspace Commands E2E Tests', () => {
 
     it('should warn about stale registrations', () => {
       // Register workspace then delete it
-      execWorkspace(`workspace add ${testWorkspace1}`);
+      execHuman(`workspace add ${testWorkspace1}`);
       fs.rmSync(testWorkspace1, { recursive: true, force: true });
 
-      const output = execWorkspace('workspace list');
+      const output = execHuman('workspace list');
 
       expect(output).to.include('Path no longer exists');
     });
   });
 
+  // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
   describe('prlt workspace use', () => {
     beforeEach(() => {
-      execWorkspace(`workspace add ${testWorkspace1}`);
-      execWorkspace(`workspace add ${testWorkspace2}`);
+      execHuman(`workspace add ${testWorkspace1}`);
+      execHuman(`workspace add ${testWorkspace2}`);
     });
 
     it('should switch active workspace by name', () => {
-      const output = execWorkspace('workspace use workspace-two');
+      const output = execHuman('workspace use workspace-two');
 
       expect(output).to.include('Active workspace set to');
       expect(output).to.include('workspace-two');
@@ -211,14 +236,14 @@ describe('Workspace Commands E2E Tests', () => {
     });
 
     it('should switch active workspace by path', () => {
-      const output = execWorkspace(`workspace use ${testWorkspace2}`);
+      const output = execHuman(`workspace use ${testWorkspace2}`);
 
       expect(output).to.include('Active workspace set to');
       expect(output).to.include('workspace-two');
     });
 
     it('should reject non-existent workspace', () => {
-      const output = execWorkspace('workspace use nonexistent');
+      const output = execHuman('workspace use nonexistent');
 
       expect(output).to.include('Workspace not found');
     });
@@ -226,20 +251,21 @@ describe('Workspace Commands E2E Tests', () => {
     it('should reject deleted workspace path', () => {
       fs.rmSync(testWorkspace2, { recursive: true, force: true });
 
-      const output = execWorkspace('workspace use workspace-two');
+      const output = execHuman('workspace use workspace-two');
 
       expect(output).to.include('no longer exists');
     });
   });
 
+  // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
   describe('prlt workspace remove', () => {
     beforeEach(() => {
-      execWorkspace(`workspace add ${testWorkspace1}`);
-      execWorkspace(`workspace add ${testWorkspace2}`);
+      execHuman(`workspace add ${testWorkspace1}`);
+      execHuman(`workspace add ${testWorkspace2}`);
     });
 
     it('should unregister workspace by name', () => {
-      const output = execWorkspace('workspace remove workspace-one');
+      const output = execHuman('workspace remove workspace-one');
 
       expect(output).to.include('Unregistered workspace');
       expect(output).to.include('NOT deleted');
@@ -255,14 +281,14 @@ describe('Workspace Commands E2E Tests', () => {
     });
 
     it('should unregister workspace by path', () => {
-      const output = execWorkspace(`workspace remove ${testWorkspace1}`);
+      const output = execHuman(`workspace remove ${testWorkspace1}`);
 
       expect(output).to.include('Unregistered workspace');
     });
 
     it('should clear active workspace if removed', () => {
       // workspace-one should be active (first registered)
-      execWorkspace('workspace remove workspace-one');
+      execHuman('workspace remove workspace-one');
 
       const configPath = path.join(testDir, '.proletariat', 'config.json');
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
@@ -270,17 +296,18 @@ describe('Workspace Commands E2E Tests', () => {
     });
 
     it('should reject non-existent workspace', () => {
-      const output = execWorkspace('workspace remove nonexistent');
+      const output = execHuman('workspace remove nonexistent');
 
       expect(output).to.include('Workspace not found');
     });
   });
 
+  // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
   describe('workspace registration in prlt init', () => {
     it('should auto-register workspace on init', () => {
       // This would require full init flow which is interactive
       // Just verify the machine config can be created via add command
-      execWorkspace(`workspace add ${testWorkspace1}`);
+      execHuman(`workspace add ${testWorkspace1}`);
 
       const configPath = path.join(testDir, '.proletariat', 'config.json');
       expect(fs.existsSync(configPath)).to.be.true;
@@ -291,17 +318,18 @@ describe('Workspace Commands E2E Tests', () => {
     });
   });
 
+  // Output mode: JSON (explicit --json flag via execJson)
   describe('workspace discovery priority', () => {
     it('should use directory workspace over registry activeWorkspace', () => {
       // Register workspace1 as active
-      execWorkspace(`workspace add ${testWorkspace1}`);
+      execHuman(`workspace add ${testWorkspace1}`);
 
       // Change to workspace2 directory (but don't register it)
       process.chdir(testWorkspace2);
 
       // When in a workspace directory, it should use THAT workspace
       // not the registry's activeWorkspace (supports multi-agent scenarios)
-      const output = execWorkspace('workspace list --json');
+      const output = execJson('workspace list');
       const json = JSON.parse(output);
 
       // The activeWorkspace in the registry is still workspace1
@@ -314,22 +342,24 @@ describe('Workspace Commands E2E Tests', () => {
   });
 
   describe('prlt workspace prune', () => {
+    // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
     it('should show no stale entries when all paths exist', () => {
-      execWorkspace(`workspace add ${testWorkspace1}`);
+      execHuman(`workspace add ${testWorkspace1}`);
 
-      const output = execWorkspace('workspace prune --dry-run');
+      const output = execHuman('workspace prune --dry-run');
 
       expect(output).to.include('No stale entries found');
     });
 
+    // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
     it('should detect stale workspace registrations', () => {
-      execWorkspace(`workspace add ${testWorkspace1}`);
-      execWorkspace(`workspace add ${testWorkspace2}`);
+      execHuman(`workspace add ${testWorkspace1}`);
+      execHuman(`workspace add ${testWorkspace2}`);
 
       // Delete workspace2 from disk
       fs.rmSync(testWorkspace2, { recursive: true, force: true });
 
-      const output = execWorkspace('workspace prune --dry-run');
+      const output = execHuman('workspace prune --dry-run');
 
       expect(output).to.include('Stale workspace registrations');
       expect(output).to.include('workspace-two');
@@ -337,14 +367,15 @@ describe('Workspace Commands E2E Tests', () => {
       expect(output).to.include('[DRY RUN]');
     });
 
+    // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
     it('should remove stale entries with --force flag', () => {
-      execWorkspace(`workspace add ${testWorkspace1}`);
-      execWorkspace(`workspace add ${testWorkspace2}`);
+      execHuman(`workspace add ${testWorkspace1}`);
+      execHuman(`workspace add ${testWorkspace2}`);
 
       // Delete workspace2 from disk
       fs.rmSync(testWorkspace2, { recursive: true, force: true });
 
-      const output = execWorkspace('workspace prune --force');
+      const output = execHuman('workspace prune --force');
 
       expect(output).to.include('Pruned');
       expect(output).to.include('1 workspace registration(s)');
@@ -357,17 +388,20 @@ describe('Workspace Commands E2E Tests', () => {
       expect(hqs[0].name).to.equal('workspace-one');
     });
 
+    // Output mode: NON-TTY AUTO-DETECTED (via execNonTTY — no PRLT_FORCE_TEXT, no --json)
+    // This test specifically verifies the non-TTY safety behavior:
+    // when no --dry-run or --force is given in a non-TTY environment,
+    // the CLI defaults to dry-run to prevent accidental data loss.
     it('should default to dry-run in non-TTY mode', () => {
-      execWorkspace(`workspace add ${testWorkspace1}`);
-      execWorkspace(`workspace add ${testWorkspace2}`);
+      execHuman(`workspace add ${testWorkspace1}`);
+      execHuman(`workspace add ${testWorkspace2}`);
 
       // Delete workspace2 from disk
       fs.rmSync(testWorkspace2, { recursive: true, force: true });
 
       // Running without --dry-run or --force in non-TTY (execSync) should default to dry-run.
       // In non-TTY mode, the CLI outputs JSON automatically (no --json flag needed).
-      // Use forceText: false so the CLI sees itself as non-TTY (the actual behavior under test).
-      const output = execWorkspace('workspace prune', { forceText: false });
+      const output = execNonTTY('workspace prune');
       const json = JSON.parse(output);
 
       expect(json.dryRun).to.be.true;
@@ -383,14 +417,15 @@ describe('Workspace Commands E2E Tests', () => {
       expect(hqs).to.have.length(2);
     });
 
+    // Output mode: JSON (explicit --json flag via execJson)
     it('should support --json flag with --dry-run', () => {
-      execWorkspace(`workspace add ${testWorkspace1}`);
-      execWorkspace(`workspace add ${testWorkspace2}`);
+      execHuman(`workspace add ${testWorkspace1}`);
+      execHuman(`workspace add ${testWorkspace2}`);
 
       // Delete workspace2 from disk
       fs.rmSync(testWorkspace2, { recursive: true, force: true });
 
-      const output = execWorkspace('workspace prune --dry-run --json');
+      const output = execJson('workspace prune --dry-run');
       const json = JSON.parse(output);
 
       expect(json.dryRun).to.be.true;
@@ -401,16 +436,17 @@ describe('Workspace Commands E2E Tests', () => {
       expect(json.totalRemoved).to.equal(0);
     });
 
+    // Output mode: NON-TTY AUTO-DETECTED (via execNonTTY — no PRLT_FORCE_TEXT, with --json)
+    // Tests that --json without --force still defaults to dry-run in non-TTY.
     it('should default to dry-run in JSON mode without --force (non-TTY)', () => {
-      execWorkspace(`workspace add ${testWorkspace1}`);
-      execWorkspace(`workspace add ${testWorkspace2}`);
+      execHuman(`workspace add ${testWorkspace1}`);
+      execHuman(`workspace add ${testWorkspace2}`);
 
       // Delete workspace2 from disk
       fs.rmSync(testWorkspace2, { recursive: true, force: true });
 
       // In non-TTY (execSync), --json without --force defaults to dry-run.
-      // Use forceText: false so the CLI sees itself as non-TTY (the actual behavior under test).
-      const output = execWorkspace('workspace prune --json', { forceText: false });
+      const output = execNonTTY('workspace prune --json');
       const json = JSON.parse(output);
 
       expect(json.dryRun).to.be.true;
@@ -418,14 +454,15 @@ describe('Workspace Commands E2E Tests', () => {
       expect(json.totalRemoved).to.equal(0);
     });
 
+    // Output mode: JSON (explicit --json flag via execJson)
     it('should report totalRemoved when pruning with --force --json', () => {
-      execWorkspace(`workspace add ${testWorkspace1}`);
-      execWorkspace(`workspace add ${testWorkspace2}`);
+      execHuman(`workspace add ${testWorkspace1}`);
+      execHuman(`workspace add ${testWorkspace2}`);
 
       // Delete workspace2 from disk
       fs.rmSync(testWorkspace2, { recursive: true, force: true });
 
-      const output = execWorkspace('workspace prune --force --json');
+      const output = execJson('workspace prune --force');
       const json = JSON.parse(output);
 
       expect(json.dryRun).to.be.false;
@@ -433,14 +470,15 @@ describe('Workspace Commands E2E Tests', () => {
       expect(json.totalRemoved).to.equal(1);
     });
 
+    // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
     it('should not delete anything with --dry-run even when --force is set', () => {
-      execWorkspace(`workspace add ${testWorkspace1}`);
-      execWorkspace(`workspace add ${testWorkspace2}`);
+      execHuman(`workspace add ${testWorkspace1}`);
+      execHuman(`workspace add ${testWorkspace2}`);
 
       // Delete workspace2 from disk
       fs.rmSync(testWorkspace2, { recursive: true, force: true });
 
-      const output = execWorkspace('workspace prune --dry-run --force');
+      const output = execHuman('workspace prune --dry-run --force');
 
       expect(output).to.include('[DRY RUN]');
 
