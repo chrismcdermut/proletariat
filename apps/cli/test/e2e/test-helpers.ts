@@ -939,3 +939,98 @@ export function execWithForce(cmd: string): string {
     .replace(' -m', '');
   return execProduction(`${cleanCmd} --force`);
 }
+
+// =============================================================================
+// Output Mode Helpers
+// =============================================================================
+// These helpers explicitly control the output mode for E2E tests, preventing
+// accidental coupling to non-TTY auto-detection behavior.
+//
+// - execAsHuman(): Forces human-readable text output via PRLT_FORCE_TEXT=1.
+//   Use for tests that assert on styled text (e.g., "Registered workspace").
+//
+// - execAsAgent(): Appends --json flag for explicit JSON/machine-readable output.
+//   Use for tests that parse JSON responses or test agent workflows.
+//
+// Tests should NOT rely on the implicit non-TTY → JSON auto-detection, except
+// for tests that specifically verify that behavior (e.g., prune dry-run safety).
+// =============================================================================
+
+/**
+ * Execute a CLI command forcing human-readable text output.
+ *
+ * Sets PRLT_FORCE_TEXT=1 to override non-TTY auto-detection in execSync,
+ * ensuring the CLI outputs styled text instead of JSON envelopes.
+ *
+ * Use this for tests that assert on human-readable output strings like
+ * "Registered workspace", "Active workspace set to", etc.
+ *
+ * @param cmd - CLI command to run (without 'prlt' prefix)
+ * @param env - Additional environment variables to merge
+ * @returns Filtered command output (human-readable text)
+ */
+export function execAsHuman(cmd: string, env: NodeJS.ProcessEnv = {}): string {
+  try {
+    const binPath = getBinPath();
+    const baseEnv: NodeJS.ProcessEnv = {
+      ...getIsolatedEnv(),
+      PRLT_FORCE_TEXT: '1',
+      ...env,
+    };
+
+    const result = execSync(`node ${binPath} ${cmd}`, {
+      encoding: 'utf-8',
+      cwd: process.cwd(),
+      env: baseEnv,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    return filterOutput(result);
+  } catch (error: unknown) {
+    const execError = error as ExecError;
+    const stdout = execError.stdout || '';
+    const stderr = execError.stderr || '';
+    if (stdout.trim()) {
+      return filterOutput(stdout);
+    }
+    return filterOutput(stderr) || filterOutput(execError.message || 'Unknown error');
+  }
+}
+
+/**
+ * Execute a CLI command in agent/JSON mode with explicit --json flag.
+ *
+ * Appends --json to the command to explicitly request JSON output,
+ * rather than relying on non-TTY auto-detection.
+ *
+ * Use this for tests that parse JSON responses or simulate agent workflows.
+ *
+ * @param cmd - CLI command to run (without 'prlt' prefix). --json is appended automatically.
+ * @param env - Additional environment variables to merge
+ * @returns Filtered command output (JSON string)
+ */
+export function execAsAgent(cmd: string, env: NodeJS.ProcessEnv = {}): string {
+  const jsonCmd = cmd.includes('--json') ? cmd : `${cmd} --json`;
+  try {
+    const binPath = getBinPath();
+    const baseEnv: NodeJS.ProcessEnv = {
+      ...getIsolatedEnv(),
+      ...env,
+    };
+
+    const result = execSync(`node ${binPath} ${jsonCmd}`, {
+      encoding: 'utf-8',
+      cwd: process.cwd(),
+      env: baseEnv,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    return filterOutput(result);
+  } catch (error: unknown) {
+    const execError = error as ExecError;
+    const stdout = execError.stdout || '';
+    const stderr = execError.stderr || '';
+    if (stdout.trim()) {
+      return filterOutput(stdout);
+    }
+    return filterOutput(stderr) || filterOutput(execError.message || 'Unknown error');
+  }
+}
