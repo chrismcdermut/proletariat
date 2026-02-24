@@ -16,6 +16,12 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     return
   }
 
+  // Skip when running under oclif tooling (manifest, readme generation)
+  // These run commands to scan metadata and should not trigger the init flow
+  if (process.env.OCLIF_COMPILATION || process.argv[1]?.includes('oclif')) {
+    return
+  }
+
   // Skip when --help flag is present - help should always be available
   // Check both process.argv (production CLI) and the oclif-provided argv
   // (programmatic invocation via @oclif/test runCommand)
