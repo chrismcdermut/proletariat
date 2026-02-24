@@ -10,14 +10,17 @@ import { findHQRoot } from '../lib/workspace.js'
  * - No workspaces are registered in machine config (~/.proletariat/config.json)
  * - AND they're not currently inside a valid HQ directory
  */
-const hook: Hook<'init'> = async function ({ id, config }) {
+const hook: Hook<'init'> = async function ({ id, argv, config }) {
   // Skip for init command to avoid infinite loop
   if (id === 'init') {
     return
   }
 
-  // Skip when --help flag is present - help should always be available
-  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  // Skip when --help flag is present - help should always be available.
+  // Check both process.argv (direct CLI invocation) and the argv parameter
+  // from oclif (programmatic invocation via @oclif/test's runCommand()).
+  const helpFlags = ['--help', '-h']
+  if (helpFlags.some(f => process.argv.includes(f) || argv?.includes(f))) {
     return
   }
 

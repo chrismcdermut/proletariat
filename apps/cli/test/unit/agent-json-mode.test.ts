@@ -12,6 +12,28 @@ const root = path.resolve(__dirname, '../..');
 /**
  * Unit tests for Agent Command JSON Mode (TKT-741)
  * Tests that agent commands properly support JSON mode output via agentPrompt
+ *
+ * ## Workspace Preconditions
+ *
+ * These tests use @oclif/test's `runCommand()` which invokes commands
+ * programmatically (without setting process.argv). This means:
+ *
+ * 1. The init hook (src/hooks/init.ts) receives --help via oclif's `argv`
+ *    parameter, NOT via process.argv. The hook must check both sources
+ *    to correctly skip first-time-user detection for help requests.
+ *
+ * 2. No workspace/HQ setup is needed because oclif shows help output
+ *    AFTER the init hook runs but BEFORE any command execution. The
+ *    PMOCommand.init() (which requires a database) is never called
+ *    for --help requests.
+ *
+ * 3. The "Agent Command Choice Structure" suite below uses fs.readFileSync
+ *    for static source code analysis and does NOT invoke any commands,
+ *    so it is completely unaffected by workspace state.
+ *
+ * If these tests fail with "No workspace found" errors in CI, the root
+ * cause is likely the init hook not detecting --help from oclif's argv
+ * parameter. See TKT-1110 for details.
  */
 describe('Agent Command JSON Mode (TKT-741)', () => {
 
