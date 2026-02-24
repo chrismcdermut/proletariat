@@ -274,4 +274,68 @@ export function registerWorkTools(server: McpServer, ctx: McpToolContext): void 
       }
     }
   )
+
+  strictTool(server,
+    'work_spawn',
+    'Spawn work on a ticket using the full CLI pipeline (agent selection, Docker build, container creation, branch setup, tmux session). Shells out to "prlt work spawn" — works whenever prlt is installed, no workspace context needed in-process.',
+    {
+      ticket_id: z.string().describe('Ticket ID to spawn work for'),
+      action: z.string().optional().describe('Action to perform (e.g., implement, groom, review, custom). Defaults to implement.'),
+      display_mode: z.enum(['terminal', 'background']).optional().describe('Display mode (default: background)'),
+      skip_permissions: z.boolean().optional().describe('Skip permission prompts — danger mode (default: false)'),
+      create_pr: z.boolean().optional().describe('Create PR when work is ready (default: false)'),
+      agent: z.string().optional().describe('Agent name to use (default: ephemeral agent created on-demand)'),
+      environment: z.enum(['devcontainer', 'host']).optional().describe('Execution environment (default: devcontainer if available)'),
+    },
+    async (params) => {
+      try {
+        // Build the prlt work spawn command
+        const args: string[] = [params.ticket_id]
+
+        // Add flags
+        if (params.action) {
+          args.push('--action', params.action)
+        }
+
+        if (params.display_mode) {
+          args.push('--display', params.display_mode)
+        } else {
+          args.push('--display', 'background')
+        }
+
+        if (params.skip_permissions) {
+          args.push('--skip-permissions')
+        }
+
+        if (params.create_pr) {
+          args.push('--create-pr')
+        }
+
+        if (params.environment === 'host') {
+          args.push('--run-on-host')
+        }
+
+        // Always skip confirmation in MCP context
+        args.push('--yes')
+
+        const cmd = `prlt work spawn ${args.join(' ')}`
+        const output = ctx.runCommand(cmd)
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              success: true,
+              ticketId: params.ticket_id,
+              command: cmd,
+              output,
+              message: `Spawned work for ${params.ticket_id} via CLI pipeline`,
+            }, null, 2),
+          }],
+        }
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
 }
