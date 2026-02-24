@@ -7,6 +7,15 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Native module CI expectations:
+# - better-sqlite3 requires a native .node binding compiled for the exact Node.js ABI in use.
+# - pnpm-workspace.yaml lists better-sqlite3 under ignoredBuiltDependencies, so pnpm install
+#   alone will NOT compile the binding. An explicit `npm rebuild better-sqlite3` is required.
+# - The pnpm store cache key MUST include the Node.js version to prevent restoring bindings
+#   compiled for a different ABI (cross-ABI cache poisoning).
+# - A verification step runs `require('better-sqlite3')` before tests to fail fast with
+#   clear diagnostics if the native binding is missing or incompatible.
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -27,12 +36,14 @@ jobs:
         shell: bash
         run: echo "store-path=$(pnpm store path)" >> $GITHUB_OUTPUT
 
+      # Cache key includes Node.js version to avoid restoring native bindings compiled
+      # for a different ABI when lts/* resolves to a new Node.js release.
       - uses: actions/cache@v4
         with:
           path: ${{ steps.pnpm-cache.outputs.store-path }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-node-${{ matrix.node-version }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+            ${{ runner.os }}-node-${{ matrix.node-version }}-pnpm-store-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -61,15 +72,43 @@ jobs:
         shell: bash
         run: echo "store-path=$(pnpm store path)" >> $GITHUB_OUTPUT
 
+      # Cache key includes Node.js version to avoid cross-ABI cache poisoning.
       - uses: actions/cache@v4
         with:
           path: ${{ steps.pnpm-cache.outputs.store-path }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-node-${{ matrix.node-version }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+            ${{ runner.os }}-node-${{ matrix.node-version }}-pnpm-store-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # Rebuild better-sqlite3 native binding for the current Node.js ABI.
+      # pnpm skips this during install because better-sqlite3 is in ignoredBuiltDependencies.
+      - name: Rebuild better-sqlite3 native binding
+        run: npm rebuild better-sqlite3
+        working-directory: apps/cli
+
+      # Fail fast if the native binding is missing or was compiled for a different ABI.
+      - name: Verify better-sqlite3 native binding
+        run: |
+          node -e "
+            try {
+              require('better-sqlite3');
+              console.log('better-sqlite3 loaded successfully');
+              console.log('Node version:', process.version);
+              console.log('ABI version:', process.versions.modules);
+              console.log('Platform:', process.platform, process.arch);
+            } catch (err) {
+              console.error('Failed to load better-sqlite3:');
+              console.error(err.message);
+              console.error('Node version:', process.version);
+              console.error('ABI version:', process.versions.modules);
+              console.error('Platform:', process.platform, process.arch);
+              process.exit(1);
+            }
+          "
+        working-directory: apps/cli
 
       - name: Build
         run: pnpm -r build
@@ -98,15 +137,43 @@ jobs:
         shell: bash
         run: echo "store-path=$(pnpm store path)" >> $GITHUB_OUTPUT
 
+      # Cache key includes Node.js version to avoid cross-ABI cache poisoning.
       - uses: actions/cache@v4
         with:
           path: ${{ steps.pnpm-cache.outputs.store-path }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-node-${{ matrix.node-version }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+            ${{ runner.os }}-node-${{ matrix.node-version }}-pnpm-store-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # Rebuild better-sqlite3 native binding for the current Node.js ABI.
+      # pnpm skips this during install because better-sqlite3 is in ignoredBuiltDependencies.
+      - name: Rebuild better-sqlite3 native binding
+        run: npm rebuild better-sqlite3
+        working-directory: apps/cli
+
+      # Fail fast if the native binding is missing or was compiled for a different ABI.
+      - name: Verify better-sqlite3 native binding
+        run: |
+          node -e "
+            try {
+              require('better-sqlite3');
+              console.log('better-sqlite3 loaded successfully');
+              console.log('Node version:', process.version);
+              console.log('ABI version:', process.versions.modules);
+              console.log('Platform:', process.platform, process.arch);
+            } catch (err) {
+              console.error('Failed to load better-sqlite3:');
+              console.error(err.message);
+              console.error('Node version:', process.version);
+              console.error('ABI version:', process.versions.modules);
+              console.error('Platform:', process.platform, process.arch);
+              process.exit(1);
+            }
+          "
+        working-directory: apps/cli
 
       - name: Build
         run: pnpm -r build
