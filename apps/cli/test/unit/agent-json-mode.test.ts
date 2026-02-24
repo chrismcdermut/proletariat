@@ -1,5 +1,7 @@
 import { runCommand } from '@oclif/test';
 import { expect } from 'chai';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,10 +12,93 @@ const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, '../..');
 
 /**
+ * Environment variables that can cause the init hook or PMOCommand.init()
+ * to detect ambient workspace state and emit preflight output to stdout.
+ * Clearing these ensures help assertions get clean output regardless of
+ * whether the test runs locally (with a valid HQ at /hq) or in CI (no HQ).
+ */
+const WORKSPACE_ENV_VARS = [
+  'PRLT_HQ_PATH',
+  'PRLT_PMO_PATH',
+  'PRLT_DATABASE_PATH',
+  'PRLT_CONFIG_PATH',
+  'DEVCONTAINER',
+  'PRLT_TEST_ENV',
+  'PRLT_JSON',
+  'PRLT_FORCE_TEXT',
+] as const;
+
+/**
+ * Creates a minimal HQ directory structure that satisfies findHQRoot() and
+ * isFirstTimeUser() checks so the init hook does not emit preflight output.
+ * This is lighter than the full createTestEnvironment() from E2E helpers
+ * since --help tests don't need a database or PMO tables.
+ */
+function createMinimalHQDir(): { dir: string; cleanup: () => void } {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'prlt-unit-')));
+  const proletariatDir = path.join(dir, '.proletariat');
+  fs.mkdirSync(proletariatDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(proletariatDir, 'config.json'),
+    JSON.stringify({ type: 'hq', name: 'unit-test', hasPmo: false }),
+    'utf-8'
+  );
+  return {
+    dir,
+    cleanup: () => fs.rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+/**
  * Unit tests for Agent Command JSON Mode (TKT-741)
- * Tests that agent commands properly support JSON mode output via agentPrompt
+ *
+ * These tests use runCommand() to invoke commands with --help and assert on
+ * stdout content. They require workspace isolation because:
+ *
+ * 1. The init hook (src/hooks/init.ts) checks isFirstTimeUser() before every
+ *    command. Without a valid HQ, it emits warning output to stdout.
+ * 2. runCommand() passes args via oclif internals, not process.argv, so the
+ *    init hook's process.argv.includes('--help') check can miss --help.
+ * 3. Non-TTY environments (CI) can trigger JSON auto-detection in commands.
+ *
+ * The before/after hooks below ensure a minimal HQ directory exists and that
+ * environment variables don't leak ambient workspace state into the tests.
  */
 describe('Agent Command JSON Mode (TKT-741)', () => {
+  let hqDir: { dir: string; cleanup: () => void };
+  let originalCwd: string;
+  let savedEnv: Record<string, string | undefined>;
+
+  before(() => {
+    // Save original state
+    originalCwd = process.cwd();
+    savedEnv = {};
+    for (const key of WORKSPACE_ENV_VARS) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+
+    // Force text output in non-TTY environments (CI) so help assertions
+    // see human-readable text, not JSON auto-detected by isNonTTY()
+    process.env.PRLT_FORCE_TEXT = '1';
+
+    // Create minimal HQ so isFirstTimeUser() returns false
+    hqDir = createMinimalHQDir();
+    process.chdir(hqDir.dir);
+  });
+
+  after(() => {
+    // Restore original state
+    process.chdir(originalCwd);
+    hqDir.cleanup();
+    for (const key of WORKSPACE_ENV_VARS) {
+      if (savedEnv[key] !== undefined) {
+        process.env[key] = savedEnv[key];
+      } else {
+        delete process.env[key];
+      }
+    }
+  });
 
   describe('agent auth', function (this: Mocha.Suite) {
     // First test in suite loads better-sqlite3 native module; allow extra time
