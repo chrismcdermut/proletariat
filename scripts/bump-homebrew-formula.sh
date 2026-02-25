@@ -8,12 +8,12 @@
 #
 # Environment variables:
 #   GH_TOKEN    — GitHub token with repo push access to the tap (required in CI)
-#   TAP_REPO    — Tap repository (default: chrismcdermut/homebrew-tap)
+#   TAP_REPO    — Tap repository (default: chrismcdermut/homebrew-proletariat)
 #   CREATE_PR   — Set to "true" to open a PR instead of pushing directly to main
 #
 set -euo pipefail
 
-TAP_REPO="${TAP_REPO:-chrismcdermut/homebrew-tap}"
+TAP_REPO="${TAP_REPO:-chrismcdermut/homebrew-proletariat}"
 CREATE_PR="${CREATE_PR:-false}"
 NPM_PACKAGE="@proletariat/cli"
 FORMULA_PATH="Formula/prlt.rb"

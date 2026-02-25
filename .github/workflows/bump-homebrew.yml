@@ -43,6 +43,6 @@ jobs:
             echo "- **PR:** ${{ steps.bump.outputs.pr_url }}" >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ -n "${{ steps.bump.outputs.commit_sha }}" ]; then
-            echo "- **Commit:** https://github.com/chrismcdermut/homebrew-tap/commit/${{ steps.bump.outputs.commit_sha }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "- **Commit:** https://github.com/chrismcdermut/homebrew-proletariat/commit/${{ steps.bump.outputs.commit_sha }}" >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "- **Formula version:** ${{ steps.bump.outputs.formula_version }}" >> "$GITHUB_STEP_SUMMARY"
