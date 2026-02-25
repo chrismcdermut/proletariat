@@ -7,6 +7,9 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -14,7 +17,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+
+      - name: Update npm for OIDC trusted publishing
+        run: npm install -g npm@latest
 
       - name: Get pnpm store directory
         id: pnpm-cache
@@ -37,10 +44,8 @@ jobs:
       - name: Prepack
         run: pnpm --filter @proletariat/cli prepack
 
-      - uses: JS-DevTools/npm-publish@19c28f1ef146469e409470805ea4279d47c3d35c
-        with:
-          token: ${{ secrets.NPM_TOKEN }}
-          package: apps/cli/package.json
+      - name: Publish to npm
+        run: cd apps/cli && npm publish --provenance --access public
 
       - name: Postpack
         run: pnpm --filter @proletariat/cli postpack
