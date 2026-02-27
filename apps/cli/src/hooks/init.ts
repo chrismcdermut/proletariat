@@ -22,11 +22,13 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     return
   }
 
-  // Skip when --help flag is present - help should always be available
+  // Skip when --help or --version flags are present - these should always be available
   // Check both process.argv (production CLI) and the oclif-provided argv
   // (programmatic invocation via @oclif/test runCommand)
   if (process.argv.includes('--help') || process.argv.includes('-h') ||
-      argv?.includes('--help') || argv?.includes('-h')) {
+      argv?.includes('--help') || argv?.includes('-h') ||
+      process.argv.includes('--version') || process.argv.includes('-v') ||
+      argv?.includes('--version') || argv?.includes('-v')) {
     return
   }
 
