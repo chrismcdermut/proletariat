@@ -1,6 +1,7 @@
 import { Hook } from '@oclif/core'
 import { readMachineConfig } from '../lib/machine-config.js'
 import { findHQRoot } from '../lib/workspace.js'
+import { isNonTTY } from '../lib/prompt-json.js'
 
 /**
  * Init hook - runs before every command
@@ -37,6 +38,10 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
   if (!id || id === 'help') {
     // Check if this is first-time user running bare `prlt`
     if (!id && isFirstTimeUser()) {
+      if (isNonTTY()) {
+        outputNonTTYError(id)
+        return
+      }
       // Run init command
       const { run } = await import('@oclif/core')
       await run(['init'], config)
@@ -48,6 +53,13 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
 
   // For all other commands, check if first-time user
   if (isFirstTimeUser()) {
+    // In non-TTY environments, the interactive init flow won't work -
+    // output a helpful error instead of failing with "Missing required flag: --name"
+    if (isNonTTY()) {
+      outputNonTTYError(id)
+      return
+    }
+
     const chalk = await import('chalk')
     console.log(chalk.default.yellow('\n⚠️  No workspace found. Let\'s set one up first.\n'))
 
@@ -59,6 +71,27 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     console.log(chalk.default.blue(`\n✅ Setup complete! You can now run: prlt ${id}\n`))
     process.exit(0)
   }
+}
+
+/**
+ * Output a structured JSON error for non-TTY environments when no workspace is configured.
+ * Tells agents/scripts exactly how to initialize before retrying their command.
+ */
+function outputNonTTYError(id?: string): void {
+  const output = {
+    type: 'error',
+    error: {
+      code: 'NO_WORKSPACE',
+      message: 'No workspace configured. Run: prlt init --name <hq-name>',
+    },
+    metadata: {
+      command: id ?? '',
+      flags: {},
+      timestamp: new Date().toISOString(),
+    },
+  }
+  console.log(JSON.stringify(output, null, 2))
+  process.exit(1)
 }
 
 /**
