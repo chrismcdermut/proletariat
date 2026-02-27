@@ -62,7 +62,7 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     }
 
     const chalk = await import('chalk')
-    console.log(chalk.default.yellow('\n⚠️  No workspace found. Let\'s set one up first.\n'))
+    console.log(chalk.default.yellow('\n⚠️  No headquarters found. Let\'s set one up first.\n'))
 
     // Run init command
     const { run } = await import('@oclif/core')
@@ -75,15 +75,15 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
 }
 
 /**
- * Output a structured JSON error for non-TTY environments when no workspace is configured.
+ * Output a structured JSON error for non-TTY environments when no HQ is configured.
  * Tells agents/scripts exactly how to initialize before retrying their command.
  */
 function outputNonTTYError(id?: string): void {
   const output = {
     type: 'error',
     error: {
-      code: 'NO_WORKSPACE',
-      message: 'No workspace configured. Run: prlt init --name <hq-name>',
+      code: 'NO_HQ',
+      message: 'No headquarters configured. Run: prlt init --name <hq-name>',
     },
     metadata: {
       command: id ?? '',
