@@ -11,8 +11,9 @@ import { findHQRoot } from '../lib/workspace.js'
  * - AND they're not currently inside a valid HQ directory
  */
 const hook: Hook<'init'> = async function ({ id, argv, config }) {
-  // Skip for init command to avoid infinite loop
-  if (id === 'init') {
+  // Skip for commands that work without an HQ
+  const hqOptionalCommands = ['init', 'commit', 'claude', 'pmo:init']
+  if (id && hqOptionalCommands.some(cmd => id === cmd || id.startsWith(cmd + ':'))) {
     return
   }
 
@@ -22,11 +23,13 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     return
   }
 
-  // Skip when --help flag is present - help should always be available
+  // Skip when --help or --version flags are present - these should always be available
   // Check both process.argv (production CLI) and the oclif-provided argv
   // (programmatic invocation via @oclif/test runCommand)
   if (process.argv.includes('--help') || process.argv.includes('-h') ||
-      argv?.includes('--help') || argv?.includes('-h')) {
+      argv?.includes('--help') || argv?.includes('-h') ||
+      process.argv.includes('--version') || process.argv.includes('-v') ||
+      argv?.includes('--version') || argv?.includes('-v')) {
     return
   }
 
@@ -35,10 +38,10 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
   if (!id || id === 'help') {
     // Check if this is first-time user running bare `prlt`
     if (!id && isFirstTimeUser()) {
-      // Run init command
+      // Run init command - in TTY it prompts interactively,
+      // in non-TTY it outputs a JSON prompt for the HQ name
       const { run } = await import('@oclif/core')
       await run(['init'], config)
-      // Exit after init completes to prevent showing help
       process.exit(0)
     }
     return
@@ -47,13 +50,13 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
   // For all other commands, check if first-time user
   if (isFirstTimeUser()) {
     const chalk = await import('chalk')
-    console.log(chalk.default.yellow('\n⚠️  No workspace found. Let\'s set one up first.\n'))
+    console.log(chalk.default.yellow('\n⚠️  No headquarters found. Let\'s set one up first.\n'))
 
-    // Run init command
+    // Run init command - in TTY it prompts interactively,
+    // in non-TTY it outputs a JSON prompt for the HQ name
     const { run } = await import('@oclif/core')
     await run(['init'], config)
 
-    // Exit after init - user should re-run their original command
     console.log(chalk.default.blue(`\n✅ Setup complete! You can now run: prlt ${id}\n`))
     process.exit(0)
   }
