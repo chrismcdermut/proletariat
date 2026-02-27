@@ -12,8 +12,9 @@ import { isNonTTY } from '../lib/prompt-json.js'
  * - AND they're not currently inside a valid HQ directory
  */
 const hook: Hook<'init'> = async function ({ id, argv, config }) {
-  // Skip for init command to avoid infinite loop
-  if (id === 'init') {
+  // Skip for commands that work without a workspace
+  const workspaceOptionalCommands = ['init', 'commit', 'claude', 'pmo:init']
+  if (id && workspaceOptionalCommands.some(cmd => id === cmd || id.startsWith(cmd + ':'))) {
     return
   }
 
