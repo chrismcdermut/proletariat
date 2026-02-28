@@ -1252,10 +1252,13 @@ function ensureDockerContainer(
   // Only destroy stopped containers (which have stale mounts anyway).
   if (containerExists(containerName)) {
     if (isContainerRunning(containerName)) {
-      // Container is running - reuse it to preserve any in-progress work
+      // Container is running - reuse it to preserve any in-progress work.
+      // Note: runContainerSetup is skipped for reused containers since they
+      // were already set up when first created. GitHub token and credentials
+      // are refreshed by the caller (runDevcontainer).
       const containerId = getContainerId(containerName)
       if (containerId) {
-        console.debug(`[runners:docker] Reusing running container ${containerName} (${containerId})`)
+        console.debug(`[runners:docker] Reusing running container ${containerName} (${containerId}), skipping setup`)
         return containerId
       }
     }
