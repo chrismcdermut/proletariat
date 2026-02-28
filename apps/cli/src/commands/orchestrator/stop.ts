@@ -15,7 +15,7 @@ import {
 import { styles } from '../../lib/styles.js'
 import { getHostTmuxSessionNames } from '../../lib/execution/session-utils.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
-import { ORCHESTRATOR_SESSION_NAME } from './start.js'
+import { buildOrchestratorSessionName } from './start.js'
 
 export default class OrchestratorStop extends PromptCommand {
   static description = 'Stop the running orchestrator'
@@ -27,6 +27,10 @@ export default class OrchestratorStop extends PromptCommand {
 
   static flags = {
     ...machineOutputFlags,
+    name: Flags.string({
+      char: 'n',
+      description: 'Name of the orchestrator session to stop (default: main)',
+    }),
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation',
@@ -37,10 +41,11 @@ export default class OrchestratorStop extends PromptCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(OrchestratorStop)
     const jsonMode = shouldOutputJson(flags)
+    const sessionName = buildOrchestratorSessionName(flags.name || 'main')
 
     // Check if orchestrator session exists
     const hostSessions = getHostTmuxSessionNames()
-    if (!hostSessions.includes(ORCHESTRATOR_SESSION_NAME)) {
+    if (!hostSessions.includes(sessionName)) {
       if (jsonMode) {
         outputErrorAsJson(
           'NOT_RUNNING',
@@ -75,7 +80,7 @@ export default class OrchestratorStop extends PromptCommand {
 
     // Kill the tmux session
     try {
-      execSync(`tmux kill-session -t "${ORCHESTRATOR_SESSION_NAME}"`, { stdio: 'pipe' })
+      execSync(`tmux kill-session -t "${sessionName}"`, { stdio: 'pipe' })
     } catch (error) {
       if (jsonMode) {
         outputErrorAsJson(
@@ -112,7 +117,7 @@ export default class OrchestratorStop extends PromptCommand {
 
     if (jsonMode) {
       outputSuccessAsJson({
-        sessionId: ORCHESTRATOR_SESSION_NAME,
+        sessionId: sessionName,
         status: 'stopped',
       }, createMetadata('orchestrator stop', flags as Record<string, unknown>))
       return

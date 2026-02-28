@@ -8,7 +8,7 @@ import {
 } from '../../lib/prompt-json.js'
 import { styles } from '../../lib/styles.js'
 import { getHostTmuxSessionNames, captureTmuxPane } from '../../lib/execution/session-utils.js'
-import { ORCHESTRATOR_SESSION_NAME } from './start.js'
+import { buildOrchestratorSessionName } from './start.js'
 
 export default class OrchestratorStatus extends PromptCommand {
   static description = 'Check if the orchestrator is running'
@@ -21,6 +21,10 @@ export default class OrchestratorStatus extends PromptCommand {
 
   static flags = {
     ...machineOutputFlags,
+    name: Flags.string({
+      char: 'n',
+      description: 'Name of the orchestrator session to check (default: main)',
+    }),
     peek: Flags.boolean({
       description: 'Show recent output from the orchestrator',
       default: false,
@@ -34,19 +38,20 @@ export default class OrchestratorStatus extends PromptCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(OrchestratorStatus)
     const jsonMode = shouldOutputJson(flags)
+    const sessionName = buildOrchestratorSessionName(flags.name || 'main')
 
     const hostSessions = getHostTmuxSessionNames()
-    const isRunning = hostSessions.includes(ORCHESTRATOR_SESSION_NAME)
+    const isRunning = hostSessions.includes(sessionName)
 
     let recentOutput: string | null = null
     if (isRunning && flags.peek) {
-      recentOutput = captureTmuxPane(ORCHESTRATOR_SESSION_NAME, flags.lines)
+      recentOutput = captureTmuxPane(sessionName, flags.lines)
     }
 
     if (jsonMode) {
       outputSuccessAsJson({
         running: isRunning,
-        sessionId: isRunning ? ORCHESTRATOR_SESSION_NAME : null,
+        sessionId: isRunning ? sessionName : null,
         ...(recentOutput !== null && { recentOutput }),
       }, createMetadata('orchestrator status', flags as Record<string, unknown>))
       return
@@ -55,7 +60,7 @@ export default class OrchestratorStatus extends PromptCommand {
     this.log('')
     if (isRunning) {
       this.log(styles.success(`Orchestrator is running`))
-      this.log(styles.muted(`   Session: ${ORCHESTRATOR_SESSION_NAME}`))
+      this.log(styles.muted(`   Session: ${sessionName}`))
       this.log(styles.muted(`   Attach: prlt orchestrator attach`))
       this.log(styles.muted(`   Poke:   prlt session poke orchestrator "message"`))
 
