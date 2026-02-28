@@ -6,13 +6,23 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Column, Ticket } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
-import { formatTicket, errorResponse, strictTool } from '../helpers.js'
+import { formatTicketCompact, errorResponse, strictTool } from '../helpers.js'
+
+/** Status categories considered "done" and excluded by default */
+const DONE_CATEGORIES = new Set(['completed', 'canceled'])
 
 export function registerBoardTools(server: McpServer, ctx: McpToolContext): void {
   strictTool(server,
     'board_view',
-    'Show the kanban board',
-    { project: z.string().optional().describe('Project ID') },
+    'Show the kanban board. Returns compact ticket format by default (id, title, priority, category, assignee, statusName). Use ticket_show for full details. Excludes Done/Canceled columns by default.',
+    {
+      project: z.string().optional().describe('Project ID'),
+      summary: z.boolean().optional().describe('Summary mode: return only column names and ticket counts, no ticket details'),
+      column: z.string().optional().describe('Filter to a specific column by name (case-insensitive partial match)'),
+      include_done: z.boolean().optional().describe('Include completed/canceled columns (excluded by default)'),
+      limit: z.number().int().nonnegative().optional().describe('Max tickets to return per column'),
+      offset: z.number().int().nonnegative().optional().describe('Number of tickets to skip per column (for pagination)'),
+    },
     async (params) => {
       try {
         let projectId = params.project
@@ -22,6 +32,46 @@ export function registerBoardTools(server: McpServer, ctx: McpToolContext): void
           projectId = projects[0].id
         }
         const board = await ctx.storage.getBoard(projectId)
+
+        // Filter out done columns unless explicitly requested
+        let columns = board.columns
+        if (!params.include_done) {
+          columns = columns.filter((col: Column) => !DONE_CATEGORIES.has(col.status || ''))
+        }
+
+        // Filter to specific column by name (case-insensitive partial match)
+        if (params.column) {
+          const columnFilter = params.column.toLowerCase()
+          columns = columns.filter((col: Column) =>
+            col.name.toLowerCase().includes(columnFilter)
+          )
+        }
+
+        // Summary mode: just column names and ticket counts
+        if (params.summary) {
+          const totalTickets = columns.reduce((sum, col: Column) => sum + col.tickets.length, 0)
+          return {
+            content: [{
+              type: 'text' as const,
+              text: JSON.stringify({
+                success: true,
+                board: {
+                  id: board.id,
+                  name: board.name,
+                  totalTickets,
+                  columns: columns.map((col: Column) => ({
+                    name: col.name,
+                    position: col.position,
+                    ticketCount: col.tickets.length,
+                  })),
+                  updatedAt: board.updatedAt.toISOString(),
+                },
+              }, null, 2),
+            }],
+          }
+        }
+
+        // Compact format (default): return compact ticket objects with pagination
         return {
           content: [{
             type: 'text' as const,
@@ -30,15 +80,24 @@ export function registerBoardTools(server: McpServer, ctx: McpToolContext): void
               board: {
                 id: board.id,
                 name: board.name,
-                columns: board.columns.map((col: Column) => ({
-                  name: col.name,
-                  position: col.position,
-                  ticketCount: col.tickets.length,
-                  tickets: col.tickets.map((t: Ticket) => ({
-                    ...formatTicket(t),
-                    labels: t.labels,
-                  })),
-                })),
+                columns: columns.map((col: Column) => {
+                  const total = col.tickets.length
+                  let tickets = col.tickets
+                  const offset = params.offset || 0
+                  if (offset > 0) {
+                    tickets = tickets.slice(offset)
+                  }
+                  if (params.limit !== undefined) {
+                    tickets = tickets.slice(0, params.limit)
+                  }
+                  return {
+                    name: col.name,
+                    position: col.position,
+                    ticketCount: total,
+                    ...(offset > 0 || params.limit !== undefined ? { showing: tickets.length, offset } : {}),
+                    tickets: tickets.map((t: Ticket) => formatTicketCompact(t)),
+                  }
+                }),
                 updatedAt: board.updatedAt.toISOString(),
               },
             }, null, 2),
