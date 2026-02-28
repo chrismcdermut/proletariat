@@ -7,10 +7,13 @@ import {
   shouldUseControlMode,
   buildTmuxMouseOption,
   buildTmuxAttachCommand,
-  buildTmuxScript,
-  getDockerAutoRemoveFlags,
+  getExecutorCommand,
+  buildDevcontainerCommand,
+  isClaudeExecutor,
+  getExecutorDisplayName,
+  getExecutorPackage,
 } from '../../src/lib/execution/runners.js'
-import type { ExecutionContext, DisplayMode, TerminalApp } from '../../src/lib/execution/types.js'
+import type { ExecutionContext, DisplayMode, TerminalApp, ExecutorType } from '../../src/lib/execution/types.js'
 
 /**
  * Unit tests for execution utility functions
@@ -297,77 +300,174 @@ describe('Execution Utils', () => {
     })
   })
 
-  describe('Background Mode Container Cleanup (TKT-988)', () => {
-    describe('buildTmuxScript', () => {
-      const sessionName = 'TKT-988-implement-test-agent'
-      const claudeCmd = 'claude --permission-mode bypassPermissions "$(cat /tmp/prompt.txt)"'
+  // =============================================================================
+  // TKT-1005: Executor-aware command building tests
+  // =============================================================================
 
-      it('should use kill 1 instead of exec bash in background mode', () => {
-        const script = buildTmuxScript(sessionName, claudeCmd, 'background')
-        expect(script).to.include('kill 1')
-        expect(script).to.not.include('exec bash')
+  describe('buildDevcontainerCommand (TKT-1005)', () => {
+    const makeContext = (overrides: Partial<ExecutionContext> = {}): ExecutionContext => ({
+      ticketId: 'TKT-1005',
+      ticketTitle: 'Codex wiring test',
+      agentName: 'test-agent',
+      agentDir: '/tmp/agent',
+      worktreePath: '/tmp/agent/repo',
+      branch: 'TKT-1005/test',
+      ...overrides,
+    })
+
+    it('should generate codex command with --prompt and no Claude-only flags', () => {
+      const command = buildDevcontainerCommand(
+        makeContext(),
+        'codex',
+        '/workspace/repo/.prlt-prompt.txt',
+        'abc123',
+        'interactive',
+        true,
+        'background'
+      )
+
+      expect(command).to.include('docker exec')
+      expect(command).to.include('codex --prompt "$(cat /workspace/repo/.prlt-prompt.txt)"')
+      expect(command).to.not.include('--permission-mode bypassPermissions')
+      expect(command).to.not.include('--dangerously-skip-permissions')
+      expect(command).to.not.include(' -p ')
+    })
+  })
+
+  describe('getExecutorCommand (TKT-1005)', () => {
+    const testPrompt = 'Test prompt for agent'
+
+    describe('claude-code executor', () => {
+      it('should return claude command with permissions flags when skipPermissions=true', () => {
+        const result = getExecutorCommand('claude-code', testPrompt, true)
+        expect(result.cmd).to.equal('claude')
+        expect(result.args).to.include('--permission-mode')
+        expect(result.args).to.include('bypassPermissions')
+        expect(result.args).to.include('--dangerously-skip-permissions')
+        expect(result.args).to.include(testPrompt)
       })
 
-      it('should show cleanup message in background mode', () => {
-        const script = buildTmuxScript(sessionName, claudeCmd, 'background')
-        expect(script).to.include('Cleaning up container...')
+      it('should return claude command without permissions flags when skipPermissions=false', () => {
+        const result = getExecutorCommand('claude-code', testPrompt, false)
+        expect(result.cmd).to.equal('claude')
+        expect(result.args).to.deep.equal([testPrompt])
+        expect(result.args).to.not.include('--dangerously-skip-permissions')
       })
 
-      it('should use exec bash in terminal mode (regression)', () => {
-        const script = buildTmuxScript(sessionName, claudeCmd, 'terminal')
-        expect(script).to.include('exec bash')
-        expect(script).to.not.include('kill 1')
-      })
-
-      it('should use exec bash in foreground mode (regression)', () => {
-        const script = buildTmuxScript(sessionName, claudeCmd, 'foreground')
-        expect(script).to.include('exec bash')
-        expect(script).to.not.include('kill 1')
-      })
-
-      it('should show inspection message in terminal mode', () => {
-        const script = buildTmuxScript(sessionName, claudeCmd, 'terminal')
-        expect(script).to.include('Press Enter to close or run more commands')
-      })
-
-      it('should include claude command in all modes', () => {
-        for (const mode of ['background', 'terminal', 'foreground'] as DisplayMode[]) {
-          const script = buildTmuxScript(sessionName, claudeCmd, mode)
-          expect(script).to.include(claudeCmd)
-        }
-      })
-
-      it('should set TERM and COLORTERM in all modes', () => {
-        for (const mode of ['background', 'terminal', 'foreground'] as DisplayMode[]) {
-          const script = buildTmuxScript(sessionName, claudeCmd, mode)
-          expect(script).to.include('export TERM=xterm-256color')
-          expect(script).to.include('export COLORTERM=truecolor')
-        }
-      })
-
-      it('should unset CI in all modes', () => {
-        for (const mode of ['background', 'terminal', 'foreground'] as DisplayMode[]) {
-          const script = buildTmuxScript(sessionName, claudeCmd, mode)
-          expect(script).to.include('unset CI')
-        }
+      it('should default skipPermissions to true', () => {
+        const result = getExecutorCommand('claude-code', testPrompt)
+        expect(result.args).to.include('--dangerously-skip-permissions')
       })
     })
 
-    describe('getDockerAutoRemoveFlags', () => {
-      it('should return --rm for background mode', () => {
-        const flags = getDockerAutoRemoveFlags('background')
-        expect(flags).to.deep.equal(['--rm'])
+    describe('codex executor', () => {
+      it('should return codex command with --prompt flag', () => {
+        const result = getExecutorCommand('codex', testPrompt)
+        expect(result.cmd).to.equal('codex')
+        expect(result.args).to.deep.equal(['--prompt', testPrompt])
       })
 
-      it('should return empty array for terminal mode', () => {
-        const flags = getDockerAutoRemoveFlags('terminal')
-        expect(flags).to.deep.equal([])
+      it('should NOT include Claude-specific flags', () => {
+        const result = getExecutorCommand('codex', testPrompt, true)
+        expect(result.args).to.not.include('--dangerously-skip-permissions')
+        expect(result.args).to.not.include('--permission-mode')
+        expect(result.args).to.not.include('bypassPermissions')
       })
 
-      it('should return empty array for foreground mode', () => {
-        const flags = getDockerAutoRemoveFlags('foreground')
-        expect(flags).to.deep.equal([])
+      it('should ignore skipPermissions parameter', () => {
+        const resultTrue = getExecutorCommand('codex', testPrompt, true)
+        const resultFalse = getExecutorCommand('codex', testPrompt, false)
+        expect(resultTrue.args).to.deep.equal(resultFalse.args)
       })
+    })
+
+    describe('aider executor', () => {
+      it('should return aider command with --message flag', () => {
+        const result = getExecutorCommand('aider', testPrompt)
+        expect(result.cmd).to.equal('aider')
+        expect(result.args).to.deep.equal(['--message', testPrompt])
+      })
+
+      it('should NOT include Claude-specific flags', () => {
+        const result = getExecutorCommand('aider', testPrompt, true)
+        expect(result.args).to.not.include('--dangerously-skip-permissions')
+        expect(result.args).to.not.include('-p')
+      })
+    })
+
+    describe('custom executor', () => {
+      it('should return echo fallback', () => {
+        const result = getExecutorCommand('custom', testPrompt)
+        expect(result.cmd).to.equal('echo')
+        expect(result.args).to.include('Custom executor not configured')
+      })
+    })
+
+    describe('all executor types', () => {
+      const executors: ExecutorType[] = ['claude-code', 'codex', 'aider', 'custom']
+
+      it('should return a cmd and args for every executor type', () => {
+        for (const executor of executors) {
+          const result = getExecutorCommand(executor, testPrompt)
+          expect(result).to.have.property('cmd').that.is.a('string')
+          expect(result).to.have.property('args').that.is.an('array')
+          expect(result.cmd.length).to.be.greaterThan(0)
+        }
+      })
+    })
+  })
+
+  describe('isClaudeExecutor (TKT-1005)', () => {
+    it('should return true for claude-code', () => {
+      expect(isClaudeExecutor('claude-code')).to.be.true
+    })
+
+    it('should return false for codex', () => {
+      expect(isClaudeExecutor('codex')).to.be.false
+    })
+
+    it('should return false for aider', () => {
+      expect(isClaudeExecutor('aider')).to.be.false
+    })
+
+    it('should return false for custom', () => {
+      expect(isClaudeExecutor('custom')).to.be.false
+    })
+  })
+
+  describe('getExecutorDisplayName (TKT-1005)', () => {
+    it('should return "Claude Code" for claude-code', () => {
+      expect(getExecutorDisplayName('claude-code')).to.equal('Claude Code')
+    })
+
+    it('should return "Codex" for codex', () => {
+      expect(getExecutorDisplayName('codex')).to.equal('Codex')
+    })
+
+    it('should return "Aider" for aider', () => {
+      expect(getExecutorDisplayName('aider')).to.equal('Aider')
+    })
+
+    it('should return "Custom" for custom', () => {
+      expect(getExecutorDisplayName('custom')).to.equal('Custom')
+    })
+  })
+
+  describe('getExecutorPackage (TKT-1005)', () => {
+    it('should return @anthropic-ai/claude-code for claude-code', () => {
+      expect(getExecutorPackage('claude-code')).to.equal('@anthropic-ai/claude-code')
+    })
+
+    it('should return @openai/codex for codex', () => {
+      expect(getExecutorPackage('codex')).to.equal('@openai/codex')
+    })
+
+    it('should return null for aider (Python-based)', () => {
+      expect(getExecutorPackage('aider')).to.be.null
+    })
+
+    it('should return null for custom', () => {
+      expect(getExecutorPackage('custom')).to.be.null
     })
   })
 })

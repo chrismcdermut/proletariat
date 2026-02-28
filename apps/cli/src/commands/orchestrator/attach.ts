@@ -15,25 +15,63 @@ import { styles } from '../../lib/styles.js'
 import { getHostTmuxSessionNames } from '../../lib/execution/session-utils.js'
 import { ORCHESTRATOR_SESSION_NAME } from './start.js'
 
+/**
+ * Detect the terminal emulator from environment variables.
+ * Returns a terminal app name suitable for AppleScript tab creation,
+ * or null if detection fails or we're in a remote/headless environment.
+ */
+export function detectTerminalApp(): string | null {
+  // Remote sessions should never attempt AppleScript/GUI operations
+  if (process.env.SSH_TTY || process.env.SSH_CONNECTION) {
+    return null
+  }
+
+  // Headless / no display — skip GUI attempts
+  if (process.platform !== 'darwin' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
+    return null
+  }
+
+  const termProgram = process.env.TERM_PROGRAM
+  if (!termProgram) return null
+
+  switch (termProgram) {
+    case 'iTerm.app':
+      return 'iTerm'
+    case 'ghostty':
+      return 'Ghostty'
+    case 'Apple_Terminal':
+      return 'Terminal'
+    case 'WezTerm':
+      return 'WezTerm'
+    default:
+      return null
+  }
+}
+
 export default class OrchestratorAttach extends PromptCommand {
   static description = 'Attach to the running orchestrator tmux session'
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> --current-terminal',
+    '<%= config.bin %> <%= command.id %> --new-tab',
+    '<%= config.bin %> <%= command.id %> --new-tab --terminal Ghostty',
   ]
 
   static flags = {
     ...machineOutputFlags,
-    'current-terminal': Flags.boolean({
-      char: 'c',
-      description: 'Attach in current terminal instead of new tab',
+    'new-tab': Flags.boolean({
+      description: 'Open in a new terminal tab instead of attaching in the current terminal',
       default: false,
     }),
     terminal: Flags.string({
       char: 't',
-      description: 'Terminal app to use (iTerm, Terminal, Ghostty)',
-      default: 'iTerm',
+      description: 'Terminal app to use for new tab (iTerm, Terminal, Ghostty). Auto-detected if not specified.',
+    }),
+    'current-terminal': Flags.boolean({
+      char: 'c',
+      description: '[deprecated] Attach in current terminal (this is now the default behavior)',
+      hidden: true,
+      default: false,
     }),
   }
 
@@ -67,17 +105,39 @@ export default class OrchestratorAttach extends PromptCommand {
       return
     }
 
+    if (flags['current-terminal']) {
+      this.log(styles.warning('--current-terminal is deprecated. Direct tmux attach is now the default behavior.'))
+    }
+
+    if (flags.terminal && !flags['new-tab']) {
+      this.log(styles.warning('--terminal has no effect without --new-tab. Ignoring.'))
+    }
+
     this.log('')
     this.log(styles.info(`Attaching to orchestrator session: ${ORCHESTRATOR_SESSION_NAME}`))
 
-    if (flags['current-terminal']) {
-      try {
-        execSync(`tmux attach -t "${ORCHESTRATOR_SESSION_NAME}"`, { stdio: 'inherit' })
-      } catch {
-        this.error(`Failed to attach to orchestrator session "${ORCHESTRATOR_SESSION_NAME}"`)
+    if (flags['new-tab']) {
+      // Determine terminal app: explicit flag > auto-detect > error
+      const terminalApp = flags.terminal ?? detectTerminalApp()
+      if (!terminalApp) {
+        this.log(styles.warning('Could not detect terminal emulator for new tab.'))
+        this.log(styles.muted('Falling back to direct tmux attach in current terminal.'))
+        this.log(styles.muted('Tip: Use --terminal <app> to specify your terminal (iTerm, Terminal, Ghostty).'))
+        this.log('')
+        this.attachInCurrentTerminal()
+        return
       }
+      await this.openInNewTab(terminalApp)
     } else {
-      await this.openInNewTab(flags.terminal)
+      this.attachInCurrentTerminal()
+    }
+  }
+
+  private attachInCurrentTerminal(): void {
+    try {
+      execSync(`tmux attach -t "${ORCHESTRATOR_SESSION_NAME}"`, { stdio: 'inherit' })
+    } catch {
+      this.error(`Failed to attach to orchestrator session "${ORCHESTRATOR_SESSION_NAME}"`)
     }
   }
 

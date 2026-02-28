@@ -51,6 +51,17 @@ export function formatTicket(t: Ticket) {
   }
 }
 
+export function formatTicketCompact(t: Ticket) {
+  return {
+    id: t.id,
+    title: t.title,
+    priority: t.priority,
+    category: t.category,
+    assignee: t.assignee,
+    statusName: t.statusName,
+  }
+}
+
 export function formatTicketFull(t: Ticket) {
   return {
     ...formatTicket(t),
