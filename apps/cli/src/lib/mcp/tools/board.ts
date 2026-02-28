@@ -20,8 +20,8 @@ export function registerBoardTools(server: McpServer, ctx: McpToolContext): void
       summary: z.boolean().optional().describe('Summary mode: return only column names and ticket counts, no ticket details'),
       column: z.string().optional().describe('Filter to a specific column by name (case-insensitive partial match)'),
       include_done: z.boolean().optional().describe('Include completed/canceled columns (excluded by default)'),
-      limit: z.number().optional().describe('Max tickets to return per column'),
-      offset: z.number().optional().describe('Number of tickets to skip per column (for pagination)'),
+      limit: z.number().int().nonnegative().optional().describe('Max tickets to return per column'),
+      offset: z.number().int().nonnegative().optional().describe('Number of tickets to skip per column (for pagination)'),
     },
     async (params) => {
       try {
