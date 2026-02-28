@@ -133,6 +133,8 @@ export default class LinearImport extends PMOCommand {
         stateName: flags.state,
         stateType: flags['state-type'],
         labelName: flags.label,
+        assigneeMe: flags.assignee?.toLowerCase() === 'me' ? true : undefined,
+        assigneeId: flags.assignee && flags.assignee.toLowerCase() !== 'me' ? flags.assignee : undefined,
         cycleId: flags.cycle,
         limit: flags.limit,
       }
@@ -160,7 +162,6 @@ export default class LinearImport extends PMOCommand {
               buildPromptConfig('list', 'teamKey', 'Select a team to import from:', teamChoices),
               createMetadata('linear import', flags),
             )
-            this.exit(0)
           }
 
           const teamChoices = teams.map((t) => ({

@@ -1,7 +1,6 @@
 import { Flags } from '@oclif/core'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { colors } from '../../lib/colors.js'
-import { styles } from '../../lib/styles.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -76,7 +75,7 @@ export default class LinearSyncCommand extends PMOCommand {
           }, createMetadata('linear sync', flags))
           return
         }
-        this.log(styles.muted(`Would attach PR to ${flags.ticket}: ${flags['pr-url']}`))
+        this.log(colors.textMuted(`Would attach PR to ${flags.ticket}: ${flags['pr-url']}`))
         return
       }
 
@@ -149,7 +148,7 @@ export default class LinearSyncCommand extends PMOCommand {
           }, createMetadata('linear sync', flags))
           return
         }
-        this.log(styles.muted(`Would sync ${flags.ticket} (${mapping.linearIdentifier}): status "${ticket!.statusName}" (${ticket!.statusCategory})`))
+        this.log(colors.textMuted(`Would sync ${flags.ticket} (${mapping.linearIdentifier}): status "${ticket!.statusName}" (${ticket!.statusCategory})`))
         return
       }
 
@@ -184,12 +183,12 @@ export default class LinearSyncCommand extends PMOCommand {
         }, createMetadata('linear sync', flags))
         return
       }
-      this.log(styles.muted('No mapped tickets to sync.'))
+      this.log(colors.textMuted('No mapped tickets to sync.'))
       return
     }
 
     if (!jsonMode) {
-      this.log(styles.muted(`Syncing ${mappings.length} mapped ticket(s) to Linear...`))
+      this.log(colors.textMuted(`Syncing ${mappings.length} mapped ticket(s) to Linear...`))
     }
 
     // Group mappings by team to fetch states efficiently
@@ -229,7 +228,7 @@ export default class LinearSyncCommand extends PMOCommand {
 
       this.log('')
       for (const item of preview) {
-        this.log(styles.muted(`  ${item.linearIdentifier} → ${item.currentStatus} (${item.statusCategory})`))
+        this.log(colors.textMuted(`  ${item.linearIdentifier} → ${item.currentStatus} (${item.statusCategory})`))
       }
       return
     }
@@ -266,7 +265,7 @@ export default class LinearSyncCommand extends PMOCommand {
 
     this.log('')
     if (totalSynced > 0) this.log(colors.success(`Synced: ${totalSynced}`))
-    if (totalSkipped > 0) this.log(styles.muted(`Skipped: ${totalSkipped}`))
+    if (totalSkipped > 0) this.log(colors.textMuted(`Skipped: ${totalSkipped}`))
     if (totalErrors > 0) this.log(colors.error(`Errors: ${totalErrors}`))
   }
 }

@@ -104,7 +104,10 @@ export class LinearClient {
       queryFilter.state = { name: { eqIgnoreCase: filter.stateName } }
     }
 
-    if (filter.assigneeId) {
+    if (filter.assigneeMe) {
+      const viewer = await this.sdk.viewer
+      queryFilter.assignee = { id: { eq: viewer.id } }
+    } else if (filter.assigneeId) {
       queryFilter.assignee = { id: { eq: filter.assigneeId } }
     }
 

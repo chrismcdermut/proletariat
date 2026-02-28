@@ -25,11 +25,12 @@ export class LinearMapper {
 
   /**
    * Ensure the linear_issue_map table exists.
+   * Uses CREATE TABLE IF NOT EXISTS to match the schema defined in schema.ts.
    */
   private ensureTable(): void {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS ${PMO_TABLES.linear_issue_map} (
-        pmo_ticket_id TEXT NOT NULL,
+        pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
         linear_issue_id TEXT NOT NULL,
         linear_identifier TEXT NOT NULL,
         linear_team_key TEXT NOT NULL,

@@ -110,7 +110,8 @@ export interface LinearIssueFilter {
   teamKey?: string
   stateType?: string          // Filter by state type
   stateName?: string          // Filter by state name
-  assigneeId?: string
+  assigneeId?: string         // Filter by assignee user ID
+  assigneeMe?: boolean        // Filter by current authenticated user
   labelName?: string
   cycleId?: string
   projectId?: string
