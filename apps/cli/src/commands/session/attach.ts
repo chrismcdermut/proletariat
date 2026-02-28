@@ -6,7 +6,8 @@ import * as os from 'node:os'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
-import { ExecutionStorage } from '../../lib/execution/index.js'
+import { ExecutionStorage, loadExecutionConfig, shouldUseControlMode, buildTmuxAttachCommand } from '../../lib/execution/index.js'
+import { detectTerminalApp } from '../orchestrator/attach.js'
 import {
   parseSessionName,
   getHostTmuxSessionNames,
@@ -147,11 +148,30 @@ export default class SessionAttach extends PMOCommand {
     this.log('')
     this.log(styles.info(`Attaching to session: ${selectedSession.sessionId}`))
 
+    // Determine if we should use tmux control mode (-u -CC) for iTerm
+    let useControlMode = false
+    try {
+      const workspaceInfo = getWorkspaceInfo()
+      const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
+      const db = new Database(dbPath)
+      try {
+        const config = loadExecutionConfig(db)
+        const termApp = detectTerminalApp()
+        if (termApp === 'iTerm') {
+          useControlMode = shouldUseControlMode('iTerm', config.tmux.controlMode)
+        }
+      } finally {
+        db.close()
+      }
+    } catch {
+      // Not in a workspace or DB not available - fall back to no control mode
+    }
+
     // Default to new tab unless --current-terminal is specified
     if (flags['current-terminal']) {
-      await this.attachInCurrentTerminal(selectedSession)
+      await this.attachInCurrentTerminal(selectedSession, useControlMode)
     } else {
-      await this.attachInNewTab(selectedSession, flags.terminal)
+      await this.attachInNewTab(selectedSession, flags.terminal, useControlMode)
     }
   }
 
@@ -297,12 +317,13 @@ export default class SessionAttach extends PMOCommand {
   /**
    * Attach to session in current terminal
    */
-  private async attachInCurrentTerminal(session: SessionChoice): Promise<void> {
+  private async attachInCurrentTerminal(session: SessionChoice, useControlMode: boolean): Promise<void> {
     try {
+      const tmuxAttach = buildTmuxAttachCommand(useControlMode, session.type === 'container')
       if (session.type === 'container' && session.containerId) {
-        execSync(`docker exec -it ${session.containerId} tmux attach -t "${session.sessionId}"`, { stdio: 'inherit' })
+        execSync(`docker exec -it ${session.containerId} ${tmuxAttach} -t "${session.sessionId}"`, { stdio: 'inherit' })
       } else {
-        execSync(`tmux attach -t "${session.sessionId}"`, { stdio: 'inherit' })
+        execSync(`${tmuxAttach} -t "${session.sessionId}"`, { stdio: 'inherit' })
       }
     } catch {
       this.error(`Failed to attach to ${session.type} session "${session.sessionId}"`)
@@ -312,7 +333,7 @@ export default class SessionAttach extends PMOCommand {
   /**
    * Attach to session in a new terminal tab
    */
-  private async attachInNewTab(session: SessionChoice, terminalApp: string): Promise<void> {
+  private async attachInNewTab(session: SessionChoice, terminalApp: string, useControlMode: boolean): Promise<void> {
     // Build a readable title for the tab
     const title = `${session.ticketId} (${session.agentName})`
 
@@ -322,9 +343,10 @@ export default class SessionAttach extends PMOCommand {
     const scriptPath = path.join(baseDir, `attach-${Date.now()}.sh`)
 
     // Different attach command for container vs host sessions
+    const tmuxAttach = buildTmuxAttachCommand(useControlMode, session.type === 'container')
     const attachCmd = session.type === 'container' && session.containerId
-      ? `docker exec -it ${session.containerId} tmux -u attach -t "${session.sessionId}"`
-      : `tmux attach -t "${session.sessionId}"`
+      ? `docker exec -it ${session.containerId} ${tmuxAttach} -t "${session.sessionId}"`
+      : `${tmuxAttach} -t "${session.sessionId}"`
 
     const script = `#!/bin/bash
 # Set terminal tab title
