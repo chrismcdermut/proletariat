@@ -35,6 +35,7 @@ export default class Work extends PMOCommand {
       { id: 'resolve', name: 'Resolve questions (agent-assisted)', command: `prlt work resolve -P ${projectId} --json` },
       { id: 'spawn', name: 'Spawn work (batch by column)', command: `prlt work spawn -P ${projectId} --json` },
       { id: 'watch', name: 'Watch column (auto-spawn)', command: `prlt work watch -P ${projectId} --json` },
+      { id: 'review', name: 'Review pipeline (review → fix → re-review)', command: `prlt work review -P ${projectId} --json` },
       { id: 'ready', name: 'Mark work ready for review', command: `prlt work ready -P ${projectId} --json` },
       { id: 'complete', name: 'Mark work complete', command: `prlt work complete -P ${projectId} --json` },
       { id: 'cancel', name: 'Cancel', command: '' },
@@ -72,6 +73,9 @@ export default class Work extends PMOCommand {
         break;
       case 'watch':
         await this.config.runCommand('work:watch', projectArgs);
+        break;
+      case 'review':
+        await this.config.runCommand('work:review', projectArgs);
         break;
       case 'ready':
         await this.config.runCommand('work:ready', projectArgs);
