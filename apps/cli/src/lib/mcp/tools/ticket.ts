@@ -12,7 +12,7 @@ import { getWorkspacePriorities, setWorkspacePriorities } from '../../pmo/utils.
 export function registerTicketTools(server: McpServer, ctx: McpToolContext): void {
   strictTool(server,
     'ticket_list',
-    'List tickets with optional filters',
+    'List tickets with optional filters. Returns summary fields only (no descriptions). Use ticket_show for full details.',
     {
       project: z.string().optional().describe('Project ID'),
       column: z.string().optional().describe('Filter by column/status'),
@@ -25,10 +25,12 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
       label: z.string().optional().describe('Filter by label name'),
       label_group: z.string().optional().describe('Filter by label group name'),
       all_projects: z.boolean().optional().describe('List from all projects'),
+      limit: z.number().min(1).optional().describe('Maximum number of tickets to return (default: 50)'),
+      offset: z.number().min(0).optional().describe('Number of tickets to skip for pagination (default: 0)'),
     },
     async (params) => {
       try {
-        const tickets = await ctx.storage.listTickets(
+        const allTickets = await ctx.storage.listTickets(
           params.all_projects ? undefined : params.project,
           {
             column: params.column,
@@ -43,31 +45,31 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
             allProjects: params.all_projects,
           }
         )
+        const total = allTickets.length
+        const offset = params.offset ?? 0
+        const limit = params.limit ?? 50
+        const tickets = allTickets.slice(offset, offset + limit)
         return {
           content: [{
             type: 'text' as const,
             text: JSON.stringify({
               success: true,
+              total,
               count: tickets.length,
+              offset,
+              limit,
               tickets: await Promise.all(tickets.map(async (t: Ticket) => {
                 const ticketLabels = await ctx.storage.getLabelsForTicket(t.id)
                 return {
                   id: t.id,
                   title: t.title,
-                  description: t.description,
                   priority: t.priority,
                   category: t.category,
                   statusName: t.statusName,
                   statusCategory: t.statusCategory,
-                  projectId: t.projectId,
                   assignee: t.assignee,
-                  owner: t.owner,
-                  epicId: t.epicId,
-                  branch: t.branch,
                   position: t.position,
                   labels: ticketLabels.map(l => ({ id: l.id, name: l.name, groupName: l.groupName })),
-                  createdAt: t.createdAt.toISOString(),
-                  updatedAt: t.updatedAt.toISOString(),
                 }
               })),
             }, null, 2),

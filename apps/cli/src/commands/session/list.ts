@@ -9,6 +9,7 @@ import {
   getHostTmuxSessionNames,
   getContainerTmuxSessionMap,
   flattenContainerSessions,
+  findContainerSessionsByPrefix,
   findSessionForExecution,
 } from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
@@ -95,7 +96,7 @@ export default class SessionList extends PMOCommand {
         // If sessionId is NULL, try to find session by naming convention
         if (!exec.sessionId) {
           if (isContainer && exec.containerId) {
-            const containerSessions = containerTmuxSessions.get(exec.containerId) || []
+            const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
             const match = findSessionForExecution(exec.ticketId, exec.agentName, containerSessions)
             if (match) {
               actualSessionId = match
@@ -117,8 +118,8 @@ export default class SessionList extends PMOCommand {
         } else {
           // sessionId is set, verify it exists
           if (isContainer && exec.containerId) {
-            const containerSessions = containerTmuxSessions.get(exec.containerId)
-            exists = containerSessions?.includes(exec.sessionId) ?? false
+            const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
+            exists = containerSessions.includes(exec.sessionId)
             containerId = exec.containerId
           } else {
             exists = hostTmuxSessions.includes(exec.sessionId)
@@ -134,14 +135,15 @@ export default class SessionList extends PMOCommand {
           }
         }
 
-        // Only include if session exists, unless --all flag
-        // Note: actualSessionId is guaranteed non-null here due to continue above
-        if ((exists || flags.all) && actualSessionId) {
+        // Always include sessions from DB that have a sessionId.
+        // When tmux verification fails (e.g., Docker/tmux not accessible from MCP context),
+        // show the session with the DB status instead of silently dropping it.
+        if (actualSessionId) {
           sessions.push({
             sessionId: actualSessionId,
             ticketId: exec.ticketId,
             agentName: exec.agentName,
-            status: exists ? exec.status : 'stale',
+            status: exists ? exec.status : (flags.all ? 'stale' : exec.status),
             environment: isContainer ? 'container' : 'host',
             containerId,
             exists,

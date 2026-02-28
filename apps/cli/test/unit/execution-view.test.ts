@@ -254,7 +254,7 @@ describe('ExecutionView', () => {
       const statuses = ['starting', 'running', 'completed', 'failed', 'stopped']
 
       for (const status of statuses) {
-        storage.createExecution({
+        const exec = storage.createExecution({
           ticketId: `TKT-${status}`,
           agentName: 'agent-status',
           executor: 'claude-code',
@@ -263,11 +263,8 @@ describe('ExecutionView', () => {
           sandboxed: true,
         })
 
-        const executions = storage.listExecutions({ limit: 1 })
-        const execId = executions[0].id
-
         if (status !== 'starting') {
-          storage.updateStatus(execId, status as 'running' | 'completed' | 'failed' | 'stopped')
+          storage.updateStatus(exec.id, status as 'running' | 'completed' | 'failed' | 'stopped')
         }
       }
 

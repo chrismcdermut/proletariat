@@ -65,7 +65,7 @@ export default class TicketBulk extends PMOCommand {
       return { name: choice.emoji ? `${choice.emoji} ${choice.name}` : choice.name, value: choice.value };
     };
 
-    const { action } = await inquirer.prompt([{
+    const { action } = await this.prompt<{ action: string }>([{
       type: 'list',
       name: 'action',
       message: 'What would you like to do?',
@@ -84,7 +84,7 @@ export default class TicketBulk extends PMOCommand {
         new inquirer.Separator(),
         withEmoji('cancel'),
       ]
-    }]);
+    }], null);
 
     if (action === 'cancel') {
       this.log(styles.muted('Operation cancelled.'));

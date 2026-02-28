@@ -133,6 +133,7 @@ export interface AgentWork {
   startedAt: Date
   completedAt?: Date
   exitCode?: number
+  errorMessage?: string
 }
 
 // =============================================================================
@@ -314,6 +315,12 @@ export function generateBranchName(
 }
 
 // =============================================================================
+// Auth Method
+// =============================================================================
+
+export type AuthMethod = 'oauth' | 'apikey'
+
+// =============================================================================
 // Execution Configuration
 // =============================================================================
 
@@ -324,6 +331,7 @@ export interface ExecutionConfig {
   shell: Shell
   outputMode: OutputMode  // interactive (streaming) or print (final result only)
   sandboxed: boolean      // Whether --dangerously-skip-permissions is NOT used
+  authMethod?: AuthMethod // Saved auth method preference (oauth or apikey). null/undefined = ask each time
   tmux: {
     session: string
     layout: 'split' | 'window'

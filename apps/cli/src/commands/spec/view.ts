@@ -103,6 +103,36 @@ export default class SpecView extends PMOCommand {
     const dependencies = await this.storage.getSpecDependencies(spec.id);
     const dependents = await this.storage.getSpecDependents(spec.id);
 
+    // JSON output mode
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        spec: {
+          id: spec.id,
+          title: spec.title,
+          status: spec.status,
+          type: spec.type,
+          problem: spec.problem,
+          solution: spec.solution,
+          decisions: spec.decisions,
+          notNow: spec.notNow,
+          uiUx: spec.uiUx,
+          acceptanceCriteria: spec.acceptanceCriteria,
+          openQuestions: spec.openQuestions,
+          requirementsFunctional: spec.requirementsFunctional,
+          requirementsTechnical: spec.requirementsTechnical,
+          context: spec.context,
+          tags: spec.tags,
+          createdAt: spec.createdAt.toISOString(),
+          updatedAt: spec.updatedAt.toISOString(),
+          dependencies: dependencies.map(d => ({ id: d.id, title: d.title, status: d.status })),
+          dependents: dependents.map(d => ({ id: d.id, title: d.title, status: d.status })),
+          tickets: tickets.map(t => ({ id: t.id, title: t.title, status: t.status })),
+        },
+      }, null, 2));
+      return;
+    }
+
     // Display spec info
     this.log(styles.title(`\n📄 ${spec.title}`));
     this.log(styles.muted('═'.repeat(60)));

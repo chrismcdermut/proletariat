@@ -1,5 +1,6 @@
-import { Command, Flags } from '@oclif/core';
+import { Flags } from '@oclif/core';
 import { execSync, spawnSync } from 'node:child_process';
+import { PromptCommand } from '../../lib/prompt-command.js';
 import { colors } from '../../lib/colors.js';
 import { machineOutputFlags } from '../../lib/pmo/index.js';
 import { isDockerRunning } from '../../lib/execution/runners.js';
@@ -9,16 +10,21 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { findHQRoot } from '../../lib/workspace.js';
+import { getWorkspaceDbPath } from '../../lib/workspace.js';
+import { saveAuthMethod } from '../../lib/execution/config.js';
+import Database from 'better-sqlite3';
 
 const CLAUDE_CREDENTIALS_VOLUME = 'claude-credentials';
 
-export default class Auth extends Command {
+export default class Auth extends PromptCommand {
   static description = 'Set up Claude Code authentication for Docker containers (one-time setup)';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --check',
     '<%= config.bin %> <%= command.id %> --force',
+    '<%= config.bin %> <%= command.id %> --api-key',
   ];
 
   static flags = {
@@ -30,8 +36,29 @@ export default class Auth extends Command {
       description: 'Force re-authentication even if credentials exist',
       default: false,
     }),
+    'api-key': Flags.boolean({
+      description: 'Use ANTHROPIC_API_KEY instead of OAuth (saves preference)',
+      default: false,
+    }),
     ...machineOutputFlags,
   };
+
+  /**
+   * Try to open the workspace database for saving auth preferences.
+   * Returns null if not in an HQ directory (auth still works, just won't save preference).
+   */
+  private tryOpenDb(): Database.Database | null {
+    try {
+      const hqPath = findHQRoot();
+      if (!hqPath) return null;
+      const dbPath = getWorkspaceDbPath(hqPath);
+      const db = new Database(dbPath);
+      db.pragma('foreign_keys = ON');
+      return db;
+    } catch {
+      return null;
+    }
+  }
 
   /**
    * Check if the claude-credentials volume exists
@@ -138,14 +165,84 @@ export default class Auth extends Command {
     }
   }
 
+  /**
+   * Handle API key authentication flow
+   */
+  private handleApiKey(jsonMode: boolean, flags: Record<string, unknown>): void {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      if (jsonMode) {
+        outputErrorAsJson('API_KEY_NOT_SET', 'ANTHROPIC_API_KEY is not set in your environment. Export it and try again.', createMetadata('agent auth', flags));
+      }
+      this.error('ANTHROPIC_API_KEY is not set in your environment.\nExport it with: export ANTHROPIC_API_KEY=sk-ant-...');
+    }
+
+    // Save preference to config if in an HQ
+    const db = this.tryOpenDb();
+    if (db) {
+      try {
+        saveAuthMethod(db, 'apikey');
+      } finally {
+        db.close();
+      }
+    }
+
+    if (jsonMode) {
+      outputSuccessAsJson({
+        authenticated: true,
+        method: 'apikey',
+        message: 'ANTHROPIC_API_KEY is set. Auth method saved as default.',
+      }, createMetadata('agent auth', flags));
+      return;
+    }
+
+    this.log(colors.success('✓ ANTHROPIC_API_KEY is set'));
+    this.log(colors.textSecondary('  Auth method saved as default: apikey'));
+    this.log(colors.textSecondary('  Containers will use your API key for authentication.'));
+    this.log('');
+    this.log(colors.warning('  Note: This uses API credits, not your Max subscription.'));
+    this.log(colors.textSecondary(`  Run "${this.config.bin} agent auth" (without --api-key) to switch to OAuth.`));
+  }
+
   async run(): Promise<void> {
     const { flags } = await this.parse(Auth);
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
+    const jsonModeConfig = jsonMode ? { flags, commandName: 'agent auth' } : null;
 
-    // Check Docker is running
+    // Handle --api-key shortcut: validate key and save preference
+    if (flags['api-key']) {
+      this.handleApiKey(jsonMode, flags);
+      return;
+    }
+
+    // Check Docker is running (needed for OAuth flow)
     if (!isDockerRunning()) {
+      // If Docker isn't running, offer API key as alternative
+      const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
+
+      if (hasApiKey && !flags.check) {
+        this.log(colors.warning('Docker is not running.'));
+        this.log('');
+
+        const { authChoice } = await this.prompt<{ authChoice: string }>([{
+          type: 'list',
+          name: 'authChoice',
+          message: 'Docker is required for OAuth. Use API key instead?',
+          choices: [
+            { name: 'Use ANTHROPIC_API_KEY instead (API credits)', value: 'apikey', command: `${this.config.bin} agent auth --api-key --json` },
+            { name: 'Cancel (start Docker first for OAuth)', value: 'cancel' },
+          ],
+          default: 'apikey',
+        }], jsonModeConfig);
+
+        if (authChoice === 'apikey') {
+          this.handleApiKey(jsonMode, flags);
+          return;
+        }
+      }
+
       if (jsonMode) {
         outputErrorAsJson('DOCKER_NOT_RUNNING', 'Docker is not running. Please start Docker Desktop and try again.', createMetadata('agent auth', flags));
       }
@@ -170,6 +267,7 @@ export default class Auth extends Command {
         if (jsonMode) {
           outputSuccessAsJson({
             authenticated: true,
+            method: 'oauth',
             subscriptionType: info?.subscriptionType || 'unknown',
             expiresAt: info?.expiresAt.toISOString(),
           }, createMetadata('agent auth', flags));
@@ -195,6 +293,7 @@ export default class Auth extends Command {
       if (jsonMode) {
         outputSuccessAsJson({
           authenticated: true,
+          method: 'oauth',
           subscriptionType: info?.subscriptionType || 'unknown',
           expiresAt: info?.expiresAt.toISOString(),
           message: 'Credentials already configured. Use --force to re-authenticate.',
@@ -211,19 +310,54 @@ export default class Auth extends Command {
       return;
     }
 
+    // Prompt for auth method choice (OAuth or API key)
+    const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
+
+    // Only prompt if there's a real choice (API key is available)
+    let selectedMethod = 'oauth';
+    if (hasApiKey) {
+      const { selectedMethod: chosen } = await this.prompt<{ selectedMethod: string }>([{
+        type: 'list',
+        name: 'selectedMethod',
+        message: 'Which authentication method would you like to use?',
+        choices: [
+          { name: 'OAuth (recommended — uses Max subscription)', value: 'oauth', command: `${this.config.bin} agent auth --force --json` },
+          { name: 'API key (uses API credits, not Max subscription)', value: 'apikey', command: `${this.config.bin} agent auth --api-key --json` },
+        ],
+        default: 'oauth',
+      }], jsonModeConfig);
+      selectedMethod = chosen;
+    }
+
+    if (selectedMethod === 'apikey') {
+      this.handleApiKey(jsonMode, flags);
+      return;
+    }
+
     // JSON mode cannot handle interactive login flow
     if (jsonMode) {
       outputErrorAsJson('INTERACTIVE_REQUIRED', 'Authentication requires interactive login. Run without --json flag to authenticate.', createMetadata('agent auth', flags));
     }
 
-    // Run the login flow
+    // Run the OAuth login flow
     const success = this.runLoginFlow();
 
     if (success && this.credentialsExist()) {
+      // Save OAuth as auth method preference
+      const db = this.tryOpenDb();
+      if (db) {
+        try {
+          saveAuthMethod(db, 'oauth');
+        } finally {
+          db.close();
+        }
+      }
+
       this.log('');
       this.log(colors.success('✓ Authentication successful!'));
       this.log(colors.textSecondary('  Credentials saved to Docker volume: ' + CLAUDE_CREDENTIALS_VOLUME));
       this.log(colors.textSecondary('  All agent containers will share these credentials.'));
+      this.log(colors.textSecondary('  Auth method saved as default: oauth'));
     } else {
       this.log('');
       this.log(colors.warning('Authentication may not have completed.'));

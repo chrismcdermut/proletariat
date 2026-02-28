@@ -8,6 +8,7 @@ import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import {
   outputErrorAsJson,
+  outputSuccessAsJson,
   createMetadata,
   shouldOutputJson,
 } from '../../lib/prompt-json.js'
@@ -80,7 +81,7 @@ export default class ExecutionView extends PMOCommand {
           return
         }
 
-        const jsonModeConfig = (flags.json || flags.machine) ? { flags, commandName: 'execution view' } : null
+        const jsonModeConfig = shouldOutputJson(flags) ? { flags, commandName: 'execution view' } : null
 
         const { selectedId } = await this.prompt<{ selectedId: string }>([
           {
@@ -105,30 +106,27 @@ export default class ExecutionView extends PMOCommand {
 
       // If JSON mode with ID provided, output the execution data as JSON
       if (jsonMode && args.id) {
-        console.log(JSON.stringify({
-          success: true,
-          data: {
-            id: execution.id,
-            ticketId: execution.ticketId,
-            agentName: execution.agentName,
-            executor: execution.executor,
-            environment: execution.environment,
-            displayMode: execution.displayMode,
-            sandboxed: execution.sandboxed,
-            status: execution.status,
-            branch: execution.branch || null,
-            pid: execution.pid || null,
-            containerId: execution.containerId || null,
-            sessionId: execution.sessionId || null,
-            host: execution.host || null,
-            logPath: execution.logPath || null,
-            startedAt: execution.startedAt.toISOString(),
-            completedAt: execution.completedAt?.toISOString() || null,
-            exitCode: execution.exitCode ?? null,
-          },
-          metadata: createMetadata('execution view', flags),
-        }, null, 2))
-        return
+        db.close()
+        outputSuccessAsJson({
+          id: execution.id,
+          ticketId: execution.ticketId,
+          agentName: execution.agentName,
+          executor: execution.executor,
+          environment: execution.environment,
+          displayMode: execution.displayMode,
+          sandboxed: execution.sandboxed,
+          status: execution.status,
+          branch: execution.branch || null,
+          pid: execution.pid || null,
+          containerId: execution.containerId || null,
+          sessionId: execution.sessionId || null,
+          host: execution.host || null,
+          logPath: execution.logPath || null,
+          startedAt: execution.startedAt.toISOString(),
+          completedAt: execution.completedAt?.toISOString() || null,
+          exitCode: execution.exitCode ?? null,
+          errorMessage: execution.errorMessage || null,
+        }, createMetadata('execution view', flags))
       }
 
       // Display execution details
@@ -189,6 +187,14 @@ export default class ExecutionView extends PMOCommand {
         this.log(`${styles.muted('Exit Code:')}    ${exitStyle(execution.exitCode.toString())}`)
       }
       this.log('')
+
+      // Error details (TKT-1082)
+      if (execution.errorMessage) {
+        this.log(styles.header('Error'))
+        this.log('─'.repeat(40))
+        this.log(styles.error(execution.errorMessage))
+        this.log('')
+      }
 
       // Logs summary
       if (execution.logPath) {

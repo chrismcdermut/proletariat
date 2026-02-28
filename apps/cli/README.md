@@ -24,7 +24,10 @@
 **prlt** is an agent orchestration platform for AI labor. Spin up workers on demand, coordinate multi-agent development from one CLI. Isolated workspaces, secure containers, persistent state.
 
 ```bash
-npm install -g @proletariat/cli
+brew install chrismcdermut/proletariat/prlt    # macOS (Homebrew)
+# or
+npm install -g @proletariat/cli        # any platform (npm)
+
 prlt init
 prlt ticket create --title "Add OAuth" --category feature
 prlt work spawn   # Interactive: select tickets, environment, action
@@ -48,7 +51,10 @@ Agent spawns in its own branch, writes code, opens PR. You review and merge.
 # Quick Start
 
 ```bash
-npm install -g @proletariat/cli    # Install
+npm install -g @proletariat/cli    # Install (npm)
+# or
+brew install chrismcdermut/proletariat/prlt  # Install (Homebrew, macOS)
+
 prlt init                          # Create HQ, add repos, choose theme
 prlt ticket create --title "Add OAuth" --category feature
 prlt work spawn                    # Interactive: select tickets, environment, action
@@ -116,6 +122,35 @@ Select tickets to spawn, grouped by priority:
 | Context scattered across chat windows     | **Structured** - Tickets with requirements, acceptance criteria                              |
 | Starting agents is heavyweight            | **Ephemeral** - Spawn on demand, they work, they PR, they're done                            |
 | Context lost between agent runs           | **Persistent** - Tickets accumulate context, hand off between agents                         |
+
+### Installation
+
+#### Homebrew (macOS)
+
+```bash
+brew install chrismcdermut/proletariat/prlt
+```
+
+Works on both Apple Silicon (arm64) and Intel (x86_64) Macs.
+
+**Upgrade:**
+
+```bash
+brew update
+brew upgrade prlt
+```
+
+**Verify:**
+
+```bash
+prlt --version
+```
+
+#### npm (all platforms)
+
+```bash
+npm install -g @proletariat/cli
+```
 
 ### Data Model
 

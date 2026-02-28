@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.chrismcdermut/proletariat-cli",
+  "description": "Agent orchestration platform - multi-agent spawning, tickets, boards, and workflows",
+  "repository": {
+    "url": "https://github.com/chrismcdermut/proletariat",
+    "source": "github",
+    "subfolder": "apps/cli"
+  },
+  "version": "0.3.40",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@proletariat/cli",
+      "version": "0.3.40",
+      "transport": {
+        "type": "stdio"
+      },
+      "arguments": ["mcp-server"]
+    }
+  ]
+}

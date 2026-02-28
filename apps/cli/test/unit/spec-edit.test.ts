@@ -256,13 +256,16 @@ describe('Spec Edit Command', () => {
     // The shouldOutputJson function only sees { json: true }
 
     it('should return false when no flags are set in TTY', () => {
-      const originalIsTTY = process.stdout.isTTY;
+      const originalStdoutIsTTY = process.stdout.isTTY;
+      const originalStdinIsTTY = process.stdin.isTTY;
       Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
 
       expect(shouldOutputJson({ json: false })).to.be.false;
       expect(shouldOutputJson({})).to.be.false;
 
-      Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalStdoutIsTTY, configurable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinIsTTY, configurable: true });
     });
   });
 

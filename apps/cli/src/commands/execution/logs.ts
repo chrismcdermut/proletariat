@@ -81,7 +81,7 @@ export default class ExecutionLogs extends PMOCommand {
           this.error('No executions found.')
         }
 
-        const jsonModeConfig = (flags.json || flags.machine) ? { flags, commandName: 'execution logs' } : null
+        const jsonModeConfig = shouldOutputJson(flags) ? { flags, commandName: 'execution logs' } : null
 
         const { selectedId } = await this.prompt<{ selectedId: string }>([
           {
@@ -108,6 +108,13 @@ export default class ExecutionLogs extends PMOCommand {
       if (!execution.logPath) {
         this.log(styles.muted(`\nNo log file for execution ${execId}`))
         this.log(styles.muted(`Environment: ${execution.environment}`))
+
+        // Show error message if available (TKT-1082)
+        if (execution.errorMessage) {
+          this.log('')
+          this.log(styles.error('Error:'))
+          this.log(styles.error(`  ${execution.errorMessage}`))
+        }
 
         if (execution.sessionId) {
           this.log('')

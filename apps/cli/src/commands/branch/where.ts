@@ -2,9 +2,10 @@ import { Args } from '@oclif/core'
 import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { shouldOutputJson } from '../../lib/prompt-json.js'
 import { styles } from '../../lib/styles.js'
 import { isGitRepo, isTicketId } from '../../lib/branch/index.js'
-import { openWorkspaceDatabase, AgentWorktree } from '../../lib/database/index.js'
+import { findWorktreesByBranch as findDbWorktreesByBranch, AgentWorktree } from '../../lib/database/index.js'
 
 interface WorktreeInfo {
   path: string
@@ -60,7 +61,7 @@ export default class BranchWhere extends PMOCommand {
     const allMatches = this.mergeResults(matches, dbMatches)
 
     if (allMatches.length === 0) {
-      if (flags.json || flags.machine) {
+      if (shouldOutputJson(flags)) {
         this.log(JSON.stringify({ found: false, search, matches: [] }, null, 2))
       } else {
         this.log(styles.muted(`\nNo worktree found for "${search}"\n`))
@@ -68,7 +69,7 @@ export default class BranchWhere extends PMOCommand {
       return
     }
 
-    if (flags.json || flags.machine) {
+    if (shouldOutputJson(flags)) {
       this.log(JSON.stringify({
         found: true,
         search,
@@ -169,26 +170,15 @@ export default class BranchWhere extends PMOCommand {
       const workspacePath = this.getWorkspacePath()
       if (!workspacePath) return []
 
-      const db = openWorkspaceDatabase(workspacePath)
       const searchLower = search.toLowerCase()
       const isTicket = isTicketId(search)
 
-      // Query for matching branches
-      let query: string
-      let params: string[]
+      // Build LIKE pattern based on search type
+      const branchPattern = isTicket
+        ? `${searchLower}/%`   // Match branches starting with ticket ID
+        : `%${searchLower}%`   // Match branches containing the search term
 
-      if (isTicket) {
-        // Match branches starting with ticket ID
-        query = 'SELECT * FROM agent_worktrees WHERE LOWER(branch) LIKE ?'
-        params = [`${searchLower}/%`]
-      } else {
-        // Match branches containing the search term
-        query = 'SELECT * FROM agent_worktrees WHERE LOWER(branch) LIKE ?'
-        params = [`%${searchLower}%`]
-      }
-
-      const rows = db.prepare(query).all(...params) as AgentWorktree[]
-      db.close()
+      const rows = findDbWorktreesByBranch(workspacePath, branchPattern)
 
       return rows.map(row => ({
         path: path.join(workspacePath, row.worktree_path),

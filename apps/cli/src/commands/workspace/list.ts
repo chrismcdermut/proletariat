@@ -8,6 +8,7 @@ import {
 } from '../../lib/machine-config.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 
 interface WorkspaceInfo {
   name: string;
@@ -107,7 +108,7 @@ export default class WorkspaceList extends Command {
     }
 
     // JSON output
-    if (flags.json || flags.machine) {
+    if (shouldOutputJson(flags)) {
       const output = {
         workspaces: workspaces.map((w) => ({
           name: w.name,

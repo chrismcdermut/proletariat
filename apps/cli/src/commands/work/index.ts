@@ -30,6 +30,7 @@ export default class Work extends PMOCommand {
     // Execution actions first (most common), then ownership
     // Each choice includes the full command for AI agents to execute
     const menuChoices = [
+      { id: 'status', name: 'View work status (in-progress tickets)', command: `prlt work status -P ${projectId} --json` },
       { id: 'start', name: 'Start work (launch single agent)', command: `prlt work start -P ${projectId} --json` },
       { id: 'resolve', name: 'Resolve questions (agent-assisted)', command: `prlt work resolve -P ${projectId} --json` },
       { id: 'spawn', name: 'Spawn work (batch by column)', command: `prlt work spawn -P ${projectId} --json` },
@@ -57,6 +58,9 @@ export default class Work extends PMOCommand {
     // Pass --project to avoid re-prompting for project selection
     const projectArgs = ['--project', projectId];
     switch (action) {
+      case 'status':
+        await this.config.runCommand('work:status', projectArgs);
+        break;
       case 'start':
         await this.config.runCommand('work:start', projectArgs);
         break;

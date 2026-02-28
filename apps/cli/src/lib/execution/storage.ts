@@ -40,6 +40,7 @@ interface AgentWorkRow {
   started_at: number
   completed_at: number | null
   exit_code: number | null
+  error_message: string | null
 }
 
 // =============================================================================
@@ -65,6 +66,7 @@ function rowToAgentWork(row: AgentWorkRow): AgentWork {
     startedAt: new Date(row.started_at),
     completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
     exitCode: row.exit_code ?? undefined,
+    errorMessage: row.error_message || undefined,
   }
 }
 
@@ -142,15 +144,27 @@ export class ExecutionStorage {
   /**
    * Update execution status
    */
-  updateStatus(id: string, status: ExecutionStatus, exitCode?: number): void {
+  updateStatus(id: string, status: ExecutionStatus, exitCode?: number, errorMessage?: string): void {
     const completedAt = ['completed', 'failed', 'stopped'].includes(status) ? Date.now() : null
 
-    if (exitCode !== undefined) {
+    if (exitCode !== undefined && errorMessage) {
+      this.db.prepare(`
+        UPDATE ${T.agent_work}
+        SET status = ?, completed_at = ?, exit_code = ?, error_message = ?
+        WHERE id = ?
+      `).run(status, completedAt, exitCode, errorMessage, id)
+    } else if (exitCode !== undefined) {
       this.db.prepare(`
         UPDATE ${T.agent_work}
         SET status = ?, completed_at = ?, exit_code = ?
         WHERE id = ?
       `).run(status, completedAt, exitCode, id)
+    } else if (errorMessage) {
+      this.db.prepare(`
+        UPDATE ${T.agent_work}
+        SET status = ?, completed_at = ?, error_message = ?
+        WHERE id = ?
+      `).run(status, completedAt, errorMessage, id)
     } else {
       this.db.prepare(`
         UPDATE ${T.agent_work}
@@ -322,9 +336,9 @@ export class ExecutionStorage {
       let sessionExists = false
 
       if (exec.environment === 'devcontainer' && exec.containerId) {
-        // Check if session exists in container
-        const containerSessions = containerTmuxSessions.get(exec.containerId)
-        sessionExists = containerSessions?.includes(exec.sessionId) ?? false
+        // Check if session exists in container (use prefix matching for ID format differences)
+        const containerSessions = this.findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
+        sessionExists = containerSessions.includes(exec.sessionId)
       } else {
         // Check if session exists on host
         sessionExists = hostTmuxSessions.includes(exec.sessionId)
@@ -338,6 +352,26 @@ export class ExecutionStorage {
     }
 
     return cleanedCount
+  }
+
+  /**
+   * Find container sessions using prefix matching.
+   * Handles cases where the stored containerId format differs from docker ps output.
+   */
+  private findContainerSessionsByPrefix(
+    containerTmuxSessions: Map<string, string[]>,
+    containerId: string
+  ): string[] {
+    const exact = containerTmuxSessions.get(containerId)
+    if (exact) return exact
+
+    for (const [key, sessions] of containerTmuxSessions) {
+      if (key.startsWith(containerId) || containerId.startsWith(key)) {
+        return sessions
+      }
+    }
+
+    return []
   }
 
   /**

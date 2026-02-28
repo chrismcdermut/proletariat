@@ -14,3 +14,5 @@ pnpm-lock.yaml
 
 .claude
 .pmo
+.mcpregistry_*
+.smithery/

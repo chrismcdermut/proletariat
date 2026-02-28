@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import chalk from 'chalk';
 import { PromptCommand } from '../../lib/prompt-command.js';
-import Database from 'better-sqlite3';
+import { checkPMOExists, getPMOSetting, dropPMOTables } from '../../lib/database/index.js';
 import {
   SQLiteStorage,
   getColumnsForTemplate,
@@ -81,20 +81,10 @@ export default class PMOInit extends PromptCommand {
       const dbPath = path.join(hqRoot, '.proletariat', 'workspace.db');
       if (fs.existsSync(dbPath)) {
         try {
-          const db = new Database(dbPath);
-          const result = db.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
-          ).get();
-
-          if (result !== undefined) {
-            existingPMO = true;
-            // Get counts
-            const projectCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_projects').get() as { count: number };
-            const ticketCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_tickets').get() as { count: number };
-            projectCount = projectCountResult.count;
-            ticketCount = ticketCountResult.count;
-          }
-          db.close();
+          const pmoStatus = checkPMOExists(dbPath);
+          existingPMO = pmoStatus.exists;
+          projectCount = pmoStatus.projectCount;
+          ticketCount = pmoStatus.ticketCount;
         } catch (error) {
           // Log error for debugging
           console.error('PMO check error:', error);
@@ -286,15 +276,9 @@ export default class PMOInit extends PromptCommand {
     const dbPath = path.join(hqRoot, '.proletariat', 'workspace.db');
     let pmoPath = path.join(hqRoot, 'pmo'); // Default fallback
 
-    try {
-      const db = new Database(dbPath);
-      const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
-      if (result) {
-        pmoPath = result.value;
-      }
-      db.close();
-    } catch {
-      // Use default if table doesn't exist
+    const savedPmoPath = getPMOSetting(dbPath, 'pmo_path');
+    if (savedPmoPath) {
+      pmoPath = savedPmoPath;
     }
 
     // Define choices once, use for both JSON and interactive modes
@@ -391,16 +375,10 @@ export default class PMOInit extends PromptCommand {
     let pmoPath = path.join(hqRoot, 'pmo'); // Default fallback
 
     if (fs.existsSync(dbPath)) {
-      const db = new Database(dbPath);
-
       // Get PMO path from database before deleting
-      try {
-        const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
-        if (result) {
-          pmoPath = result.value;
-        }
-      } catch {
-        // Ignore - table might not exist, use default
+      const savedPmoPath = getPMOSetting(dbPath, 'pmo_path');
+      if (savedPmoPath) {
+        pmoPath = savedPmoPath;
       }
 
       // Drop all pmo_* tables
@@ -408,15 +386,7 @@ export default class PMOInit extends PromptCommand {
                       'pmo_columns', 'pmo_specs', 'pmo_epics', 'pmo_projects',
                       'pmo_initiatives', 'pmo_ticket_assignments', 'pmo_cache_metadata', 'pmo_settings'];
 
-      for (const table of tables) {
-        try {
-          db.prepare(`DROP TABLE IF EXISTS ${table}`).run();
-        } catch {
-          // Ignore errors - table might not exist
-        }
-      }
-
-      db.close();
+      dropPMOTables(dbPath, tables);
       this.log(chalk.green('  ✓ Dropped database tables'));
     }
 

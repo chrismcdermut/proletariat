@@ -1,5 +1,4 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
@@ -91,12 +90,12 @@ export default class ProjectUpdate extends PMOCommand {
         return;
       }
 
-      const { selectedProjectId } = await inquirer.prompt<{ selectedProjectId: string }>([{
+      const { selectedProjectId } = await this.prompt<{ selectedProjectId: string }>([{
         type: 'list',
         name: 'selectedProjectId',
         message: 'Select project to update:',
         choices: projectChoices,
-      }]);
+      }], null);
 
       projectId = selectedProjectId;
     }
@@ -137,14 +136,14 @@ export default class ProjectUpdate extends PMOCommand {
         return;
       }
 
-      const answers = await inquirer.prompt<{ name: string; description: string }>(
+      const answers = await this.prompt<{ name: string; description: string }>(
         fields.map(field => ({
           ...field,
           validate: field.name === 'name'
-            ? ((input: string) => input.length > 0 || 'Name is required')
+            ? ((input: unknown) => String(input).length > 0 || 'Name is required')
             : undefined,
         }))
-      );
+      , null);
 
       newName = answers.name;
       newDescription = answers.description;

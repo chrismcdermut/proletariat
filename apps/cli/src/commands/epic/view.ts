@@ -99,6 +99,34 @@ export default class EpicView extends PMOCommand {
 
     const projectName = await this.getProjectName(projectId);
 
+    // JSON output mode
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        epic: {
+          id: epic.id,
+          title: epic.title,
+          status: epic.status,
+          description: epic.description,
+          projectId,
+          specId: epic.specId,
+          createdAt: epic.createdAt.toISOString(),
+          updatedAt: epic.updatedAt?.toISOString(),
+          ticketCount: tickets.length,
+          doneCount: doneTickets,
+          progress: percent,
+          tickets: tickets.map((t: Ticket) => ({
+            id: t.id,
+            title: t.title,
+            statusName: t.statusName,
+            statusCategory: t.statusCategory,
+            priority: t.priority,
+          })),
+        },
+      }, null, 2));
+      return;
+    }
+
     this.log(`\n🎯 Epic: ${styles.emphasis(epic.id)} - ${epic.title}`);
     this.log('═'.repeat(55));
     this.log(`ID: ${epic.id}`);

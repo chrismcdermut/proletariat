@@ -184,7 +184,7 @@ describe('Session Commands E2E Tests', () => {
       expect(result!.prompt.name).to.equal('action');
       expect(result!.prompt.message).to.include('Session Management');
       expect(result!.prompt.choices).to.be.an('array');
-      expect(result!.prompt.choices.length).to.equal(4); // list, attach, health, cancel
+      expect(result!.prompt.choices.length).to.equal(6); // list, attach, peek, health, poke, cancel
     });
 
     it('should include List choice with correct value and command', () => {
@@ -255,13 +255,15 @@ describe('Session Commands E2E Tests', () => {
   // prlt session list - direct invocation with flags
   // =========================================================================
   describe('prlt session list', () => {
-    it('should show "No active sessions" when DB has no execution records', () => {
+    it('should return JSON array when DB has no execution records', () => {
       const output = execProduction('session list');
-      expect(output).to.include('No active sessions');
+      // Output is JSON in non-TTY (piped) environments
+      const sessions = JSON.parse(output) as Array<{ sessionId: string }>;
+      expect(sessions).to.be.an('array');
     });
 
-    it('should show "No active sessions" when DB has executions but no tmux (default mode)', () => {
-      // Seed a running execution - but no tmux session exists to verify it
+    it('should return DB-tracked sessions even without tmux verification (default mode)', () => {
+      // Seed a running execution - no tmux session exists to verify it
       seedExecutionRecords([{
         id: 'exec-001',
         ticketId: 'TKT-100',
@@ -270,9 +272,17 @@ describe('Session Commands E2E Tests', () => {
         sessionId: 'TKT-100-implement-bold-turing',
       }]);
 
-      // Without --all, only verified (tmux-backed) sessions are shown
+      // Sessions are always shown from DB, even without tmux verification
+      // (fixes bug where MCP session_list returned empty despite running executions)
       const output = execProduction('session list');
-      expect(output).to.include('No active sessions');
+      const sessions = JSON.parse(output) as Array<{ sessionId: string; status: string; exists: boolean; source: string; ticketId: string }>;
+      expect(sessions).to.be.an('array');
+      // Filter to DB-sourced sessions for our seeded ticket (host may have real orphan tmux sessions)
+      const dbSessions = sessions.filter(s => s.source === 'db' && s.ticketId === 'TKT-100');
+      expect(dbSessions).to.have.lengthOf(1);
+      expect(dbSessions[0].sessionId).to.equal('TKT-100-implement-bold-turing');
+      expect(dbSessions[0].status).to.equal('running');
+      expect(dbSessions[0].exists).to.equal(false);
     });
 
     it('should show stale sessions with --all flag including ticket ID and agent name', () => {
@@ -286,14 +296,16 @@ describe('Session Commands E2E Tests', () => {
 
       const output = execProduction('session list --all');
 
-      // Verify the session data is displayed
-      expect(output).to.include('Active Sessions');
-      expect(output).to.include('TKT-100');
-      expect(output).to.include('bold-turing');
-      expect(output).to.include('stale');
+      // Output is JSON array in non-TTY environments
+      const sessions = JSON.parse(output) as Array<{ sessionId: string; ticketId: string; agentName: string; status: string }>;
+      expect(sessions).to.be.an('array');
+      const session = sessions.find(s => s.ticketId === 'TKT-100');
+      expect(session).to.not.be.undefined;
+      expect(session!.agentName).to.equal('bold-turing');
+      expect(session!.status).to.equal('stale');
     });
 
-    it('should show stale sessions warning with count when using --all', () => {
+    it('should include stale sessions in JSON output when using --all', () => {
       seedExecutionRecords([{
         id: 'exec-001',
         ticketId: 'TKT-100',
@@ -303,7 +315,9 @@ describe('Session Commands E2E Tests', () => {
       }]);
 
       const output = execProduction('session list --all');
-      expect(output).to.include('1 stale session(s)');
+      const sessions = JSON.parse(output) as Array<{ status: string }>;
+      const staleSessions = sessions.filter(s => s.status === 'stale');
+      expect(staleSessions.length).to.be.greaterThanOrEqual(1);
     });
 
     it('should show multiple stale sessions with --all when multiple executions exist', () => {
@@ -326,12 +340,17 @@ describe('Session Commands E2E Tests', () => {
 
       const output = execProduction('session list --all');
 
+      // Output is JSON array in non-TTY environments
+      const sessions = JSON.parse(output) as Array<{ sessionId: string; ticketId: string; agentName: string; status: string }>;
+      expect(sessions).to.be.an('array');
+
       // Both sessions should appear
-      expect(output).to.include('TKT-100');
-      expect(output).to.include('bold-turing');
-      expect(output).to.include('TKT-200');
-      expect(output).to.include('clever-lovelace');
-      expect(output).to.include('2 stale session(s)');
+      const session1 = sessions.find(s => s.ticketId === 'TKT-100');
+      const session2 = sessions.find(s => s.ticketId === 'TKT-200');
+      expect(session1).to.not.be.undefined;
+      expect(session1!.agentName).to.equal('bold-turing');
+      expect(session2).to.not.be.undefined;
+      expect(session2!.agentName).to.equal('clever-lovelace');
     });
 
     it('should show session ID in the output', () => {
@@ -344,7 +363,9 @@ describe('Session Commands E2E Tests', () => {
       }]);
 
       const output = execProduction('session list --all');
-      expect(output).to.include('TKT-100-implement-bold-turing');
+      const sessions = JSON.parse(output) as Array<{ sessionId: string }>;
+      const session = sessions.find(s => s.sessionId === 'TKT-100-implement-bold-turing');
+      expect(session).to.not.be.undefined;
     });
 
     it('should show host type indicator for host sessions', () => {
@@ -358,7 +379,10 @@ describe('Session Commands E2E Tests', () => {
       }]);
 
       const output = execProduction('session list --all');
-      expect(output).to.include('host');
+      const sessions = JSON.parse(output) as Array<{ sessionId: string; environment: string }>;
+      const session = sessions.find(s => s.sessionId === 'TKT-100-implement-bold-turing');
+      expect(session).to.not.be.undefined;
+      expect(session!.environment).to.equal('host');
     });
   });
 
@@ -448,16 +472,19 @@ describe('Session Commands E2E Tests', () => {
       expect(listChoice).to.not.be.undefined;
       expect(listChoice!.command).to.equal('prlt session list --json');
 
-      // Step 3: Agent executes the list command (strip prlt prefix, remove --json for display output)
-      // Use --all to see stale sessions since there's no real tmux
-      const listOutput = execProduction('session list --all');
+      // Step 3: Agent executes the list command
+      // Sessions now appear without --all since DB-tracked sessions are always shown
+      const listOutput = execProduction('session list');
 
-      // Step 4: Verify END RESULT - the seeded session data actually appears
-      expect(listOutput).to.include('Active Sessions');
-      expect(listOutput).to.include('TKT-300');
-      expect(listOutput).to.include('swift-hopper');
-      expect(listOutput).to.include('TKT-300-implement-swift-hopper');
-      expect(listOutput).to.include('stale');
+      // Step 4: Verify END RESULT - the seeded session data actually appears (JSON output in non-TTY)
+      const sessions = JSON.parse(listOutput) as Array<{ sessionId: string; ticketId: string; agentName: string; status: string }>;
+      expect(sessions).to.be.an('array');
+      const session = sessions.find(s => s.ticketId === 'TKT-300');
+      expect(session).to.not.be.undefined;
+      expect(session!.agentName).to.equal('swift-hopper');
+      expect(session!.sessionId).to.equal('TKT-300-implement-swift-hopper');
+      // Without tmux verification, sessions show their DB status
+      expect(session!.status).to.equal('running');
     });
   });
 
@@ -509,18 +536,132 @@ describe('Session Commands E2E Tests', () => {
     });
   });
 
+  // =========================================================================
+  // prlt session poke - direct invocation with flags
+  // Note: poke requires real tmux sessions for message delivery. Without tmux,
+  // we can only test error paths (no matching execution, no active session).
+  // =========================================================================
+  describe('prlt session poke', () => {
+    it('should output JSON error NO_ACTIVE_EXECUTION when no executions match agent name (--json)', () => {
+      const output = execProduction('session poke nonexistent-agent "hello" --json');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      expect(json!.error.code).to.equal('NO_ACTIVE_EXECUTION');
+      expect(json!.error.message).to.include('nonexistent-agent');
+      expect(json!.error.message).to.include('no active session');
+    });
+
+    it('should output JSON error NO_ACTIVE_EXECUTION when no executions match ticket ID (--json)', () => {
+      const output = execProduction('session poke TKT-999 "hello" --json');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      expect(json!.error.code).to.equal('NO_ACTIVE_EXECUTION');
+      expect(json!.error.message).to.include('TKT-999');
+    });
+
+    it('should output JSON error NO_ACTIVE_EXECUTION when execution exists but is not running', () => {
+      // Seed a completed execution - should not be matched
+      seedExecutionRecords([{
+        id: 'exec-done-001',
+        ticketId: 'TKT-500',
+        ticketTitle: 'Finished task',
+        agentName: 'done-agent',
+        sessionId: 'TKT-500-implement-done-agent',
+        status: 'completed',
+      }]);
+
+      const output = execProduction('session poke done-agent "hello" --json');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      expect(json!.error.code).to.equal('NO_ACTIVE_EXECUTION');
+    });
+
+    it('should resolve agent by exact agent name and fail at tmux level (no tmux in test env)', () => {
+      seedExecutionRecords([{
+        id: 'exec-poke-001',
+        ticketId: 'TKT-600',
+        ticketTitle: 'Poke test task',
+        agentName: 'poke-target',
+        sessionId: 'TKT-600-implement-poke-target',
+        status: 'running',
+      }]);
+
+      const output = execProduction('session poke poke-target "test message" --json');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      // Should resolve execution but fail at tmux send-keys (no tmux in test)
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      // Either SESSION_NOT_FOUND (can't verify tmux) or SEND_FAILED (tmux not available)
+      expect(['SESSION_NOT_FOUND', 'SEND_FAILED']).to.include(json!.error.code);
+    });
+
+    it('should resolve agent by ticket ID and fail at tmux level', () => {
+      seedExecutionRecords([{
+        id: 'exec-poke-002',
+        ticketId: 'TKT-601',
+        ticketTitle: 'Poke by ticket',
+        agentName: 'ticket-agent',
+        sessionId: 'TKT-601-implement-ticket-agent',
+        status: 'running',
+      }]);
+
+      const output = execProduction('session poke TKT-601 "test message" --json');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      expect(['SESSION_NOT_FOUND', 'SEND_FAILED']).to.include(json!.error.code);
+    });
+
+    it('should require exact agent name match (partial names do not match)', () => {
+      seedExecutionRecords([{
+        id: 'exec-poke-003a',
+        ticketId: 'TKT-700',
+        ticketTitle: 'Task A',
+        agentName: 'alpha-agent',
+        sessionId: 'TKT-700-implement-alpha-agent',
+        status: 'running',
+      }]);
+
+      // "alpha" is not an exact match for "alpha-agent"
+      const output = execProduction('session poke alpha "test" --json');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      expect(json!.error.code).to.equal('NO_ACTIVE_EXECUTION');
+    });
+
+    it('should include poke choice in session menu with correct command', () => {
+      const result = agentExec('session --machine');
+      expect(result).to.not.be.null;
+
+      const pokeChoice = findChoiceByValue(result!.prompt.choices, 'poke');
+      expect(pokeChoice).to.not.be.undefined;
+      expect(pokeChoice!.name).to.include('Poke');
+      expect(pokeChoice!.command).to.equal('prlt session poke --json');
+    });
+  });
+
   describe('Agent flow: command fields enable correct navigation', () => {
     it('every non-cancel choice should have a --json command for agent chaining', () => {
       const result = agentExec('session --machine');
       expect(result).to.not.be.null;
 
       const actionableChoices = result!.prompt.choices.filter(c => c.value !== 'cancel');
-      expect(actionableChoices.length).to.equal(3); // list, attach, health
+      expect(actionableChoices.length).to.equal(5); // list, attach, peek, health, poke
 
       for (const choice of actionableChoices) {
         expect(choice.command).to.exist;
         expect(choice.command).to.include('--json');
-        expect(choice.command).to.match(/^prlt session (list|attach|health) --json$/);
+        expect(choice.command).to.match(/^prlt session (list|attach|peek|health|poke) --json$/);
       }
     });
 

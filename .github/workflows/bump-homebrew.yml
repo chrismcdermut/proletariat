@@ -1,0 +1,47 @@
+name: bump homebrew formula
+
+on:
+  workflow_run:
+    workflows: ["publish"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "CLI version to bump (e.g. 0.3.40). Defaults to latest release."
+        required: false
+
+jobs:
+  bump-formula:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            VERSION=$(node -p "require('./apps/cli/package.json').version")
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump Homebrew formula
+        id: bump
+        run: bash scripts/bump-homebrew-formula.sh "${{ steps.version.outputs.version }}"
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "### Homebrew Formula Bump" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Version:** ${{ steps.version.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${{ steps.bump.outputs.pr_url }}" ]; then
+            echo "- **PR:** ${{ steps.bump.outputs.pr_url }}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -n "${{ steps.bump.outputs.commit_sha }}" ]; then
+            echo "- **Commit:** https://github.com/chrismcdermut/homebrew-proletariat/commit/${{ steps.bump.outputs.commit_sha }}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "- **Formula version:** ${{ steps.bump.outputs.formula_version }}" >> "$GITHUB_STEP_SUMMARY"

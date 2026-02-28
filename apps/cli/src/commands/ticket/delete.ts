@@ -132,6 +132,15 @@ export default class TicketDelete extends PMOCommand {
     // Auto-export to board.md after write
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
 
+    // JSON output mode - match MCP tool response shape
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        message: `Deleted ${ticketId}`,
+      }, null, 2));
+      return;
+    }
+
     this.log(styles.success(`\n✅ Ticket ${styles.emphasis(ticketId)} deleted`));
     this.log(styles.muted('   Removed from database and board'));
   }

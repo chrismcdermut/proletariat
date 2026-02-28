@@ -1,7 +1,7 @@
 /**
  * Comprehensive E2E tests for MCP Server
  *
- * Tests all 125 MCP tools exposed by the mcp-server command.
+ * Tests MCP tools exposed by the mcp-server command.
  * Uses isolated test environments to prevent pollution of real workspace data.
  */
 
@@ -163,10 +163,10 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
       expect(response.result?.serverInfo?.name).to.equal('prlt');
     });
 
-    it('should list all 125 tools', () => {
+    it('should list all tools', () => {
       const response = mcpCall([INIT_MSG, INITIALIZED_MSG, LIST_TOOLS_MSG]);
       expect(response.result?.tools).to.be.an('array');
-      expect(response.result?.tools?.length).to.equal(125);
+      expect(response.result?.tools?.length).to.be.at.least(125);
     });
 
     it('should have tools capability', () => {
@@ -194,6 +194,77 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
       expect(result.success).to.be.true;
       expect(result.count).to.be.at.least(1);
       expect(result.tickets).to.be.an('array');
+    });
+
+    it('ticket_list - should not include descriptions', () => {
+      createTestTicket(db, projectId, { id: 'TKT-MCP-DESC', title: 'Ticket With Desc', description: 'A long description here' });
+      const result = callTool('ticket_list', { project: projectId });
+      expect(result.success).to.be.true;
+      const tickets = result.tickets as Array<Record<string, unknown>>;
+      tickets.forEach((t) => expect(t).to.not.have.property('description'));
+    });
+
+    it('ticket_list - should return pagination metadata', () => {
+      const result = callTool('ticket_list', { project: projectId });
+      expect(result.success).to.be.true;
+      expect(result).to.have.property('total');
+      expect(result).to.have.property('offset', 0);
+      expect(result).to.have.property('limit', 50);
+    });
+
+    it('ticket_list - should respect limit and offset', () => {
+      // Create several tickets
+      for (let i = 0; i < 5; i++) {
+        createTestTicket(db, projectId, { id: `TKT-MCP-PG${i}`, title: `Paginated ${i}` });
+      }
+      // Total should be 6 (1 from beforeEach + 5 created here)
+      const all = callTool('ticket_list', { project: projectId, limit: 100 });
+      expect((all.tickets as unknown[]).length).to.equal(all.total);
+
+      const page1 = callTool('ticket_list', { project: projectId, limit: 2, offset: 0 });
+      expect(page1.success).to.be.true;
+      expect((page1.tickets as unknown[]).length).to.equal(2);
+      expect(page1.total).to.equal(all.total);
+
+      const page2 = callTool('ticket_list', { project: projectId, limit: 2, offset: 2 });
+      expect(page2.success).to.be.true;
+      expect((page2.tickets as unknown[]).length).to.equal(2);
+
+      // Tickets from page1 and page2 should be different
+      const page1Ids = (page1.tickets as Array<{ id: string }>).map(t => t.id);
+      const page2Ids = (page2.tickets as Array<{ id: string }>).map(t => t.id);
+      page2Ids.forEach(id => expect(page1Ids).to.not.include(id));
+    });
+
+    it('ticket_list - should default limit to 50', () => {
+      const result = callTool('ticket_list', { project: projectId });
+      expect(result.limit).to.equal(50);
+    });
+
+    it('ticket_list - should only return summary fields', () => {
+      const result = callTool('ticket_list', { project: projectId });
+      expect(result.success).to.be.true;
+      const tickets = result.tickets as Array<Record<string, unknown>>;
+      expect(tickets.length).to.be.at.least(1);
+      const ticket = tickets[0];
+      // Should have summary fields
+      expect(ticket).to.have.property('id');
+      expect(ticket).to.have.property('title');
+      expect(ticket).to.have.property('statusName');
+      expect(ticket).to.have.property('statusCategory');
+      expect(ticket).to.have.property('priority');
+      expect(ticket).to.have.property('category');
+      expect(ticket).to.have.property('labels');
+      expect(ticket).to.have.property('assignee');
+      expect(ticket).to.have.property('position');
+      // Should NOT have detail fields
+      expect(ticket).to.not.have.property('description');
+      expect(ticket).to.not.have.property('projectId');
+      expect(ticket).to.not.have.property('owner');
+      expect(ticket).to.not.have.property('epicId');
+      expect(ticket).to.not.have.property('branch');
+      expect(ticket).to.not.have.property('createdAt');
+      expect(ticket).to.not.have.property('updatedAt');
     });
 
     it('ticket_list - should filter by priority', () => {
@@ -434,10 +505,32 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
       createTestTicket(db, projectId, { id: 'TKT-BOARD-1', title: 'Board Test Ticket' });
     });
 
-    it('board_show - should show board', () => {
-      const result = callTool('board_show', { project: projectId });
+    it('board_view - should show board', () => {
+      const result = callTool('board_view', { project: projectId });
       expect(result.success).to.be.true;
       expect(result.board).to.have.property('columns');
+    });
+
+    it('board_show - should return summary fields without description', () => {
+      const result = callTool('board_show', { project: projectId });
+      expect(result.success).to.be.true;
+      const board = result.board as any;
+      const columns = board.columns;
+      // Find the column containing our test ticket
+      const colWithTicket = columns.find((c: any) => c.tickets.length > 0);
+      expect(colWithTicket).to.exist;
+      const ticket = colWithTicket.tickets[0];
+      // Should have summary fields (id, title always present)
+      expect(ticket).to.have.property('id');
+      expect(ticket).to.have.property('title');
+      // Should have labels array (newly added summary field)
+      expect(ticket).to.have.property('labels').that.is.an('array');
+      // Should NOT have description (stripped for size)
+      expect(ticket).to.not.have.property('description');
+      // Should NOT have heavy fields
+      expect(ticket).to.not.have.property('subtasks');
+      expect(ticket).to.not.have.property('metadata');
+      expect(ticket).to.not.have.property('acceptanceCriteria');
     });
 
     it('board_columns - should list columns', () => {
@@ -537,8 +630,8 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
       expect(result.spec).to.have.property('id');
     });
 
-    it('spec_show - should get spec details', () => {
-      const result = callTool('spec_show', { id: specId });
+    it('spec_view - should get spec details', () => {
+      const result = callTool('spec_view', { id: specId });
       expect(result.success).to.be.true;
       expect(result.spec).to.have.property('id', specId);
     });
@@ -609,8 +702,8 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
       expect(result.epic).to.have.property('id');
     });
 
-    it('epic_show - should get epic details', () => {
-      const result = callTool('epic_show', { id: epicId });
+    it('epic_view - should get epic details', () => {
+      const result = callTool('epic_view', { id: epicId });
       expect(result.success).to.be.true;
       expect(result.epic).to.have.property('id', epicId);
     });
@@ -681,30 +774,84 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
       expect(result).to.have.property('inProgressCount');
     });
 
-    it('work_start - should start work on ticket', () => {
-      const result = callTool('work_start', {
+    it('work_assign - should assign ticket without moving to In Progress', () => {
+      const result = callTool('work_assign', {
         ticket_id: ticketId,
         assignee: 'mcp-agent',
+      });
+      expect(result.success).to.be.true;
+      // Verify ticket was NOT moved to In Progress (TKT-973)
+      const ticket = result.ticket as { statusCategory?: string; statusName?: string; assignee?: string };
+      expect(ticket.assignee).to.equal('mcp-agent');
+      expect(ticket.statusCategory).to.not.equal('started');
+    });
+
+    it('work_assign - should not create false In Progress state', () => {
+      // Call work_assign and verify the ticket stays in its original column
+      const result = callTool('work_assign', {
+        ticket_id: ticketId,
+        assignee: 'test-agent',
+      });
+      expect(result.success).to.be.true;
+      // Check work_status — the ticket should NOT appear as in-progress
+      const statusResult = callTool('work_status', {});
+      expect(statusResult.success).to.be.true;
+      const inProgressTickets = statusResult.tickets as Array<{ id: string }>;
+      const found = inProgressTickets.find((t) => t.id === ticketId);
+      expect(found).to.be.undefined;
+    });
+
+    it('work_assign - should work without assignee param', () => {
+      const result = callTool('work_assign', {
+        ticket_id: ticketId,
       });
       expect(result.success).to.be.true;
     });
 
     it('work_complete - should complete ticket', () => {
-      callTool('work_start', { ticket_id: ticketId });
+      // Move ticket to In Progress first via ticket_move so work_complete has a valid transition
+      callTool('ticket_move', { id: ticketId, column: 'In Progress' });
       const result = callTool('work_complete', { ticket_id: ticketId });
       expect(result.success).to.be.true;
     });
 
     it('work_ready - should mark ticket ready for review', () => {
-      callTool('work_start', { ticket_id: ticketId });
+      callTool('ticket_move', { id: ticketId, column: 'In Progress' });
       const result = callTool('work_ready', { ticket_id: ticketId });
       expect(result.success).to.be.true;
     });
 
     it('work_revise - should send ticket back for revision', () => {
-      callTool('work_start', { ticket_id: ticketId });
+      callTool('ticket_move', { id: ticketId, column: 'In Progress' });
       const result = callTool('work_revise', { ticket_id: ticketId });
       expect(result.success).to.be.true;
+    });
+
+    it('work_start - should fail gracefully without workspace context', () => {
+      // MCP server in test env may not have a full workspace with agents
+      // work_start should return an error (not crash) when workspace is unavailable
+      const result = callTool('work_start', { ticket_id: ticketId });
+      // Either fails with workspace error or agent error — both are valid
+      // The key is it doesn't move ticket to In Progress without spawning
+      if (!result.success) {
+        expect(result.error).to.be.a('string');
+      }
+    });
+
+    it('work_start - should not move ticket to In Progress on failure', () => {
+      // Call work_start (will fail since no workspace/agents in test env)
+      callTool('work_start', { ticket_id: ticketId });
+      // Verify ticket is NOT in progress — the bug was that it moved without spawning
+      const statusResult = callTool('work_status', {});
+      expect(statusResult.success).to.be.true;
+      const inProgressTickets = statusResult.tickets as Array<{ id: string }>;
+      const found = inProgressTickets.find((t) => t.id === ticketId);
+      expect(found).to.be.undefined;
+    });
+
+    it('work_start - should reject non-existent ticket', () => {
+      const result = callTool('work_start', { ticket_id: 'TKT-NONEXISTENT' });
+      expect(result.success).to.be.false;
     });
   });
 

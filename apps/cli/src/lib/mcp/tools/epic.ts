@@ -85,7 +85,7 @@ export function registerEpicTools(server: McpServer, ctx: McpToolContext): void 
   )
 
   strictTool(server,
-    'epic_show',
+    'epic_view',
     'Get epic details with tickets',
     { id: z.string().describe('Epic ID') },
     async (params) => {
@@ -99,9 +99,14 @@ export function registerEpicTools(server: McpServer, ctx: McpToolContext): void 
             text: JSON.stringify({
               success: true,
               epic: {
-                ...epic,
+                id: epic.id,
+                projectId: epic.projectId,
+                title: epic.title,
+                status: epic.status,
+                position: epic.position,
+                specId: epic.specId,
                 ticketCount: tickets.length,
-                tickets: tickets.map((t: Ticket) => ({ id: t.id, title: t.title, statusName: t.statusName, priority: t.priority })),
+                tickets: tickets.map((t: Ticket) => ({ id: t.id, title: t.title, statusName: t.statusName, priority: t.priority, category: t.category })),
                 createdAt: epic.createdAt.toISOString(),
                 updatedAt: epic.updatedAt.toISOString(),
               },

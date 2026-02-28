@@ -18,14 +18,34 @@ docker --version  # Optional
 
 ## Installation
 
+### Homebrew (macOS)
+
+```bash
+brew install chrismcdermut/proletariat/prlt
+```
+
+Works on both Apple Silicon (arm64) and Intel (x86_64).
+
+### npm (all platforms)
+
 ```bash
 npm install -g @proletariat/cli
 ```
 
-Verify:
+### Verify
 
 ```bash
 prlt --version
+```
+
+### Upgrade
+
+```bash
+# Homebrew
+brew update && brew upgrade prlt
+
+# npm
+npm update -g @proletariat/cli
 ```
 
 ## Step 1: Initialize Your Workspace

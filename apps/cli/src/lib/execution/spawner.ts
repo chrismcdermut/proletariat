@@ -12,13 +12,13 @@ import Database from 'better-sqlite3'
 import { SQLiteStorage } from '../pmo/storage-sqlite.js'
 import { autoExportToBoard } from '../pmo/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../pmo/utils.js'
-import { WorkspaceInfo } from '../agents/commands.js'
+import { WorkspaceInfo, resolveAgentDir } from '../agents/commands.js'
 import { findHQRoot } from '../repos/index.js'
 import { hasGitHubRemote } from '../repos/git.js'
 import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
-import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } from './runners.js'
+import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight } from './runners.js'
 import { detectRepoWorktrees, resolveWorktreePath } from './context.js'
 import {
   DisplayMode,
@@ -295,8 +295,8 @@ export async function spawnAgentForTicket(
   const log = options.log || (() => {})
   const executor = options.executor || DEFAULT_EXECUTION_CONFIG.defaultExecutor
 
-  // Determine agent directory and worktree path
-  const agentDir = path.join(workspaceInfo.agentsPath, agentName)
+  // Determine agent directory and worktree path (handles staff and temp agents)
+  const agentDir = resolveAgentDir(workspaceInfo, agentName)
   if (!fs.existsSync(agentDir)) {
     return {
       success: false,
@@ -406,6 +406,20 @@ export async function spawnAgentForTicket(
 
   const displayMode: DisplayMode = options.displayMode || 'terminal'
   const sandboxed = !(options.skipPermissions ?? false)
+
+  // Executor preflight check (TKT-1082): verify binary is available before proceeding
+  // For host environment, check immediately. For devcontainer, check happens after container start.
+  if (environment === 'host') {
+    const preflight = runExecutorPreflight(executor, environment)
+    if (!preflight.ok) {
+      return {
+        success: false,
+        ticketId: ticket.id,
+        agentName,
+        error: preflight.error,
+      }
+    }
+  }
 
   // Create branch in worktree(s)
   // For devcontainer environments, run git commands inside the container
@@ -576,7 +590,7 @@ export async function spawnAgentForTicket(
       agentName,
     }
   } else {
-    executionStorage.updateStatus(execution.id, 'failed')
+    executionStorage.updateStatus(execution.id, 'failed', undefined, result.error)
     return {
       success: false,
       executionId: execution.id,

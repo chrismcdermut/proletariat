@@ -3,9 +3,70 @@
  *
  * Centralized styling for consistent CLI output across all commands.
  * Avoids chalk.gray which is nearly invisible on dark terminals.
+ *
+ * In non-TTY environments, styled output is automatically suppressed:
+ * - Use `isPlainOutput()` to check if plain text mode is active
+ * - Use `stripAnsi()` to strip ANSI escape codes from strings
+ * - Use `plainText()` to conditionally strip ANSI based on TTY detection
  */
 
 import chalk from 'chalk';
+import { isNonTTY } from './prompt-json.js';
+
+/**
+ * Check if plain text output should be used (no colors, no emoji).
+ *
+ * Returns true when:
+ * - stdout is not a TTY (piped output)
+ * - PRLT_JSON=1 environment variable is set
+ * - PRLT_PLAIN=1 environment variable is set (plain text without JSON)
+ * - NO_COLOR environment variable is set (standard convention)
+ *
+ * @returns true if output should be plain text
+ */
+export function isPlainOutput(): boolean {
+  if (process.env.PRLT_PLAIN === '1' || process.env.PRLT_PLAIN === 'true') {
+    return true
+  }
+  if (process.env.NO_COLOR !== undefined) {
+    return true
+  }
+  return isNonTTY()
+}
+
+// eslint-disable-next-line no-control-regex
+const ANSI_REGEX = /\x1B\[[0-9;]*[a-zA-Z]/g;
+
+/**
+ * Strip ANSI escape codes from a string
+ */
+export function stripAnsi(text: string): string {
+  return text.replace(ANSI_REGEX, '')
+}
+
+// eslint-disable-next-line no-misleading-character-class
+const EMOJI_REGEX = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]+/gu;
+
+/**
+ * Strip emoji characters from a string
+ */
+export function stripEmoji(text: string): string {
+  return text.replace(EMOJI_REGEX, '').replace(/^\s+/, '')
+}
+
+/**
+ * Convert styled text to plain text if in non-TTY mode.
+ * Strips ANSI codes and emoji prefixes.
+ *
+ * @param text - The styled text
+ * @returns Plain text in non-TTY mode, original text in TTY mode
+ */
+export function plainText(text: string): string {
+  if (isPlainOutput()) {
+    return stripEmoji(stripAnsi(text))
+  }
+  return text
+}
 
 /**
  * Text styles for different semantic purposes
@@ -210,3 +271,22 @@ export const prefix = {
   export: '📤',
   watch: '👀',
 };
+
+/**
+ * Get a TTY-aware prefix - returns plain text alternatives in non-TTY mode
+ */
+export function getPrefix(type: keyof typeof prefix): string {
+  if (isPlainOutput()) {
+    const plainPrefixes: Record<string, string> = {
+      success: '[OK]',
+      error: '[ERROR]',
+      warning: '[WARN]',
+      info: '[INFO]',
+      sync: '[SYNC]',
+      export: '[EXPORT]',
+      watch: '[WATCH]',
+    };
+    return plainPrefixes[type] || '';
+  }
+  return prefix[type];
+}

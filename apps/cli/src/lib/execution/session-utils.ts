@@ -2,10 +2,38 @@
  * Session Utilities
  *
  * Shared utilities for tmux session naming, parsing, and discovery.
- * Used by session/list.ts and session/attach.ts commands.
+ * Used by session/list.ts, session/attach.ts, session/health.ts, and session/peek.ts commands.
  */
 
 import { execSync } from 'node:child_process'
+
+/**
+ * Capture the last N lines from a tmux pane.
+ * Supports both host tmux sessions and container tmux sessions (via docker exec).
+ *
+ * @param sessionId - The tmux session ID to capture from
+ * @param lines - Number of scrollback lines to capture
+ * @param containerId - Optional container ID for container-based sessions
+ * @returns The captured pane content, or null if capture fails
+ */
+export function captureTmuxPane(sessionId: string, lines: number, containerId?: string): string | null {
+  try {
+    const captureCmd = `tmux capture-pane -t "${sessionId}" -p -S -${lines}`
+    if (containerId) {
+      return execSync(
+        `docker exec ${containerId} bash -c '${captureCmd}'`,
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 }
+      ).trim()
+    }
+    return execSync(captureCmd, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+    }).trim()
+  } catch {
+    return null
+  }
+}
 
 /**
  * Known action names used in session naming.
@@ -116,14 +144,42 @@ export function getContainerTmuxSessionMap(): Map<string, string[]> {
   const sessionMap = new Map<string, string[]>()
 
   try {
-    const containersOutput = execSync(
-      'docker ps --filter "label=devcontainer.local_folder" --format "{{.ID}}"',
-      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-    ).trim()
+    const containerIds = new Set<string>()
 
-    if (!containersOutput) return sessionMap
+    // Primary: devcontainer-labeled containers (historical behavior).
+    try {
+      const labeledOutput = execSync(
+        'docker ps --filter "label=devcontainer.local_folder" --format "{{.ID}}"',
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+      ).trim()
+      if (labeledOutput) {
+        for (const id of labeledOutput.split('\n')) {
+          if (id.trim()) containerIds.add(id.trim())
+        }
+      }
+    } catch {
+      // Ignore and continue with broad fallback discovery.
+    }
 
-    for (const containerId of containersOutput.split('\n')) {
+    // Fallback: include all running containers so prlt-managed devcontainers
+    // without the devcontainer.local_folder label are still discoverable.
+    try {
+      const allOutput = execSync(
+        'docker ps --format "{{.ID}}"',
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+      ).trim()
+      if (allOutput) {
+        for (const id of allOutput.split('\n')) {
+          if (id.trim()) containerIds.add(id.trim())
+        }
+      }
+    } catch {
+      // Docker not available.
+    }
+
+    if (containerIds.size === 0) return sessionMap
+
+    for (const containerId of containerIds) {
       try {
         const tmuxOutput = execSync(
           `docker exec ${containerId} tmux list-sessions -F "#{session_name}" 2>/dev/null`,
@@ -157,6 +213,26 @@ export function flattenContainerSessions(
     }
   })
   return result
+}
+
+/**
+ * Find container sessions using prefix matching.
+ * Handles short vs full container ID mismatches between DB records and docker output.
+ */
+export function findContainerSessionsByPrefix(
+  containerTmuxSessions: Map<string, string[]>,
+  containerId: string
+): string[] {
+  const exact = containerTmuxSessions.get(containerId)
+  if (exact) return exact
+
+  for (const [key, sessions] of containerTmuxSessions) {
+    if (key.startsWith(containerId) || containerId.startsWith(key)) {
+      return sessions
+    }
+  }
+
+  return []
 }
 
 /**

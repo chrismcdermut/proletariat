@@ -251,6 +251,66 @@ export function getExecutorPackage(executor: ExecutorType): string | null {
   }
 }
 
+export interface PreflightResult {
+  ok: boolean
+  error?: string
+}
+
+/**
+ * Check executor binary availability on host.
+ */
+export function checkExecutorOnHost(executor: ExecutorType): PreflightResult {
+  const { cmd } = getExecutorCommand(executor, 'preflight')
+  try {
+    execSync(`command -v ${cmd}`, { stdio: 'pipe' })
+    return { ok: true }
+  } catch {
+    const pkg = getExecutorPackage(executor)
+    const installHint = pkg ? `Install it with: npm install -g ${pkg}` : 'Install and configure the executor binary.'
+    return {
+      ok: false,
+      error: `${getExecutorDisplayName(executor)} CLI not found on host (missing "${cmd}"). ${installHint}`,
+    }
+  }
+}
+
+/**
+ * Check executor binary availability inside a container.
+ */
+export function checkExecutorInContainer(executor: ExecutorType, containerId: string): PreflightResult {
+  const { cmd } = getExecutorCommand(executor, 'preflight')
+  try {
+    execSync(`docker exec ${containerId} sh -lc 'command -v ${cmd}'`, { stdio: 'pipe' })
+    return { ok: true }
+  } catch {
+    const pkg = getExecutorPackage(executor)
+    const installHint = pkg ? `Container image is missing ${pkg}.` : `Container image is missing "${cmd}".`
+    return {
+      ok: false,
+      error: `${getExecutorDisplayName(executor)} CLI not found in container (missing "${cmd}"). ${installHint}`,
+    }
+  }
+}
+
+/**
+ * Run executor preflight checks for the target environment.
+ */
+export function runExecutorPreflight(
+  environment: ExecutionEnvironment,
+  executor: ExecutorType,
+  options?: { containerId?: string }
+): PreflightResult {
+  if (environment === 'host') {
+    return checkExecutorOnHost(executor)
+  }
+
+  if (environment === 'devcontainer' && options?.containerId) {
+    return checkExecutorInContainer(executor, options.containerId)
+  }
+
+  return { ok: true }
+}
+
 function buildPrompt(context: ExecutionContext): string {
   let prompt = ''
 

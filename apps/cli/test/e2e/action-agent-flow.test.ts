@@ -450,7 +450,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       const step2Prompt = extractJson<MachinePromptResponse>(step2Output);
 
       expect(step2Prompt).to.not.be.null;
-      expect(step2Prompt!.prompt.type).to.equal('editor');
+      expect(step2Prompt!.prompt.type).to.equal('multiline');
       expect(step2Prompt!.prompt.name).to.equal('prompt');
       expect(step2Prompt!.prompt.context!.hint).to.include('E2E Test Action');
       expect(step2Prompt!.prompt.context!.requiredFields).to.include('--prompt');
@@ -633,7 +633,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         const json = extractJson<MachinePromptResponse>(output);
 
         expect(json).to.not.be.null;
-        expect(json!.prompt.type).to.equal('editor');
+        expect(json!.prompt.type).to.equal('multiline');
         expect(json!.prompt.name).to.equal('prompt');
         expect(json!.prompt.context!.hint).to.include('Step2 Test');
         expect(json!.prompt.context!.requiredFields).to.include('--prompt');
@@ -746,12 +746,12 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         expect(json!.metadata.flags.name).to.equal('New Name');
       });
 
-      it('Step 3: should prompt for prompt (editor) after description provided', () => {
+      it('Step 3: should prompt for prompt (multiline) after description provided', () => {
         const output = exec('action update update-multi-step --name "New Name" --description "New desc" --interactive --machine');
         const json = extractJson<MachinePromptResponse>(output);
 
         expect(json).to.not.be.null;
-        expect(json!.prompt.type).to.equal('editor');
+        expect(json!.prompt.type).to.equal('multiline');
         expect(json!.prompt.name).to.equal('prompt');
         expect(json!.prompt.default).to.equal('Original prompt');
         expect(json!.metadata.flags.name).to.equal('New Name');

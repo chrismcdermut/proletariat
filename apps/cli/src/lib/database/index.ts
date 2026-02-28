@@ -559,7 +559,9 @@ export function addAgentsToDatabase(workspacePath: string, agentNames: string[],
 }
 
 /**
- * Add an ephemeral agent to the database
+ * Add an ephemeral agent to the database.
+ * Throws on name collision — use tryAddEphemeralAgentToDatabase for
+ * concurrency-safe insertion with conflict detection.
  */
 export function addEphemeralAgentToDatabase(
   workspacePath: string,
@@ -568,41 +570,70 @@ export function addEphemeralAgentToDatabase(
   themeId?: string,
   mountMode: MountMode = 'worktree'
 ): Agent {
+  const result = tryAddEphemeralAgentToDatabase(workspacePath, agentName, baseName, themeId, mountMode);
+  if (!result) {
+    throw new Error(`Agent name "${agentName}" already exists (UNIQUE constraint failed: agents.name)`);
+  }
+  return result;
+}
+
+/**
+ * Try to add an ephemeral agent to the database.
+ * Returns the Agent on success, or null if the name already exists
+ * (SQLITE_CONSTRAINT_PRIMARYKEY). This is concurrency-safe: parallel
+ * processes that generate the same name will not crash — the loser
+ * simply gets null and can retry with a different name.
+ */
+export function tryAddEphemeralAgentToDatabase(
+  workspacePath: string,
+  agentName: string,
+  baseName: string,
+  themeId?: string,
+  mountMode: MountMode = 'worktree'
+): Agent | null {
   const db = openWorkspaceDatabase(workspacePath);
 
-  const now = new Date().toISOString();
-  const worktreePath = `agents/temp/${agentName}`;
+  try {
+    const now = new Date().toISOString();
+    const worktreePath = `agents/temp/${agentName}`;
 
-  db.prepare(`
-    INSERT INTO agents (name, type, status, base_name, theme_id, worktree_path, mount_mode, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(agentName, 'ephemeral', 'active', baseName, themeId || null, worktreePath, mountMode, now);
+    db.prepare(`
+      INSERT INTO agents (name, type, status, base_name, theme_id, worktree_path, mount_mode, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(agentName, 'ephemeral', 'active', baseName, themeId || null, worktreePath, mountMode, now);
 
-  const agent = db.prepare('SELECT * FROM agents WHERE name = ?').get(agentName) as {
-    name: string;
-    type: string;
-    status: string;
-    base_name: string | null;
-    theme_id: string | null;
-    worktree_path: string | null;
-    mount_mode: string | null;
-    created_at: string;
-    cleaned_at: string | null;
-  };
+    const agent = db.prepare('SELECT * FROM agents WHERE name = ?').get(agentName) as {
+      name: string;
+      type: string;
+      status: string;
+      base_name: string | null;
+      theme_id: string | null;
+      worktree_path: string | null;
+      mount_mode: string | null;
+      created_at: string;
+      cleaned_at: string | null;
+    };
 
-  db.close();
-
-  return {
-    name: agent.name,
-    type: agent.type as AgentType,
-    status: agent.status as AgentStatus,
-    base_name: agent.base_name,
-    theme_id: agent.theme_id,
-    worktree_path: agent.worktree_path,
-    mount_mode: (agent.mount_mode || 'clone') as MountMode,
-    created_at: agent.created_at,
-    cleaned_at: agent.cleaned_at,
-  };
+    return {
+      name: agent.name,
+      type: agent.type as AgentType,
+      status: agent.status as AgentStatus,
+      base_name: agent.base_name,
+      theme_id: agent.theme_id,
+      worktree_path: agent.worktree_path,
+      mount_mode: (agent.mount_mode || 'clone') as MountMode,
+      created_at: agent.created_at,
+      cleaned_at: agent.cleaned_at,
+    };
+  } catch (err: unknown) {
+    const sqliteErr = err as { code?: string };
+    if (sqliteErr.code === 'SQLITE_CONSTRAINT_PRIMARYKEY' || sqliteErr.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      return null;
+    }
+    throw err;
+  } finally {
+    db.close();
+  }
 }
 
 /**
@@ -877,6 +908,40 @@ export function getAgentWorktrees(workspacePath: string, agentName: string): Age
   return worktrees;
 }
 
+/**
+ * Find agent worktrees matching a branch pattern (case-insensitive LIKE).
+ */
+export function findWorktreesByBranch(workspacePath: string, branchPattern: string): AgentWorktree[] {
+  const db = openWorkspaceDatabase(workspacePath);
+  const worktrees = db.prepare(
+    'SELECT * FROM agent_worktrees WHERE LOWER(branch) LIKE ?'
+  ).all(branchPattern) as AgentWorktree[];
+  db.close();
+  return worktrees;
+}
+
+/**
+ * Get agent worktrees for a specific repository.
+ */
+export function getWorktreesForRepo(workspacePath: string, repoName: string): Array<{ agent_name: string; is_clean: number; commits_ahead: number; branch: string }> {
+  const db = openWorkspaceDatabase(workspacePath);
+  const worktrees = db.prepare(
+    'SELECT agent_name, is_clean, commits_ahead, branch FROM agent_worktrees WHERE repo_name = ?'
+  ).all(repoName) as Array<{ agent_name: string; is_clean: number; commits_ahead: number; branch: string }>;
+  db.close();
+  return worktrees;
+}
+
+/**
+ * Upsert a workspace setting (key-value pair).
+ */
+export function upsertWorkspaceSetting(db: Database.Database, key: string, value: string): void {
+  db.prepare(`
+    INSERT INTO workspace_settings (key, value)
+    VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(key, value);
+}
 
 /**
  * Remove agents from database
@@ -895,6 +960,73 @@ export function removeAgentsFromDatabase(workspacePath: string, agentNames: stri
 
   transaction();
   db.close();
+}
+
+// =============================================================================
+// PMO Bootstrapping Operations
+// =============================================================================
+
+/**
+ * Check if PMO tables exist and get basic stats.
+ * Used by pmo init to detect existing PMO before storage layer is available.
+ */
+export function checkPMOExists(dbPath: string): { exists: boolean; projectCount: number; ticketCount: number } {
+  const db = new Database(dbPath);
+  try {
+    const result = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
+    ).get();
+
+    if (result === undefined) {
+      return { exists: false, projectCount: 0, ticketCount: 0 };
+    }
+
+    const projectCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_projects').get() as { count: number };
+    const ticketCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_tickets').get() as { count: number };
+
+    return {
+      exists: true,
+      projectCount: projectCountResult.count,
+      ticketCount: ticketCountResult.count,
+    };
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Get a PMO setting from the pmo_settings table.
+ * Used for bootstrapping queries before storage layer is available.
+ */
+export function getPMOSetting(dbPath: string, key: string): string | null {
+  const db = new Database(dbPath);
+  try {
+    const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get(key) as { value: string } | undefined;
+    return result?.value ?? null;
+  } catch {
+    return null;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Drop PMO tables from the database.
+ * Used during PMO reinitialization.
+ */
+export function dropPMOTables(dbPath: string, tables: string[]): void {
+  const db = new Database(dbPath);
+  try {
+    for (const table of tables) {
+      try {
+        db.prepare(`DROP TABLE IF EXISTS ${table}`).run();
+      } catch {
+        // Ignore errors - table might not exist
+      }
+    }
+  } finally {
+    db.close();
+  }
 }
 
 // =============================================================================

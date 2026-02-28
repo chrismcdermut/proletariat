@@ -620,26 +620,29 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
     it('should display context information', () => {
       const output = execFromDir('whoami', testDir);
 
-      expect(output).to.contain('Proletariat Context');
-      expect(output).to.contain('Agent:');
-      expect(output).to.contain('Environment:');
-      expect(output).to.contain('Working dir:');
+      // Output is JSON in non-TTY (piped) environments
+      const json = JSON.parse(output);
+      expect(json).to.have.property('agent');
+      expect(json).to.have.property('environment');
+      expect(json).to.have.property('workingDir');
     });
 
     it('should show environment type', () => {
       const output = execFromDir('whoami', testDir);
 
+      const json = JSON.parse(output);
       // Environment can be 'host' or 'devcontainer' depending on runtime context
-      expect(output).to.satisfy(
-        (o: string) => o.includes('host') || o.includes('devcontainer')
+      expect(json.environment).to.satisfy(
+        (e: string) => e === 'host' || e === 'devcontainer'
       );
     });
 
     it('should display working directory path', () => {
       const output = execFromDir('whoami', testDir);
 
-      // Should contain the test directory path
-      expect(output).to.contain('Working dir:');
+      const json = JSON.parse(output);
+      expect(json.workingDir).to.be.a('string');
+      expect(json.workingDir.length).to.be.greaterThan(0);
     });
   });
 });

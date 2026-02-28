@@ -6,7 +6,7 @@ import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { styles } from '../../lib/styles.js'
-import { getWorkspaceInfo } from '../../lib/agents/commands.js'
+import { getWorkspaceInfo, resolveAgentDir } from '../../lib/agents/commands.js'
 import {
   DisplayMode,
   SessionManager,
@@ -233,8 +233,8 @@ export default class WorkRevise extends PMOCommand {
         )
       }
 
-      // Find worktree path
-      const agentDir = path.join(workspaceInfo.agentsPath, agentName)
+      // Find worktree path (handles staff and temp agents)
+      const agentDir = resolveAgentDir(workspaceInfo, agentName)
       if (!fs.existsSync(agentDir)) {
         db.close()
         this.error(`Agent directory not found at ${agentDir}.`)

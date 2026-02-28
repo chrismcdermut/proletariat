@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import { execSync, spawn } from 'node:child_process';
 import Database from 'better-sqlite3';
 import { colors } from '../../lib/colors.js';
-import { getWorkspaceInfo, getAgentTmuxSessions, formatAgentList } from '../../lib/agents/commands.js';
+import { getWorkspaceInfo, getAgentTmuxSessions, formatAgentList, resolveAgentDir } from '../../lib/agents/commands.js';
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js';
 import { getTerminalApp } from '../../lib/execution/config.js';
 import { TerminalApp } from '../../lib/execution/types.js';
@@ -141,7 +141,7 @@ export default class Shell extends PMOCommand {
       this.log(colors.warning('\nProceeding with new shell - be careful of conflicts!\n'));
     }
 
-    const agentDir = path.join(workspaceInfo.agentsPath, agentName!);
+    const agentDir = resolveAgentDir(workspaceInfo, agentName!);
 
     // Check if agent has devcontainer
     const hasDevcontainer = hasDevcontainerConfig(agentDir);
