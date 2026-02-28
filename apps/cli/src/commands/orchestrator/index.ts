@@ -32,26 +32,28 @@ export default class Orchestrator extends PMOCommand {
     const hostSessions = getHostTmuxSessionNames()
     const isRunning = hostSessions.includes(ORCHESTRATOR_SESSION_NAME)
 
-    const choices = [
-      { name: 'Start orchestrator', value: 'start', command: 'prlt orchestrator start --json' },
-      ...(isRunning ? [{ name: 'Attach to running session', value: 'attach', command: 'prlt orchestrator attach --json' }] : []),
-      { name: 'Attach to orchestrator', value: 'attach', command: 'prlt orchestrator attach --json' },
-      { name: 'Check orchestrator status', value: 'status', command: 'prlt orchestrator status --json' },
-      { name: 'Stop orchestrator', value: 'stop', command: 'prlt orchestrator stop --json' },
-      { name: 'Cancel', value: 'cancel' },
-    ]
-
-    // When running, move "Attach to running session" to the top for visibility
-    // and remove the generic "Attach to orchestrator" to avoid duplication
-    const filteredChoices = isRunning
-      ? choices.filter(c => c.name !== 'Attach to orchestrator')
-      : choices.filter(c => c.name !== 'Attach to running session')
+    // When running, show "Attach to running session" first since that's the likely intent
+    const choices = isRunning
+      ? [
+          { name: 'Attach to running session', value: 'attach', command: 'prlt orchestrator attach --json' },
+          { name: 'Start orchestrator', value: 'start', command: 'prlt orchestrator start --json' },
+          { name: 'Check orchestrator status', value: 'status', command: 'prlt orchestrator status --json' },
+          { name: 'Stop orchestrator', value: 'stop', command: 'prlt orchestrator stop --json' },
+          { name: 'Cancel', value: 'cancel' },
+        ]
+      : [
+          { name: 'Start orchestrator', value: 'start', command: 'prlt orchestrator start --json' },
+          { name: 'Attach to orchestrator', value: 'attach', command: 'prlt orchestrator attach --json' },
+          { name: 'Check orchestrator status', value: 'status', command: 'prlt orchestrator status --json' },
+          { name: 'Stop orchestrator', value: 'stop', command: 'prlt orchestrator stop --json' },
+          { name: 'Cancel', value: 'cancel' },
+        ]
 
     const { action } = await this.prompt<{ action: string }>([{
       type: 'list',
       name: 'action',
       message: 'Orchestrator - What would you like to do?',
-      choices: filteredChoices,
+      choices,
     }], jsonModeConfig)
 
     if (action === 'cancel') {

@@ -20,7 +20,7 @@ import { ORCHESTRATOR_SESSION_NAME } from './start.js'
  * Returns a terminal app name suitable for AppleScript tab creation,
  * or null if detection fails or we're in a remote/headless environment.
  */
-function detectTerminalApp(): string | null {
+export function detectTerminalApp(): string | null {
   // Remote sessions should never attempt AppleScript/GUI operations
   if (process.env.SSH_TTY || process.env.SSH_CONNECTION) {
     return null
@@ -67,6 +67,12 @@ export default class OrchestratorAttach extends PromptCommand {
       char: 't',
       description: 'Terminal app to use for new tab (iTerm, Terminal, Ghostty). Auto-detected if not specified.',
     }),
+    'current-terminal': Flags.boolean({
+      char: 'c',
+      description: '[deprecated] Attach in current terminal (this is now the default behavior)',
+      hidden: true,
+      default: false,
+    }),
   }
 
   async run(): Promise<void> {
@@ -97,6 +103,14 @@ export default class OrchestratorAttach extends PromptCommand {
         status: 'attaching',
       }, createMetadata('orchestrator attach', flags as Record<string, unknown>))
       return
+    }
+
+    if (flags['current-terminal']) {
+      this.log(styles.warning('--current-terminal is deprecated. Direct tmux attach is now the default behavior.'))
+    }
+
+    if (flags.terminal && !flags['new-tab']) {
+      this.log(styles.warning('--terminal has no effect without --new-tab. Ignoring.'))
     }
 
     this.log('')
