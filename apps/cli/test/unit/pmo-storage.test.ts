@@ -589,6 +589,20 @@ describe('PMO SQLite Storage', () => {
       const relatesDeps = deps.filter(d => d.dependencyType === 'relates_to');
       expect(relatesDeps).to.have.length(1);
     });
+
+    it('deletes relates_to dependency from reverse side', async () => {
+      // Create A relates_to B (stored as ticket1 -> ticket2)
+      await storage.createTicketDependency(ticket1Id, ticket2Id, 'relates_to');
+
+      // Delete from ticket2's perspective (reverse direction)
+      await storage.deleteTicketDependency(ticket2Id, ticket1Id, 'relates_to');
+
+      // Should be gone from both sides
+      const deps1 = await storage.listTicketDependencies(ticket1Id);
+      expect(deps1.filter(d => d.dependencyType === 'relates_to')).to.have.length(0);
+      const deps2 = await storage.listTicketDependencies(ticket2Id);
+      expect(deps2.filter(d => d.dependencyType === 'relates_to')).to.have.length(0);
+    });
   });
 
   describe('Old Schema Migration', () => {

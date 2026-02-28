@@ -194,7 +194,7 @@ export function runMigrations(db: Database.Database): void {
 
     if (depsColumnNames.has('blocked_by_ticket_id') && !depsColumnNames.has('depends_on_ticket_id')) {
       // Old schema detected - migrate to new format
-      try {
+      const migrate = db.transaction(() => {
         // Create new table with correct schema
         db.exec(`
           CREATE TABLE pmo_ticket_dependencies_new (
@@ -217,9 +217,8 @@ export function runMigrations(db: Database.Database): void {
         // Replace old table with new one
         db.exec(`DROP TABLE ${T.ticket_dependencies}`)
         db.exec(`ALTER TABLE pmo_ticket_dependencies_new RENAME TO ${T.ticket_dependencies}`)
-      } catch {
-        // Migration may have already been applied partially
-      }
+      })
+      migrate()
     }
   }
 
