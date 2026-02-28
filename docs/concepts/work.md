@@ -196,11 +196,43 @@ prlt work stop TKT-001
 Control PR creation:
 
 ```bash
-# Create PR when work is done
+# Create PR when work is done (recommended for shipping work)
 prlt work start TKT-001 --create-pr
 
-# Don't create PR (just commit)
-prlt work start TKT-001 --no-pr
+# Omit --create-pr to use workspace default or be prompted interactively
+prlt work start TKT-001
+```
+
+### PR Mode Resolution
+
+PR creation mode is resolved in this priority order:
+
+1. **`--create-pr` flag** — explicitly create PR
+2. **`--no-pr` flag** — explicitly skip PR (deprecated; omit `--create-pr` instead)
+3. **Non-code-modifying actions** (groom, review) — automatically skip PR
+4. **Workspace config** `execution.create_pr_default` — persistent default
+5. **Interactive prompt** (or auto-create in `--json --yes` mode)
+
+Both `work start` and `work spawn` display the effective PR mode and its source in the preflight summary, so you always know what will happen before execution begins.
+
+### Setting a Workspace Default
+
+To avoid being prompted every time:
+
+```bash
+# Always create PRs for code-modifying work
+prlt config set execution.create_pr_default true
+
+# Never auto-create PRs (can still create manually)
+prlt config set execution.create_pr_default false
+```
+
+### Creating a PR After the Fact
+
+If a branch was pushed without a PR:
+
+```bash
+prlt pr create <ticket-id>
 ```
 
 ### Checking PR Status

@@ -277,15 +277,20 @@ Options:
   --action <action>      Action (implement, groom, review)
   --prompt <text>        Custom prompt
   --force                Start even if work in progress
-  --create-pr            Create PR when done
-  --no-pr                Don't create PR
+  --create-pr            Create PR when done (overrides workspace default)
+  --no-pr                [deprecated] Don't create PR (omit --create-pr instead)
   --run-on-host          Run on host (not container)
   --ephemeral            Use ephemeral agent
+
+# PR mode resolution order:
+# 1. --create-pr / --no-pr flags (explicit)
+# 2. Workspace config: execution.create_pr_default
+# 3. Interactive prompt (or default in --json --yes mode)
 
 # Examples
 prlt work start TKT-001
 prlt work start TKT-001 --mode docker --action implement
-prlt work start TKT-001 --agent alice --create-pr
+prlt work start TKT-001 --create-pr        # Explicitly create PR
 ```
 
 #### `prlt work spawn`
@@ -304,11 +309,14 @@ Options:
   --dry-run              Preview without executing
   --mode <mode>          Execution mode
   --skip-permissions     Skip confirmation prompts
+  --create-pr            Create PRs when done (overrides workspace default)
+  --no-pr                [deprecated] Don't create PRs
 
 # Examples
 prlt work spawn --all --column Planned
 prlt work spawn TKT-001 TKT-002 TKT-003
 prlt work spawn --all --dry-run
+prlt work spawn TKT-001 TKT-002 --create-pr   # Ensure PRs are created
 ```
 
 #### `prlt work list`
