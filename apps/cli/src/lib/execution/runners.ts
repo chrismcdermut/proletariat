@@ -204,9 +204,9 @@ export function getExecutorCommand(executor: ExecutorType, prompt: string, skipP
       // Manual mode - will prompt for each action (still interactive, no -p)
       return { cmd: 'claude', args: [prompt] }
     case 'codex':
-      // Codex has its own danger-mode flag; do not use Claude flags here.
+      // Map danger mode to Codex-native autonomy mode.
       return skipPermissions
-        ? { cmd: 'codex', args: ['--dangerously-bypass-approvals-and-sandbox', '--prompt', prompt] }
+        ? { cmd: 'codex', args: ['--yolo', '--prompt', prompt] }
         : { cmd: 'codex', args: ['--prompt', prompt] }
     case 'aider':
       return { cmd: 'aider', args: ['--message', prompt] }
