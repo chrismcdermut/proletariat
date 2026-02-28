@@ -843,8 +843,11 @@ After reviewing, determine your verdict:
 - **REQUEST_CHANGES**: There are issues that must be fixed before merging
 - **COMMENT**: General feedback, no blocking issues but some suggestions
 
-Do NOT modify any code. This is a read-only review.`,
+Do NOT modify any code. Do NOT attempt to fix any issues. This is a read-only review — report your findings only.
+If you identify issues that need fixing, describe them in your review. A separate action will handle fixes.`,
       endPrompt: `When you have finished reviewing, post your review on the PR using \`gh pr review\`.
+
+**CRITICAL: Do NOT modify any code. Do NOT attempt to fix any issues you find. Your ONLY job is to report findings. After posting your review, provide a summary and you are done.**
 
 Choose the appropriate command based on your verdict:
 
@@ -892,7 +895,9 @@ COMMENT - Some suggestions but no blocking issues."
 
 Format the body with: what looks good, concerns (if any), suggested improvements (if any), and your verdict.
 
-No commits are needed for code review.`,
+No commits are needed for code review. Do NOT make any code changes or attempt to fix issues — only report them in your review.
+
+After posting your review, provide a brief summary of your findings and verdict.`,
       suggestedForCategories: ['started', 'completed'],
       modifiesCode: false,
       position: 4,
