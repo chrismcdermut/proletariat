@@ -12,6 +12,7 @@ import {
   saveTerminalOpenInBackground,
   saveTmuxControlMode,
   saveShell,
+  saveCreatePrDefault,
   saveFirewallAllowlistDomains,
 } from '../../lib/execution/config.js'
 import { TerminalApp, Shell } from '../../lib/execution/types.js'
@@ -119,6 +120,7 @@ export default class Config extends PromptCommand {
             defaultEnvironment: config.defaultEnvironment,
             outputMode: config.outputMode,
             sandboxed: config.sandboxed,
+            createPrDefault: config.createPrDefault ?? null,
             firewall: {
               allowlistDomains: config.firewall.allowlistDomains,
             },
@@ -143,6 +145,7 @@ export default class Config extends PromptCommand {
           this.log(`  defaultEnvironment: ${config.defaultEnvironment}`)
           this.log(`  outputMode:       ${config.outputMode}`)
           this.log(`  sandboxed:        ${config.sandboxed}`)
+          this.log(`  createPrDefault:  ${config.createPrDefault ?? 'not set (will prompt)'}`)
           this.log(`  firewall.allowlistDomains: ${config.firewall.allowlistDomains.join(', ') || '(none)'}`)
           this.log('')
         }
@@ -338,6 +341,9 @@ export default class Config extends PromptCommand {
         break
       case 'tmux.controlmode':
         saveTmuxControlMode(db, value.toLowerCase() === 'true')
+        break
+      case 'execution.create_pr_default':
+        saveCreatePrDefault(db, value.toLowerCase() === 'true')
         break
       case 'firewall.allowlistdomains': {
         const domains = value

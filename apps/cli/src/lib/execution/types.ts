@@ -332,6 +332,7 @@ export interface ExecutionConfig {
   outputMode: OutputMode  // interactive (streaming) or print (final result only)
   sandboxed: boolean      // Whether --dangerously-skip-permissions is NOT used
   authMethod?: AuthMethod // Saved auth method preference (oauth or apikey). null/undefined = ask each time
+  createPrDefault?: boolean // Workspace default for PR creation (true=create PRs, false=no PRs, undefined=prompt)
   tmux: {
     session: string
     layout: 'split' | 'window'

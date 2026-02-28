@@ -206,6 +206,57 @@ ls -la /path/to/repo
 # Docker Desktop > Settings > Resources > File Sharing
 ```
 
+## Branch Pushed but No PR
+
+### Symptom
+
+After `work start` or `work spawn`, the branch appears on GitHub with a "Compare & pull request" banner, but no pull request was created.
+
+### Causes
+
+1. **`--no-pr` was active** (explicitly or inherited from batch settings)
+2. **No `--create-pr` flag and no workspace default** — PR creation defaults to off unless configured
+3. **`gh` CLI not installed or not authenticated** — PR creation requires `gh auth login`
+
+### Quick Fix
+
+Create a PR for the ticket after the fact:
+
+```bash
+prlt pr create <ticket-id>
+```
+
+### Prevention
+
+1. **Set a workspace default** so PRs are always created for code-modifying actions:
+   ```bash
+   # In your workspace database, set the default:
+   # This is stored in workspace_settings as execution.create_pr_default
+   prlt config set execution.create_pr_default true
+   ```
+
+2. **Use `--create-pr` explicitly** when starting work:
+   ```bash
+   prlt work start TKT-001 --create-pr
+   prlt work spawn TKT-001 TKT-002 --create-pr
+   ```
+
+3. **Check preflight output** — `work start` and `work spawn` now display the effective PR mode and its source before execution begins. Look for:
+   ```
+   PR mode: no-pr (flag --no-pr)
+   ⚠️  WARNING: PR creation is DISABLED. Branch will be pushed but NO pull request will be created.
+   ```
+
+### PR Mode Resolution Order
+
+PR creation mode is resolved in this order (first match wins):
+
+1. `--create-pr` flag → create PR
+2. `--no-pr` flag → skip PR
+3. Non-code-modifying action (groom, review) → skip PR
+4. Workspace config `execution.create_pr_default` → use configured default
+5. Interactive prompt (or auto-create in `--json --yes` mode)
+
 ## Git and Branch Issues
 
 ### Worktree Already Exists

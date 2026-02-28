@@ -10,7 +10,7 @@ import {
 } from '../../lib/agents/commands.js'
 import { isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, getExecutorDisplayName } from '../../lib/execution/runners.js'
 import { PermissionMode, ExecutorType } from '../../lib/execution/types.js'
-import { loadExecutionConfig } from '../../lib/execution/config.js'
+import { getCreatePrDefault, loadExecutionConfig } from '../../lib/execution/config.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -211,6 +211,11 @@ export default class WorkSpawn extends PMOCommand {
         this.exit(1)
       }
       this.error(message)
+    }
+
+    // Check for conflicting PR flags (before deprecation warning to fail fast)
+    if (flags['create-pr'] && flags['no-pr']) {
+      this.error('--create-pr and --no-pr are mutually exclusive')
     }
 
     // Deprecation guidance for --no-pr
@@ -1168,6 +1173,7 @@ export default class WorkSpawn extends PMOCommand {
       let batchPermissionMode: PermissionMode = flags['skip-permissions'] ? 'danger' : 'safe'
       let batchCreatePr = flags['create-pr']
       let batchNoPr = flags['no-pr']
+      let batchPrModeSource = flags['create-pr'] ? 'flag --create-pr' : flags['no-pr'] ? 'flag --no-pr' : 'default'
       let batchRunOnHost = flags['run-on-host']
       let batchAction = flags.action
       // Track custom message for custom action (needs to be outside the if block)
@@ -1329,9 +1335,11 @@ export default class WorkSpawn extends PMOCommand {
             if (modifiesCode) {
               batchCreatePr = true
               batchNoPr = false
+              batchPrModeSource = 'batch defaults'
             } else {
               batchCreatePr = false
               batchNoPr = true
+              batchPrModeSource = 'action (non-code-modifying)'
             }
             this.log('')
           }
@@ -1549,14 +1557,27 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         // Prompt for PR creation if not provided AND action modifies code
-        // Skip this prompt entirely for non-code-modifying actions (like groom)
+        // Resolution order: explicit flags > workspace config default > interactive prompt
         const actionModifiesCode = selectedActionDetails?.modifiesCode ?? true
+
         if (!batchCreatePr && !batchNoPr) {
-          if (actionModifiesCode) {
-            // In JSON mode with --yes, default to creating PRs for code-modifying actions
-            if (jsonMode && flags.yes) {
+          if (!actionModifiesCode) {
+            // Non-code-modifying action - no PR needed
+            batchCreatePr = false
+            batchNoPr = true
+            batchPrModeSource = 'action (non-code-modifying)'
+          } else {
+            // Check workspace config default
+            const configPrDefault = getCreatePrDefault(db)
+            if (configPrDefault !== null) {
+              batchCreatePr = configPrDefault
+              batchNoPr = !configPrDefault
+              batchPrModeSource = 'workspace config (execution.create_pr_default)'
+            } else if (jsonMode && flags.yes) {
+              // In JSON mode with --yes, default to creating PRs for code-modifying actions
               batchCreatePr = true
               batchNoPr = false
+              batchPrModeSource = 'default (--json --yes)'
             } else {
               // Use FlagResolver for PR choice
               const prResolver = new FlagResolver<{ prChoice?: string }>({
@@ -1580,11 +1601,25 @@ export default class WorkSpawn extends PMOCommand {
               const prResult = await prResolver.resolve()
               batchCreatePr = prResult.prChoice === 'yes'
               batchNoPr = prResult.prChoice === 'no'
+              batchPrModeSource = 'interactive prompt'
             }
+          }
+        }
+
+        // Show effective PR mode in batch summary
+        if (!jsonMode) {
+          const prModeLabel = batchCreatePr ? 'create-pr' : 'no-pr'
+          if (batchCreatePr) {
+            this.log(styles.success(`   PR mode: ${prModeLabel} (${batchPrModeSource})`))
           } else {
-            // Non-code-modifying action - no PR needed
-            batchCreatePr = false
-            batchNoPr = true
+            this.log(styles.warning(`   PR mode: ${prModeLabel} (${batchPrModeSource})`))
+          }
+
+          // Strong warning when no-pr is active for code-modifying actions
+          if (!batchCreatePr && actionModifiesCode) {
+            this.log('')
+            this.log(styles.warning(`   ⚠️  WARNING: PR creation is DISABLED. Branches will be pushed but NO pull requests will be created.`))
+            this.log(styles.warning(`   To create PRs later: prlt pr create <ticket-id>`))
           }
         }
 
@@ -1714,10 +1749,15 @@ export default class WorkSpawn extends PMOCommand {
       db.close()
 
       // Output results
+      const resolvedPRMode = batchCreatePr ? 'create-pr' : 'no-pr'
       if (jsonMode) {
-        // Output JSON execution results with resolved PR mode
+        // Output JSON execution results with resolved PR mode and source
         const spawnMetadata = createMetadata('work spawn', flags)
-        spawnMetadata.resolvedPRMode = flags['create-pr'] ? 'create-pr' : 'no-pr'
+        spawnMetadata.resolvedPRMode = resolvedPRMode
+        spawnMetadata.prModeSource = batchPrModeSource
+        if (!batchCreatePr && (selectedActionDetails?.modifiesCode ?? true)) {
+          spawnMetadata.prWarning = `PR creation is DISABLED (${batchPrModeSource}). Branches will be pushed without PRs. To create later: prlt pr create <ticket-id>`
+        }
         outputExecutionResultAsJson(
           executionResults,
           successCount,
@@ -1725,10 +1765,18 @@ export default class WorkSpawn extends PMOCommand {
           spawnMetadata
         )
       } else {
-        const resolvedPRMode = flags['create-pr'] ? 'create-pr' : 'no-pr'
         this.log('')
         this.log(styles.success(`✓ Spawn results: ${successCount} started, ${failCount} failed`))
-        this.log(styles.muted(`   PR mode: ${resolvedPRMode}`))
+        this.log(styles.muted(`   PR mode: ${resolvedPRMode} (${batchPrModeSource})`))
+
+        // Post-run reminder when branches pushed without PRs
+        if (!batchCreatePr && (selectedActionDetails?.modifiesCode ?? true)) {
+          this.log('')
+          this.log(styles.warning(`Note: No PRs will be auto-created. To create PRs later:`))
+          for (const result of executionResults.filter(r => r.status === 'running')) {
+            this.log(styles.warning(`  prlt pr create ${result.ticketId}`))
+          }
+        }
       }
     } catch (error) {
       db.close()

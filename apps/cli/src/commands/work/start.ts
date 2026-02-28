@@ -40,7 +40,7 @@ import {
 } from '../../lib/execution/types.js'
 import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, dockerCredentialsExist, getDockerCredentialInfo, isClaudeExecutor, getExecutorDisplayName } from '../../lib/execution/runners.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
-import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName, getAuthMethod, saveAuthMethod } from '../../lib/execution/config.js'
+import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName, getAuthMethod, saveAuthMethod, getCreatePrDefault } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import { detectRepoWorktrees, resolveWorktreePath } from '../../lib/execution/context.js'
 import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js'
@@ -334,7 +334,14 @@ export default class WorkStart extends PMOCommand {
         if (allFlagsProvided && !flags.yes) {
           // All flags provided but no --yes: return confirmation_needed with plan
           const metadata = createMetadata('work start', flags)
-          metadata.resolvedPRMode = flags['create-pr'] ? 'create-pr' : 'no-pr'
+          // Resolve PR mode using same priority as execution: flags > workspace config > default
+          const earlyConfigPrDefault = getCreatePrDefault(db)
+          const earlyResolvedPr = flags['create-pr'] ? 'create-pr'
+            : flags['no-pr'] ? 'no-pr'
+            : earlyConfigPrDefault === true ? 'create-pr'
+            : earlyConfigPrDefault === false ? 'no-pr'
+            : 'no-pr'
+          metadata.resolvedPRMode = earlyResolvedPr
 
           // Build the confirm command with --yes
           let confirmCmd = `prlt work start ${ticketId}`
@@ -1379,21 +1386,31 @@ export default class WorkStart extends PMOCommand {
       }
 
       // Prompt for PR creation when work is complete
-      // Only show if gh CLI is available and authenticated
+      // Resolution order: explicit flags > workspace config default > interactive prompt
       let createPR = false
+      let prModeSource = 'default' // Track where PR mode was resolved from for display
       const ghAvailable = isGHInstalled() && isGHAuthenticated()
-      // Use flags if provided, otherwise prompt
+      const configPrDefault = getCreatePrDefault(db)
+
       if (flags['create-pr']) {
         createPR = true
+        prModeSource = 'flag --create-pr'
       } else if (flags['no-pr']) {
         createPR = false
+        prModeSource = 'flag --no-pr'
+      } else if (context.modifiesCode === false) {
+        // Non-code-modifying actions (groom, review, resolve) default to no PR
+        createPR = false
+        prModeSource = 'action (non-code-modifying)'
+      } else if (configPrDefault !== null) {
+        // Workspace config default is set - use it deterministically
+        createPR = configPrDefault
+        prModeSource = 'workspace config (execution.create_pr_default)'
       } else if (ghAvailable) {
-        if (context.modifiesCode === false) {
-          // Non-code-modifying actions (groom, review, resolve) default to no PR
-          createPR = false
-        } else if (jsonMode && flags.yes) {
+        if (jsonMode && flags.yes) {
           // In JSON mode with --yes, default to creating PR for code-modifying actions
           createPR = true
+          prModeSource = 'default (--json --yes)'
         } else {
           // Use FlagResolver for PR choice
           const prResolver = new FlagResolver<{ prChoice?: string }>({
@@ -1416,10 +1433,14 @@ export default class WorkStart extends PMOCommand {
 
           const prResult = await prResolver.resolve()
           createPR = prResult.prChoice === 'yes'
+          prModeSource = 'interactive prompt'
         }
+      } else {
+        prModeSource = 'default (gh CLI not available)'
       }
 
-      // Show execution info (skip in JSON mode)
+      // R1: Show clear PR mode in preflight summary
+      // R2: Show strong warning when --no-pr is active
       if (!jsonMode) {
         this.log('')
         this.log(styles.header(`🚀 Starting work: ${ticket.id}: ${ticket.title}`))
@@ -1440,12 +1461,31 @@ export default class WorkStart extends PMOCommand {
         }
 
         this.log(styles.muted(`   Output: ${outputMode === 'interactive' ? `streaming (watch ${getExecutorDisplayName(executor)} work)` : 'print (final result only)'}`))
-        if (ghAvailable) {
-          this.log(styles.muted(`   Create PR: ${createPR ? 'yes (when work is ready)' : 'no'}`))
+
+        // PR mode with clear source indication
+        if (createPR) {
+          this.log(styles.success(`   PR mode: create-pr (${prModeSource})`))
+        } else {
+          this.log(styles.warning(`   PR mode: no-pr (${prModeSource})`))
         }
+
+        // Strong warning when no-pr is active
+        if (!createPR && context.modifiesCode !== false) {
+          this.log('')
+          this.log(styles.warning(`   ⚠️  WARNING: PR creation is DISABLED. Branch will be pushed but NO pull request will be created.`))
+          this.log(styles.warning(`   To create a PR later: prlt pr create ${ticketId}`))
+        }
+
         this.log(styles.muted(`   Worktree: ${worktreePath}`))
         this.log(styles.muted(`   Branch: ${branch}`))
         this.log('')
+      }
+
+      // R2: Include PR mode warning in JSON metadata
+      if (jsonMode && !createPR && context.modifiesCode !== false) {
+        // This will be included in the metadata of the JSON output at the end
+        // We log a warning here for non-JSON consumers that may be watching stderr
+        this.warn(`PR creation is DISABLED (${prModeSource}). Branch will be pushed without a PR. To create later: prlt pr create ${ticketId}`)
       }
 
       // Add createPR to context
@@ -1775,9 +1815,13 @@ export default class WorkStart extends PMOCommand {
 
         // Output results
         if (jsonMode) {
-          // Output JSON execution result with resolved PR mode
+          // Output JSON execution result with resolved PR mode and source
           const metadata = createMetadata('work start', flags)
           metadata.resolvedPRMode = createPR ? 'create-pr' : 'no-pr'
+          metadata.prModeSource = prModeSource
+          if (!createPR && context.modifiesCode !== false) {
+            metadata.prWarning = `PR creation is DISABLED (${prModeSource}). Branch will be pushed without a PR. To create later: prlt pr create ${ticketId}`
+          }
           outputExecutionResultAsJson(
             [{
               workId: execution.id,
@@ -1799,6 +1843,13 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.muted(`  prlt work status              View work status`))
           this.log(styles.muted(`  prlt work ready ${ticketId}     Mark ready for review`))
           this.log(styles.muted(`  prlt work stop ${execution.id}    Stop work`))
+
+          // R5: Post-run reminder when branch is pushed without PR
+          if (!createPR && context.modifiesCode !== false) {
+            this.log('')
+            this.log(styles.warning(`Note: No PR will be auto-created. To create one later:`))
+            this.log(styles.warning(`  prlt pr create ${ticketId}`))
+          }
         }
       } else {
         executionStorage.updateStatus(execution.id, 'failed')
@@ -1806,6 +1857,7 @@ export default class WorkStart extends PMOCommand {
           // Output JSON failure result with resolved PR mode
           const failMetadata = createMetadata('work start', flags)
           failMetadata.resolvedPRMode = createPR ? 'create-pr' : 'no-pr'
+          failMetadata.prModeSource = prModeSource
           outputExecutionResultAsJson(
             [{
               workId: execution.id,
