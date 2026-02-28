@@ -18,7 +18,7 @@ import { hasGitHubRemote } from '../repos/git.js'
 import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
-import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight } from './runners.js'
+import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning, getContainerId, buildSessionName } from './runners.js'
 import { detectRepoWorktrees, resolveWorktreePath } from './context.js'
 import {
   DisplayMode,
@@ -529,6 +529,53 @@ export async function spawnAgentForTicket(
         }
       } catch (error) {
         log(`Could not create branch in ${path.basename(repoPath)}: ${error instanceof Error ? error.message : error}`)
+      }
+    }
+  }
+
+  // TKT-1028: Clean up orphaned execution records before creating a new one.
+  // If the agent's container doesn't exist or isn't running, any "running"/"starting"
+  // execution records for this agent are orphans — their container was destroyed
+  // or crashed. Mark them as "stopped" to prevent downstream issues like
+  // `prlt docker logs` failing with "multiple running containers".
+  // Also clean up stale records when the container IS running but the execution's
+  // containerId doesn't match the current container (e.g., container was recreated).
+  if (environment === 'devcontainer') {
+    const containerName = getAgentContainerName(agentName)
+    const containerRunning = isContainerRunning(containerName)
+    const staleExecutions = executionStorage.getAgentRunningExecutions(agentName)
+
+    if (!containerRunning) {
+      // Container not running — all "running" executions are orphans
+      for (const staleExec of staleExecutions) {
+        log(`Marking orphaned execution ${staleExec.id} as stopped (container not running)`)
+        executionStorage.updateStatus(staleExec.id, 'stopped')
+      }
+    } else if (staleExecutions.length > 0) {
+      // Container IS running — check for specific orphan scenarios:
+      // 1. containerId mismatch (container was recreated since execution started)
+      // 2. Same session name as incoming spawn (tmux session will be replaced)
+      // 3. Dead tmux sessions (crashed or killed externally)
+      const currentContainerId = getContainerId(containerName)
+      const incomingSessionName = buildSessionName(context)
+
+      for (const staleExec of staleExecutions) {
+        if (staleExec.containerId && currentContainerId && staleExec.containerId !== currentContainerId) {
+          log(`Marking orphaned execution ${staleExec.id} as stopped (containerId mismatch)`)
+          executionStorage.updateStatus(staleExec.id, 'stopped')
+        } else if (staleExec.sessionId === incomingSessionName) {
+          // Same session name — will be killed when the new tmux session is created
+          log(`Marking execution ${staleExec.id} as stopped (session will be replaced)`)
+          executionStorage.updateStatus(staleExec.id, 'stopped')
+        } else if (staleExec.sessionId && currentContainerId) {
+          // Different session — verify it still exists in the container
+          try {
+            execSync(`docker exec ${currentContainerId} tmux has-session -t "${staleExec.sessionId}"`, { stdio: 'pipe' })
+          } catch {
+            log(`Marking orphaned execution ${staleExec.id} as stopped (tmux session gone)`)
+            executionStorage.updateStatus(staleExec.id, 'stopped')
+          }
+        }
       }
     }
   }

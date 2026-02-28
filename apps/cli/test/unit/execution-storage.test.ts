@@ -409,5 +409,188 @@ describe('ExecutionStorage', () => {
       expect(executions.map(e => e.status)).to.include('starting')
       expect(executions.map(e => e.status)).to.include('running')
     })
+
+    it('only returns executions for the specified agent', () => {
+      // Create running execution for agent-1
+      const exec1 = storage.createExecution({
+        ticketId: 'TKT-001',
+        agentName: 'agent-1',
+        executor: 'claude-code',
+        environment: 'devcontainer',
+        displayMode: 'background',
+        sandboxed: true,
+      })
+      storage.updateStatus(exec1.id, 'running')
+      storage.updateProcessInfo(exec1.id, { containerId: 'abc123' })
+
+      // Create running execution for agent-2
+      const exec2 = storage.createExecution({
+        ticketId: 'TKT-002',
+        agentName: 'agent-2',
+        executor: 'claude-code',
+        environment: 'devcontainer',
+        displayMode: 'background',
+        sandboxed: true,
+      })
+      storage.updateStatus(exec2.id, 'running')
+      storage.updateProcessInfo(exec2.id, { containerId: 'def456' })
+
+      const agent1Execs = storage.getAgentRunningExecutions('agent-1')
+      expect(agent1Execs).to.have.length(1)
+      expect(agent1Execs[0].ticketId).to.equal('TKT-001')
+    })
+  })
+
+  describe('orphan cleanup patterns (TKT-1028)', () => {
+    it('marks orphaned running executions as stopped', () => {
+      // Simulate: agent had a running execution whose container was destroyed
+      const exec = storage.createExecution({
+        ticketId: 'TKT-001',
+        agentName: 'orphan-agent',
+        executor: 'claude-code',
+        environment: 'devcontainer',
+        displayMode: 'background',
+        sandboxed: true,
+      })
+      storage.updateStatus(exec.id, 'running')
+      storage.updateProcessInfo(exec.id, { containerId: 'old-container-id' })
+
+      // Verify execution is running
+      const running = storage.getAgentRunningExecutions('orphan-agent')
+      expect(running).to.have.length(1)
+
+      // Simulate orphan cleanup: mark as stopped
+      storage.updateStatus(exec.id, 'stopped')
+
+      // Verify execution is now stopped
+      const afterCleanup = storage.getAgentRunningExecutions('orphan-agent')
+      expect(afterCleanup).to.have.length(0)
+
+      const updated = storage.getExecution(exec.id)
+      expect(updated?.status).to.equal('stopped')
+      expect(updated?.completedAt).to.not.be.null
+    })
+
+    it('marks multiple orphaned executions as stopped', () => {
+      // Simulate: agent had two running executions (starting + running)
+      const exec1 = storage.createExecution({
+        ticketId: 'TKT-001',
+        agentName: 'orphan-agent',
+        executor: 'claude-code',
+        environment: 'devcontainer',
+        displayMode: 'background',
+        sandboxed: true,
+      })
+      // exec1 stays in 'starting' status
+
+      const exec2 = storage.createExecution({
+        ticketId: 'TKT-002',
+        agentName: 'orphan-agent',
+        executor: 'claude-code',
+        environment: 'devcontainer',
+        displayMode: 'background',
+        sandboxed: true,
+      })
+      storage.updateStatus(exec2.id, 'running')
+      storage.updateProcessInfo(exec2.id, { containerId: 'old-container' })
+
+      // Both should be returned as running
+      const running = storage.getAgentRunningExecutions('orphan-agent')
+      expect(running).to.have.length(2)
+
+      // Simulate orphan cleanup for both
+      for (const staleExec of running) {
+        storage.updateStatus(staleExec.id, 'stopped')
+      }
+
+      // All should be cleaned up
+      const afterCleanup = storage.getAgentRunningExecutions('orphan-agent')
+      expect(afterCleanup).to.have.length(0)
+    })
+
+    it('containerId-based cleanup only stops mismatched executions', () => {
+      // Simulate: container was recreated, old execution has stale containerId
+      const oldExec = storage.createExecution({
+        ticketId: 'TKT-001',
+        agentName: 'reused-agent',
+        executor: 'claude-code',
+        environment: 'devcontainer',
+        displayMode: 'background',
+        sandboxed: true,
+      })
+      storage.updateStatus(oldExec.id, 'running')
+      storage.updateProcessInfo(oldExec.id, { containerId: 'old-container-abc' })
+
+      const currentExec = storage.createExecution({
+        ticketId: 'TKT-002',
+        agentName: 'reused-agent',
+        executor: 'claude-code',
+        environment: 'devcontainer',
+        displayMode: 'background',
+        sandboxed: true,
+      })
+      storage.updateStatus(currentExec.id, 'running')
+      storage.updateProcessInfo(currentExec.id, { containerId: 'new-container-xyz' })
+
+      const running = storage.getAgentRunningExecutions('reused-agent')
+      expect(running).to.have.length(2)
+
+      // Simulate containerId-based cleanup: only mark mismatched ones
+      const currentContainerId = 'new-container-xyz'
+      for (const exec of running) {
+        if (exec.containerId && exec.containerId !== currentContainerId) {
+          storage.updateStatus(exec.id, 'stopped')
+        }
+      }
+
+      // Only old execution should be stopped
+      const afterCleanup = storage.getAgentRunningExecutions('reused-agent')
+      expect(afterCleanup).to.have.length(1)
+      expect(afterCleanup[0].containerId).to.equal('new-container-xyz')
+
+      const stoppedExec = storage.getExecution(oldExec.id)
+      expect(stoppedExec?.status).to.equal('stopped')
+    })
+
+    it('does not affect executions without containerId during containerId-based cleanup', () => {
+      // Execution without containerId (e.g., host execution or before container assigned)
+      const hostExec = storage.createExecution({
+        ticketId: 'TKT-001',
+        agentName: 'mixed-agent',
+        executor: 'claude-code',
+        environment: 'devcontainer',
+        displayMode: 'background',
+        sandboxed: true,
+      })
+      storage.updateStatus(hostExec.id, 'running')
+      // No updateProcessInfo — containerId is undefined
+
+      const containerExec = storage.createExecution({
+        ticketId: 'TKT-002',
+        agentName: 'mixed-agent',
+        executor: 'claude-code',
+        environment: 'devcontainer',
+        displayMode: 'background',
+        sandboxed: true,
+      })
+      storage.updateStatus(containerExec.id, 'running')
+      storage.updateProcessInfo(containerExec.id, { containerId: 'old-container' })
+
+      const running = storage.getAgentRunningExecutions('mixed-agent')
+      expect(running).to.have.length(2)
+
+      // ContainerId-based cleanup: skip execs without containerId
+      const currentContainerId = 'new-container'
+      for (const exec of running) {
+        if (exec.containerId && exec.containerId !== currentContainerId) {
+          storage.updateStatus(exec.id, 'stopped')
+        }
+      }
+
+      // Host exec (no containerId) should survive, old container exec should be stopped
+      const afterCleanup = storage.getAgentRunningExecutions('mixed-agent')
+      expect(afterCleanup).to.have.length(1)
+      expect(afterCleanup[0].id).to.equal(hostExec.id)
+    })
   })
 })

@@ -1157,6 +1157,8 @@ function runContainerSetup(containerId: string, sandboxed: boolean = true, execu
 
 /**
  * Ensure a Docker container is running for the agent.
+ * Reuses running containers to preserve in-progress work (TKT-1028).
+ * Only destroys and recreates stopped containers.
  * Builds image and creates container if needed.
  * Returns the container ID if successful, null otherwise.
  */
@@ -1168,11 +1170,24 @@ function ensureDockerContainer(
   const containerName = getContainerName(context.agentName)
   const imageName = getImageName(context.agentName)
 
-  // Always create fresh container to ensure mounts are up-to-date
-  // TODO: Revisit container reuse strategy - for now, fresh containers ensure
-  // correct volume mounts (especially claude-credentials) are applied
+  // TKT-1028: Reuse running containers instead of destroying them.
+  // This preserves in-progress tmux sessions and avoids killing running agents.
+  // Only destroy stopped containers (which have stale mounts anyway).
   if (containerExists(containerName)) {
-    console.debug(`[runners:docker] Removing existing container ${containerName} to create fresh one`)
+    if (isContainerRunning(containerName)) {
+      // Container is running - reuse it to preserve any in-progress work.
+      // Note: runContainerSetup is skipped for reused containers since they
+      // were already set up when first created. GitHub token and credentials
+      // are refreshed by the caller (runDevcontainer).
+      const containerId = getContainerId(containerName)
+      if (containerId) {
+        console.debug(`[runners:docker] Reusing running container ${containerName} (${containerId}), skipping setup`)
+        return containerId
+      }
+    }
+
+    // Container exists but is stopped - remove and recreate for fresh mounts
+    console.debug(`[runners:docker] Removing stopped container ${containerName} to create fresh one`)
     try {
       execSync(`docker rm -f ${containerName}`, { stdio: 'pipe' })
     } catch {
@@ -1840,6 +1855,21 @@ exec bash
         success: false,
         error: `Failed to write script to container: ${error instanceof Error ? error.message : error}`,
       }
+    }
+
+    // TKT-1028: If a tmux session with the same name already exists (e.g., same
+    // ticket+action spawned again in a reused container), kill the old session first.
+    try {
+      execSync(`docker exec ${actualContainerId} tmux has-session -t "${sessionName}" 2>&1`, { stdio: 'pipe' })
+      // Session exists - kill it before creating a new one
+      console.debug(`[runners:tmux] Killing existing tmux session "${sessionName}" in container`)
+      try {
+        execSync(`docker exec ${actualContainerId} tmux kill-session -t "${sessionName}"`, { stdio: 'pipe' })
+      } catch {
+        // Ignore kill errors
+      }
+    } catch {
+      // Session doesn't exist - that's the normal case
     }
 
     // Step 2: Create tmux session running the script directly
