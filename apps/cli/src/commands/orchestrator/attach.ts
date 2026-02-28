@@ -16,7 +16,7 @@ import { styles } from '../../lib/styles.js'
 import { getHostTmuxSessionNames } from '../../lib/execution/session-utils.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { loadExecutionConfig, shouldUseControlMode, buildTmuxAttachCommand } from '../../lib/execution/index.js'
-import { ORCHESTRATOR_SESSION_NAME } from './start.js'
+import { buildOrchestratorSessionName } from './start.js'
 
 /**
  * Detect the terminal emulator from environment variables.
@@ -62,6 +62,10 @@ export default class OrchestratorAttach extends PromptCommand {
 
   static flags = {
     ...machineOutputFlags,
+    name: Flags.string({
+      char: 'n',
+      description: 'Name of the orchestrator session to attach to (default: main)',
+    }),
     'new-tab': Flags.boolean({
       description: 'Open in a new terminal tab instead of attaching in the current terminal',
       default: false,
@@ -81,10 +85,11 @@ export default class OrchestratorAttach extends PromptCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(OrchestratorAttach)
     const jsonMode = shouldOutputJson(flags)
+    const sessionName = buildOrchestratorSessionName(flags.name || 'main')
 
     // Check if orchestrator session exists
     const hostSessions = getHostTmuxSessionNames()
-    if (!hostSessions.includes(ORCHESTRATOR_SESSION_NAME)) {
+    if (!hostSessions.includes(sessionName)) {
       if (jsonMode) {
         outputErrorAsJson(
           'NOT_RUNNING',
@@ -102,7 +107,7 @@ export default class OrchestratorAttach extends PromptCommand {
 
     if (jsonMode) {
       outputSuccessAsJson({
-        sessionId: ORCHESTRATOR_SESSION_NAME,
+        sessionId: sessionName,
         status: 'attaching',
       }, createMetadata('orchestrator attach', flags as Record<string, unknown>))
       return
@@ -117,7 +122,7 @@ export default class OrchestratorAttach extends PromptCommand {
     }
 
     this.log('')
-    this.log(styles.info(`Attaching to orchestrator session: ${ORCHESTRATOR_SESSION_NAME}`))
+    this.log(styles.info(`Attaching to orchestrator session: ${sessionName}`))
 
     // Determine if we should use tmux control mode (-u -CC) for iTerm
     let useControlMode = false
@@ -146,28 +151,28 @@ export default class OrchestratorAttach extends PromptCommand {
         this.log(styles.muted('Falling back to direct tmux attach in current terminal.'))
         this.log(styles.muted('Tip: Use --terminal <app> to specify your terminal (iTerm, Terminal, Ghostty).'))
         this.log('')
-        this.attachInCurrentTerminal(useControlMode)
+        this.attachInCurrentTerminal(useControlMode, sessionName)
         return
       }
-      await this.openInNewTab(terminalApp, useControlMode)
+      await this.openInNewTab(terminalApp, useControlMode, sessionName)
     } else {
-      this.attachInCurrentTerminal(useControlMode)
+      this.attachInCurrentTerminal(useControlMode, sessionName)
     }
   }
 
-  private attachInCurrentTerminal(useControlMode: boolean): void {
+  private attachInCurrentTerminal(useControlMode: boolean, sessionName: string): void {
     try {
       const tmuxAttach = buildTmuxAttachCommand(useControlMode)
-      execSync(`${tmuxAttach} -t "${ORCHESTRATOR_SESSION_NAME}"`, { stdio: 'inherit' })
+      execSync(`${tmuxAttach} -t "${sessionName}"`, { stdio: 'inherit' })
     } catch {
-      this.error(`Failed to attach to orchestrator session "${ORCHESTRATOR_SESSION_NAME}"`)
+      this.error(`Failed to attach to orchestrator session "${sessionName}"`)
     }
   }
 
-  private async openInNewTab(terminalApp: string, useControlMode: boolean): Promise<void> {
+  private async openInNewTab(terminalApp: string, useControlMode: boolean, sessionName: string): Promise<void> {
     const title = 'Orchestrator'
     const tmuxAttach = buildTmuxAttachCommand(useControlMode)
-    const attachCmd = `${tmuxAttach} -t "${ORCHESTRATOR_SESSION_NAME}"`
+    const attachCmd = `${tmuxAttach} -t "${sessionName}"`
 
     const baseDir = path.join(os.homedir(), '.proletariat', 'scripts')
     fs.mkdirSync(baseDir, { recursive: true })
@@ -178,7 +183,7 @@ export default class OrchestratorAttach extends PromptCommand {
 echo -ne "\\033]0;${title}\\007"
 echo -ne "\\033]1;${title}\\007"
 
-echo "Attaching to: ${ORCHESTRATOR_SESSION_NAME}"
+echo "Attaching to: ${sessionName}"
 ${attachCmd}
 
 # Clean up

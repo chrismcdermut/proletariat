@@ -2,7 +2,7 @@
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
 import { getHostTmuxSessionNames } from '../../lib/execution/session-utils.js'
-import { ORCHESTRATOR_SESSION_NAME } from './start.js'
+import { findRunningOrchestratorSessions } from './start.js'
 
 export default class Orchestrator extends PMOCommand {
   static description = 'Manage the orchestrator agent (start, attach, status, stop)'
@@ -30,7 +30,7 @@ export default class Orchestrator extends PMOCommand {
 
     // Check if orchestrator is currently running to offer contextual options
     const hostSessions = getHostTmuxSessionNames()
-    const isRunning = hostSessions.includes(ORCHESTRATOR_SESSION_NAME)
+    const isRunning = findRunningOrchestratorSessions(hostSessions).length > 0
 
     // When running, show "Attach to running session" first since that's the likely intent
     const choices = isRunning
