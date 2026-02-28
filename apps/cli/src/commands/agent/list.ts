@@ -5,7 +5,8 @@ import * as fs from 'node:fs';
 import {
   getWorkspaceInfo,
   getAllAgentsStatus,
-  getAgentTmuxSessions
+  getAgentTmuxSessions,
+  resolveAgentDir
 } from '../../lib/agents/commands.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { shouldOutputJson } from '../../lib/prompt-json.js';
@@ -169,7 +170,7 @@ export default class List extends PMOCommand {
               this.log(chalk.white(`   Completed: ${agentStatus.completedTickets.length} ticket(s)`));
             }
           } else {
-            const agentDir = path.join(workspaceInfo.agentsPath, agentStatus.name);
+            const agentDir = resolveAgentDir(workspaceInfo, agentStatus.name);
             const dirExists = fs.existsSync(agentDir);
 
             if (dirExists) {

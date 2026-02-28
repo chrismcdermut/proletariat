@@ -23,6 +23,7 @@ import {
   killTmuxSession,
   findWorktreeForBranch,
   WorkspaceInfo,
+  resolveAgentDir,
 } from '../../lib/agents/commands.js'
 import { Agent } from '../../lib/database/index.js'
 import {
@@ -1922,7 +1923,7 @@ export default class WorkStart extends PMOCommand {
 
     // Check Docker credentials if any agents use devcontainers
     const anyUseDevcontainer = availableAgents.some(agent => {
-      const agentDir = path.join(workspaceInfo.agentsPath, agent.name)
+      const agentDir = resolveAgentDir(workspaceInfo, agent.name)
       return hasDevcontainerConfig(agentDir) && !flags['run-on-host']
     })
 
@@ -2103,8 +2104,8 @@ export default class WorkStart extends PMOCommand {
 
     // Note: Ticket assignee update moved to after successful spawn
 
-    // Find agent directory and worktree
-    const agentDir = path.join(workspaceInfo.agentsPath, agentName)
+    // Find agent directory and worktree (handles staff and temp agents)
+    const agentDir = resolveAgentDir(workspaceInfo, agentName)
     if (!fs.existsSync(agentDir)) {
       throw new Error(`Agent directory not found: ${agentDir}`)
     }
